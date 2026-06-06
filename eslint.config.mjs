@@ -63,6 +63,37 @@ const eslintConfig = [
       ],
     },
   },
+
+  // Resolved-path enforcement (catches relative-path evasion the specifier
+  // globs above miss, e.g. `../my-info/internal` from inside a module).
+  // eslint-config-next already registers the `import` plugin instance globally,
+  // so we must NOT redeclare plugins here — just add the rule + settings.
+  {
+    files: ["src/**/*.{ts,tsx}"],
+    settings: {
+      "import/resolver": { typescript: true, node: true },
+    },
+    rules: {
+      "import/no-restricted-paths": [
+        "error",
+        {
+          zones: [
+            ...MODULE_IDS.map((id) => ({
+              target: `./src/modules/${id}`,
+              from: `./src/modules`,
+              except: [`./${id}`],
+              message: `Modules may not import other modules. Go through src/platform.`,
+            })),
+            {
+              target: "./src/platform",
+              from: "./src/modules",
+              message: "Platform code must not import module code.",
+            },
+          ],
+        },
+      ],
+    },
+  },
 ];
 
 export default eslintConfig;

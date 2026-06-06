@@ -1,0 +1,137 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PersonStatus {
+  ACTIVE
+  OFFBOARDED
+}
+
+enum TermStatus {
+  PLANNING
+  ACTIVE
+  ARCHIVED
+}
+
+enum MembershipKind {
+  DIRECTOR
+  VOLUNTEER
+}
+
+enum MembershipStatus {
+  ACTIVE
+  REMOVED
+}
+
+model Person {
+  id               String        @id @default(cuid())
+  netId            String?       @unique
+  entraObjectId    String?       @unique
+  name             String
+  contactEmail     String?       @unique
+  yaleEmail        String?       @unique
+  phone            String?
+  epicId           String?
+  yaleAffiliation  String?
+  gradYear         String?
+  status           PersonStatus  @default(ACTIVE)
+  airtableRecordId String?       @unique
+  memberships      TermMembership[]
+  roleAssignments  RoleAssignment[]
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+}
+
+model Term {
+  id              String     @id @default(cuid())
+  code            String     @unique // "SU26", "FA26"
+  name            String // "Summer 2026"
+  startDate       DateTime
+  endDate         DateTime
+  status          TermStatus @default(PLANNING)
+  clinicDates     DateTime[]
+  memberships     TermMembership[]
+  roleAssignments RoleAssignment[]
+}
+
+model Department {
+  id              String  @id @default(cuid())
+  code            String  @unique // "ITCM", "EXEC", "SRR", ...
+  name            String
+  isActive        Boolean @default(true)
+  memberships     TermMembership[]
+  roleAssignments RoleAssignment[]
+}
+
+model TermMembership {
+  id                         String           @id @default(cuid())
+  personId                   String
+  termId                     String
+  departmentId               String
+  kind                       MembershipKind
+  status                     MembershipStatus @default(ACTIVE)
+  baselineAvailability       DateTime[]
+  selfUpdatedAvailability    String?
+  availabilityUpdatedAt      DateTime?
+  availabilityAcknowledgedAt DateTime?
+  person                     Person           @relation(fields: [personId], references: [id])
+  term                       Term             @relation(fields: [termId], references: [id])
+  department                 Department       @relation(fields: [departmentId], references: [id])
+
+  @@unique([personId, termId, departmentId, kind])
+  @@index([termId, departmentId])
+}
+
+model Role {
+  id          String  @id @default(cuid())
+  name        String  @unique
+  description String?
+  isSystem    Boolean @default(false)
+  grants      RoleGrant[]
+  assignments RoleAssignment[]
+}
+
+model RoleGrant {
+  id         String @id @default(cuid())
+  roleId     String
+  permission String // e.g. "schedule.edit_all" or "*"
+  role       Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permission])
+}
+
+/// Exactly one of personId / departmentId is set. termId null = global scope.
+model RoleAssignment {
+  id           String      @id @default(cuid())
+  roleId       String
+  personId     String?
+  departmentId String?
+  termId       String?
+  role         Role        @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  person       Person?     @relation(fields: [personId], references: [id])
+  department   Department? @relation(fields: [departmentId], references: [id])
+  term         Term?       @relation(fields: [termId], references: [id])
+
+  @@index([personId])
+  @@index([departmentId])
+}
+
+model AuditLog {
+  id            String   @id @default(cuid())
+  actorPersonId String?
+  action        String // e.g. "person.update", "auth.login_unmatched"
+  entityType    String
+  entityId      String?
+  before        Json?
+  after         Json?
+  ip            String?
+  createdAt     DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}

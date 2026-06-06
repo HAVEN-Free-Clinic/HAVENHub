@@ -113,6 +113,10 @@ model RoleGrant {
 }
 
 /// Exactly one of personId / departmentId is set. termId null = global scope.
+/// DB-LEVEL GUARDS LIVE IN RAW SQL (see migrations): a COALESCE unique index
+/// (duplicate grants) and a CHECK constraint (target XOR). Guarded by
+/// src/platform/rbac/schema-guards.test.ts. Never resolve a prisma migrate
+/// diff by accepting a DROP of objects you do not recognize.
 model RoleAssignment {
   id           String      @id @default(cuid())
   roleId       String

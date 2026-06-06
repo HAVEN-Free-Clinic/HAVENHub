@@ -22,7 +22,7 @@ export function AppShell({
           <div className="flex items-center gap-2">
             <Link href="/hub" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
               <HavenMark className="h-7 w-auto text-brand" />
-              <span className="font-semibold tracking-tight">HAVENHub</span>
+              <span className="font-semibold tracking-tight">HAVEN Hub</span>
             </Link>
             {termLabel && (
               <span className="ml-1 rounded-full bg-brand-faint px-2.5 py-0.5 text-xs font-medium text-brand">

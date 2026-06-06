@@ -73,7 +73,7 @@ export default async function LoginPage({
       {/* Right panel */}
       <div className="flex items-center justify-center p-8">
         <div className="w-full max-w-sm">
-          <h1 className="text-xl font-semibold tracking-tight">Sign in to HAVENHub</h1>
+          <h1 className="text-xl font-semibold tracking-tight">Sign in to HAVEN Hub</h1>
           <p className="mt-1 text-sm text-slate-500">Use your Yale account to continue.</p>
 
           {errorMessage && (

@@ -44,4 +44,28 @@ describe("loadConfig", () => {
       delete process.env.NEXT_PHASE;
     }
   });
+
+  it("defaults Airtable base/table ids and leaves the PAT unset", () => {
+    const config = loadConfig(base);
+    expect(config.HAVEN_MGMT_BASE_ID).toBe("appkxTQ19GmaHgW1O");
+    expect(config.AIRTABLE_PAT).toBeUndefined();
+    expect(config.AIRTABLE_MIRROR_ENABLED).toBe(false);
+  });
+
+  it("requires mirror base/table and PAT when the mirror is enabled", () => {
+    expect(() =>
+      loadConfig({ ...base, AIRTABLE_MIRROR_ENABLED: "true" })
+    ).toThrowError(/AIRTABLE_MIRROR_BASE_ID/);
+  });
+
+  it("accepts a fully-configured enabled mirror", () => {
+    const config = loadConfig({
+      ...base,
+      AIRTABLE_MIRROR_ENABLED: "true",
+      AIRTABLE_PAT: "pat-x",
+      AIRTABLE_MIRROR_BASE_ID: "appSandbox1234567",
+      AIRTABLE_MIRROR_PEOPLE_TABLE_ID: "tblSandbox1234567",
+    });
+    expect(config.AIRTABLE_MIRROR_ENABLED).toBe(true);
+  });
 });

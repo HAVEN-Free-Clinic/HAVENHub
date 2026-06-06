@@ -10,6 +10,18 @@ const schema = z
     NODE_ENV: z
       .enum(["development", "test", "production"])
       .default("development"),
+    // Airtable: reads (import) need only the PAT; the listed IDs have safe defaults.
+    AIRTABLE_PAT: z.string().optional(),
+    HAVEN_MGMT_BASE_ID: z.string().default("appkxTQ19GmaHgW1O"),
+    ALL_PEOPLE_TABLE_ID: z.string().default("tblnHgBpknuqWvx9c"),
+    SU26_ROSTER_TABLE_ID: z.string().default("tbl2VrP1uqwFt7QNQ"),
+    // Mirror: WRITES. Disabled by default; points at a sandbox base until FA26 cutover.
+    AIRTABLE_MIRROR_ENABLED: z
+      .string()
+      .default("false")
+      .transform((v) => v === "true"),
+    AIRTABLE_MIRROR_BASE_ID: z.string().optional(),
+    AIRTABLE_MIRROR_PEOPLE_TABLE_ID: z.string().optional(),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV !== "production") return;
@@ -28,6 +40,24 @@ const schema = z
           path: [key],
           message: "required in production",
         });
+      }
+    }
+  })
+  .superRefine((env, ctx) => {
+    // superRefine runs post-transform: AIRTABLE_MIRROR_ENABLED is already a boolean here.
+    if (env.AIRTABLE_MIRROR_ENABLED === true) {
+      for (const key of [
+        "AIRTABLE_PAT",
+        "AIRTABLE_MIRROR_BASE_ID",
+        "AIRTABLE_MIRROR_PEOPLE_TABLE_ID",
+      ] as const) {
+        if (!env[key]) {
+          ctx.addIssue({
+            code: "custom",
+            path: [key],
+            message: "required when the mirror is enabled",
+          });
+        }
       }
     }
   });

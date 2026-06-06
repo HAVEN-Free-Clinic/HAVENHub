@@ -10,9 +10,12 @@ test("dev login reaches the permission-gated hub", async ({ page }) => {
   await expect(page.getByText("Volunteer Management")).toBeVisible();
 });
 
-test("unknown email cannot dev-sign-in", async ({ page }) => {
+test("unknown email cannot dev-sign-in and sees a friendly error", async ({ page }) => {
   await page.goto("/login");
   await page.fill('input[name="email"]', "stranger@yale.edu");
   await page.click('button:has-text("Dev sign in")');
   await expect(page).not.toHaveURL(/\/hub/);
+  await expect(
+    page.getByRole("alert").filter({ hasText: /couldn't sign you in/i })
+  ).toBeVisible();
 });

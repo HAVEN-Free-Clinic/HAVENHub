@@ -1,11 +1,24 @@
 import { redirect } from "next/navigation";
+import { AuthError } from "next-auth";
 import { auth, signIn } from "@/platform/auth/auth";
 import { config } from "@/platform/config";
 import { HavenLogo } from "@/platform/ui/haven-logo";
 
-export default async function LoginPage() {
+const ERROR_MESSAGES: Record<string, string> = {
+  CredentialsSignin:
+    "We couldn't sign you in — that email isn't in our records or the account isn't active.",
+};
+const DEFAULT_ERROR = "Sign-in failed. Please try again, or contact the IT team.";
+
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>;
+}) {
   const session = await auth();
   if (session?.personId) redirect("/hub");
+  const { error } = await searchParams;
+  const errorMessage = error ? (ERROR_MESSAGES[error] ?? DEFAULT_ERROR) : null;
 
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[45%_1fr]">
@@ -63,12 +76,28 @@ export default async function LoginPage() {
           <h1 className="text-xl font-semibold tracking-tight">Sign in to HAVENHub</h1>
           <p className="mt-1 text-sm text-slate-500">Use your Yale account to continue.</p>
 
+          {errorMessage && (
+            <p
+              role="alert"
+              className="mt-4 rounded-md border border-critical/20 bg-red-50 px-3 py-2 text-sm text-critical"
+            >
+              {errorMessage}
+            </p>
+          )}
+
           {config.AZURE_AD_CLIENT_ID ? (
             <form
               className="mt-6"
               action={async () => {
                 "use server";
-                await signIn("microsoft-entra-id", { redirectTo: "/hub" });
+                try {
+                  await signIn("microsoft-entra-id", { redirectTo: "/hub" });
+                } catch (error) {
+                  if (error instanceof AuthError) {
+                    redirect(`/login?error=${error.type}`);
+                  }
+                  throw error;
+                }
               }}
             >
               <button
@@ -89,10 +118,18 @@ export default async function LoginPage() {
               className="mt-8 border-t border-slate-100 pt-6"
               action={async (formData: FormData) => {
                 "use server";
-                await signIn("credentials", {
-                  email: formData.get("email"),
-                  redirectTo: "/hub",
-                });
+                try {
+                  await signIn("credentials", {
+                    email: formData.get("email"),
+                    redirectTo: "/hub",
+                  });
+                } catch (error) {
+                  // signIn throws NEXT_REDIRECT on success — only translate auth failures.
+                  if (error instanceof AuthError) {
+                    redirect(`/login?error=${error.type}`);
+                  }
+                  throw error;
+                }
               }}
             >
               <label

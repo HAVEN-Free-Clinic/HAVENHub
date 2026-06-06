@@ -1,6 +1,17 @@
 import coreWebVitals from "eslint-config-next/core-web-vitals";
 import nextTypescript from "eslint-config-next/typescript";
 
+const MODULE_IDS = [
+  "schedule",
+  "my-info",
+  "volunteers",
+  "admin",
+  "recruitment",
+  "triage",
+  "referrals",
+  "patient-trackers",
+];
+
 const eslintConfig = [
   ...coreWebVitals,
   ...nextTypescript,
@@ -13,6 +24,41 @@ const eslintConfig = [
           varsIgnorePattern: "^_",
           argsIgnorePattern: "^_",
           caughtErrorsIgnorePattern: "^_",
+        },
+      ],
+    },
+  },
+
+  // Spec §4.3: modules may import platform; modules never import each other.
+  ...MODULE_IDS.map((id) => ({
+    files: [`src/modules/${id}/**/*.{ts,tsx}`],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: MODULE_IDS.filter((other) => other !== id).map((other) => ({
+            group: [`**/modules/${other}/**`, `@/modules/${other}/**`],
+            message: `Module "${id}" may not import module "${other}". Go through src/platform.`,
+          })),
+        },
+      ],
+    },
+  })),
+  // Platform must not depend on any module's internals. (When module manifests
+  // move into src/modules/<id>/manifest.ts in later plans, the registry import
+  // will need a scoped exception here — do not pre-add it.)
+  {
+    files: ["src/platform/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["**/modules/**", "@/modules/**"],
+              message: "Platform code must not import module code.",
+            },
+          ],
         },
       ],
     },

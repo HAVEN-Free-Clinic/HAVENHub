@@ -1,0 +1,117 @@
+import {
+  CalendarDays,
+  ClipboardList,
+  HeartHandshake,
+  MessagesSquare,
+  Send,
+  Settings,
+  UserRoundPen,
+  Users,
+} from "lucide-react";
+import type { ModuleManifest } from "./types";
+
+/** The single wiring point for modules (spec §8). Hub tiles render from this. */
+export const MODULES: ModuleManifest[] = [
+  {
+    id: "schedule",
+    title: "Clinic Schedule",
+    description: "Build and view department schedules, request swaps",
+    icon: CalendarDays,
+    accessPermission: "schedule.view",
+    permissions: [
+      "schedule.view",
+      "schedule.edit_own_dept",
+      "schedule.edit_all",
+      "schedule.manage_requests",
+    ],
+    status: "coming-soon",
+    nav: [],
+  },
+  {
+    id: "my-info",
+    title: "My Info",
+    description: "Update your contact info and HIPAA compliance",
+    icon: UserRoundPen,
+    accessPermission: "my-info.access",
+    permissions: ["my-info.access"],
+    status: "coming-soon",
+    nav: [],
+  },
+  {
+    id: "volunteers",
+    title: "Volunteer Management",
+    description: "Compliance, rosters, offboarding, Epic requests, disciplinary",
+    icon: Users,
+    accessPermission: "volunteers.view",
+    permissions: [
+      "volunteers.view",
+      "volunteers.manage_compliance",
+      "volunteers.manage_offboarding",
+      "volunteers.manage_epic",
+      "volunteers.issue_disciplinary",
+    ],
+    status: "coming-soon",
+    nav: [],
+  },
+  {
+    id: "admin",
+    title: "Admin",
+    description: "People, terms, roles, sync health, audit log",
+    icon: Settings,
+    accessPermission: "admin.access",
+    permissions: [
+      "admin.access",
+      "admin.manage_people",
+      "admin.manage_terms",
+      "admin.manage_roles",
+      "admin.view_audit",
+      "admin.manage_sync",
+    ],
+    status: "coming-soon",
+    nav: [],
+  },
+  {
+    id: "recruitment",
+    title: "Recruitment",
+    description: "Run recruitment cycles and applications",
+    icon: ClipboardList,
+    accessPermission: "recruitment.access",
+    permissions: ["recruitment.access"],
+    status: "coming-soon",
+    nav: [],
+  },
+  {
+    id: "triage",
+    title: "Triage",
+    description: "Patient case coordination across departments",
+    icon: MessagesSquare,
+    accessPermission: "triage.access",
+    permissions: ["triage.access"],
+    status: "coming-soon",
+    nav: [],
+  },
+  {
+    id: "referrals",
+    title: "Referrals",
+    description: "Track outgoing patient referrals",
+    icon: Send,
+    accessPermission: "referrals.access",
+    permissions: ["referrals.access"],
+    status: "coming-soon",
+    nav: [],
+  },
+  {
+    id: "patient-trackers",
+    title: "Patient Trackers",
+    description: "Department patient tracking workflows",
+    icon: HeartHandshake,
+    accessPermission: "patient-trackers.access",
+    permissions: ["patient-trackers.access"],
+    status: "coming-soon",
+    nav: [],
+  },
+];
+
+export function getModule(id: string): ModuleManifest | undefined {
+  return MODULES.find((m) => m.id === id);
+}

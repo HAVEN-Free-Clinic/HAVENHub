@@ -34,4 +34,14 @@ describe("loadConfig", () => {
     });
     expect(config.AZURE_AD_TENANT_ID).toBe("tenant");
   });
+
+  it("skips the Azure requirement during next build (NEXT_PHASE)", () => {
+    process.env.NEXT_PHASE = "phase-production-build";
+    try {
+      const config = loadConfig({ ...base, NODE_ENV: "production" });
+      expect(config.NODE_ENV).toBe("production");
+    } finally {
+      delete process.env.NEXT_PHASE;
+    }
+  });
 });

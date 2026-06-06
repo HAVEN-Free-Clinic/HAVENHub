@@ -13,6 +13,9 @@ const schema = z
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV !== "production") return;
+    // `next build` runs with NODE_ENV=production but without runtime secrets;
+    // Azure vars are enforced at server boot, not at build time.
+    if (process.env.NEXT_PHASE === "phase-production-build") return;
     const required = [
       "AZURE_AD_CLIENT_ID",
       "AZURE_AD_CLIENT_SECRET",

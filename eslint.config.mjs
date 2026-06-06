@@ -5,6 +5,18 @@ const eslintConfig = [
   ...coreWebVitals,
   ...nextTypescript,
   { ignores: [".next/**", "node_modules/**", "playwright-report/**", "test-results/**"] },
+  {
+    rules: {
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        {
+          varsIgnorePattern: "^_",
+          argsIgnorePattern: "^_",
+          caughtErrorsIgnorePattern: "^_",
+        },
+      ],
+    },
+  },
 ];
 
 export default eslintConfig;

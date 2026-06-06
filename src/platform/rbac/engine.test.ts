@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
-import { can, getEffectivePermissions } from "./engine";
+import { can, getEffectivePermissions, hasPermission } from "./engine";
 
 async function fixture() {
   const term = await prisma.term.create({
@@ -115,5 +115,13 @@ describe("rbac engine", () => {
     const perms = await getEffectivePermissions(person.id);
     expect(perms.has("schedule.view")).toBe(true);
     expect(perms.size).toBe(1);
+    expect(perms.has("schedule.edit_own_dept")).toBe(false);
+  });
+});
+
+describe("hasPermission", () => {
+  it("honors the wildcard", () => {
+    expect(hasPermission(new Set(["*"]), "anything.at_all")).toBe(true);
+    expect(hasPermission(new Set(["schedule.view"]), "schedule.edit_all")).toBe(false);
   });
 });

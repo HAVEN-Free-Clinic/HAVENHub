@@ -14,7 +14,7 @@ const MEMBERSHIP_KIND_ROLE: Record<MembershipKind, string> = {
  * Computed from live DB state on every call — role changes apply immediately (spec §5).
  */
 export async function getEffectivePermissions(personId: string): Promise<Set<string>> {
-  const activeTerm = await prisma.term.findFirst({ where: { status: "ACTIVE" } });
+  const activeTerm = await prisma.term.findFirst({ where: { status: "ACTIVE" }, orderBy: { startDate: "desc" } });
 
   const memberships = activeTerm
     ? await prisma.termMembership.findMany({
@@ -58,7 +58,11 @@ export async function getEffectivePermissions(personId: string): Promise<Set<str
   return permissions;
 }
 
+/** The one place the "*" wildcard rule lives — use this on any Set from getEffectivePermissions. */
+export function hasPermission(perms: Set<string>, permission: string): boolean {
+  return perms.has(permission) || perms.has("*");
+}
+
 export async function can(personId: string, permission: string): Promise<boolean> {
-  const permissions = await getEffectivePermissions(personId);
-  return permissions.has(permission) || permissions.has("*");
+  return hasPermission(await getEffectivePermissions(personId), permission);
 }

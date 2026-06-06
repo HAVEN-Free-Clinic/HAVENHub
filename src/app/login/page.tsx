@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { auth, signIn } from "@/platform/auth/auth";
 import { config } from "@/platform/config";
-import { HavenMark } from "@/platform/ui/haven-mark";
+import { HavenLogo } from "@/platform/ui/haven-logo";
 
 export default async function LoginPage() {
   const session = await auth();
@@ -35,9 +35,9 @@ export default async function LoginPage() {
           <rect width="100%" height="100%" fill="url(#plus-pattern)" opacity="0.06" />
         </svg>
 
-        {/* Top: mark */}
+        {/* Top: official lockup */}
         <div className="relative z-10">
-          <HavenMark className="h-10 w-auto text-white" />
+          <HavenLogo className="h-16 text-white" />
         </div>
 
         {/* Bottom: copy */}
@@ -53,9 +53,8 @@ export default async function LoginPage() {
       </div>
 
       {/* Mobile top band */}
-      <div className="flex lg:hidden items-center gap-3 bg-brand px-6 py-4 text-white">
-        <HavenMark className="h-7 w-auto text-white" />
-        <span className="font-semibold tracking-tight">HAVENHub</span>
+      <div className="flex lg:hidden items-center bg-brand px-6 py-4 text-white">
+        <HavenLogo className="h-9 text-white" />
       </div>
 
       {/* Right panel */}

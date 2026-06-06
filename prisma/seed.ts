@@ -1,3 +1,4 @@
+// Dev fixture seed. Run via `npm run db:seed` (after `npm run db:migrate` — a stale Prisma client errors with P2011).
 import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
@@ -30,11 +31,19 @@ const SYSTEM_ROLES: Array<{ name: string; description: string; grants: string[] 
   },
 ];
 
-/** Every Saturday from start to end, inclusive. */
+/**
+ * Every Saturday from start to end, inclusive.
+ * Dates are anchored at 12:00 UTC so they remain "Saturday" when rendered in
+ * any US timezone — render clinic dates with timeZone: "UTC" regardless.
+ */
 function saturdays(startIso: string, endIso: string): Date[] {
   const out: Date[] = [];
-  const end = new Date(endIso);
-  for (let d = new Date(startIso); d <= end; d = new Date(d.getTime() + 7 * 86400000)) {
+  const end = new Date(`${endIso}T12:00:00Z`);
+  for (
+    let d = new Date(`${startIso}T12:00:00Z`);
+    d <= end;
+    d = new Date(d.getTime() + 7 * 86400000)
+  ) {
     out.push(new Date(d));
   }
   return out;
@@ -55,6 +64,7 @@ async function main() {
       update: { description: role.description, isSystem: true },
       create: { name: role.name, description: role.description, isSystem: true },
     });
+    // Grants are additive across re-runs; stale grants must be removed manually.
     for (const permission of role.grants) {
       await prisma.roleGrant.upsert({
         where: { roleId_permission: { roleId: created.id, permission } },
@@ -66,12 +76,13 @@ async function main() {
 
   const su26 = await prisma.term.upsert({
     where: { code: "SU26" },
+    // clinicDates/dates intentionally not re-upserted; reset the DB to change them.
     update: { status: "ACTIVE" },
     create: {
       code: "SU26",
       name: "Summer 2026",
-      startDate: new Date("2026-05-30"),
-      endDate: new Date("2026-09-26"),
+      startDate: new Date("2026-05-30T12:00:00Z"),
+      endDate: new Date("2026-09-26T12:00:00Z"),
       status: "ACTIVE",
       clinicDates: saturdays("2026-05-30", "2026-09-26"), // 18 Saturdays
     },

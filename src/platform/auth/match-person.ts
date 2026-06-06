@@ -73,6 +73,17 @@ export async function resolvePersonForLogin(
   return null;
 }
 
+/**
+ * Per-request person lookup for session validation: a person who has been
+ * OFFBOARDED (or deleted) after sign-in must lose access immediately, not
+ * when their JWT expires (spec §5 "revocations take effect immediately").
+ */
+export async function getActivePerson(personId: string): Promise<Person | null> {
+  const person = await prisma.person.findUnique({ where: { id: personId } });
+  if (!person || person.status !== "ACTIVE") return null;
+  return person;
+}
+
 async function link(person: Person, entraObjectId?: string | null): Promise<Person> {
   if (!entraObjectId || person.entraObjectId === entraObjectId) return person;
   // A Person already bound to a DIFFERENT oid is never re-linked here — that would

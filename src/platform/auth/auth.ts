@@ -46,7 +46,7 @@ async function resolveEntraLogin(
 export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
   secret: config.AUTH_SECRET,
-  session: { strategy: "jwt" },
+  session: { strategy: "jwt", maxAge: 60 * 60 * 24 * 7 }, // 7 days; status re-checked per request anyway
   providers: [
     ...(config.AZURE_AD_CLIENT_ID
       ? [
@@ -64,6 +64,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             id: "credentials",
             name: "Dev Login",
             credentials: { email: { label: "Email", type: "text" } },
+            // Note: matching applies the same Yale-claim gate as prod — dev login works only with @yale.edu emails (or netId/oid matches).
             async authorize(credentials) {
               const email = credentials?.email as string | undefined;
               if (!email) return null;

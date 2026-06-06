@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
-import { netIdFromUpn, resolvePersonForLogin } from "./match-person";
+import { netIdFromUpn, resolvePersonForLogin, getActivePerson } from "./match-person";
 
 describe("netIdFromUpn", () => {
   it("extracts a NetID-shaped local part", () => {
@@ -119,5 +119,25 @@ describe("resolvePersonForLogin", () => {
       email: null,
     });
     expect(found?.id).toBe(linked.id);
+  });
+});
+
+describe("getActivePerson", () => {
+  beforeEach(resetDb);
+
+  it("returns an ACTIVE person", async () => {
+    const p = await prisma.person.create({ data: { name: "P", contactEmail: "p@yale.edu" } });
+    expect((await getActivePerson(p.id))?.id).toBe(p.id);
+  });
+
+  it("returns null for an OFFBOARDED person (immediate revocation)", async () => {
+    const p = await prisma.person.create({
+      data: { name: "Q", contactEmail: "q@yale.edu", status: "OFFBOARDED" },
+    });
+    expect(await getActivePerson(p.id)).toBeNull();
+  });
+
+  it("returns null for a deleted/unknown id", async () => {
+    expect(await getActivePerson("nonexistent")).toBeNull();
   });
 });

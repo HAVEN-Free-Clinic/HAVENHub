@@ -57,6 +57,8 @@ model Term {
   clinicDates     DateTime[]
   memberships     TermMembership[]
   roleAssignments RoleAssignment[]
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
 }
 
 model Department {
@@ -66,6 +68,8 @@ model Department {
   isActive        Boolean @default(true)
   memberships     TermMembership[]
   roleAssignments RoleAssignment[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 }
 
 model TermMembership {
@@ -76,12 +80,15 @@ model TermMembership {
   kind                       MembershipKind
   status                     MembershipStatus @default(ACTIVE)
   baselineAvailability       DateTime[]
+  /// Free-text availability from volunteer self-update (legacy scheduler behavior).
   selfUpdatedAvailability    String?
   availabilityUpdatedAt      DateTime?
   availabilityAcknowledgedAt DateTime?
   person                     Person           @relation(fields: [personId], references: [id])
   term                       Term             @relation(fields: [termId], references: [id])
   department                 Department       @relation(fields: [departmentId], references: [id])
+  createdAt                  DateTime         @default(now())
+  updatedAt                  DateTime         @updatedAt
 
   @@unique([personId, termId, departmentId, kind])
   @@index([termId, departmentId])
@@ -113,12 +120,13 @@ model RoleAssignment {
   departmentId String?
   termId       String?
   role         Role        @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  person       Person?     @relation(fields: [personId], references: [id])
-  department   Department? @relation(fields: [departmentId], references: [id])
-  term         Term?       @relation(fields: [termId], references: [id])
+  person       Person?     @relation(fields: [personId], references: [id], onDelete: Cascade)
+  department   Department? @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  term         Term?       @relation(fields: [termId], references: [id], onDelete: Restrict)
 
   @@index([personId])
   @@index([departmentId])
+  @@index([termId])
 }
 
 model AuditLog {
@@ -134,4 +142,5 @@ model AuditLog {
 
   @@index([entityType, entityId])
   @@index([createdAt])
+  @@index([actorPersonId])
 }

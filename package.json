@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:prepare": "docker compose exec -T postgres psql -U haven -d havenhub -c \"CREATE DATABASE havenhub_test\" || true && DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test npx prisma migrate deploy",
+    "test:prepare": "docker compose exec -T postgres psql -U haven -d havenhub -c \"CREATE DATABASE havenhub_test\" || true && DATABASE_URL=${TEST_DATABASE_URL:-postgresql://haven:haven_dev@localhost:5434/havenhub_test} npx prisma migrate deploy",
     "postinstall": "prisma generate",
     "db:up": "docker compose up -d postgres",
     "db:migrate": "prisma migrate dev",

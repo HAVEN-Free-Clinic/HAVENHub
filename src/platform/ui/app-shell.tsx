@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { signOut } from "@/platform/auth/auth";
-import { HavenMark } from "./haven-mark";
+import { HavenLogo } from "./haven-logo";
 
 export function AppShell({
   userName,
@@ -20,9 +20,10 @@ export function AppShell({
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 h-14">
           <div className="flex items-center gap-2">
-            <Link href="/hub" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-              <HavenMark className="h-7 w-auto text-brand" />
-              <span className="font-semibold tracking-tight">HAVEN Hub</span>
+            <Link href="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
+              <HavenLogo className="h-8 text-brand" />
+              <span aria-hidden className="h-5 w-px bg-slate-200" />
+              <span className="font-semibold tracking-tight">Hub</span>
             </Link>
             {termLabel && (
               <span className="ml-1 rounded-full bg-brand-faint px-2.5 py-0.5 text-xs font-medium text-brand">

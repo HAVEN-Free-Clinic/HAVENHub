@@ -16,7 +16,7 @@ export default async function LoginPage({
   searchParams: Promise<{ error?: string }>;
 }) {
   const session = await auth();
-  if (session?.personId) redirect("/hub");
+  if (session?.personId) redirect("/");
   const { error } = await searchParams;
   const errorMessage = error ? (ERROR_MESSAGES[error] ?? DEFAULT_ERROR) : null;
 
@@ -91,7 +91,7 @@ export default async function LoginPage({
               action={async () => {
                 "use server";
                 try {
-                  await signIn("microsoft-entra-id", { redirectTo: "/hub" });
+                  await signIn("microsoft-entra-id", { redirectTo: "/" });
                 } catch (error) {
                   if (error instanceof AuthError) {
                     redirect(`/login?error=${error.type}`);
@@ -121,7 +121,7 @@ export default async function LoginPage({
                 try {
                   await signIn("credentials", {
                     email: formData.get("email"),
-                    redirectTo: "/hub",
+                    redirectTo: "/",
                   });
                 } catch (error) {
                   // signIn throws NEXT_REDIRECT on success, so only translate auth failures.

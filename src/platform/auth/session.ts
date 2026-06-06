@@ -27,9 +27,9 @@ export async function requirePersonSession(): Promise<PersonSession> {
   };
 }
 
-/** Layout/page-level permission gate. NOTE: the redirect sink (/hub) must never itself be permission-gated, or this loops. */
+/** Layout/page-level permission gate. NOTE: the redirect sink (the root hub page) must never itself be permission-gated, or this loops. */
 export async function requirePermission(permission: string): Promise<PersonSession> {
   const person = await requirePersonSession();
-  if (!(await can(person.personId, permission))) redirect("/hub");
+  if (!(await can(person.personId, permission))) redirect("/");
   return person;
 }

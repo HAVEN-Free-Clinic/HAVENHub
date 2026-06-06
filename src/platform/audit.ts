@@ -11,7 +11,7 @@ export type AuditEntry = {
   ip?: string | null;
 };
 
-/** Fire-and-forget durable audit. Never throws — logs failures to stderr instead. */
+/** Fire-and-forget durable audit. Never throws; logs failures to stderr instead. */
 export async function recordAudit(entry: AuditEntry): Promise<void> {
   try {
     await prisma.auditLog.create({

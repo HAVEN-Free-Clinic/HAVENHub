@@ -7,7 +7,7 @@ const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
 export const metadata: Metadata = {
   title: "HAVENHub",
-  description: "HAVEN Free Clinic — unified platform",
+  description: "The unified platform for HAVEN Free Clinic",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

@@ -22,7 +22,7 @@ describe("recordAudit", () => {
     expect(rows[0].before).toEqual({ phone: "111" });
   });
 
-  it("never throws — audit failure must not break the mutation it records", async () => {
+  it("never throws: audit failure must not break the mutation it records", async () => {
     // entityType deliberately missing → Prisma rejects; recordAudit swallows and logs.
     await expect(
       recordAudit({ action: "x", entityType: undefined as unknown as string })

@@ -6,7 +6,7 @@ import { HavenLogo } from "@/platform/ui/haven-logo";
 
 const ERROR_MESSAGES: Record<string, string> = {
   CredentialsSignin:
-    "We couldn't sign you in — that email isn't in our records or the account isn't active.",
+    "We couldn't sign you in. That email isn't in our records or the account isn't active.",
 };
 const DEFAULT_ERROR = "Sign-in failed. Please try again, or contact the IT team.";
 
@@ -22,7 +22,7 @@ export default async function LoginPage({
 
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[45%_1fr]">
-      {/* Left brand panel — desktop only */}
+      {/* Left brand panel (desktop only) */}
       <div className="hidden lg:flex bg-brand text-white flex-col justify-between p-10 relative overflow-hidden">
         {/* Plus-sign motif overlay */}
         <svg
@@ -59,7 +59,7 @@ export default async function LoginPage({
             One platform for the clinic.
           </p>
           <p className="mt-2 text-sm text-white/70">
-            Scheduling, volunteer management, and compliance — in one place.
+            Scheduling, volunteer management, and compliance in one place.
           </p>
           <p className="mt-8 text-xs text-white/50">HAVEN Free Clinic · Yale University</p>
         </div>
@@ -124,7 +124,7 @@ export default async function LoginPage({
                     redirectTo: "/hub",
                   });
                 } catch (error) {
-                  // signIn throws NEXT_REDIRECT on success — only translate auth failures.
+                  // signIn throws NEXT_REDIRECT on success, so only translate auth failures.
                   if (error instanceof AuthError) {
                     redirect(`/login?error=${error.type}`);
                   }

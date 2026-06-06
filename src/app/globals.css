@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 @theme {
-  --color-brand: #00356b;        /* Yale Blue — canonical, from havenfreeclinic.org */
+  --color-brand: #00356b;        /* Yale Blue, canonical, from havenfreeclinic.org */
   --color-brand-hover: #0a4a8c;
   --color-brand-deep: #002347;
   --color-brand-light: #d6e8f7;

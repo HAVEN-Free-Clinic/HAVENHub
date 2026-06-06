@@ -11,7 +11,7 @@ const MEMBERSHIP_KIND_ROLE: Record<MembershipKind, string> = {
  *  - roles assigned directly to the person (global, or scoped to the active term)
  *  - roles assigned to departments the person actively belongs to in the active term
  *  - auto-attached system roles (Director/Volunteer) from active-term membership kind
- * Computed from live DB state on every call — role changes apply immediately (spec §5).
+ * Computed from live DB state on every call, so role changes apply immediately (spec §5).
  */
 export async function getEffectivePermissions(personId: string): Promise<Set<string>> {
   const activeTerm = await prisma.term.findFirst({ where: { status: "ACTIVE" }, orderBy: { startDate: "desc" } });
@@ -58,7 +58,7 @@ export async function getEffectivePermissions(personId: string): Promise<Set<str
   return permissions;
 }
 
-/** The one place the "*" wildcard rule lives — use this on any Set from getEffectivePermissions. */
+/** The one place the "*" wildcard rule lives. Use this on any Set from getEffectivePermissions. */
 export function hasPermission(perms: Set<string>, permission: string): boolean {
   return perms.has(permission) || perms.has("*");
 }

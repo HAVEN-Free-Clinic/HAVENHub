@@ -65,7 +65,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             id: "credentials",
             name: "Dev Login",
             credentials: { email: { label: "Email", type: "text" } },
-            // Note: matching applies the same Yale-claim gate as prod — dev login works only with @yale.edu emails (or netId/oid matches).
+            // Note: matching applies the same Yale-claim gate as prod, so dev login works only with @yale.edu emails (or netId/oid matches).
             async authorize(credentials) {
               const email = credentials?.email as string | undefined;
               if (!email) return null;

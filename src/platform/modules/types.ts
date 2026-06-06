@@ -15,7 +15,7 @@ export type ModuleManifest = {
   icon: ComponentType<{ className?: string }>;
   /** Controls hub-tile visibility and the module's route guard. */
   accessPermission: string;
-  /** Every permission string this module declares — feeds the RBAC editor. */
+  /** Every permission string this module declares; feeds the RBAC editor. */
   permissions: string[];
   status: ModuleStatus;
   nav: ModuleNavItem[];

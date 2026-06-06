@@ -1,4 +1,4 @@
-// Dev fixture seed. Run via `npm run db:seed` (after `npm run db:migrate` — a stale Prisma client errors with P2011).
+// Dev fixture seed. Run via `npm run db:seed` (after `npm run db:migrate`; a stale Prisma client errors with P2011).
 import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
@@ -34,7 +34,7 @@ const SYSTEM_ROLES: Array<{ name: string; description: string; grants: string[] 
 /**
  * Every Saturday from start to end, inclusive.
  * Dates are anchored at 12:00 UTC so they remain "Saturday" when rendered in
- * any US timezone — render clinic dates with timeZone: "UTC" regardless.
+ * any US timezone. Render clinic dates with timeZone: "UTC" regardless.
  */
 function saturdays(startIso: string, endIso: string): Date[] {
   const out: Date[] = [];

@@ -7,7 +7,7 @@ export async function GET() {
     await prisma.$queryRaw`SELECT 1`;
     db = true;
   } catch {
-    // fall through — db stays false
+    // fall through; db stays false
   }
   return NextResponse.json(
     { ok: db, db },

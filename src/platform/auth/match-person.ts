@@ -4,7 +4,7 @@ import { prisma } from "@/platform/db";
 /**
  * Login → Person resolution (spec §5). SECURITY LAYERING: the NextAuth signIn
  * callback is responsible for (a) verifying the token's tenant (tid) is Yale's
- * and (b) enforcing Person.status — this module only resolves identity. The
+ * and (b) enforcing Person.status; this module only resolves identity. The
  * domain checks below are defense-in-depth, not the primary gate.
  */
 
@@ -28,7 +28,7 @@ export function netIdFromUpn(upn: string): string | null {
 
 /**
  * Resolution order per spec §5. Matches via steps 2/3 link entraObjectId,
- * except when a Person is already bound to a different oid — in that case
+ * except when a Person is already bound to a different oid; in that case
  * linking is skipped and the stored oid remains authoritative.
  */
 export async function resolvePersonForLogin(
@@ -51,7 +51,7 @@ export async function resolvePersonForLogin(
     if (byNetId) return link(byNetId, profile.entraObjectId);
   }
 
-  // 3. Email against yaleEmail (always) / contactEmail (Yale-asserted claims only —
+  // 3. Email against yaleEmail (always) / contactEmail (Yale-asserted claims only;
   //    contactEmail may be a personal address; an Entra guest can carry an arbitrary
   //    external email claim, which must never hijack a Person via their personal email).
   if (profile.email) {
@@ -86,7 +86,7 @@ export async function getActivePerson(personId: string): Promise<Person | null> 
 
 async function link(person: Person, entraObjectId?: string | null): Promise<Person> {
   if (!entraObjectId || person.entraObjectId === entraObjectId) return person;
-  // A Person already bound to a DIFFERENT oid is never re-linked here — that would
+  // A Person already bound to a DIFFERENT oid is never re-linked here, because that would
   // let a colliding UPN/email claim hijack the record (and P2002 on the unique index).
   // The login still resolves to the person; the stored oid remains authoritative.
   if (person.entraObjectId) return person;

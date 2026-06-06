@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 76" fill="none" role="img" aria-label="HAVEN Free Clinic">
+  <!-- Circle mark (oval, matches Navbar/ComingSoon variant, viewBox-aligned to 76h) -->
+  <g>
+    <path d="M36.8223 1.2373C56.4385 1.23748 72.4062 17.6597 72.4062 38C72.4062 58.3403 56.4385 74.7625 36.8223 74.7627C17.2059 74.7627 1.2373 58.3405 1.2373 38C1.2373 17.6595 17.2059 1.2373 36.8223 1.2373Z"
+          stroke="#00356b" stroke-width="2.47477"/>
+    <text x="36.8" y="38" text-anchor="middle" dominant-baseline="central"
+          font-family="Poppins, sans-serif" font-weight="600" font-size="11"
+          fill="#00356b" letter-spacing="0.3">HAVEN</text>
+  </g>
+  <!-- Wordmark -->
+  <text x="84" y="28" font-family="Poppins, sans-serif" font-weight="400" font-size="14"
+        fill="#00356b" dominant-baseline="auto">Free Clinic</text>
+  <text x="84" y="52" font-family="Poppins, sans-serif" font-weight="400" font-size="14"
+        fill="#00356b" dominant-baseline="auto">La Cl&#237;nica Gratuita</text>
+</svg>

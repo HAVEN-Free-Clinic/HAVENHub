@@ -1,6 +1,13 @@
 import type { Person } from "@prisma/client";
 import { prisma } from "@/platform/db";
 
+/**
+ * Login → Person resolution (spec §5). SECURITY LAYERING: the NextAuth signIn
+ * callback is responsible for (a) verifying the token's tenant (tid) is Yale's
+ * and (b) enforcing Person.status — this module only resolves identity. The
+ * domain checks below are defense-in-depth, not the primary gate.
+ */
+
 export type LoginProfile = {
   entraObjectId?: string | null;
   upn?: string | null;
@@ -9,14 +16,21 @@ export type LoginProfile = {
 
 /**
  * Yale UPNs look like "abc123@yale.edu" (NetID local part).
- * Alias addresses ("first.last@yale.edu") are not NetIDs.
+ * Alias addresses ("first.last@yale.edu") are not NetIDs, and
+ * non-Yale domains never carry NetIDs.
  */
 export function netIdFromUpn(upn: string): string | null {
-  const local = upn.split("@")[0] ?? "";
+  const [local, domain] = upn.split("@");
+  if (domain?.toLowerCase() !== "yale.edu") return null;
+  if (!local) return null;
   return /^[a-z]{2,8}[0-9]*$/i.test(local) ? local.toLowerCase() : null;
 }
 
-/** Resolution order per spec §5. Matches via steps 2/3 link entraObjectId. */
+/**
+ * Resolution order per spec §5. Matches via steps 2/3 link entraObjectId,
+ * except when a Person is already bound to a different oid — in that case
+ * linking is skipped and the stored oid remains authoritative.
+ */
 export async function resolvePersonForLogin(
   profile: LoginProfile
 ): Promise<Person | null> {
@@ -37,13 +51,18 @@ export async function resolvePersonForLogin(
     if (byNetId) return link(byNetId, profile.entraObjectId);
   }
 
-  // 3. Email against contactEmail or yaleEmail
+  // 3. Email against yaleEmail (always) / contactEmail (Yale-asserted claims only —
+  //    contactEmail may be a personal address; an Entra guest can carry an arbitrary
+  //    external email claim, which must never hijack a Person via their personal email).
   if (profile.email) {
+    const isYaleClaim = profile.email.toLowerCase().endsWith("@yale.edu");
     const byEmail = await prisma.person.findFirst({
       where: {
         OR: [
-          { contactEmail: { equals: profile.email, mode: "insensitive" } },
-          { yaleEmail: { equals: profile.email, mode: "insensitive" } },
+          { yaleEmail: { equals: profile.email, mode: "insensitive" as const } },
+          ...(isYaleClaim
+            ? [{ contactEmail: { equals: profile.email, mode: "insensitive" as const } }]
+            : []),
         ],
       },
     });
@@ -56,6 +75,10 @@ export async function resolvePersonForLogin(
 
 async function link(person: Person, entraObjectId?: string | null): Promise<Person> {
   if (!entraObjectId || person.entraObjectId === entraObjectId) return person;
+  // A Person already bound to a DIFFERENT oid is never re-linked here — that would
+  // let a colliding UPN/email claim hijack the record (and P2002 on the unique index).
+  // The login still resolves to the person; the stored oid remains authoritative.
+  if (person.entraObjectId) return person;
   return prisma.person.update({
     where: { id: person.id },
     data: { entraObjectId },

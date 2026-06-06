@@ -17,6 +17,9 @@ describe("netIdFromUpn", () => {
     expect(netIdFromUpn("")).toBeNull();
     expect(netIdFromUpn("@yale.edu")).toBeNull();
   });
+  it("rejects a NetID-shaped local part from a non-Yale UPN", () => {
+    expect(netIdFromUpn("bb123@evilcorp.com")).toBeNull();
+  });
 });
 
 describe("resolvePersonForLogin", () => {
@@ -67,5 +70,54 @@ describe("resolvePersonForLogin", () => {
       email: "nobody@yale.edu",
     });
     expect(found).toBeNull();
+  });
+
+  it("does not re-link a Person already bound to a different oid", async () => {
+    const p = await prisma.person.create({
+      data: { name: "X", netId: "xy123", entraObjectId: "oid-existing" },
+    });
+    const found = await resolvePersonForLogin({
+      entraObjectId: "oid-attacker",
+      upn: "XY123@yale.edu",
+      email: null,
+    });
+    expect(found?.id).toBe(p.id);
+    const reloaded = await prisma.person.findUniqueOrThrow({ where: { id: p.id } });
+    expect(reloaded.entraObjectId).toBe("oid-existing");
+  });
+
+  it("does not match a personal contactEmail from a non-Yale claim", async () => {
+    await prisma.person.create({ data: { name: "V", contactEmail: "victim@gmail.com" } });
+    const found = await resolvePersonForLogin({
+      entraObjectId: "oid-guest",
+      upn: null,
+      email: "victim@gmail.com",
+    });
+    expect(found).toBeNull();
+  });
+
+  it("still matches contactEmail for Yale-asserted claims", async () => {
+    const p = await prisma.person.create({
+      data: { name: "W", contactEmail: "w.person@yale.edu" },
+    });
+    const found = await resolvePersonForLogin({
+      entraObjectId: "oid-w",
+      upn: null,
+      email: "W.Person@yale.edu",
+    });
+    expect(found?.id).toBe(p.id);
+  });
+
+  it("prefers the linked oid over a conflicting netId match", async () => {
+    const linked = await prisma.person.create({
+      data: { name: "L", entraObjectId: "oid-l" },
+    });
+    await prisma.person.create({ data: { name: "M", netId: "mm123" } });
+    const found = await resolvePersonForLogin({
+      entraObjectId: "oid-l",
+      upn: "mm123@yale.edu",
+      email: null,
+    });
+    expect(found?.id).toBe(linked.id);
   });
 });

@@ -43,7 +43,7 @@ describe("transformPeople", () => {
     expect(person.contactEmail).toBe("sam@gmail.com");
   });
 
-  it("skips records with no name and reports them", () => {
+  it("skips records with no name", () => {
     const result = transformPeople([{ id: "recC", fields: {} }]);
     expect(result).toHaveLength(0);
   });

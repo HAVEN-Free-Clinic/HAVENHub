@@ -1,4 +1,5 @@
 import type { Person } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { transformPeople, transformRoster, type PersonImport } from "./transforms";
 
@@ -58,6 +59,7 @@ export async function runImport(reader: AirtableReader, options: ImportOptions):
   // Track identity collisions within the batch even in dry-run.
   const seenNetIds = new Set<string>();
   const seenEmails = new Set<string>();
+  const seenPersonIds = new Set<string>();
   const importedByRecordId = new Map<string, string>(); // airtable rec id -> person id ("dry" in dry-run)
 
   for (const person of people) {
@@ -74,6 +76,18 @@ export async function runImport(reader: AirtableReader, options: ImportOptions):
 
     try {
       const existing = await findExisting(person);
+
+      // Resolved-identity guard: if two Airtable rows map to the same DB person,
+      // skip the second rather than overwriting/duplicating it.
+      if (existing && seenPersonIds.has(existing.id)) {
+        report.people.skipped.push({
+          recordId: person.airtableRecordId,
+          reason: `resolves to person ${existing.id} already imported this run; merge the duplicate rows in Airtable`,
+        });
+        continue;
+      }
+      if (existing) seenPersonIds.add(existing.id);
+
       if (options.dryRun) {
         if (existing?.airtableRecordId === person.airtableRecordId) report.people.updated++;
         else if (existing) report.people.linked++;
@@ -84,10 +98,12 @@ export async function runImport(reader: AirtableReader, options: ImportOptions):
       const { airtableRecordId, ...fields } = person;
       if (existing) {
         const wasLinked = existing.airtableRecordId === airtableRecordId;
-        const saved = await prisma.person.update({
-          where: { id: existing.id },
-          data: { ...fields, airtableRecordId },
-        });
+        // Import never erases populated columns with blank Airtable cells; clearing happens through the app after cutover.
+        const data: Record<string, unknown> = { airtableRecordId };
+        for (const [key, value] of Object.entries(fields)) {
+          if (value !== null) data[key] = value;
+        }
+        const saved = await prisma.person.update({ where: { id: existing.id }, data });
         importedByRecordId.set(airtableRecordId, saved.id);
         if (wasLinked) report.people.updated++;
         else report.people.linked++;
@@ -97,10 +113,13 @@ export async function runImport(reader: AirtableReader, options: ImportOptions):
         report.people.created++;
       }
     } catch (error) {
-      report.people.skipped.push({
-        recordId: person.airtableRecordId,
-        reason: error instanceof Error ? error.message.slice(0, 200) : String(error),
-      });
+      const reason =
+        error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002"
+          ? `unique constraint conflict on ${String((error.meta as { target?: unknown })?.target ?? "unknown field")}`
+          : error instanceof Error
+            ? error.message.slice(0, 200)
+            : String(error);
+      report.people.skipped.push({ recordId: person.airtableRecordId, reason });
     }
   }
 

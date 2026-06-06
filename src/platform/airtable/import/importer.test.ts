@@ -66,4 +66,66 @@ describe("runImport", () => {
     expect(await prisma.person.count()).toBe(2);
     expect(await prisma.termMembership.count()).toBe(2);
   });
+
+  it("does not split one human across two airtable rows (cross-key duplicate)", async () => {
+    await prisma.person.create({
+      data: { name: "Real Person", netId: "rp123", contactEmail: "real.person@yale.edu" },
+    });
+    const reader: AirtableReader = {
+      async listAll(_b: string, table: string) {
+        if (table === "people-table") {
+          return [
+            { id: "recNet", fields: { [F.name]: "Real Person", [F.netId]: "rp123" } },
+            { id: "recMail", fields: { [F.name]: "Real Person", [F.contactEmail]: "real.person@yale.edu" } },
+          ];
+        }
+        return [];
+      },
+    };
+    const report = await runImport(reader, { ...OPTS, dryRun: false });
+    expect(report.people.skipped).toHaveLength(1);
+    expect(report.people.skipped[0].reason).toMatch(/already imported this run/);
+    expect(await prisma.person.count()).toBe(1);
+    const person = await prisma.person.findFirstOrThrow();
+    expect(person.contactEmail).toBe("real.person@yale.edu"); // not erased by the netId-only row
+  });
+
+  it("dry-run reports the same cross-key skip instead of masking it", async () => {
+    await prisma.person.create({
+      data: { name: "Real Person", netId: "rp123", contactEmail: "real.person@yale.edu" },
+    });
+    const reader: AirtableReader = {
+      async listAll(_b: string, table: string) {
+        if (table === "people-table") {
+          return [
+            { id: "recNet", fields: { [F.name]: "Real Person", [F.netId]: "rp123" } },
+            { id: "recMail", fields: { [F.name]: "Real Person", [F.contactEmail]: "real.person@yale.edu" } },
+          ];
+        }
+        return [];
+      },
+    };
+    const report = await runImport(reader, { ...OPTS, dryRun: true });
+    expect(report.people.skipped).toHaveLength(1);
+    expect(await prisma.person.count()).toBe(1); // dry-run wrote nothing
+  });
+
+  it("reports unique conflicts with a readable reason", async () => {
+    await prisma.person.create({
+      data: { name: "Owner", contactEmail: "other@gmail.com", yaleEmail: "shared@yale.edu" },
+    });
+    const reader: AirtableReader = {
+      async listAll(_b: string, table: string) {
+        if (table === "people-table") {
+          return [
+            { id: "recY", fields: { [F.name]: "Claimer", [F.contactEmail]: "shared@yale.edu" } },
+          ];
+        }
+        return [];
+      },
+    };
+    const report = await runImport(reader, { ...OPTS, dryRun: false });
+    expect(report.people.skipped).toHaveLength(1);
+    expect(report.people.skipped[0].reason).toMatch(/unique constraint conflict/);
+  });
 });

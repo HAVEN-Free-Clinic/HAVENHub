@@ -144,3 +144,44 @@ model AuditLog {
   @@index([createdAt])
   @@index([actorPersonId])
 }
+
+enum OutboxStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+/// One row per mirrored change. Written in the same transaction as the domain
+/// write; drained by the worker. FAILED rows persist for inspection and are
+/// also self-healed by nightly reconciliation.
+model Outbox {
+  id            String       @id @default(cuid())
+  entityType    String // "Person"
+  entityId      String
+  operation     String // "upsert"
+  changedFields String[]
+  status        OutboxStatus @default(PENDING)
+  attempts      Int          @default(0)
+  lastError     String?
+  createdAt     DateTime     @default(now())
+  processedAt   DateTime?
+
+  @@index([status, createdAt])
+}
+
+/// Maps a Postgres entity to its Airtable record id in a specific base.
+/// Needed because the sandbox and production bases have different record ids.
+model MirrorRecord {
+  id         String @id @default(cuid())
+  entityType String
+  entityId   String
+  baseId     String
+  recordId   String
+
+  @@unique([entityType, entityId, baseId])
+}
+
+model WorkerHeartbeat {
+  id     String   @id // e.g. "mirror-worker"
+  beatAt DateTime
+}

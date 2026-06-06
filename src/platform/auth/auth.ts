@@ -4,6 +4,7 @@ import Credentials from "next-auth/providers/credentials";
 import type { Person } from "@prisma/client";
 import { config } from "@/platform/config";
 import { resolvePersonForLogin, type LoginProfile } from "./match-person";
+import { recordAudit } from "@/platform/audit";
 
 type EntraClaims = {
   oid?: string;
@@ -88,7 +89,19 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         account?.providerAccountId,
         user.email
       );
-      return person ? true : "/welcome";
+      if (!person) {
+        const claims = (profile ?? {}) as EntraClaims;
+        await recordAudit({
+          action: "auth.login_unmatched",
+          entityType: "Auth",
+          after: {
+            upn: claims.preferred_username ?? null,
+            email: claims.email ?? user.email ?? null,
+          },
+        });
+        return "/welcome";
+      }
+      return true;
     },
     async jwt({ token, user, account, profile }) {
       if (account) {

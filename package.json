@@ -15,7 +15,9 @@
     "db:up": "docker compose up -d postgres",
     "db:migrate": "prisma migrate dev",
     "db:seed": "prisma db seed",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "import:dry": "tsx --env-file=.env scripts/import-airtable.ts",
+    "import:apply": "tsx --env-file=.env scripts/import-airtable.ts --apply"
   },
   "prisma": {
     "seed": "npx tsx prisma/seed.ts"

@@ -1,3 +1,7 @@
-export default function Home() {
-  return <main className="p-8">HAVENHub — under construction</main>;
+import { redirect } from "next/navigation";
+import { auth } from "@/platform/auth/auth";
+
+export default async function Home() {
+  const session = await auth();
+  redirect(session?.personId ? "/hub" : "/login");
 }

@@ -32,9 +32,10 @@ export const MODULES: ModuleManifest[] = [
     title: "My Info",
     description: "Update your contact info and HIPAA compliance",
     icon: UserRoundPen,
-    accessPermission: "my-info.access",
-    permissions: ["my-info.access"],
-    status: "coming-soon",
+    // No accessPermission: My Info is open to any signed-in matched person,
+    // including alumni with no current term (spec decision).
+    permissions: [],
+    status: "active",
     nav: [],
   },
   {

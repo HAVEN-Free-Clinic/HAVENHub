@@ -22,6 +22,7 @@ export default async function HubPage() {
   const visible = MODULES.filter(
     (m) =>
       m.status === "coming-soon" || // roadmap is visible to everyone (spec §8)
+      !m.accessPermission || // open to any signed-in matched person (e.g. my-info)
       hasPermission(permissions, m.accessPermission)
   );
 

@@ -15,9 +15,13 @@ describe("module registry", () => {
     }
   });
 
-  it("includes each module's accessPermission in its declared permissions", () => {
+  it("includes each module's accessPermission in its declared permissions when defined", () => {
     for (const m of MODULES) {
-      expect(m.permissions).toContain(m.accessPermission);
+      // accessPermission is optional: modules open to any signed-in person
+      // (e.g. my-info) declare no accessPermission and may have no permissions.
+      if (m.accessPermission !== undefined) {
+        expect(m.permissions).toContain(m.accessPermission);
+      }
     }
   });
 

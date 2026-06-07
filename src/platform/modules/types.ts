@@ -13,8 +13,12 @@ export type ModuleManifest = {
   title: string;
   description: string;
   icon: ComponentType<{ className?: string }>;
-  /** Controls hub-tile visibility and the module's route guard. */
-  accessPermission: string;
+  /**
+   * Controls hub-tile visibility and the module's route guard. Optional:
+   * when absent, the module is open to any signed-in matched person (no
+   * permission required). My Info uses this so non-current members keep access.
+   */
+  accessPermission?: string;
   /** Every permission string this module declares; feeds the RBAC editor. */
   permissions: string[];
   status: ModuleStatus;

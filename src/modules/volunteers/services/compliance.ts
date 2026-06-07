@@ -223,7 +223,14 @@ export type MasterQuery = {
   pageSize?: number;
 };
 
-export type MasterComplianceRow = MemberCompliance & { departments: string[] };
+/**
+ * The master view is one row per PERSON, not per membership, so it does not
+ * carry a membership `kind`. Omitting it (rather than using a placeholder) keeps
+ * the type honest -- the master table never displays a director/volunteer badge.
+ */
+export type MasterComplianceRow = Omit<MemberCompliance, "kind"> & {
+  departments: string[];
+};
 
 export type MasterComplianceResult = {
   rows: MasterComplianceRow[];
@@ -364,9 +371,8 @@ export async function masterCompliance(
       : null;
 
     return {
-      // MemberCompliance fields; kind is omitted (one row per person, not per membership)
+      // One row per person (not per membership): kind is intentionally omitted.
       person,
-      kind: "VOLUNTEER" as const, // placeholder; master view omits kind display
       cert: newestCert,
       status: computedStatus,
       verifiedByName,

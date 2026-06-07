@@ -18,6 +18,7 @@ function nullPerson(): Person {
     gradYear: null,
     status: "ACTIVE",
     airtableRecordId: null,
+    mirroredHipaaStatus: null,
     createdAt: new Date(),
     updatedAt: new Date(),
   };
@@ -43,6 +44,61 @@ describe("personMirrorPayload", () => {
         expect(value, `field ${key} should be "" not ${JSON.stringify(value)}`).toBe("");
       }
     }
+  });
+
+  it("omits the status field when no options are passed (7 keys)", () => {
+    const payload = personMirrorPayload(nullPerson());
+    expect(Object.keys(payload)).toHaveLength(7);
+  });
+
+  it("omits the status field when statusFieldId is set but hipaaStatus is not (7 keys)", () => {
+    const payload = personMirrorPayload(nullPerson(), ALL_PEOPLE_FIELDS, {
+      statusFieldId: "fldaDo5T6mhX9IHhb",
+    });
+    expect(Object.keys(payload)).toHaveLength(7);
+    expect(payload).not.toHaveProperty("fldaDo5T6mhX9IHhb");
+  });
+
+  it("omits the status field when hipaaStatus is set but statusFieldId is not (7 keys)", () => {
+    const payload = personMirrorPayload(nullPerson(), ALL_PEOPLE_FIELDS, {
+      hipaaStatus: "Compliant",
+    });
+    expect(Object.keys(payload)).toHaveLength(7);
+  });
+
+  it("omits the status field when statusFieldId is null (7 keys)", () => {
+    const payload = personMirrorPayload(nullPerson(), ALL_PEOPLE_FIELDS, {
+      statusFieldId: null,
+      hipaaStatus: "Not Compliant",
+    });
+    expect(Object.keys(payload)).toHaveLength(7);
+  });
+
+  it("omits the status field when hipaaStatus is null (7 keys)", () => {
+    const payload = personMirrorPayload(nullPerson(), ALL_PEOPLE_FIELDS, {
+      statusFieldId: "fldaDo5T6mhX9IHhb",
+      hipaaStatus: null,
+    });
+    expect(Object.keys(payload)).toHaveLength(7);
+    expect(payload).not.toHaveProperty("fldaDo5T6mhX9IHhb");
+  });
+
+  it("includes the status field by NAME when both statusFieldId and hipaaStatus are provided (8 keys)", () => {
+    const payload = personMirrorPayload(nullPerson(), ALL_PEOPLE_FIELDS, {
+      statusFieldId: "fldaDo5T6mhX9IHhb",
+      hipaaStatus: "Compliant",
+    });
+    expect(Object.keys(payload)).toHaveLength(8);
+    expect(payload["fldaDo5T6mhX9IHhb"]).toBe("Compliant");
+  });
+
+  it("includes 'Not Compliant' when that is the asserted status (8 keys)", () => {
+    const payload = personMirrorPayload(nullPerson(), ALL_PEOPLE_FIELDS, {
+      statusFieldId: "fldaDo5T6mhX9IHhb",
+      hipaaStatus: "Not Compliant",
+    });
+    expect(Object.keys(payload)).toHaveLength(8);
+    expect(payload["fldaDo5T6mhX9IHhb"]).toBe("Not Compliant");
   });
 
   it("uses a custom fieldMap when provided: payload keys come from the map", () => {

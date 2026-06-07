@@ -56,17 +56,36 @@ export function parseFieldMap(json: string | undefined): PersonFieldMap {
   };
 }
 
+/** The two HIPAA compliance status option NAMES the mirror writes by name (typecast:true). */
+export type MirroredHipaaStatus = "Compliant" | "Not Compliant";
+
+/**
+ * Options for including the HIPAA compliance status select in the mirror payload.
+ * The status select is included ONLY when both statusFieldId and hipaaStatus are
+ * provided (non-null). The status field id is target-specific (production has it;
+ * the sandbox does not) and is written by NAME, which typecast:true resolves.
+ */
+export type PersonMirrorPayloadOptions = {
+  statusFieldId?: string | null;
+  hipaaStatus?: MirroredHipaaStatus | null;
+};
+
 /**
  * The fields HAVEN Hub OWNS in the mirror target. Everything else in the
  * Airtable table (legacy fields, automations) is never touched.
  * Pass a custom fieldMap for targets whose field IDs differ from production
  * (e.g. the sandbox base).
+ *
+ * The seven text fields are always present. The HIPAA compliance status select
+ * is an eighth OWNED field that is included only when both options.statusFieldId
+ * and options.hipaaStatus are provided; otherwise the payload stays at 7 keys.
  */
 export function personMirrorPayload(
   person: Person,
-  fieldMap: PersonFieldMap = ALL_PEOPLE_FIELDS
+  fieldMap: PersonFieldMap = ALL_PEOPLE_FIELDS,
+  options?: PersonMirrorPayloadOptions
 ): Record<string, unknown> {
-  return {
+  const payload: Record<string, unknown> = {
     [fieldMap.name]: person.name,
     [fieldMap.netId]: person.netId ?? "",
     [fieldMap.contactEmail]: person.contactEmail ?? "",
@@ -75,4 +94,8 @@ export function personMirrorPayload(
     [fieldMap.yaleAffiliation]: person.yaleAffiliation ?? "",
     [fieldMap.gradYear]: person.gradYear ?? "",
   };
+  if (options?.statusFieldId && options.hipaaStatus) {
+    payload[options.statusFieldId] = options.hipaaStatus;
+  }
+  return payload;
 }

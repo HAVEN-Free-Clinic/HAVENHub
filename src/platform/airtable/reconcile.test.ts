@@ -15,6 +15,7 @@ const enabledTarget: MirrorTarget = {
   peopleTableId: TABLE_ID,
   fieldMap: parseFieldMap(undefined),
   hipaaFieldId: null,
+  statusFieldId: null,
 };
 
 const disabledTarget: MirrorTarget = {
@@ -23,6 +24,7 @@ const disabledTarget: MirrorTarget = {
   peopleTableId: TABLE_ID,
   fieldMap: parseFieldMap(undefined),
   hipaaFieldId: null,
+  statusFieldId: null,
 };
 
 /** Create a fake io object with vi.fn() for listAll, patchRecord, createRecord. */
@@ -194,5 +196,88 @@ describe("reconcilePeople", () => {
 
     expect(result).toBe(0);
     expect(io.listAll).not.toHaveBeenCalled();
+  });
+
+  // --- HIPAA compliance status field (Task 7) ---
+
+  it("corrects a drifted status field when statusFieldId is set, and audits it", async () => {
+    const STATUS_FIELD_ID = "fldaDo5T6mhX9IHhb";
+    const DAY = 24 * 60 * 60 * 1000;
+
+    const targetWithStatus: MirrorTarget = { ...enabledTarget, statusFieldId: STATUS_FIELD_ID };
+
+    const term = await prisma.term.create({
+      data: {
+        code: "SU26",
+        name: "Summer 2026",
+        startDate: new Date(Date.now() - 30 * DAY),
+        endDate: new Date(Date.now() + 90 * DAY),
+        status: "ACTIVE",
+      },
+    });
+
+    const { person, recordId } = await createPersonWithMapping(
+      { name: "Status Drift", netId: "sd001" },
+      "recStatusDrift"
+    );
+    // Compliant cert: expiry well past termEnd + 30d and now + 60d -> "Compliant".
+    await prisma.hipaaCertificate.create({
+      data: {
+        personId: person.id,
+        fileName: "hipaa.pdf",
+        storedName: "statusdrift.pdf",
+        size: 10,
+        mimeType: "application/pdf",
+        completionDate: new Date(term.endDate.getTime() + 200 * DAY - 365 * DAY),
+      },
+    });
+
+    // Airtable holds the correct text fields but a stale status ("Not Compliant").
+    const correctText = personMirrorPayload(person);
+    const driftedFields: Record<string, unknown> = {
+      ...correctText,
+      [STATUS_FIELD_ID]: "Not Compliant",
+    };
+
+    const io = fakeIo(async () => [{ id: recordId, fields: driftedFields }]);
+
+    const result = await reconcilePeople(io, targetWithStatus);
+
+    expect(result).toBe(1);
+    expect(io.patchRecord).toHaveBeenCalledOnce();
+    const calledFields = (io.patchRecord as ReturnType<typeof vi.fn>).mock.calls[0][3] as Record<string, unknown>;
+    // Only the status field drifted.
+    expect(Object.keys(calledFields)).toEqual([STATUS_FIELD_ID]);
+    expect(calledFields[STATUS_FIELD_ID]).toBe("Compliant");
+
+    const auditRows = await prisma.auditLog.findMany({
+      where: { action: "mirror.drift_corrected", entityId: person.id },
+    });
+    expect(auditRows).toHaveLength(1);
+    expect((auditRows[0].before as Record<string, unknown>)[STATUS_FIELD_ID]).toBe("Not Compliant");
+    expect((auditRows[0].after as Record<string, unknown>)[STATUS_FIELD_ID]).toBe("Compliant");
+  });
+
+  it("does not compare the status field when statusFieldId is null (no false drift)", async () => {
+    const STATUS_FIELD_ID = "fldaDo5T6mhX9IHhb";
+    const { person, recordId } = await createPersonWithMapping(
+      { name: "No Status Compare", netId: "ns001" },
+      "recNoStatus"
+    );
+
+    const correctText = personMirrorPayload(person);
+    // Airtable has some value in the status field, but the target does not own it.
+    const fields: Record<string, unknown> = {
+      ...correctText,
+      [STATUS_FIELD_ID]: "Anything Goes",
+    };
+
+    const io = fakeIo(async () => [{ id: recordId, fields }]);
+
+    const result = await reconcilePeople(io, enabledTarget); // statusFieldId null
+
+    expect(result).toBe(0);
+    expect(io.patchRecord).not.toHaveBeenCalled();
+    expect((await prisma.person.findUniqueOrThrow({ where: { id: person.id } }))).toBeTruthy();
   });
 });

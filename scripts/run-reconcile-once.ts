@@ -12,6 +12,7 @@ async function main() {
     peopleTableId: config.AIRTABLE_MIRROR_PEOPLE_TABLE_ID ?? "",
     fieldMap: parseFieldMap(config.AIRTABLE_MIRROR_FIELD_MAP),
     hipaaFieldId: config.AIRTABLE_MIRROR_HIPAA_FIELD_ID ?? null,
+    statusFieldId: config.AIRTABLE_MIRROR_STATUS_FIELD_ID ?? null,
   });
   console.log(`reconciled: ${corrected} record(s) corrected`);
 }

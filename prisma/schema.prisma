@@ -53,6 +53,10 @@ model Person {
   gradYear         String?
   status           PersonStatus  @default(ACTIVE)
   airtableRecordId String?       @unique
+  /// The HIPAA compliance status the Airtable mirror last asserted ("Compliant" /
+  /// "Not Compliant"). Mirror bookkeeping only: set by drainPersonRow after a
+  /// successful send so the nightly refresh can detect changes without re-reading Airtable.
+  mirroredHipaaStatus String?
   memberships      TermMembership[]
   roleAssignments  RoleAssignment[]
   hipaaCertificates HipaaCertificate[]

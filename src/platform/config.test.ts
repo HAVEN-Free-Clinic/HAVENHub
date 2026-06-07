@@ -180,4 +180,33 @@ describe("loadConfig", () => {
     expect(config.AIRTABLE_MIRROR_ENABLED).toBe(true);
     expect(config.AIRTABLE_MIRROR_HIPAA_FIELD_ID).toBeUndefined();
   });
+
+  // --- Airtable HIPAA compliance status field ---
+
+  it("leaves AIRTABLE_MIRROR_STATUS_FIELD_ID undefined when not set", () => {
+    const config = loadConfig(base);
+    expect(config.AIRTABLE_MIRROR_STATUS_FIELD_ID).toBeUndefined();
+  });
+
+  it("accepts AIRTABLE_MIRROR_STATUS_FIELD_ID when set", () => {
+    const config = loadConfig({
+      ...base,
+      AIRTABLE_MIRROR_STATUS_FIELD_ID: "fldaDo5T6mhX9IHhb",
+    });
+    expect(config.AIRTABLE_MIRROR_STATUS_FIELD_ID).toBe("fldaDo5T6mhX9IHhb");
+  });
+
+  it("does not require AIRTABLE_MIRROR_STATUS_FIELD_ID when mirror is enabled", () => {
+    // The status mirror is optional and skips silently when the field id is unset
+    // (the sandbox base has no such field; the live smoke is deferred to cutover).
+    const config = loadConfig({
+      ...base,
+      AIRTABLE_MIRROR_ENABLED: "true",
+      AIRTABLE_PAT: "pat-x",
+      AIRTABLE_MIRROR_BASE_ID: "appSandbox1234567",
+      AIRTABLE_MIRROR_PEOPLE_TABLE_ID: "tblSandbox1234567",
+    });
+    expect(config.AIRTABLE_MIRROR_ENABLED).toBe(true);
+    expect(config.AIRTABLE_MIRROR_STATUS_FIELD_ID).toBeUndefined();
+  });
 });

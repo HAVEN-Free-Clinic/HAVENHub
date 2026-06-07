@@ -18,8 +18,16 @@ export default async function PeopleListPage({ searchParams }: PageProps) {
 
   const { q, status, page: pageStr } = await searchParams;
 
-  const statusFilter =
-    status === "OFFBOARDED" ? "OFFBOARDED" : status === "ACTIVE" ? "ACTIVE" : undefined;
+  // Distinguish "no param at all" (first load, default to ACTIVE) from
+  // "param present but empty" (user explicitly chose All statuses).
+  const statusFilter: "ACTIVE" | "OFFBOARDED" | undefined =
+    status === undefined
+      ? "ACTIVE" // first load default
+      : status === "OFFBOARDED"
+        ? "OFFBOARDED"
+        : status === "ACTIVE"
+          ? "ACTIVE"
+          : undefined; // status === "" -> all statuses
   const pageNum = Math.max(1, parseInt(pageStr ?? "1", 10) || 1);
 
   // Get the active term so we can show membership counts.
@@ -30,8 +38,7 @@ export default async function PeopleListPage({ searchParams }: PageProps) {
 
   const { rows, total, page, pageCount } = await searchPeople({
     search: q?.trim() || undefined,
-    // Default to ACTIVE when no filter is applied.
-    status: statusFilter ?? "ACTIVE",
+    status: statusFilter,
     page: pageNum,
     pageSize: 25,
   });
@@ -60,7 +67,8 @@ export default async function PeopleListPage({ searchParams }: PageProps) {
   function hrefFor(p: number): string {
     const params = new URLSearchParams();
     if (q) params.set("q", q);
-    if (status) params.set("status", status);
+    // Preserve explicit empty status (All statuses) in pagination links.
+    if (status !== undefined) params.set("status", status);
     params.set("page", String(p));
     return `/admin/people?${params.toString()}`;
   }
@@ -71,7 +79,11 @@ export default async function PeopleListPage({ searchParams }: PageProps) {
     <div className="space-y-6">
       <PageHeader
         title="People"
-        description={`${total.toLocaleString()} ${effectiveStatus === "OFFBOARDED" ? "offboarded" : effectiveStatus === "" ? "" : "active"} people`}
+        description={
+          effectiveStatus === ""
+            ? `${total.toLocaleString()} people`
+            : `${total.toLocaleString()} ${effectiveStatus === "OFFBOARDED" ? "offboarded" : "active"} people`
+        }
         action={
           <Link href="/admin/people/new" className={buttonClasses("primary", "sm")}>
             Add person

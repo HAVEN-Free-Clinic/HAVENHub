@@ -31,6 +31,19 @@ test("admin searches people and sees Jack Carney", async ({ page }) => {
   await expect(page.getByRole("link", { name: "Jack Carney" })).toBeVisible();
 });
 
+test("admin can view all statuses and description does not say 'active'", async ({ page }) => {
+  await devLogin(page, "j.carney@yale.edu");
+  await page.goto("/admin/people?q=&status=");
+  // Page must render without crashing.
+  await expect(page.getByRole("heading", { name: "People" })).toBeVisible();
+  // The description <p> must contain "people" but not "active" when all statuses are shown.
+  const description = page.locator("p.text-slate-500").filter({ hasText: /people/ }).first();
+  await expect(description).toBeVisible();
+  await expect(description).not.toContainText(/\bactive\b/i);
+  // Confirm "All statuses" option is selected.
+  await expect(page.locator('select[name="status"]')).toHaveValue("");
+});
+
 test("admin opens Jack Carney detail and sees memberships and name field", async ({ page }) => {
   await devLogin(page, "j.carney@yale.edu");
   // Navigate to the search results.

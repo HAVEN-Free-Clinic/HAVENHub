@@ -22,8 +22,12 @@ test("a volunteer is bounced from /admin to the hub", async ({ page }) => {
 
 test("admin searches people and sees Jack Carney", async ({ page }) => {
   await devLogin(page, "j.carney@yale.edu");
-  // Navigate directly to the search URL (GET form equivalent).
-  await page.goto("/admin/people?q=Jack&status=ACTIVE");
+  await page.goto("/admin/people");
+  await page.fill('input[name="q"]', "Jack");
+  // Must use a specific text selector: "Sign out" is also a submit button earlier
+  // in the DOM, so a bare button[type="submit"] click hits the wrong target.
+  await page.locator('button[type="submit"]:has-text("Search")').click();
+  await page.waitForURL((url) => url.searchParams.has("q") && url.searchParams.get("q")!.includes("Jack"));
   await expect(page.getByRole("link", { name: "Jack Carney" })).toBeVisible();
 });
 

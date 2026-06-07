@@ -18,7 +18,7 @@ import type { Person, Term } from "@prisma/client";
 import { redirect } from "next/navigation";
 import { requirePermission } from "@/platform/auth/session";
 import { prisma } from "@/platform/db";
-import { termRoster, addMembership, removeMembership, copyRosterFromTerm, MembershipForeignKeyError, RosterCopyError } from "@/modules/admin/services/roster";
+import { termRoster, addMembership, removeMembership, copyRosterFromTerm, MembershipForeignKeyError, MembershipNotFoundError, RosterCopyError } from "@/modules/admin/services/roster";
 import { searchPeople } from "@/modules/admin/services/people";
 import { listTerms, TermNotFoundError } from "@/modules/admin/services/terms";
 import { Badge } from "@/platform/ui/badge";
@@ -155,7 +155,12 @@ export async function RosterPanel({
     }
     try {
       await removeMembership(actorSession.personId, membershipId);
-    } catch {
+    } catch (err) {
+      if (err instanceof MembershipNotFoundError) {
+        redirect(
+          `${termDetailHref}?rosterError=${encodeURIComponent("Member no longer exists; the page may be stale.")}`
+        );
+      }
       redirect(`${termDetailHref}?rosterError=${encodeURIComponent("Failed to remove member.")}`);
     }
     redirect(`${termDetailHref}?saved=1`);
@@ -166,7 +171,8 @@ export async function RosterPanel({
     const actorSession = await requirePermission("admin.manage_terms");
     const personId = formData.get("personId") as string | null;
     const departmentId = formData.get("departmentId") as string | null;
-    const kind = formData.get("kind") as "DIRECTOR" | "VOLUNTEER" | null;
+    const kindRaw = formData.get("kind");
+    const kind = kindRaw === "DIRECTOR" || kindRaw === "VOLUNTEER" ? kindRaw : null;
 
     if (!personId || !departmentId || !kind) {
       redirect(
@@ -259,7 +265,7 @@ export async function RosterPanel({
 
       {/* Add-member search box (global, above cards) */}
       <form method="GET" className="flex items-end gap-3">
-        {/* Preserve any other existing search params (none expected, but safe) */}
+        {/* No other params are preserved; this form resets all query state. */}
         <div className="flex flex-col gap-1">
           <label className="text-xs font-medium text-slate-500">
             Search people to add

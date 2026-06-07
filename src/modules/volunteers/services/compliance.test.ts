@@ -599,6 +599,31 @@ describe("verifyCertificate scope enforcement", () => {
     const updated = await prisma.hipaaCertificate.findUniqueOrThrow({ where: { id: cert.id } });
     expect(updated.verifiedById).toBe(actor.id);
   });
+
+  it("allows a director to verify across a delegation edge", async () => {
+    // PCAR manages SCTP via a DepartmentDelegation row.
+    // Actor is an ACTIVE PCAR DIRECTOR; owner is an ACTIVE SCTP member.
+    // The delegation gives the PCAR director authority over SCTP, so
+    // verifyCertificate must resolve and stamp verifiedById.
+    const term = await createTerm();
+    const pcar = await createDepartment("PCAR");
+    const sctp = await createDepartment("SCTP");
+    await delegate(pcar.id, sctp.id);
+
+    const actor = await createPerson("DirPCAR", "dpcar01");
+    const owner = await createPerson("VolSCTP", "vsctp01");
+
+    await grantPermission(actor.id, "volunteers.view");
+    await createMembership(actor.id, term.id, pcar.id, "DIRECTOR");
+    await createMembership(owner.id, term.id, sctp.id, "VOLUNTEER");
+
+    const cert = await createCert(owner.id, noon(2025, 6, 1));
+
+    await expect(verifyCertificate(actor.id, cert.id)).resolves.toBeUndefined();
+
+    const updated = await prisma.hipaaCertificate.findUniqueOrThrow({ where: { id: cert.id } });
+    expect(updated.verifiedById).toBe(actor.id);
+  });
 });
 
 // ---------------------------------------------------------------------------

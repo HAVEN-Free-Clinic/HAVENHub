@@ -114,8 +114,17 @@ export async function backfillCertificates(
     // Take the LAST attachment (Airtable appends; last = newest).
     const att = atts[atts.length - 1];
 
-    // Download the file.
-    const bytes = await download(att.url);
+    // Download the file. Catch errors so one bad URL does not abort the whole run.
+    let bytes: Buffer;
+    try {
+      bytes = await download(att.url);
+    } catch (err) {
+      report.failures.push({
+        recordId: record.id,
+        reason: `download failed: ${err instanceof Error ? err.message.slice(0, 200) : String(err)}`,
+      });
+      continue;
+    }
     const ext = mimeToExtension(att.type);
 
     // Write-after-commit pattern: create DB row first, then write disk.

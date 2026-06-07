@@ -15,3 +15,15 @@ export const SU26_ROSTER_FIELDS = {
   directors: "fldtKUkW1wwzVBQdo",
   volunteers: "fldd6ENTWgPHmprMj",
 } as const;
+
+/**
+ * Attachment fields on All People that are NOT included in ALL_PEOPLE_FIELDS.
+ *
+ * ALL_PEOPLE_FIELDS doubles as the mirrored text-field set used by
+ * personMirrorPayload and MIRRORED_FIELDS in mirror.ts. Adding an attachment
+ * field there would corrupt the mirror payload because the mirror only handles
+ * scalar text fields. Attachment field IDs must live in this separate constant.
+ */
+export const ALL_PEOPLE_ATTACHMENT_FIELDS = {
+  hipaaCertificate: "fld1k09CQVK2VSIJM",
+} as const;

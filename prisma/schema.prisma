@@ -28,6 +28,11 @@ enum MembershipStatus {
   REMOVED
 }
 
+enum CertificateSource {
+  UPLOAD
+  IMPORT
+}
+
 model Person {
   id               String        @id @default(cuid())
   netId            String?       @unique
@@ -43,8 +48,28 @@ model Person {
   airtableRecordId String?       @unique
   memberships      TermMembership[]
   roleAssignments  RoleAssignment[]
+  hipaaCertificates HipaaCertificate[]
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
+}
+
+/// Uploaded HIPAA training certificates. One row per upload.
+/// File bytes live on disk under UPLOAD_DIR/<storedName>; this row is the
+/// source of truth for ownership and metadata. Cascade-deleted with the person.
+model HipaaCertificate {
+  id          String   @id @default(cuid())
+  personId    String
+  /// Original filename as supplied by the uploader (display only; never used in file I/O).
+  fileName    String
+  /// Server-generated filename stored under UPLOAD_DIR (e.g. "<cuid>.pdf"). Used for disk I/O.
+  storedName  String
+  size        Int
+  mimeType    String
+  source      CertificateSource @default(UPLOAD)
+  uploadedAt  DateTime @default(now())
+  person      Person   @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@index([personId, uploadedAt])
 }
 
 model Term {

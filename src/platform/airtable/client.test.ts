@@ -72,4 +72,38 @@ describe("AirtableClient", () => {
     const created = await client.createRecord("appX", "tblY", { fldA: "v" });
     expect(created.id).toBe("recNew");
   });
+
+  it("uploadAttachment: POSTs to the content API URL with correct body shape", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(200, { id: "recNew", fields: {} }));
+    const client = new AirtableClient("pat", { fetchImpl, retryDelayMs: 1 });
+    await client.uploadAttachment("appX", "recZ", "fldA", {
+      name: "cert.pdf",
+      type: "application/pdf",
+      base64: "AAAA",
+    });
+    const [url, init] = fetchImpl.mock.calls[0];
+    expect(url).toBe("https://content.airtable.com/v0/appX/recZ/fldA/uploadAttachment");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toEqual({
+      contentType: "application/pdf",
+      file: "AAAA",
+      filename: "cert.pdf",
+    });
+  });
+
+  it("uploadAttachment: retries 429 and then succeeds", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(429, { error: "rate" }))
+      .mockResolvedValueOnce(jsonResponse(200, { id: "recZ", fields: {} }));
+    const client = new AirtableClient("pat", { fetchImpl, retryDelayMs: 1 });
+    await expect(
+      client.uploadAttachment("appX", "recZ", "fldA", {
+        name: "cert.pdf",
+        type: "application/pdf",
+        base64: "AAAA",
+      })
+    ).resolves.not.toThrow();
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
 });

@@ -19,6 +19,7 @@ function mirrorTarget(): MirrorTarget {
     baseId: config.AIRTABLE_MIRROR_BASE_ID ?? "",
     peopleTableId: config.AIRTABLE_MIRROR_PEOPLE_TABLE_ID ?? "",
     fieldMap: parseFieldMap(config.AIRTABLE_MIRROR_FIELD_MAP),
+    hipaaFieldId: config.AIRTABLE_MIRROR_HIPAA_FIELD_ID ?? null,
   };
 }
 

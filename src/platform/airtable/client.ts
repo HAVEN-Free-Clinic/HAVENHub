@@ -1,4 +1,5 @@
 const API_ROOT = "https://api.airtable.com/v0";
+const CONTENT_ROOT = "https://content.airtable.com/v0";
 
 export type AirtableRecord = {
   id: string;
@@ -99,5 +100,28 @@ export class AirtableClient {
       method: "POST",
       body: JSON.stringify({ fields, typecast: true }),
     })) as AirtableRecord;
+  }
+
+  /**
+   * Upload an attachment to an existing record via the Airtable Content API.
+   * Uses the same retry/error envelope as request() (429 and 5xx are retried).
+   */
+  async uploadAttachment(
+    baseId: string,
+    recordId: string,
+    fieldId: string,
+    file: { name: string; type: string; base64: string }
+  ): Promise<unknown> {
+    return this.request(
+      `${CONTENT_ROOT}/${baseId}/${recordId}/${fieldId}/uploadAttachment`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          contentType: file.type,
+          file: file.base64,
+          filename: file.name,
+        }),
+      }
+    );
   }
 }

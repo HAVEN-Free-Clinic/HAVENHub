@@ -32,6 +32,7 @@ export type MemberCompliance = {
   kind: "DIRECTOR" | "VOLUNTEER";
   cert: HipaaCertificate | null;
   status: ComplianceStatus;
+  verifiedByName: string | null;
 };
 
 type DepartmentCompliance = {
@@ -110,7 +111,30 @@ export async function departmentCompliance(
     },
   });
 
-  // 4. Group by department and compute per-member compliance.
+  // 4. Collect distinct non-null verifiedById values and resolve to names in one query.
+  const verifierIds = Array.from(
+    new Set(
+      memberships.flatMap((m) =>
+        m.person.hipaaCertificates
+          .slice(0, 1) // only the newest cert per person
+          .map((c) => c.verifiedById)
+          .filter((id): id is string => id !== null)
+      )
+    )
+  );
+
+  const verifierNameMap = new Map<string, string>();
+  if (verifierIds.length > 0) {
+    const verifiers = await prisma.person.findMany({
+      where: { id: { in: verifierIds } },
+      select: { id: true, name: true },
+    });
+    for (const v of verifiers) {
+      if (v.name) verifierNameMap.set(v.id, v.name);
+    }
+  }
+
+  // 5. Group by department and compute per-member compliance.
   const deptMap = new Map<string, { department: Department; members: MemberCompliance[] }>();
 
   // Ensure we have an entry for every director department, in the same order.
@@ -135,15 +159,20 @@ export async function departmentCompliance(
       activeTerm.endDate
     );
 
+    const verifiedByName = newestCert?.verifiedById
+      ? (verifierNameMap.get(newestCert.verifiedById) ?? null)
+      : null;
+
     entry.members.push({
       person: m.person,
       kind: m.kind,
       cert: newestCert,
       status,
+      verifiedByName,
     });
   }
 
-  // 5. Sort members and build counts per department.
+  // 6. Sort members and build counts per department.
   const result: DepartmentCompliance[] = [];
 
   for (const { department, members } of deptMap.values()) {

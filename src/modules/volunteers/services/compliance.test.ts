@@ -204,6 +204,33 @@ describe("departmentCompliance", () => {
     expect(volMember?.cert?.completionDate).toEqual(newDate);
   });
 
+  it("resolves verifiedByName from Person and returns null when unverified", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("ITCM");
+    const viewer = await createPerson("Director", "dir001");
+    const vol = await createPerson("Volunteer", "vol001");
+    const verifier = await createPerson("Alice Verifier", "alv001");
+
+    await createMembership(viewer.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(vol.id, term.id, dept.id, "VOLUNTEER");
+
+    const cert = await createCert(vol.id, noon(2026, 1, 1));
+    // Stamp the cert as verified by the verifier person
+    await prisma.hipaaCertificate.update({
+      where: { id: cert.id },
+      data: { verifiedById: verifier.id, verifiedAt: new Date() },
+    });
+
+    const result = await departmentCompliance(viewer.id);
+    const volMember = result[0].members.find((m) => m.person.id === vol.id);
+    // verifiedByName should resolve to the verifier's real name
+    expect(volMember?.verifiedByName).toBe("Alice Verifier");
+
+    // Viewer has no cert, so verifiedByName should be null
+    const viewerMember = result[0].members.find((m) => m.person.id === viewer.id);
+    expect(viewerMember?.verifiedByName).toBeNull();
+  });
+
   it("assigns NO_CERTIFICATE status when person has no cert", async () => {
     const term = await createTerm();
     const dept = await createDepartment("ITCM");

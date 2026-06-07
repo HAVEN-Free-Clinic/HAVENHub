@@ -131,7 +131,7 @@ export default async function VolunteersPage() {
             <section key={department.id}>
               <div className="mb-3 flex flex-wrap items-baseline gap-3">
                 <h2 className="text-base font-semibold">
-                  {department.code} &mdash; {department.name}
+                  {department.code} · {department.name}
                 </h2>
                 <span className="flex flex-wrap gap-1.5">
                   {chips.map((c) => (
@@ -160,10 +160,6 @@ export default async function VolunteersPage() {
                         )
                       : null;
 
-                    const verifiedByName = m.cert?.verifiedById
-                      ? `Person ${m.cert.verifiedById.slice(0, 6)}`
-                      : null;
-
                     return (
                       <TR key={m.person.id}>
                         <TD className="font-medium">{m.person.name}</TD>
@@ -186,7 +182,7 @@ export default async function VolunteersPage() {
                         <TD className="text-slate-600 text-xs">
                           {m.cert?.verifiedAt ? (
                             <span>
-                              {verifiedByName} {fmtDate(m.cert.verifiedAt)}
+                              {m.verifiedByName} {fmtDate(m.cert.verifiedAt)}
                             </span>
                           ) : (
                             "-"

@@ -101,7 +101,7 @@ export function MyInfoForm({ action, person, error, saved }: MyInfoFormProps) {
           />
         </Field>
 
-        <Field label="Contact Email">
+        <Field label="Email">
           <Input
             name="contactEmail"
             type="email"

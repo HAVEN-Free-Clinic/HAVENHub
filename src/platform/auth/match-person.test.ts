@@ -51,9 +51,9 @@ describe("resolvePersonForLogin", () => {
     expect(reloaded.entraObjectId).toBe("oid-2");
   });
 
-  it("falls back to case-insensitive email match on contactEmail or yaleEmail", async () => {
+  it("falls back to case-insensitive email match on contactEmail for a Yale-asserted claim", async () => {
     const person = await prisma.person.create({
-      data: { name: "C", yaleEmail: "c.person@yale.edu" },
+      data: { name: "C", contactEmail: "c.person@yale.edu" },
     });
     const found = await resolvePersonForLogin({
       entraObjectId: "oid-3",

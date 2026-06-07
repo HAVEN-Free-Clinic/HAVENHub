@@ -168,7 +168,7 @@ async function main() {
   const jack = await prisma.person.upsert({
     where: { contactEmail: "j.carney@yale.edu" },
     update: {},
-    create: { name: "Jack Carney", contactEmail: "j.carney@yale.edu", yaleEmail: "j.carney@yale.edu" },
+    create: { name: "Jack Carney", contactEmail: "j.carney@yale.edu" },
   });
   const director = await prisma.person.upsert({
     where: { contactEmail: "dev.director@yale.edu" },

@@ -20,7 +20,6 @@ type PersonFormProps = {
     | "name"
     | "netId"
     | "contactEmail"
-    | "yaleEmail"
     | "phone"
     | "epicId"
     | "yaleAffiliation"
@@ -67,21 +66,12 @@ export function PersonForm({ action, person, error, saved, children }: PersonFor
           />
         </Field>
 
-        <Field label="Contact Email">
+        <Field label="Email">
           <Input
             name="contactEmail"
             type="email"
             defaultValue={person?.contactEmail ?? ""}
             placeholder="jane.smith@example.com"
-          />
-        </Field>
-
-        <Field label="Yale Email">
-          <Input
-            name="yaleEmail"
-            type="email"
-            defaultValue={person?.yaleEmail ?? ""}
-            placeholder="jane.smith@yale.edu"
           />
         </Field>
 

@@ -46,7 +46,6 @@ model Person {
   entraObjectId    String?       @unique
   name             String
   contactEmail     String?       @unique
-  yaleEmail        String?       @unique
   phone            String?
   epicId           String?
   yaleAffiliation  String?

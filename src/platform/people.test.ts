@@ -119,20 +119,25 @@ describe("updatePersonFields", () => {
     expect(await prisma.outbox.count()).toBe(0);
   });
 
-  it("enqueues mirror with only changed mirrored fields, skipping non-mirrored ones", async () => {
-    const person = await createPersonRecord(ACTOR, { name: "Mirror Diff", netId: "md1" });
+  it("enqueues mirror with only the fields that actually changed (precise changed-field set)", async () => {
+    const person = await createPersonRecord(ACTOR, {
+      name: "Mirror Diff",
+      netId: "md1",
+      phone: "111",
+    });
     await prisma.outbox.deleteMany();
 
-    // name is mirrored; yaleEmail is not in ALL_PEOPLE_FIELDS.
+    // Only `name` changes; netId and phone are passed unchanged and must not
+    // appear in the enqueued changedFields.
     await updatePersonFields(ACTOR, person.id, {
       name: "Mirror Diff Updated",
-      yaleEmail: "md1@yale.edu",
+      netId: "md1",
+      phone: "111",
     });
 
     const outboxRows = await prisma.outbox.findMany({ where: { entityId: person.id } });
     expect(outboxRows).toHaveLength(1);
-    expect(outboxRows[0].changedFields).toContain("name");
-    expect(outboxRows[0].changedFields).not.toContain("yaleEmail");
+    expect(outboxRows[0].changedFields).toEqual(["name"]);
   });
 
   it("rolls back the tx (no outbox leak) and throws PersonConflictError on a conflicting update", async () => {

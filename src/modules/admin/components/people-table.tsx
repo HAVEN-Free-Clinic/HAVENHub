@@ -46,7 +46,7 @@ export function PeopleTable({ rows }: { rows: Row[] }) {
             </TD>
             <TD className="text-slate-500">{person.netId ?? ""}</TD>
             <TD className="text-slate-500">
-              {person.contactEmail ?? person.yaleEmail ?? ""}
+              {person.contactEmail ?? ""}
             </TD>
             <TD className="text-slate-500 tabular-nums">
               {person._membershipCount ?? 0}

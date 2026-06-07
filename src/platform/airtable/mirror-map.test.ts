@@ -11,7 +11,6 @@ function nullPerson(): Person {
     entraObjectId: null,
     name: "Test Person",
     contactEmail: null,
-    yaleEmail: null,
     phone: null,
     epicId: null,
     yaleAffiliation: null,

@@ -36,7 +36,6 @@ export default async function PersonDetailPage({ params, searchParams }: PagePro
         name: (formData.get("name") as string) ?? "",
         netId: (formData.get("netId") as string) || null,
         contactEmail: (formData.get("contactEmail") as string) || null,
-        yaleEmail: (formData.get("yaleEmail") as string) || null,
         phone: (formData.get("phone") as string) || null,
         epicId: (formData.get("epicId") as string) || null,
         yaleAffiliation: (formData.get("yaleAffiliation") as string) || null,

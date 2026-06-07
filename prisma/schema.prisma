@@ -12,6 +12,12 @@ enum PersonStatus {
   OFFBOARDED
 }
 
+enum ShiftRole {
+  DIRECTOR
+  VOLUNTEER
+  SHADOW
+}
+
 enum TermStatus {
   PLANNING
   ACTIVE
@@ -77,6 +83,7 @@ model Person {
   emailLogs                 EmailLog[]           @relation("emailLogPerson")
   /// Email log rows this person triggered (may differ from the recipient).
   emailLogsTriggered        EmailLog[]           @relation("emailLogTriggeredBy")
+  shiftAssignments          ShiftAssignment[]
   createdAt                 DateTime             @default(now())
   updatedAt                 DateTime             @updatedAt
 }
@@ -112,12 +119,13 @@ model Term {
   endDate         DateTime
   status          TermStatus       @default(PLANNING)
   clinicDates     DateTime[]
-  memberships     TermMembership[]
-  roleAssignments RoleAssignment[]
+  memberships      TermMembership[]
+  roleAssignments  RoleAssignment[]
   /// Offboard flags raised for this term.
-  offboardFlags   OffboardFlag[]
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
+  offboardFlags    OffboardFlag[]
+  shiftAssignments ShiftAssignment[]
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
 }
 
 model Department {
@@ -131,6 +139,7 @@ model Department {
   managesDelegations   DepartmentDelegation[] @relation("delegationManager")
   /// Delegations where this department is MANAGED BY another department.
   managedByDelegations DepartmentDelegation[] @relation("delegationManaged")
+  shiftAssignments     ShiftAssignment[]
   createdAt            DateTime               @default(now())
   updatedAt            DateTime               @updatedAt
 }
@@ -160,6 +169,14 @@ model TermMembership {
   selfUpdatedAvailability    String?
   availabilityUpdatedAt      DateTime?
   availabilityAcknowledgedAt DateTime?
+  /// Tier 2: structured self-updated availability (clinic dates the member can
+  /// attend). Presence is signaled by availabilityUpdatedAt; replaces the
+  /// legacy free-text selfUpdatedAvailability, which stays read-only as a note.
+  selfAvailabilityDates      DateTime[]
+  /// Tier 1: director override. Empty-but-set is distinguished from never-set
+  /// by directorAvailabilitySetAt.
+  directorAvailabilityDates  DateTime[]
+  directorAvailabilitySetAt  DateTime?
   person                     Person           @relation(fields: [personId], references: [id])
   term                       Term             @relation(fields: [termId], references: [id])
   department                 Department       @relation(fields: [departmentId], references: [id])
@@ -403,4 +420,32 @@ model EmailLog {
 
   @@index([personId])
   @@index([status, createdAt])
+}
+
+/// One row per person per clinic shift. Med-team tags apply to VOLUNTEER rows;
+/// the legacy invariant holds: a triage/walk-in/CC/remote designee is also on
+/// shift (their row IS the on-shift row, tags are attributes of it).
+model ShiftAssignment {
+  id           String    @id @default(cuid())
+  termId       String
+  departmentId String
+  personId     String
+  clinicDate   DateTime
+  role         ShiftRole
+  triage       Boolean   @default(false)
+  walkin       Boolean   @default(false)
+  cc           Boolean   @default(false)
+  remote       Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  /// Restrict: term deletion is blocked while schedule history references it.
+  term         Term       @relation(fields: [termId], references: [id], onDelete: Restrict)
+  /// Restrict: department deletion is blocked while schedule history references it.
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  /// Cascade: assignments belong to the person and die with them.
+  person       Person     @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@unique([termId, departmentId, clinicDate, personId])
+  @@index([termId, clinicDate])
+  @@index([personId, termId])
 }

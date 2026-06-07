@@ -37,8 +37,11 @@ export function toScheduleEntries(rows: AssignmentRow[]): ScheduleEntry[] {
     shadowIds: string[];
   }>();
 
+  // Callers pass deduplicated rows (the ShiftAssignment unique constraint
+  // guarantees this upstream); duplicate ids would be emitted as-is.
   for (const row of rows) {
     const date = isoDateKey(row.clinicDate);
+    // Key: "dateKey|departmentId". Safe: cuid ids are [a-z0-9] only, no pipes.
     const key = `${date}|${row.departmentId}`;
     if (!map.has(key)) {
       map.set(key, {

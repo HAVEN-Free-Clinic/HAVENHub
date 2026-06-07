@@ -25,6 +25,9 @@ const MONTH_NAMES = [
 /**
  * Formats an ISO date string (YYYY-MM-DD) as a human-readable string,
  * e.g. "2026-07-04" -> "July 4th".
+ *
+ * Precondition: iso must be a valid YYYY-MM-DD string (callers pass
+ * isoDateKey output). Garbage input is undefined behavior, not validated.
  */
 export function displayDate(iso: string): string {
   const [, m, d] = iso.split("-").map(Number);

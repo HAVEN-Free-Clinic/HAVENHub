@@ -8,10 +8,15 @@
 import { isoDateKey } from "./map";
 
 export type AvailabilityTiers = {
+  /** Tier 3 fallback: availability from the member's application. */
   baseline: Date[];
+  /** Member self-update. Only active when selfUpdatedAt is non-null. */
   selfDates: Date[];
+  /** Non-null activates the self tier; null falls through to baseline. */
   selfUpdatedAt: Date | null;
+  /** Director override dates. Only active when directorSetAt is non-null. */
   directorDates: Date[];
+  /** Non-null activates the director tier, overriding self and baseline. */
   directorSetAt: Date | null;
 };
 

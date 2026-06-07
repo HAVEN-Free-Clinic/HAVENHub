@@ -20,6 +20,7 @@ import {
   removeMembership,
   copyRosterFromTerm,
   MembershipNotFoundError,
+  MembershipForeignKeyError,
   RosterCopyError,
 } from "./roster";
 import { TermNotFoundError } from "./terms";
@@ -230,6 +231,20 @@ describe("addMembership", () => {
     expect(after.departmentId).toBe(dept.id);
     expect(after.kind).toBe("VOLUNTEER");
   });
+
+  it("rejects with MembershipForeignKeyError when personId does not exist", async () => {
+    const term = await seedTerm("SU26", "ACTIVE");
+    const dept = await seedDepartment("DEPT");
+
+    await expect(
+      addMembership(ACTOR, {
+        personId: "bogus-person-id-that-does-not-exist",
+        termId: term.id,
+        departmentId: dept.id,
+        kind: "VOLUNTEER",
+      })
+    ).rejects.toBeInstanceOf(MembershipForeignKeyError);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -263,6 +278,20 @@ describe("removeMembership", () => {
     expect(logs).toHaveLength(1);
     expect(logs[0].actorPersonId).toBe(ACTOR);
     expect(logs[0].entityId).toBe(membership.id);
+  });
+
+  it("audit row before.status reflects the actual membership status (not hardcoded)", async () => {
+    const term = await seedTerm("SU26", "ACTIVE");
+    const dept = await seedDepartment("DEPT");
+    const person = await seedPerson("Alice");
+    const membership = await seedMembership({ personId: person.id, termId: term.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" });
+
+    await removeMembership(ACTOR, membership.id);
+
+    const log = await prisma.auditLog.findFirst({ where: { action: "roster.remove" } });
+    expect(log).not.toBeNull();
+    const before = log!.before as Record<string, unknown>;
+    expect(before.status).toBe("ACTIVE");
   });
 
   it("throws MembershipNotFoundError when the membershipId does not exist", async () => {
@@ -369,6 +398,12 @@ describe("copyRosterFromTerm", () => {
       where: { personId: person.id, termId: target.id, departmentId: dept.id, kind: "VOLUNTEER" },
     });
     expect(revived!.status).toBe("ACTIVE");
+
+    // Audit row must record copied: 1
+    const logs = await prisma.auditLog.findMany({ where: { action: "roster.copy" } });
+    expect(logs).toHaveLength(1);
+    const after = logs[0].after as Record<string, unknown>;
+    expect(after.copied).toBe(1);
   });
 
   it("does not copy REMOVED memberships from the source", async () => {
@@ -387,6 +422,18 @@ describe("copyRosterFromTerm", () => {
 
     const targetMemberships = await prisma.termMembership.findMany({ where: { termId: target.id } });
     expect(targetMemberships).toHaveLength(0);
+  });
+
+  it("throws TermNotFoundError when the source term does not exist and writes no audit row", async () => {
+    const target = await seedTerm("FA26", "PLANNING");
+    const auditCountBefore = await prisma.auditLog.count();
+
+    await expect(
+      copyRosterFromTerm(ACTOR, "bogus-source-term-id", target.id, ["VOLUNTEER"])
+    ).rejects.toBeInstanceOf(TermNotFoundError);
+
+    const auditCountAfter = await prisma.auditLog.count();
+    expect(auditCountAfter).toBe(auditCountBefore);
   });
 
   it("throws TermNotFoundError when the target term does not exist", async () => {
@@ -434,7 +481,7 @@ describe("copyRosterFromTerm", () => {
     expect(after.skipped).toBe(1);
   });
 
-  it("writes no audit row when copying from a term with no matching ACTIVE memberships", async () => {
+  it("writes one audit row with 0/0 counts when copying from a term with no matching ACTIVE memberships", async () => {
     const source = await seedTerm("SU26", "ACTIVE");
     const target = await seedTerm("FA26", "PLANNING");
     const auditCountBefore = await prisma.auditLog.count();
@@ -463,6 +510,17 @@ describe("MembershipNotFoundError", () => {
     expect(err.id).toBe("abc-123");
     expect(err.message).toContain("abc-123");
     expect(err.name).toBe("MembershipNotFoundError");
+  });
+});
+
+describe("MembershipForeignKeyError", () => {
+  it("is an instance of Error and carries the field name", () => {
+    const err = new MembershipForeignKeyError("personId");
+    expect(err).toBeInstanceOf(Error);
+    expect(err).toBeInstanceOf(MembershipForeignKeyError);
+    expect(err.field).toBe("personId");
+    expect(err.message).toContain("personId");
+    expect(err.name).toBe("MembershipForeignKeyError");
   });
 });
 

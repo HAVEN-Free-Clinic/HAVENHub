@@ -13,6 +13,7 @@
  */
 
 import type { Department, Person } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { TermNotFoundError } from "./terms";
@@ -32,6 +33,13 @@ export class RosterCopyError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "RosterCopyError";
+  }
+}
+
+export class MembershipForeignKeyError extends Error {
+  constructor(public field: string) {
+    super(`Invalid reference: ${field}`);
+    this.name = "MembershipForeignKeyError";
   }
 }
 
@@ -106,24 +114,34 @@ export async function addMembership(
     kind: "DIRECTOR" | "VOLUNTEER";
   }
 ): Promise<void> {
-  const membership = await prisma.termMembership.upsert({
-    where: {
-      personId_termId_departmentId_kind: {
+  let membership;
+  try {
+    membership = await prisma.termMembership.upsert({
+      where: {
+        personId_termId_departmentId_kind: {
+          personId: input.personId,
+          termId: input.termId,
+          departmentId: input.departmentId,
+          kind: input.kind,
+        },
+      },
+      update: { status: "ACTIVE" },
+      create: {
         personId: input.personId,
         termId: input.termId,
         departmentId: input.departmentId,
         kind: input.kind,
+        status: "ACTIVE",
       },
-    },
-    update: { status: "ACTIVE" },
-    create: {
-      personId: input.personId,
-      termId: input.termId,
-      departmentId: input.departmentId,
-      kind: input.kind,
-      status: "ACTIVE",
-    },
-  });
+    });
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2003") {
+      throw new MembershipForeignKeyError(
+        typeof e.meta?.field_name === "string" ? e.meta.field_name : "unknown"
+      );
+    }
+    throw e;
+  }
 
   await recordAudit({
     actorPersonId,
@@ -171,7 +189,7 @@ export async function removeMembership(
     action: "roster.remove",
     entityType: "TermMembership",
     entityId: membershipId,
-    before: { status: "ACTIVE" },
+    before: { status: membership.status },
     after: { status: "REMOVED" },
   });
 }
@@ -196,6 +214,12 @@ export async function copyRosterFromTerm(
   toTermId: string,
   kinds: Array<"DIRECTOR" | "VOLUNTEER">
 ): Promise<{ copied: number; skipped: number }> {
+  // Validate source term
+  const sourceTerm = await prisma.term.findUnique({ where: { id: fromTermId } });
+  if (!sourceTerm) {
+    throw new TermNotFoundError(fromTermId);
+  }
+
   // Validate target term
   const targetTerm = await prisma.term.findUnique({ where: { id: toTermId } });
   if (!targetTerm) {
@@ -214,22 +238,27 @@ export async function copyRosterFromTerm(
     },
   });
 
+  // Batch-fetch ALL existing target memberships (any status) up front to avoid N per-row queries
+  const existingTargetMemberships = await prisma.termMembership.findMany({
+    where: { termId: toTermId },
+    select: { personId: true, departmentId: true, kind: true, status: true },
+  });
+
+  // Build a lookup Map: "${personId}:${departmentId}:${kind}" -> status
+  const existingMap = new Map<string, string>();
+  for (const m of existingTargetMemberships) {
+    existingMap.set(`${m.personId}:${m.departmentId}:${m.kind}`, m.status);
+  }
+
   let copied = 0;
   let skipped = 0;
 
   for (const src of sourceMemberships) {
-    // Check for existing ACTIVE membership in target for the same person+dept+kind
-    const existing = await prisma.termMembership.findFirst({
-      where: {
-        termId: toTermId,
-        personId: src.personId,
-        departmentId: src.departmentId,
-        kind: src.kind,
-        status: "ACTIVE",
-      },
-    });
+    const key = `${src.personId}:${src.departmentId}:${src.kind}`;
+    const existingStatus = existingMap.get(key);
 
-    if (existing) {
+    // Already ACTIVE in target: skip
+    if (existingStatus === "ACTIVE") {
       skipped++;
       continue;
     }

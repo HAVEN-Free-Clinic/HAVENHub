@@ -5,7 +5,6 @@ import {
   expect,
   it,
   vi,
-  type MockInstance,
 } from "vitest";
 import {
   LogTransport,
@@ -122,15 +121,14 @@ describe("GraphTransport", () => {
 
   beforeEach(() => {
     fetchMock = makeFetchMock();
-    vi.stubGlobal("fetch", fetchMock);
   });
 
   afterEach(() => {
-    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
   it("sends a token request to the correct tenant URL", async () => {
-    const transport = new GraphTransport(graphOpts);
+    const transport = new GraphTransport({ ...graphOpts, fetchImpl: fetchMock as typeof fetch });
     await transport.send(msg);
 
     const [tokenUrl] = fetchMock.mock.calls[0];
@@ -139,7 +137,7 @@ describe("GraphTransport", () => {
   });
 
   it("sends the token request with the correct form body fields", async () => {
-    const transport = new GraphTransport(graphOpts);
+    const transport = new GraphTransport({ ...graphOpts, fetchImpl: fetchMock as typeof fetch });
     await transport.send(msg);
 
     const [, tokenInit] = fetchMock.mock.calls[0] as [string, RequestInit];
@@ -152,16 +150,16 @@ describe("GraphTransport", () => {
   });
 
   it("sends the sendMail request to the correct Graph URL with the sender", async () => {
-    const transport = new GraphTransport(graphOpts);
+    const transport = new GraphTransport({ ...graphOpts, fetchImpl: fetchMock as typeof fetch });
     await transport.send(msg);
 
     const [sendUrl] = fetchMock.mock.calls[1];
-    expect(String(sendUrl)).toContain("noreply@haven.edu");
+    expect(String(sendUrl)).toContain(encodeURIComponent("noreply@haven.edu"));
     expect(String(sendUrl)).toContain("sendMail");
   });
 
   it("sends the correct JSON body to Graph sendMail", async () => {
-    const transport = new GraphTransport(graphOpts);
+    const transport = new GraphTransport({ ...graphOpts, fetchImpl: fetchMock as typeof fetch });
     await transport.send(msg);
 
     const [, sendInit] = fetchMock.mock.calls[1] as [string, RequestInit];
@@ -176,7 +174,7 @@ describe("GraphTransport", () => {
   });
 
   it("includes the Bearer token in the Authorization header", async () => {
-    const transport = new GraphTransport(graphOpts);
+    const transport = new GraphTransport({ ...graphOpts, fetchImpl: fetchMock as typeof fetch });
     await transport.send(msg);
 
     const [, sendInit] = fetchMock.mock.calls[1] as [string, RequestInit];
@@ -185,7 +183,7 @@ describe("GraphTransport", () => {
   });
 
   it("reuses the cached token across two sends (token endpoint called once)", async () => {
-    const transport = new GraphTransport(graphOpts);
+    const transport = new GraphTransport({ ...graphOpts, fetchImpl: fetchMock as typeof fetch });
     await transport.send(msg);
     await transport.send(msg);
 
@@ -199,53 +197,50 @@ describe("GraphTransport", () => {
   it("re-fetches the token after it expires", async () => {
     vi.useFakeTimers();
     try {
-      // Token expires in 2 seconds; cache window is expires_in - 60s.
-      // With expires_in=2 the cache is already considered stale (2 - 60 < 0),
-      // so every send fetches a fresh token.
-      const shortLiveFetch = vi.fn(async (_url: string | Request, _init?: RequestInit) => {
+      // Token expires_in=3600; cache window is (3600-60)*1000 = 3,540,000 ms.
+      let tokenCallCount = 0;
+      const timerFetch = vi.fn(async (_url: string | Request, _init?: RequestInit) => {
         const url = String(_url);
         if (url.includes("oauth2")) {
+          tokenCallCount += 1;
           return new Response(
-            JSON.stringify({ access_token: "tok-short", token_type: "Bearer", expires_in: 2 }),
+            JSON.stringify({ access_token: "tok-timer", token_type: "Bearer", expires_in: 3600 }),
             { status: 200 }
           );
         }
         return new Response("", { status: 202 });
       });
-      vi.stubGlobal("fetch", shortLiveFetch);
 
-      const transport = new GraphTransport(graphOpts);
+      const transport = new GraphTransport({ ...graphOpts, fetchImpl: timerFetch as typeof fetch });
+
+      // First send: fetches the token (tokenCallCount -> 1).
       await transport.send(msg);
+      expect(tokenCallCount).toBe(1);
 
-      // Advance past the expiry window (expires_in - 60s = -58s, already expired).
-      // A second send must re-fetch the token.
-      vi.advanceTimersByTime(5000);
+      // Second send immediately after: token is still valid, no new fetch.
       await transport.send(msg);
+      expect(tokenCallCount).toBe(1);
 
-      const tokenCalls = shortLiveFetch.mock.calls.filter(([url]) =>
-        String(url).includes("oauth2")
-      );
-      expect(tokenCalls.length).toBe(2);
+      // Advance past the cache expiry window (3540 seconds = 3,540,000 ms).
+      vi.advanceTimersByTime((3600 - 60) * 1000 + 1);
+
+      // Third send: token has expired, must re-fetch (tokenCallCount -> 2).
+      await transport.send(msg);
+      expect(tokenCallCount).toBe(2);
     } finally {
       vi.useRealTimers();
     }
   });
 
   it("throws with the HTTP status when the token request fails", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => new Response("Unauthorized", { status: 401 }))
-    );
-    const transport = new GraphTransport(graphOpts);
+    const failFetch = vi.fn(async () => new Response("Unauthorized", { status: 401 }));
+    const transport = new GraphTransport({ ...graphOpts, fetchImpl: failFetch as typeof fetch });
     await expect(transport.send(msg)).rejects.toThrow(/401/);
   });
 
   it("throws with the HTTP status when the sendMail request fails", async () => {
-    vi.stubGlobal(
-      "fetch",
-      makeFetchMock({ sendStatus: 403, sendBody: "Forbidden" })
-    );
-    const transport = new GraphTransport(graphOpts);
+    const failSendFetch = makeFetchMock({ sendStatus: 403, sendBody: "Forbidden" });
+    const transport = new GraphTransport({ ...graphOpts, fetchImpl: failSendFetch as typeof fetch });
     await expect(transport.send(msg)).rejects.toThrow(/403/);
   });
 });

@@ -35,6 +35,8 @@ interface GraphTransportOpts {
   clientId: string;
   clientSecret: string;
   sender: string;
+  /** Injected fetch implementation; defaults to the global fetch. Used in tests. */
+  fetchImpl?: typeof fetch;
 }
 
 interface TokenCache {
@@ -50,10 +52,12 @@ interface TokenCache {
  */
 export class GraphTransport implements EmailTransport {
   private readonly opts: GraphTransportOpts;
+  private readonly fetchImpl: typeof fetch;
   private tokenCache: TokenCache | null = null;
 
   constructor(opts: GraphTransportOpts) {
     this.opts = opts;
+    this.fetchImpl = opts.fetchImpl ?? fetch;
   }
 
   private async acquireToken(): Promise<string> {
@@ -63,7 +67,7 @@ export class GraphTransport implements EmailTransport {
     }
 
     const { tenantId, clientId, clientSecret } = this.opts;
-    const url = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`;
+    const url = `https://login.microsoftonline.com/${encodeURIComponent(tenantId)}/oauth2/v2.0/token`;
 
     const body = new URLSearchParams({
       grant_type: "client_credentials",
@@ -72,7 +76,7 @@ export class GraphTransport implements EmailTransport {
       scope: "https://graph.microsoft.com/.default",
     });
 
-    const res = await fetch(url, {
+    const res = await this.fetchImpl(url, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: body.toString(),
@@ -100,7 +104,7 @@ export class GraphTransport implements EmailTransport {
     const token = await this.acquireToken();
     const { sender } = this.opts;
 
-    const url = `https://graph.microsoft.com/v1.0/users/${sender}/sendMail`;
+    const url = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(sender)}/sendMail`;
 
     const payload = {
       message: {
@@ -120,7 +124,7 @@ export class GraphTransport implements EmailTransport {
       saveToSentItems: true,
     };
 
-    const res = await fetch(url, {
+    const res = await this.fetchImpl(url, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,

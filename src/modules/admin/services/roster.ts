@@ -202,18 +202,27 @@ export async function removeMembership(
  * membership in the target. Revives REMOVED memberships in the target (counts
  * as copied). Does not copy REMOVED source memberships.
  *
+ * When departmentIds is provided and non-empty, only memberships from those
+ * departments are considered. When departmentIds is undefined, all departments
+ * are copied (existing behavior). When departmentIds is an empty array, throws
+ * RosterCopyError("select at least one department").
+ *
  * Refuses to copy into an ARCHIVED target term (throws RosterCopyError).
  * Throws TermNotFoundError when the target term does not exist.
  *
  * Writes exactly one audit row `roster.copy` with fromTermId, toTermId, kinds,
- * copied, and skipped counts.
+ * departments, copied, and skipped counts.
  */
 export async function copyRosterFromTerm(
   actorPersonId: string,
   fromTermId: string,
   toTermId: string,
-  kinds: Array<"DIRECTOR" | "VOLUNTEER">
+  kinds: Array<"DIRECTOR" | "VOLUNTEER">,
+  departmentIds?: string[]
 ): Promise<{ copied: number; skipped: number }> {
+  if (departmentIds !== undefined && departmentIds.length === 0) {
+    throw new RosterCopyError("select at least one department");
+  }
   // Validate source term
   const sourceTerm = await prisma.term.findUnique({ where: { id: fromTermId } });
   if (!sourceTerm) {
@@ -229,12 +238,13 @@ export async function copyRosterFromTerm(
     throw new RosterCopyError("target term is archived");
   }
 
-  // Load ACTIVE source memberships filtered to the requested kinds
+  // Load ACTIVE source memberships filtered to the requested kinds (and optionally departments)
   const sourceMemberships = await prisma.termMembership.findMany({
     where: {
       termId: fromTermId,
       status: "ACTIVE",
       kind: { in: kinds },
+      ...(departmentIds !== undefined ? { departmentId: { in: departmentIds } } : {}),
     },
   });
 
@@ -295,6 +305,7 @@ export async function copyRosterFromTerm(
       fromTermId,
       toTermId,
       kinds,
+      departments: departmentIds !== undefined ? departmentIds.length : "all",
       copied,
       skipped,
     },

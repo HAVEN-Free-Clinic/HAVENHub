@@ -499,6 +499,143 @@ describe("copyRosterFromTerm", () => {
 });
 
 // ---------------------------------------------------------------------------
+// copyRosterFromTerm -- department-selective (new behavior)
+// ---------------------------------------------------------------------------
+
+describe("copyRosterFromTerm -- departmentIds filtering", () => {
+  beforeEach(resetDb);
+
+  it("copies only members from the selected department when departmentIds is provided", async () => {
+    const source = await seedTerm("SU26", "ACTIVE");
+    const target = await seedTerm("FA26", "PLANNING");
+    const deptA = await seedDepartment("AAAA");
+    const deptB = await seedDepartment("BBBB");
+    const personA = await seedPerson("Alice");
+    const personB = await seedPerson("Bob");
+
+    await seedMembership({ personId: personA.id, termId: source.id, departmentId: deptA.id, kind: "VOLUNTEER" });
+    await seedMembership({ personId: personB.id, termId: source.id, departmentId: deptB.id, kind: "VOLUNTEER" });
+
+    const result = await copyRosterFromTerm(ACTOR, source.id, target.id, ["VOLUNTEER"], [deptA.id]);
+
+    // Only Alice (deptA) should be copied; Bob (deptB) is filtered out entirely, not skipped
+    expect(result.copied).toBe(1);
+    expect(result.skipped).toBe(0);
+
+    const targetMemberships = await prisma.termMembership.findMany({ where: { termId: target.id, status: "ACTIVE" } });
+    expect(targetMemberships).toHaveLength(1);
+    expect(targetMemberships[0].personId).toBe(personA.id);
+    expect(targetMemberships[0].departmentId).toBe(deptA.id);
+  });
+
+  it("filtered-out departments are not counted as skipped", async () => {
+    const source = await seedTerm("SU26", "ACTIVE");
+    const target = await seedTerm("FA26", "PLANNING");
+    const deptA = await seedDepartment("AAAA");
+    const deptB = await seedDepartment("BBBB");
+    const personA = await seedPerson("Alice");
+    const personB = await seedPerson("Bob");
+
+    await seedMembership({ personId: personA.id, termId: source.id, departmentId: deptA.id, kind: "DIRECTOR" });
+    await seedMembership({ personId: personB.id, termId: source.id, departmentId: deptB.id, kind: "DIRECTOR" });
+
+    const result = await copyRosterFromTerm(ACTOR, source.id, target.id, ["DIRECTOR"], [deptA.id]);
+
+    expect(result.copied).toBe(1);
+    expect(result.skipped).toBe(0);
+  });
+
+  it("copies all departments when departmentIds is undefined (existing behavior preserved)", async () => {
+    const source = await seedTerm("SU26", "ACTIVE");
+    const target = await seedTerm("FA26", "PLANNING");
+    const deptA = await seedDepartment("AAAA");
+    const deptB = await seedDepartment("BBBB");
+    const personA = await seedPerson("Alice");
+    const personB = await seedPerson("Bob");
+
+    await seedMembership({ personId: personA.id, termId: source.id, departmentId: deptA.id, kind: "VOLUNTEER" });
+    await seedMembership({ personId: personB.id, termId: source.id, departmentId: deptB.id, kind: "VOLUNTEER" });
+
+    const result = await copyRosterFromTerm(ACTOR, source.id, target.id, ["VOLUNTEER"], undefined);
+
+    expect(result.copied).toBe(2);
+    expect(result.skipped).toBe(0);
+  });
+
+  it("throws RosterCopyError when departmentIds is an empty array", async () => {
+    const source = await seedTerm("SU26", "ACTIVE");
+    const target = await seedTerm("FA26", "PLANNING");
+
+    await expect(
+      copyRosterFromTerm(ACTOR, source.id, target.id, ["VOLUNTEER"], [])
+    ).rejects.toBeInstanceOf(RosterCopyError);
+
+    await expect(
+      copyRosterFromTerm(ACTOR, source.id, target.id, ["VOLUNTEER"], [])
+    ).rejects.toThrow("select at least one department");
+  });
+
+  it("audit row departments field is the count when departmentIds provided", async () => {
+    const source = await seedTerm("SU26", "ACTIVE");
+    const target = await seedTerm("FA26", "PLANNING");
+    const deptA = await seedDepartment("AAAA");
+    const deptB = await seedDepartment("BBBB");
+    const person = await seedPerson("Alice");
+
+    await seedMembership({ personId: person.id, termId: source.id, departmentId: deptA.id, kind: "VOLUNTEER" });
+
+    await copyRosterFromTerm(ACTOR, source.id, target.id, ["VOLUNTEER"], [deptA.id, deptB.id]);
+
+    const logs = await prisma.auditLog.findMany({ where: { action: "roster.copy" } });
+    expect(logs).toHaveLength(1);
+    const after = logs[0].after as Record<string, unknown>;
+    expect(after.departments).toBe(2);
+  });
+
+  it("audit row departments field is 'all' when departmentIds is undefined", async () => {
+    const source = await seedTerm("SU26", "ACTIVE");
+    const target = await seedTerm("FA26", "PLANNING");
+    const dept = await seedDepartment("AAAA");
+    const person = await seedPerson("Alice");
+
+    await seedMembership({ personId: person.id, termId: source.id, departmentId: dept.id, kind: "VOLUNTEER" });
+
+    await copyRosterFromTerm(ACTOR, source.id, target.id, ["VOLUNTEER"], undefined);
+
+    const logs = await prisma.auditLog.findMany({ where: { action: "roster.copy" } });
+    expect(logs).toHaveLength(1);
+    const after = logs[0].after as Record<string, unknown>;
+    expect(after.departments).toBe("all");
+  });
+
+  it("selecting multiple specific departments copies members from all of them", async () => {
+    const source = await seedTerm("SU26", "ACTIVE");
+    const target = await seedTerm("FA26", "PLANNING");
+    const deptA = await seedDepartment("AAAA");
+    const deptB = await seedDepartment("BBBB");
+    const deptC = await seedDepartment("CCCC");
+    const personA = await seedPerson("Alice");
+    const personB = await seedPerson("Bob");
+    const personC = await seedPerson("Carol");
+
+    await seedMembership({ personId: personA.id, termId: source.id, departmentId: deptA.id, kind: "VOLUNTEER" });
+    await seedMembership({ personId: personB.id, termId: source.id, departmentId: deptB.id, kind: "VOLUNTEER" });
+    await seedMembership({ personId: personC.id, termId: source.id, departmentId: deptC.id, kind: "VOLUNTEER" });
+
+    const result = await copyRosterFromTerm(ACTOR, source.id, target.id, ["VOLUNTEER"], [deptA.id, deptB.id]);
+
+    expect(result.copied).toBe(2);
+    expect(result.skipped).toBe(0);
+
+    const targetMemberships = await prisma.termMembership.findMany({ where: { termId: target.id, status: "ACTIVE" } });
+    const copiedDeptIds = targetMemberships.map((m) => m.departmentId);
+    expect(copiedDeptIds).toContain(deptA.id);
+    expect(copiedDeptIds).toContain(deptB.id);
+    expect(copiedDeptIds).not.toContain(deptC.id);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Typed error constructors
 // ---------------------------------------------------------------------------
 

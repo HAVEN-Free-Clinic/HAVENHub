@@ -206,6 +206,8 @@ export async function RosterPanel({
     const actorSession = await requirePermission("admin.manage_terms");
     const fromTermId = formData.get("fromTermId") as string | null;
     const kindsRaw = formData.getAll("kinds") as string[];
+    const allDepartments = formData.get("allDepartments") === "on";
+    const departmentIdsRaw = formData.getAll("departmentIds") as string[];
 
     if (!fromTermId) {
       redirect(
@@ -223,9 +225,18 @@ export async function RosterPanel({
       );
     }
 
+    // Resolve department filter: undefined means all, array means specific selection
+    const departmentIds: string[] | undefined = allDepartments ? undefined : departmentIdsRaw;
+
+    if (!allDepartments && departmentIdsRaw.length === 0) {
+      redirect(
+        `${termDetailHref}?rosterError=${encodeURIComponent("Select at least one department (or check All departments).")}`
+      );
+    }
+
     let result: { copied: number; skipped: number };
     try {
-      result = await copyRosterFromTerm(actorSession.personId, fromTermId, term.id, kinds);
+      result = await copyRosterFromTerm(actorSession.personId, fromTermId, term.id, kinds, departmentIds);
     } catch (err) {
       if (err instanceof RosterCopyError || err instanceof TermNotFoundError) {
         redirect(
@@ -468,6 +479,34 @@ export async function RosterPanel({
                   </div>
                 </div>
               </div>
+
+              {/* Departments fieldset */}
+              <fieldset className="space-y-2">
+                <legend className="text-xs font-medium text-slate-500">Departments</legend>
+                <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    name="allDepartments"
+                    className="rounded border-slate-300"
+                  />
+                  All departments
+                </label>
+                <div className="grid grid-cols-3 gap-x-4 gap-y-1 sm:grid-cols-4">
+                  {allActiveDepts.map((dept) => (
+                    <label key={dept.id} className="flex items-center gap-1.5 text-sm text-slate-700">
+                      <input
+                        type="checkbox"
+                        name="departmentIds"
+                        value={dept.id}
+                        className="rounded border-slate-300"
+                      />
+                      {dept.code}
+                    </label>
+                  ))}
+                </div>
+                <p className="text-xs text-slate-400">Check All departments, or pick specific ones.</p>
+              </fieldset>
+
               <ConfirmButton label="Copy roster" confirmLabel="Copy roster from selected term? Confirm?" />
             </form>
           )}

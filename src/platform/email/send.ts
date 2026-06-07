@@ -41,6 +41,10 @@ export async function queueEmail(db: Db, input: QueueEmailInput): Promise<EmailL
  *
  * Returns the number of rows attempted this pass, whether they succeeded or
  * not. The worker loops until this returns 0.
+ *
+ * Single-worker deployment assumed: no SELECT FOR UPDATE SKIP LOCKED, so two
+ * concurrent drains would double-send. Same assumption as the mirror outbox
+ * drain in mirror.ts.
  */
 export async function drainEmailQueue(transport: EmailTransport): Promise<number> {
   const rows = await prisma.emailLog.findMany({
@@ -53,6 +57,8 @@ export async function drainEmailQueue(transport: EmailTransport): Promise<number
   for (const row of rows) {
     try {
       await transport.send({ to: row.toEmail, subject: row.subject, html: row.html });
+      // At-least-once: a crash between send and this update re-sends the row
+      // on the next drain pass.
       await prisma.emailLog.update({
         where: { id: row.id },
         data: { status: "SENT", sentAt: new Date() },

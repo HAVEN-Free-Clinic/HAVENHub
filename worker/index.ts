@@ -79,9 +79,12 @@ async function main() {
   // Email send drain: loops until the queue is empty on each trigger.
   await boss.work(EMAIL_QUEUE, async () => {
     let processed: number;
+    let total = 0;
     do {
       processed = await drainEmailQueue(emailTransport);
+      total += processed;
     } while (processed > 0);
+    if (total > 0) console.log(`[worker] email drain processed ${total} message(s)`);
   });
 
   const beat = async () => {

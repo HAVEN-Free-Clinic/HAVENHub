@@ -5,7 +5,7 @@
  * resetDb() truncates EmailLog (and all other tables) between tests.
  */
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import { queueEmail, drainEmailQueue } from "./send";
@@ -193,5 +193,38 @@ describe("drainEmailQueue", () => {
     await drainEmailQueue(transport);
 
     expect(transport.calls).toEqual(["first@example.com", "second@example.com"]);
+  });
+
+  it("failure for one row does not prevent other rows from being sent", async () => {
+    // Queue rows A, B, C with distinct addresses.
+    await queueEmail(prisma, { ...BASE_EMAIL, to: "a@example.com" });
+    await queueEmail(prisma, { ...BASE_EMAIL, to: "b@example.com" });
+    await queueEmail(prisma, { ...BASE_EMAIL, to: "c@example.com" });
+
+    // Transport that fails only for A, succeeds for everyone else.
+    const transport = failFirstTransport("a@example.com");
+    const processed = await drainEmailQueue(transport);
+
+    // All three rows were attempted.
+    expect(processed).toBe(3);
+    expect(transport.calls).toHaveLength(3);
+    expect(transport.calls).toContain("a@example.com");
+    expect(transport.calls).toContain("b@example.com");
+    expect(transport.calls).toContain("c@example.com");
+
+    // B and C are SENT.
+    const rowB = await prisma.emailLog.findFirstOrThrow({ where: { toEmail: "b@example.com" } });
+    expect(rowB.status).toBe("SENT");
+    expect(rowB.sentAt).not.toBeNull();
+
+    const rowC = await prisma.emailLog.findFirstOrThrow({ where: { toEmail: "c@example.com" } });
+    expect(rowC.status).toBe("SENT");
+    expect(rowC.sentAt).not.toBeNull();
+
+    // A is still QUEUED with attempts=1 and lastError set.
+    const rowA = await prisma.emailLog.findFirstOrThrow({ where: { toEmail: "a@example.com" } });
+    expect(rowA.status).toBe("QUEUED");
+    expect(rowA.attempts).toBe(1);
+    expect(rowA.lastError).toBe("first fails");
   });
 });

@@ -17,12 +17,21 @@
  *   - Audits compliance.verify with { certId, ownerPersonId }.
  *   - Re-verify updates the stamp.
  *   - Throws CertificateNotFoundError when cert does not exist.
+ *   - Throws ComplianceForbiddenError when actor cannot view the certificate
+ *     (cross-dept director: rejects, cert stays unverified, no audit row).
+ *   - manage_compliance holder CAN verify cross-dept certificates.
+ *   - Same-dept director CAN verify certificates of their department members.
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
-import { departmentCompliance, verifyCertificate, CertificateNotFoundError } from "./compliance";
+import {
+  departmentCompliance,
+  verifyCertificate,
+  CertificateNotFoundError,
+  ComplianceForbiddenError,
+} from "./compliance";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -93,6 +102,17 @@ function daysFromNow(n: number): Date {
 
 function noon(year: number, month: number, day: number): Date {
   return new Date(Date.UTC(year, month - 1, day, 12, 0, 0, 0));
+}
+
+async function grantPermission(personId: string, permission: string) {
+  const role = await prisma.role.create({
+    data: {
+      name: `Role-${permission}-${Date.now()}`,
+      isSystem: false,
+      grants: { create: [{ permission }] },
+    },
+  });
+  await prisma.roleAssignment.create({ data: { roleId: role.id, personId, termId: null } });
 }
 
 // ---------------------------------------------------------------------------
@@ -364,6 +384,7 @@ describe("departmentCompliance", () => {
 describe("verifyCertificate", () => {
   it("stamps verifiedById and verifiedAt on the certificate", async () => {
     const actor = await createPerson("Director", "dir001");
+    await grantPermission(actor.id, "volunteers.manage_compliance");
     const owner = await createPerson("Volunteer", "vol001");
     const cert = await createCert(owner.id, noon(2025, 6, 1));
 
@@ -382,6 +403,7 @@ describe("verifyCertificate", () => {
 
   it("creates an audit log entry with compliance.verify action", async () => {
     const actor = await createPerson("Director", "dir001");
+    await grantPermission(actor.id, "volunteers.manage_compliance");
     const owner = await createPerson("Volunteer", "vol001");
     const cert = await createCert(owner.id, noon(2025, 6, 1));
 
@@ -400,7 +422,9 @@ describe("verifyCertificate", () => {
 
   it("re-verify updates the stamp rather than failing", async () => {
     const actor1 = await createPerson("Director1", "dir001");
+    await grantPermission(actor1.id, "volunteers.manage_compliance");
     const actor2 = await createPerson("Director2", "dir002");
+    await grantPermission(actor2.id, "volunteers.manage_compliance");
     const owner = await createPerson("Volunteer", "vol001");
     const cert = await createCert(owner.id, noon(2025, 6, 1));
 
@@ -419,6 +443,7 @@ describe("verifyCertificate", () => {
   });
 
   it("throws CertificateNotFoundError when cert does not exist", async () => {
+    // The existence check fires before the scope check, so no permissions needed.
     const actor = await createPerson("Director", "dir001");
 
     await expect(verifyCertificate(actor.id, "nonexistent-id")).rejects.toBeInstanceOf(
@@ -436,5 +461,84 @@ describe("verifyCertificate", () => {
       expect(err instanceof CertificateNotFoundError).toBe(true);
       expect((err as CertificateNotFoundError).name).toBe("CertificateNotFoundError");
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// verifyCertificate - scope enforcement (IDOR fix)
+// ---------------------------------------------------------------------------
+
+describe("verifyCertificate scope enforcement", () => {
+  it("throws ComplianceForbiddenError when a director from a different department tries to verify", async () => {
+    // Set up two departments; actor directs deptA, owner is only in deptB.
+    const term = await createTerm();
+    const deptA = await createDepartment("ITCM");
+    const deptB = await createDepartment("SRR");
+
+    const actor = await createPerson("DirA", "dira01");
+    const owner = await createPerson("VolB", "volb01");
+
+    // actor has volunteers.view and is ACTIVE DIRECTOR in deptA only
+    await grantPermission(actor.id, "volunteers.view");
+    await createMembership(actor.id, term.id, deptA.id, "DIRECTOR");
+    // owner is only a volunteer in deptB (not in actor's department)
+    await createMembership(owner.id, term.id, deptB.id, "VOLUNTEER");
+
+    const cert = await createCert(owner.id, noon(2025, 6, 1));
+
+    // Must reject with ComplianceForbiddenError
+    await expect(verifyCertificate(actor.id, cert.id)).rejects.toBeInstanceOf(
+      ComplianceForbiddenError
+    );
+
+    // Cert must remain unverified
+    const unchanged = await prisma.hipaaCertificate.findUniqueOrThrow({ where: { id: cert.id } });
+    expect(unchanged.verifiedById).toBeNull();
+    expect(unchanged.verifiedAt).toBeNull();
+
+    // No audit row must have been written
+    const auditRow = await prisma.auditLog.findFirst({
+      where: { action: "compliance.verify", entityId: cert.id },
+    });
+    expect(auditRow).toBeNull();
+  });
+
+  it("allows a manage_compliance holder to verify a certificate in a department they do not direct", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("SRR");
+
+    const actor = await createPerson("Compliance Manager", "cmgr01");
+    const owner = await createPerson("VolSRR", "vsrr01");
+
+    // actor has manage_compliance but is NOT a director or member of dept
+    await grantPermission(actor.id, "volunteers.manage_compliance");
+    await createMembership(owner.id, term.id, dept.id, "VOLUNTEER");
+
+    const cert = await createCert(owner.id, noon(2025, 6, 1));
+
+    // Must succeed without throwing
+    await expect(verifyCertificate(actor.id, cert.id)).resolves.toBeUndefined();
+
+    const updated = await prisma.hipaaCertificate.findUniqueOrThrow({ where: { id: cert.id } });
+    expect(updated.verifiedById).toBe(actor.id);
+  });
+
+  it("allows a same-department director to verify a member's certificate", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("ITCM");
+
+    const actor = await createPerson("DirITCM", "ditcm01");
+    const owner = await createPerson("VolITCM", "vitcm01");
+
+    await grantPermission(actor.id, "volunteers.view");
+    await createMembership(actor.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(owner.id, term.id, dept.id, "VOLUNTEER");
+
+    const cert = await createCert(owner.id, noon(2025, 6, 1));
+
+    await expect(verifyCertificate(actor.id, cert.id)).resolves.toBeUndefined();
+
+    const updated = await prisma.hipaaCertificate.findUniqueOrThrow({ where: { id: cert.id } });
+    expect(updated.verifiedById).toBe(actor.id);
   });
 });

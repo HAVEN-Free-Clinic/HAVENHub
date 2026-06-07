@@ -11,15 +11,23 @@ import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { complianceStatus } from "@/platform/compliance/rules";
 import type { ComplianceStatus } from "@/platform/compliance/rules";
+import { canViewCertificate } from "@/platform/compliance/access";
 
 // ---------------------------------------------------------------------------
-// Typed error
+// Typed errors
 // ---------------------------------------------------------------------------
 
 export class CertificateNotFoundError extends Error {
   constructor(certId: string) {
     super(`Certificate not found: ${certId}`);
     this.name = "CertificateNotFoundError";
+  }
+}
+
+export class ComplianceForbiddenError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ComplianceForbiddenError";
   }
 }
 
@@ -219,6 +227,16 @@ export async function verifyCertificate(
 ): Promise<void> {
   const cert = await prisma.hipaaCertificate.findUnique({ where: { id: certId } });
   if (!cert) throw new CertificateNotFoundError(certId);
+
+  // The mutation scope must match the read scope: actors may only verify
+  // certificates they are also permitted to view (self, manage_compliance, or
+  // director of a department the certificate owner belongs to in the active term).
+  const allowed = await canViewCertificate(actorPersonId, cert.personId);
+  if (!allowed) {
+    throw new ComplianceForbiddenError(
+      "You can only verify certificates for members of your departments."
+    );
+  }
 
   const now = new Date();
 

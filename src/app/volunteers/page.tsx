@@ -7,12 +7,18 @@ import { ConfirmButton } from "@/platform/ui/confirm-button";
 import {
   departmentCompliance,
   verifyCertificate,
+  ComplianceForbiddenError,
 } from "@/modules/volunteers/services/compliance";
 import type { ComplianceStatus } from "@/platform/compliance/rules";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 
 // requireModuleAccess("volunteers") is already enforced by the layout.
 // We additionally require the same permission here in the server action for defense in depth.
+
+type PageProps = {
+  searchParams: Promise<{ error?: string }>;
+};
 
 // ---------------------------------------------------------------------------
 // Status badge helper
@@ -68,18 +74,31 @@ function CountChip({ label, count, tone }: CountChipProps) {
 // Page
 // ---------------------------------------------------------------------------
 
-export default async function VolunteersPage() {
+export default async function VolunteersPage({ searchParams }: PageProps) {
   const viewer = await requirePermission("volunteers.view");
+  const sp = await searchParams;
+  const errorMessage = sp.error ? decodeURIComponent(sp.error) : null;
 
   const departments = await departmentCompliance(viewer.personId);
 
-  // Server action: verify a certificate
+  // Server action: verify a certificate.
+  // The service enforces scope (mutation scope matches read scope), so a
+  // ComplianceForbiddenError here means the actor crafted an out-of-scope certId.
   async function verifyAction(formData: FormData) {
     "use server";
     const actor = await requirePermission("volunteers.view");
     const certId = formData.get("certId") as string;
     if (!certId) return;
-    await verifyCertificate(actor.personId, certId);
+    try {
+      await verifyCertificate(actor.personId, certId);
+    } catch (err) {
+      if (err instanceof ComplianceForbiddenError) {
+        redirect(
+          `/volunteers?error=${encodeURIComponent(err.message)}`
+        );
+      }
+      throw err;
+    }
     revalidatePath("/volunteers");
   }
 
@@ -111,6 +130,15 @@ export default async function VolunteersPage() {
         title="Compliance"
         description="HIPAA compliance status for your departments"
       />
+
+      {errorMessage && (
+        <p
+          role="alert"
+          className="mt-4 rounded-md border border-critical/20 bg-red-50 px-3 py-2 text-sm text-critical"
+        >
+          {errorMessage}
+        </p>
+      )}
 
       <div className="mt-8 flex flex-col gap-10">
         {departments.map(({ department, members, counts }) => {

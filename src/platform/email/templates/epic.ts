@@ -43,10 +43,6 @@ function p(text: string): string {
   return `<p>${text}</p>`;
 }
 
-function li(text: string): string {
-  return `<li>${text}</li>`;
-}
-
 // ---------------------------------------------------------------------------
 // epicOnboardingEmail
 // ---------------------------------------------------------------------------

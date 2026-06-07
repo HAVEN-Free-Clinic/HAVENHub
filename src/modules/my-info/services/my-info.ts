@@ -51,12 +51,42 @@ export type MyInfoInput = {
 };
 
 // ---------------------------------------------------------------------------
+// Upload parsing
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract and validate the "certificate" File entry from a FormData object.
+ *
+ * Returns null when:
+ *   - the "certificate" field is absent or not a File instance, or
+ *   - the file is empty (size === 0).
+ *
+ * The caller (page action) is responsible for redirecting on null.
+ * Validation of mime type, extension, and size is handled by saveCertificate.
+ */
+export function parseCertificateUpload(formData: FormData): {
+  name: string;
+  type: string;
+  size: number;
+  file: File;
+} | null {
+  const entry = formData.get("certificate");
+  if (!(entry instanceof File)) return null;
+  if (entry.size === 0) return null;
+  return { name: entry.name, type: entry.type, size: entry.size, file: entry };
+}
+
+// ---------------------------------------------------------------------------
 // Queries
 // ---------------------------------------------------------------------------
 
 /**
- * Return the person, their ACTIVE memberships in the current ACTIVE term
- * (with term + department), and their latest HIPAA certificate.
+ * Return the person, the active term (or null), their ACTIVE memberships in
+ * the current ACTIVE term (with term + department), and their latest HIPAA
+ * certificate.
+ *
+ * The active term is returned directly so the page does not need a second
+ * query for the AppShell term label.
  */
 export async function getMyInfo(personId: string) {
   const [person, activeTerm] = await Promise.all([
@@ -78,12 +108,7 @@ export async function getMyInfo(personId: string) {
       })
     : [];
 
-  const latestCertificate = await prisma.hipaaCertificate.findFirst({
-    where: { personId },
-    orderBy: { uploadedAt: "desc" },
-  });
-
-  return { person, memberships, latestCertificate };
+  return { person, activeTerm, memberships };
 }
 
 export async function listMyCertificates(personId: string): Promise<HipaaCertificate[]> {

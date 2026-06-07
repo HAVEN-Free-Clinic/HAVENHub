@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 import { requireModuleAccess } from "@/platform/auth/session";
-import { prisma } from "@/platform/db";
 import { AppShell } from "@/platform/ui/app-shell";
 import { PageHeader } from "@/platform/ui/page-header";
 import {
@@ -9,6 +8,7 @@ import {
   updateMyInfo,
   withdrawFromTerm,
   saveCertificate,
+  parseCertificateUpload,
   CertificateValidationError,
 } from "@/modules/my-info/services/my-info";
 import { PersonConflictError } from "@/platform/people";
@@ -31,14 +31,12 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
   const sp = await searchParams;
 
   // Fetch all data in parallel where possible.
-  const [myInfo, activeTerm, certificates] = await Promise.all([
+  // getMyInfo already loads the active term; reuse it to avoid a second query.
+  const [myInfo, certificates] = await Promise.all([
     getMyInfo(person.personId),
-    prisma.term.findFirst({
-      where: { status: "ACTIVE" },
-      orderBy: { startDate: "desc" },
-    }),
     listMyCertificates(person.personId),
   ]);
+  const { activeTerm } = myInfo;
 
   // Server actions
   async function updateAction(formData: FormData) {
@@ -73,16 +71,16 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
   async function uploadAction(formData: FormData) {
     "use server";
     const session = await requireModuleAccess("my-info");
-    const file = formData.get("certificate") as File | null;
-    if (!file || file.size === 0) {
+    const parsed = parseCertificateUpload(formData);
+    if (!parsed) {
       redirect("/my-info?certError=Choose+a+PDF+file.");
     }
     try {
-      const bytes = Buffer.from(await file!.arrayBuffer());
+      const bytes = Buffer.from(await parsed.file.arrayBuffer());
       await saveCertificate(session.personId, {
-        name: file!.name,
-        type: file!.type,
-        size: file!.size,
+        name: parsed.name,
+        type: parsed.type,
+        size: parsed.size,
         bytes,
       });
     } catch (err) {

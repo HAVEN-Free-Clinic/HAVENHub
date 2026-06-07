@@ -14,6 +14,7 @@ const enabledTarget: MirrorTarget = {
   baseId: BASE_ID,
   peopleTableId: TABLE_ID,
   fieldMap: parseFieldMap(undefined),
+  hipaaFieldId: null,
 };
 
 const disabledTarget: MirrorTarget = {
@@ -21,6 +22,7 @@ const disabledTarget: MirrorTarget = {
   baseId: BASE_ID,
   peopleTableId: TABLE_ID,
   fieldMap: parseFieldMap(undefined),
+  hipaaFieldId: null,
 };
 
 /** Create a fake io object with vi.fn() for listAll, patchRecord, createRecord. */

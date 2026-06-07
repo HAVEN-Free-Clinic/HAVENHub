@@ -1,6 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import path from "node:path";
+import fs from "node:fs/promises";
+import os from "node:os";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
+import { config } from "@/platform/config";
 import { ALL_PEOPLE_FIELDS, ALL_PEOPLE_FIELDS as PROD_FIELDS } from "./fields";
 import { drainOutbox, type MirrorIo, type MirrorTarget } from "./mirror";
 import { parseFieldMap } from "./mirror-map";
@@ -14,6 +18,7 @@ function fakeIo(listAllImpl?: MirrorIo["listAll"]): MirrorIo {
     patchRecord: vi.fn().mockResolvedValue({}),
     createRecord: vi.fn().mockResolvedValue({ id: "recNew" }),
     listAll: vi.fn(listAllImpl ?? (async () => [])),
+    uploadAttachment: vi.fn().mockResolvedValue({}),
   };
 }
 
@@ -27,6 +32,7 @@ const enabledTarget: MirrorTarget = {
   baseId: BASE_ID,
   peopleTableId: TABLE_ID,
   fieldMap: parseFieldMap(undefined),
+  hipaaFieldId: null,
 };
 
 const disabledTarget: MirrorTarget = {
@@ -34,6 +40,7 @@ const disabledTarget: MirrorTarget = {
   baseId: BASE_ID,
   peopleTableId: TABLE_ID,
   fieldMap: parseFieldMap(undefined),
+  hipaaFieldId: null,
 };
 
 /** Create a person and return it. */
@@ -129,6 +136,7 @@ describe("drainOutbox", () => {
       patchRecord: vi.fn().mockRejectedValue(new Error("network error")),
       createRecord: vi.fn().mockRejectedValue(new Error("network error")),
       listAll: vi.fn().mockResolvedValue([]),
+      uploadAttachment: vi.fn().mockResolvedValue({}),
     };
 
     // First call: attempts should become 1, status still PENDING, processedAt null
@@ -292,8 +300,8 @@ describe("drainOutbox", () => {
     expect(io.patchRecord).not.toHaveBeenCalled();
   });
 
-  it("skips non-Person outbox rows without marking them FAILED (Task 5 guard)", async () => {
-    // Create a HipaaCertificate outbox row (simulated: no cert row needed, just the outbox entry)
+  it("HipaaCertificate row: marks FAILED when the cert entity no longer exists in the DB", async () => {
+    // The cert row is missing from hipaaCertificate (only the outbox entry exists).
     const certRow = await prisma.outbox.create({
       data: {
         entityType: "HipaaCertificate",
@@ -303,16 +311,18 @@ describe("drainOutbox", () => {
         status: "PENDING",
       },
     });
-    const writer = fakeWriter();
+    const writer = fakeIo();
 
     const result = await drainOutbox(writer, enabledTarget);
 
     expect(result).toBe(0);
     expect(writer.patchRecord).not.toHaveBeenCalled();
     expect(writer.createRecord).not.toHaveBeenCalled();
+    expect(writer.uploadAttachment).not.toHaveBeenCalled();
 
-    const unchanged = await prisma.outbox.findUniqueOrThrow({ where: { id: certRow.id } });
-    expect(unchanged.status).toBe("PENDING");
+    const updated = await prisma.outbox.findUniqueOrThrow({ where: { id: certRow.id } });
+    expect(updated.status).toBe("FAILED");
+    expect(updated.lastError).toContain("entity no longer exists");
   });
 
   it("uses custom fieldMap keys in the payload sent to patchRecord", async () => {
@@ -330,6 +340,7 @@ describe("drainOutbox", () => {
       baseId: BASE_ID,
       peopleTableId: TABLE_ID,
       fieldMap: sandboxMap,
+      hipaaFieldId: null,
     };
 
     const person = await createPerson({ name: "Sandbox Person" });
@@ -347,5 +358,213 @@ describe("drainOutbox", () => {
     for (const prodId of Object.values(PROD_FIELDS)) {
       expect(calledFields).not.toHaveProperty(prodId);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// HipaaCertificate outbox routing (Task 5)
+// ---------------------------------------------------------------------------
+
+describe("drainOutbox HipaaCertificate routing", () => {
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    await resetDb();
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "havenhub-mirror-test-"));
+    // Point config at the temp dir so drainHipaaRow reads files from there.
+    (config as Record<string, unknown>).UPLOAD_DIR = tmpDir;
+  });
+
+  afterEach(async () => {
+    // Restore UPLOAD_DIR to whatever vitest.setup.ts configured.
+    (config as Record<string, unknown>).UPLOAD_DIR = process.env.UPLOAD_DIR ?? "./uploads";
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  const HIPAA_FIELD_ID = "fldHipaaAttachXXX";
+
+  const enabledWithHipaa: MirrorTarget = {
+    enabled: true,
+    baseId: BASE_ID,
+    peopleTableId: TABLE_ID,
+    fieldMap: parseFieldMap(undefined),
+    hipaaFieldId: HIPAA_FIELD_ID,
+  };
+
+  /** Create a person, a MirrorRecord, a HipaaCertificate DB row, and a real file on disk. */
+  async function setupCert(tmpDirectory: string) {
+    const person = await prisma.person.create({ data: { name: "Cert Person" } });
+    await prisma.mirrorRecord.create({
+      data: {
+        entityType: "Person",
+        entityId: person.id,
+        baseId: BASE_ID,
+        recordId: "recPersonAirtable1",
+      },
+    });
+    const cert = await prisma.hipaaCertificate.create({
+      data: {
+        personId: person.id,
+        fileName: "hipaa.pdf",
+        storedName: "certFileOnDisk.pdf",
+        size: 20,
+        mimeType: "application/pdf",
+      },
+    });
+    const filePath = path.join(tmpDirectory, cert.storedName);
+    await fs.writeFile(filePath, Buffer.from("PDF-CONTENT"));
+    const outboxRow = await prisma.outbox.create({
+      data: {
+        entityType: "HipaaCertificate",
+        entityId: cert.id,
+        operation: "upsert",
+        changedFields: [],
+        status: "PENDING",
+      },
+    });
+    return { person, cert, outboxRow };
+  }
+
+  it("success path: uploads the file and marks the outbox row SENT", async () => {
+    const { cert, outboxRow } = await setupCert(tmpDir);
+    const io = fakeIo();
+
+    const result = await drainOutbox(io, enabledWithHipaa);
+
+    expect(result).toBe(1);
+    expect(io.uploadAttachment).toHaveBeenCalledOnce();
+
+    const [calledBase, calledRecord, calledField, calledFile] = (
+      io.uploadAttachment as ReturnType<typeof vi.fn>
+    ).mock.calls[0] as [string, string, string, { name: string; type: string; base64: string }];
+    expect(calledBase).toBe(BASE_ID);
+    expect(calledRecord).toBe("recPersonAirtable1");
+    expect(calledField).toBe(HIPAA_FIELD_ID);
+    expect(calledFile.name).toBe(cert.fileName);
+    expect(calledFile.type).toBe(cert.mimeType);
+    expect(calledFile.base64).toBe(Buffer.from("PDF-CONTENT").toString("base64"));
+
+    const updated = await prisma.outbox.findUniqueOrThrow({ where: { id: outboxRow.id } });
+    expect(updated.status).toBe("SENT");
+    expect(updated.processedAt).not.toBeNull();
+  });
+
+  it("hipaaFieldId null: marks SENT without calling uploadAttachment (configured-off is success)", async () => {
+    // The cert is valid but the target has no hipaa field configured.
+    const person = await prisma.person.create({ data: { name: "No Field Person" } });
+    await prisma.mirrorRecord.create({
+      data: {
+        entityType: "Person",
+        entityId: person.id,
+        baseId: BASE_ID,
+        recordId: "recPersonNoField",
+      },
+    });
+    const cert = await prisma.hipaaCertificate.create({
+      data: {
+        personId: person.id,
+        fileName: "hipaa.pdf",
+        storedName: "nofieldcert.pdf",
+        size: 10,
+        mimeType: "application/pdf",
+      },
+    });
+    const outboxRow = await prisma.outbox.create({
+      data: {
+        entityType: "HipaaCertificate",
+        entityId: cert.id,
+        operation: "upsert",
+        changedFields: [],
+        status: "PENDING",
+      },
+    });
+
+    const targetNoField: MirrorTarget = { ...enabledWithHipaa, hipaaFieldId: null };
+    const io = fakeIo();
+
+    const result = await drainOutbox(io, targetNoField);
+
+    expect(result).toBe(1);
+    expect(io.uploadAttachment).not.toHaveBeenCalled();
+
+    const updated = await prisma.outbox.findUniqueOrThrow({ where: { id: outboxRow.id } });
+    expect(updated.status).toBe("SENT");
+  });
+
+  it("unmapped person: stays PENDING with attempts incremented and lastError 'person not mirrored yet'", async () => {
+    const person = await prisma.person.create({ data: { name: "Unmapped Person" } });
+    // Deliberately NO MirrorRecord for this person.
+    const cert = await prisma.hipaaCertificate.create({
+      data: {
+        personId: person.id,
+        fileName: "hipaa.pdf",
+        storedName: "unmapped.pdf",
+        size: 10,
+        mimeType: "application/pdf",
+      },
+    });
+    const outboxRow = await prisma.outbox.create({
+      data: {
+        entityType: "HipaaCertificate",
+        entityId: cert.id,
+        operation: "upsert",
+        changedFields: [],
+        status: "PENDING",
+      },
+    });
+
+    const io = fakeIo();
+
+    const result = await drainOutbox(io, enabledWithHipaa);
+
+    expect(result).toBe(0);
+    expect(io.uploadAttachment).not.toHaveBeenCalled();
+
+    const updated = await prisma.outbox.findUniqueOrThrow({ where: { id: outboxRow.id } });
+    expect(updated.status).toBe("PENDING");
+    expect(updated.attempts).toBe(1);
+    expect(updated.lastError).toContain("person not mirrored yet");
+  });
+
+  it("missing disk file: marks the outbox row FAILED with a descriptive reason", async () => {
+    const person = await prisma.person.create({ data: { name: "Missing File Person" } });
+    await prisma.mirrorRecord.create({
+      data: {
+        entityType: "Person",
+        entityId: person.id,
+        baseId: BASE_ID,
+        recordId: "recPersonMissingFile",
+      },
+    });
+    const cert = await prisma.hipaaCertificate.create({
+      data: {
+        personId: person.id,
+        fileName: "hipaa.pdf",
+        storedName: "does-not-exist.pdf",
+        size: 10,
+        mimeType: "application/pdf",
+      },
+    });
+    // Do NOT write any file to disk.
+    const outboxRow = await prisma.outbox.create({
+      data: {
+        entityType: "HipaaCertificate",
+        entityId: cert.id,
+        operation: "upsert",
+        changedFields: [],
+        status: "PENDING",
+      },
+    });
+
+    const io = fakeIo();
+
+    const result = await drainOutbox(io, enabledWithHipaa);
+
+    expect(result).toBe(0);
+    expect(io.uploadAttachment).not.toHaveBeenCalled();
+
+    const updated = await prisma.outbox.findUniqueOrThrow({ where: { id: outboxRow.id } });
+    expect(updated.status).toBe("FAILED");
+    expect(updated.lastError).toMatch(/file not found on disk/i);
   });
 });

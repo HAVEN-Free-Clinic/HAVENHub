@@ -19,6 +19,7 @@ import {
   saveCertificate,
   listMyCertificates,
   getOwnedCertificate,
+  parseCertificateUpload,
   CertificateValidationError,
 } from "./my-info";
 
@@ -105,7 +106,7 @@ beforeEach(async () => {
 // ---- getMyInfo --------------------------------------------------------------
 
 describe("getMyInfo", () => {
-  it("returns the person with active-term ACTIVE memberships and null latestCertificate when none", async () => {
+  it("returns the person with active-term ACTIVE memberships and the activeTerm", async () => {
     const person = await createPerson({ name: "Alice", netId: "al001" });
     const term = await createTerm({ status: "ACTIVE" });
     const dept = await createDepartment("ITCM");
@@ -116,23 +117,17 @@ describe("getMyInfo", () => {
     expect(result.person.id).toBe(person.id);
     expect(result.memberships).toHaveLength(1);
     expect(result.memberships[0].kind).toBe("VOLUNTEER");
-    expect(result.latestCertificate).toBeNull();
+    // activeTerm is returned so the page can use it for the AppShell label
+    expect(result.activeTerm?.id).toBe(term.id);
   });
 
-  it("includes the latest certificate when one exists", async () => {
+  it("returns null activeTerm when no active term exists", async () => {
     const person = await createPerson();
-    const cert = await prisma.hipaaCertificate.create({
-      data: {
-        personId: person.id,
-        fileName: "cert.pdf",
-        storedName: "fakeId.pdf",
-        size: 100,
-        mimeType: "application/pdf",
-      },
-    });
 
     const result = await getMyInfo(person.id);
-    expect(result.latestCertificate?.id).toBe(cert.id);
+
+    expect(result.activeTerm).toBeNull();
+    expect(result.memberships).toHaveLength(0);
   });
 
   it("returns only memberships from the active term (not archived)", async () => {
@@ -473,5 +468,39 @@ describe("getOwnedCertificate", () => {
 
     const result = await getOwnedCertificate(other.id, cert.id);
     expect(result).toBeNull();
+  });
+});
+
+// ---- parseCertificateUpload -------------------------------------------------
+
+describe("parseCertificateUpload", () => {
+  it("returns null when the certificate field is missing from FormData", () => {
+    const fd = new FormData();
+    expect(parseCertificateUpload(fd)).toBeNull();
+  });
+
+  it("returns null when the certificate field is a string (not a File)", () => {
+    const fd = new FormData();
+    fd.set("certificate", "not-a-file");
+    expect(parseCertificateUpload(fd)).toBeNull();
+  });
+
+  it("returns null when the File is empty (size === 0)", () => {
+    const fd = new FormData();
+    const emptyFile = new File([], "empty.pdf", { type: "application/pdf" });
+    fd.set("certificate", emptyFile);
+    expect(parseCertificateUpload(fd)).toBeNull();
+  });
+
+  it("returns the parsed fields when a non-empty File is present", () => {
+    const fd = new FormData();
+    const file = new File(["%PDF-1.4 content"], "cert.pdf", { type: "application/pdf" });
+    fd.set("certificate", file);
+    const result = parseCertificateUpload(fd);
+    expect(result).not.toBeNull();
+    expect(result!.name).toBe("cert.pdf");
+    expect(result!.type).toBe("application/pdf");
+    expect(result!.size).toBeGreaterThan(0);
+    expect(result!.file).toBe(file);
   });
 });

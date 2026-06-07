@@ -64,14 +64,17 @@ export async function GET(
   }
 
   // Strip control characters and double-quotes from the original file name for
-  // use in the Content-Disposition header (RFC 5987 / RFC 6266 safety).
+  // use in the ASCII filename parameter (RFC 5987 / RFC 6266 safety).
   const safeFileName = cert.fileName.replace(/[\x00-\x1f\x7f"]/g, "").trim() || "certificate.pdf";
+  // Append the RFC 5987 encoded filename* parameter so browsers that support it
+  // receive the full original Unicode name alongside the sanitized ASCII fallback.
+  const encodedFileName = encodeURIComponent(cert.fileName);
 
   return new Response(fileBytes, {
     status: 200,
     headers: {
       "Content-Type": cert.mimeType,
-      "Content-Disposition": `attachment; filename="${safeFileName}"`,
+      "Content-Disposition": `attachment; filename="${safeFileName}"; filename*=UTF-8''${encodedFileName}`,
       "Content-Length": String(fileByteLength),
     },
   });

@@ -324,7 +324,8 @@ export async function fullSchedule(
  */
 export async function updateMyAvailability(
   actorPersonId: string,
-  dates: Date[]
+  dates: Date[],
+  now: Date = new Date()
 ): Promise<void> {
   const term = await getActiveTerm();
 
@@ -365,12 +366,11 @@ export async function updateMyAvailability(
     );
   }
 
-  // Resolve canonical dates, sorted ascending.
+  // Resolve canonical dates, sorted ascending. Plain string comparison is
+  // correct for zero-padded ISO day keys.
   const canonicalDates = deduped
     .map((k) => canonicalByKey.get(k)!)
-    .sort((a, b) => isoDateKey(a).localeCompare(isoDateKey(b)));
-
-  const now = new Date();
+    .sort((a, b) => (isoDateKey(a) < isoDateKey(b) ? -1 : 1));
 
   // Capture before state (ISO day keys from the first membership as representative).
   const beforeDates = memberships[0].selfAvailabilityDates.map(isoDateKey);

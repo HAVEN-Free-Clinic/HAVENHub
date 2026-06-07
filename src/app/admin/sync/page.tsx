@@ -19,7 +19,7 @@ type PageProps = {
 };
 
 export default async function SyncPage({ searchParams }: PageProps) {
-  const person = await requirePermission("admin.manage_sync");
+  await requirePermission("admin.manage_sync");
 
   const { retried: retriedStr } = await searchParams;
   const requeued =
@@ -39,7 +39,7 @@ export default async function SyncPage({ searchParams }: PageProps) {
     <div className="space-y-6">
       <PageHeader
         title="Sync Health"
-        description={`Mirror worker status and outbox metrics. Actor: ${person.name ?? person.personId}`}
+        description="Mirror worker status and outbox metrics. Retry all failed outbox rows with a single click."
       />
 
       <SyncPanel overview={overview} requeued={requeued} retryAction={retry} />

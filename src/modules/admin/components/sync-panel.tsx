@@ -14,6 +14,16 @@ import type { SyncOverview } from "@/modules/admin/services/sync";
 import { Badge } from "@/platform/ui/badge";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
+import { ALL_PEOPLE_FIELDS } from "@/platform/airtable/fields";
+
+// ---------------------------------------------------------------------------
+// Field ID → logical name reverse lookup
+// ---------------------------------------------------------------------------
+
+/** Maps Airtable field ids (e.g. "fldpyuv6yjNET25Ok") to logical names (e.g. "name"). */
+const FIELD_ID_TO_NAME: Readonly<Record<string, string>> = Object.fromEntries(
+  Object.entries(ALL_PEOPLE_FIELDS).map(([name, id]) => [id, name]),
+);
 
 // ---------------------------------------------------------------------------
 // Formatting helpers
@@ -137,12 +147,14 @@ function DriftTable({ rows }: { rows: AuditLog[] }) {
       </THead>
       <tbody>
         {rows.map((row) => {
-          // Extract field names from the after JSON keys
+          // Extract field names from the after JSON keys, mapping ids to logical names.
           const changedFields =
             row.after != null &&
             typeof row.after === "object" &&
             !Array.isArray(row.after)
-              ? Object.keys(row.after as Record<string, unknown>).join(", ")
+              ? Object.keys(row.after as Record<string, unknown>)
+                  .map((id) => FIELD_ID_TO_NAME[id] ?? id)
+                  .join(", ")
               : "";
 
           return (

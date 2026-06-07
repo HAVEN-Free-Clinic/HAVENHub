@@ -129,12 +129,12 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
     "use server";
     const session = await requireModuleAccess("my-info");
     const rawKind = (formData.get("kind") as string | null) ?? "";
-    const jobTitle = (formData.get("jobTitle") as string | null) || null;
-    const mirrorEpicId = (formData.get("mirrorEpicId") as string | null) || null;
     const notes = (formData.get("notes") as string | null) || null;
 
     // Validate kind. The service re-checks via kind-sanity rules; we map the
     // resulting EpicStateError message to the epicError param.
+    // jobTitle and mirrorEpicId are not accepted from the self-service form;
+    // the IT team fills those in while processing the request.
     const allowedKinds: EpicRequestKind[] = ["NEW", "MODIFY", "RENEW"];
     if (!(allowedKinds as string[]).includes(rawKind)) {
       redirect("/my-info?epicError=Invalid+request+kind.");
@@ -144,8 +144,6 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
       await createEpicRequest(session.personId, {
         personId: session.personId,
         kind: rawKind as EpicRequestKind,
-        jobTitle,
-        mirrorEpicId,
         notes,
       });
     } catch (err) {

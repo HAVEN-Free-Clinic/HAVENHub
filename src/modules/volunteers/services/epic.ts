@@ -3,13 +3,14 @@
  *
  * Permission model:
  *   ENFORCED internally (call-site cannot bypass):
- *     createEpicRequest  - self OR volunteers.manage_epic
- *     createTicket       - volunteers.manage_epic
+ *     createEpicRequest      - self OR volunteers.manage_epic
+ *     createTicket           - volunteers.manage_epic
  *     setTicketServiceRequestNumber - volunteers.manage_epic
- *     closeTicket        - volunteers.manage_epic
- *     completeRequest    - volunteers.manage_epic
- *     cancelRequest      - volunteers.manage_epic
- *     sendEpicEmail      - volunteers.manage_epic
+ *     closeTicket            - volunteers.manage_epic
+ *     completeRequest        - volunteers.manage_epic
+ *     cancelRequest          - volunteers.manage_epic
+ *     sendEpicEmail          - volunteers.manage_epic
+ *     updateRequestDetails   - volunteers.manage_epic (manager-only)
  *
  *   TRUSTED callers (page/server-action gates):
  *     myEpicPanel        - caller gates to the authenticated person
@@ -643,6 +644,69 @@ export async function sendEpicEmail(
     entityType: "EpicRequest",
     entityId: requestId,
     after: { template },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// updateRequestDetails
+// ---------------------------------------------------------------------------
+
+/**
+ * Updates jobTitle and/or mirrorEpicId on an open epic request.
+ *
+ * Requires volunteers.manage_epic (EpicForbiddenError). Request must exist
+ * (EpicNotFoundError) and be PENDING or SUBMITTED (EpicStateError otherwise).
+ *
+ * Only keys present in input are written; undefined means "leave untouched".
+ * null or "" clears the field to null. Non-empty strings are trimmed.
+ *
+ * Audits "epic.update_details" with before/after of both fields.
+ */
+export async function updateRequestDetails(
+  actorPersonId: string,
+  requestId: string,
+  input: { jobTitle?: string | null; mirrorEpicId?: string | null }
+): Promise<void> {
+  await requireManageEpic(actorPersonId);
+
+  const req = await prisma.epicRequest.findUnique({ where: { id: requestId } });
+  if (!req) throw new EpicNotFoundError(`EpicRequest not found: ${requestId}`);
+
+  if (req.status !== "PENDING" && req.status !== "SUBMITTED") {
+    throw new EpicStateError(
+      `Cannot update details on a request with status ${req.status}. Must be PENDING or SUBMITTED.`
+    );
+  }
+
+  // Build the update data: undefined = skip field; null/"" = clear; string = trim and set.
+  const data: { jobTitle?: string | null; mirrorEpicId?: string | null } = {};
+
+  if (input.jobTitle !== undefined) {
+    const v = input.jobTitle;
+    data.jobTitle = v === null || v === "" ? null : v.trim();
+  }
+  if (input.mirrorEpicId !== undefined) {
+    const v = input.mirrorEpicId;
+    data.mirrorEpicId = v === null || v === "" ? null : v.trim();
+  }
+
+  if (Object.keys(data).length > 0) {
+    await prisma.epicRequest.update({ where: { id: requestId }, data });
+  }
+
+  await recordAudit({
+    actorPersonId,
+    action: "epic.update_details",
+    entityType: "EpicRequest",
+    entityId: requestId,
+    before: {
+      jobTitle: req.jobTitle,
+      mirrorEpicId: req.mirrorEpicId,
+    },
+    after: {
+      jobTitle: data.jobTitle !== undefined ? data.jobTitle : req.jobTitle,
+      mirrorEpicId: data.mirrorEpicId !== undefined ? data.mirrorEpicId : req.mirrorEpicId,
+    },
   });
 }
 

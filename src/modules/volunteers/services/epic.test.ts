@@ -50,6 +50,14 @@
  *
  * emailHistory(personIds):
  *   - Groups by personId, excludes non-epic templates.
+ *
+ * updateRequestDetails(actorPersonId, requestId, input):
+ *   - Happy path: sets both jobTitle and mirrorEpicId; audit row exists.
+ *   - Partial update: only jobTitle provided; mirrorEpicId untouched.
+ *   - Clearing with null clears the field; clearing with "" clears the field.
+ *   - No permission -> EpicForbiddenError.
+ *   - Not found -> EpicNotFoundError.
+ *   - COMPLETED request rejected -> EpicStateError.
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
@@ -67,6 +75,7 @@ import {
   cancelRequest,
   sendEpicEmail,
   emailHistory,
+  updateRequestDetails,
   EpicForbiddenError,
   EpicNotFoundError,
   EpicStateError,
@@ -1029,6 +1038,170 @@ describe("emailHistory", () => {
 // ---------------------------------------------------------------------------
 // listTickets
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// updateRequestDetails
+// ---------------------------------------------------------------------------
+
+describe("updateRequestDetails", () => {
+  it("happy path: sets both jobTitle and mirrorEpicId; audit row exists with before/after", async () => {
+    const actor = await createPerson("Manager", { netId: "mgr001" });
+    await grantPermission(actor.id, "volunteers.manage_epic");
+    const target = await createPerson("Alice", { netId: "aaa001" });
+
+    const req = await prisma.epicRequest.create({
+      data: { personId: target.id, kind: "NEW", status: "PENDING", requestedById: target.id },
+    });
+
+    await updateRequestDetails(actor.id, req.id, {
+      jobTitle: "Volunteer Clinician",
+      mirrorEpicId: "E11111",
+    });
+
+    const updated = await prisma.epicRequest.findUniqueOrThrow({ where: { id: req.id } });
+    expect(updated.jobTitle).toBe("Volunteer Clinician");
+    expect(updated.mirrorEpicId).toBe("E11111");
+
+    const audit = await prisma.auditLog.findFirst({
+      where: { action: "epic.update_details", entityId: req.id },
+    });
+    expect(audit).not.toBeNull();
+    expect(audit?.actorPersonId).toBe(actor.id);
+    const before = audit?.before as Record<string, unknown>;
+    const after = audit?.after as Record<string, unknown>;
+    expect(before.jobTitle).toBeNull();
+    expect(before.mirrorEpicId).toBeNull();
+    expect(after.jobTitle).toBe("Volunteer Clinician");
+    expect(after.mirrorEpicId).toBe("E11111");
+  });
+
+  it("partial update: only jobTitle; mirrorEpicId untouched", async () => {
+    const actor = await createPerson("Manager", { netId: "mgr001" });
+    await grantPermission(actor.id, "volunteers.manage_epic");
+    const target = await createPerson("Alice", { netId: "aaa001" });
+
+    const req = await prisma.epicRequest.create({
+      data: {
+        personId: target.id,
+        kind: "NEW",
+        status: "PENDING",
+        requestedById: target.id,
+        mirrorEpicId: "E99999",
+      },
+    });
+
+    await updateRequestDetails(actor.id, req.id, { jobTitle: "New Title" });
+
+    const updated = await prisma.epicRequest.findUniqueOrThrow({ where: { id: req.id } });
+    expect(updated.jobTitle).toBe("New Title");
+    expect(updated.mirrorEpicId).toBe("E99999");
+  });
+
+  it("clearing with null clears the field", async () => {
+    const actor = await createPerson("Manager", { netId: "mgr001" });
+    await grantPermission(actor.id, "volunteers.manage_epic");
+    const target = await createPerson("Alice", { netId: "aaa001" });
+
+    const req = await prisma.epicRequest.create({
+      data: {
+        personId: target.id,
+        kind: "NEW",
+        status: "PENDING",
+        requestedById: target.id,
+        jobTitle: "Old Title",
+        mirrorEpicId: "E88888",
+      },
+    });
+
+    await updateRequestDetails(actor.id, req.id, { jobTitle: null, mirrorEpicId: null });
+
+    const updated = await prisma.epicRequest.findUniqueOrThrow({ where: { id: req.id } });
+    expect(updated.jobTitle).toBeNull();
+    expect(updated.mirrorEpicId).toBeNull();
+  });
+
+  it("clearing with empty string clears the field (treated as null)", async () => {
+    const actor = await createPerson("Manager", { netId: "mgr001" });
+    await grantPermission(actor.id, "volunteers.manage_epic");
+    const target = await createPerson("Alice", { netId: "aaa001" });
+
+    const req = await prisma.epicRequest.create({
+      data: {
+        personId: target.id,
+        kind: "NEW",
+        status: "PENDING",
+        requestedById: target.id,
+        jobTitle: "Old Title",
+        mirrorEpicId: "E77777",
+      },
+    });
+
+    await updateRequestDetails(actor.id, req.id, { jobTitle: "", mirrorEpicId: "" });
+
+    const updated = await prisma.epicRequest.findUniqueOrThrow({ where: { id: req.id } });
+    expect(updated.jobTitle).toBeNull();
+    expect(updated.mirrorEpicId).toBeNull();
+  });
+
+  it("no permission -> EpicForbiddenError", async () => {
+    const noPerms = await createPerson("NoPerms", { netId: "np001" });
+    const target = await createPerson("Alice", { netId: "aaa001" });
+
+    const req = await prisma.epicRequest.create({
+      data: { personId: target.id, kind: "NEW", status: "PENDING", requestedById: target.id },
+    });
+
+    await expect(
+      updateRequestDetails(noPerms.id, req.id, { jobTitle: "Title" })
+    ).rejects.toBeInstanceOf(EpicForbiddenError);
+  });
+
+  it("not found -> EpicNotFoundError", async () => {
+    const actor = await createPerson("Manager", { netId: "mgr001" });
+    await grantPermission(actor.id, "volunteers.manage_epic");
+
+    await expect(
+      updateRequestDetails(actor.id, "cld_nonexistent", { jobTitle: "Title" })
+    ).rejects.toBeInstanceOf(EpicNotFoundError);
+  });
+
+  it("COMPLETED request rejected -> EpicStateError", async () => {
+    const actor = await createPerson("Manager", { netId: "mgr001" });
+    await grantPermission(actor.id, "volunteers.manage_epic");
+    const target = await createPerson("Alice", { netId: "aaa001", epicId: "E11111" });
+
+    const req = await prisma.epicRequest.create({
+      data: {
+        personId: target.id,
+        kind: "RENEW",
+        status: "COMPLETED",
+        requestedById: target.id,
+        completedAt: new Date(),
+      },
+    });
+
+    await expect(
+      updateRequestDetails(actor.id, req.id, { jobTitle: "Title" })
+    ).rejects.toBeInstanceOf(EpicStateError);
+  });
+
+  it("SUBMITTED (open) request is accepted", async () => {
+    const actor = await createPerson("Manager", { netId: "mgr001" });
+    await grantPermission(actor.id, "volunteers.manage_epic");
+    const target = await createPerson("Alice", { netId: "aaa001" });
+
+    const req = await prisma.epicRequest.create({
+      data: { personId: target.id, kind: "NEW", status: "SUBMITTED", requestedById: target.id },
+    });
+
+    await expect(
+      updateRequestDetails(actor.id, req.id, { jobTitle: "Volunteer" })
+    ).resolves.toBeUndefined();
+
+    const updated = await prisma.epicRequest.findUniqueOrThrow({ where: { id: req.id } });
+    expect(updated.jobTitle).toBe("Volunteer");
+  });
+});
 
 describe("listTickets", () => {
   it("returns OPEN tickets first then CLOSED, includes request count", async () => {

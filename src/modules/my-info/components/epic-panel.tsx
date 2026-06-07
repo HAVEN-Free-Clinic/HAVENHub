@@ -104,22 +104,6 @@ export function EpicPanel({ epicId, openRequest, action, error, saved }: EpicPan
               </div>
             )}
 
-            {/* Optional fields */}
-            <div className="flex flex-wrap gap-3">
-              <div className="w-48">
-                <label className="block text-xs font-medium text-slate-500 mb-1">
-                  Job title <span className="font-normal text-slate-400">(optional)</span>
-                </label>
-                <Input name="jobTitle" placeholder="e.g. Volunteer Clinician" />
-              </div>
-              <div className="w-48">
-                <label className="block text-xs font-medium text-slate-500 mb-1">
-                  Mirror Epic ID <span className="font-normal text-slate-400">(optional)</span>
-                </label>
-                <Input name="mirrorEpicId" placeholder="Copy permissions from" />
-              </div>
-            </div>
-
             <div>
               <label className="block text-xs font-medium text-slate-500 mb-1">
                 Notes <span className="font-normal text-slate-400">(optional)</span>

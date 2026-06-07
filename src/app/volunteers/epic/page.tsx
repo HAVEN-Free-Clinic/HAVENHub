@@ -33,6 +33,7 @@ import {
   setTicketServiceRequestNumber,
   closeTicket,
   sendEpicEmail,
+  updateRequestDetails,
   EpicForbiddenError,
   EpicNotFoundError,
   EpicStateError,
@@ -395,6 +396,30 @@ export default async function EpicQueuePage({ searchParams }: PageProps) {
     revalidatePath("/volunteers/epic");
   }
 
+  async function updateDetailsAction(formData: FormData) {
+    "use server";
+    const actor = await requirePermission("volunteers.manage_epic");
+    const requestId = (formData.get("requestId") as string | null) ?? "";
+    const jobTitle = (formData.get("jobTitle") as string | null) ?? "";
+    const mirrorEpicId = (formData.get("mirrorEpicId") as string | null) ?? "";
+    try {
+      await updateRequestDetails(actor.personId, requestId, { jobTitle, mirrorEpicId });
+    } catch (err) {
+      if (err instanceof EpicForbiddenError) {
+        redirect("/volunteers/epic?error=forbidden");
+      }
+      if (err instanceof EpicNotFoundError) {
+        redirect("/volunteers/epic?error=not-found");
+      }
+      if (err instanceof EpicStateError) {
+        redirect(`/volunteers/epic?error=${encodeURIComponent(err.message)}`);
+      }
+      throw err;
+    }
+    revalidatePath("/volunteers/epic");
+    redirect(`/volunteers/epic?status=${statusFilter}`);
+  }
+
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
@@ -575,10 +600,37 @@ export default async function EpicQueuePage({ searchParams }: PageProps) {
                           {STATUS_LABEL[row.status]}
                         </Badge>
                       </TD>
-                      <TD className="text-slate-600 text-sm">{row.jobTitle ?? "-"}</TD>
-                      <TD className="text-slate-600 text-sm font-mono text-xs">
-                        {row.mirrorEpicId ?? "-"}
-                      </TD>
+                      {isActionable ? (
+                        <TD colSpan={2}>
+                          <form action={updateDetailsAction} className="flex flex-col gap-1">
+                            <input type="hidden" name="requestId" value={row.id} />
+                            <Input
+                              name="jobTitle"
+                              aria-label="Job title"
+                              defaultValue={row.jobTitle ?? ""}
+                              placeholder="Job title"
+                              className="w-36 py-1 text-xs"
+                            />
+                            <Input
+                              name="mirrorEpicId"
+                              aria-label="Mirror Epic ID"
+                              defaultValue={row.mirrorEpicId ?? ""}
+                              placeholder="Mirror Epic ID"
+                              className="w-36 py-1 text-xs font-mono"
+                            />
+                            <Button type="submit" variant="ghost" size="sm">
+                              Save
+                            </Button>
+                          </form>
+                        </TD>
+                      ) : (
+                        <>
+                          <TD className="text-slate-600 text-sm">{row.jobTitle ?? "-"}</TD>
+                          <TD className="text-slate-600 text-sm font-mono text-xs">
+                            {row.mirrorEpicId ?? "-"}
+                          </TD>
+                        </>
+                      )}
                       <TD className="text-slate-600 text-sm">
                         {row.ticket
                           ? row.ticket.serviceRequestNumber ?? row.ticket.id.slice(0, 8)

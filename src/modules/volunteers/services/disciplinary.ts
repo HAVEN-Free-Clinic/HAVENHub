@@ -287,12 +287,10 @@ export async function listActions(
   const isCentral = await can(viewerPersonId, "volunteers.issue_disciplinary");
 
   if (isCentral) {
-    // Central: see everything.
-    if (q.departmentId) {
-      // Validate departmentId exists (no restriction for central).
-    }
-
-    const where = await buildCentralWhere(q);
+    // Central: see everything. Fetch active term so the dept filter scopes to
+    // active-term memberships (consistent with the director path).
+    const activeTerm = await getActiveTerm();
+    const where = await buildCentralWhere(q, activeTerm);
     const [rows, total] = await Promise.all([
       prisma.disciplinaryAction.findMany({
         where,
@@ -390,24 +388,30 @@ export async function listActions(
 
 /**
  * Resolves the set of person ids that have an ACTIVE membership in the given
- * department (any term). Used to support the departmentId filter for central
- * viewers without relying on a nested relation filter that Prisma doesn't
- * support on count().
+ * department in the ACTIVE term. Used to support the departmentId filter for
+ * central viewers without relying on a nested relation filter that Prisma
+ * doesn't support on count().
+ *
+ * When there is no active term, returns an empty array so the caller produces
+ * zero rows rather than crashing.
  */
-async function personIdsInDepartment(departmentId: string): Promise<string[]> {
+async function personIdsInDepartment(
+  departmentId: string,
+  activeTerm: { id: string } | null
+): Promise<string[]> {
+  if (!activeTerm) return [];
   const memberships = await prisma.termMembership.findMany({
-    where: { departmentId, status: "ACTIVE" },
+    where: { departmentId, termId: activeTerm.id, status: "ACTIVE" },
     select: { personId: true },
   });
   return [...new Set(memberships.map((m) => m.personId))];
 }
 
 /** Build Prisma where clause for central viewers. */
-async function buildCentralWhere(q: {
-  departmentId?: string;
-  q?: string;
-  category?: string;
-}) {
+async function buildCentralWhere(
+  q: { departmentId?: string; q?: string; category?: string },
+  activeTerm: { id: string } | null
+) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const where: any = {};
 
@@ -418,9 +422,9 @@ async function buildCentralWhere(q: {
   }
 
   if (q.departmentId) {
-    // Resolve person ids in the department first (count() doesn't support
-    // nested relation filters on the person side).
-    const personIds = await personIdsInDepartment(q.departmentId);
+    // Resolve person ids in the department's active term (count() doesn't
+    // support nested relation filters on the person side).
+    const personIds = await personIdsInDepartment(q.departmentId, activeTerm);
     where.personId = { in: personIds };
   }
 
@@ -477,7 +481,10 @@ async function loadStrikeCounts(personIds: string[]): Promise<Map<string, number
  * free-text search instead.
  *
  * Directors: ACTIVE members (both kinds) of manageable departments in the
- * active term, deduped, each with departmentNames, sorted by name.
+ * active term, deduped, each with departmentNames, sorted by name. The actor
+ * is excluded from their own picker (self-issue prevention in the UI); note
+ * that issueAction itself does not block self-issue, so central roles can
+ * still issue against themselves via the free search.
  *
  * No directorships -> { all: false, people: [] }.
  */

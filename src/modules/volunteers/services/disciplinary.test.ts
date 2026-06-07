@@ -593,6 +593,27 @@ describe("listActions - filters", () => {
     expect(resultA.rows[0].personName).toBe("VolA");
   });
 
+  it("director can use departmentId filter for their own department; rows returned", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("ITCM");
+    const director = await createPerson("Dir", "dir001");
+    const target = await createPerson("Vol", "vol001");
+
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(target.id, term.id, dept.id, "VOLUNTEER");
+
+    await issueAction(director.id, {
+      personId: target.id,
+      occurredAt: new Date("2026-04-01"),
+      category: "Attendance",
+      description: "Row in own dept",
+    });
+
+    const result = await listActions(director.id, { departmentId: dept.id });
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0].personName).toBe("Vol");
+  });
+
   it("departmentId filter outside viewer's manageable depts -> DisciplinaryForbiddenError", async () => {
     const term = await createTerm();
     const deptA = await createDepartment("ITCM");
@@ -607,6 +628,31 @@ describe("listActions - filters", () => {
     await expect(listActions(director.id, { departmentId: deptB.id })).rejects.toBeInstanceOf(
       DisciplinaryForbiddenError
     );
+  });
+
+  it("departmentId filter (central): person with only archived-term membership does NOT appear", async () => {
+    // The active term and the archived term are separate.
+    const activeTerm = await createTerm("ACTIVE", "SU26");
+    const archivedTerm = await createTerm("ARCHIVED", "SP26");
+    const dept = await createDepartment("ITCM");
+    const central = await createPerson("Central", "ctr001");
+    // archivedVol is a member of the dept only in the archived term.
+    const archivedVol = await createPerson("Old Vol", "ov001");
+    // activeVol is a member of the dept in the active term.
+    const activeVol = await createPerson("Current Vol", "cv001");
+
+    await grantPermission(central.id, "volunteers.issue_disciplinary");
+    await createMembership(archivedVol.id, archivedTerm.id, dept.id, "VOLUNTEER");
+    await createMembership(activeVol.id, activeTerm.id, dept.id, "VOLUNTEER");
+
+    // Issue actions against both via central (bypasses term check).
+    await issueCentral(central.id, archivedVol.id, { description: "Archived term incident" });
+    await issueCentral(central.id, activeVol.id, { description: "Active term incident" });
+
+    // Filtering by dept should only include activeVol's action.
+    const result = await listActions(central.id, { departmentId: dept.id });
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0].personName).toBe("Current Vol");
   });
 
   it("pagination: 26 rows -> page 1 has 25, page 2 has 1", async () => {
@@ -731,6 +777,23 @@ describe("issuablePeople", () => {
     expect(volEntry).toBeDefined();
     expect(volEntry?.departmentNames).toContain("ITCM Dept");
     expect(volEntry?.departmentNames).toContain("SRR Dept");
+  });
+
+  it("director who is an ACTIVE member of their own dept is excluded from their own picker", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("ITCM");
+    const director = await createPerson("Director", "dir001");
+    const vol = await createPerson("Vol", "vol001");
+
+    // Director has BOTH a DIRECTOR and a VOLUNTEER membership in the same dept.
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(director.id, term.id, dept.id, "VOLUNTEER");
+    await createMembership(vol.id, term.id, dept.id, "VOLUNTEER");
+
+    const result = await issuablePeople(director.id);
+    const ids = result.people.map((p) => p.id);
+    expect(ids).not.toContain(director.id);
+    expect(ids).toContain(vol.id);
   });
 
   it("no directorships -> { all: false, people: [] }", async () => {

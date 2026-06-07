@@ -112,13 +112,13 @@ model HipaaCertificate {
 }
 
 model Term {
-  id              String           @id @default(cuid())
-  code            String           @unique // "SU26", "FA26"
-  name            String // "Summer 2026"
-  startDate       DateTime
-  endDate         DateTime
-  status          TermStatus       @default(PLANNING)
-  clinicDates     DateTime[]
+  id               String            @id @default(cuid())
+  code             String            @unique // "SU26", "FA26"
+  name             String // "Summer 2026"
+  startDate        DateTime
+  endDate          DateTime
+  status           TermStatus        @default(PLANNING)
+  clinicDates      DateTime[]
   memberships      TermMembership[]
   roleAssignments  RoleAssignment[]
   /// Offboard flags raised for this term.
@@ -164,17 +164,22 @@ model TermMembership {
   departmentId               String
   kind                       MembershipKind
   status                     MembershipStatus @default(ACTIVE)
+  /// Tier 3 (lowest): availability from the member's application, set at import
+  /// or roster build. The fallback when no self update or director override exists.
   baselineAvailability       DateTime[]
   /// Free-text availability from volunteer self-update (legacy scheduler behavior).
+  /// Read-only note since plan 7; superseded by selfAvailabilityDates.
   selfUpdatedAvailability    String?
+  /// Set whenever the member self-updates availability (free text historically,
+  /// structured dates since plan 7); doubles as the presence marker for tier 2.
   availabilityUpdatedAt      DateTime?
   availabilityAcknowledgedAt DateTime?
   /// Tier 2: structured self-updated availability (clinic dates the member can
   /// attend). Presence is signaled by availabilityUpdatedAt; replaces the
   /// legacy free-text selfUpdatedAvailability, which stays read-only as a note.
   selfAvailabilityDates      DateTime[]
-  /// Tier 1: director override. Empty-but-set is distinguished from never-set
-  /// by directorAvailabilitySetAt.
+  /// Tier 1 (highest): director override. Empty-but-set is distinguished from
+  /// never-set by directorAvailabilitySetAt.
   directorAvailabilityDates  DateTime[]
   directorAvailabilitySetAt  DateTime?
   person                     Person           @relation(fields: [personId], references: [id])
@@ -426,18 +431,20 @@ model EmailLog {
 /// the legacy invariant holds: a triage/walk-in/CC/remote designee is also on
 /// shift (their row IS the on-shift row, tags are attributes of it).
 model ShiftAssignment {
-  id           String    @id @default(cuid())
+  id           String     @id @default(cuid())
   termId       String
   departmentId String
   personId     String
+  /// Calendar date, anchored at 12:00 UTC like Term.clinicDates and the
+  /// availability arrays. Compare by UTC day key, never by raw timestamp.
   clinicDate   DateTime
   role         ShiftRole
-  triage       Boolean   @default(false)
-  walkin       Boolean   @default(false)
-  cc           Boolean   @default(false)
-  remote       Boolean   @default(false)
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  triage       Boolean    @default(false)
+  walkin       Boolean    @default(false)
+  cc           Boolean    @default(false)
+  remote       Boolean    @default(false)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
   /// Restrict: term deletion is blocked while schedule history references it.
   term         Term       @relation(fields: [termId], references: [id], onDelete: Restrict)
   /// Restrict: department deletion is blocked while schedule history references it.

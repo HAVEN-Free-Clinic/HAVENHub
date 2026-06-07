@@ -53,7 +53,9 @@ export function HipaaPanel({
         <h3 className="mb-2 text-sm font-medium text-slate-700">Current Certificate</h3>
         {latest ? (
           <p className="text-sm text-slate-600">
-            Uploaded {formatDate(latest.uploadedAt)}{" "}
+            {latest.source === "IMPORT"
+              ? "On file (imported from previous records)"
+              : `Uploaded ${formatDate(latest.uploadedAt)}`}{" "}
             <Link
               href={`/my-info/certificate/${latest.id}`}
               className="text-brand hover:underline"
@@ -102,7 +104,11 @@ export function HipaaPanel({
           <ul className="space-y-1.5">
             {history.map((cert) => (
               <li key={cert.id} className="flex items-center gap-3 text-sm text-slate-600">
-                <span>{formatDate(cert.uploadedAt)}</span>
+                <span>
+                  {cert.source === "IMPORT"
+                    ? "On file (imported from previous records)"
+                    : formatDate(cert.uploadedAt)}
+                </span>
                 <span className="text-slate-400">{formatSize(cert.size)}</span>
                 <Link
                   href={`/my-info/certificate/${cert.id}`}

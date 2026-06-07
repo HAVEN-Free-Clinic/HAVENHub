@@ -28,6 +28,11 @@ enum MembershipStatus {
   REMOVED
 }
 
+enum CertificateSource {
+  UPLOAD
+  IMPORT
+}
+
 model Person {
   id               String        @id @default(cuid())
   netId            String?       @unique
@@ -60,6 +65,7 @@ model HipaaCertificate {
   storedName  String
   size        Int
   mimeType    String
+  source      CertificateSource @default(UPLOAD)
   uploadedAt  DateTime @default(now())
   person      Person   @relation(fields: [personId], references: [id], onDelete: Cascade)
 

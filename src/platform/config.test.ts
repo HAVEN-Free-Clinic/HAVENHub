@@ -68,4 +68,52 @@ describe("loadConfig", () => {
     });
     expect(config.AIRTABLE_MIRROR_ENABLED).toBe(true);
   });
+
+  it("rejects a bad AIRTABLE_MIRROR_FIELD_MAP when mirror is enabled", () => {
+    expect(() =>
+      loadConfig({
+        ...base,
+        AIRTABLE_MIRROR_ENABLED: "true",
+        AIRTABLE_PAT: "pat-x",
+        AIRTABLE_MIRROR_BASE_ID: "appSandbox1234567",
+        AIRTABLE_MIRROR_PEOPLE_TABLE_ID: "tblSandbox1234567",
+        AIRTABLE_MIRROR_FIELD_MAP: "not-valid-json",
+      })
+    ).toThrowError(/AIRTABLE_MIRROR_FIELD_MAP/);
+  });
+
+  it("rejects an AIRTABLE_MIRROR_FIELD_MAP missing required keys when mirror is enabled", () => {
+    expect(() =>
+      loadConfig({
+        ...base,
+        AIRTABLE_MIRROR_ENABLED: "true",
+        AIRTABLE_PAT: "pat-x",
+        AIRTABLE_MIRROR_BASE_ID: "appSandbox1234567",
+        AIRTABLE_MIRROR_PEOPLE_TABLE_ID: "tblSandbox1234567",
+        AIRTABLE_MIRROR_FIELD_MAP: JSON.stringify({ name: "fldA", netId: "fldB" }),
+      })
+    ).toThrowError(/AIRTABLE_MIRROR_FIELD_MAP/);
+  });
+
+  it("accepts a fully-configured enabled mirror with a valid field map", () => {
+    const fieldMap = {
+      name: "fldnyPNurTfUTCI3M",
+      netId: "fldzDXBuegWh43qBe",
+      contactEmail: "flddaZKIRSx3xoss3",
+      phone: "fldKV9uyerHHBr9VB",
+      epicId: "fldYAk27EVKbK9GZn",
+      yaleAffiliation: "fldcqbmdOvL1ZwXgH",
+      gradYear: "fldVjHtbPzhGXeH75",
+    };
+    const config = loadConfig({
+      ...base,
+      AIRTABLE_MIRROR_ENABLED: "true",
+      AIRTABLE_PAT: "pat-x",
+      AIRTABLE_MIRROR_BASE_ID: "appSandbox1234567",
+      AIRTABLE_MIRROR_PEOPLE_TABLE_ID: "tblSandbox1234567",
+      AIRTABLE_MIRROR_FIELD_MAP: JSON.stringify(fieldMap),
+    });
+    expect(config.AIRTABLE_MIRROR_ENABLED).toBe(true);
+    expect(config.AIRTABLE_MIRROR_FIELD_MAP).toBe(JSON.stringify(fieldMap));
+  });
 });

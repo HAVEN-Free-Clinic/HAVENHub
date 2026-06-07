@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import { ALL_PEOPLE_FIELDS } from "./fields";
-import { personMirrorPayload } from "./mirror-map";
+import { personMirrorPayload, parseFieldMap } from "./mirror-map";
 import { reconcilePeople, type AirtableReader } from "./reconcile";
 import type { AirtableWriter, MirrorTarget } from "./mirror";
 
@@ -13,12 +13,14 @@ const enabledTarget: MirrorTarget = {
   enabled: true,
   baseId: BASE_ID,
   peopleTableId: TABLE_ID,
+  fieldMap: parseFieldMap(undefined),
 };
 
 const disabledTarget: MirrorTarget = {
   enabled: false,
   baseId: BASE_ID,
   peopleTableId: TABLE_ID,
+  fieldMap: parseFieldMap(undefined),
 };
 
 /** Create a fake io object with vi.fn() for listAll, patchRecord, createRecord. */

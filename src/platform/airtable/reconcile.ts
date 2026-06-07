@@ -22,12 +22,15 @@ export async function reconcilePeople(
     where: { entityType: "Person", baseId: target.baseId },
   });
 
+  // Comparison assumes the raw REST API shape: singleSelect fields arrive as
+  // plain strings. Do not swap the read path to a surface that returns
+  // {id, name, color} objects, or every select field will appear drifted.
   let corrected = 0;
   for (const mapping of mappings) {
     const person = await prisma.person.findUnique({ where: { id: mapping.entityId } });
     const fields = remote.get(mapping.recordId);
     if (!person || !fields) continue; // deletions are handled at cutover, not nightly
-    const desired = personMirrorPayload(person);
+    const desired = personMirrorPayload(person, target.fieldMap);
     const drifted: Record<string, unknown> = {};
     const before: Record<string, unknown> = {};
     for (const [fieldId, value] of Object.entries(desired)) {

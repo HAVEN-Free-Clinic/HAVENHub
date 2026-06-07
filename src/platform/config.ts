@@ -22,6 +22,10 @@ const schema = z
       .transform((v) => v === "true"),
     AIRTABLE_MIRROR_BASE_ID: z.string().optional(),
     AIRTABLE_MIRROR_PEOPLE_TABLE_ID: z.string().optional(),
+    // Optional JSON field-ID map for targets whose field IDs differ from production defaults
+    // (e.g. the sandbox base). When set and the mirror is enabled, must parse to an object
+    // with exactly the seven keys: name, netId, contactEmail, phone, epicId, yaleAffiliation, gradYear.
+    AIRTABLE_MIRROR_FIELD_MAP: z.string().optional(),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV !== "production") return;
@@ -56,6 +60,48 @@ const schema = z
             code: "custom",
             path: [key],
             message: "required when the mirror is enabled",
+          });
+        }
+      }
+      // Validate AIRTABLE_MIRROR_FIELD_MAP when set: must parse to an object with the seven keys.
+      if (env.AIRTABLE_MIRROR_FIELD_MAP !== undefined) {
+        const REQUIRED_FIELD_MAP_KEYS = [
+          "name",
+          "netId",
+          "contactEmail",
+          "phone",
+          "epicId",
+          "yaleAffiliation",
+          "gradYear",
+        ] as const;
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(env.AIRTABLE_MIRROR_FIELD_MAP);
+        } catch {
+          ctx.addIssue({
+            code: "custom",
+            path: ["AIRTABLE_MIRROR_FIELD_MAP"],
+            message: "must be valid JSON when set",
+          });
+          return;
+        }
+        if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["AIRTABLE_MIRROR_FIELD_MAP"],
+            message: "must be a JSON object",
+          });
+          return;
+        }
+        const obj = parsed as Record<string, unknown>;
+        const missing = REQUIRED_FIELD_MAP_KEYS.filter(
+          (k) => typeof obj[k] !== "string" || !(obj[k] as string).length
+        );
+        if (missing.length > 0) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["AIRTABLE_MIRROR_FIELD_MAP"],
+            message: `must contain all seven field-id keys as non-empty strings; missing: ${missing.join(", ")}`,
           });
         }
       }

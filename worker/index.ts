@@ -6,6 +6,7 @@ import { config } from "../src/platform/config";
 import { prisma } from "../src/platform/db";
 import { AirtableClient } from "../src/platform/airtable/client";
 import { drainOutbox, type MirrorTarget } from "../src/platform/airtable/mirror";
+import { parseFieldMap } from "../src/platform/airtable/mirror-map";
 import { reconcilePeople } from "../src/platform/airtable/reconcile";
 
 const HEARTBEAT_ID = "mirror-worker";
@@ -17,6 +18,7 @@ function mirrorTarget(): MirrorTarget {
     enabled: config.AIRTABLE_MIRROR_ENABLED,
     baseId: config.AIRTABLE_MIRROR_BASE_ID ?? "",
     peopleTableId: config.AIRTABLE_MIRROR_PEOPLE_TABLE_ID ?? "",
+    fieldMap: parseFieldMap(config.AIRTABLE_MIRROR_FIELD_MAP),
   };
 }
 

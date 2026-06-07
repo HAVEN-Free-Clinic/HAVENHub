@@ -240,7 +240,7 @@ export async function saveCertificate(
       data: {
         personId,
         fileName: file.name,
-        // storedName is set after we have the id -- update in same tx
+        // Create the row first to obtain its id, then update storedName to "<id>.pdf" in the same transaction.
         storedName: "pending",
         size: file.size,
         mimeType: file.type,

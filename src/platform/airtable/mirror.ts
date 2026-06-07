@@ -206,6 +206,22 @@ async function drainHipaaRow(
     });
     if (!personMapping) {
       // Person has not been mirrored yet; leave PENDING and increment attempts.
+      // Enqueue a Person outbox row for this person if none is already PENDING, so
+      // the person mirrors on the next pass and this cert can self-heal on its retry.
+      const existingPersonRow = await prisma.outbox.findFirst({
+        where: { entityType: "Person", entityId: cert.personId, status: "PENDING" },
+      });
+      if (!existingPersonRow) {
+        await prisma.outbox.create({
+          data: {
+            entityType: "Person",
+            entityId: cert.personId,
+            operation: "upsert",
+            changedFields: [],
+            status: "PENDING",
+          },
+        });
+      }
       const attempts = row.attempts + 1;
       await prisma.outbox.update({
         where: { id: row.id },

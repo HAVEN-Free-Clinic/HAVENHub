@@ -526,6 +526,48 @@ describe("drainOutbox HipaaCertificate routing", () => {
     expect(updated.lastError).toContain("person not mirrored yet");
   });
 
+  it("unmapped person with no PENDING Person row: enqueues a PENDING Person outbox row exactly once (self-healing)", async () => {
+    const person = await prisma.person.create({ data: { name: "Self-Heal Person" } });
+    const cert = await prisma.hipaaCertificate.create({
+      data: {
+        personId: person.id,
+        fileName: "hipaa.pdf",
+        storedName: "selfheal.pdf",
+        size: 10,
+        mimeType: "application/pdf",
+      },
+    });
+    await prisma.outbox.create({
+      data: {
+        entityType: "HipaaCertificate",
+        entityId: cert.id,
+        operation: "upsert",
+        changedFields: [],
+        status: "PENDING",
+      },
+    });
+
+    const io = fakeIo();
+
+    // First drain: person not mirrored, no PENDING Person row exists -> enqueue one.
+    await drainOutbox(io, enabledWithHipaa);
+
+    const personRows = await prisma.outbox.findMany({
+      where: { entityType: "Person", entityId: person.id },
+    });
+    expect(personRows).toHaveLength(1);
+    expect(personRows[0].status).toBe("PENDING");
+    expect(personRows[0].operation).toBe("upsert");
+
+    // Second drain: PENDING Person row already exists -> do NOT enqueue a second one.
+    await drainOutbox(io, enabledWithHipaa);
+
+    const personRowsAfter = await prisma.outbox.findMany({
+      where: { entityType: "Person", entityId: person.id },
+    });
+    expect(personRowsAfter).toHaveLength(1);
+  });
+
   it("missing disk file: marks the outbox row FAILED with a descriptive reason", async () => {
     const person = await prisma.person.create({ data: { name: "Missing File Person" } });
     await prisma.mirrorRecord.create({

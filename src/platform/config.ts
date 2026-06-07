@@ -36,9 +36,10 @@ const schema = z
     UPLOAD_DIR: z.string().default("./uploads"),
     // Maximum allowed upload size in megabytes. Stored as a string in env; transformed to
     // a number. Rejected if not a positive finite number.
+    // Default is 5 MB because Airtable's content upload API caps attachments at 5 MB.
     MAX_UPLOAD_MB: z
       .string()
-      .default("10")
+      .default("5")
       .transform(Number)
       .pipe(
         z.number().superRefine((val, ctx) => {

@@ -56,6 +56,7 @@ export const MODULES: ModuleManifest[] = [
       { label: "Compliance", href: "/volunteers" },
       { label: "Master view", href: "/volunteers/master" },
       { label: "Offboarding", href: "/volunteers/offboarding" },
+      { label: "Epic requests", href: "/volunteers/epic" },
     ],
   },
   {

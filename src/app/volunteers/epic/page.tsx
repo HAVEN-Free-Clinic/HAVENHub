@@ -164,7 +164,7 @@ type PageProps = {
 // ---------------------------------------------------------------------------
 
 export default async function EpicQueuePage({ searchParams }: PageProps) {
-  const viewer = await requirePermission("volunteers.manage_epic");
+  await requirePermission("volunteers.manage_epic");
   const sp = await searchParams;
 
   const rawStatus = sp.status;

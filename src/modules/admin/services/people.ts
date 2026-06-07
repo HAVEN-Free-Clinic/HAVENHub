@@ -100,7 +100,7 @@ export function createPerson(actorPersonId: string, input: PersonInput): Promise
 export function updatePerson(
   actorPersonId: string,
   id: string,
-  input: PersonInput
+  input: Partial<PersonInput>
 ): Promise<Person> {
   return updatePersonFields(actorPersonId, id, input);
 }

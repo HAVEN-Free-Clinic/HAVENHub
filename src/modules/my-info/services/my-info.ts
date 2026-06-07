@@ -23,7 +23,7 @@ import type { HipaaCertificate } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { enqueueMirror } from "@/platform/outbox";
-import { updatePersonFields, type PersonInput } from "@/platform/people";
+import { updatePersonFields } from "@/platform/people";
 import { config } from "@/platform/config";
 
 // ---------------------------------------------------------------------------
@@ -131,11 +131,7 @@ export async function updateMyInfo(personId: string, input: MyInfoInput): Promis
     }
   }
 
-  // PersonInput.name is typed as required for creates, but updatePersonFields
-  // only updates keys present in the object (checked via "key in input"). A
-  // my-info caller never supplies name, so this cast is safe: the platform
-  // function will skip name entirely because it is absent from clean.
-  await updatePersonFields(personId, personId, clean as unknown as PersonInput);
+  await updatePersonFields(personId, personId, clean);
 }
 
 /**

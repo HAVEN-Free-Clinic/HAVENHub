@@ -319,6 +319,16 @@ describe("saveCertificate", () => {
     expect((caught as CertificateValidationError).reason).toMatch(/size|too large/i);
   });
 
+  it("accepts a pdf whose size is exactly MAX_UPLOAD_MB bytes (boundary)", async () => {
+    const person = await createPerson();
+    const exactBytes = config.MAX_UPLOAD_MB * 1024 * 1024;
+    const file = makePdfFile({ size: exactBytes, bytes: Buffer.alloc(exactBytes, 0x25) });
+
+    const cert = await saveCertificate(person.id, file);
+
+    expect(cert.size).toBe(exactBytes);
+  });
+
   it("accepts a valid pdf: creates the DB row, writes the file to disk, creates the audit log, and enqueues an outbox row", async () => {
     const person = await createPerson();
     const file = makePdfFile();

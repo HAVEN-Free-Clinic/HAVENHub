@@ -72,12 +72,14 @@ export type PersonInput = {
 };
 
 /** Normalize values that must be lowercase (ids, emails). */
-function normalize(input: PersonInput): PersonInput {
+function normalize(input: PersonInput): PersonInput;
+function normalize(input: Partial<PersonInput>): Partial<PersonInput>;
+function normalize(input: Partial<PersonInput>): Partial<PersonInput> {
   return {
     ...input,
-    netId: input.netId?.toLowerCase() ?? input.netId,
-    contactEmail: input.contactEmail?.toLowerCase() ?? input.contactEmail,
-    yaleEmail: input.yaleEmail?.toLowerCase() ?? input.yaleEmail,
+    ...(input.netId !== undefined && { netId: input.netId?.toLowerCase() ?? input.netId }),
+    ...(input.contactEmail !== undefined && { contactEmail: input.contactEmail?.toLowerCase() ?? input.contactEmail }),
+    ...(input.yaleEmail !== undefined && { yaleEmail: input.yaleEmail?.toLowerCase() ?? input.yaleEmail }),
   };
 }
 
@@ -140,7 +142,7 @@ export async function createPersonRecord(
 export async function updatePersonFields(
   actorPersonId: string,
   personId: string,
-  input: PersonInput
+  input: Partial<PersonInput>
 ): Promise<Person> {
   const data = normalize(input);
 

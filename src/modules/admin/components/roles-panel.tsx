@@ -22,6 +22,7 @@ import {
   setRoleGrants,
   deleteRole,
   RoleConflictError,
+  RoleNotFoundError,
   UnknownPermissionError,
   SystemRoleError,
   LastAdminError,
@@ -123,6 +124,11 @@ export async function RolesPanel({ roles, pageHref }: RolesPanelProps): Promise<
     try {
       await deleteRole(actor.personId, roleId);
     } catch (err) {
+      if (err instanceof RoleNotFoundError) {
+        redirect(
+          `${pageHref}?rbacError=${encodeURIComponent("Role no longer exists; the page may be stale.")}`
+        );
+      }
       if (err instanceof SystemRoleError) {
         redirect(
           `${pageHref}?rbacError=${encodeURIComponent(err.message)}`

@@ -76,6 +76,13 @@ export class AssignmentNotFoundError extends Error {
   }
 }
 
+export class RoleNotFoundError extends Error {
+  constructor(public id: string) {
+    super(`Role ${id} not found.`);
+    this.name = "RoleNotFoundError";
+  }
+}
+
 /**
  * Thrown when a mutation would remove every admin-conferring grant or
  * assignment, leaving no way to access the admin module.
@@ -297,8 +304,8 @@ export async function deleteRole(actorPersonId: string, roleId: string): Promise
   const role = await prisma.role.findUnique({ where: { id: roleId } });
 
   if (!role) {
-    // Role not found -- propagate as a generic not-found; no audit
-    throw new Error(`Role ${roleId} not found`);
+    // Role not found -- propagate as typed error; no audit
+    throw new RoleNotFoundError(roleId);
   }
 
   if (role.isSystem) {

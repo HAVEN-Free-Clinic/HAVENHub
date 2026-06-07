@@ -31,6 +31,7 @@ import {
   UnknownPermissionError,
   SystemRoleError,
   RoleConflictError,
+  RoleNotFoundError,
   AssignmentTargetError,
   DuplicateAssignmentError,
   AssignmentNotFoundError,
@@ -272,6 +273,10 @@ describe("deleteRole", () => {
 
     const countAfter = await prisma.auditLog.count();
     expect(countAfter).toBe(countBefore);
+  });
+
+  it("throws RoleNotFoundError when the role id does not exist", async () => {
+    await expect(deleteRole(ACTOR, "bogus-role-id")).rejects.toBeInstanceOf(RoleNotFoundError);
   });
 });
 
@@ -718,5 +723,16 @@ describe("AssignmentNotFoundError", () => {
     expect(err.id).toBe("abc-123");
     expect(err.message).toContain("abc-123");
     expect(err.name).toBe("AssignmentNotFoundError");
+  });
+});
+
+describe("RoleNotFoundError", () => {
+  it("is an instance of Error and carries the id", () => {
+    const err = new RoleNotFoundError("role-xyz");
+    expect(err).toBeInstanceOf(Error);
+    expect(err).toBeInstanceOf(RoleNotFoundError);
+    expect(err.id).toBe("role-xyz");
+    expect(err.message).toContain("role-xyz");
+    expect(err.name).toBe("RoleNotFoundError");
   });
 });

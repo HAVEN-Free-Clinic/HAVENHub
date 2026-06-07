@@ -19,6 +19,7 @@ import { requirePermission } from "@/platform/auth/session";
 import {
   createAssignment,
   deleteAssignment,
+  AssignmentNotFoundError,
   AssignmentTargetError,
   DuplicateAssignmentError,
   LastAdminError,
@@ -106,6 +107,11 @@ export async function AssignmentForm({
     try {
       await deleteAssignment(actor.personId, id);
     } catch (err) {
+      if (err instanceof AssignmentNotFoundError) {
+        redirect(
+          `${pageHref}?rbacError=${encodeURIComponent("Assignment no longer exists; the page may be stale.")}`
+        );
+      }
       if (err instanceof LastAdminError) {
         redirect(
           `${pageHref}?rbacError=${encodeURIComponent(err.message)}`

@@ -74,6 +74,11 @@ const SYSTEM_ROLES: Array<{ name: string; description: string; grants: string[] 
     description: "Master compliance view across the clinic",
     grants: ["volunteers.view", "volunteers.manage_compliance"],
   },
+  {
+    name: "Volunteer Operations Manager",
+    description: "Offboarding, Epic requests, and disciplinary across the clinic",
+    grants: ["volunteers.view", "volunteers.manage_offboarding", "volunteers.manage_epic", "volunteers.issue_disciplinary"],
+  },
 ];
 
 /**
@@ -92,6 +97,28 @@ function saturdays(startIso: string, endIso: string): Date[] {
     out.push(new Date(d));
   }
   return out;
+}
+
+/**
+ * Assign a named role to each listed department code as a GLOBAL assignment
+ * (termId null). Idempotent: skips when the assignment already exists.
+ * Skips silently when the role or a department code is not found.
+ */
+async function assignGlobalToDepartments(roleName: string, codes: string[]) {
+  const role = await prisma.role.findFirst({ where: { name: roleName } });
+  if (!role) return;
+  for (const code of codes) {
+    const dept = await prisma.department.findFirst({ where: { code } });
+    if (!dept) continue;
+    const existing = await prisma.roleAssignment.findFirst({
+      where: { roleId: role.id, departmentId: dept.id, termId: null },
+    });
+    if (!existing) {
+      await prisma.roleAssignment.create({
+        data: { roleId: role.id, departmentId: dept.id, termId: null },
+      });
+    }
+  }
 }
 
 async function main() {
@@ -208,25 +235,10 @@ async function main() {
     });
   }
 
-  // Compliance Manager role: GLOBAL (termId null) assignments to EXEC, SRR, ITCM
-  // departments where they exist. Skip silently when absent.
-  const complianceManagerRole = await prisma.role.findFirst({
-    where: { name: "Compliance Manager" },
-  });
-  if (complianceManagerRole) {
-    for (const code of ["EXEC", "SRR", "ITCM"]) {
-      const dept = await prisma.department.findFirst({ where: { code } });
-      if (!dept) continue;
-      const existing = await prisma.roleAssignment.findFirst({
-        where: { roleId: complianceManagerRole.id, departmentId: dept.id, termId: null },
-      });
-      if (!existing) {
-        await prisma.roleAssignment.create({
-          data: { roleId: complianceManagerRole.id, departmentId: dept.id, termId: null },
-        });
-      }
-    }
-  }
+  // GLOBAL (termId null) department assignments for clinic-wide roles.
+  // Skip silently when the role or a department is missing.
+  await assignGlobalToDepartments("Compliance Manager", ["EXEC", "SRR", "ITCM"]);
+  await assignGlobalToDepartments("Volunteer Operations Manager", ["EXEC", "SRR", "ITCM"]);
 
   console.log("Seed complete.");
 }

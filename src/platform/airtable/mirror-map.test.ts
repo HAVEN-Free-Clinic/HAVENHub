@@ -74,6 +74,14 @@ describe("parseFieldMap", () => {
     expect(result).toEqual(ALL_PEOPLE_FIELDS);
   });
 
+  it("returns ALL_PEOPLE_FIELDS when empty string is passed", () => {
+    expect(parseFieldMap("")).toEqual(ALL_PEOPLE_FIELDS);
+  });
+
+  it("returns ALL_PEOPLE_FIELDS when whitespace-only string is passed", () => {
+    expect(parseFieldMap("   ")).toEqual(ALL_PEOPLE_FIELDS);
+  });
+
   it("parses a valid JSON string to a PersonFieldMap", () => {
     const map: PersonFieldMap = {
       name: "fldnyPNurTfUTCI3M",

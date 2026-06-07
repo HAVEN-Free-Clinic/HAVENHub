@@ -82,6 +82,9 @@ export async function drainOutbox(
           });
           await writer.patchRecord(target.baseId, target.peopleTableId, adoptedId, payload);
         } else {
+          // Known limitation: createRecord precedes the mapping insert, so a manual
+          // drain racing the live worker in this gap can produce a duplicate row.
+          // Do not run manual drains while the worker is up.
           const created = await writer.createRecord(target.baseId, target.peopleTableId, payload);
           await prisma.mirrorRecord.create({
             data: {
@@ -137,5 +140,8 @@ async function findExistingRecord(
   const results = await io.listAll(target.baseId, target.peopleTableId, {
     filterByFormula: formula,
   });
+  if (results.length > 1) {
+    console.warn(`[mirror] ${results.length} target records match person ${netId ?? contactEmail}; adopting the first. Clean up duplicates in Airtable.`);
+  }
   return results.length > 0 ? results[0].id : null;
 }

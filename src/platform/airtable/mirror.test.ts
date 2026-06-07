@@ -230,6 +230,32 @@ describe("drainOutbox", () => {
     expect(mapping!.recordId).toBe("recAdoptMe");
   });
 
+  it("adopt-or-create: when listAll returns multiple records, patches the first and emits a console.warn", async () => {
+    const person = await prisma.person.create({
+      data: { name: "Dup Adopt", netId: "da999" },
+    });
+    await createOutboxRow(person.id);
+
+    const io = fakeIo(async () => [
+      { id: "recFirst", fields: {} },
+      { id: "recSecond", fields: {} },
+    ]);
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = await drainOutbox(io, enabledTarget);
+
+    expect(result).toBe(1);
+    expect(io.patchRecord).toHaveBeenCalledOnce();
+    const patchedId = (io.patchRecord as ReturnType<typeof vi.fn>).mock.calls[0][2];
+    expect(patchedId).toBe("recFirst");
+    expect(io.createRecord).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledOnce();
+    expect(warnSpy.mock.calls[0][0]).toMatch(/2.*target records match person/i);
+
+    warnSpy.mockRestore();
+  });
+
   it("adopt-or-create: unmapped person with no match in target: createRecord called (standard path)", async () => {
     const person = await prisma.person.create({
       data: { name: "Carol Create", netId: "cc002" },

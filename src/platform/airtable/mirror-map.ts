@@ -26,7 +26,7 @@ const REQUIRED_KEYS: ReadonlyArray<keyof PersonFieldMap> = [
  * seven required keys.
  */
 export function parseFieldMap(json: string | undefined): PersonFieldMap {
-  if (json === undefined) return { ...ALL_PEOPLE_FIELDS };
+  if (json === undefined || json.trim() === "") return { ...ALL_PEOPLE_FIELDS };
   let parsed: unknown;
   try {
     parsed = JSON.parse(json);

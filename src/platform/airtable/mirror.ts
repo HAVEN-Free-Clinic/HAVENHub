@@ -151,11 +151,18 @@ async function drainPersonRow(
     // Mirror bookkeeping: record the status we just asserted so the nightly
     // refresh can detect changes without re-reading Airtable. Only when this
     // target asserts the status (statusFieldId set, so hipaaStatus is non-null).
+    // Wrapped in its own try/catch so a bookkeeping failure cannot re-push
+    // Airtable or burn retry attempts on an already-successful send. The status
+    // stamp is best-effort; the nightly refresh corrects any gap.
     if (hipaaStatus !== null) {
-      await prisma.person.update({
-        where: { id: person.id },
-        data: { mirroredHipaaStatus: hipaaStatus },
-      });
+      try {
+        await prisma.person.update({
+          where: { id: person.id },
+          data: { mirroredHipaaStatus: hipaaStatus },
+        });
+      } catch (stampErr) {
+        console.error("[mirror] failed to stamp mirroredHipaaStatus after successful send", person.id, stampErr);
+      }
     }
     await prisma.outbox.update({
       where: { id: row.id },

@@ -325,7 +325,7 @@ describe("saveCertificate", () => {
     expect(cert.size).toBe(exactBytes);
   });
 
-  it("accepts a valid pdf: creates the DB row, writes the file to disk, creates the audit log, and enqueues an outbox row", async () => {
+  it("accepts a valid pdf: creates the DB row, writes the file to disk, creates the audit log, and enqueues TWO outbox rows (HipaaCertificate + Person for hipaaStatus)", async () => {
     const person = await createPerson();
     const file = makePdfFile();
 
@@ -355,12 +355,19 @@ describe("saveCertificate", () => {
     // bytes must never appear in the audit log
     expect(JSON.stringify(after)).not.toContain("PDF");
 
-    // Outbox row for mirror
-    const outboxRow = await prisma.outbox.findFirst({
+    // HipaaCertificate outbox row (mirrors the cert attachment)
+    const certOutboxRow = await prisma.outbox.findFirst({
       where: { entityType: "HipaaCertificate", entityId: cert.id },
     });
-    expect(outboxRow).not.toBeNull();
-    expect(outboxRow!.status).toBe("PENDING");
+    expect(certOutboxRow).not.toBeNull();
+    expect(certOutboxRow!.status).toBe("PENDING");
+
+    // Person outbox row (rides the next drain to recompute hipaaStatus so
+    // the member does not stay "Not Compliant" until the nightly refresh)
+    const personOutboxCount = await prisma.outbox.count({
+      where: { entityType: "Person", entityId: person.id },
+    });
+    expect(personOutboxCount).toBe(1);
   });
 
   it("cleans up the DB row and outbox row if the disk write fails (transactional consistency)", async () => {
@@ -553,6 +560,18 @@ describe("setCertificateCompletionDate", () => {
     }
     expect(caught).toBeInstanceOf(CertificateValidationError);
     expect((caught as CertificateValidationError).reason).toMatch(/invalid|date/i);
+  });
+
+  it("enqueues a Person outbox row so hipaaStatus is updated on the next drain (not just the nightly refresh)", async () => {
+    const person = await createPerson();
+    const cert = await makeCert(person.id);
+
+    await setCertificateCompletionDate(person.id, cert.id, "2025-06-15");
+
+    const personOutboxCount = await prisma.outbox.count({
+      where: { entityType: "Person", entityId: person.id },
+    });
+    expect(personOutboxCount).toBe(1);
   });
 });
 

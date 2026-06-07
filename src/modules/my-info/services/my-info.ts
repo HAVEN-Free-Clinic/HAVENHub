@@ -284,6 +284,16 @@ export async function saveCertificate(
       changedFields: [],
     });
 
+    // Enqueue a Person row so the drain recomputes the freshest hipaaStatus on
+    // the next drain cycle instead of waiting for the nightly refresh. Without
+    // this, a member who renews would stay "Not Compliant" in Airtable until
+    // the overnight job runs.
+    await enqueueMirror(tx, {
+      entityType: "Person",
+      entityId: personId,
+      changedFields: ["hipaaStatus"],
+    });
+
     return updated;
   });
 
@@ -388,12 +398,26 @@ export async function setCertificateCompletionDate(
     throw new CertificateValidationError("completion date is too old (older than 5 years)");
   }
 
-  // --- Update ---
+  // --- Update + enqueue (single transaction) ---
   const before = { completionDate: cert.completionDate ?? null, extraction: cert.extraction };
 
-  const updated = await prisma.hipaaCertificate.update({
-    where: { id: cert.id },
-    data: { completionDate, extraction: "MANUAL" },
+  // Wrap the update and the Person outbox row together so both land atomically.
+  // The drain recomputes the freshest hipaaStatus on the next cycle; this
+  // prevents a member who manually enters their date from staying "Not Compliant"
+  // in Airtable until the nightly refresh.
+  const updated = await prisma.$transaction(async (tx) => {
+    const result = await tx.hipaaCertificate.update({
+      where: { id: cert.id },
+      data: { completionDate, extraction: "MANUAL" },
+    });
+
+    await enqueueMirror(tx, {
+      entityType: "Person",
+      entityId: personId,
+      changedFields: ["hipaaStatus"],
+    });
+
+    return result;
   });
 
   // --- Audit ---

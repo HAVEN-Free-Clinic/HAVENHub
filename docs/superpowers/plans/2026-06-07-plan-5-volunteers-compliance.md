@@ -78,3 +78,4 @@ NO_CERTIFICATE  nothing on file
 - Offboarding/verification workflow, Epic requests, disciplinary: Volunteers part 2 (next plan)
 - In-app reminder emails (Graph): post-cutover; the mirrored status keeps Airtable automations alive meanwhile
 - OCR for image certificates: manual-date fallback covers them
+- Re-uploading a dateless certificate over a dated one flips the mirrored status to Not Compliant until the date is entered (newest-cert-wins; consistent with the dashboards)

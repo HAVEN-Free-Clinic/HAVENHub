@@ -80,6 +80,8 @@ export function ClinicDatesEditor({
       {/* Add a single date */}
       <form action={updateAction} className="flex items-end gap-3">
         <input type="hidden" name="termId" value={termId} />
+        {/* existing dates; the action appends the new one */}
+        <HiddenDatesField dates={currentIsos} />
         <div className="flex flex-col gap-1">
           <label className="text-xs font-medium text-slate-500">Add date</label>
           <Input type="date" name="addDate" className="w-44" />

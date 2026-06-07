@@ -313,6 +313,25 @@ describe("archiveTerm", () => {
     expect(activeTerms).toHaveLength(0);
   });
 
+  it("is a no-op (returns term, writes no audit) when target is already ARCHIVED", async () => {
+    const term = await prisma.term.create({
+      data: {
+        code: "SU26",
+        name: "Summer 2026",
+        startDate: new Date("2026-05-30T12:00:00Z"),
+        endDate: new Date("2026-09-26T12:00:00Z"),
+        status: "ARCHIVED",
+      },
+    });
+    const auditCountBefore = await prisma.auditLog.count();
+
+    const result = await archiveTerm(ACTOR, term.id);
+
+    expect(result.status).toBe("ARCHIVED");
+    const auditCountAfter = await prisma.auditLog.count();
+    expect(auditCountAfter).toBe(auditCountBefore);
+  });
+
   it("throws TermNotFoundError when id does not exist", async () => {
     await expect(archiveTerm(ACTOR, "nonexistent-id")).rejects.toBeInstanceOf(TermNotFoundError);
   });

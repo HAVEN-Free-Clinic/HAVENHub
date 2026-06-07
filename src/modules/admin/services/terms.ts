@@ -263,6 +263,11 @@ export async function archiveTerm(actorPersonId: string, id: string): Promise<Te
   const existing = await prisma.term.findUnique({ where: { id } });
   if (!existing) throw new TermNotFoundError(id);
 
+  // No-op: target is already ARCHIVED. Return unchanged, write no audit.
+  if (existing.status === "ARCHIVED") {
+    return existing;
+  }
+
   const updated = await prisma.term.update({
     where: { id },
     data: { status: "ARCHIVED" },

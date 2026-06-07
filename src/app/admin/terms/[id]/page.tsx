@@ -83,30 +83,40 @@ export default async function TermDetailPage({ params, searchParams }: PageProps
   async function clinicDatesAction(formData: FormData) {
     "use server";
     const actorSession = await requirePermission("admin.manage_terms");
-    const termId = (formData.get("termId") as string) ?? id;
 
     let datesIso: string[];
 
-    const regenerate = formData.get("regenerate");
-    const addDateRaw = formData.get("addDate") as string | null;
-
-    if (regenerate === "1") {
-      // Use the pre-serialized Saturdays passed from the hidden field.
-      const raw = formData.get("dates") as string | null;
-      datesIso = raw ? (JSON.parse(raw) as string[]) : [];
-    } else if (addDateRaw && addDateRaw.trim() !== "") {
-      // Add a new date to the existing list.
-      const raw = formData.get("dates") as string | null;
-      const existing: string[] = raw ? (JSON.parse(raw) as string[]) : [];
-      datesIso = [...existing, addDateRaw.trim()];
-    } else {
-      // Remove operation: "dates" contains the remaining list.
-      const raw = formData.get("dates") as string | null;
-      datesIso = raw ? (JSON.parse(raw) as string[]) : [];
-    }
-
     try {
-      await updateClinicDates(actorSession.personId, termId, datesIso);
+      // Parse the hidden "dates" JSON field safely; tampered input -> TermDateError.
+      function parseDatesField(raw: string | null): string[] {
+        if (!raw) return [];
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(raw);
+        } catch {
+          throw new TermDateError(raw);
+        }
+        if (!Array.isArray(parsed)) throw new TermDateError(raw);
+        return parsed.map(String);
+      }
+
+      const regenerate = formData.get("regenerate");
+      const addDateRaw = formData.get("addDate") as string | null;
+
+      if (regenerate === "1") {
+        // Use the pre-serialized Saturdays passed from the hidden field.
+        datesIso = parseDatesField(formData.get("dates") as string | null);
+      } else if (addDateRaw && addDateRaw.trim() !== "") {
+        // Add a new date to the existing list.
+        const existing = parseDatesField(formData.get("dates") as string | null);
+        datesIso = [...existing, addDateRaw.trim()];
+      } else {
+        // Remove operation: "dates" contains the remaining list.
+        datesIso = parseDatesField(formData.get("dates") as string | null);
+      }
+
+      // Use the closure `id` directly; do not trust the formData termId field.
+      await updateClinicDates(actorSession.personId, id, datesIso);
     } catch (err) {
       if (err instanceof TermDateError) {
         redirect(

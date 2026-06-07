@@ -12,6 +12,7 @@ import { recordAudit } from "@/platform/audit";
 import { complianceStatus } from "@/platform/compliance/rules";
 import type { ComplianceStatus } from "@/platform/compliance/rules";
 import { canViewCertificate } from "@/platform/compliance/access";
+import { manageableDepartmentIds } from "@/platform/departments";
 
 export type { ComplianceStatus };
 
@@ -68,8 +69,10 @@ const STATUS_ORDER: Record<ComplianceStatus, number> = {
 // ---------------------------------------------------------------------------
 
 /**
- * Returns compliance data for all departments where the viewer holds an
- * ACTIVE DIRECTOR membership in the active term.
+ * Returns compliance data for all departments the viewer manages: departments
+ * where they hold an ACTIVE DIRECTOR membership in the active term, plus the
+ * departments those manage via DepartmentDelegation (one hop). A PCAR director
+ * therefore sees PCAR + SCTP + JCTP cards. Delegation is one-way.
  *
  * For each department:
  *   - members: ALL ACTIVE memberships (both DIRECTOR and VOLUNTEER), each with
@@ -88,19 +91,16 @@ export async function departmentCompliance(
   });
   if (!activeTerm) return [];
 
-  // 2. Get departments where the viewer is an ACTIVE DIRECTOR in the active term.
-  const directorships = await prisma.termMembership.findMany({
-    where: {
-      personId: viewerPersonId,
-      termId: activeTerm.id,
-      kind: "DIRECTOR",
-      status: "ACTIVE",
-    },
-    include: { department: true },
-  });
-  if (directorships.length === 0) return [];
+  // 2. Departments the viewer manages: own active directorships PLUS one-hop
+  //    delegations. Returns [] when there is no active term or no directorships.
+  const deptIds = await manageableDepartmentIds(viewerPersonId);
+  if (deptIds.length === 0) return [];
 
-  const deptIds = directorships.map((d) => d.departmentId);
+  // Resolve the Department rows (used for card headings + stable ordering).
+  const departments = await prisma.department.findMany({
+    where: { id: { in: deptIds } },
+    orderBy: { code: "asc" },
+  });
 
   // 3. Fetch all ACTIVE memberships in those departments (both kinds), with
   //    person + their certs, in one query.
@@ -147,10 +147,10 @@ export async function departmentCompliance(
   // 5. Group by department and compute per-member compliance.
   const deptMap = new Map<string, { department: Department; members: MemberCompliance[] }>();
 
-  // Ensure we have an entry for every director department, in the same order.
-  for (const d of directorships) {
-    if (!deptMap.has(d.departmentId)) {
-      deptMap.set(d.departmentId, { department: d.department, members: [] });
+  // Ensure we have an entry for every manageable department, in code order.
+  for (const d of departments) {
+    if (!deptMap.has(d.id)) {
+      deptMap.set(d.id, { department: d, members: [] });
     }
   }
 

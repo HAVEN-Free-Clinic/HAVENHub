@@ -61,6 +61,12 @@ async function grantPermission(personId: string, permission: string) {
   await prisma.roleAssignment.create({ data: { roleId: role.id, personId, termId: null } });
 }
 
+async function delegate(managerId: string, managedId: string) {
+  return prisma.departmentDelegation.create({
+    data: { managerDepartmentId: managerId, managedDepartmentId: managedId },
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Setup
 // ---------------------------------------------------------------------------
@@ -148,6 +154,38 @@ describe("canViewCertificate", () => {
     await createMembership(viewer.id, term.id, dept.id, "DIRECTOR", "ACTIVE");
     // Owner's membership is REMOVED -- query filters status ACTIVE, so this should deny
     await createMembership(owner.id, term.id, dept.id, "VOLUNTEER", "REMOVED");
+
+    expect(await canViewCertificate(viewer.id, owner.id)).toBe(false);
+  });
+
+  it("returns true via delegation: a PCAR director can view an SCTP member's certificate", async () => {
+    const term = await createTerm("ACTIVE");
+    const pcar = await createDepartment("PCAR");
+    const sctp = await createDepartment("SCTP");
+    await delegate(pcar.id, sctp.id);
+
+    const viewer = await createPerson("PCAR Dir", "pcd01");
+    const owner = await createPerson("SCTP Member", "sctpm01");
+
+    await grantPermission(viewer.id, "volunteers.view");
+    await createMembership(viewer.id, term.id, pcar.id, "DIRECTOR", "ACTIVE");
+    await createMembership(owner.id, term.id, sctp.id, "VOLUNTEER", "ACTIVE");
+
+    expect(await canViewCertificate(viewer.id, owner.id)).toBe(true);
+  });
+
+  it("returns false: delegation is one-way, an SCTP director cannot view a PCAR member's certificate", async () => {
+    const term = await createTerm("ACTIVE");
+    const pcar = await createDepartment("PCAR");
+    const sctp = await createDepartment("SCTP");
+    await delegate(pcar.id, sctp.id);
+
+    const viewer = await createPerson("SCTP Dir", "scd01");
+    const owner = await createPerson("PCAR Member", "pcarm01");
+
+    await grantPermission(viewer.id, "volunteers.view");
+    await createMembership(viewer.id, term.id, sctp.id, "DIRECTOR", "ACTIVE");
+    await createMembership(owner.id, term.id, pcar.id, "VOLUNTEER", "ACTIVE");
 
     expect(await canViewCertificate(viewer.id, owner.id)).toBe(false);
   });

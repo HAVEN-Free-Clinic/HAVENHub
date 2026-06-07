@@ -108,8 +108,25 @@ model Department {
   isActive        Boolean @default(true)
   memberships     TermMembership[]
   roleAssignments RoleAssignment[]
+  /// Delegations where this department is the MANAGER (it manages the listed departments).
+  managesDelegations  DepartmentDelegation[] @relation("delegationManager")
+  /// Delegations where this department is MANAGED BY another department.
+  managedByDelegations DepartmentDelegation[] @relation("delegationManaged")
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+}
+
+/// One row per "manager department oversees managed department" edge. Used to
+/// extend a director's compliance scope beyond their own department(s) by one
+/// hop (no recursion). Example: PCAR manages SCTP and JCTP.
+model DepartmentDelegation {
+  id                  String     @id @default(cuid())
+  managerDepartmentId String
+  managedDepartmentId String
+  manager             Department @relation("delegationManager", fields: [managerDepartmentId], references: [id], onDelete: Cascade)
+  managed             Department @relation("delegationManaged", fields: [managedDepartmentId], references: [id], onDelete: Cascade)
+
+  @@unique([managerDepartmentId, managedDepartmentId])
 }
 
 model TermMembership {

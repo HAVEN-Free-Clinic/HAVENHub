@@ -3,13 +3,53 @@ import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
+// Canonical department names (authoritative). Upserted by code, names updated
+// on every run. ITCM's name is intentionally "IT & Compliance Management".
 const DEPARTMENTS = [
+  { code: "BVHD", name: "Behavioral Health" },
+  { code: "CCRH", name: "Care Coordination: Reproductive Health" },
+  { code: "CRAD", name: "Community Relations and Development" },
+  { code: "EDUC", name: "Education" },
   { code: "EXEC", name: "Executive Directors" },
+  { code: "FCRL", name: "Faculty Relations" },
+  { code: "FIND", name: "Finance and Development" },
+  { code: "FOOD", name: "Food Pharmacy" },
+  { code: "ICDD", name: "Infectious and Chronic Disease" },
+  { code: "INTP", name: "Interpreting" },
   { code: "ITCM", name: "IT & Compliance Management" },
-  { code: "SRR", name: "Staff Recruitment & Retention" },
-  { code: "VADM", name: "Volunteer Administration" },
-  { code: "VADC", name: "Volunteer Administration Directors" },
+  { code: "JCTP", name: "Junior Primary Care Team Member" },
+  { code: "JCTS", name: "Junior Reproductive Care Team Member" },
+  { code: "LABR", name: "Laboratory" },
+  { code: "MDIC", name: "Medical Debt and Insurance Counseling" },
+  { code: "MDLP", name: "Medical Debt and Legal Partnership" },
+  { code: "ORHI", name: "Oral Health Initiative" },
   { code: "PATS", name: "Patient Services" },
+  { code: "PBRL", name: "Public Relations" },
+  { code: "PCAR", name: "Primary Care Clinical Advisors" },
+  { code: "PHAM", name: "Pharmacy" },
+  { code: "PNLC", name: "Patient Navigation: Longitudinal Care" },
+  { code: "QAQI", name: "Quality Assurance and Quality Improvement" },
+  { code: "REFF", name: "Referrals" },
+  { code: "SCTP", name: "Senior Primary Care Clinical Team Member" },
+  { code: "SCTS", name: "Senior Reproductive Care Clinical Team Member" },
+  { code: "SOSE", name: "Social Services" },
+  { code: "SRHD", name: "Sexual and Reproductive Health" },
+  { code: "SRR", name: "Student Recruitment and Relations" },
+  { code: "VADC", name: "Vaccine Management" },
+  { code: "VADM", name: "Vaccine Administration" },
+];
+
+/**
+ * Department delegation edges: a manager department oversees the managed ones.
+ * Seeded idempotently and skipped silently when either code is missing.
+ */
+const DELEGATIONS: Array<{ manager: string; managed: string }> = [
+  { manager: "PCAR", managed: "SCTP" },
+  { manager: "PCAR", managed: "JCTP" },
+  { manager: "VADC", managed: "VADM" },
+  { manager: "SRHD", managed: "CCRH" },
+  { manager: "SRHD", managed: "JCTS" },
+  { manager: "SRHD", managed: "SCTS" },
 ];
 
 // Director/Volunteer are auto-attached by the RBAC engine via TermMembership.kind.
@@ -58,8 +98,34 @@ async function main() {
   for (const dept of DEPARTMENTS) {
     await prisma.department.upsert({
       where: { code: dept.code },
-      update: { name: dept.name },
+      update: { name: dept.name, isActive: true },
       create: dept,
+    });
+  }
+
+  // Deactivate the catch-all OTHER department (0 members). Upserted so a fresh
+  // DB also lands it inactive.
+  await prisma.department.upsert({
+    where: { code: "OTHER" },
+    update: { isActive: false },
+    create: { code: "OTHER", name: "OTHER", isActive: false },
+  });
+
+  // Seed department delegations idempotently. Skip silently when either code is
+  // missing (e.g. partial dev fixtures).
+  for (const { manager, managed } of DELEGATIONS) {
+    const managerDept = await prisma.department.findFirst({ where: { code: manager } });
+    const managedDept = await prisma.department.findFirst({ where: { code: managed } });
+    if (!managerDept || !managedDept) continue;
+    await prisma.departmentDelegation.upsert({
+      where: {
+        managerDepartmentId_managedDepartmentId: {
+          managerDepartmentId: managerDept.id,
+          managedDepartmentId: managedDept.id,
+        },
+      },
+      update: {},
+      create: { managerDepartmentId: managerDept.id, managedDepartmentId: managedDept.id },
     });
   }
 

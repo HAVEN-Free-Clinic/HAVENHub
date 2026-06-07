@@ -126,6 +126,12 @@ async function grantPermission(personId: string, permission: string) {
   await prisma.roleAssignment.create({ data: { roleId: role.id, personId, termId: null } });
 }
 
+async function delegate(managerId: string, managedId: string) {
+  return prisma.departmentDelegation.create({
+    data: { managerDepartmentId: managerId, managedDepartmentId: managedId },
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Setup
 // ---------------------------------------------------------------------------
@@ -385,6 +391,47 @@ describe("departmentCompliance", () => {
     expect(result).toHaveLength(2);
     const codes = result.map((r) => r.department.code).sort();
     expect(codes).toEqual(["ITCM", "SRR"]);
+  });
+
+  it("includes delegated departments: a PCAR director sees PCAR + SCTP + JCTP cards with members", async () => {
+    const term = await createTerm();
+    const pcar = await createDepartment("PCAR");
+    const sctp = await createDepartment("SCTP");
+    const jctp = await createDepartment("JCTP");
+    await delegate(pcar.id, sctp.id);
+    await delegate(pcar.id, jctp.id);
+
+    const viewer = await createPerson("PCAR Dir", "pcd01");
+    await createMembership(viewer.id, term.id, pcar.id, "DIRECTOR");
+
+    // Members in the delegated departments.
+    const sctpVol = await createPerson("SCTP Vol", "sv01");
+    const jctpVol = await createPerson("JCTP Vol", "jv01");
+    await createMembership(sctpVol.id, term.id, sctp.id, "VOLUNTEER");
+    await createMembership(jctpVol.id, term.id, jctp.id, "VOLUNTEER");
+
+    const result = await departmentCompliance(viewer.id);
+    const codes = result.map((r) => r.department.code).sort();
+    expect(codes).toEqual(["JCTP", "PCAR", "SCTP"]);
+
+    const sctpCard = result.find((r) => r.department.code === "SCTP");
+    expect(sctpCard?.members.map((m) => m.person.id)).toContain(sctpVol.id);
+    const jctpCard = result.find((r) => r.department.code === "JCTP");
+    expect(jctpCard?.members.map((m) => m.person.id)).toContain(jctpVol.id);
+  });
+
+  it("delegation is one-way: a SCTP director does NOT see the PCAR card", async () => {
+    const term = await createTerm();
+    const pcar = await createDepartment("PCAR");
+    const sctp = await createDepartment("SCTP");
+    await delegate(pcar.id, sctp.id);
+
+    const viewer = await createPerson("SCTP Dir", "scd01");
+    await createMembership(viewer.id, term.id, sctp.id, "DIRECTOR");
+
+    const result = await departmentCompliance(viewer.id);
+    const codes = result.map((r) => r.department.code);
+    expect(codes).toEqual(["SCTP"]);
   });
 });
 

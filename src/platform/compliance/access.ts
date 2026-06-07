@@ -5,13 +5,18 @@
  * person's HIPAA certificate. Rules (first match wins):
  *   1. Self: viewer === owner
  *   2. viewer has volunteers.manage_compliance permission
- *   3. viewer has volunteers.view AND is an ACTIVE DIRECTOR in the active term
- *      in any department where the owner also has an ACTIVE membership
+ *   3. viewer has volunteers.view AND manages (via active directorship or a
+ *      one-hop department delegation) a department where the owner also has an
+ *      ACTIVE membership in the active term
  *   4. Otherwise false
+ *
+ * The "manages" set comes from manageableDepartmentIds, so delegation (e.g. a
+ * PCAR director overseeing SCTP/JCTP) is honored. Delegation is one-way.
  */
 
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
+import { manageableDepartmentIds } from "@/platform/departments";
 
 /**
  * Returns true when the viewer is allowed to download or inspect the HIPAA
@@ -27,7 +32,7 @@ export async function canViewCertificate(
   // Rule 2: manage_compliance is a master key
   if (await can(viewerPersonId, "volunteers.manage_compliance")) return true;
 
-  // Rule 3: volunteers.view + ACTIVE DIRECTOR in same dept as owner
+  // Rule 3: volunteers.view + manages a dept the owner is an ACTIVE member of
   if (!(await can(viewerPersonId, "volunteers.view"))) return false;
 
   // Find the active term
@@ -37,19 +42,9 @@ export async function canViewCertificate(
   });
   if (!activeTerm) return false;
 
-  // Get departments where the viewer is an ACTIVE DIRECTOR in the active term
-  const directorDepts = await prisma.termMembership.findMany({
-    where: {
-      personId: viewerPersonId,
-      termId: activeTerm.id,
-      kind: "DIRECTOR",
-      status: "ACTIVE",
-    },
-    select: { departmentId: true },
-  });
-  if (directorDepts.length === 0) return false;
-
-  const directorDeptIds = directorDepts.map((m) => m.departmentId);
+  // Departments the viewer manages (own directorships + one-hop delegations).
+  const manageableDeptIds = await manageableDepartmentIds(viewerPersonId);
+  if (manageableDeptIds.length === 0) return false;
 
   // Check whether the owner has an ACTIVE membership in any of those departments
   const ownerMembership = await prisma.termMembership.findFirst({
@@ -57,7 +52,7 @@ export async function canViewCertificate(
       personId: ownerPersonId,
       termId: activeTerm.id,
       status: "ACTIVE",
-      departmentId: { in: directorDeptIds },
+      departmentId: { in: manageableDeptIds },
     },
   });
 

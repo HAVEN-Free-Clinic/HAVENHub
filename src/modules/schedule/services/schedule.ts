@@ -147,6 +147,9 @@ export async function mySchedule(personId: string): Promise<{
  *   3. If all dates are in the past, use the last clinicDate.
  *   4. If no active term, return the all-empty shape.
  *
+ * departments contains only departments with assignments on the selected date,
+ * sorted by code; the page renders a single empty state when none.
+ *
  * No N+1: all ShiftAssignments for the term are loaded in a single query.
  * Conflict maps only include same-day conflicts for the selected date.
  */
@@ -180,11 +183,6 @@ export async function fullSchedule(
   }
 
   const selectedKey = isoDateKey(selectedDate);
-
-  // Load ALL departments (even ones with no shifts on this date).
-  const allDepartments = await prisma.department.findMany({
-    orderBy: { code: "asc" },
-  });
 
   // Load all shift assignments for the term in one query.
   const allAssignments = await prisma.shiftAssignment.findMany({
@@ -220,6 +218,18 @@ export async function fullSchedule(
     (a) => isoDateKey(a.clinicDate) === selectedKey
   );
 
+  // Collect only departments that have at least one assignment on the selected date,
+  // preserving department metadata from the assignment rows.
+  const scheduledDeptIds = new Set(selectedAssignments.map((a) => a.departmentId));
+
+  // Load only the departments that appear on the selected date, sorted by code.
+  const scheduledDepartments = scheduledDeptIds.size > 0
+    ? await prisma.department.findMany({
+        where: { id: { in: [...scheduledDeptIds] } },
+        orderBy: { code: "asc" },
+      })
+    : [];
+
   // Map departmentId -> lists of people by role.
   const byDept = new Map<string, {
     directors: PersonLite[];
@@ -227,7 +237,7 @@ export async function fullSchedule(
     shadows: PersonLite[];
   }>();
 
-  for (const dept of allDepartments) {
+  for (const dept of scheduledDepartments) {
     byDept.set(dept.id, { directors: [], volunteers: [], shadows: [] });
   }
 
@@ -253,7 +263,7 @@ export async function fullSchedule(
 
   // Compute per-department conflict maps for the selected date.
   // Only the sameDay conflicts whose date matches selectedKey are included.
-  const departments: FullScheduleDepartment[] = allDepartments.map((dept) => {
+  const departments: FullScheduleDepartment[] = scheduledDepartments.map((dept) => {
     const bucket = byDept.get(dept.id) ?? { directors: [], volunteers: [], shadows: [] };
 
     // Collect all person ids appearing in this department on the selected date.
@@ -309,6 +319,8 @@ export async function fullSchedule(
  * objects (from Term.clinicDates) rather than caller-supplied Dates. Updates
  * ALL the actor's ACTIVE memberships in the term atomically. Writes one audit
  * entry with entityType "TermMembership", entityId = first membership id.
+ *
+ * An empty array is a valid "available never" submission.
  */
 export async function updateMyAvailability(
   actorPersonId: string,

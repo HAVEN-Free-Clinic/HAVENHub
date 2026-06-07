@@ -16,7 +16,9 @@
  *   - Conflict: a person assigned in two departments on the SAME Saturday gets
  *     the other department name in both departments' conflict maps.
  *   - Person in another department on a DIFFERENT date does NOT appear in conflicts.
- *   - Departments sorted by code.
+ *   - Departments sorted by code (only departments with assignments on selected date appear).
+ *   - Department with assignments only on a different date does not appear for the selected date.
+ *   - Unrecognized dateKey falls back to the default selection.
  *
  * updateMyAvailability:
  *   - Happy path updates BOTH memberships of a two-dept person, clears
@@ -24,6 +26,7 @@
  *   - Non-clinic date rejected listing the bad ISO day key.
  *   - No active membership rejects with AvailabilityValidationError.
  *   - Dedupe: same day passed twice stored once.
+ *   - Empty array clears availability (stores [], sets availabilityUpdatedAt, clears acknowledge).
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
@@ -386,15 +389,58 @@ describe("fullSchedule", () => {
   it("departments sorted by code", async () => {
     const dates = saturdays("2026-05-30", 1);
     const term = await createTerm("ACTIVE", "SU26", dates);
-    await createDepartment("ZZZZ");
-    await createDepartment("AAAA");
-    await createDepartment("MMMM");
+    const deptZ = await createDepartment("ZZZZ");
+    const deptA = await createDepartment("AAAA");
+    const deptM = await createDepartment("MMMM");
 
-    // No shifts needed - all departments should still show up sorted.
+    const person = await createPerson("Sorter");
+    // Create one shift per department on the selected date so all three appear.
+    await createShift(term.id, deptZ.id, person.id, dates[0], "VOLUNTEER");
+    await createShift(term.id, deptA.id, person.id, dates[0], "VOLUNTEER");
+    await createShift(term.id, deptM.id, person.id, dates[0], "VOLUNTEER");
+
     const result = await fullSchedule(isoDateKey(dates[0]));
 
     const codes = result.departments.map((d) => d.department.code);
+    expect(codes).toHaveLength(3);
     expect(codes).toEqual([...codes].sort());
+  });
+
+  it("department with assignments only on a different date does not appear for the selected date", async () => {
+    const dates = saturdays("2026-05-30", 2); // d[0] and d[1]
+    const term = await createTerm("ACTIVE", "SU26", dates);
+    const deptA = await createDepartment("AABB");
+    const deptB = await createDepartment("BBCC");
+
+    const person = await createPerson("Frank");
+
+    // deptA has a shift on dates[0]; deptB only has a shift on dates[1].
+    await createShift(term.id, deptA.id, person.id, dates[0], "VOLUNTEER");
+    await createShift(term.id, deptB.id, person.id, dates[1], "VOLUNTEER");
+
+    // Select dates[0] - only deptA should appear.
+    const result = await fullSchedule(isoDateKey(dates[0]));
+
+    const codes = result.departments.map((d) => d.department.code);
+    expect(codes).toContain("AABB");
+    expect(codes).not.toContain("BBCC");
+  });
+
+  it("unrecognized dateKey falls back to the default selection (next upcoming relative to now)", async () => {
+    const dates = saturdays("2026-05-30", 3); // d[0], d[1], d[2]
+    const term = await createTerm("ACTIVE", "SU26", dates);
+    const dept = await createDepartment("ITCM");
+    const person = await createPerson("Grace");
+
+    // Add a shift on dates[1] so the fallback date has at least one department.
+    await createShift(term.id, dept.id, person.id, dates[1], "VOLUNTEER");
+
+    // now = one day after d[0], so the default fallback is d[1].
+    const now = new Date(dates[0].getTime() + 86400000);
+    const result = await fullSchedule("9999-99-99", now);
+
+    expect(result.selectedDate).not.toBeNull();
+    expect(isoDateKey(result.selectedDate!)).toBe(isoDateKey(dates[1]));
   });
 
   it("no active term returns all-empty shape", async () => {
@@ -525,5 +571,24 @@ describe("updateMyAvailability", () => {
 
     const updated = await prisma.termMembership.findUniqueOrThrow({ where: { id: mem.id } });
     expect(updated.selfAvailabilityDates).toHaveLength(1);
+  });
+
+  it("empty array clears availability: stores [], sets availabilityUpdatedAt, clears acknowledgedAt, no error", async () => {
+    const dates = saturdays("2026-05-30", 2);
+    const term = await createTerm("ACTIVE", "SU26", dates);
+    const dept = await createDepartment("ITCM");
+    const person = await createPerson("Eve");
+    const mem = await createMembership(person.id, term.id, dept.id, "VOLUNTEER", {
+      selfAvailabilityDates: [dates[0]],
+      availabilityUpdatedAt: utc(2026, 5, 1),
+      availabilityAcknowledgedAt: utc(2026, 5, 2),
+    });
+
+    await expect(updateMyAvailability(person.id, [])).resolves.toBeUndefined();
+
+    const updated = await prisma.termMembership.findUniqueOrThrow({ where: { id: mem.id } });
+    expect(updated.selfAvailabilityDates).toHaveLength(0);
+    expect(updated.availabilityUpdatedAt).not.toBeNull();
+    expect(updated.availabilityAcknowledgedAt).toBeNull();
   });
 });

@@ -209,4 +209,40 @@ describe("loadConfig", () => {
     expect(config.AIRTABLE_MIRROR_ENABLED).toBe(true);
     expect(config.AIRTABLE_MIRROR_STATUS_FIELD_ID).toBeUndefined();
   });
+
+  // --- Email transport config ---
+
+  it("defaults EMAIL_TRANSPORT to log with no vars set", () => {
+    const config = loadConfig(base);
+    expect(config.EMAIL_TRANSPORT).toBe("log");
+  });
+
+  it("rejects graph mode without Graph vars, naming each missing key", () => {
+    expect(() =>
+      loadConfig({ ...base, EMAIL_TRANSPORT: "graph" })
+    ).toThrowError(/GRAPH_TENANT_ID/);
+    expect(() =>
+      loadConfig({ ...base, EMAIL_TRANSPORT: "graph" })
+    ).toThrowError(/GRAPH_CLIENT_ID/);
+    expect(() =>
+      loadConfig({ ...base, EMAIL_TRANSPORT: "graph" })
+    ).toThrowError(/GRAPH_CLIENT_SECRET/);
+    expect(() =>
+      loadConfig({ ...base, EMAIL_TRANSPORT: "graph" })
+    ).toThrowError(/EMAIL_SENDER/);
+  });
+
+  it("accepts graph mode when all four Graph/sender vars are present", () => {
+    const config = loadConfig({
+      ...base,
+      EMAIL_TRANSPORT: "graph",
+      GRAPH_TENANT_ID: "tenant-id",
+      GRAPH_CLIENT_ID: "client-id",
+      GRAPH_CLIENT_SECRET: "client-secret",
+      EMAIL_SENDER: "noreply@example.com",
+    });
+    expect(config.EMAIL_TRANSPORT).toBe("graph");
+    expect(config.GRAPH_TENANT_ID).toBe("tenant-id");
+    expect(config.EMAIL_SENDER).toBe("noreply@example.com");
+  });
 });

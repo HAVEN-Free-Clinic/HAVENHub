@@ -36,6 +36,13 @@ const schema = z
     // the computed status is not written (the select is omitted from the payload). This lets
     // teams enable the mirror before the status field exists in their base (the sandbox has none).
     AIRTABLE_MIRROR_STATUS_FIELD_ID: z.string().optional(),
+    // Email transport: "log" prints to stdout (default, safe for development/CI);
+    // "graph" sends via Microsoft Graph API (requires all four vars below).
+    EMAIL_TRANSPORT: z.enum(["log", "graph"]).default("log"),
+    GRAPH_TENANT_ID: z.string().optional(),
+    GRAPH_CLIENT_ID: z.string().optional(),
+    GRAPH_CLIENT_SECRET: z.string().optional(),
+    EMAIL_SENDER: z.string().optional(),
     // Uploads: local filesystem storage for HIPAA certificates.
     // Mount this as a persistent volume in production (SpinUp).
     UPLOAD_DIR: z.string().default("./uploads"),
@@ -135,6 +142,24 @@ const schema = z
             message: `must contain all seven field-id keys as non-empty strings; missing: ${missing.join(", ")}`,
           });
         }
+      }
+    }
+  })
+  .superRefine((env, ctx) => {
+    // When graph transport is selected, all four credentials are required.
+    if (env.EMAIL_TRANSPORT !== "graph") return;
+    for (const key of [
+      "GRAPH_TENANT_ID",
+      "GRAPH_CLIENT_ID",
+      "GRAPH_CLIENT_SECRET",
+      "EMAIL_SENDER",
+    ] as const) {
+      if (!env[key]) {
+        ctx.addIssue({
+          code: "custom",
+          path: [key],
+          message: "required when EMAIL_TRANSPORT is graph",
+        });
       }
     }
   });

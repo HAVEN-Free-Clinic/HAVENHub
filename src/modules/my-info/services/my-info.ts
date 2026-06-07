@@ -3,8 +3,9 @@
  *
  * Every signed-in matched person (including alumni with no current term) can:
  *   - view their own contact details and active-term memberships
- *   - update five whitelisted contact fields (phone, contactEmail, epicId,
- *     yaleAffiliation, gradYear) -- never name or netId
+ *   - update four whitelisted contact fields (phone, contactEmail,
+ *     yaleAffiliation, gradYear) -- never name, netId, or epicId
+ *     (epicId is IT-managed; use the admin people service to update it)
  *   - declare they are not volunteering this term (sets VOLUNTEER memberships
  *     in the active term to REMOVED; DIRECTOR memberships are untouched --
  *     stepping down as a director goes through the EDs)
@@ -43,11 +44,11 @@ export class CertificateValidationError extends Error {
 // Input types
 // ---------------------------------------------------------------------------
 
-/** The five fields a member is allowed to update for themselves. */
+/** The four fields a member is allowed to update for themselves via self-service.
+ * epicId is intentionally excluded: it is IT-managed only. */
 export type MyInfoInput = {
   phone?: string | null;
   contactEmail?: string | null;
-  epicId?: string | null;
   yaleAffiliation?: string | null;
   gradYear?: string | null;
 };
@@ -134,19 +135,20 @@ export async function getOwnedCertificate(
 // ---------------------------------------------------------------------------
 
 /**
- * Update the five whitelisted contact fields for the person identified by
- * personId. Extra keys in `input` (e.g. name, netId) are stripped here at the
- * service level before the platform call -- defense in depth beyond the form.
+ * Update the four whitelisted contact fields for the person identified by
+ * personId. Extra keys in `input` (e.g. name, netId, epicId) are stripped here
+ * at the service level before the platform call -- defense in depth beyond the
+ * form. epicId is IT-managed and must never be updated via this path.
  *
  * Uses self as actor (actorPersonId === personId).
  */
 export async function updateMyInfo(personId: string, input: MyInfoInput): Promise<void> {
-  // Build a clean object containing ONLY the five allowed keys that are
+  // Build a clean object containing ONLY the four allowed keys that are
   // present in the input. This is the service-level whitelist.
+  // epicId is intentionally absent: it is IT-managed only.
   const allowedKeys: Array<keyof MyInfoInput> = [
     "phone",
     "contactEmail",
-    "epicId",
     "yaleAffiliation",
     "gradYear",
   ];

@@ -52,7 +52,7 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
         contactEmail: (formData.get("contactEmail") as string) || null,
         yaleAffiliation: (formData.get("yaleAffiliation") as string) || null,
         gradYear: (formData.get("gradYear") as string) || null,
-        epicId: (formData.get("epicId") as string) || null,
+        // epicId intentionally absent: it is IT-managed, not self-service
       });
     } catch (err) {
       if (err instanceof PersonConflictError) {

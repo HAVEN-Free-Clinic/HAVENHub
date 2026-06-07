@@ -147,18 +147,27 @@ describe("getMyInfo", () => {
 // ---- updateMyInfo -----------------------------------------------------------
 
 describe("updateMyInfo", () => {
-  it("updates only whitelisted fields and ignores smuggled keys like name and netId", async () => {
+  it("updates only whitelisted fields and ignores smuggled keys like name, netId, and epicId", async () => {
     const person = await createPerson({ name: "Original Name", netId: "orig001" });
+    // Pre-set an epicId so we can confirm it is not overwritten.
+    await prisma.person.update({ where: { id: person.id }, data: { epicId: "ORIGINAL-EPIC" } });
 
-    // Attempt to smuggle 'name' and 'netId' through the input (extra keys not in MyInfoInput).
+    // Attempt to smuggle 'name', 'netId', and 'epicId' through the input.
     // Cast to unknown first to bypass TS: the whitelist logic inside the service must strip them.
-    const smuggledInput: unknown = { phone: "555-1234", name: "Hacked Name", netId: "hacked" };
+    const smuggledInput: unknown = {
+      phone: "555-1234",
+      name: "Hacked Name",
+      netId: "hacked",
+      epicId: "SMUGGLED-EPIC",
+    };
     await updateMyInfo(person.id, smuggledInput as Parameters<typeof updateMyInfo>[1]);
 
     const updated = await prisma.person.findUniqueOrThrow({ where: { id: person.id } });
     expect(updated.phone).toBe("555-1234");
     expect(updated.name).toBe("Original Name");
     expect(updated.netId).toBe("orig001");
+    // epicId must remain unchanged -- it is IT-managed, not self-service
+    expect(updated.epicId).toBe("ORIGINAL-EPIC");
   });
 
   it("delegates to updatePersonFields with self as actor (audit row has actorPersonId === personId)", async () => {
@@ -174,12 +183,14 @@ describe("updateMyInfo", () => {
     expect(auditRow!.actorPersonId).toBe(person.id);
   });
 
-  it("updates all five whitelisted fields", async () => {
+  it("updates all four whitelisted fields (epicId is not self-service)", async () => {
     const person = await createPerson();
+    // Pre-set an epicId to confirm it is untouched even when not passed
+    await prisma.person.update({ where: { id: person.id }, data: { epicId: "PRESET-EPIC" } });
+
     await updateMyInfo(person.id, {
       phone: "203-555-0001",
       contactEmail: "test@example.com",
-      epicId: "EPIC-001",
       yaleAffiliation: "Graduate Student",
       gradYear: "2027",
     });
@@ -187,9 +198,10 @@ describe("updateMyInfo", () => {
     const updated = await prisma.person.findUniqueOrThrow({ where: { id: person.id } });
     expect(updated.phone).toBe("203-555-0001");
     expect(updated.contactEmail).toBe("test@example.com");
-    expect(updated.epicId).toBe("EPIC-001");
     expect(updated.yaleAffiliation).toBe("Graduate Student");
     expect(updated.gradYear).toBe("2027");
+    // epicId must remain unchanged -- it is IT-managed
+    expect(updated.epicId).toBe("PRESET-EPIC");
   });
 });
 

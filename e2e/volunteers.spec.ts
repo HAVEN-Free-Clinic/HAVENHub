@@ -12,8 +12,8 @@ test("Jack (ITCM director) opens /volunteers and sees the ITCM department card",
   await page.goto("/volunteers");
   await page.waitForURL((url) => url.pathname === "/volunteers");
 
-  // Page heading must be present
-  await expect(page.getByRole("heading", { name: "Compliance" })).toBeVisible();
+  // Page heading must be present (exact match to avoid matching ITCM department h2)
+  await expect(page.getByRole("heading", { name: "Compliance", exact: true })).toBeVisible();
 
   // ITCM department section heading must be visible
   const itcmHeading = page.locator("h2").filter({ hasText: /ITCM/ });

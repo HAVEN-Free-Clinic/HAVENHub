@@ -1,8 +1,8 @@
 /**
  * MyInfoForm: editable contact fields for the signed-in member.
  *
- * Editable: phone, contactEmail, yaleAffiliation, gradYear, epicId.
- * Read-only display rows: name, netId (with helptext directing members to IT).
+ * Editable: phone, contactEmail, yaleAffiliation, gradYear.
+ * Read-only display rows: name, netId, epicId (IT-managed; not self-service).
  *
  * Accepts a server action so the parent page owns the action closure
  * (and the session/auth check lives there).
@@ -78,6 +78,16 @@ export function MyInfoForm({ action, person, error, saved }: MyInfoFormProps) {
             Contact the IT team to correct your name or NetID.
           </p>
         </div>
+
+        <div className="flex flex-col gap-1">
+          <span className="text-xs font-medium text-slate-500">Epic ID</span>
+          <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+            {person.epicId || <span className="italic text-slate-400">Not set</span>}
+          </p>
+          <p className="text-xs text-slate-400">
+            Contact the IT team to update your Epic ID.
+          </p>
+        </div>
       </div>
 
       {/* Editable fields */}
@@ -120,14 +130,6 @@ export function MyInfoForm({ action, person, error, saved }: MyInfoFormProps) {
             name="gradYear"
             defaultValue={person.gradYear ?? ""}
             placeholder="2027"
-          />
-        </Field>
-
-        <Field label="Epic ID">
-          <Input
-            name="epicId"
-            defaultValue={person.epicId ?? ""}
-            placeholder="E12345"
           />
         </Field>
       </div>

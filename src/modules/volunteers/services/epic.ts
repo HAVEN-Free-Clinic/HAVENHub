@@ -191,16 +191,18 @@ export async function createEpicRequest(
 export async function myEpicPanel(
   personId: string
 ): Promise<{ epicId: string | null; openRequest: EpicRequest | null }> {
-  const person = await prisma.person.findUnique({ where: { id: personId } });
-  if (!person) return { epicId: null, openRequest: null };
+  const [person, openRequest] = await Promise.all([
+    prisma.person.findUnique({ where: { id: personId } }),
+    prisma.epicRequest.findFirst({
+      where: {
+        personId,
+        status: { in: ["PENDING", "SUBMITTED"] },
+      },
+      orderBy: { createdAt: "desc" },
+    }),
+  ]);
 
-  const openRequest = await prisma.epicRequest.findFirst({
-    where: {
-      personId,
-      status: { in: ["PENDING", "SUBMITTED"] },
-    },
-    orderBy: { createdAt: "desc" },
-  });
+  if (!person) return { epicId: null, openRequest: null };
 
   return { epicId: person.epicId, openRequest };
 }

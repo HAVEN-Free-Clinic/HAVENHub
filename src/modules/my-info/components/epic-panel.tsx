@@ -29,9 +29,10 @@ type EpicPanelProps = {
   openRequest: Pick<EpicRequest, "kind" | "status" | "createdAt"> | null;
   action: (formData: FormData) => Promise<void>;
   error?: string;
+  saved?: boolean;
 };
 
-export function EpicPanel({ epicId, openRequest, action, error }: EpicPanelProps) {
+export function EpicPanel({ epicId, openRequest, action, error, saved }: EpicPanelProps) {
   // Determine available kinds based on whether epicId is on file
   const hasEpicId = !!epicId;
 
@@ -41,6 +42,10 @@ export function EpicPanel({ epicId, openRequest, action, error }: EpicPanelProps
         <h3 className="text-sm font-semibold text-slate-700">Epic Access</h3>
         <p className="mt-0.5 text-xs text-slate-400">Managed by the IT team.</p>
       </div>
+
+      {saved && (
+        <p className="text-sm text-green-600">Epic request submitted.</p>
+      )}
 
       {/* Current Epic ID row */}
       <div className="flex items-center gap-3">

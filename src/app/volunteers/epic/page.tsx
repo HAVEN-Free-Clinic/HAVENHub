@@ -72,6 +72,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   "not-found": "The requested item could not be found.",
   "state-error": "The action could not be completed due to the current state of the request.",
   "invalid-kind": "Invalid request kind.",
+  "invalid-template": "Invalid email template.",
 };
 
 // ---------------------------------------------------------------------------
@@ -312,7 +313,7 @@ export default async function EpicQueuePage({ searchParams }: PageProps) {
       "epic-password-reset",
     ];
     if (!(validTemplates as string[]).includes(template)) {
-      redirect("/volunteers/epic?error=invalid-kind");
+      redirect("/volunteers/epic?error=invalid-template");
     }
     try {
       await sendEpicEmail(actor.personId, requestId, template as EpicTemplateKey);

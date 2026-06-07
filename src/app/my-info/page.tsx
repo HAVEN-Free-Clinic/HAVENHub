@@ -36,6 +36,7 @@ type PageProps = {
     dateError?: string;
     dateSaved?: string;
     epicError?: string;
+    epicSaved?: string;
   }>;
 };
 
@@ -156,7 +157,7 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
       }
       throw err;
     }
-    redirect("/my-info?saved=1");
+    redirect("/my-info?epicSaved=1");
   }
 
   // Compute compliance status for the newest cert
@@ -228,6 +229,7 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
             openRequest={epicPanel.openRequest}
             action={epicRequestAction}
             error={sp.epicError ? decodeURIComponent(sp.epicError) : undefined}
+            saved={sp.epicSaved === "1"}
           />
         </section>
       </div>

@@ -20,6 +20,8 @@
     "import:apply": "tsx --env-file=.env scripts/import-airtable.ts --apply",
     "import:certs:dry": "tsx --env-file=.env scripts/import-certificates.ts",
     "import:certs:apply": "tsx --env-file=.env scripts/import-certificates.ts --apply",
+    "backfill:dates:dry": "tsx --env-file=.env scripts/backfill-completion-dates.ts",
+    "backfill:dates:apply": "tsx --env-file=.env scripts/backfill-completion-dates.ts --apply",
     "worker": "tsx --env-file=.env worker/index.ts"
   },
   "prisma": {

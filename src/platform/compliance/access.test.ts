@@ -123,4 +123,32 @@ describe("canViewCertificate", () => {
 
     expect(await canViewCertificate(viewer.id, owner.id)).toBe(false);
   });
+
+  it("returns false when viewer has volunteers.view but their directorship is REMOVED (not ACTIVE)", async () => {
+    const term = await createTerm("ACTIVE");
+    const dept = await createDepartment("ITCM");
+    const viewer = await createPerson("RemovedDir", "rdir01");
+    const owner = await createPerson("OwnerA", "ownr01");
+
+    await grantPermission(viewer.id, "volunteers.view");
+    // Directorship exists but status is REMOVED -- should not grant access
+    await createMembership(viewer.id, term.id, dept.id, "DIRECTOR", "REMOVED");
+    await createMembership(owner.id, term.id, dept.id, "VOLUNTEER", "ACTIVE");
+
+    expect(await canViewCertificate(viewer.id, owner.id)).toBe(false);
+  });
+
+  it("returns false when viewer is ACTIVE DIRECTOR in the same dept but the owner's membership is REMOVED", async () => {
+    const term = await createTerm("ACTIVE");
+    const dept = await createDepartment("SRR");
+    const viewer = await createPerson("DirActive", "dira01");
+    const owner = await createPerson("RemovedMem", "rmem01");
+
+    await grantPermission(viewer.id, "volunteers.view");
+    await createMembership(viewer.id, term.id, dept.id, "DIRECTOR", "ACTIVE");
+    // Owner's membership is REMOVED -- query filters status ACTIVE, so this should deny
+    await createMembership(owner.id, term.id, dept.id, "VOLUNTEER", "REMOVED");
+
+    expect(await canViewCertificate(viewer.id, owner.id)).toBe(false);
+  });
 });

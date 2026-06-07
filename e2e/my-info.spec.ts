@@ -45,7 +45,7 @@ test("volunteer login: /my-info renders the profile form", async ({ page }) => {
   await expect(page.getByText("Name", { exact: true })).toBeVisible();
 });
 
-test("Jack's HIPAA panel shows UNKNOWN_DATE status badge and date-entry form for imported cert with no completionDate", async ({ page }) => {
+test("Jack's HIPAA panel shows a real compliance status now that the backfill has populated his completionDate", async ({ page }) => {
   await devLogin(page, "j.carney@yale.edu");
 
   await page.goto("/my-info");
@@ -56,11 +56,18 @@ test("Jack's HIPAA panel shows UNKNOWN_DATE status badge and date-entry form for
     page.getByRole("heading", { name: /HIPAA Certificate/i })
   ).toBeVisible();
 
-  // Jack's imported cert has no completionDate -> UNKNOWN_DATE status badge
-  await expect(page.getByText("Completion date needed")).toBeVisible();
+  // After the completion-date backfill, Jack's cert has a parsed date (May 29 2026).
+  // His cert expires 2027-05-29, which covers the active term end (SU26: 2026-09-26 + 30d).
+  // The UNKNOWN_DATE / "Completion date needed" badge must no longer appear.
+  await expect(page.getByText("Completion date needed")).not.toBeVisible();
 
-  // The date-entry form must be rendered with a date input
+  // The manual date-entry fallback form must not render because a date was parsed.
   await expect(
     page.getByText("We could not read a completion date from your certificate")
+  ).not.toBeVisible();
+
+  // Instead a real status line should be present (Compliant through or Expiring).
+  await expect(
+    page.getByText(/Compliant through|Expires|Expired/i)
   ).toBeVisible();
 });

@@ -41,98 +41,98 @@ enum CertificateExtraction {
 }
 
 model Person {
-  id               String        @id @default(cuid())
-  netId            String?       @unique
-  entraObjectId    String?       @unique
-  name             String
-  contactEmail     String?       @unique
-  phone            String?
-  epicId           String?
-  yaleAffiliation  String?
-  gradYear         String?
-  status           PersonStatus  @default(ACTIVE)
-  airtableRecordId String?       @unique
+  id                        String               @id @default(cuid())
+  netId                     String?              @unique
+  entraObjectId             String?              @unique
+  name                      String
+  contactEmail              String?              @unique
+  phone                     String?
+  epicId                    String?
+  yaleAffiliation           String?
+  gradYear                  String?
+  status                    PersonStatus         @default(ACTIVE)
+  airtableRecordId          String?              @unique
   /// The HIPAA compliance status the Airtable mirror last asserted ("Compliant" /
   /// "Not Compliant"). Mirror bookkeeping only: set by drainPersonRow after a
   /// successful send so the nightly refresh can detect changes without re-reading Airtable.
-  mirroredHipaaStatus String?
-  memberships      TermMembership[]
-  roleAssignments  RoleAssignment[]
-  hipaaCertificates HipaaCertificate[]
+  mirroredHipaaStatus       String?
+  memberships               TermMembership[]
+  roleAssignments           RoleAssignment[]
+  hipaaCertificates         HipaaCertificate[]
   /// Offboard flags where this person is the subject.
-  offboardFlags    OffboardFlag[]       @relation("offboardFlagPerson")
+  offboardFlags             OffboardFlag[]       @relation("offboardFlagPerson")
   /// Offboard flags this person issued (as the flagger).
-  offboardFlagsIssued OffboardFlag[]    @relation("offboardFlagFlaggedBy")
+  offboardFlagsIssued       OffboardFlag[]       @relation("offboardFlagFlaggedBy")
   /// EPIC access requests where this person is the subject.
-  epicRequests     EpicRequest[]        @relation("epicRequestPerson")
+  epicRequests              EpicRequest[]        @relation("epicRequestPerson")
   /// EPIC access requests this person submitted on behalf of another.
-  epicRequestsSubmitted EpicRequest[]   @relation("epicRequestRequestedBy")
+  epicRequestsSubmitted     EpicRequest[]        @relation("epicRequestRequestedBy")
   /// YNHH tickets this person submitted.
-  ynhhTicketsSubmitted YnhhTicket[]     @relation("ynhhTicketSubmittedBy")
+  ynhhTicketsSubmitted      YnhhTicket[]         @relation("ynhhTicketSubmittedBy")
   /// Disciplinary actions recorded against this person.
-  disciplinaryActions DisciplinaryAction[] @relation("disciplinaryActionPerson")
+  disciplinaryActions       DisciplinaryAction[] @relation("disciplinaryActionPerson")
   /// Disciplinary actions this person issued.
   disciplinaryActionsIssued DisciplinaryAction[] @relation("disciplinaryActionIssuedBy")
   /// Email log rows addressed to or triggered by this person.
-  emailLogs        EmailLog[]           @relation("emailLogPerson")
+  emailLogs                 EmailLog[]           @relation("emailLogPerson")
   /// Email log rows this person triggered (may differ from the recipient).
-  emailLogsTriggered EmailLog[]         @relation("emailLogTriggeredBy")
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
+  emailLogsTriggered        EmailLog[]           @relation("emailLogTriggeredBy")
+  createdAt                 DateTime             @default(now())
+  updatedAt                 DateTime             @updatedAt
 }
 
 /// Uploaded HIPAA training certificates. One row per upload.
 /// File bytes live on disk under UPLOAD_DIR/<storedName>; this row is the
 /// source of truth for ownership and metadata. Cascade-deleted with the person.
 model HipaaCertificate {
-  id          String   @id @default(cuid())
-  personId    String
+  id             String                @id @default(cuid())
+  personId       String
   /// Original filename as supplied by the uploader (display only; never used in file I/O).
-  fileName    String
+  fileName       String
   /// Server-generated filename stored under UPLOAD_DIR (e.g. "<cuid>.pdf"). Used for disk I/O.
-  storedName  String
-  size        Int
-  mimeType    String
-  source          CertificateSource     @default(UPLOAD)
-  completionDate  DateTime?
-  extraction      CertificateExtraction @default(NONE)
-  verifiedById    String?
-  verifiedAt      DateTime?
-  uploadedAt      DateTime              @default(now())
-  person          Person                @relation(fields: [personId], references: [id], onDelete: Cascade)
+  storedName     String
+  size           Int
+  mimeType       String
+  source         CertificateSource     @default(UPLOAD)
+  completionDate DateTime?
+  extraction     CertificateExtraction @default(NONE)
+  verifiedById   String?
+  verifiedAt     DateTime?
+  uploadedAt     DateTime              @default(now())
+  person         Person                @relation(fields: [personId], references: [id], onDelete: Cascade)
 
   @@index([personId, uploadedAt])
 }
 
 model Term {
-  id              String     @id @default(cuid())
-  code            String     @unique // "SU26", "FA26"
+  id              String           @id @default(cuid())
+  code            String           @unique // "SU26", "FA26"
   name            String // "Summer 2026"
   startDate       DateTime
   endDate         DateTime
-  status          TermStatus @default(PLANNING)
+  status          TermStatus       @default(PLANNING)
   clinicDates     DateTime[]
   memberships     TermMembership[]
   roleAssignments RoleAssignment[]
   /// Offboard flags raised for this term.
   offboardFlags   OffboardFlag[]
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
 }
 
 model Department {
-  id              String  @id @default(cuid())
-  code            String  @unique // "ITCM", "EXEC", "SRR", ...
-  name            String
-  isActive        Boolean @default(true)
-  memberships     TermMembership[]
-  roleAssignments RoleAssignment[]
+  id                   String                 @id @default(cuid())
+  code                 String                 @unique // "ITCM", "EXEC", "SRR", ...
+  name                 String
+  isActive             Boolean                @default(true)
+  memberships          TermMembership[]
+  roleAssignments      RoleAssignment[]
   /// Delegations where this department is the MANAGER (it manages the listed departments).
-  managesDelegations  DepartmentDelegation[] @relation("delegationManager")
+  managesDelegations   DepartmentDelegation[] @relation("delegationManager")
   /// Delegations where this department is MANAGED BY another department.
   managedByDelegations DepartmentDelegation[] @relation("delegationManaged")
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
 }
 
 /// One row per "manager department oversees managed department" edge. Used to
@@ -171,10 +171,10 @@ model TermMembership {
 }
 
 model Role {
-  id          String  @id @default(cuid())
-  name        String  @unique
+  id          String           @id @default(cuid())
+  name        String           @unique
   description String?
-  isSystem    Boolean @default(false)
+  isSystem    Boolean          @default(false)
   grants      RoleGrant[]
   assignments RoleAssignment[]
 }

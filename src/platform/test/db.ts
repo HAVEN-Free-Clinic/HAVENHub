@@ -6,6 +6,7 @@ export async function resetDb() {
   await prisma.$executeRawUnsafe(
     `TRUNCATE "HipaaCertificate", "RoleAssignment", "RoleGrant", "Role", "TermMembership",
               "DepartmentDelegation", "Department", "Term", "Person", "AuditLog",
-              "Outbox", "MirrorRecord", "WorkerHeartbeat" CASCADE`
+              "Outbox", "MirrorRecord", "WorkerHeartbeat",
+              "OffboardFlag", "EpicRequest", "YnhhTicket", "DisciplinaryAction", "EmailLog" CASCADE`
   );
 }

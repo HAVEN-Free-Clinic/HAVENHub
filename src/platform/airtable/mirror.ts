@@ -70,7 +70,7 @@ export async function drainOutbox(
         // Adopt-or-create: a crash after createRecord but before the mapping insert,
         // or pre-existing rows (production cutover), must not produce duplicates.
         // Field NAMES are identical across production and sandbox targets.
-        const adoptedId = await findExistingRecord(writer, target, person.netId, person.contactEmail);
+        const adoptedId = await findExistingRecord(writer, target, person.id, person.netId, person.contactEmail);
         if (adoptedId) {
           await prisma.mirrorRecord.create({
             data: {
@@ -126,6 +126,7 @@ export async function drainOutbox(
 async function findExistingRecord(
   io: MirrorIo,
   target: MirrorTarget,
+  personId: string,
   netId: string | null,
   contactEmail: string | null
 ): Promise<string | null> {
@@ -141,7 +142,8 @@ async function findExistingRecord(
     filterByFormula: formula,
   });
   if (results.length > 1) {
-    console.warn(`[mirror] ${results.length} target records match person ${netId ?? contactEmail}; adopting the first. Clean up duplicates in Airtable.`);
+    // Log the internal id only: netId/email are PII and do not belong in log storage.
+    console.warn(`[mirror] ${results.length} target records match person ${personId}; adopting the first. Clean up duplicates in Airtable.`);
   }
   return results.length > 0 ? results[0].id : null;
 }

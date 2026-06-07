@@ -251,7 +251,11 @@ describe("drainOutbox", () => {
     expect(patchedId).toBe("recFirst");
     expect(io.createRecord).not.toHaveBeenCalled();
     expect(warnSpy).toHaveBeenCalledOnce();
-    expect(warnSpy.mock.calls[0][0]).toMatch(/2.*target records match person/i);
+    const warned = warnSpy.mock.calls[0][0] as string;
+    expect(warned).toMatch(/2.*target records match person/i);
+    // PII never goes to log storage: the internal person id is the only handle.
+    expect(warned).toContain(person.id);
+    expect(warned).not.toContain("da999");
 
     warnSpy.mockRestore();
   });

@@ -55,6 +55,9 @@ export const MODULES: ModuleManifest[] = [
     nav: [
       { label: "Compliance", href: "/volunteers" },
       { label: "Master view", href: "/volunteers/master" },
+      { label: "Offboarding", href: "/volunteers/offboarding" },
+      { label: "Epic requests", href: "/volunteers/epic" },
+      { label: "Disciplinary", href: "/volunteers/disciplinary" },
     ],
   },
   {

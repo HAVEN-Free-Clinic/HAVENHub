@@ -41,78 +41,98 @@ enum CertificateExtraction {
 }
 
 model Person {
-  id               String        @id @default(cuid())
-  netId            String?       @unique
-  entraObjectId    String?       @unique
-  name             String
-  contactEmail     String?       @unique
-  phone            String?
-  epicId           String?
-  yaleAffiliation  String?
-  gradYear         String?
-  status           PersonStatus  @default(ACTIVE)
-  airtableRecordId String?       @unique
+  id                        String               @id @default(cuid())
+  netId                     String?              @unique
+  entraObjectId             String?              @unique
+  name                      String
+  contactEmail              String?              @unique
+  phone                     String?
+  epicId                    String?
+  yaleAffiliation           String?
+  gradYear                  String?
+  status                    PersonStatus         @default(ACTIVE)
+  airtableRecordId          String?              @unique
   /// The HIPAA compliance status the Airtable mirror last asserted ("Compliant" /
   /// "Not Compliant"). Mirror bookkeeping only: set by drainPersonRow after a
   /// successful send so the nightly refresh can detect changes without re-reading Airtable.
-  mirroredHipaaStatus String?
-  memberships      TermMembership[]
-  roleAssignments  RoleAssignment[]
-  hipaaCertificates HipaaCertificate[]
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
+  mirroredHipaaStatus       String?
+  memberships               TermMembership[]
+  roleAssignments           RoleAssignment[]
+  hipaaCertificates         HipaaCertificate[]
+  /// Offboard flags where this person is the subject.
+  offboardFlags             OffboardFlag[]       @relation("offboardFlagPerson")
+  /// Offboard flags this person issued (as the flagger).
+  offboardFlagsIssued       OffboardFlag[]       @relation("offboardFlagFlaggedBy")
+  /// EPIC access requests where this person is the subject.
+  epicRequests              EpicRequest[]        @relation("epicRequestPerson")
+  /// EPIC access requests this person submitted on behalf of another.
+  epicRequestsSubmitted     EpicRequest[]        @relation("epicRequestRequestedBy")
+  /// YNHH tickets this person submitted.
+  ynhhTicketsSubmitted      YnhhTicket[]         @relation("ynhhTicketSubmittedBy")
+  /// Disciplinary actions recorded against this person.
+  disciplinaryActions       DisciplinaryAction[] @relation("disciplinaryActionPerson")
+  /// Disciplinary actions this person issued.
+  disciplinaryActionsIssued DisciplinaryAction[] @relation("disciplinaryActionIssuedBy")
+  /// Email log rows addressed to or triggered by this person.
+  emailLogs                 EmailLog[]           @relation("emailLogPerson")
+  /// Email log rows this person triggered (may differ from the recipient).
+  emailLogsTriggered        EmailLog[]           @relation("emailLogTriggeredBy")
+  createdAt                 DateTime             @default(now())
+  updatedAt                 DateTime             @updatedAt
 }
 
 /// Uploaded HIPAA training certificates. One row per upload.
 /// File bytes live on disk under UPLOAD_DIR/<storedName>; this row is the
 /// source of truth for ownership and metadata. Cascade-deleted with the person.
 model HipaaCertificate {
-  id          String   @id @default(cuid())
-  personId    String
+  id             String                @id @default(cuid())
+  personId       String
   /// Original filename as supplied by the uploader (display only; never used in file I/O).
-  fileName    String
+  fileName       String
   /// Server-generated filename stored under UPLOAD_DIR (e.g. "<cuid>.pdf"). Used for disk I/O.
-  storedName  String
-  size        Int
-  mimeType    String
-  source          CertificateSource     @default(UPLOAD)
-  completionDate  DateTime?
-  extraction      CertificateExtraction @default(NONE)
-  verifiedById    String?
-  verifiedAt      DateTime?
-  uploadedAt      DateTime              @default(now())
-  person          Person                @relation(fields: [personId], references: [id], onDelete: Cascade)
+  storedName     String
+  size           Int
+  mimeType       String
+  source         CertificateSource     @default(UPLOAD)
+  completionDate DateTime?
+  extraction     CertificateExtraction @default(NONE)
+  verifiedById   String?
+  verifiedAt     DateTime?
+  uploadedAt     DateTime              @default(now())
+  person         Person                @relation(fields: [personId], references: [id], onDelete: Cascade)
 
   @@index([personId, uploadedAt])
 }
 
 model Term {
-  id              String     @id @default(cuid())
-  code            String     @unique // "SU26", "FA26"
+  id              String           @id @default(cuid())
+  code            String           @unique // "SU26", "FA26"
   name            String // "Summer 2026"
   startDate       DateTime
   endDate         DateTime
-  status          TermStatus @default(PLANNING)
+  status          TermStatus       @default(PLANNING)
   clinicDates     DateTime[]
   memberships     TermMembership[]
   roleAssignments RoleAssignment[]
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
+  /// Offboard flags raised for this term.
+  offboardFlags   OffboardFlag[]
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
 }
 
 model Department {
-  id              String  @id @default(cuid())
-  code            String  @unique // "ITCM", "EXEC", "SRR", ...
-  name            String
-  isActive        Boolean @default(true)
-  memberships     TermMembership[]
-  roleAssignments RoleAssignment[]
+  id                   String                 @id @default(cuid())
+  code                 String                 @unique // "ITCM", "EXEC", "SRR", ...
+  name                 String
+  isActive             Boolean                @default(true)
+  memberships          TermMembership[]
+  roleAssignments      RoleAssignment[]
   /// Delegations where this department is the MANAGER (it manages the listed departments).
-  managesDelegations  DepartmentDelegation[] @relation("delegationManager")
+  managesDelegations   DepartmentDelegation[] @relation("delegationManager")
   /// Delegations where this department is MANAGED BY another department.
   managedByDelegations DepartmentDelegation[] @relation("delegationManaged")
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
 }
 
 /// One row per "manager department oversees managed department" edge. Used to
@@ -151,10 +171,10 @@ model TermMembership {
 }
 
 model Role {
-  id          String  @id @default(cuid())
-  name        String  @unique
+  id          String           @id @default(cuid())
+  name        String           @unique
   description String?
-  isSystem    Boolean @default(false)
+  isSystem    Boolean          @default(false)
   grants      RoleGrant[]
   assignments RoleAssignment[]
 }
@@ -211,6 +231,30 @@ enum OutboxStatus {
   FAILED
 }
 
+enum EpicRequestKind {
+  NEW
+  MODIFY
+  RENEW
+}
+
+enum EpicRequestStatus {
+  PENDING
+  SUBMITTED
+  COMPLETED
+  CANCELLED
+}
+
+enum YnhhTicketStatus {
+  OPEN
+  CLOSED
+}
+
+enum EmailStatus {
+  QUEUED
+  SENT
+  FAILED
+}
+
 /// One row per mirrored change. Written in the same transaction as the domain
 /// write; drained by the worker. FAILED rows persist for inspection and are
 /// also self-healed by nightly reconciliation.
@@ -244,4 +288,119 @@ model MirrorRecord {
 model WorkerHeartbeat {
   id     String   @id // e.g. "mirror-worker"
   beatAt DateTime
+}
+
+/// Flags a person for offboarding at the end of a given term. At most one flag
+/// per (person, term) pair. Cascade-deleted when the person or term is removed
+/// (flags are transient workflow state with no independent archival value).
+model OffboardFlag {
+  id          String   @id @default(cuid())
+  personId    String
+  termId      String
+  flaggedById String
+  note        String?
+  createdAt   DateTime @default(now())
+  /// Subject of the flag. Cascade: if the person is deleted the flag is meaningless.
+  person      Person   @relation("offboardFlagPerson", fields: [personId], references: [id], onDelete: Cascade)
+  /// Term in which the person should be offboarded. Cascade: if the term is deleted the flag is meaningless.
+  term        Term     @relation(fields: [termId], references: [id], onDelete: Cascade)
+  /// Person who raised the flag. Restrict: flags are workflow state the offboarding executor acts on; deleting a person who flagged others must not silently empty the queue.
+  flaggedBy   Person   @relation("offboardFlagFlaggedBy", fields: [flaggedById], references: [id], onDelete: Restrict)
+
+  @@unique([personId, termId])
+}
+
+/// A request to create, modify, or renew a person's EPIC EMR access. Linked
+/// optionally to a YnhhTicket once one is opened with YNHH IT. Cascade-deleted
+/// with the person (the person is the subject of the request).
+model EpicRequest {
+  id            String            @id @default(cuid())
+  personId      String
+  kind          EpicRequestKind
+  status        EpicRequestStatus @default(PENDING)
+  jobTitle      String?
+  mirrorEpicId  String?
+  notes         String?
+  requestedById String
+  ticketId      String?
+  completedAt   DateTime?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  /// Subject of the request. Cascade: requests belong to the person.
+  person        Person            @relation("epicRequestPerson", fields: [personId], references: [id], onDelete: Cascade)
+  /// Person who submitted the request. Restrict: any referencing row blocks deletion of this person.
+  requestedBy   Person            @relation("epicRequestRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict)
+  /// The YNHH ticket opened for this request (optional).
+  ticket        YnhhTicket?       @relation(fields: [ticketId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([personId, status])
+}
+
+/// A service request ticket opened with YNHH IT, grouping one or more EPIC
+/// access requests. Rows are kept for audit purposes even after the ticket closes.
+model YnhhTicket {
+  id                   String           @id @default(cuid())
+  serviceRequestNumber String?
+  description          String?
+  status               YnhhTicketStatus @default(OPEN)
+  submittedById        String
+  submittedAt          DateTime         @default(now())
+  closedAt             DateTime?
+  /// EPIC requests grouped under this ticket.
+  requests             EpicRequest[]
+  /// Person who submitted the ticket to YNHH IT. Restrict: any referencing row blocks deletion of this person.
+  submittedBy          Person           @relation("ynhhTicketSubmittedBy", fields: [submittedById], references: [id], onDelete: Restrict)
+}
+
+/// A formal disciplinary action recorded against a volunteer or director.
+/// Cascade-deleted with the person (the subject); issuer uses Restrict so a
+/// director cannot be deleted while they have issued actions.
+model DisciplinaryAction {
+  id              String   @id @default(cuid())
+  personId        String
+  issuedById      String
+  occurredAt      DateTime
+  category        String
+  description     String
+  followUpActions String?
+  policyReference String?
+  notes           String?
+  confidential    Boolean  @default(false)
+  patientInvolved Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  /// Subject of the action. Cascade: records belong to the person.
+  person          Person   @relation("disciplinaryActionPerson", fields: [personId], references: [id], onDelete: Cascade)
+  /// Person who issued the action. Restrict: the issuer should not be deleted while records exist.
+  issuedBy        Person   @relation("disciplinaryActionIssuedBy", fields: [issuedById], references: [id], onDelete: Restrict)
+
+  @@index([personId])
+}
+
+/// Outbox for transactional emails. The drain worker reads QUEUED rows and
+/// sends them via the mail provider. Unlike Outbox, the html body is stored
+/// on the row so the drain needs no template knowledge. Both person references
+/// are optional with SetNull so email history survives person deletion.
+model EmailLog {
+  id            String      @id @default(cuid())
+  toEmail       String
+  subject       String
+  html          String
+  template      String
+  /// Person the email was addressed to (optional; may be null for non-person recipients).
+  personId      String?
+  /// Person who triggered the email (e.g. the director who performed an action). SetNull on delete.
+  triggeredById String?
+  status        EmailStatus @default(QUEUED)
+  attempts      Int         @default(0)
+  lastError     String?
+  sentAt        DateTime?
+  createdAt     DateTime    @default(now())
+  /// SetNull: email logs outlive the people they reference.
+  person        Person?     @relation("emailLogPerson", fields: [personId], references: [id], onDelete: SetNull)
+  /// SetNull: email logs outlive the people they reference.
+  triggeredBy   Person?     @relation("emailLogTriggeredBy", fields: [triggeredById], references: [id], onDelete: SetNull)
+
+  @@index([personId])
+  @@index([status, createdAt])
 }

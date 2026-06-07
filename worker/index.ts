@@ -9,11 +9,14 @@ import { drainOutbox, type MirrorTarget } from "../src/platform/airtable/mirror"
 import { parseFieldMap } from "../src/platform/airtable/mirror-map";
 import { reconcilePeople } from "../src/platform/airtable/reconcile";
 import { refreshComplianceMirror } from "../src/platform/compliance/mirror-status";
+import { drainEmailQueue } from "../src/platform/email/send";
+import { emailTransportFromConfig } from "../src/platform/email/transport";
 
 const HEARTBEAT_ID = "mirror-worker";
 const OUTBOX_QUEUE = "mirror-outbox";
 const RECONCILE_QUEUE = "mirror-reconcile";
 const COMPLIANCE_REFRESH_QUEUE = "compliance-refresh";
+const EMAIL_QUEUE = "email-send";
 
 function mirrorTarget(): MirrorTarget {
   return {
@@ -34,6 +37,7 @@ async function main() {
   await boss.createQueue(OUTBOX_QUEUE);
   await boss.createQueue(RECONCILE_QUEUE);
   await boss.createQueue(COMPLIANCE_REFRESH_QUEUE);
+  await boss.createQueue(EMAIL_QUEUE);
 
   // Cron triggers; the drain also loops until empty, so a 1-minute cadence is
   // a latency bound, not a throughput bound.
@@ -42,8 +46,12 @@ async function main() {
   // are drained, then verified by reconcile. 05:30 then 06:00 UTC.
   await boss.schedule(COMPLIANCE_REFRESH_QUEUE, "30 5 * * *");
   await boss.schedule(RECONCILE_QUEUE, "0 6 * * *"); // nightly, 06:00 UTC
+  await boss.schedule(EMAIL_QUEUE, "* * * * *");
 
   const client = config.AIRTABLE_PAT ? new AirtableClient(config.AIRTABLE_PAT) : null;
+  // Build the transport once outside the handler so the token cache is shared
+  // across all invocations within a worker lifetime.
+  const emailTransport = emailTransportFromConfig(config);
 
   await boss.work(OUTBOX_QUEUE, async () => {
     if (!client) return;
@@ -66,6 +74,17 @@ async function main() {
   await boss.work(COMPLIANCE_REFRESH_QUEUE, async () => {
     const enqueued = await refreshComplianceMirror();
     console.log(`[worker] compliance refresh enqueued ${enqueued} change(s)`);
+  });
+
+  // Email send drain: loops until the queue is empty on each trigger.
+  await boss.work(EMAIL_QUEUE, async () => {
+    let processed: number;
+    let total = 0;
+    do {
+      processed = await drainEmailQueue(emailTransport);
+      total += processed;
+    } while (processed > 0);
+    if (total > 0) console.log(`[worker] email drain processed ${total} message(s)`);
   });
 
   const beat = async () => {

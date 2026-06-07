@@ -10,6 +10,7 @@ import {
   updateClinicDates,
   TermConflictError,
   TermNotFoundError,
+  TermDateError,
 } from "./terms";
 
 const ACTOR = "actor-person-id";
@@ -143,6 +144,17 @@ describe("createTerm", () => {
       })
     ).rejects.toBeInstanceOf(TermConflictError);
   });
+
+  it("throws TermDateError when endDate overflows the calendar (2026-02-30) (I2)", async () => {
+    await expect(
+      createTerm(ACTOR, {
+        code: "BAD1",
+        name: "Bad Term",
+        startDate: "2026-02-01",
+        endDate: "2026-02-30",
+      })
+    ).rejects.toBeInstanceOf(TermDateError);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -207,6 +219,8 @@ describe("activateTerm", () => {
       where: { entityId: newTerm.id, action: "term.activate" },
     });
     expect(activateLogs).toHaveLength(1);
+    expect(activateLogs[0].before).toMatchObject({ status: "PLANNING" });
+    expect(activateLogs[0].after).toMatchObject({ status: "ACTIVE" });
   });
 
   it("is a no-op (returns term, writes no audit) when target is already ACTIVE", async () => {
@@ -371,6 +385,20 @@ describe("updateClinicDates", () => {
       updateClinicDates(ACTOR, "nonexistent-id", ["2026-06-06"])
     ).rejects.toBeInstanceOf(TermNotFoundError);
   });
+
+  it("throws TermDateError when a date string is garbage (I2)", async () => {
+    const term = await seedTerm();
+    await expect(
+      updateClinicDates(ACTOR, term.id, ["garbage"])
+    ).rejects.toBeInstanceOf(TermDateError);
+  });
+
+  it("throws TermDateError when a date overflows the calendar (2026-02-30) (I2)", async () => {
+    const term = await seedTerm();
+    await expect(
+      updateClinicDates(ACTOR, term.id, ["2026-02-30"])
+    ).rejects.toBeInstanceOf(TermDateError);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -420,5 +448,16 @@ describe("TermNotFoundError", () => {
     expect(err.id).toBe("abc-123");
     expect(err.message).toContain("abc-123");
     expect(err.name).toBe("TermNotFoundError");
+  });
+});
+
+describe("TermDateError", () => {
+  it("is an instance of Error and carries the input", () => {
+    const err = new TermDateError("garbage");
+    expect(err).toBeInstanceOf(Error);
+    expect(err).toBeInstanceOf(TermDateError);
+    expect(err.input).toBe("garbage");
+    expect(err.message).toContain("garbage");
+    expect(err.name).toBe("TermDateError");
   });
 });

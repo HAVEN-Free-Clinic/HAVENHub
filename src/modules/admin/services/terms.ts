@@ -34,6 +34,13 @@ export class TermNotFoundError extends Error {
   }
 }
 
+export class TermDateError extends Error {
+  constructor(public input: string) {
+    super(`Invalid date value: "${input}"`);
+    this.name = "TermDateError";
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Pure helpers
 // ---------------------------------------------------------------------------
@@ -64,11 +71,28 @@ export function saturdaysBetween(startIso: string, endIso: string): Date[] {
 /**
  * Parse an ISO date string (either YYYY-MM-DD or a full ISO timestamp) and
  * return a new Date anchored at noon UTC for that calendar date.
+ *
+ * Throws TermDateError when:
+ *   (a) the YYYY-MM-DD slice does not match the expected pattern,
+ *   (b) the resulting Date is NaN, or
+ *   (c) the round-trip check fails (catches impossible dates like Feb 30).
  */
 function toNoonUtc(iso: string): Date {
   // Extract the YYYY-MM-DD portion regardless of input format.
   const datePart = iso.slice(0, 10); // "YYYY-MM-DD"
-  return new Date(`${datePart}T12:00:00Z`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(datePart)) {
+    throw new TermDateError(iso);
+  }
+  const d = new Date(`${datePart}T12:00:00Z`);
+  if (isNaN(d.getTime())) {
+    throw new TermDateError(iso);
+  }
+  // Round-trip check: catches overflow dates like 2026-02-30 (JS normalizes
+  // these to a valid date in a different month rather than returning NaN).
+  if (d.toISOString().slice(0, 10) !== datePart) {
+    throw new TermDateError(iso);
+  }
+  return d;
 }
 
 // ---------------------------------------------------------------------------
@@ -103,6 +127,10 @@ export async function createTerm(
     throw new TermConflictError(code);
   }
 
+  // Validate date strings before any DB work; throws TermDateError on bad input.
+  const startDate = toNoonUtc(input.startDate);
+  const endDate = toNoonUtc(input.endDate);
+
   const clinicDates = saturdaysBetween(input.startDate, input.endDate);
 
   let term: Term;
@@ -111,8 +139,8 @@ export async function createTerm(
       data: {
         code,
         name: input.name,
-        startDate: new Date(`${input.startDate}T12:00:00Z`),
-        endDate: new Date(`${input.endDate}T12:00:00Z`),
+        startDate,
+        endDate,
         status: "PLANNING",
         clinicDates,
       },
@@ -154,27 +182,58 @@ export async function activateTerm(actorPersonId: string, id: string): Promise<T
 
   // Transactional swap: archive the current ACTIVE term (if any), then
   // activate the target. Both status updates happen atomically.
-  const [displaced, activated] = await prisma.$transaction(async (tx) => {
-    const currentActive = await tx.term.findFirst({
-      where: { status: "ACTIVE" },
-      orderBy: { startDate: "desc" },
-    });
+  //
+  // Serializable: two concurrent activations must not leave two ACTIVE terms.
+  //
+  // On a serialization failure Prisma throws P2034; we retry once. If the
+  // retry also fails the error is rethrown to the caller.
+  // NOTE: No unit test covers the retry path because triggering a genuine
+  // serialization conflict requires real concurrent DB sessions.
+  async function runSwap() {
+    return prisma.$transaction(
+      async (tx) => {
+        const currentActive = await tx.term.findFirst({
+          where: { status: "ACTIVE" },
+          orderBy: { startDate: "desc" },
+        });
 
-    let archivedTerm: Term | null = null;
-    if (currentActive) {
-      archivedTerm = await tx.term.update({
-        where: { id: currentActive.id },
-        data: { status: "ARCHIVED" },
-      });
+        let archivedTerm: Term | null = null;
+        if (currentActive) {
+          archivedTerm = await tx.term.update({
+            where: { id: currentActive.id },
+            data: { status: "ARCHIVED" },
+          });
+        }
+
+        const activatedTerm = await tx.term.update({
+          where: { id },
+          data: { status: "ACTIVE" },
+        });
+
+        return [archivedTerm, activatedTerm] as [Term | null, Term];
+      },
+      { isolationLevel: "Serializable" }
+    );
+  }
+
+  let swapResult: [Term | null, Term];
+  try {
+    swapResult = await runSwap();
+  } catch (err) {
+    if (
+      err != null &&
+      typeof err === "object" &&
+      "code" in err &&
+      (err as { code: string }).code === "P2034"
+    ) {
+      // Retry once on serialization failure.
+      swapResult = await runSwap();
+    } else {
+      throw err;
     }
+  }
 
-    const activatedTerm = await tx.term.update({
-      where: { id },
-      data: { status: "ACTIVE" },
-    });
-
-    return [archivedTerm, activatedTerm];
-  });
+  const [displaced, activated] = swapResult;
 
   // Audit AFTER the transaction commits. recordAudit never throws.
   if (displaced) {

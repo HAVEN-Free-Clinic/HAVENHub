@@ -29,6 +29,11 @@ const SYSTEM_ROLES: Array<{ name: string; description: string; grants: string[] 
     description: "Baseline access for current-term volunteers",
     grants: ["schedule.view", "my-info.access"],
   },
+  {
+    name: "Compliance Manager",
+    description: "Master compliance view across the clinic",
+    grants: ["volunteers.view", "volunteers.manage_compliance"],
+  },
 ];
 
 /**
@@ -135,6 +140,26 @@ async function main() {
     await prisma.roleAssignment.create({
       data: { roleId: adminRole.id, personId: jack.id, termId: null },
     });
+  }
+
+  // Compliance Manager role: GLOBAL (termId null) assignments to EXEC, SRR, ITCM
+  // departments where they exist. Skip silently when absent.
+  const complianceManagerRole = await prisma.role.findFirst({
+    where: { name: "Compliance Manager" },
+  });
+  if (complianceManagerRole) {
+    for (const code of ["EXEC", "SRR", "ITCM"]) {
+      const dept = await prisma.department.findFirst({ where: { code } });
+      if (!dept) continue;
+      const existing = await prisma.roleAssignment.findFirst({
+        where: { roleId: complianceManagerRole.id, departmentId: dept.id, termId: null },
+      });
+      if (!existing) {
+        await prisma.roleAssignment.create({
+          data: { roleId: complianceManagerRole.id, departmentId: dept.id, termId: null },
+        });
+      }
+    }
   }
 
   console.log("Seed complete.");

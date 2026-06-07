@@ -21,6 +21,16 @@
  *     (cross-dept director: rejects, cert stays unverified, no audit row).
  *   - manage_compliance holder CAN verify cross-dept certificates.
  *   - Same-dept director CAN verify certificates of their department members.
+ *
+ * masterCompliance({ status?, departmentId?, q?, page?, pageSize? }):
+ *   - One row per PERSON (not per membership) across all ACTIVE people with at
+ *     least one ACTIVE membership in the active term.
+ *   - departments field: sorted array of dept codes for that person.
+ *   - q filter: case-insensitive contains on name or netId.
+ *   - departmentId filter: narrows to people in that department.
+ *   - status filter: narrows rows but summary counts cover the pre-status scope.
+ *   - pagination: pageSize 25 default; total/page/pageCount math correct.
+ *   - no active term: empty rows + all-zero summary.
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
@@ -28,6 +38,7 @@ import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import {
   departmentCompliance,
+  masterCompliance,
   verifyCertificate,
   CertificateNotFoundError,
   ComplianceForbiddenError,
@@ -540,5 +551,195 @@ describe("verifyCertificate scope enforcement", () => {
 
     const updated = await prisma.hipaaCertificate.findUniqueOrThrow({ where: { id: cert.id } });
     expect(updated.verifiedById).toBe(actor.id);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// masterCompliance
+// ---------------------------------------------------------------------------
+
+describe("masterCompliance", () => {
+  it("returns empty result with zeroed summary when there is no active term", async () => {
+    await createTerm("ARCHIVED");
+    const person = await createPerson("Alice", "alice01");
+    const dept = await createDepartment("ITCM");
+    // Even if the person has a membership in the archived term, they should not appear.
+    const archived = await prisma.term.findFirstOrThrow({ where: { status: "ARCHIVED" } });
+    await createMembership(person.id, archived.id, dept.id, "VOLUNTEER");
+
+    const result = await masterCompliance({});
+    expect(result.rows).toHaveLength(0);
+    expect(result.total).toBe(0);
+    expect(result.summary.COMPLIANT).toBe(0);
+    expect(result.summary.NO_CERTIFICATE).toBe(0);
+  });
+
+  it("returns one row per person even when they are in multiple departments", async () => {
+    const term = await createTerm();
+    const itcm = await createDepartment("ITCM");
+    const srr = await createDepartment("SRR");
+
+    const person = await createPerson("Multi-Dept Person", "mdp01");
+    await createMembership(person.id, term.id, itcm.id, "VOLUNTEER");
+    await createMembership(person.id, term.id, srr.id, "DIRECTOR");
+
+    const result = await masterCompliance({});
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0].person.id).toBe(person.id);
+    // departments should be sorted array of codes
+    expect(result.rows[0].departments.sort()).toEqual(["ITCM", "SRR"]);
+  });
+
+  it("q filter matches name case-insensitively", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("ITCM");
+
+    const alice = await createPerson("Alice Smith", "as01");
+    const bob = await createPerson("Bob Jones", "bj01");
+    await createMembership(alice.id, term.id, dept.id, "VOLUNTEER");
+    await createMembership(bob.id, term.id, dept.id, "VOLUNTEER");
+
+    const result = await masterCompliance({ q: "alice" });
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0].person.name).toBe("Alice Smith");
+    expect(result.total).toBe(1);
+  });
+
+  it("q filter matches netId case-insensitively", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("ITCM");
+
+    const alice = await createPerson("Alice Smith", "AS01");
+    const bob = await createPerson("Bob Jones", "bj01");
+    await createMembership(alice.id, term.id, dept.id, "VOLUNTEER");
+    await createMembership(bob.id, term.id, dept.id, "VOLUNTEER");
+
+    const result = await masterCompliance({ q: "as01" });
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0].person.id).toBe(alice.id);
+  });
+
+  it("departmentId filter narrows to people in that department only", async () => {
+    const term = await createTerm();
+    const itcm = await createDepartment("ITCM");
+    const srr = await createDepartment("SRR");
+
+    const alice = await createPerson("Alice", "a01");
+    const bob = await createPerson("Bob", "b01");
+    await createMembership(alice.id, term.id, itcm.id, "VOLUNTEER");
+    await createMembership(bob.id, term.id, srr.id, "VOLUNTEER");
+
+    const result = await masterCompliance({ departmentId: itcm.id });
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0].person.id).toBe(alice.id);
+    expect(result.total).toBe(1);
+  });
+
+  it("status filter narrows rows but summary counts the full pre-status scope", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("ITCM");
+
+    const alice = await createPerson("Alice", "a01");
+    const bob = await createPerson("Bob", "b01");
+    // alice: compliant cert
+    await createMembership(alice.id, term.id, dept.id, "VOLUNTEER");
+    await createCert(alice.id, noon(2026, 1, 1)); // compliant
+    // bob: no cert
+    await createMembership(bob.id, term.id, dept.id, "VOLUNTEER");
+
+    const result = await masterCompliance({ status: "COMPLIANT" });
+    // Only alice in rows (compliant filter)
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0].person.id).toBe(alice.id);
+    // But summary covers both people (full scope before status filter)
+    expect(result.summary.COMPLIANT).toBe(1);
+    expect(result.summary.NO_CERTIFICATE).toBe(1);
+    expect(result.total).toBe(1); // total after status filter
+  });
+
+  it("pagination: pageSize 25 default; correct page and pageCount math", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("ITCM");
+
+    // Create 30 people
+    for (let i = 0; i < 30; i++) {
+      const p = await createPerson(`Person ${String(i).padStart(2, "0")}`, `p${i}`);
+      await createMembership(p.id, term.id, dept.id, "VOLUNTEER");
+    }
+
+    const page1 = await masterCompliance({ page: 1 });
+    expect(page1.rows).toHaveLength(25);
+    expect(page1.total).toBe(30);
+    expect(page1.page).toBe(1);
+    expect(page1.pageCount).toBe(2);
+
+    const page2 = await masterCompliance({ page: 2 });
+    expect(page2.rows).toHaveLength(5);
+    expect(page2.page).toBe(2);
+    expect(page2.pageCount).toBe(2);
+  });
+
+  it("custom pageSize is respected", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("ITCM");
+
+    for (let i = 0; i < 10; i++) {
+      const p = await createPerson(`Person ${i}`, `p${i}`);
+      await createMembership(p.id, term.id, dept.id, "VOLUNTEER");
+    }
+
+    const result = await masterCompliance({ page: 1, pageSize: 5 });
+    expect(result.rows).toHaveLength(5);
+    expect(result.pageCount).toBe(2);
+    expect(result.total).toBe(10);
+  });
+
+  it("excludes people with only REMOVED memberships in the active term", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("ITCM");
+
+    const active = await createPerson("Active Person", "ap01");
+    const removed = await createPerson("Removed Person", "rp01");
+    await createMembership(active.id, term.id, dept.id, "VOLUNTEER");
+    await createMembership(removed.id, term.id, dept.id, "VOLUNTEER", "REMOVED");
+
+    const result = await masterCompliance({});
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0].person.id).toBe(active.id);
+  });
+
+  it("picks the newest cert per person and computes correct status", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("ITCM");
+
+    const person = await createPerson("Alice", "a01");
+    await createMembership(person.id, term.id, dept.id, "VOLUNTEER");
+
+    // Older cert (expired)
+    await createCert(person.id, noon(2020, 1, 1), new Date("2020-01-01T12:00:00Z"));
+    // Newer cert (compliant)
+    await createCert(person.id, noon(2026, 1, 1), new Date("2026-01-01T12:00:00Z"));
+
+    const result = await masterCompliance({});
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0].status).toBe("COMPLIANT");
+  });
+
+  it("includes verifiedByName resolved from the verifier person", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("ITCM");
+
+    const person = await createPerson("Alice", "a01");
+    const verifier = await createPerson("Bob Verifier", "bv01");
+    await createMembership(person.id, term.id, dept.id, "VOLUNTEER");
+
+    const cert = await createCert(person.id, noon(2026, 1, 1));
+    await prisma.hipaaCertificate.update({
+      where: { id: cert.id },
+      data: { verifiedById: verifier.id, verifiedAt: new Date() },
+    });
+
+    const result = await masterCompliance({});
+    expect(result.rows[0].verifiedByName).toBe("Bob Verifier");
   });
 });

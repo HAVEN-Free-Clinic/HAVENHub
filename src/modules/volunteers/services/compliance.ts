@@ -13,6 +13,8 @@ import { complianceStatus } from "@/platform/compliance/rules";
 import type { ComplianceStatus } from "@/platform/compliance/rules";
 import { canViewCertificate } from "@/platform/compliance/access";
 
+export type { ComplianceStatus };
+
 // ---------------------------------------------------------------------------
 // Typed errors
 // ---------------------------------------------------------------------------
@@ -207,6 +209,196 @@ export async function departmentCompliance(
   }
 
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// masterCompliance
+// ---------------------------------------------------------------------------
+
+export type MasterQuery = {
+  status?: ComplianceStatus;
+  departmentId?: string;
+  q?: string;
+  page?: number;
+  pageSize?: number;
+};
+
+export type MasterComplianceRow = MemberCompliance & { departments: string[] };
+
+export type MasterComplianceResult = {
+  rows: MasterComplianceRow[];
+  total: number;
+  page: number;
+  pageCount: number;
+  summary: Record<ComplianceStatus, number>;
+};
+
+const EMPTY_SUMMARY: Record<ComplianceStatus, number> = {
+  COMPLIANT: 0,
+  EXPIRING_SOON: 0,
+  EXPIRED: 0,
+  UNKNOWN_DATE: 0,
+  NO_CERTIFICATE: 0,
+};
+
+/**
+ * Returns compliance data for ALL active people with at least one ACTIVE
+ * membership in the active term. One row per PERSON (not per membership).
+ *
+ * The summary counts are computed over the FULL filtered-by-q/departmentId
+ * scope BEFORE the status filter, so the count chips always show the whole
+ * picture for the current search/department scope. The status filter then
+ * narrows which rows are returned and what total/pageCount reflect.
+ *
+ * Pagination uses pageSize 25 by default. Page is 1-based.
+ */
+export async function masterCompliance(
+  query: MasterQuery
+): Promise<MasterComplianceResult> {
+  const { status, departmentId, q, page = 1, pageSize = 25 } = query;
+
+  // 1. Find the active term.
+  const activeTerm = await prisma.term.findFirst({
+    where: { status: "ACTIVE" },
+    orderBy: { startDate: "desc" },
+  });
+
+  if (!activeTerm) {
+    return {
+      rows: [],
+      total: 0,
+      page: 1,
+      pageCount: 0,
+      summary: { ...EMPTY_SUMMARY },
+    };
+  }
+
+  // 2. Fetch ALL ACTIVE memberships in the active term (optionally narrowed by
+  //    departmentId), with person + their certs, in one query.
+  const memberships = await prisma.termMembership.findMany({
+    where: {
+      termId: activeTerm.id,
+      status: "ACTIVE",
+      ...(departmentId ? { departmentId } : {}),
+    },
+    include: {
+      department: true,
+      person: {
+        include: {
+          hipaaCertificates: {
+            orderBy: { uploadedAt: "desc" },
+          },
+        },
+      },
+    },
+  });
+
+  // 3. Deduplicate by person: one row per person, accumulating dept codes.
+  //    personMap: personId -> { person, certs, deptCodes }
+  const personMap = new Map<
+    string,
+    {
+      person: Person & { hipaaCertificates: HipaaCertificate[] };
+      deptCodes: Set<string>;
+    }
+  >();
+
+  for (const m of memberships) {
+    const existing = personMap.get(m.personId);
+    if (existing) {
+      existing.deptCodes.add(m.department.code);
+    } else {
+      personMap.set(m.personId, {
+        person: m.person,
+        deptCodes: new Set([m.department.code]),
+      });
+    }
+  }
+
+  // 4. Apply q filter (name or netId, case-insensitive contains).
+  const qLower = q?.trim().toLowerCase();
+
+  const scope = Array.from(personMap.values()).filter(({ person }) => {
+    if (!qLower) return true;
+    const nameMatch = person.name?.toLowerCase().includes(qLower) ?? false;
+    const netIdMatch = person.netId?.toLowerCase().includes(qLower) ?? false;
+    return nameMatch || netIdMatch;
+  });
+
+  // 5. Resolve verifier names for all newest certs in scope in one query.
+  const verifierIds = Array.from(
+    new Set(
+      scope
+        .map(({ person }) =>
+          person.hipaaCertificates.length > 0
+            ? person.hipaaCertificates[0].verifiedById
+            : null
+        )
+        .filter((id): id is string => id !== null)
+    )
+  );
+
+  const verifierNameMap = new Map<string, string>();
+  if (verifierIds.length > 0) {
+    const verifiers = await prisma.person.findMany({
+      where: { id: { in: verifierIds } },
+      select: { id: true, name: true },
+    });
+    for (const v of verifiers) {
+      if (v.name) verifierNameMap.set(v.id, v.name);
+    }
+  }
+
+  // 6. Compute status for each person and build the full scope rows.
+  const scopeRows: MasterComplianceRow[] = scope.map(({ person, deptCodes }) => {
+    const newestCert: HipaaCertificate | null =
+      person.hipaaCertificates.length > 0 ? person.hipaaCertificates[0] : null;
+
+    const computedStatus = complianceStatus(
+      newestCert ? { completionDate: newestCert.completionDate } : null,
+      activeTerm.endDate
+    );
+
+    const verifiedByName = newestCert?.verifiedById
+      ? (verifierNameMap.get(newestCert.verifiedById) ?? null)
+      : null;
+
+    return {
+      // MemberCompliance fields; kind is omitted (one row per person, not per membership)
+      person,
+      kind: "VOLUNTEER" as const, // placeholder; master view omits kind display
+      cert: newestCert,
+      status: computedStatus,
+      verifiedByName,
+      departments: Array.from(deptCodes).sort(),
+    };
+  });
+
+  // 7. Compute summary over the FULL scope (before status filter).
+  const summary: Record<ComplianceStatus, number> = { ...EMPTY_SUMMARY };
+  for (const row of scopeRows) {
+    summary[row.status]++;
+  }
+
+  // 8. Apply status filter to narrow rows.
+  const filteredRows = status
+    ? scopeRows.filter((row) => row.status === status)
+    : scopeRows;
+
+  // 9. Sort: non-compliant first then name alphabetically.
+  filteredRows.sort((a, b) => {
+    const statusDiff = STATUS_ORDER[a.status] - STATUS_ORDER[b.status];
+    if (statusDiff !== 0) return statusDiff;
+    return a.person.name.localeCompare(b.person.name);
+  });
+
+  // 10. Paginate.
+  const total = filteredRows.length;
+  const pageCount = Math.ceil(total / pageSize);
+  const offset = (page - 1) * pageSize;
+  const rows = filteredRows.slice(offset, offset + pageSize);
+
+  return { rows, total, page, pageCount, summary };
 }
 
 // ---------------------------------------------------------------------------

@@ -41,3 +41,31 @@ test("dev.volunteer is bounced from /volunteers to the hub", async ({ page }) =>
   await page.goto("/volunteers");
   await page.waitForURL((url) => url.pathname === "/");
 });
+
+test("Jack (Platform Admin) opens /volunteers/master and sees the summary cards", async ({ page }) => {
+  await devLogin(page, "j.carney@yale.edu");
+  await page.goto("/volunteers/master");
+  await page.waitForURL((url) => url.pathname === "/volunteers/master");
+
+  // Page heading must be visible
+  await expect(page.getByRole("heading", { name: "Master Compliance View" })).toBeVisible();
+
+  // Summary stat cards must be visible (one per status, identified by aria-label)
+  await expect(page.locator('[aria-label^="Compliant:"]')).toBeVisible();
+  await expect(page.locator('[aria-label^="No Certificate:"]')).toBeVisible();
+});
+
+test("Jack sees the filter bar on /volunteers/master", async ({ page }) => {
+  await devLogin(page, "j.carney@yale.edu");
+  await page.goto("/volunteers/master");
+  await page.waitForURL((url) => url.pathname === "/volunteers/master");
+
+  // Filter bar inputs must be present
+  await expect(page.getByPlaceholder("Name or NetID...")).toBeVisible();
+});
+
+test("dev.volunteer is bounced from /volunteers/master to the hub", async ({ page }) => {
+  await devLogin(page, "dev.volunteer@yale.edu");
+  await page.goto("/volunteers/master");
+  await page.waitForURL((url) => url.pathname === "/");
+});

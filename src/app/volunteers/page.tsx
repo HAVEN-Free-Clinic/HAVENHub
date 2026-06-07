@@ -10,6 +10,7 @@ import {
   ComplianceForbiddenError,
 } from "@/modules/volunteers/services/compliance";
 import type { ComplianceStatus } from "@/platform/compliance/rules";
+import { certExpiresAt } from "@/platform/compliance/rules";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
@@ -183,9 +184,7 @@ export default async function VolunteersPage({ searchParams }: PageProps) {
                 <tbody>
                   {members.map((m) => {
                     const expiresAt = m.cert?.completionDate
-                      ? new Date(
-                          m.cert.completionDate.getTime() + 365 * 24 * 60 * 60 * 1000
-                        )
+                      ? certExpiresAt(m.cert.completionDate)
                       : null;
 
                     return (

@@ -52,7 +52,10 @@ export const MODULES: ModuleManifest[] = [
       "volunteers.issue_disciplinary",
     ],
     status: "active",
-    nav: [{ label: "Compliance", href: "/volunteers" }],
+    nav: [
+      { label: "Compliance", href: "/volunteers" },
+      { label: "Master view", href: "/volunteers/master" },
+    ],
   },
   {
     id: "admin",

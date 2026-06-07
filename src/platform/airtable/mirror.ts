@@ -2,7 +2,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { prisma } from "@/platform/db";
 import { config } from "@/platform/config";
-import { personMirrorPayload, type PersonFieldMap } from "./mirror-map";
+import { personMirrorPayload, type PersonFieldMap, type MirroredHipaaStatus } from "./mirror-map";
+import { computeMirrorStatus } from "@/platform/compliance/mirror-status";
 import { escapeFormulaString } from "./client";
 
 export type AirtableWriter = {
@@ -40,6 +41,12 @@ export type MirrorTarget = {
    * When null the certificate push step is skipped (configured-off is success, not failure).
    */
   hipaaFieldId: string | null;
+  /**
+   * Airtable field ID for the "HIPAA Compliance Status" singleSelect on the people table.
+   * When null the computed status is not written (the select is omitted from the payload),
+   * like the attachment field. Production has it; the sandbox does not.
+   */
+  statusFieldId: string | null;
 };
 
 const MAX_ATTEMPTS = 8;
@@ -90,7 +97,16 @@ async function drainPersonRow(
       });
       return false;
     }
-    const payload = personMirrorPayload(person, target.fieldMap);
+    // Compute the HIPAA compliance status only when this target asserts it.
+    // When statusFieldId is null the select is omitted and bookkeeping is left alone.
+    let hipaaStatus: MirroredHipaaStatus | null = null;
+    if (target.statusFieldId) {
+      hipaaStatus = await computeMirrorStatus(person.id);
+    }
+    const payload = personMirrorPayload(person, target.fieldMap, {
+      statusFieldId: target.statusFieldId,
+      hipaaStatus,
+    });
     const mapping = await prisma.mirrorRecord.findUnique({
       where: {
         entityType_entityId_baseId: {
@@ -130,6 +146,22 @@ async function drainPersonRow(
             recordId: created.id,
           },
         });
+      }
+    }
+    // Mirror bookkeeping: record the status we just asserted so the nightly
+    // refresh can detect changes without re-reading Airtable. Only when this
+    // target asserts the status (statusFieldId set, so hipaaStatus is non-null).
+    // Wrapped in its own try/catch so a bookkeeping failure cannot re-push
+    // Airtable or burn retry attempts on an already-successful send. The status
+    // stamp is best-effort; the nightly refresh corrects any gap.
+    if (hipaaStatus !== null) {
+      try {
+        await prisma.person.update({
+          where: { id: person.id },
+          data: { mirroredHipaaStatus: hipaaStatus },
+        });
+      } catch (stampErr) {
+        console.error("[mirror] failed to stamp mirroredHipaaStatus after successful send", person.id, stampErr);
       }
     }
     await prisma.outbox.update({

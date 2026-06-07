@@ -2,8 +2,9 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { auth } from "@/platform/auth/auth";
 import { getActivePerson } from "@/platform/auth/match-person";
-import { getOwnedCertificate } from "@/modules/my-info/services/my-info";
 import { config } from "@/platform/config";
+import { prisma } from "@/platform/db";
+import { canViewCertificate } from "@/platform/compliance/access";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -37,9 +38,11 @@ export async function GET(
 
   const { id } = await context.params;
 
-  // --- Ownership: the cert must exist and belong to this person ---
-  const cert = await getOwnedCertificate(activePerson.id, id);
-  if (!cert) {
+  // --- Access check: load the cert by id then verify viewer may access it ---
+  const cert = await prisma.hipaaCertificate.findUnique({ where: { id } });
+  const allowed = cert ? await canViewCertificate(activePerson.id, cert.personId) : false;
+  if (!cert || !allowed) {
+    // Return 404 in both cases to avoid leaking whether the cert exists
     return Response.json({ error: "Not found" }, { status: 404 });
   }
 

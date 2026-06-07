@@ -64,7 +64,6 @@ export type PersonInput = {
   name: string;
   netId?: string | null;
   contactEmail?: string | null;
-  yaleEmail?: string | null;
   phone?: string | null;
   epicId?: string | null;
   yaleAffiliation?: string | null;
@@ -79,7 +78,6 @@ function normalize(input: Partial<PersonInput>): Partial<PersonInput> {
     ...input,
     ...(input.netId !== undefined && { netId: input.netId?.toLowerCase() ?? input.netId }),
     ...(input.contactEmail !== undefined && { contactEmail: input.contactEmail?.toLowerCase() ?? input.contactEmail }),
-    ...(input.yaleEmail !== undefined && { yaleEmail: input.yaleEmail?.toLowerCase() ?? input.yaleEmail }),
   };
 }
 
@@ -96,7 +94,6 @@ export async function createPersonRecord(
           name: data.name,
           netId: data.netId ?? null,
           contactEmail: data.contactEmail ?? null,
-          yaleEmail: data.yaleEmail ?? null,
           phone: data.phone ?? null,
           epicId: data.epicId ?? null,
           yaleAffiliation: data.yaleAffiliation ?? null,
@@ -125,7 +122,6 @@ export async function createPersonRecord(
         name: person.name,
         netId: person.netId,
         contactEmail: person.contactEmail,
-        yaleEmail: person.yaleEmail,
         phone: person.phone,
         epicId: person.epicId,
         yaleAffiliation: person.yaleAffiliation,
@@ -159,7 +155,6 @@ export async function updatePersonFields(
     "name",
     "netId",
     "contactEmail",
-    "yaleEmail",
     "phone",
     "epicId",
     "yaleAffiliation",

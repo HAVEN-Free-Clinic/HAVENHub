@@ -44,3 +44,30 @@ test("volunteer login: /my-info renders the profile form", async ({ page }) => {
   // The Name read-only row must be present.
   await expect(page.getByText("Name", { exact: true })).toBeVisible();
 });
+
+test("Jack's HIPAA panel shows a real compliance status now that the backfill has populated his completionDate", async ({ page }) => {
+  await devLogin(page, "j.carney@yale.edu");
+
+  await page.goto("/my-info");
+  await page.waitForURL((url) => url.pathname === "/my-info");
+
+  // The HIPAA certificate section must be visible
+  await expect(
+    page.getByRole("heading", { name: /HIPAA Certificate/i })
+  ).toBeVisible();
+
+  // After the completion-date backfill, Jack's cert has a parsed date (May 29 2026).
+  // His cert expires 2027-05-29, which covers the active term end (SU26: 2026-09-26 + 30d).
+  // The UNKNOWN_DATE / "Completion date needed" badge must no longer appear.
+  await expect(page.getByText("Completion date needed")).not.toBeVisible();
+
+  // The manual date-entry fallback form must not render because a date was parsed.
+  await expect(
+    page.getByText("We could not read a completion date from your certificate")
+  ).not.toBeVisible();
+
+  // Instead a real status line should be present (Compliant through or Expiring).
+  await expect(
+    page.getByText(/Compliant through|Expires|Expired/i)
+  ).toBeVisible();
+});

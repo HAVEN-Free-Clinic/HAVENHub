@@ -103,6 +103,20 @@ export class AirtableClient {
   }
 
   /**
+   * Fetch a single record by ID. Uses returnFieldsByFieldId=true, consistent
+   * with the project convention. Throws on 4xx/5xx; retries 429 and 5xx.
+   */
+  async getRecord(
+    baseId: string,
+    tableId: string,
+    recordId: string,
+  ): Promise<AirtableRecord> {
+    return (await this.request(
+      `${API_ROOT}/${baseId}/${tableId}/${recordId}?returnFieldsByFieldId=true`,
+    )) as AirtableRecord;
+  }
+
+  /**
    * Upload an attachment to an existing record via the Airtable Content API.
    * Uses the same retry/error envelope as request() (429 and 5xx are retried).
    */

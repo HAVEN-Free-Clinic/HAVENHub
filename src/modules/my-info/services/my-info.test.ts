@@ -17,6 +17,7 @@ import {
   updateMyInfo,
   withdrawFromTerm,
   saveCertificate,
+  setCertificateCompletionDate,
   listMyCertificates,
   getOwnedCertificate,
   parseCertificateUpload,
@@ -146,18 +147,27 @@ describe("getMyInfo", () => {
 // ---- updateMyInfo -----------------------------------------------------------
 
 describe("updateMyInfo", () => {
-  it("updates only whitelisted fields and ignores smuggled keys like name and netId", async () => {
+  it("updates only whitelisted fields and ignores smuggled keys like name, netId, and epicId", async () => {
     const person = await createPerson({ name: "Original Name", netId: "orig001" });
+    // Pre-set an epicId so we can confirm it is not overwritten.
+    await prisma.person.update({ where: { id: person.id }, data: { epicId: "ORIGINAL-EPIC" } });
 
-    // Attempt to smuggle 'name' and 'netId' through the input (extra keys not in MyInfoInput).
+    // Attempt to smuggle 'name', 'netId', and 'epicId' through the input.
     // Cast to unknown first to bypass TS: the whitelist logic inside the service must strip them.
-    const smuggledInput: unknown = { phone: "555-1234", name: "Hacked Name", netId: "hacked" };
+    const smuggledInput: unknown = {
+      phone: "555-1234",
+      name: "Hacked Name",
+      netId: "hacked",
+      epicId: "SMUGGLED-EPIC",
+    };
     await updateMyInfo(person.id, smuggledInput as Parameters<typeof updateMyInfo>[1]);
 
     const updated = await prisma.person.findUniqueOrThrow({ where: { id: person.id } });
     expect(updated.phone).toBe("555-1234");
     expect(updated.name).toBe("Original Name");
     expect(updated.netId).toBe("orig001");
+    // epicId must remain unchanged -- it is IT-managed, not self-service
+    expect(updated.epicId).toBe("ORIGINAL-EPIC");
   });
 
   it("delegates to updatePersonFields with self as actor (audit row has actorPersonId === personId)", async () => {
@@ -173,12 +183,14 @@ describe("updateMyInfo", () => {
     expect(auditRow!.actorPersonId).toBe(person.id);
   });
 
-  it("updates all five whitelisted fields", async () => {
+  it("updates all four whitelisted fields (epicId is not self-service)", async () => {
     const person = await createPerson();
+    // Pre-set an epicId to confirm it is untouched even when not passed
+    await prisma.person.update({ where: { id: person.id }, data: { epicId: "PRESET-EPIC" } });
+
     await updateMyInfo(person.id, {
       phone: "203-555-0001",
       contactEmail: "test@example.com",
-      epicId: "EPIC-001",
       yaleAffiliation: "Graduate Student",
       gradYear: "2027",
     });
@@ -186,9 +198,10 @@ describe("updateMyInfo", () => {
     const updated = await prisma.person.findUniqueOrThrow({ where: { id: person.id } });
     expect(updated.phone).toBe("203-555-0001");
     expect(updated.contactEmail).toBe("test@example.com");
-    expect(updated.epicId).toBe("EPIC-001");
     expect(updated.yaleAffiliation).toBe("Graduate Student");
     expect(updated.gradYear).toBe("2027");
+    // epicId must remain unchanged -- it is IT-managed
+    expect(updated.epicId).toBe("PRESET-EPIC");
   });
 });
 
@@ -324,7 +337,7 @@ describe("saveCertificate", () => {
     expect(cert.size).toBe(exactBytes);
   });
 
-  it("accepts a valid pdf: creates the DB row, writes the file to disk, creates the audit log, and enqueues an outbox row", async () => {
+  it("accepts a valid pdf: creates the DB row, writes the file to disk, creates the audit log, and enqueues TWO outbox rows (HipaaCertificate + Person for hipaaStatus)", async () => {
     const person = await createPerson();
     const file = makePdfFile();
 
@@ -354,12 +367,19 @@ describe("saveCertificate", () => {
     // bytes must never appear in the audit log
     expect(JSON.stringify(after)).not.toContain("PDF");
 
-    // Outbox row for mirror
-    const outboxRow = await prisma.outbox.findFirst({
+    // HipaaCertificate outbox row (mirrors the cert attachment)
+    const certOutboxRow = await prisma.outbox.findFirst({
       where: { entityType: "HipaaCertificate", entityId: cert.id },
     });
-    expect(outboxRow).not.toBeNull();
-    expect(outboxRow!.status).toBe("PENDING");
+    expect(certOutboxRow).not.toBeNull();
+    expect(certOutboxRow!.status).toBe("PENDING");
+
+    // Person outbox row (rides the next drain to recompute hipaaStatus so
+    // the member does not stay "Not Compliant" until the nightly refresh)
+    const personOutboxCount = await prisma.outbox.count({
+      where: { entityType: "Person", entityId: person.id },
+    });
+    expect(personOutboxCount).toBe(1);
   });
 
   it("cleans up the DB row and outbox row if the disk write fails (transactional consistency)", async () => {
@@ -397,6 +417,173 @@ describe("saveCertificate", () => {
       where: { entityType: "HipaaCertificate" },
     });
     expect(outboxCount).toBe(0);
+  });
+
+  // ---- saveCertificate: parse injection ---------------------------------------
+
+  it("stores completionDate at noon UTC and extraction=PARSED when parse stub returns a date", async () => {
+    const person = await createPerson();
+    const parsedDate = new Date(Date.UTC(2025, 11, 15, 12, 0, 0, 0)); // 2025-12-15 noon UTC
+    const stubParse = async (_bytes: Buffer) => ({ date: parsedDate, matchedText: "12/15/2025" });
+
+    const cert = await saveCertificate(person.id, makePdfFile(), stubParse);
+
+    const row = await prisma.hipaaCertificate.findUniqueOrThrow({ where: { id: cert.id } });
+    expect(row.completionDate).toEqual(parsedDate);
+    expect(row.extraction).toBe("PARSED");
+  });
+
+  it("stores extraction=NONE when parse stub returns null (no date found)", async () => {
+    const person = await createPerson();
+    const stubParse = async (_bytes: Buffer) => null;
+
+    const cert = await saveCertificate(person.id, makePdfFile(), stubParse);
+
+    const row = await prisma.hipaaCertificate.findUniqueOrThrow({ where: { id: cert.id } });
+    expect(row.completionDate).toBeNull();
+    expect(row.extraction).toBe("NONE");
+  });
+
+  it("upload still succeeds with extraction=NONE when parse stub throws", async () => {
+    const person = await createPerson();
+    const throwingParse = async (_bytes: Buffer): Promise<{ date: Date; matchedText: string } | null> => {
+      throw new Error("PDF is corrupted");
+    };
+
+    const cert = await saveCertificate(person.id, makePdfFile(), throwingParse);
+
+    // Upload must succeed despite parser error
+    expect(cert.id).toBeTruthy();
+    const row = await prisma.hipaaCertificate.findUniqueOrThrow({ where: { id: cert.id } });
+    expect(row.completionDate).toBeNull();
+    expect(row.extraction).toBe("NONE");
+  });
+
+  it("skips parse stub entirely for non-pdf mime (stub is never called)", async () => {
+    // non-pdf mime is rejected before parse, so the stub should never be invoked
+    // However the current validation rejects non-PDF before getting to parse --
+    // demonstrate by using an image mime: the CertificateValidationError fires first.
+    const person = await createPerson();
+    let called = false;
+    const stubParse = async (_bytes: Buffer) => {
+      called = true;
+      return null;
+    };
+
+    const imageFile = makePdfFile({ type: "image/png", name: "cert.pdf" });
+    let caught: unknown;
+    try {
+      await saveCertificate(person.id, imageFile, stubParse);
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(CertificateValidationError);
+    expect(called).toBe(false); // stub never called because validation fires first
+  });
+});
+
+// ---- setCertificateCompletionDate -------------------------------------------
+
+describe("setCertificateCompletionDate", () => {
+  async function makeCert(personId: string) {
+    return prisma.hipaaCertificate.create({
+      data: {
+        personId,
+        fileName: "cert.pdf",
+        storedName: "cert.pdf",
+        size: 100,
+        mimeType: "application/pdf",
+      },
+    });
+  }
+
+  it("sets completionDate at noon UTC and extraction=MANUAL, and records an audit row", async () => {
+    const person = await createPerson();
+    const cert = await makeCert(person.id);
+
+    await setCertificateCompletionDate(person.id, cert.id, "2025-06-15");
+
+    const row = await prisma.hipaaCertificate.findUniqueOrThrow({ where: { id: cert.id } });
+    expect(row.completionDate).toEqual(new Date(Date.UTC(2025, 5, 15, 12, 0, 0, 0)));
+    expect(row.extraction).toBe("MANUAL");
+
+    const audit = await prisma.auditLog.findFirst({
+      where: { action: "my-info.certificate_date", entityId: cert.id },
+    });
+    expect(audit).not.toBeNull();
+    const before = audit!.before as Record<string, unknown>;
+    const after = audit!.after as Record<string, unknown>;
+    expect(before.completionDate).toBeNull();
+    expect(after.completionDate).toBeTruthy();
+  });
+
+  it("rejects a future date with CertificateValidationError", async () => {
+    const person = await createPerson();
+    const cert = await makeCert(person.id);
+
+    let caught: unknown;
+    try {
+      await setCertificateCompletionDate(person.id, cert.id, "2099-01-01");
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(CertificateValidationError);
+    expect((caught as CertificateValidationError).reason).toMatch(/future/i);
+  });
+
+  it("rejects a date older than 5 years with CertificateValidationError", async () => {
+    const person = await createPerson();
+    const cert = await makeCert(person.id);
+
+    let caught: unknown;
+    try {
+      await setCertificateCompletionDate(person.id, cert.id, "2010-01-01");
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(CertificateValidationError);
+    expect((caught as CertificateValidationError).reason).toMatch(/old|5 year/i);
+  });
+
+  it("rejects access when the cert belongs to a different person", async () => {
+    const owner = await createPerson({ netId: "owner1" });
+    const other = await createPerson({ netId: "other1" });
+    const cert = await makeCert(owner.id);
+
+    let caught: unknown;
+    try {
+      await setCertificateCompletionDate(other.id, cert.id, "2025-06-15");
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(CertificateValidationError);
+    expect((caught as CertificateValidationError).reason).toMatch(/not found/i);
+  });
+
+  it("rejects a garbage date string with CertificateValidationError", async () => {
+    const person = await createPerson();
+    const cert = await makeCert(person.id);
+
+    let caught: unknown;
+    try {
+      await setCertificateCompletionDate(person.id, cert.id, "not-a-date");
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(CertificateValidationError);
+    expect((caught as CertificateValidationError).reason).toMatch(/invalid|date/i);
+  });
+
+  it("enqueues a Person outbox row so hipaaStatus is updated on the next drain (not just the nightly refresh)", async () => {
+    const person = await createPerson();
+    const cert = await makeCert(person.id);
+
+    await setCertificateCompletionDate(person.id, cert.id, "2025-06-15");
+
+    const personOutboxCount = await prisma.outbox.count({
+      where: { entityType: "Person", entityId: person.id },
+    });
+    expect(personOutboxCount).toBe(1);
   });
 });
 

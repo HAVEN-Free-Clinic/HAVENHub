@@ -293,12 +293,13 @@ describe("updatePerson", () => {
     expect(outboxCount).toBe(0);
   });
 
-  it("does NOT enqueue mirror when only non-mirrored fields change (e.g. yaleEmail)", async () => {
+  it("does NOT enqueue mirror when an update changes nothing (no-op)", async () => {
     const person = await createPerson(ACTOR, { name: "No Mirror", netId: "nm1" });
     await prisma.outbox.deleteMany();
 
-    // yaleEmail is not in ALL_PEOPLE_FIELDS (it is not a mirrored field)
-    await updatePerson(ACTOR, person.id, { name: "No Mirror", netId: "nm1", yaleEmail: "nm1@yale.edu" });
+    // Every supplied value equals the stored value, so there are no changed
+    // fields and therefore no mirror job.
+    await updatePerson(ACTOR, person.id, { name: "No Mirror", netId: "nm1" });
 
     const outboxCount = await prisma.outbox.count();
     expect(outboxCount).toBe(0);

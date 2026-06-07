@@ -686,7 +686,7 @@ const prisma = new PrismaClient();
 
 const DEPARTMENTS = [
   { code: "EXEC", name: "Executive Directors" },
-  { code: "ITCM", name: "IT & Clinic Management" },
+  { code: "ITCM", name: "IT & Compliance Management" },
   { code: "SRR", name: "Staff Recruitment & Retention" },
   { code: "VADM", name: "Volunteer Administration" },
   { code: "VADC", name: "Volunteer Administration Directors" },

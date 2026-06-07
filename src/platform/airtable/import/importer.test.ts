@@ -111,14 +111,15 @@ describe("runImport", () => {
   });
 
   it("reports unique conflicts with a readable reason", async () => {
-    await prisma.person.create({
-      data: { name: "Owner", contactEmail: "other@gmail.com", yaleEmail: "shared@yale.edu" },
-    });
+    // Owner holds the contactEmail. Claimer is matched by netId (a different person)
+    // but the import wants to move the already-taken email onto Claimer -> P2002.
+    await prisma.person.create({ data: { name: "Owner", contactEmail: "shared@yale.edu" } });
+    await prisma.person.create({ data: { name: "Claimer", netId: "claimer1" } });
     const reader: AirtableReader = {
       async listAll(_b: string, table: string) {
         if (table === "people-table") {
           return [
-            { id: "recY", fields: { [F.name]: "Claimer", [F.contactEmail]: "shared@yale.edu" } },
+            { id: "recY", fields: { [F.name]: "Claimer", [F.netId]: "claimer1", [F.contactEmail]: "shared@yale.edu" } },
           ];
         }
         return [];

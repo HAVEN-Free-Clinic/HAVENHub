@@ -91,6 +91,29 @@ describe("AirtableClient", () => {
     });
   });
 
+  it("getRecord: fetches a single record by id with returnFieldsByFieldId=true", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse(200, { id: "recZ", fields: { fldA: "v" } })
+    );
+    const client = new AirtableClient("pat", { fetchImpl, retryDelayMs: 1 });
+    const record = await client.getRecord("appX", "tblY", "recZ");
+    expect(record.id).toBe("recZ");
+    expect(record.fields.fldA).toBe("v");
+    const [url] = fetchImpl.mock.calls[0];
+    expect(url).toContain("/appX/tblY/recZ");
+    expect(url).toContain("returnFieldsByFieldId=true");
+  });
+
+  it("getRecord: retries 429 and then succeeds", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(429, { error: "rate" }))
+      .mockResolvedValueOnce(jsonResponse(200, { id: "recZ", fields: {} }));
+    const client = new AirtableClient("pat", { fetchImpl, retryDelayMs: 1 });
+    await expect(client.getRecord("appX", "tblY", "recZ")).resolves.toMatchObject({ id: "recZ" });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
   it("uploadAttachment: retries 429 and then succeeds", async () => {
     const fetchImpl = vi
       .fn()

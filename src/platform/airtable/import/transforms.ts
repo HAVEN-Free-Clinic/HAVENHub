@@ -6,7 +6,6 @@ export type PersonImport = {
   name: string;
   netId: string | null;
   contactEmail: string | null;
-  yaleEmail: string | null;
   phone: string | null;
   epicId: string | null;
   yaleAffiliation: string | null;
@@ -40,7 +39,6 @@ export function transformPeople(records: AirtableRecord[]): PersonImport[] {
       name,
       netId: str(f[ALL_PEOPLE_FIELDS.netId])?.toLowerCase() ?? null,
       contactEmail,
-      yaleEmail: contactEmail?.endsWith("@yale.edu") ? contactEmail : null,
       phone: str(f[ALL_PEOPLE_FIELDS.phone]),
       epicId: str(f[ALL_PEOPLE_FIELDS.epicId]),
       yaleAffiliation: str(f[ALL_PEOPLE_FIELDS.yaleAffiliation]),

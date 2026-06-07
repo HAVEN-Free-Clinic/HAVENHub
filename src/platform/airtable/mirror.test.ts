@@ -33,6 +33,7 @@ const enabledTarget: MirrorTarget = {
   peopleTableId: TABLE_ID,
   fieldMap: parseFieldMap(undefined),
   hipaaFieldId: null,
+  statusFieldId: null,
 };
 
 const disabledTarget: MirrorTarget = {
@@ -41,6 +42,7 @@ const disabledTarget: MirrorTarget = {
   peopleTableId: TABLE_ID,
   fieldMap: parseFieldMap(undefined),
   hipaaFieldId: null,
+  statusFieldId: null,
 };
 
 /** Create a person and return it. */
@@ -341,6 +343,7 @@ describe("drainOutbox", () => {
       peopleTableId: TABLE_ID,
       fieldMap: sandboxMap,
       hipaaFieldId: null,
+      statusFieldId: null,
     };
 
     const person = await createPerson({ name: "Sandbox Person" });
@@ -389,6 +392,7 @@ describe("drainOutbox HipaaCertificate routing", () => {
     peopleTableId: TABLE_ID,
     fieldMap: parseFieldMap(undefined),
     hipaaFieldId: HIPAA_FIELD_ID,
+    statusFieldId: null,
   };
 
   /** Create a person, a MirrorRecord, a HipaaCertificate DB row, and a real file on disk. */
@@ -608,5 +612,123 @@ describe("drainOutbox HipaaCertificate routing", () => {
     const updated = await prisma.outbox.findUniqueOrThrow({ where: { id: outboxRow.id } });
     expect(updated.status).toBe("FAILED");
     expect(updated.lastError).toMatch(/file not found on disk/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Compliance status mirror on Person rows (Task 7)
+// ---------------------------------------------------------------------------
+
+describe("drainOutbox Person compliance status mirror", () => {
+  beforeEach(resetDb);
+
+  const STATUS_FIELD_ID = "fldaDo5T6mhX9IHhb";
+  const DAY = 24 * 60 * 60 * 1000;
+
+  const enabledWithStatus: MirrorTarget = {
+    enabled: true,
+    baseId: BASE_ID,
+    peopleTableId: TABLE_ID,
+    fieldMap: parseFieldMap(undefined),
+    hipaaFieldId: null,
+    statusFieldId: STATUS_FIELD_ID,
+  };
+
+  async function createActiveTerm(endOffsetDays = 90) {
+    return prisma.term.create({
+      data: {
+        code: "SU26",
+        name: "Summer 2026",
+        startDate: new Date(Date.now() - 30 * DAY),
+        endDate: new Date(Date.now() + endOffsetDays * DAY),
+        status: "ACTIVE",
+      },
+    });
+  }
+
+  it("with statusFieldId set: payload carries the mapped status and Person.mirroredHipaaStatus is stamped after a successful send", async () => {
+    const term = await createActiveTerm();
+    const person = await createPerson({ name: "Compliant Person" });
+    await createMapping(person.id, "recStatus1");
+    // Compliant cert: expiry well past termEnd + 30d and now + 60d.
+    const completion = new Date(term.endDate.getTime() + 200 * DAY - 365 * DAY);
+    await prisma.hipaaCertificate.create({
+      data: {
+        personId: person.id,
+        fileName: "hipaa.pdf",
+        storedName: "compliant.pdf",
+        size: 10,
+        mimeType: "application/pdf",
+        completionDate: completion,
+      },
+    });
+    await createOutboxRow(person.id);
+
+    const io = fakeWriter();
+    const result = await drainOutbox(io, enabledWithStatus);
+
+    expect(result).toBe(1);
+    expect(io.patchRecord).toHaveBeenCalledOnce();
+    const calledFields = (io.patchRecord as ReturnType<typeof vi.fn>).mock.calls[0][3] as Record<string, unknown>;
+    expect(calledFields[STATUS_FIELD_ID]).toBe("Compliant");
+    expect(Object.keys(calledFields)).toHaveLength(8);
+
+    const updated = await prisma.person.findUniqueOrThrow({ where: { id: person.id } });
+    expect(updated.mirroredHipaaStatus).toBe("Compliant");
+  });
+
+  it("with statusFieldId set and no cert: payload carries 'Not Compliant' and bookkeeping is stamped", async () => {
+    await createActiveTerm();
+    const person = await createPerson({ name: "No Cert Person" });
+    await createMapping(person.id, "recStatus2");
+    await createOutboxRow(person.id);
+
+    const io = fakeWriter();
+    const result = await drainOutbox(io, enabledWithStatus);
+
+    expect(result).toBe(1);
+    const calledFields = (io.patchRecord as ReturnType<typeof vi.fn>).mock.calls[0][3] as Record<string, unknown>;
+    expect(calledFields[STATUS_FIELD_ID]).toBe("Not Compliant");
+
+    const updated = await prisma.person.findUniqueOrThrow({ where: { id: person.id } });
+    expect(updated.mirroredHipaaStatus).toBe("Not Compliant");
+  });
+
+  it("with statusFieldId null: payload stays at 7 keys and mirroredHipaaStatus is untouched", async () => {
+    await createActiveTerm();
+    const person = await createPerson({ name: "Status Off Person" });
+    await createMapping(person.id, "recStatus3");
+    await createOutboxRow(person.id);
+
+    const io = fakeWriter();
+    const result = await drainOutbox(io, enabledTarget); // statusFieldId null
+
+    expect(result).toBe(1);
+    const calledFields = (io.patchRecord as ReturnType<typeof vi.fn>).mock.calls[0][3] as Record<string, unknown>;
+    expect(Object.keys(calledFields)).toHaveLength(7);
+    expect(calledFields[STATUS_FIELD_ID]).toBeUndefined();
+
+    const updated = await prisma.person.findUniqueOrThrow({ where: { id: person.id } });
+    expect(updated.mirroredHipaaStatus).toBeNull();
+  });
+
+  it("does not stamp mirroredHipaaStatus when the send fails", async () => {
+    await createActiveTerm();
+    const person = await createPerson({ name: "Send Fails Person" });
+    await createMapping(person.id, "recStatus4");
+    await createOutboxRow(person.id);
+
+    const throwingIo: MirrorIo = {
+      patchRecord: vi.fn().mockRejectedValue(new Error("network error")),
+      createRecord: vi.fn().mockRejectedValue(new Error("network error")),
+      listAll: vi.fn().mockResolvedValue([]),
+      uploadAttachment: vi.fn().mockResolvedValue({}),
+    };
+
+    const result = await drainOutbox(throwingIo, enabledWithStatus);
+    expect(result).toBe(0);
+
+    const updated = await prisma.person.findUniqueOrThrow({ where: { id: person.id } });
+    expect(updated.mirroredHipaaStatus).toBeNull();
   });
 });

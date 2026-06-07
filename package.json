@@ -20,6 +20,8 @@
     "import:apply": "tsx --env-file=.env scripts/import-airtable.ts --apply",
     "import:certs:dry": "tsx --env-file=.env scripts/import-certificates.ts",
     "import:certs:apply": "tsx --env-file=.env scripts/import-certificates.ts --apply",
+    "backfill:dates:dry": "tsx --env-file=.env scripts/backfill-completion-dates.ts",
+    "backfill:dates:apply": "tsx --env-file=.env scripts/backfill-completion-dates.ts --apply",
     "worker": "tsx --env-file=.env worker/index.ts"
   },
   "prisma": {
@@ -33,6 +35,7 @@
     "pg-boss": "^12.18.2",
     "react": "19.2.4",
     "react-dom": "19.2.4",
+    "unpdf": "^1.6.2",
     "zod": "^4.0.0"
   },
   "devDependencies": {

@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { personMirrorPayload } from "./mirror-map";
+import { computeMirrorStatus } from "@/platform/compliance/mirror-status";
 import type { AirtableWriter, MirrorTarget } from "./mirror";
 
 export type AirtableReader = {
@@ -30,7 +31,13 @@ export async function reconcilePeople(
     const person = await prisma.person.findUnique({ where: { id: mapping.entityId } });
     const fields = remote.get(mapping.recordId);
     if (!person || !fields) continue; // deletions are handled at cutover, not nightly
-    const desired = personMirrorPayload(person, target.fieldMap);
+    // Include the HIPAA compliance status only when this target asserts it, computed
+    // the same way as the drain (newest cert + active term -> two-option string).
+    const hipaaStatus = target.statusFieldId ? await computeMirrorStatus(person.id) : null;
+    const desired = personMirrorPayload(person, target.fieldMap, {
+      statusFieldId: target.statusFieldId,
+      hipaaStatus,
+    });
     const drifted: Record<string, unknown> = {};
     const before: Record<string, unknown> = {};
     for (const [fieldId, value] of Object.entries(desired)) {

@@ -51,8 +51,11 @@ export const MODULES: ModuleManifest[] = [
       "volunteers.manage_epic",
       "volunteers.issue_disciplinary",
     ],
-    status: "coming-soon",
-    nav: [],
+    status: "active",
+    nav: [
+      { label: "Compliance", href: "/volunteers" },
+      { label: "Master view", href: "/volunteers/master" },
+    ],
   },
   {
     id: "admin",

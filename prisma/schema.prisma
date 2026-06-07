@@ -33,19 +33,29 @@ enum CertificateSource {
   IMPORT
 }
 
+enum CertificateExtraction {
+  PARSED
+  MANUAL
+  AIRTABLE
+  NONE
+}
+
 model Person {
   id               String        @id @default(cuid())
   netId            String?       @unique
   entraObjectId    String?       @unique
   name             String
   contactEmail     String?       @unique
-  yaleEmail        String?       @unique
   phone            String?
   epicId           String?
   yaleAffiliation  String?
   gradYear         String?
   status           PersonStatus  @default(ACTIVE)
   airtableRecordId String?       @unique
+  /// The HIPAA compliance status the Airtable mirror last asserted ("Compliant" /
+  /// "Not Compliant"). Mirror bookkeeping only: set by drainPersonRow after a
+  /// successful send so the nightly refresh can detect changes without re-reading Airtable.
+  mirroredHipaaStatus String?
   memberships      TermMembership[]
   roleAssignments  RoleAssignment[]
   hipaaCertificates HipaaCertificate[]
@@ -65,9 +75,13 @@ model HipaaCertificate {
   storedName  String
   size        Int
   mimeType    String
-  source      CertificateSource @default(UPLOAD)
-  uploadedAt  DateTime @default(now())
-  person      Person   @relation(fields: [personId], references: [id], onDelete: Cascade)
+  source          CertificateSource     @default(UPLOAD)
+  completionDate  DateTime?
+  extraction      CertificateExtraction @default(NONE)
+  verifiedById    String?
+  verifiedAt      DateTime?
+  uploadedAt      DateTime              @default(now())
+  person          Person                @relation(fields: [personId], references: [id], onDelete: Cascade)
 
   @@index([personId, uploadedAt])
 }
@@ -93,8 +107,25 @@ model Department {
   isActive        Boolean @default(true)
   memberships     TermMembership[]
   roleAssignments RoleAssignment[]
+  /// Delegations where this department is the MANAGER (it manages the listed departments).
+  managesDelegations  DepartmentDelegation[] @relation("delegationManager")
+  /// Delegations where this department is MANAGED BY another department.
+  managedByDelegations DepartmentDelegation[] @relation("delegationManaged")
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+}
+
+/// One row per "manager department oversees managed department" edge. Used to
+/// extend a director's compliance scope beyond their own department(s) by one
+/// hop (no recursion). Example: PCAR manages SCTP and JCTP.
+model DepartmentDelegation {
+  id                  String     @id @default(cuid())
+  managerDepartmentId String
+  managedDepartmentId String
+  manager             Department @relation("delegationManager", fields: [managerDepartmentId], references: [id], onDelete: Cascade)
+  managed             Department @relation("delegationManaged", fields: [managedDepartmentId], references: [id], onDelete: Cascade)
+
+  @@unique([managerDepartmentId, managedDepartmentId])
 }
 
 model TermMembership {

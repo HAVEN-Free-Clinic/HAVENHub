@@ -6,7 +6,7 @@ const F = ALL_PEOPLE_FIELDS;
 const R = SU26_ROSTER_FIELDS;
 
 describe("transformPeople", () => {
-  it("maps fields, trims, lowercases netId, and derives yaleEmail from @yale.edu contact emails", () => {
+  it("maps fields, trims, and lowercases netId and contactEmail", () => {
     const [person] = transformPeople([
       {
         id: "recA",
@@ -26,7 +26,6 @@ describe("transformPeople", () => {
       name: "Jane Doe",
       netId: "jd123",
       contactEmail: "jane.doe@yale.edu",
-      yaleEmail: "jane.doe@yale.edu",
       phone: "203-555-0101",
       epicId: "E123",
       yaleAffiliation: "Yale College",
@@ -34,11 +33,10 @@ describe("transformPeople", () => {
     });
   });
 
-  it("leaves yaleEmail null for personal emails and tolerates missing fields", () => {
+  it("tolerates missing fields and lowercases a personal contactEmail", () => {
     const [person] = transformPeople([
-      { id: "recB", fields: { [F.name]: "Sam", [F.contactEmail]: "sam@gmail.com" } },
+      { id: "recB", fields: { [F.name]: "Sam", [F.contactEmail]: "Sam@Gmail.com" } },
     ]);
-    expect(person.yaleEmail).toBeNull();
     expect(person.netId).toBeNull();
     expect(person.contactEmail).toBe("sam@gmail.com");
   });

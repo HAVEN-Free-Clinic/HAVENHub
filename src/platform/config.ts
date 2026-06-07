@@ -31,6 +31,11 @@ const schema = z
     // the certificate push step silently skips and logs a notice. This lets teams enable
     // the mirror before an attachment field exists in their base.
     AIRTABLE_MIRROR_HIPAA_FIELD_ID: z.string().optional(),
+    // HIPAA compliance status mirror: the Airtable singleSelect field ID on the mirrored
+    // people table. Optional at all times -- even when the mirror is enabled. When unset,
+    // the computed status is not written (the select is omitted from the payload). This lets
+    // teams enable the mirror before the status field exists in their base (the sandbox has none).
+    AIRTABLE_MIRROR_STATUS_FIELD_ID: z.string().optional(),
     // Uploads: local filesystem storage for HIPAA certificates.
     // Mount this as a persistent volume in production (SpinUp).
     UPLOAD_DIR: z.string().default("./uploads"),

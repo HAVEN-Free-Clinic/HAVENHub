@@ -93,3 +93,15 @@ test("admin opens Jack Carney detail and sees memberships and name field", async
   // The detail page always renders the Details section heading.
   await expect(page.getByRole("heading", { name: /details/i })).toBeVisible();
 });
+
+test("admin opens /admin/roles and sees Platform Admin with system badge", async ({ page }) => {
+  await devLogin(page, "j.carney@yale.edu");
+  await page.goto("/admin/roles");
+  await expect(page.getByRole("heading", { name: "Roles", level: 1 })).toBeVisible();
+  // The "Platform Admin" role card heading must be present.
+  await expect(page.getByRole("heading", { name: "Platform Admin" })).toBeVisible();
+  // The system badge must be visible (inside the role card area).
+  await expect(page.getByText("System").first()).toBeVisible();
+  // The Assignments section heading (h2) must be present.
+  await expect(page.getByRole("heading", { name: "Assignments" })).toBeVisible();
+});

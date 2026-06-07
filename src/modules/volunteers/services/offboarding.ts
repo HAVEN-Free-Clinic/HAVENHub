@@ -17,10 +17,10 @@
  * as a defense-in-depth check (the page action checks too).
  *
  * All mutations are audited. setPersonStatusField is called OUTSIDE the Prisma
- * transaction because it issues its own prisma.person.update and
- * recordAudit calls -- calling it inside a nested interactive transaction
- * would create a new transaction context and could deadlock on SQLite. The
- * membership removals and flag deletions commit first; then status is set.
+ * transaction because it uses the module-level prisma client internally and
+ * cannot join a transaction callback's tx proxy; it would run outside the
+ * transaction regardless of placement. The membership removals and flag
+ * deletions commit first; then status is set.
  */
 
 import type { Department, OffboardFlag, Person } from "@prisma/client";
@@ -208,12 +208,13 @@ export async function unflag(actorPersonId: string, personId: string): Promise<v
  *      and delete all OffboardFlag rows for the person.
  *   2. After the transaction commits: set Person.status to OFFBOARDED via
  *      setPersonStatusField (which owns its own audit entry for person.offboard).
- *   3. Audit "person.offboard" with { removedMemberships: n } in "after".
+ *   3. Audit "offboard.execute" with { removedMemberships: n } in "after"
+ *      (setPersonStatusField already emits "person.offboard" for the status flip).
  *
  * Note on setPersonStatusField placement: called OUTSIDE the Prisma transaction
- * to avoid nesting interactive transactions (which SQLite does not support). The
- * membership removals commit first; if setPersonStatusField fails the memberships
- * are already REMOVED (safe failure mode -- the executor can retry).
+ * because it uses the module-level prisma client and cannot join the tx proxy.
+ * The membership removals commit first; if setPersonStatusField fails the
+ * memberships are already REMOVED (safe failure mode -- the executor can retry).
  *
  * Throws OffboardForbiddenError when actor lacks volunteers.manage_offboarding.
  */

@@ -46,7 +46,10 @@ const eslintConfig = [
   })),
   // Platform must not depend on any module's internals. (When module manifests
   // move into src/modules/<id>/manifest.ts in later plans, the registry import
-  // will need a scoped exception here — do not pre-add it.)
+  // will need a scoped exception here; do not pre-add it.)
+  // Group is deliberately narrow: "**/modules/**" would false-positive on
+  // src/platform/modules/* (the registry). Relative-path evasions are caught
+  // by the resolved-path zones below.
   {
     files: ["src/platform/**/*.{ts,tsx}"],
     rules: {
@@ -55,7 +58,7 @@ const eslintConfig = [
         {
           patterns: [
             {
-              group: ["**/modules/**", "@/modules/**"],
+              group: ["@/modules/**", "src/modules/**"],
               message: "Platform code must not import module code.",
             },
           ],
@@ -67,7 +70,7 @@ const eslintConfig = [
   // Resolved-path enforcement (catches relative-path evasion the specifier
   // globs above miss, e.g. `../my-info/internal` from inside a module).
   // eslint-config-next already registers the `import` plugin instance globally,
-  // so we must NOT redeclare plugins here — just add the rule + settings.
+  // so we must NOT redeclare plugins here; just add the rule + settings.
   {
     files: ["src/**/*.{ts,tsx}"],
     settings: {

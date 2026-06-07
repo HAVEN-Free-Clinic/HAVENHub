@@ -67,8 +67,15 @@ export const MODULES: ModuleManifest[] = [
       "admin.view_audit",
       "admin.manage_sync",
     ],
-    status: "coming-soon",
-    nav: [],
+    status: "active",
+    nav: [
+      { label: "Overview", href: "/admin" },
+      { label: "People", href: "/admin/people" },
+      { label: "Terms", href: "/admin/terms" },
+      { label: "Roles", href: "/admin/roles" },
+      { label: "Audit", href: "/admin/audit" },
+      { label: "Sync", href: "/admin/sync" },
+    ],
   },
   {
     id: "recruitment",

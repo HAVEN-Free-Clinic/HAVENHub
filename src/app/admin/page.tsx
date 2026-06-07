@@ -1,0 +1,123 @@
+import Link from "next/link";
+import { prisma } from "@/platform/db";
+import { PageHeader } from "@/platform/ui/page-header";
+import { buttonClasses } from "@/platform/ui/button";
+
+// requirePermission already ran in the admin layout; this page is reachable only
+// by users with admin.access. No second permission check needed here.
+
+type StatCardProps = {
+  label: string;
+  value: number;
+  href: string;
+};
+
+function StatCard({ label, value, href }: StatCardProps) {
+  return (
+    <Link
+      href={href}
+      className="block rounded-lg border border-slate-200 bg-white p-5 transition hover:border-brand/40 hover:shadow-sm"
+    >
+      <p className="text-2xl font-semibold">{value.toLocaleString()}</p>
+      <p className="mt-1 text-xs uppercase tracking-wider text-slate-400">{label}</p>
+    </Link>
+  );
+}
+
+export default async function AdminOverviewPage() {
+  // Find the active term first so we can scope membership counts.
+  const activeTerm = await prisma.term.findFirst({
+    where: { status: "ACTIVE" },
+    orderBy: { startDate: "desc" },
+  });
+
+  const now = new Date();
+  now.setDate(now.getDate() - 7);
+  const sevenDaysAgo = now;
+
+  // Run all counts in parallel for performance.
+  const [
+    activePersonCount,
+    activeDeptCount,
+    activeMembershipCount,
+    roleCount,
+    recentAuditCount,
+    outboxPendingCount,
+    outboxFailedCount,
+  ] = await Promise.all([
+    prisma.person.count({ where: { status: "ACTIVE" } }),
+    prisma.department.count({ where: { isActive: true } }),
+    activeTerm
+      ? prisma.termMembership.count({
+          where: { termId: activeTerm.id, status: "ACTIVE" },
+        })
+      : Promise.resolve(0),
+    prisma.role.count(),
+    prisma.auditLog.count({ where: { createdAt: { gte: sevenDaysAgo } } }),
+    prisma.outbox.count({ where: { status: "PENDING" } }),
+    prisma.outbox.count({ where: { status: "FAILED" } }),
+  ]);
+
+  const quickLinks = [
+    { label: "People", href: "/admin/people" },
+    { label: "Terms", href: "/admin/terms" },
+    { label: "Roles", href: "/admin/roles" },
+    { label: "Audit", href: "/admin/audit" },
+    { label: "Sync", href: "/admin/sync" },
+  ];
+
+  return (
+    <div>
+      <PageHeader
+        title="Admin"
+        description="HAVEN Hub operations: people, terms, roles, audit, and sync."
+        action={
+          <div className="flex flex-wrap gap-2">
+            {quickLinks.map((ql) => (
+              <Link
+                key={ql.href}
+                href={ql.href}
+                className={buttonClasses("outline", "sm")}
+              >
+                {ql.label}
+              </Link>
+            ))}
+          </div>
+        }
+      />
+
+      <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <StatCard
+          label="Active People"
+          value={activePersonCount}
+          href="/admin/people"
+        />
+        <StatCard
+          label={activeTerm ? `${activeTerm.name} Memberships` : "Memberships"}
+          value={activeMembershipCount}
+          href="/admin/terms"
+        />
+        <StatCard
+          label="Active Departments"
+          value={activeDeptCount}
+          href="/admin/people"
+        />
+        <StatCard
+          label="Roles"
+          value={roleCount}
+          href="/admin/roles"
+        />
+        <StatCard
+          label="Audit Events (7 days)"
+          value={recentAuditCount}
+          href="/admin/audit"
+        />
+        <StatCard
+          label={`Outbox (${outboxPendingCount} pending, ${outboxFailedCount} failed)`}
+          value={outboxPendingCount + outboxFailedCount}
+          href="/admin/sync"
+        />
+      </div>
+    </div>
+  );
+}

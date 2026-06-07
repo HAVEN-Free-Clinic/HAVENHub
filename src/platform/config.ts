@@ -10,6 +10,22 @@ const schema = z
     NODE_ENV: z
       .enum(["development", "test", "production"])
       .default("development"),
+    // Airtable: reads (import) need only the PAT; the listed IDs have safe defaults.
+    AIRTABLE_PAT: z.string().optional(),
+    HAVEN_MGMT_BASE_ID: z.string().default("appkxTQ19GmaHgW1O"),
+    ALL_PEOPLE_TABLE_ID: z.string().default("tblnHgBpknuqWvx9c"),
+    SU26_ROSTER_TABLE_ID: z.string().default("tbl2VrP1uqwFt7QNQ"),
+    // Mirror: WRITES. Disabled by default; points at a sandbox base until FA26 cutover.
+    AIRTABLE_MIRROR_ENABLED: z
+      .string()
+      .default("false")
+      .transform((v) => v === "true"),
+    AIRTABLE_MIRROR_BASE_ID: z.string().optional(),
+    AIRTABLE_MIRROR_PEOPLE_TABLE_ID: z.string().optional(),
+    // Optional JSON field-ID map for targets whose field IDs differ from production defaults
+    // (e.g. the sandbox base). When set and the mirror is enabled, must parse to an object
+    // with exactly the seven keys: name, netId, contactEmail, phone, epicId, yaleAffiliation, gradYear.
+    AIRTABLE_MIRROR_FIELD_MAP: z.string().optional(),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV !== "production") return;
@@ -28,6 +44,66 @@ const schema = z
           path: [key],
           message: "required in production",
         });
+      }
+    }
+  })
+  .superRefine((env, ctx) => {
+    // superRefine runs post-transform: AIRTABLE_MIRROR_ENABLED is already a boolean here.
+    if (env.AIRTABLE_MIRROR_ENABLED === true) {
+      for (const key of [
+        "AIRTABLE_PAT",
+        "AIRTABLE_MIRROR_BASE_ID",
+        "AIRTABLE_MIRROR_PEOPLE_TABLE_ID",
+      ] as const) {
+        if (!env[key]) {
+          ctx.addIssue({
+            code: "custom",
+            path: [key],
+            message: "required when the mirror is enabled",
+          });
+        }
+      }
+      // Validate AIRTABLE_MIRROR_FIELD_MAP when set: must parse to an object with the seven keys.
+      if (env.AIRTABLE_MIRROR_FIELD_MAP !== undefined) {
+        const REQUIRED_FIELD_MAP_KEYS = [
+          "name",
+          "netId",
+          "contactEmail",
+          "phone",
+          "epicId",
+          "yaleAffiliation",
+          "gradYear",
+        ] as const;
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(env.AIRTABLE_MIRROR_FIELD_MAP);
+        } catch {
+          ctx.addIssue({
+            code: "custom",
+            path: ["AIRTABLE_MIRROR_FIELD_MAP"],
+            message: "must be valid JSON when set",
+          });
+          return;
+        }
+        if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["AIRTABLE_MIRROR_FIELD_MAP"],
+            message: "must be a JSON object",
+          });
+          return;
+        }
+        const obj = parsed as Record<string, unknown>;
+        const missing = REQUIRED_FIELD_MAP_KEYS.filter(
+          (k) => typeof obj[k] !== "string" || !(obj[k] as string).length
+        );
+        if (missing.length > 0) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["AIRTABLE_MIRROR_FIELD_MAP"],
+            message: `must contain all seven field-id keys as non-empty strings; missing: ${missing.join(", ")}`,
+          });
+        }
       }
     }
   });

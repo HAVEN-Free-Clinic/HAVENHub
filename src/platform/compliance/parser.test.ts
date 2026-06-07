@@ -233,16 +233,40 @@ describe("extractDateFromText - sanity window", () => {
     expect(result).toBeNull();
   });
 
-  it("accepts a date exactly at the 5-year boundary (within window)", () => {
-    // 4 years ago should be accepted
-    const fourYearsAgo = new Date();
-    fourYearsAgo.setUTCFullYear(fourYearsAgo.getUTCFullYear() - 4);
-    const y = fourYearsAgo.getUTCFullYear();
-    const m = String(fourYearsAgo.getUTCMonth() + 1).padStart(2, "0");
-    const d = String(fourYearsAgo.getUTCDate()).padStart(2, "0");
+  it("accepts a date one day inside the 5-year boundary", () => {
+    // The cutoff is exactly 5 years ago at noon UTC. A date one day NEWER
+    // than the cutoff (4 years 364 days old) must be accepted.
+    const cutoff = new Date(Date.UTC(
+      new Date().getUTCFullYear() - 5,
+      new Date().getUTCMonth(),
+      new Date().getUTCDate(),
+      12, 0, 0, 0
+    ));
+    const inside = new Date(cutoff.getTime() + 24 * 60 * 60 * 1000);
+    const y = inside.getUTCFullYear();
+    const m = String(inside.getUTCMonth() + 1).padStart(2, "0");
+    const d = String(inside.getUTCDate()).padStart(2, "0");
     const text = `Date of Completion ${y}-${m}-${d}`;
     const result = extractDateFromText(text);
     expect(result).not.toBeNull();
+  });
+
+  it("rejects a date one day outside the 5-year boundary", () => {
+    // A date one day OLDER than the noon-UTC cutoff (5 years + 1 day old) must
+    // be rejected.
+    const cutoff = new Date(Date.UTC(
+      new Date().getUTCFullYear() - 5,
+      new Date().getUTCMonth(),
+      new Date().getUTCDate(),
+      12, 0, 0, 0
+    ));
+    const outside = new Date(cutoff.getTime() - 24 * 60 * 60 * 1000);
+    const y = outside.getUTCFullYear();
+    const m = String(outside.getUTCMonth() + 1).padStart(2, "0");
+    const d = String(outside.getUTCDate()).padStart(2, "0");
+    const text = `Date of Completion ${y}-${m}-${d}`;
+    const result = extractDateFromText(text);
+    expect(result).toBeNull();
   });
 });
 
@@ -268,6 +292,118 @@ describe("extractDateFromText - expiration exclusion", () => {
     const result = extractDateFromText(text);
     expect(result).not.toBeNull();
     expect(result!.date.getUTCFullYear()).toBe(2025);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Regression fixtures: multi-course Workday "My Transcript" PDFs.
+//
+// These are ANONYMIZED transcriptions of two real corpus files that the
+// previous parser mis-read (it matched the column HEADER window and returned
+// the first row's Enrolled date of an arbitrary course). Names are replaced
+// with placeholders; the table structure and every date is verbatim.
+//
+// The correct answer is the HIPAA-context row's *Completed* date - never the
+// Enrolled date, never the row's trailing Expiration date - preferring the
+// most recent matching row.
+// ---------------------------------------------------------------------------
+
+describe("extractDateFromText - Workday My Transcript regression", () => {
+  // Source: uploads/cmq3zprpp00gjvwkvr2ycxft3.pdf (names anonymized).
+  // The transcript header date is 09/12/2025; the most recent HIPAA row is the
+  // "Annual Security Attestation and HIPAA Refresher" completed 09/12/2025.
+  // Older HIPAA rows exist (11/05/2024, 09/27/2024) and must NOT win.
+  // The previous parser returned a Bloodborne Pathogens Enrolled date.
+  const transcript1 =
+    "My Transcript 05:57 PM 09/12/2025Page 1 of 3 Not Started Learning Record Name Content Type Registration Status Date Enrolled Completion Status Attendance Status Grade Score Record Type In Progress Learning Record Name Content Type Registration Status Date Enrolled Completion Status Attendance Status Grade Score Record Type " +
+    "PERSON_ONE - Bloodborne Pathogens for Clinical Employees Program Bloodborne Pathogens for Clinical Employees Program Program Enrolled 10/09/2024 In Progress Do Not Track 0 Enrollment " +
+    "PERSON_ONE - Occupational Safety and Health: Blood-Borne Pathogens Occupational Safety and Health: Blood- Borne Pathogens Digital Course Enrolled 09/27/2024 In Progress Do Not Track 0 Enrollment " +
+    "Learning History Learning Record Name Content Type Registration Status Date Enrolled Completion Status Completion Date and Time Expiration Date Attendance Status Grade Score Record Type " +
+    "PERSON_ONE - Preventing Discrimination, Harassment, and Sexual Misconduct at Yale (Student Version) Preventing Discrimination, Harassment, and Sexual Misconduct at Yale (Student Version) Digital Course Enrolled 08/01/2025 Completed 09/03/2025 10:21:00 PM Do Not Track 0 Enrollment " +
+    "PERSON_ONE - Chemical Hazard Communication General Program Chemical Hazard Communication General Program Program Enrolled 06/01/2025 Completed 11/05/2024 11:55:03 AM Do Not Track 0 Enrollment " +
+    "PERSON_ONE - Annual Security Attestation and HIPAA Refresher Annual Security Attestation and HIPAA Refresher Digital Course Enrolled 05/12/2025 Completed 09/12/2025 05:56:04 PM 09/12/2026 Do Not Track 0 Enrollment " +
+    "PERSON_ONE - Patent Policy Acknowledgement & Agreement Patent Policy Acknowledgement & Agreement Digital Course Enrolled 09/27/2024 Completed 09/27/2024 09:29:54 PM Do Not Track 0 Enrollment " +
+    "PERSON_ONE - Annual Security Attestation and HIPAA Refresher Annual Security Attestation and HIPAA Refresher Digital Course Enrolled 11/05/2024 Completed 11/05/2024 10:39:43 AM 11/05/2025 Do Not Track 0 Enrollment " +
+    "PERSON_ONE - Basic Foundational HIPAA Privacy and Security Training Basic Foundational HIPAA Privacy and Security Training Digital Course Enrolled 09/27/2024 Completed 09/27/2024 09:46:15 PM Do Not Track Pass 100 Enrollment";
+
+  it("returns the most recent HIPAA row's Completed date (09/12/2025), not an Enrolled or expiration date", () => {
+    const result = extractDateFromText(transcript1);
+    expect(result).not.toBeNull();
+    expect(result!.date.toISOString()).toBe(noon(2025, 9, 12).toISOString());
+  });
+
+  // Source: uploads/cmq3zn7o1007mvw54l2m0d82n.pdf (names anonymized).
+  // Header date 04/29/2026. Most recent HIPAA row:
+  // "Annual Security Attestation and HIPAA Refresher" Completed 04/29/2026,
+  // Expiration 04/29/2027. Older HIPAA rows back to 06/03/2023 must NOT win,
+  // and the 04/29/2027 expiration must NOT be returned.
+  const transcript2 =
+    "My Transcript 01:22 PM 04/29/2026Page 1 of 6 Not Started Learning Record Name Content Type Registration Status Date Enrolled Completion Status Attendance Status Grade Score Record Type In Progress Learning Record Name Content Type Registration Status Date Enrolled Completion Status Attendance Status Grade Score Record Type " +
+    "Learning History Learning Record Name Version Content Type Registration Status Date Enrolled Completion Status Completion Date and Time Expiration Date Attendance Status Grade Score Record Type " +
+    "PERSON_TWO - Patent Policy Acknowledgement & Agreement Patent Policy Acknowledgement & Agreement Digital Course Enrolled 01/15/2026 Completed 02/08/2026 04:11:26 PM Do Not Track 0 Enrollment " +
+    "PERSON_TWO - HIPAA Refresher HIPAA Refresher Course Offering Enrolled 09/03/2025 Completed 09/10/2025 06:00:00 PM Attended 0 Enrollment " +
+    "PERSON_TWO - Bloodborne Pathogens for Clinical Employees Program Bloodborne Pathogens for Clinical Employees Program Program Enrolled 08/29/2025 Completed 08/29/2025 09:51:22 PM 08/29/2026 Do Not Track 0 Enrollment " +
+    "PERSON_TWO - Annual Security Attestation and HIPAA Refresher Annual Security Attestation and HIPAA Refresher Digital Course Enrolled 05/12/2025 Completed 04/29/2026 01:21:21 PM 04/29/2027 Do Not Track 0 Enrollment " +
+    "PERSON_TWO - Annual Security Attestation and HIPAA Program Annual Security Attestation and HIPAA Program Program Enrolled 03/30/2025 Completed 03/30/2025 04:08:29 PM Do Not Track 0 Enrollment " +
+    "PERSON_TWO - Annual Security Attestation and HIPAA Refresher Annual Security Attestation and HIPAA Refresher Digital Course Enrolled 03/30/2025 Completed 03/30/2025 04:08:29 PM 03/30/2026 Do Not Track 0 Enrollment " +
+    "PERSON_TWO - Foundational HIPAA Privacy and Security Program Foundational HIPAA Privacy and Security Program Program Enrolled 06/03/2023 Completed 06/03/2023 03:00:00 AM Do Not Track 0 Enrollment";
+
+  it("returns the most recent HIPAA row's Completed date (04/29/2026), not its 04/29/2027 expiration", () => {
+    const result = extractDateFromText(transcript2);
+    expect(result).not.toBeNull();
+    expect(result!.date.toISOString()).toBe(noon(2026, 4, 29).toISOString());
+  });
+
+  it("never returns a date whose immediate context is 'Enrolled'", () => {
+    // The first row after the header is a Bloodborne 'Enrolled 10/09/2024'
+    // In Progress row. That must never be the answer.
+    const result = extractDateFromText(transcript1);
+    expect(result).not.toBeNull();
+    expect(result!.date.getUTCFullYear()).not.toBe(2024);
+    expect(result!.matchedText).not.toMatch(/Enrolled/i);
+  });
+
+  it("returns null for a transcript that contains no HIPAA course", () => {
+    // A transcript without any HIPAA / security attestation row is not
+    // evidence of HIPAA completion.
+    const noHipaa =
+      "My Transcript 05:57 PM 09/12/2025Page 1 of 1 " +
+      "Learning History Learning Record Name Content Type Registration Status Date Enrolled Completion Status Completion Date and Time Expiration Date Attendance Status Grade Score Record Type " +
+      "PERSON_THREE - Bloodborne Pathogens for Clinical Employees Program Bloodborne Pathogens for Clinical Employees Program Program Enrolled 06/01/2025 Completed 09/03/2025 10:21:00 PM Do Not Track 0 Enrollment " +
+      "PERSON_THREE - Patent Policy Acknowledgement & Agreement Patent Policy Acknowledgement & Agreement Digital Course Enrolled 09/27/2024 Completed 09/27/2024 09:29:54 PM Do Not Track 0 Enrollment " +
+      "PERSON_THREE - Tuberculosis Awareness Web Training Tuberculosis Awareness Web Training Digital Course Enrolled 09/27/2024 Completed 09/27/2024 09:02:26 PM Do Not Track Pass 90 Enrollment";
+    expect(extractDateFromText(noHipaa)).toBeNull();
+  });
+
+  it("does not return the column header window's first row date (header-match guard)", () => {
+    // Regression for the exact bug: the header text
+    // "...Completion Status Completion Date and Time Expiration Date..."
+    // must not cause the first following date to be returned blindly.
+    const result = extractDateFromText(transcript1);
+    expect(result).not.toBeNull();
+    // 09/03/2025 is the first 'Completed' row (Sexual Misconduct) - not HIPAA.
+    expect(result!.date.toISOString()).not.toBe(noon(2025, 9, 3).toISOString());
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Strategy B hardening: Enrolled-context dates and column headers
+// ---------------------------------------------------------------------------
+
+describe("extractDateFromText - Strategy B hardening", () => {
+  it("never accepts a date immediately preceded by 'Enrolled'", () => {
+    // No transcript markers here, so this exercises Strategy B directly.
+    const text =
+      "Annual Security Attestation and HIPAA Refresher Completion Status Enrolled 10/09/2024";
+    expect(extractDateFromText(text)).toBeNull();
+  });
+
+  it("skips a column-header window (label followed by another column label)", () => {
+    // 'Completion Date and Time' immediately followed by 'Expiration Date' is a
+    // table header, not a value. With no real value present, return null.
+    const text =
+      "Completion Status Completion Date and Time Expiration Date Attendance Status Grade Score Record Type";
+    expect(extractDateFromText(text)).toBeNull();
   });
 });
 

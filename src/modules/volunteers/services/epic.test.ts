@@ -23,6 +23,7 @@
  * createTicket(actorPersonId, input):
  *   - Happy path: ticket created, requests moved to SUBMITTED.
  *   - Non-PENDING id in requestIds -> EpicStateError.
+ *   - Unknown id in requestIds -> EpicStateError, no ticket created, valid request stays PENDING.
  *   - No permission -> EpicForbiddenError.
  *
  * setTicketServiceRequestNumber + closeTicket:
@@ -61,6 +62,7 @@ import {
   createTicket,
   setTicketServiceRequestNumber,
   closeTicket,
+  listTickets,
   completeRequest,
   cancelRequest,
   sendEpicEmail,
@@ -419,6 +421,29 @@ describe("createTicket", () => {
     await expect(
       createTicket(actor.id, { requestIds: [pendingReq.id, completedReq.id] })
     ).rejects.toBeInstanceOf(EpicStateError);
+  });
+
+  it("unknown id in requestIds -> EpicStateError, no ticket created, valid request stays PENDING", async () => {
+    const actor = await createPerson("Manager", { netId: "mgr001" });
+    await grantPermission(actor.id, "volunteers.manage_epic");
+
+    const p1 = await createPerson("Alice", { netId: "aaa001" });
+    const validReq = await prisma.epicRequest.create({
+      data: { personId: p1.id, kind: "NEW", status: "PENDING", requestedById: p1.id },
+    });
+    const fabricatedId = "00000000-0000-0000-0000-000000000000";
+
+    await expect(
+      createTicket(actor.id, { requestIds: [validReq.id, fabricatedId] })
+    ).rejects.toBeInstanceOf(EpicStateError);
+
+    // No ticket should have been created.
+    const ticketCount = await prisma.ynhhTicket.count();
+    expect(ticketCount).toBe(0);
+
+    // The valid request must remain PENDING.
+    const still = await prisma.epicRequest.findUniqueOrThrow({ where: { id: validReq.id } });
+    expect(still.status).toBe("PENDING");
   });
 
   it("no permission -> EpicForbiddenError", async () => {
@@ -947,8 +972,6 @@ describe("listTickets", () => {
     const req3 = await prisma.epicRequest.create({
       data: { personId: p3.id, kind: "NEW", status: "PENDING", requestedById: p3.id },
     });
-
-    const { listTickets } = await import("./epic");
 
     const ticket1 = await createTicket(actor.id, { requestIds: [req1.id, req2.id] });
     const ticket2 = await createTicket(actor.id, { requestIds: [req3.id] });

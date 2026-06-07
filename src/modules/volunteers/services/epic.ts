@@ -290,6 +290,14 @@ export async function createTicket(
     select: { id: true, status: true },
   });
 
+  if (requests.length !== input.requestIds.length) {
+    const foundIds = new Set(requests.map((r) => r.id));
+    const missingIds = input.requestIds.filter((id) => !foundIds.has(id));
+    throw new EpicStateError(
+      `The following requests do not exist: ${missingIds.join(", ")}`
+    );
+  }
+
   const nonPending = requests.filter((r) => r.status !== "PENDING").map((r) => r.id);
   if (nonPending.length > 0) {
     throw new EpicStateError(

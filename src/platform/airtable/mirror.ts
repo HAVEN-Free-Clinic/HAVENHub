@@ -45,6 +45,13 @@ export async function drainOutbox(
 
   let processed = 0;
   for (const row of rows) {
+    // TODO(Task 5): route HipaaCertificate rows to the attachment push handler.
+    // Until then, skip them so that enabling the mirror early cannot corrupt cert rows
+    // (the Person handler would incorrectly look up the cert id as a person id, find null,
+    // and mark the row FAILED with "entity no longer exists").
+    if (row.entityType !== "Person") {
+      continue;
+    }
     try {
       const person = await prisma.person.findUnique({ where: { id: row.entityId } });
       if (!person) {

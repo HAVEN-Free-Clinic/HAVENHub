@@ -4,7 +4,7 @@ import { prisma } from "@/platform/db";
 type Db = PrismaClient | Prisma.TransactionClient;
 
 export type MirrorChange = {
-  entityType: "Person";
+  entityType: "Person" | "HipaaCertificate";
   entityId: string;
   changedFields: string[];
 };

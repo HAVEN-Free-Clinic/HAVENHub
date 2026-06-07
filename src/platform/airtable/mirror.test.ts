@@ -292,6 +292,29 @@ describe("drainOutbox", () => {
     expect(io.patchRecord).not.toHaveBeenCalled();
   });
 
+  it("skips non-Person outbox rows without marking them FAILED (Task 5 guard)", async () => {
+    // Create a HipaaCertificate outbox row (simulated: no cert row needed, just the outbox entry)
+    const certRow = await prisma.outbox.create({
+      data: {
+        entityType: "HipaaCertificate",
+        entityId: "cert_fake_id_001",
+        operation: "upsert",
+        changedFields: [],
+        status: "PENDING",
+      },
+    });
+    const writer = fakeWriter();
+
+    const result = await drainOutbox(writer, enabledTarget);
+
+    expect(result).toBe(0);
+    expect(writer.patchRecord).not.toHaveBeenCalled();
+    expect(writer.createRecord).not.toHaveBeenCalled();
+
+    const unchanged = await prisma.outbox.findUniqueOrThrow({ where: { id: certRow.id } });
+    expect(unchanged.status).toBe("PENDING");
+  });
+
   it("uses custom fieldMap keys in the payload sent to patchRecord", async () => {
     const sandboxMap = {
       name: "fldnyPNurTfUTCI3M",

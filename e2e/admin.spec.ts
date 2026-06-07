@@ -105,3 +105,17 @@ test("admin opens /admin/roles and sees Platform Admin with system badge", async
   // The Assignments section heading (h2) must be present.
   await expect(page.getByRole("heading", { name: "Assignments" })).toBeVisible();
 });
+
+test("admin opens /admin/audit and sees at least one row and the entityType select", async ({ page }) => {
+  await devLogin(page, "j.carney@yale.edu");
+  await page.goto("/admin/audit");
+  // Page heading must be present.
+  await expect(page.getByRole("heading", { name: "Audit Log" })).toBeVisible();
+  // The entityType select must be present (filter bar).
+  await expect(page.locator('select[name="entityType"]')).toBeVisible();
+  // The filter action input must be present.
+  await expect(page.locator('input[name="action"]')).toBeVisible();
+  // At least one table row must be visible (dev DB has many audit entries from imports).
+  const rows = page.locator("tbody tr");
+  await expect(rows.first()).toBeVisible();
+});

@@ -655,6 +655,32 @@ describe("listActions - filters", () => {
     expect(result.rows[0].personName).toBe("Current Vol");
   });
 
+  it("central with both q and departmentId returns only the matching person's actions in that department", async () => {
+    const term = await createTerm();
+    const deptA = await createDepartment("ITCM");
+    const deptB = await createDepartment("SRR");
+    const central = await createPerson("Central", "ctr001");
+    // alice is in deptA only
+    const alice = await createPerson("Alice Matching", "alice001");
+    // bob is in deptA but name does not match the query
+    const bob = await createPerson("Bob Other", "bob001");
+    // carol is in deptB with a matching name -- should NOT appear (wrong dept)
+    const carol = await createPerson("Alice Wrong Dept", "carol001");
+
+    await grantPermission(central.id, "volunteers.issue_disciplinary");
+    await createMembership(alice.id, term.id, deptA.id, "VOLUNTEER");
+    await createMembership(bob.id, term.id, deptA.id, "VOLUNTEER");
+    await createMembership(carol.id, term.id, deptB.id, "VOLUNTEER");
+
+    await issueCentral(central.id, alice.id, { description: "alice in deptA" });
+    await issueCentral(central.id, bob.id, { description: "bob in deptA" });
+    await issueCentral(central.id, carol.id, { description: "alice-name in deptB" });
+
+    const result = await listActions(central.id, { q: "alice", departmentId: deptA.id });
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0].personName).toBe("Alice Matching");
+  });
+
   it("pagination: 26 rows -> page 1 has 25, page 2 has 1", async () => {
     const term = await createTerm();
     const dept = await createDepartment("ITCM");
@@ -703,6 +729,42 @@ describe("strikes", () => {
     for (const row of result.rows) {
       expect(row.strikes).toBe(3);
     }
+  });
+
+  it("strikes are visibility-independent: director who can see only 1 of 3 actions still sees strikes=3 on the visible row", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("ITCM");
+    const central = await createPerson("Central", "ctr001");
+    const director = await createPerson("Director", "dir001");
+    const target = await createPerson("Repeat Vol", "rv001");
+
+    await grantPermission(central.id, "volunteers.issue_disciplinary");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(target.id, term.id, dept.id, "VOLUNTEER");
+
+    // Central issues 2 confidential actions (director cannot see these)
+    await issueCentral(central.id, target.id, {
+      description: "Confidential 1",
+      confidential: true,
+    });
+    await issueCentral(central.id, target.id, {
+      description: "Confidential 2",
+      confidential: true,
+    });
+    // Director issues 1 non-confidential action (director can see this one)
+    await issueAction(director.id, {
+      personId: target.id,
+      occurredAt: new Date("2026-04-01"),
+      category: DISCIPLINARY_CATEGORIES[0],
+      description: "Visible row",
+      confidential: false,
+    });
+
+    const result = await listActions(director.id, {});
+    // Director sees only the 1 non-confidential row
+    expect(result.rows).toHaveLength(1);
+    // But strikes reflects the total count of all 3 actions for this person
+    expect(result.rows[0].strikes).toBe(3);
   });
 });
 

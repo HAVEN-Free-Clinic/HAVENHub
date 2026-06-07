@@ -17,7 +17,7 @@
  * All mutations are audited.
  */
 
-import type { DisciplinaryAction } from "@prisma/client";
+import type { DisciplinaryAction, Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { can } from "@/platform/rbac/engine";
@@ -78,8 +78,8 @@ export type DisciplinaryInput = {
 
 export type ActionRow = {
   action: DisciplinaryAction;
-  personName: string | null;
-  issuedByName: string | null;
+  personName: string;
+  issuedByName: string;
   strikes: number;
 };
 
@@ -411,9 +411,8 @@ async function personIdsInDepartment(
 async function buildCentralWhere(
   q: { departmentId?: string; q?: string; category?: string },
   activeTerm: { id: string } | null
-) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const where: any = {};
+): Promise<Prisma.DisciplinaryActionWhereInput> {
+  const where: Prisma.DisciplinaryActionWhereInput = {};
 
   if (q.category) where.category = q.category;
 
@@ -424,6 +423,9 @@ async function buildCentralWhere(
   if (q.departmentId) {
     // Resolve person ids in the department's active term (count() doesn't
     // support nested relation filters on the person side).
+    // When both q and departmentId are set, `person` (relation filter) and
+    // `personId` (FK filter) are ANDed together by Prisma, so only actions
+    // whose person matches the name search AND is in the department appear.
     const personIds = await personIdsInDepartment(q.departmentId, activeTerm);
     where.personId = { in: personIds };
   }
@@ -436,10 +438,9 @@ function buildDirectorWhere(
   viewerPersonId: string,
   scopedPersonIds: string[],
   q: { q?: string; category?: string }
-) {
+): Prisma.DisciplinaryActionWhereInput {
   // Visibility: NOT confidential OR issuedById === viewer.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const where: any = {
+  const where: Prisma.DisciplinaryActionWhereInput = {
     personId: { in: scopedPersonIds },
     OR: [{ confidential: false }, { issuedById: viewerPersonId }],
   };
@@ -480,7 +481,7 @@ async function loadStrikeCounts(personIds: string[]): Promise<Map<string, number
  * Central (issue_disciplinary): { all: true, people: [] } -- the UI shows a
  * free-text search instead.
  *
- * Directors: ACTIVE members (both kinds) of manageable departments in the
+ * Directors: ACTIVE members (all membership kinds: VOLUNTEER and DIRECTOR alike) of manageable departments in the
  * active term, deduped, each with departmentNames, sorted by name. The actor
  * is excluded from their own picker (self-issue prevention in the UI); note
  * that issueAction itself does not block self-issue, so central roles can

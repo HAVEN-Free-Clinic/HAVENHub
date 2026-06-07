@@ -77,6 +77,7 @@ type PageProps = {
     category?: string;
     page?: string;
     error?: string;
+    message?: string;
   }>;
 };
 
@@ -94,8 +95,13 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
   const page = Math.max(1, parseInt(sp.page ?? "1", 10) || 1);
 
   const errorCode = sp.error ?? null;
+  // When error=validation the action encodes the raw message in ?message=.
+  // All other unknown codes fall back to a generic string (never expose raw
+  // encoded content that could confuse users or leak internals).
   const errorMessage = errorCode
-    ? (ERROR_MESSAGES[errorCode] ?? decodeURIComponent(errorCode))
+    ? errorCode === "validation" && sp.message
+      ? decodeURIComponent(sp.message)
+      : (ERROR_MESSAGES[errorCode] ?? "An unexpected error occurred.")
     : null;
 
   // Load issuable people for the issue form.
@@ -216,7 +222,9 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
         if (msg.includes("category")) redirect("/volunteers/disciplinary?error=bad-category");
         if (msg.includes("description")) redirect("/volunteers/disciplinary?error=blank-description");
         if (msg.includes("future")) redirect("/volunteers/disciplinary?error=future-date");
-        redirect(`/volunteers/disciplinary?error=${encodeURIComponent(err.message)}`);
+        redirect(
+          `/volunteers/disciplinary?error=validation&message=${encodeURIComponent(err.message)}`
+        );
       }
       throw err;
     }
@@ -240,6 +248,7 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
       throw err;
     }
     revalidatePath("/volunteers/disciplinary");
+    redirect("/volunteers/disciplinary");
   }
 
   // ---------------------------------------------------------------------------
@@ -475,16 +484,16 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
                     <TD className="tabular-nums text-sm text-slate-600 whitespace-nowrap">
                       {fmtDate(action.occurredAt)}
                     </TD>
-                    <TD className="font-medium">{personName ?? "-"}</TD>
+                    <TD className="font-medium">{personName}</TD>
                     <TD>
                       <Badge tone="default">{action.category}</Badge>
                     </TD>
                     <TD className="max-w-xs text-sm text-slate-700">
-                      <span title={action.description} className="line-clamp-2">
+                      <span title={action.description} aria-label={action.description} className="line-clamp-2">
                         {action.description}
                       </span>
                     </TD>
-                    <TD className="text-sm text-slate-600">{issuedByName ?? "-"}</TD>
+                    <TD className="text-sm text-slate-600">{issuedByName}</TD>
                     <TD>
                       <div className="flex items-center gap-1.5 flex-wrap">
                         {action.confidential && (

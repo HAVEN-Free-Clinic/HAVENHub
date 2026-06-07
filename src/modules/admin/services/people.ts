@@ -28,6 +28,13 @@ export class PersonConflictError extends Error {
   }
 }
 
+export class PersonNotFoundError extends Error {
+  constructor(public id: string) {
+    super(`Person ${id} not found`);
+    this.name = "PersonNotFoundError";
+  }
+}
+
 /** Wrap a Prisma unique-constraint error into a typed PersonConflictError. */
 function toConflictError(err: unknown): never {
   if (
@@ -37,7 +44,8 @@ function toConflictError(err: unknown): never {
     (err as { code: string }).code === "P2002"
   ) {
     const meta = (err as { meta?: { target?: string[] } }).meta;
-    const field = meta?.target?.[0] ?? "field";
+    const rawField = meta?.target?.[0] ?? "field";
+    const field = rawField.replace(/^lower\((.+)\)$/, "$1");
     throw new PersonConflictError(field);
   }
   throw err;
@@ -72,11 +80,12 @@ export async function searchPeople(q: PeopleQuery): Promise<{
 
   const where: Prisma.PersonWhereInput = {};
 
-  if (q.search) {
+  const term = q.search?.trim();
+  if (term) {
     where.OR = [
-      { name: { contains: q.search, mode: "insensitive" } },
-      { netId: { contains: q.search, mode: "insensitive" } },
-      { contactEmail: { contains: q.search, mode: "insensitive" } },
+      { name: { contains: term, mode: "insensitive" } },
+      { netId: { contains: term, mode: "insensitive" } },
+      { contactEmail: { contains: term, mode: "insensitive" } },
     ];
   }
 
@@ -183,7 +192,9 @@ export async function updatePerson(
 ): Promise<Person> {
   const data = normalize(input);
 
-  const existing = await prisma.person.findUniqueOrThrow({ where: { id } });
+  const existingOrNull = await prisma.person.findUnique({ where: { id } });
+  if (!existingOrNull) throw new PersonNotFoundError(id);
+  const existing = existingOrNull;
 
   // Compute the diff: only keys explicitly present in `input` that have a
   // different value from the existing row. Undefined input keys mean "leave
@@ -271,7 +282,9 @@ export async function setPersonStatus(
 ): Promise<Person> {
   // Status is not a mirrored field. The offboarding checkbox flow in Airtable
   // belongs to the Volunteers module later. We do not enqueue a mirror job here.
-  const existing = await prisma.person.findUniqueOrThrow({ where: { id } });
+  const existingOrNull = await prisma.person.findUnique({ where: { id } });
+  if (!existingOrNull) throw new PersonNotFoundError(id);
+  const existing = existingOrNull;
 
   const updated = await prisma.person.update({
     where: { id },

@@ -8,6 +8,7 @@ import {
   updatePerson,
   setPersonStatus,
   PersonConflictError,
+  PersonNotFoundError,
 } from "./people";
 
 const ACTOR = "actor-person-id";
@@ -93,6 +94,14 @@ describe("searchPeople", () => {
     await seedPerson({ name: "Beta", netId: "b2", status: "OFFBOARDED" });
 
     const result = await searchPeople({});
+    expect(result.total).toBe(2);
+  });
+
+  it("returns all rows when search is whitespace-only", async () => {
+    await seedPerson({ name: "Alpha", netId: "ws1" });
+    await seedPerson({ name: "Beta", netId: "ws2" });
+
+    const result = await searchPeople({ search: "   " });
     expect(result.total).toBe(2);
   });
 });
@@ -199,6 +208,28 @@ describe("createPerson", () => {
     expect(caught).not.toBeNull();
     expect(caught!.field).toBeTruthy();
   });
+
+  it("normalizes lower()-expression-index violation field name to plain column name", async () => {
+    // Insert a row with uppercase netId directly, bypassing app normalization.
+    // The @unique constraint on netId stores 'CASEVAR9' and the LOWER() expression
+    // index covers lower('CASEVAR9') = 'casevar9'. When createPerson receives
+    // 'casevar9' (already lowercase), the standard @unique does NOT fire
+    // ('CASEVAR9' != 'casevar9') but the LOWER() expression index does.
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO "Person" (id, name, "netId", status, "createdAt", "updatedAt") VALUES (gen_random_uuid(), 'Raw Insert', 'CASEVAR9', 'ACTIVE', now(), now())`
+    );
+
+    let caught: PersonConflictError | null = null;
+    try {
+      await createPerson(ACTOR, { name: "Conflict Person", netId: "casevar9" });
+    } catch (e) {
+      if (e instanceof PersonConflictError) caught = e;
+    }
+
+    expect(caught).not.toBeNull();
+    // Field should be "netId", NOT "lower(netId)"
+    expect(caught!.field).toBe("netId");
+  });
 });
 
 describe("updatePerson", () => {
@@ -285,6 +316,12 @@ describe("updatePerson", () => {
     expect(updated.netId).toBe("ct1");
     expect(updated.contactEmail).toBe("upper@example.com");
   });
+
+  it("rejects with PersonNotFoundError when id does not exist", async () => {
+    await expect(
+      updatePerson(ACTOR, "nonexistent-id", { name: "Ghost" })
+    ).rejects.toBeInstanceOf(PersonNotFoundError);
+  });
 });
 
 describe("setPersonStatus", () => {
@@ -329,6 +366,12 @@ describe("setPersonStatus", () => {
     const result = await setPersonStatus(ACTOR, person.id, "OFFBOARDED");
     expect(result.status).toBe("OFFBOARDED");
   });
+
+  it("rejects with PersonNotFoundError when id does not exist", async () => {
+    await expect(
+      setPersonStatus(ACTOR, "nonexistent-id", "OFFBOARDED")
+    ).rejects.toBeInstanceOf(PersonNotFoundError);
+  });
 });
 
 describe("PersonConflictError", () => {
@@ -338,5 +381,16 @@ describe("PersonConflictError", () => {
     expect(err).toBeInstanceOf(PersonConflictError);
     expect(err.field).toBe("netId");
     expect(err.message).toContain("netId");
+  });
+});
+
+describe("PersonNotFoundError", () => {
+  it("is an instance of Error and carries the id", () => {
+    const err = new PersonNotFoundError("abc-123");
+    expect(err).toBeInstanceOf(Error);
+    expect(err).toBeInstanceOf(PersonNotFoundError);
+    expect(err.id).toBe("abc-123");
+    expect(err.message).toContain("abc-123");
+    expect(err.name).toBe("PersonNotFoundError");
   });
 });

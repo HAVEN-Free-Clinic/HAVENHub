@@ -16,6 +16,10 @@
  * executeOffboard additionally requires can(actor, "volunteers.manage_offboarding")
  * as a defense-in-depth check (the page action checks too).
  *
+ * Design note: unlike compliance.ts (which trusts callers entirely), this service
+ * enforces scope internally because flag/unflag scope depends on the actor's
+ * department graph and cannot be pre-checked at the call site.
+ *
  * All mutations are audited. setPersonStatusField is called OUTSIDE the Prisma
  * transaction because it uses the module-level prisma client internally and
  * cannot join a transaction callback's tx proxy; it would run outside the

@@ -358,6 +358,11 @@ describe("offboardingView", () => {
     await createMembership(director.id, term.id, dept.id, "DIRECTOR");
     await createMembership(vol.id, term.id, dept.id, "VOLUNTEER");
 
+    // Create an actual flag row so we prove null means "hidden", not "empty".
+    await prisma.offboardFlag.create({
+      data: { personId: vol.id, termId: term.id, flaggedById: director.id },
+    });
+
     const result = await offboardingView(director.id);
     expect(result.flagged).toBeNull();
   });

@@ -179,6 +179,7 @@ export default async function OffboardingPage({ searchParams }: PageProps) {
                               <Input
                                 name="note"
                                 placeholder="Note (optional)"
+                                aria-label="Note (optional)"
                                 className="w-40 text-xs py-1"
                               />
                               <ConfirmButton label="Flag" confirmLabel="Confirm?" />

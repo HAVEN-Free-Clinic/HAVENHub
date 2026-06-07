@@ -33,6 +33,13 @@ enum CertificateSource {
   IMPORT
 }
 
+enum CertificateExtraction {
+  PARSED
+  MANUAL
+  AIRTABLE
+  NONE
+}
+
 model Person {
   id               String        @id @default(cuid())
   netId            String?       @unique
@@ -65,9 +72,13 @@ model HipaaCertificate {
   storedName  String
   size        Int
   mimeType    String
-  source      CertificateSource @default(UPLOAD)
-  uploadedAt  DateTime @default(now())
-  person      Person   @relation(fields: [personId], references: [id], onDelete: Cascade)
+  source          CertificateSource     @default(UPLOAD)
+  completionDate  DateTime?
+  extraction      CertificateExtraction @default(NONE)
+  verifiedById    String?
+  verifiedAt      DateTime?
+  uploadedAt      DateTime              @default(now())
+  person          Person                @relation(fields: [personId], references: [id], onDelete: Cascade)
 
   @@index([personId, uploadedAt])
 }

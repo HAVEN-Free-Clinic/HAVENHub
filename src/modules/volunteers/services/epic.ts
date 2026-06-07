@@ -27,7 +27,7 @@ import type { EpicRequestKind, EpicRequestStatus } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { can } from "@/platform/rbac/engine";
-import { updatePersonFields } from "@/platform/people";
+import { updatePersonFields, PersonNotFoundError } from "@/platform/people";
 import { queueEmail } from "@/platform/email/send";
 import { EPIC_TEMPLATES, type EpicTemplateKey } from "@/platform/email/templates/epic";
 
@@ -117,6 +117,10 @@ async function requireManageEpic(actorPersonId: string): Promise<void> {
  *   - Kind MODIFY or RENEW requires person HAS epicId (EpicStateError).
  *
  * Audits "epic.request" with kind in after.
+ *
+ * Note on the duplicate-open check: the open-request guard is a find-then-create
+ * with no DB unique constraint backstop, so two same-millisecond submissions from
+ * the same person could both land; at clinic scale a manager simply cancels one.
  */
 export async function createEpicRequest(
   actorPersonId: string,
@@ -451,6 +455,11 @@ export async function listTickets(): Promise<TicketRow[]> {
  * untouched.
  *
  * Sets status COMPLETED + completedAt. Audits "epic.complete".
+ *
+ * Note on atomicity: updatePersonFields runs before the request-status update
+ * and uses the global prisma client (it cannot join a tx). A crash between the
+ * two writes leaves epicId written with the request still open; a retry is safe
+ * because updatePersonFields diffs and no-ops on an unchanged epicId.
  */
 export async function completeRequest(
   actorPersonId: string,
@@ -468,11 +477,21 @@ export async function completeRequest(
     );
   }
 
+  let writtenEpicId: string | null = null;
+
   if (req.kind === "NEW" || req.kind === "MODIFY") {
     if (!epicId || !epicId.trim()) {
       throw new EpicStateError(`An epicId is required to complete a ${req.kind} request.`);
     }
-    await updatePersonFields(actorPersonId, req.personId, { epicId: epicId.trim() });
+    writtenEpicId = epicId.trim();
+    try {
+      await updatePersonFields(actorPersonId, req.personId, { epicId: writtenEpicId });
+    } catch (err) {
+      if (err instanceof PersonNotFoundError) {
+        throw new EpicNotFoundError("Person for this request no longer exists.");
+      }
+      throw err;
+    }
   }
   // RENEW: ignore any passed epicId, leave person untouched.
 
@@ -486,7 +505,8 @@ export async function completeRequest(
     action: "epic.complete",
     entityType: "EpicRequest",
     entityId: requestId,
-    after: { kind: req.kind, epicId: epicId ?? null },
+    // For NEW/MODIFY record the epicId actually written; for RENEW omit it (no write occurred).
+    after: { kind: req.kind, epicId: writtenEpicId },
   });
 }
 
@@ -605,6 +625,7 @@ export async function sendEpicEmail(
 
   const { subject, html } = EPIC_TEMPLATES[template](params);
 
+  // Global prisma client is intentional: there is no surrounding domain write to be transactional with.
   await queueEmail(prisma, {
     to: person.contactEmail,
     subject,

@@ -457,6 +457,15 @@ describe("createTicket", () => {
       createTicket(noPerms.id, { requestIds: [req.id] })
     ).rejects.toBeInstanceOf(EpicForbiddenError);
   });
+
+  it("empty requestIds array -> EpicStateError", async () => {
+    const actor = await createPerson("Manager", { netId: "mgr001" });
+    await grantPermission(actor.id, "volunteers.manage_epic");
+
+    await expect(
+      createTicket(actor.id, { requestIds: [] })
+    ).rejects.toBeInstanceOf(EpicStateError);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -492,6 +501,14 @@ describe("setTicketServiceRequestNumber", () => {
     await expect(
       setTicketServiceRequestNumber(actor.id, "cld_nonexistent", "SR-0001")
     ).rejects.toBeInstanceOf(EpicNotFoundError);
+  });
+
+  it("no permission -> EpicForbiddenError", async () => {
+    const noPerms = await createPerson("NoPerms", { netId: "np001" });
+
+    await expect(
+      setTicketServiceRequestNumber(noPerms.id, "some-ticket-id", "SR-0001")
+    ).rejects.toBeInstanceOf(EpicForbiddenError);
   });
 });
 
@@ -537,6 +554,12 @@ describe("closeTicket", () => {
     await grantPermission(actor.id, "volunteers.manage_epic");
 
     await expect(closeTicket(actor.id, "cld_nonexistent")).rejects.toBeInstanceOf(EpicNotFoundError);
+  });
+
+  it("no permission -> EpicForbiddenError", async () => {
+    const noPerms = await createPerson("NoPerms", { netId: "np001" });
+
+    await expect(closeTicket(noPerms.id, "some-ticket-id")).rejects.toBeInstanceOf(EpicForbiddenError);
   });
 });
 
@@ -609,6 +632,14 @@ describe("completeRequest", () => {
 
     const updatedReq = await prisma.epicRequest.findUniqueOrThrow({ where: { id: req.id } });
     expect(updatedReq.status).toBe("COMPLETED");
+
+    // Audit row for RENEW must not record the caller-passed epicId.
+    const audit = await prisma.auditLog.findFirst({
+      where: { action: "epic.complete", entityId: req.id },
+    });
+    expect(audit).not.toBeNull();
+    const after = audit?.after as Record<string, unknown>;
+    expect(after.epicId).toBeNull();
   });
 
   it("NEW without epicId -> EpicStateError", async () => {
@@ -672,6 +703,51 @@ describe("completeRequest", () => {
     await expect(completeRequest(actor.id, "cld_nonexistent")).rejects.toBeInstanceOf(
       EpicNotFoundError
     );
+  });
+
+  it("no permission -> EpicForbiddenError", async () => {
+    const noPerms = await createPerson("NoPerms", { netId: "np001" });
+    const target = await createPerson("Alice", { netId: "aaa001", epicId: "E11111" });
+
+    const req = await prisma.epicRequest.create({
+      data: { personId: target.id, kind: "RENEW", status: "PENDING", requestedById: target.id },
+    });
+
+    await expect(completeRequest(noPerms.id, req.id)).rejects.toBeInstanceOf(EpicForbiddenError);
+  });
+
+  it("NEW happy path starting from SUBMITTED (request attached to a ticket)", async () => {
+    const actor = await createPerson("Manager", { netId: "mgr001" });
+    await grantPermission(actor.id, "volunteers.manage_epic");
+    const target = await createPerson("Alice", { netId: "aaa001" });
+
+    const req = await prisma.epicRequest.create({
+      data: { personId: target.id, kind: "NEW", status: "PENDING", requestedById: target.id },
+    });
+
+    // Attach to a ticket via createTicket (moves request to SUBMITTED).
+    const ticket = await createTicket(actor.id, { requestIds: [req.id] });
+    const submitted = await prisma.epicRequest.findUniqueOrThrow({ where: { id: req.id } });
+    expect(submitted.status).toBe("SUBMITTED");
+    expect(submitted.ticketId).toBe(ticket.id);
+
+    // Complete the SUBMITTED request.
+    await completeRequest(actor.id, req.id, "E77777");
+
+    const updatedPerson = await prisma.person.findUniqueOrThrow({ where: { id: target.id } });
+    expect(updatedPerson.epicId).toBe("E77777");
+
+    const updatedReq = await prisma.epicRequest.findUniqueOrThrow({ where: { id: req.id } });
+    expect(updatedReq.status).toBe("COMPLETED");
+    expect(updatedReq.completedAt).not.toBeNull();
+
+    // Audit records the trimmed epicId for NEW.
+    const audit = await prisma.auditLog.findFirst({
+      where: { action: "epic.complete", entityId: req.id },
+    });
+    expect(audit).not.toBeNull();
+    const after = audit?.after as Record<string, unknown>;
+    expect(after.epicId).toBe("E77777");
   });
 });
 

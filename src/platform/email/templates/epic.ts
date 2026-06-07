@@ -53,6 +53,7 @@ export function epicOnboardingEmail(params: EpicEmailParams): { subject: string;
   const kindPhrase =
     kind === "NEW" ? "Account Request" : kind === "MODIFY" ? "Account Modification" : "Renewal";
 
+  // Subjects are plain text mail headers, not HTML: no entity encoding.
   const subject = `[HAVEN] Epic ${kindPhrase} for ${personName}`;
 
   const isRenew = kind === "RENEW";
@@ -148,6 +149,24 @@ export function epicActivationEmail(params: EpicEmailParams): { subject: string;
 <li>Your Epic access will activate at 7 AM the next business day after all training courses are completed. If you complete training on the weekend, your access will not be active until Monday.</li>
 </ol>
 
+${EPIC_DOWNLOAD_AND_NOTES_HTML}
+
+<p>Thank you,<br>HAVEN IT &amp; Communications Directors</p>
+`.trim();
+
+  return { subject, html };
+}
+
+// ---------------------------------------------------------------------------
+// Shared blocks
+// ---------------------------------------------------------------------------
+
+/**
+ * The "Downloading Epic" walkthrough plus the additional notes, shared verbatim
+ * by the activation and password-reset emails (the legacy automations repeated
+ * it word for word). Static legacy wording: contains no interpolations.
+ */
+const EPIC_DOWNLOAD_AND_NOTES_HTML = `
 <h3>Downloading Epic</h3>
 <ol>
 <li>Download Citrix Receiver (but don't sign into it) at <a href="https://www.citrix.com/products/receiver/">https://www.citrix.com/products/receiver/</a></li>
@@ -164,12 +183,7 @@ export function epicActivationEmail(params: EpicEmailParams): { subject: string;
 <li>Everything you do and view within the Epic system is automatically tracked and logged for security purposes; to preserve HIPAA confidentiality, you should only view charts pertinent to your role at HAVEN.</li>
 <li>Your password may need to be updated every 60-90 days. You should log into <a href="https://passwordreset.ynhh.org/app/portal/">https://passwordreset.ynhh.org/app/portal/</a> and select "Change Password" to create a new one, or you will be prompted within the Epic browser to update it.</li>
 </ul>
-
-<p>Thank you,<br>HAVEN IT &amp; Communications Directors</p>
 `.trim();
-
-  return { subject, html };
-}
 
 // ---------------------------------------------------------------------------
 // epicPasswordResetEmail
@@ -200,22 +214,7 @@ Your temporary password: <strong>SecureCare4u#25</strong></p>
 <li>Please write down your password as soon as you create it, so you don't forget it!</li>
 </ul>
 
-<h3>Downloading Epic</h3>
-<ol>
-<li>Download Citrix Receiver (but don't sign into it) at <a href="https://www.citrix.com/products/receiver/">https://www.citrix.com/products/receiver/</a></li>
-<li>Log in through <a href="https://myapps.ynhh.org/vpn/index.html">https://myapps.ynhh.org/vpn/index.html</a>. Make sure you are on the Yale VPN if you are off campus. Bookmark this tab, as you will return to this page every time you want to enter Epic.</li>
-<li>Enter your Epic username and new password.</li>
-<li>Click on the application "PRD". Run the ".ica" file that is automatically downloaded if needed. <strong>You will NOT be able to log into Hyperspace until your training is completed, even though you have changed your password!</strong></li>
-<li>Select the department "YM HAVEN FREE CLINIC [105370056]".</li>
-</ol>
-
-<p><strong>Additional Notes:</strong></p>
-<ul>
-<li>Do not select the department "HAVEN FREE CLINIC". This is different from "YM HAVEN FREE CLINIC".</li>
-<li>Since we are not on DUO, please select the SMS option. You may need to call the Helpdesk and press 1 if you don't receive a text message to reset your password.</li>
-<li>Everything you do and view within the Epic system is automatically tracked and logged for security purposes; to preserve HIPAA confidentiality, you should only view charts pertinent to your role at HAVEN.</li>
-<li>Your password may need to be updated every 60-90 days. You should log into <a href="https://passwordreset.ynhh.org/app/portal/">https://passwordreset.ynhh.org/app/portal/</a> and select "Change Password" to create a new one, or you will be prompted within the Epic browser to update it.</li>
-</ul>
+${EPIC_DOWNLOAD_AND_NOTES_HTML}
 
 <p>If you have any questions or concerns, please do not hesitate to reach out by replying to this email.</p>
 

@@ -39,6 +39,7 @@ model ShiftAssignment {
   triage       Boolean   @default(false)
   walkin       Boolean   @default(false)
   cc           Boolean   @default(false)
+  remote       Boolean   @default(false)
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   // relations: term, department (Restrict), person (Cascade)
@@ -72,6 +73,7 @@ TermMembership gains the structured availability tiers (fields land now; the dir
 - Resolves linked people via `Person.airtableRecordId`; resolves the department and term from the row; creates ShiftAssignment rows idempotently (upsert on the unique key). Med-team tags set the booleans on the volunteer's row, preserving the on-shift invariant.
 - Reports: created/updated/unchanged counts, unresolved person links (recordIds), unknown departments or dates.
 - Shift Requests and the Removal Log are NOT imported: requests restart fresh in Part 2; legacy logs stay in Airtable for reference.
+- The table's "Remote on Shift" links map to the `remote` boolean tag (discovered during planning; same invariant as the other tags). The per-row "Patients Booked" number is NOT imported (it is clinic-ops data with no Part 1 consumer; revisit if Part 2 needs it).
 
 ## 5. Engine port (`src/modules/schedule/engine/`)
 

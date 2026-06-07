@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/platform/db";
 import { PageHeader } from "@/platform/ui/page-header";
+import { buttonClasses } from "@/platform/ui/button";
 
 // requirePermission already ran in the admin layout; this page is reachable only
 // by users with admin.access. No second permission check needed here.
@@ -57,11 +58,32 @@ export default async function AdminOverviewPage() {
     prisma.outbox.count({ where: { status: "FAILED" } }),
   ]);
 
+  const quickLinks = [
+    { label: "People", href: "/admin/people" },
+    { label: "Terms", href: "/admin/terms" },
+    { label: "Roles", href: "/admin/roles" },
+    { label: "Audit", href: "/admin/audit" },
+    { label: "Sync", href: "/admin/sync" },
+  ];
+
   return (
     <div>
       <PageHeader
         title="Admin"
         description="HAVEN Hub operations: people, terms, roles, audit, and sync."
+        action={
+          <div className="flex flex-wrap gap-2">
+            {quickLinks.map((ql) => (
+              <Link
+                key={ql.href}
+                href={ql.href}
+                className={buttonClasses("outline", "sm")}
+              >
+                {ql.label}
+              </Link>
+            ))}
+          </div>
+        }
       />
 
       <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

@@ -34,6 +34,7 @@ import {
   AssignmentTargetError,
   DuplicateAssignmentError,
   AssignmentNotFoundError,
+  LastAdminError,
 } from "./rbac";
 
 const ACTOR = "actor-person-id";
@@ -490,8 +491,175 @@ describe("RBAC engine integration", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Lockout guard: setRoleGrants on Platform Admin
+// ---------------------------------------------------------------------------
+
+describe("setRoleGrants lockout guard (Platform Admin)", () => {
+  beforeEach(resetDb);
+
+  it("allows setting grants that still include admin.access (no * needed)", async () => {
+    // Platform Admin with ["admin.access"] (no *) should succeed -- still admin-conferring
+    const role = await prisma.role.create({
+      data: { name: "Platform Admin", isSystem: true },
+    });
+    await expect(
+      setRoleGrants(ACTOR, role.id, ["admin.access"])
+    ).resolves.not.toThrow();
+    const grants = await prisma.roleGrant.findMany({ where: { roleId: role.id } });
+    expect(grants.map((g) => g.permission)).toContain("admin.access");
+  });
+
+  it("rejects removing admin.access from Platform Admin when * is also absent", async () => {
+    // Platform Admin losing both * and admin.access => LastAdminError
+    const role = await prisma.role.create({
+      data: { name: "Platform Admin", isSystem: true },
+    });
+    await prisma.roleGrant.create({ data: { roleId: role.id, permission: "*" } });
+
+    await expect(
+      setRoleGrants(ACTOR, role.id, ["schedule.view"])
+    ).rejects.toBeInstanceOf(LastAdminError);
+  });
+
+  it("leaves grants unchanged after a rejected setRoleGrants on Platform Admin", async () => {
+    const role = await prisma.role.create({
+      data: { name: "Platform Admin", isSystem: true },
+    });
+    await prisma.roleGrant.create({ data: { roleId: role.id, permission: "*" } });
+
+    await expect(
+      setRoleGrants(ACTOR, role.id, ["schedule.view"])
+    ).rejects.toBeInstanceOf(LastAdminError);
+
+    // Grants must be unchanged
+    const grants = await prisma.roleGrant.findMany({ where: { roleId: role.id } });
+    expect(grants.map((g) => g.permission)).toEqual(["*"]);
+  });
+
+  it("allows emptying a non-system role's grants (no guard applies)", async () => {
+    const role = await seedRole("Regular Role");
+    await prisma.roleGrant.create({ data: { roleId: role.id, permission: "admin.access" } });
+
+    await expect(setRoleGrants(ACTOR, role.id, [])).resolves.not.toThrow();
+    const grants = await prisma.roleGrant.findMany({ where: { roleId: role.id } });
+    expect(grants).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Lockout guard: deleteAssignment on last admin-conferring assignment
+// ---------------------------------------------------------------------------
+
+describe("deleteAssignment lockout guard (last admin-conferring assignment)", () => {
+  beforeEach(resetDb);
+
+  it("rejects deleting the only assignment of a *-granting role", async () => {
+    const role = await prisma.role.create({
+      data: {
+        name: "Platform Admin",
+        isSystem: true,
+        grants: { create: [{ permission: "*" }] },
+      },
+    });
+    const person = await seedPerson("Admin User");
+    const assignment = await prisma.roleAssignment.create({
+      data: { roleId: role.id, personId: person.id },
+    });
+
+    await expect(
+      deleteAssignment(ACTOR, assignment.id)
+    ).rejects.toBeInstanceOf(LastAdminError);
+  });
+
+  it("leaves the row in the DB after a rejected deleteAssignment", async () => {
+    const role = await prisma.role.create({
+      data: {
+        name: "Platform Admin",
+        isSystem: true,
+        grants: { create: [{ permission: "*" }] },
+      },
+    });
+    const person = await seedPerson("Admin User");
+    const assignment = await prisma.roleAssignment.create({
+      data: { roleId: role.id, personId: person.id },
+    });
+
+    await expect(
+      deleteAssignment(ACTOR, assignment.id)
+    ).rejects.toBeInstanceOf(LastAdminError);
+
+    const found = await prisma.roleAssignment.findUnique({ where: { id: assignment.id } });
+    expect(found).not.toBeNull();
+  });
+
+  it("allows deleting one of two assignments of the same *-granting role", async () => {
+    const role = await prisma.role.create({
+      data: {
+        name: "Platform Admin",
+        isSystem: true,
+        grants: { create: [{ permission: "*" }] },
+      },
+    });
+    const person1 = await seedPerson("Admin User 1");
+    const person2 = await seedPerson("Admin User 2");
+    const a1 = await prisma.roleAssignment.create({ data: { roleId: role.id, personId: person1.id } });
+    await prisma.roleAssignment.create({ data: { roleId: role.id, personId: person2.id } });
+
+    await expect(deleteAssignment(ACTOR, a1.id)).resolves.not.toThrow();
+
+    const found = await prisma.roleAssignment.findUnique({ where: { id: a1.id } });
+    expect(found).toBeNull();
+  });
+
+  it("allows deleting the last assignment of a non-admin role", async () => {
+    const role = await seedRole("Schedule Viewer");
+    await prisma.roleGrant.create({ data: { roleId: role.id, permission: "schedule.view" } });
+    const person = await seedPerson("Viewer User");
+    const assignment = await prisma.roleAssignment.create({
+      data: { roleId: role.id, personId: person.id },
+    });
+
+    await expect(deleteAssignment(ACTOR, assignment.id)).resolves.not.toThrow();
+    const found = await prisma.roleAssignment.findUnique({ where: { id: assignment.id } });
+    expect(found).toBeNull();
+  });
+
+  it("engine: can(admin, admin.access) still true after rejected deleteAssignment", async () => {
+    const role = await prisma.role.create({
+      data: {
+        name: "Platform Admin",
+        isSystem: true,
+        grants: { create: [{ permission: "*" }] },
+      },
+    });
+    const person = await seedPerson("Admin User");
+    const assignment = await prisma.roleAssignment.create({
+      data: { roleId: role.id, personId: person.id },
+    });
+    await seedTerm("SU26", "ACTIVE");
+
+    await expect(
+      deleteAssignment(ACTOR, assignment.id)
+    ).rejects.toBeInstanceOf(LastAdminError);
+
+    // Person still has admin.access via the * grant
+    expect(await can(person.id, "admin.access")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Typed error constructors
 // ---------------------------------------------------------------------------
+
+describe("LastAdminError", () => {
+  it("is an instance of Error with the correct name and message", () => {
+    const err = new LastAdminError("test message");
+    expect(err).toBeInstanceOf(Error);
+    expect(err).toBeInstanceOf(LastAdminError);
+    expect(err.name).toBe("LastAdminError");
+    expect(err.message).toBe("test message");
+  });
+});
 
 describe("UnknownPermissionError", () => {
   it("is an instance of Error and carries the permission string", () => {

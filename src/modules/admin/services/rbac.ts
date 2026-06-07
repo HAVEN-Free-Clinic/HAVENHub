@@ -76,6 +76,22 @@ export class AssignmentNotFoundError extends Error {
   }
 }
 
+/**
+ * Thrown when a mutation would remove every admin-conferring grant or
+ * assignment, leaving no way to access the admin module.
+ *
+ * Recovery at the shell level: `npm run db:seed` re-seeds the Platform Admin
+ * role and assigns it to the configured admin user. This is the intended
+ * escape hatch if the invariant is ever violated through a direct DB
+ * manipulation rather than through this service.
+ */
+export class LastAdminError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "LastAdminError";
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -95,24 +111,23 @@ function validatePermissions(permissions: string[]): void {
 
 /**
  * Detect whether a Prisma error is the expression-index duplicate violation
- * on RoleAssignment_unique_grant. The COALESCE expression index surfaces as
- * either a P2002 with the index name in meta, or a PrismaClientKnownRequestError
- * whose message contains the index name.
+ * on RoleAssignment.create.
+ *
+ * P2002 (unique constraint violation) on RoleAssignment.create can only be
+ * the COALESCE expression index (RoleAssignment_unique_grant) -- it is the
+ * only unique constraint on the model (there is no @@unique in the Prisma
+ * schema; the index lives in raw SQL). We therefore return true for any P2002
+ * originating here without needing to inspect the target/message.
+ *
+ * The non-P2002 message-fallback branch that previously existed was
+ * unreachable: Prisma always surfaces unique violations as P2002, never as
+ * a generic known-request error. It has been removed to avoid dead code.
  */
 function isDuplicateAssignmentError(err: unknown): boolean {
   if (!(err instanceof Prisma.PrismaClientKnownRequestError)) return false;
-  if (err.code === "P2002") {
-    const target = (err.meta?.target as string | string[] | undefined) ?? "";
-    const targetStr = Array.isArray(target) ? target.join(",") : target;
-    if (targetStr.includes("RoleAssignment_unique_grant")) return true;
-    // Fallback: check the message itself
-    if (err.message.includes("RoleAssignment_unique_grant")) return true;
-    // For expression indexes, Prisma sometimes does not populate target; check
-    // if there is no clearer target (meaning this P2002 is for role assignments)
-    return true;
-  }
-  // Prisma may surface expression-index violations as a generic known-request error
-  if (err.message.includes("RoleAssignment_unique_grant")) return true;
+  // P2002 on RoleAssignment.create is always the expression unique index --
+  // the only unique constraint on this model.
+  if (err.code === "P2002") return true;
   return false;
 }
 
@@ -214,6 +229,27 @@ export async function setRoleGrants(
   await prisma.$transaction(async (tx) => {
     // Fetch current grants to compute before snapshot and delta
     const existing = await tx.roleGrant.findMany({ where: { roleId } });
+
+    // Lockout guard: the "Platform Admin" system role must always retain at
+    // least one admin-conferring grant ("*" or "admin.access"). Removing both
+    // would make the admin module unreachable by anyone.
+    //
+    // This is a conservative but simple invariant: we guard only the specific
+    // named system role that is the canonical admin-access entry point. If
+    // "admin.access" were ever renamed, a schema migration would need to update
+    // this guard too (or rely on seed recovery -- see LastAdminError comment).
+    //
+    // Shell-level recovery if lockout somehow occurs: `npm run db:seed`
+    // re-seeds Platform Admin with the "*" grant and a default admin assignment.
+    const role = await tx.role.findUnique({ where: { id: roleId }, select: { isSystem: true, name: true } });
+    if (role?.isSystem && role.name === "Platform Admin") {
+      const hasAdminAccess = permSet.has("*") || permSet.has("admin.access");
+      if (!hasAdminAccess) {
+        throw new LastAdminError(
+          "Platform Admin must keep * or admin.access; removing it would lock everyone out of the admin module."
+        );
+      }
+    }
     const existingPerms = new Set(existing.map((g) => g.permission));
 
     // Permissions to remove: exist now but not in the new set
@@ -367,10 +403,38 @@ export async function createAssignment(
  * Audits rbac.unassign with the full assignment row snapshot in before.
  */
 export async function deleteAssignment(actorPersonId: string, id: string): Promise<void> {
-  const assignment = await prisma.roleAssignment.findUnique({ where: { id } });
+  const assignment = await prisma.roleAssignment.findUnique({
+    where: { id },
+    include: { role: { include: { grants: true } } },
+  });
 
   if (!assignment) {
     throw new AssignmentNotFoundError(id);
+  }
+
+  // Lockout guard: if this role confers admin access (via a "*" or
+  // "admin.access" grant) and this is the last remaining assignment of that
+  // role, refuse the deletion.
+  //
+  // This is a conservative approximation: another role might also grant
+  // admin.access, so refusing here may be overly strict in those cases.
+  // However, the safe, simple invariant is to protect the last assignment of
+  // ANY admin-conferring role rather than doing a cross-role reachability
+  // check. Operators can work around this by assigning the role to another
+  // person first, then removing the old assignment.
+  //
+  // Shell-level recovery if lockout somehow occurs: `npm run db:seed`
+  // re-seeds Platform Admin with the "*" grant and a default admin assignment.
+  const isAdminConferring = assignment.role.grants.some(
+    (g) => g.permission === "*" || g.permission === "admin.access"
+  );
+  if (isAdminConferring) {
+    const count = await prisma.roleAssignment.count({ where: { roleId: assignment.roleId } });
+    if (count === 1) {
+      throw new LastAdminError(
+        "This is the last assignment of an admin-conferring role; deleting it would lock everyone out."
+      );
+    }
   }
 
   await prisma.roleAssignment.delete({ where: { id } });

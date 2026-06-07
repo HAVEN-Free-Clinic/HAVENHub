@@ -26,6 +26,31 @@ const schema = z
     // (e.g. the sandbox base). When set and the mirror is enabled, must parse to an object
     // with exactly the seven keys: name, netId, contactEmail, phone, epicId, yaleAffiliation, gradYear.
     AIRTABLE_MIRROR_FIELD_MAP: z.string().optional(),
+    // HIPAA certificate attachment push: the Airtable attachment field ID on the mirrored
+    // people table. Optional at all times -- even when the mirror is enabled. When unset,
+    // the certificate push step silently skips and logs a notice. This lets teams enable
+    // the mirror before an attachment field exists in their base.
+    AIRTABLE_MIRROR_HIPAA_FIELD_ID: z.string().optional(),
+    // Uploads: local filesystem storage for HIPAA certificates.
+    // Mount this as a persistent volume in production (SpinUp).
+    UPLOAD_DIR: z.string().default("./uploads"),
+    // Maximum allowed upload size in megabytes. Stored as a string in env; transformed to
+    // a number. Rejected if not a positive finite number.
+    MAX_UPLOAD_MB: z
+      .string()
+      .default("10")
+      .transform(Number)
+      .pipe(
+        z.number().superRefine((val, ctx) => {
+          if (Number.isNaN(val) || val <= 0) {
+            ctx.addIssue({
+              code: "custom",
+              path: [],
+              message: "MAX_UPLOAD_MB must be a positive number",
+            });
+          }
+        })
+      ),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV !== "production") return;

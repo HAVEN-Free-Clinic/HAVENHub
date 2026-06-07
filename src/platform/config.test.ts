@@ -116,4 +116,68 @@ describe("loadConfig", () => {
     expect(config.AIRTABLE_MIRROR_ENABLED).toBe(true);
     expect(config.AIRTABLE_MIRROR_FIELD_MAP).toBe(JSON.stringify(fieldMap));
   });
+
+  // --- Upload config ---
+
+  it("defaults UPLOAD_DIR to ./uploads and MAX_UPLOAD_MB to 10", () => {
+    const config = loadConfig(base);
+    expect(config.UPLOAD_DIR).toBe("./uploads");
+    expect(config.MAX_UPLOAD_MB).toBe(10);
+  });
+
+  it("accepts a custom UPLOAD_DIR", () => {
+    const config = loadConfig({ ...base, UPLOAD_DIR: "/var/data/uploads" });
+    expect(config.UPLOAD_DIR).toBe("/var/data/uploads");
+  });
+
+  it("transforms MAX_UPLOAD_MB string to number", () => {
+    const config = loadConfig({ ...base, MAX_UPLOAD_MB: "25" });
+    expect(config.MAX_UPLOAD_MB).toBe(25);
+  });
+
+  it("rejects MAX_UPLOAD_MB 'abc' naming the variable", () => {
+    expect(() => loadConfig({ ...base, MAX_UPLOAD_MB: "abc" })).toThrowError(
+      /MAX_UPLOAD_MB/
+    );
+  });
+
+  it("rejects MAX_UPLOAD_MB '0' naming the variable", () => {
+    expect(() => loadConfig({ ...base, MAX_UPLOAD_MB: "0" })).toThrowError(
+      /MAX_UPLOAD_MB/
+    );
+  });
+
+  it("rejects MAX_UPLOAD_MB negative value naming the variable", () => {
+    expect(() => loadConfig({ ...base, MAX_UPLOAD_MB: "-5" })).toThrowError(
+      /MAX_UPLOAD_MB/
+    );
+  });
+
+  // --- Airtable HIPAA field ---
+
+  it("leaves AIRTABLE_MIRROR_HIPAA_FIELD_ID undefined when not set", () => {
+    const config = loadConfig(base);
+    expect(config.AIRTABLE_MIRROR_HIPAA_FIELD_ID).toBeUndefined();
+  });
+
+  it("accepts AIRTABLE_MIRROR_HIPAA_FIELD_ID when set", () => {
+    const config = loadConfig({
+      ...base,
+      AIRTABLE_MIRROR_HIPAA_FIELD_ID: "fldHipaaAbc123",
+    });
+    expect(config.AIRTABLE_MIRROR_HIPAA_FIELD_ID).toBe("fldHipaaAbc123");
+  });
+
+  it("does not require AIRTABLE_MIRROR_HIPAA_FIELD_ID when mirror is enabled", () => {
+    // The attachment push is optional and skips silently when the field id is unset.
+    const config = loadConfig({
+      ...base,
+      AIRTABLE_MIRROR_ENABLED: "true",
+      AIRTABLE_PAT: "pat-x",
+      AIRTABLE_MIRROR_BASE_ID: "appSandbox1234567",
+      AIRTABLE_MIRROR_PEOPLE_TABLE_ID: "tblSandbox1234567",
+    });
+    expect(config.AIRTABLE_MIRROR_ENABLED).toBe(true);
+    expect(config.AIRTABLE_MIRROR_HIPAA_FIELD_ID).toBeUndefined();
+  });
 });

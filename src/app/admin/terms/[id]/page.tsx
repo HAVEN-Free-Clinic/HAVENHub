@@ -13,16 +13,24 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { ClinicDatesEditor } from "@/modules/admin/components/clinic-dates-editor";
+import { RosterPanel } from "@/modules/admin/components/roster-panel";
 
 type PageProps = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ error?: string; saved?: string }>;
+  searchParams: Promise<{
+    error?: string;
+    saved?: string;
+    addq?: string;
+    copied?: string;
+    skipped?: string;
+    rosterError?: string;
+  }>;
 };
 
 export default async function TermDetailPage({ params, searchParams }: PageProps) {
   await requirePermission("admin.manage_terms");
   const { id } = await params;
-  const { error, saved } = await searchParams;
+  const { error, saved, addq, copied, skipped, rosterError } = await searchParams;
 
   // Fetch the term with membership count.
   const term = await prisma.term.findUnique({
@@ -210,9 +218,15 @@ export default async function TermDetailPage({ params, searchParams }: PageProps
         />
       </section>
 
-      {/* Roster placeholder (lands in Task 8) */}
-      <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mt-10">Roster</h2>
-      <p className="mt-2 text-sm text-slate-400">Roster management lands in the next task.</p>
+      {/* Roster panel */}
+      <RosterPanel
+        term={term}
+        addq={addq}
+        termDetailHref={`/admin/terms/${id}`}
+        copiedCount={copied !== undefined ? Number(copied) : undefined}
+        skippedCount={skipped !== undefined ? Number(skipped) : undefined}
+        rosterError={rosterError}
+      />
     </div>
   );
 }

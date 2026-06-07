@@ -66,6 +66,21 @@ test("admin opens SU26 term detail and sees Clinic dates section with dates", as
   await expect(page.getByText("Sat, May 30, 2026")).toBeVisible();
 });
 
+test("admin opens SU26 term detail and sees roster department cards and Directors label", async ({ page }) => {
+  await devLogin(page, "j.carney@yale.edu");
+  await page.goto("/admin/terms");
+  await page.getByRole("link", { name: "SU26" }).click();
+  await page.waitForURL((url) => url.pathname.startsWith("/admin/terms/"));
+  // Roster section heading must be visible.
+  await expect(page.getByRole("heading", { name: /roster/i })).toBeVisible();
+  // At least one department card heading (e.g. "EXEC", "ITCM", etc.) must be visible.
+  // Department cards use an <h3> with the dept code and name.
+  const deptCard = page.locator("h3").first();
+  await expect(deptCard).toBeVisible();
+  // The "Directors" list label must appear in at least one card.
+  await expect(page.getByText("Directors").first()).toBeVisible();
+});
+
 test("admin opens Jack Carney detail and sees memberships and name field", async ({ page }) => {
   await devLogin(page, "j.carney@yale.edu");
   // Navigate to the search results.

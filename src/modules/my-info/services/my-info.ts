@@ -25,6 +25,8 @@ import { recordAudit } from "@/platform/audit";
 import { enqueueMirror } from "@/platform/outbox";
 import { updatePersonFields } from "@/platform/people";
 import { config } from "@/platform/config";
+import { extractCompletionDate } from "@/platform/compliance/parser";
+import type { ParsedDate } from "@/platform/compliance/parser";
 
 // ---------------------------------------------------------------------------
 // Typed error
@@ -199,19 +201,28 @@ export async function withdrawFromTerm(personId: string): Promise<number> {
   return count;
 }
 
+/** Type for the optional parse function injected into saveCertificate (for testing). */
+type ParseFn = (bytes: Buffer) => Promise<ParsedDate | null>;
+
 /**
  * Validate, store, and record a HIPAA certificate upload.
  *
  * Order of operations (write-after-commit strategy):
  *   1. Validate (mime, extension, size)
- *   2. prisma.$transaction: create HipaaCertificate row + enqueueMirror
- *   3. AFTER commit: write bytes to UPLOAD_DIR/<cert.id>.pdf
- *   4. If disk write fails: delete the cert row (and its outbox row) and rethrow
- *   5. Audit my-info.certificate_upload (fileName + size only; never bytes)
+ *   2. For PDF files: attempt to parse the completion date from the bytes
+ *      (try/catch -- parser errors do NOT fail the upload; result -> NONE)
+ *   3. prisma.$transaction: create HipaaCertificate row + enqueueMirror
+ *   4. AFTER commit: write bytes to UPLOAD_DIR/<cert.id>.pdf
+ *   5. If disk write fails: delete the cert row (and its outbox row) and rethrow
+ *   6. Audit my-info.certificate_upload (fileName + size only; never bytes)
+ *
+ * @param parse - Optional injected parser function (defaults to extractCompletionDate).
+ *   Passed by tests to avoid real PDF I/O. Public call sites leave this undefined.
  */
 export async function saveCertificate(
   personId: string,
-  file: { name: string; type: string; size: number; bytes: Buffer }
+  file: { name: string; type: string; size: number; bytes: Buffer },
+  parse: ParseFn = extractCompletionDate
 ): Promise<HipaaCertificate> {
   // --- 1. Validate ---
   if (file.type !== "application/pdf") {
@@ -231,7 +242,17 @@ export async function saveCertificate(
     );
   }
 
-  // --- 2. Transaction: create row + enqueue mirror ---
+  // --- 2. Parse completion date from PDF bytes (errors do not fail the upload) ---
+  let parsedDate: ParsedDate | null = null;
+  if (file.type === "application/pdf") {
+    try {
+      parsedDate = await parse(file.bytes);
+    } catch {
+      // Parser failure is non-fatal; completionDate stays null, extraction stays NONE
+    }
+  }
+
+  // --- 3. Transaction: create row + enqueue mirror ---
   const cert = await prisma.$transaction(async (tx) => {
     // The storedName is derived from the cert id; we need the id first.
     // Generate a placeholder and then derive; Prisma uses cuid by default.
@@ -244,6 +265,9 @@ export async function saveCertificate(
         storedName: "pending",
         size: file.size,
         mimeType: file.type,
+        ...(parsedDate
+          ? { completionDate: parsedDate.date, extraction: "PARSED" }
+          : { extraction: "NONE" }),
       },
     });
 
@@ -298,4 +322,89 @@ export async function saveCertificate(
   });
 
   return cert;
+}
+
+/**
+ * Manually set the completion date for a HIPAA certificate.
+ *
+ * Owner-only: the certificate must belong to personId. Validates:
+ *   - The cert exists and belongs to this person (CertificateValidationError "certificate not found" on failure)
+ *   - dateIso is a valid calendar date (YYYY-MM-DD)
+ *   - The date is not in the future
+ *   - The date is not older than 5 years
+ *
+ * Normalises to noon UTC; sets extraction=MANUAL; audits with before/after.
+ */
+export async function setCertificateCompletionDate(
+  personId: string,
+  certId: string,
+  dateIso: string
+): Promise<HipaaCertificate> {
+  // --- Ownership check ---
+  const cert = await getOwnedCertificate(personId, certId);
+  if (!cert) {
+    throw new CertificateValidationError("certificate not found");
+  }
+
+  // --- Date validation ---
+  // Must match YYYY-MM-DD format exactly
+  const dateRx = /^(\d{4})-(\d{2})-(\d{2})$/;
+  const match = dateRx.exec(dateIso);
+  if (!match) {
+    throw new CertificateValidationError(`invalid date "${dateIso}"; expected YYYY-MM-DD format`);
+  }
+
+  const year = parseInt(match[1], 10);
+  const month0 = parseInt(match[2], 10) - 1;
+  const day = parseInt(match[3], 10);
+
+  // Build noon UTC to match parser convention
+  const completionDate = new Date(Date.UTC(year, month0, day, 12, 0, 0, 0));
+
+  // Verify no calendar overflow (e.g. Feb 30)
+  if (
+    completionDate.getUTCFullYear() !== year ||
+    completionDate.getUTCMonth() !== month0 ||
+    completionDate.getUTCDate() !== day
+  ) {
+    throw new CertificateValidationError(`invalid date "${dateIso}"`);
+  }
+
+  const now = new Date();
+
+  // Must not be in the future
+  if (completionDate.getTime() > now.getTime()) {
+    throw new CertificateValidationError("completion date cannot be in the future");
+  }
+
+  // Must not be older than 5 years
+  const cutoff = new Date(Date.UTC(
+    now.getUTCFullYear() - 5,
+    now.getUTCMonth(),
+    now.getUTCDate(),
+    12, 0, 0, 0
+  ));
+  if (completionDate.getTime() < cutoff.getTime()) {
+    throw new CertificateValidationError("completion date is too old (older than 5 years)");
+  }
+
+  // --- Update ---
+  const before = { completionDate: cert.completionDate ?? null, extraction: cert.extraction };
+
+  const updated = await prisma.hipaaCertificate.update({
+    where: { id: cert.id },
+    data: { completionDate, extraction: "MANUAL" },
+  });
+
+  // --- Audit ---
+  await recordAudit({
+    actorPersonId: personId,
+    action: "my-info.certificate_date",
+    entityType: "HipaaCertificate",
+    entityId: cert.id,
+    before,
+    after: { completionDate, extraction: "MANUAL" },
+  });
+
+  return updated;
 }

@@ -8,6 +8,7 @@ import {
   updateMyInfo,
   withdrawFromTerm,
   saveCertificate,
+  setCertificateCompletionDate,
   parseCertificateUpload,
   CertificateValidationError,
 } from "@/modules/my-info/services/my-info";
@@ -15,6 +16,7 @@ import { PersonConflictError } from "@/platform/people";
 import { MyInfoForm } from "@/modules/my-info/components/my-info-form";
 import { MembershipsCard } from "@/modules/my-info/components/memberships-card";
 import { HipaaPanel } from "@/modules/my-info/components/hipaa-panel";
+import { complianceStatus } from "@/platform/compliance/rules";
 
 type PageProps = {
   searchParams: Promise<{
@@ -23,6 +25,8 @@ type PageProps = {
     withdrawn?: string;
     certSaved?: string;
     certError?: string;
+    dateError?: string;
+    dateSaved?: string;
   }>;
 };
 
@@ -94,6 +98,29 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
     redirect("/my-info?certSaved=1");
   }
 
+  async function dateAction(formData: FormData) {
+    "use server";
+    const session = await requireModuleAccess("my-info");
+    const dateIso = (formData.get("completionDate") as string | null) ?? "";
+    const certId = (formData.get("certId") as string | null) ?? "";
+    try {
+      await setCertificateCompletionDate(session.personId, certId, dateIso);
+    } catch (err) {
+      if (err instanceof CertificateValidationError) {
+        redirect(`/my-info?dateError=${encodeURIComponent(err.reason)}`);
+      }
+      throw err;
+    }
+    redirect("/my-info?dateSaved=1");
+  }
+
+  // Compute compliance status for the newest cert
+  const newestCert = certificates[0] ?? null;
+  const status = complianceStatus(
+    newestCert,
+    activeTerm?.endDate ?? null
+  );
+
   const withdrawn = sp.withdrawn !== undefined ? parseInt(sp.withdrawn, 10) : undefined;
 
   return (
@@ -137,8 +164,12 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
           <HipaaPanel
             certificates={certificates}
             uploadAction={uploadAction}
+            dateAction={dateAction}
             error={sp.certError}
             certSaved={sp.certSaved === "1"}
+            dateError={sp.dateError}
+            dateSaved={sp.dateSaved === "1"}
+            status={status}
           />
         </section>
       </div>

@@ -44,3 +44,23 @@ test("volunteer login: /my-info renders the profile form", async ({ page }) => {
   // The Name read-only row must be present.
   await expect(page.getByText("Name", { exact: true })).toBeVisible();
 });
+
+test("Jack's HIPAA panel shows UNKNOWN_DATE status badge and date-entry form for imported cert with no completionDate", async ({ page }) => {
+  await devLogin(page, "j.carney@yale.edu");
+
+  await page.goto("/my-info");
+  await page.waitForURL((url) => url.pathname === "/my-info");
+
+  // The HIPAA certificate section must be visible
+  await expect(
+    page.getByRole("heading", { name: /HIPAA Certificate/i })
+  ).toBeVisible();
+
+  // Jack's imported cert has no completionDate -> UNKNOWN_DATE status badge
+  await expect(page.getByText("Completion date needed")).toBeVisible();
+
+  // The date-entry form must be rendered with a date input
+  await expect(
+    page.getByText("We could not read a completion date from your certificate")
+  ).toBeVisible();
+});

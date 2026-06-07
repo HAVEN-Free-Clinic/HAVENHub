@@ -95,7 +95,7 @@ export default async function AdminOverviewPage() {
         <StatCard
           label={activeTerm ? `${activeTerm.name} Memberships` : "Memberships"}
           value={activeMembershipCount}
-          href="/admin/people"
+          href="/admin/terms"
         />
         <StatCard
           label="Active Departments"

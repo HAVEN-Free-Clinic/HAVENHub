@@ -44,6 +44,28 @@ test("admin can view all statuses and description does not say 'active'", async 
   await expect(page.locator('select[name="status"]')).toHaveValue("");
 });
 
+test("admin visits /admin/terms and sees the SU26 ACTIVE row", async ({ page }) => {
+  await devLogin(page, "j.carney@yale.edu");
+  await page.goto("/admin/terms");
+  await expect(page.getByRole("heading", { name: "Terms" })).toBeVisible();
+  // SU26 row must be present with an ACTIVE badge.
+  const row = page.locator("tr").filter({ hasText: "SU26" });
+  await expect(row).toBeVisible();
+  await expect(row.getByText("Active")).toBeVisible();
+});
+
+test("admin opens SU26 term detail and sees Clinic dates section with dates", async ({ page }) => {
+  await devLogin(page, "j.carney@yale.edu");
+  await page.goto("/admin/terms");
+  // Click the SU26 code link.
+  await page.getByRole("link", { name: "SU26" }).click();
+  await page.waitForURL((url) => url.pathname.startsWith("/admin/terms/"));
+  // Clinic dates section heading must be visible.
+  await expect(page.getByRole("heading", { name: /clinic dates/i })).toBeVisible();
+  // First Saturday of SU26 range: "Sat, May 30, 2026" should appear.
+  await expect(page.getByText("Sat, May 30, 2026")).toBeVisible();
+});
+
 test("admin opens Jack Carney detail and sees memberships and name field", async ({ page }) => {
   await devLogin(page, "j.carney@yale.edu");
   // Navigate to the search results.

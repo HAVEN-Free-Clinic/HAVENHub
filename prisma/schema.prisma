@@ -67,7 +67,7 @@ model Person {
   epicRequests     EpicRequest[]        @relation("epicRequestPerson")
   /// EPIC access requests this person submitted on behalf of another.
   epicRequestsSubmitted EpicRequest[]   @relation("epicRequestRequestedBy")
-  /// Ynhh tickets this person submitted.
+  /// YNHH tickets this person submitted.
   ynhhTicketsSubmitted YnhhTicket[]     @relation("ynhhTicketSubmittedBy")
   /// Disciplinary actions recorded against this person.
   disciplinaryActions DisciplinaryAction[] @relation("disciplinaryActionPerson")
@@ -304,8 +304,8 @@ model OffboardFlag {
   person      Person   @relation("offboardFlagPerson", fields: [personId], references: [id], onDelete: Cascade)
   /// Term in which the person should be offboarded. Cascade: if the term is deleted the flag is meaningless.
   term        Term     @relation(fields: [termId], references: [id], onDelete: Cascade)
-  /// Person who raised the flag. Cascade: acceptable for transient workflow state.
-  flaggedBy   Person   @relation("offboardFlagFlaggedBy", fields: [flaggedById], references: [id], onDelete: Cascade)
+  /// Person who raised the flag. Restrict: flags are workflow state the offboarding executor acts on; deleting a person who flagged others must not silently empty the queue.
+  flaggedBy   Person   @relation("offboardFlagFlaggedBy", fields: [flaggedById], references: [id], onDelete: Restrict)
 
   @@unique([personId, termId])
 }
@@ -328,13 +328,13 @@ model EpicRequest {
   updatedAt     DateTime          @updatedAt
   /// Subject of the request. Cascade: requests belong to the person.
   person        Person            @relation("epicRequestPerson", fields: [personId], references: [id], onDelete: Cascade)
-  /// Person who submitted the request. Restrict: deleting an active requester should be blocked.
+  /// Person who submitted the request. Restrict: any referencing row blocks deletion of this person.
   requestedBy   Person            @relation("epicRequestRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict)
   /// The YNHH ticket opened for this request (optional).
   ticket        YnhhTicket?       @relation(fields: [ticketId], references: [id], onDelete: SetNull)
 
   @@index([status])
-  @@index([personId])
+  @@index([personId, status])
 }
 
 /// A service request ticket opened with YNHH IT, grouping one or more EPIC
@@ -349,13 +349,13 @@ model YnhhTicket {
   closedAt             DateTime?
   /// EPIC requests grouped under this ticket.
   requests             EpicRequest[]
-  /// Person who submitted the ticket to YNHH IT. Restrict: deleting an active submitter should be blocked.
+  /// Person who submitted the ticket to YNHH IT. Restrict: any referencing row blocks deletion of this person.
   submittedBy          Person           @relation("ynhhTicketSubmittedBy", fields: [submittedById], references: [id], onDelete: Restrict)
 }
 
 /// A formal disciplinary action recorded against a volunteer or director.
 /// Cascade-deleted with the person (the subject); issuer uses Restrict so a
-/// director cannot be deleted while they have issued open actions.
+/// director cannot be deleted while they have issued actions.
 model DisciplinaryAction {
   id              String   @id @default(cuid())
   personId        String

@@ -6,12 +6,17 @@
  *     expiring, expired, or missing.
  *   - compliance-escalation: sent to a department director when a volunteer
  *     has not responded to reminders.
+ *
+ * Each template is expressed as a TemplateDescriptor (for the registry + admin
+ * UI) plus a typed context-builder function that maps the original params into
+ * the flat string/boolean context the render engine consumes.
  */
 
 import type { ComplianceStatus } from "@/platform/compliance/rules";
+import type { TemplateDescriptor } from "./types";
 
 // ---------------------------------------------------------------------------
-// Types
+// Param types (unchanged -- callers depend on these)
 // ---------------------------------------------------------------------------
 
 export type ComplianceReminderParams = {
@@ -28,18 +33,8 @@ export type ComplianceEscalationParams = {
 };
 
 // ---------------------------------------------------------------------------
-// HTML helpers
+// Private helpers
 // ---------------------------------------------------------------------------
-
-/** Escape user-supplied values before interpolating into HTML. */
-function esc(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
 
 const MONTH_NAMES = [
   "January",
@@ -65,13 +60,24 @@ function fmtDate(d: Date | null): string {
   return `${month} ${day}, ${year}`;
 }
 
+const READABLE_STATUS: Record<ComplianceStatus, string> = {
+  EXPIRING_SOON: "expiring soon",
+  EXPIRED: "expired",
+  NO_CERTIFICATE: "no certificate on file",
+  UNKNOWN_DATE: "completion date needed",
+  COMPLIANT: "compliant",
+};
+
 // ---------------------------------------------------------------------------
-// complianceReminderEmail
+// Context builders
 // ---------------------------------------------------------------------------
 
-export function complianceReminderEmail(p: ComplianceReminderParams): { subject: string; html: string } {
-  const subject = "[HAVEN] HIPAA certification reminder";
-
+/**
+ * Build the flat render-engine context for the compliance-reminder template.
+ * All derived display strings are computed here so the template body is pure
+ * interpolation.
+ */
+export function complianceReminderContext(p: ComplianceReminderParams): Record<string, unknown> {
   let statusLine: string;
   switch (p.status) {
     case "EXPIRING_SOON":
@@ -88,55 +94,65 @@ export function complianceReminderEmail(p: ComplianceReminderParams): { subject:
       statusLine = "Your HIPAA certification is up to date.";
       break;
   }
+  return {
+    personName: p.personName,
+    statusLine,
+  };
+}
 
-  const html = `
-<p>Hello ${esc(p.personName)},</p>
+/**
+ * Build the flat render-engine context for the compliance-escalation template.
+ */
+export function complianceEscalationContext(p: ComplianceEscalationParams): Record<string, unknown> {
+  return {
+    directorName: p.directorName,
+    volunteerName: p.volunteerName,
+    departmentName: p.departmentName,
+    readableStatus: READABLE_STATUS[p.status],
+  };
+}
 
-<p>${statusLine}</p>
+// ---------------------------------------------------------------------------
+// Descriptors
+// ---------------------------------------------------------------------------
+
+export const complianceDescriptors: TemplateDescriptor[] = [
+  {
+    key: "compliance-reminder",
+    name: "Compliance Reminder",
+    category: "transactional",
+    variables: [
+      { name: "personName", label: "Volunteer name", sampleValue: "Jane Doe" },
+      {
+        name: "statusLine",
+        label: "Status sentence (pre-computed from status + expiry date)",
+        sampleValue: "Your HIPAA certification expires on January 15, 2026.",
+      },
+    ],
+    defaultSubject: "[HAVEN] HIPAA certification reminder",
+    defaultBody: `<p>Hello {{ personName }},</p>
+
+<p>{{ statusLine }}</p>
 
 <p>Please upload or renew your certificate in My Info.</p>
 
-<p>Thank you,<br>HAVEN Free Clinic</p>
-`.trim();
+<p>Thank you,<br>HAVEN Free Clinic</p>`,
+  },
+  {
+    key: "compliance-escalation",
+    name: "Compliance Escalation",
+    category: "transactional",
+    variables: [
+      { name: "directorName", label: "Director name", sampleValue: "Dr. Smith" },
+      { name: "volunteerName", label: "Volunteer name", sampleValue: "Jane Doe" },
+      { name: "departmentName", label: "Department name", sampleValue: "Cardiology" },
+      { name: "readableStatus", label: "Human-readable compliance status", sampleValue: "expired" },
+    ],
+    defaultSubject: "[HAVEN] Volunteer HIPAA compliance needs attention",
+    defaultBody: `<p>Hello {{ directorName }},</p>
 
-  return { subject, html };
-}
+<p>{{ volunteerName }} in {{ departmentName }} is not HIPAA compliant ({{ readableStatus }}) and has not responded to reminders. Please follow up.</p>
 
-// ---------------------------------------------------------------------------
-// complianceEscalationEmail
-// ---------------------------------------------------------------------------
-
-const READABLE_STATUS: Record<ComplianceStatus, string> = {
-  EXPIRING_SOON: "expiring soon",
-  EXPIRED: "expired",
-  NO_CERTIFICATE: "no certificate on file",
-  UNKNOWN_DATE: "completion date needed",
-  COMPLIANT: "compliant",
-};
-
-export function complianceEscalationEmail(p: ComplianceEscalationParams): { subject: string; html: string } {
-  const subject = "[HAVEN] Volunteer HIPAA compliance needs attention";
-
-  const readableStatus = READABLE_STATUS[p.status];
-
-  const html = `
-<p>Hello ${esc(p.directorName)},</p>
-
-<p>${esc(p.volunteerName)} in ${esc(p.departmentName)} is not HIPAA compliant (${readableStatus}) and has not responded to reminders. Please follow up.</p>
-
-<p>Thank you,<br>HAVEN Free Clinic</p>
-`.trim();
-
-  return { subject, html };
-}
-
-// ---------------------------------------------------------------------------
-// Template registry
-// ---------------------------------------------------------------------------
-
-export const COMPLIANCE_TEMPLATES = {
-  "compliance-reminder": complianceReminderEmail,
-  "compliance-escalation": complianceEscalationEmail,
-} as const;
-
-export type ComplianceTemplateKey = keyof typeof COMPLIANCE_TEMPLATES;
+<p>Thank you,<br>HAVEN Free Clinic</p>`,
+  },
+];

@@ -1,10 +1,11 @@
 import type { TemplateDescriptor } from "./types";
 import { layoutDescriptor } from "./layout";
+import { complianceDescriptors } from "./compliance";
 
 export const LAYOUT_KEY = "layout";
 
-// Extended by later tasks (compliance, epic, recruitment descriptors).
-const ALL: TemplateDescriptor[] = [layoutDescriptor];
+// Extended by later tasks (epic, recruitment descriptors).
+const ALL: TemplateDescriptor[] = [layoutDescriptor, ...complianceDescriptors];
 
 const BY_KEY = new Map(ALL.map((d) => [d.key, d]));
 

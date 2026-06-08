@@ -17,7 +17,7 @@ type Props = {
 };
 
 export default async function EditTemplatePage({ params, searchParams }: Props) {
-  await requirePermission("emails.manage_templates");
+  await requirePermission("admin.manage_email_templates");
   const { key } = await params;
   const { error } = await searchParams;
   const decodedKey = decodeURIComponent(key);
@@ -25,7 +25,7 @@ export default async function EditTemplatePage({ params, searchParams }: Props) 
 
   async function saveAction(formData: FormData) {
     "use server";
-    const actor = await requirePermission("emails.manage_templates");
+    const actor = await requirePermission("admin.manage_email_templates");
     const subject = (formData.get("subject") as string | null) ?? "";
     const body = (formData.get("body") as string | null) ?? "";
     try {
@@ -44,7 +44,7 @@ export default async function EditTemplatePage({ params, searchParams }: Props) 
 
   async function resetAction() {
     "use server";
-    const actor = await requirePermission("emails.manage_templates");
+    const actor = await requirePermission("admin.manage_email_templates");
     await resetTemplateOverride(actor.personId, decodedKey);
     revalidatePath(`/admin/email/templates/${key}`);
     redirect(`/admin/email/templates/${key}`);

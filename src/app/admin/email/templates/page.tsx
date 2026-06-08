@@ -4,7 +4,7 @@ import { listTemplateSummaries } from "@/modules/admin/services/email-templates"
 import { PageHeader } from "@/platform/ui/page-header";
 
 export default async function EmailTemplatesPage() {
-  await requirePermission("emails.manage_templates");
+  await requirePermission("admin.manage_email_templates");
   const rows = await listTemplateSummaries();
 
   return (

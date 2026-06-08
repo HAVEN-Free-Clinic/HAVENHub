@@ -12,6 +12,18 @@
 
 ---
 
+## Execution status (2026-06-08)
+
+Completed: Tasks 1–9, 11, 12, 13. All 1051 tests pass; tsc + lint clean.
+
+Two deviations from the plan as written, decided during execution:
+
+1. **Permission name → `admin.manage_email_templates`** (not `emails.manage_templates`). The codebase enforces an invariant test (`src/platform/modules/registry.test.ts`) that every permission string is prefixed by its owning module id. Template editing lives under the `admin` module (`/admin/email`), so the permission is namespaced `admin.*`. Phase 2's campaign permission will follow the same rule (`admin.send_email_campaign`, or a new `emails` module if campaigns justify one).
+
+2. **Task 10 (recruitment confirmation) DEFERRED.** The recruitment submission service (`submitApplication`) lives on the unmerged `plan-10/recruitment-foundation` branch, not on `main` (this Phase 1 branch is based on `main`). Converting it here would require merging plan-10 into this branch, entangling it with another agent's in-flight work and risking pulling unreviewed plan-10 commits into `main` via this branch's PR. The `renderEmail` engine is generic and ready; redo Task 10 as a trivial follow-up once plan-10 merges to `main` (or let the recruitment-owning agent do the conversion on their branch).
+
+---
+
 ## File Structure
 
 **New — render engine (pure, no DB):**

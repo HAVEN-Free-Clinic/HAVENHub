@@ -34,7 +34,7 @@ Two related capabilities, built as one coherent system sharing a rendering engin
 | Template history | Edit-in-place; each edit writes a before/after entry to the existing audit log. No in-app version history/rollback. |
 | Campaign composition | Inline subject + body (same syntax + wrapper), with an option to save as a reusable campaign template. |
 | Rendering engine | Tiny custom renderer, zero new dependencies (chosen over Handlebars for a smaller, safer, fully-controlled surface). |
-| Permissions | New `emails.manage_templates` and `emails.send_campaign`. Existing log monitor unchanged. |
+| Permissions | New `admin.manage_email_templates` (Phase 1) and `admin.send_email_campaign` (Phase 2). Namespaced under `admin` to satisfy the module-id invariant. Existing log monitor unchanged. |
 | Typed-confirmation threshold | 25 recipients. |
 
 ## Architecture
@@ -99,8 +99,8 @@ Out-of-the-box behavior is identical; the emails are now admin-overridable.
 
 ### 8. Permissions
 
-- `emails.manage_templates` — edit templates and the layout wrapper.
-- `emails.send_campaign` — manage audiences and campaigns, trigger sends.
+- `admin.manage_email_templates` — edit templates and the layout wrapper. (Namespaced under the `admin` module: the codebase enforces an invariant that every permission is prefixed by its module id. Implemented in Phase 1.)
+- `admin.send_email_campaign` (Phase 2) — manage audiences and campaigns, trigger sends. (Same module-id namespacing rule; revisit whether campaigns warrant a dedicated `emails` module when Phase 2 lands.)
 - Existing `/admin/email` log monitor stays under its current gate.
 
 ### 9. Data flow (single funnel)

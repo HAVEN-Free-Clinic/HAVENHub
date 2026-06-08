@@ -31,7 +31,8 @@ const DEPT_CHOICE_KEY_TYPE: FieldType = "DEPARTMENT_CHOICE";
 
 function toSectionDefs(
   sections: { id: string; appliesTo: SectionDef["appliesTo"]; departmentCode: string | null; fields: { key: string; type: FieldType; required: boolean; options: unknown; validation: unknown }[] }[],
-  departments: string[]
+  departments: string[],
+  applicantType: ApplicantType
 ): SectionDef[] {
   return sections.map((s) => ({
     id: s.id,
@@ -40,7 +41,9 @@ function toSectionDefs(
     fields: s.fields.map((f): FieldDef => ({
       key: f.key,
       type: f.type,
-      required: f.required,
+      // Renewals declare their department via `renewalDepartment`, so the
+      // NEW-applicant department-choice field is not required for them.
+      required: f.type === DEPT_CHOICE_KEY_TYPE && applicantType === "RENEWAL" ? false : f.required,
       options: f.type === DEPT_CHOICE_KEY_TYPE ? departments.map((d) => ({ value: d, label: d })) : (f.options as FieldDef["options"]) ?? null,
       validation: (f.validation as FieldDef["validation"]) ?? null,
     })),
@@ -59,7 +62,7 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
   if (!open) throw new CycleNotOpenError();
   if (input.applicantType === "RENEWAL" && !cycle.acceptsRenewals) throw new CycleNotOpenError("This cycle does not accept renewals.");
 
-  const sectionDefs = toSectionDefs(cycle.sections, cycle.departments);
+  const sectionDefs = toSectionDefs(cycle.sections, cycle.departments, input.applicantType);
 
   let selectedDepartmentCodes: string[];
   if (input.applicantType === "RENEWAL") {
@@ -75,19 +78,8 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
 
   const ctx = { applicantType: input.applicantType, selectedDepartmentCodes };
 
-  // For RENEWAL submissions the department is declared via renewalDepartment, not
-  // via the answers payload. Inject it so the DEPARTMENT_CHOICE field (which lives
-  // in the identity section and is visible to BOTH types) passes validation.
-  let answersForValidation = input.answers;
-  if (input.applicantType === "RENEWAL" && input.renewalDepartment) {
-    const deptField = cycle.sections.flatMap((s) => s.fields).find((f) => f.type === DEPT_CHOICE_KEY_TYPE);
-    if (deptField) {
-      answersForValidation = { ...input.answers, [deptField.key]: input.renewalDepartment };
-    }
-  }
-
   const schema = buildApplicationSchema(sectionDefs, ctx);
-  const parsed = schema.safeParse(answersForValidation);
+  const parsed = schema.safeParse(input.answers);
   if (!parsed.success) {
     const fieldErrors: Record<string, string> = {};
     for (const issue of parsed.error.issues) fieldErrors[String(issue.path[0] ?? "")] = issue.message;

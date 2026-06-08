@@ -64,6 +64,7 @@ it("routes a RENEWAL submission and stores renewalDepartment", async () => {
   expect(app.applicantType).toBe("RENEWAL");
   expect(app.renewalDepartment).toBe("SRHD");
   expect(app.departmentChoices).toEqual(["SRHD"]);
+  expect(Object.keys(app.answers as object)).not.toContain("1st_choice_department");
 });
 
 it("rejects a renewalDepartment outside the cycle departments", async () => {

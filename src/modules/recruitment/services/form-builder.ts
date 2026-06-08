@@ -34,7 +34,7 @@ export async function addField(
 ): Promise<FormField> {
   const section = await prisma.formSection.findUnique({ where: { id: sectionId } });
   if (!section) throw new FormEditError("Section not found.");
-  await assertCycleEditable(section.cycleId, false);
+  await assertCycleEditable(section.cycleId, input.required === true);
 
   const existing = await prisma.formField.findMany({ where: { cycleId: section.cycleId }, select: { key: true } });
   const key = uniqueKey(input.label, existing.map((f) => f.key));

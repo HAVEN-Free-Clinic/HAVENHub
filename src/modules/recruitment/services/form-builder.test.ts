@@ -39,3 +39,16 @@ it("allows safe edits after OPEN but blocks structural ones", async () => {
   await expect(updateField(field.id, { required: true })).rejects.toBeInstanceOf(FormEditError);
   await expect(deleteField(field.id)).rejects.toBeInstanceOf(FormEditError);
 });
+
+it("blocks adding a required field after publish but allows an optional one", async () => {
+  const { person, cycle } = await draftCycle();
+  const section = await addSection(cycle.id, { title: "Essays", appliesTo: "BOTH", departmentCode: null });
+  await publishCycle(cycle.id, person.id);
+
+  await expect(
+    addField(section.id, { label: "Late required", type: "SHORT_TEXT", required: true })
+  ).rejects.toBeInstanceOf(FormEditError);
+
+  const optional = await addField(section.id, { label: "Late optional", type: "SHORT_TEXT", required: false });
+  expect(optional.required).toBe(false);
+});

@@ -112,6 +112,9 @@ export async function closeCycle(id: string, actorId: string): Promise<Recruitme
 }
 
 export async function setAcceptsRenewals(id: string, value: boolean, actorId: string): Promise<RecruitmentCycle> {
+  const cycle = await prisma.recruitmentCycle.findUnique({ where: { id } });
+  if (!cycle) throw new CyclePublishError("Cycle not found.");
+  if (cycle.status !== "DRAFT" && cycle.status !== "OPEN") throw new CyclePublishError("Renewals can only be changed on a draft or open cycle.");
   const updated = await prisma.recruitmentCycle.update({ where: { id }, data: { acceptsRenewals: value } });
   await recordAudit({ actorPersonId: actorId, action: "recruitment.cycle_set_renewals", entityType: "RecruitmentCycle", entityId: id, after: { acceptsRenewals: value } });
   return updated;

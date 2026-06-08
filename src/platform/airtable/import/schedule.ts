@@ -240,10 +240,11 @@ export async function runScheduleImport(
       // If already a DIRECTOR, skip (director takes precedence)
     }
 
-    // Tag lists: triage/walkin/cc/remote set booleans on the VOLUNTEER assignment.
-    // "Tag implies on-shift" invariant: a tagged person not already in the row
-    // gets a new VOLUNTEER row. Tags only apply to VOLUNTEER-role rows; if the
-    // person is already a DIRECTOR or SHADOW, leave their row untouched.
+    // Tag lists: triage/walkin/cc/remote set booleans on the existing assignment.
+    // "Tag implies on-shift" invariant: a tagged person not already assigned in
+    // this row gets a new VOLUNTEER row so the tag is never silently dropped.
+    // If the person is already assigned as a DIRECTOR or SHADOW, the tag boolean
+    // is set on that existing row (no duplicate row is created).
     const tagSets: Array<{ ids: string[]; flag: "triage" | "walkin" | "cc" | "remote" }> = [
       { ids: triageIds, flag: "triage" },
       { ids: walkinIds, flag: "walkin" },

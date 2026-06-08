@@ -253,6 +253,38 @@ describe("runScheduleImport", () => {
     expect(assignments[0].role).toBe("DIRECTOR");
   });
 
+  it("director also in triage: one DIRECTOR row with triage=true, no extra VOLUNTEER row", async () => {
+    await seedTerm();
+    await seedDept();
+    const alice = await seedPerson("Alice", REC_ALICE);
+
+    const reader = makeReader([
+      {
+        id: "rowDirTriage",
+        fields: {
+          "Department Name (from Department)": [DEPT_NAME],
+          "Date": CLINIC_DATE_STR,
+          "Directors on Shift": [REC_ALICE],
+          "Volunteers on Shift": [],
+          "Shadow Volunteers on Shift": [],
+          "Remote on Shift": [],
+          "Triage on Shift": [REC_ALICE], // same person also tagged
+          "Walk-in on Shift": [],
+          "CC on Shift": [],
+        },
+      },
+    ]);
+
+    const report = await runScheduleImport(reader, { ...BASE_OPTS, dryRun: false });
+    // Exactly one assignment created (no extra VOLUNTEER row for the tag)
+    expect(report.created).toBe(1);
+
+    const assignments = await prisma.shiftAssignment.findMany({ where: { personId: alice.id } });
+    expect(assignments).toHaveLength(1);
+    expect(assignments[0].role).toBe("DIRECTOR");
+    expect(assignments[0].triage).toBe(true);
+  });
+
   // -------------------------------------------------------------------------
   // Unresolved people
   // -------------------------------------------------------------------------

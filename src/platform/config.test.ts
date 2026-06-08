@@ -215,6 +215,19 @@ describe("loadConfig", () => {
     expect(config.AIRTABLE_MIRROR_STATUS_FIELD_ID).toBeUndefined();
   });
 
+  // --- RHD max procedures config ---
+
+  it("defaults RHD_MAX_PROCEDURES to 3", () => {
+    const config = loadConfig(base);
+    expect(config.RHD_MAX_PROCEDURES).toBe(3);
+  });
+
+  it("rejects RHD_MAX_PROCEDURES 'abc' naming the variable", () => {
+    expect(() =>
+      loadConfig({ ...base, RHD_MAX_PROCEDURES: "abc" })
+    ).toThrowError(/RHD_MAX_PROCEDURES/);
+  });
+
   // --- Email transport config ---
 
   it("defaults EMAIL_TRANSPORT to log with no vars set", () => {

@@ -65,6 +65,23 @@ const schema = z
           }
         })
       ),
+    // Maximum procedures per RHD clinic session. Stored as a string in env; transformed to
+    // a number. Rejected if not a positive finite number.
+    RHD_MAX_PROCEDURES: z
+      .string()
+      .default("3")
+      .transform(Number)
+      .pipe(
+        z.number().superRefine((val, ctx) => {
+          if (Number.isNaN(val) || val <= 0) {
+            ctx.addIssue({
+              code: "custom",
+              path: [],
+              message: "RHD_MAX_PROCEDURES must be a positive number",
+            });
+          }
+        })
+      ),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV !== "production") return;

@@ -69,8 +69,8 @@ export async function updateField(
       helpText: patch.helpText ?? undefined,
       type: patch.type ?? undefined,
       required: patch.required ?? undefined,
-      options: (patch.options ?? undefined) as never,
-      validation: (patch.validation ?? undefined) as never,
+      options: patch.options === undefined ? undefined : (patch.options as never),
+      validation: patch.validation === undefined ? undefined : (patch.validation as never),
     },
   });
 }
@@ -84,13 +84,17 @@ export async function deleteField(fieldId: string): Promise<void> {
 
 export async function reorderFields(sectionId: string, orderedFieldIds: string[]): Promise<void> {
   await prisma.$transaction(
-    orderedFieldIds.map((id, index) => prisma.formField.update({ where: { id }, data: { order: index } }))
+    orderedFieldIds.map((id, index) =>
+      prisma.formField.updateMany({ where: { id, sectionId }, data: { order: index } })
+    )
   );
 }
 
 export async function reorderSections(cycleId: string, orderedSectionIds: string[]): Promise<void> {
   await prisma.$transaction(
-    orderedSectionIds.map((id, index) => prisma.formSection.update({ where: { id }, data: { order: index } }))
+    orderedSectionIds.map((id, index) =>
+      prisma.formSection.updateMany({ where: { id, cycleId }, data: { order: index } })
+    )
   );
 }
 

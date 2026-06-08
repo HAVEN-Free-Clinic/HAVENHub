@@ -20,7 +20,7 @@ import { resolveAvailability } from "../engine/availability";
 import type { ResolvedAvailability } from "../engine/availability";
 import { toScheduleEntries } from "../engine/map";
 import { computeConflicts } from "../engine/conflicts";
-import { computeDayMetrics, rolesForDept } from "../engine/capacity";
+import { computeDayMetrics } from "../engine/capacity";
 import type { DayMetrics } from "../engine/capacity";
 import { summarizeNonCompliant } from "../engine/banner";
 import type { DeptBanner } from "../engine/banner";
@@ -306,6 +306,10 @@ export async function setPatientsBooked(
     throw new BuilderValidationError(`${opts.dateKey} is not a clinic date in the active term.`);
   }
 
+  const scheduleDayBefore = await prisma.scheduleDay.findFirst({
+    where: { termId: term.id, departmentId: opts.departmentId, clinicDate },
+  });
+
   await prisma.scheduleDay.upsert({
     where: {
       termId_departmentId_clinicDate: {
@@ -328,6 +332,7 @@ export async function setPatientsBooked(
     action: "schedule.patients_booked",
     entityType: "ScheduleDay",
     entityId: `${term.id}|${opts.departmentId}|${opts.dateKey}`,
+    before: { patientsBooked: scheduleDayBefore?.patientsBooked ?? null },
     after: { patientsBooked: opts.patientsBooked },
   });
 }
@@ -471,7 +476,12 @@ export async function upsertRhdClinic(
     throw new BuilderValidationError(`${opts.dateKey} is not a clinic date in the active term.`);
   }
 
-  await prisma.rhdClinic.upsert({
+  const rhdClinicBefore = await prisma.rhdClinic.findFirst({
+    where: { termId: term.id, clinicDate },
+    select: { attendingId: true, directorName: true, proceduresBooked: true },
+  });
+
+  const rhdClinicAfter = await prisma.rhdClinic.upsert({
     where: { termId_clinicDate: { termId: term.id, clinicDate } },
     create: {
       termId: term.id,
@@ -485,6 +495,7 @@ export async function upsertRhdClinic(
       ...("directorName" in opts && { directorName: opts.directorName ?? null }),
       ...("proceduresBooked" in opts && { proceduresBooked: opts.proceduresBooked ?? null }),
     },
+    select: { attendingId: true, directorName: true, proceduresBooked: true },
   });
 
   await recordAudit({
@@ -492,7 +503,10 @@ export async function upsertRhdClinic(
     action: "schedule.rhd_clinic",
     entityType: "RhdClinic",
     entityId: `${term.id}|${opts.dateKey}`,
-    after: opts,
+    ...(rhdClinicBefore && {
+      before: { attendingId: rhdClinicBefore.attendingId, directorName: rhdClinicBefore.directorName, proceduresBooked: rhdClinicBefore.proceduresBooked },
+    }),
+    after: { attendingId: rhdClinicAfter.attendingId, directorName: rhdClinicAfter.directorName, proceduresBooked: rhdClinicAfter.proceduresBooked },
   });
 }
 
@@ -588,7 +602,7 @@ export async function builderView(
   });
 
   // Resolve selected department.
-  let selectedDept =
+  const selectedDept =
     opts.departmentId
       ? departments.find((d) => d.id === opts.departmentId) ?? departments[0]
       : departments[0];
@@ -722,9 +736,11 @@ export async function builderView(
   // Banner: compliance status for VOLUNTEER assignees on selected date.
   const volunteerAssigneesOnDate = selectedAssignments.filter((a) => a.role === "VOLUNTEER");
 
+  // Build a memberById Map for O(1) lookups instead of O(n) linear scan per assignee.
+  const memberById = new Map(members.map((m) => [m.person.id, m]));
+
   const bannerVolunteers = volunteerAssigneesOnDate.map((a) => {
-    // Find the member's newest cert from the members list.
-    const memberEntry = members.find((m) => m.person.id === a.personId);
+    const memberEntry = memberById.get(a.personId);
     const certs = memberEntry?.person.hipaaCertificates ?? [];
     const newestCert = certs.length > 0 ? certs[0] : null;
     const status = complianceStatus(
@@ -785,7 +801,7 @@ export async function builderView(
   // RHD block.
   let rhd: BuilderRhd | null = null;
   if (RHD_CODES.has(selectedDept.code)) {
-    rhd = await buildRhdBlock(term, selectedDept.code, selectedDateKey, allTermAssignments);
+    rhd = await buildRhdBlock(term, departments, selectedDateKey, allTermAssignments);
   }
 
   return {
@@ -818,62 +834,78 @@ type MinimalAssignment = {
 
 /**
  * Builds the RHD block for the builderView.
- * Loads RhdClinic, attending, attending options, and computes readiness.
+ * Loads RhdClinic (with attending included), attending options, and computes readiness.
+ *
+ * departments: the already-fetched list from builderView. If all three RHD codes
+ * (SCTS, JCTS, CCRH) are present in it, no extra department query is needed.
+ * When some are missing (actor only manages a subset), a single fallback query
+ * fetches the remaining ones.
  */
 async function buildRhdBlock(
   term: { id: string; clinicDates: Date[] },
-  deptCode: string,
+  departments: { id: string; code: string; name: string }[],
   selectedDateKey: string | null,
   allTermAssignments: MinimalAssignment[]
 ): Promise<BuilderRhd | null> {
   if (!selectedDateKey) return null;
 
-  // Load attending options (active attendings for the dropdown).
-  const attendingOptions = await prisma.rhdAttending.findMany({
-    where: { isActive: true },
-    select: { id: true, scheduleName: true },
-    orderBy: { scheduleName: "asc" },
-  });
-
-  // Load the clinic row for the selected date.
   const clinicDate = term.clinicDates.find((d) => isoDateKey(d) === selectedDateKey);
   if (!clinicDate) return null;
 
-  const clinic = await prisma.rhdClinic.findFirst({
-    where: { termId: term.id, clinicDate },
-  });
+  // Derive RHD dept id/code pairs from the already-fetched departments list.
+  // If any of the three are missing, do one fallback query to fill the gaps.
+  const rhdFromDepts = departments.filter((d) => RHD_CODES.has(d.code));
+  const missingCodes = [...RHD_CODES].filter((c) => !rhdFromDepts.some((d) => d.code === c));
 
-  // Load the attending if assigned.
-  let attending: Attending | null = null;
-  if (clinic?.attendingId) {
-    const att = await prisma.rhdAttending.findUnique({ where: { id: clinic.attendingId } });
-    if (att) {
-      attending = {
-        id: att.id,
-        scheduleName: att.scheduleName,
-        fullName: att.fullName,
-        procedures: {
-          iudIn: att.iudIn as "yes" | "no" | "unknown",
-          iudOut: att.iudOut as "yes" | "no" | "unknown",
-          nexplanon: att.nexplanon as "yes" | "no" | "unknown",
-          gac: att.gac as "yes" | "no" | "unknown",
-          emb: att.emb as "yes" | "no" | "unknown",
-          seesMale: att.seesMale as "yes" | "no" | "unknown",
-        },
-        notes: att.notes ?? undefined,
-      };
-    }
-  }
+  const rhdDepts: { id: string; code: string }[] =
+    missingCodes.length === 0
+      ? rhdFromDepts
+      : [
+          ...rhdFromDepts,
+          ...(await prisma.department.findMany({
+            where: { code: { in: missingCodes } },
+            select: { id: true, code: true },
+          })),
+        ];
 
-  // Resolve RHD department ids.
-  const rhdDepts = await prisma.department.findMany({
-    where: { code: { in: ["SCTS", "JCTS", "CCRH"] } },
-    select: { id: true, code: true },
-  });
   const deptIdToCode = new Map(rhdDepts.map((d) => [d.id, d.code]));
 
+  // Fetch attending options and clinic (with attending included) in parallel.
+  const [attendingOptions, clinic] = await Promise.all([
+    prisma.rhdAttending.findMany({
+      where: { isActive: true },
+      select: { id: true, scheduleName: true },
+      orderBy: { scheduleName: "asc" },
+    }),
+    prisma.rhdClinic.findFirst({
+      where: { termId: term.id, clinicDate },
+      include: {
+        attending: true,
+      },
+    }),
+  ]);
+
+  // Map the included attending to the engine Attending shape.
+  let attending: Attending | null = null;
+  if (clinic?.attending) {
+    const att = clinic.attending;
+    attending = {
+      id: att.id,
+      scheduleName: att.scheduleName,
+      fullName: att.fullName,
+      procedures: {
+        iudIn: att.iudIn as "yes" | "no" | "unknown",
+        iudOut: att.iudOut as "yes" | "no" | "unknown",
+        nexplanon: att.nexplanon as "yes" | "no" | "unknown",
+        gac: att.gac as "yes" | "no" | "unknown",
+        emb: att.emb as "yes" | "no" | "unknown",
+        seesMale: att.seesMale as "yes" | "no" | "unknown",
+      },
+      notes: att.notes ?? undefined,
+    };
+  }
+
   // Build RhdPersonLite lists for each RHD department on the selected date.
-  // Need person flags; load persons for the relevant assignments.
   const selectedRhdAssignments = allTermAssignments.filter(
     (a) =>
       isoDateKey(a.clinicDate) === selectedDateKey &&
@@ -925,5 +957,10 @@ async function buildRhdBlock(
     maxProceduresPerClinic: config.RHD_MAX_PROCEDURES,
   });
 
-  return { readiness, attendingOptions, clinic: clinic ?? null };
+  // Strip the included attending relation before returning to match RhdClinic type.
+  const clinicRow: RhdClinic | null = clinic
+    ? (({ attending: _attending, ...rest }) => rest)(clinic) as RhdClinic
+    : null;
+
+  return { readiness, attendingOptions, clinic: clinicRow };
 }

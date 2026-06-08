@@ -28,6 +28,7 @@ export const MODULES: ModuleManifest[] = [
     nav: [
       { label: "My schedule", href: "/schedule" },
       { label: "Full schedule", href: "/schedule/full" },
+      { label: "Builder", href: "/schedule/builder" },
     ],
   },
   {

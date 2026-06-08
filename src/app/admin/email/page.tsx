@@ -8,6 +8,7 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { cookies } from "next/headers";
 import { requirePermission } from "@/platform/auth/session";
 import {
   listEmails,
@@ -16,6 +17,7 @@ import {
   EmailNotFoundError,
   EmailStateError,
 } from "@/modules/admin/services/email";
+import { buildAuthorizeUrl, mailConnectionStatus } from "@/platform/email/oauth";
 import type { EmailStatus } from "@prisma/client";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
@@ -76,6 +78,7 @@ type PageProps = {
     error?: string;
     message?: string;
     retried?: string;
+    connected?: string;
   }>;
 };
 
@@ -113,13 +116,17 @@ export default async function EmailPage({ searchParams }: PageProps) {
     : null;
 
   const retriedSuccess = sp.retried === "1";
+  const connectedSuccess = sp.connected === "1";
 
-  const { rows, total, counts } = await listEmails({
-    status: validatedStatus,
-    template: validatedTemplate,
-    q,
-    page,
-  });
+  const [{ rows, total, counts }, mailConn] = await Promise.all([
+    listEmails({
+      status: validatedStatus,
+      template: validatedTemplate,
+      q,
+      page,
+    }),
+    mailConnectionStatus(),
+  ]);
 
   const pageCount = Math.max(1, Math.ceil(total / EMAIL_PAGE_SIZE));
 
@@ -156,6 +163,29 @@ export default async function EmailPage({ searchParams }: PageProps) {
     redirect("/admin/email?retried=1");
   }
 
+  async function connectMailerAction() {
+    "use server";
+    await requirePermission("admin.manage_sync");
+    // Build the authorize URL first; a config error (missing OAuth vars) is the
+    // only thing that can throw here. The redirect itself happens outside the try.
+    let target: string;
+    try {
+      const state = crypto.randomUUID();
+      (await cookies()).set("mailer_oauth_state", state, {
+        httpOnly: true,
+        sameSite: "lax",
+        maxAge: 600,
+        path: "/",
+      });
+      target = buildAuthorizeUrl({ state });
+    } catch {
+      redirect(
+        `/admin/email?error=validation&message=${encodeURIComponent("Mailer OAuth is not configured.")}`
+      );
+    }
+    redirect(target);
+  }
+
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
@@ -181,6 +211,32 @@ export default async function EmailPage({ searchParams }: PageProps) {
           Email re-queued.
         </p>
       )}
+      {connectedSuccess && !errorMessage && (
+        <p className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-success">
+          Mailbox connected.
+        </p>
+      )}
+
+      {/* Mailer connection panel */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-5">
+        <div>
+          <p className="text-sm font-medium text-slate-700">Mailer connection</p>
+          {mailConn.connected ? (
+            <p className="mt-1 text-sm text-slate-500">
+              Connected as {mailConn.account ?? "unknown"} since {fmtDateTime(mailConn.connectedAt)}
+            </p>
+          ) : (
+            <p className="mt-1 text-sm text-slate-500">
+              Not connected. Connect a mailbox to send email via Microsoft Graph.
+            </p>
+          )}
+        </div>
+        <form action={connectMailerAction}>
+          <Button type="submit" variant="outline">
+            {mailConn.connected ? "Reconnect" : "Connect mailbox"}
+          </Button>
+        </form>
+      </div>
 
       {/* Health stat cards */}
       <div className="grid gap-4 sm:grid-cols-3">

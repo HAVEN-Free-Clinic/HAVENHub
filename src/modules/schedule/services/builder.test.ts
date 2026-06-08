@@ -574,7 +574,7 @@ describe("setPatientsBooked", () => {
 
   it("throws BuilderForbiddenError for outsider", async () => {
     const dates = sixSaturdays();
-    const term = await createTerm(dates);
+    await createTerm(dates);
     const dept = await createDepartment("PCAR");
     await createTerm(dates);
     const outsider = await createPerson("Outsider");

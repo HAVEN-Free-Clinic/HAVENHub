@@ -41,7 +41,6 @@ const FLD_PROCEDURES = "fldYIWobbtPV90FM5"; // Procedures Booked
 
 // Fake attending Airtable record ids
 const REC_DR_JONES = "recDrJones";
-const REC_DR_SMITH = "recDrSmith";
 
 // Clinic dates in the term
 const CLINIC_DATE_1 = new Date("2026-06-06T12:00:00Z"); // June 6 2026

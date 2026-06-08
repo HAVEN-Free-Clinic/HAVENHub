@@ -185,7 +185,7 @@ describe("createRequest", () => {
 
   it("rejects when actor has no assignment on that date", async () => {
     const dates = sixSaturdays();
-    const term = await createTerm("ACTIVE", dates);
+    await createTerm("ACTIVE", dates);
     const dept = await createDepartment("AABB");
     const actor = await createPerson("Alice");
     // No shift created
@@ -200,7 +200,7 @@ describe("createRequest", () => {
 
   it("rejects when requesterDateKey is not a clinic date", async () => {
     const dates = sixSaturdays();
-    const term = await createTerm("ACTIVE", dates);
+    await createTerm("ACTIVE", dates);
     const dept = await createDepartment("AABB");
     const actor = await createPerson("Alice");
 

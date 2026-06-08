@@ -25,27 +25,29 @@ export type CreateCycleInput = {
  *  cycle+section first (so we have both ids), then the fields with cycleId set
  *  directly — FormField.cycleId is required, so it cannot be a nested create. */
 export async function createCycle(input: CreateCycleInput): Promise<RecruitmentCycle> {
-  const cycle = await prisma.recruitmentCycle.create({
-    data: {
-      track: input.track,
-      termId: input.termId,
-      title: input.title,
-      publicSlug: input.publicSlug,
-      departments: input.departments,
-      acceptsRenewals: input.acceptsRenewals,
-      createdById: input.createdById,
-      sections: { create: { title: "Your information", order: 0, appliesTo: "BOTH" } },
-    },
-    include: { sections: true },
-  });
-
-  const identity = cycle.sections[0];
-  await prisma.formField.createMany({
-    data: [
-      { sectionId: identity.id, cycleId: cycle.id, key: "first_name", label: "First name", type: "SHORT_TEXT", required: true, order: 0 },
-      { sectionId: identity.id, cycleId: cycle.id, key: "last_name", label: "Last name", type: "SHORT_TEXT", required: true, order: 1 },
-      { sectionId: identity.id, cycleId: cycle.id, key: "email", label: "Yale email", type: "EMAIL", required: true, order: 2 },
-    ],
+  const cycle = await prisma.$transaction(async (tx) => {
+    const created = await tx.recruitmentCycle.create({
+      data: {
+        track: input.track,
+        termId: input.termId,
+        title: input.title,
+        publicSlug: input.publicSlug,
+        departments: input.departments,
+        acceptsRenewals: input.acceptsRenewals,
+        createdById: input.createdById,
+        sections: { create: { title: "Your information", order: 0, appliesTo: "BOTH" } },
+      },
+      include: { sections: true },
+    });
+    const identity = created.sections[0];
+    await tx.formField.createMany({
+      data: [
+        { sectionId: identity.id, cycleId: created.id, key: "first_name", label: "First name", type: "SHORT_TEXT", required: true, order: 0 },
+        { sectionId: identity.id, cycleId: created.id, key: "last_name", label: "Last name", type: "SHORT_TEXT", required: true, order: 1 },
+        { sectionId: identity.id, cycleId: created.id, key: "email", label: "Yale email", type: "EMAIL", required: true, order: 2 },
+      ],
+    });
+    return created;
   });
 
   await recordAudit({ actorPersonId: input.createdById, action: "recruitment.cycle_create", entityType: "RecruitmentCycle", entityId: cycle.id });
@@ -58,6 +60,9 @@ export async function getCycle(id: string) {
     include: { sections: { include: { fields: { orderBy: { order: "asc" } } }, orderBy: { order: "asc" } } },
   });
 }
+
+/** A cycle with its full form definition (sections -> fields), as returned by getCycle. */
+export type CycleWithForm = NonNullable<Awaited<ReturnType<typeof getCycle>>>;
 
 export async function listCycles(): Promise<RecruitmentCycle[]> {
   return prisma.recruitmentCycle.findMany({
@@ -98,6 +103,9 @@ export async function publishCycle(id: string, actorId: string): Promise<Recruit
 }
 
 export async function closeCycle(id: string, actorId: string): Promise<RecruitmentCycle> {
+  const cycle = await prisma.recruitmentCycle.findUnique({ where: { id } });
+  if (!cycle) throw new CyclePublishError("Cycle not found.");
+  if (cycle.status !== "OPEN") throw new CyclePublishError("Only an OPEN cycle can be closed.");
   const updated = await prisma.recruitmentCycle.update({ where: { id }, data: { status: "CLOSED" } });
   await recordAudit({ actorPersonId: actorId, action: "recruitment.cycle_close", entityType: "RecruitmentCycle", entityId: id });
   return updated;

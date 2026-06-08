@@ -53,7 +53,7 @@ describe("publishCycle", () => {
     await expect(publishCycle(cycle.id, person.id)).rejects.toBeInstanceOf(CyclePublishError);
   });
 
-  it("rejects publishing a renewals cycle with no RENEWAL-visible section", async () => {
+  it("publishes a renewals cycle whose identity section is visible to both applicant types", async () => {
     const { person, term } = await seedTermAndPerson();
     const cycle = await createCycle({
       track: "VOLUNTEER", termId: term.id, title: "V", publicSlug: "v3",

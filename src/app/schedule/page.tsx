@@ -17,6 +17,8 @@ import {
   cancelRequest,
   eligibleSwapPartners,
   RequestValidationError,
+  RequestForbiddenError,
+  RequestNotFoundError,
 } from "@/modules/schedule/services/requests";
 import { isoDateKey } from "@/modules/schedule/engine/map";
 import { displayDate } from "@/modules/schedule/engine/display";
@@ -147,7 +149,10 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
         note,
       });
     } catch (err) {
-      if (err instanceof RequestValidationError) {
+      if (
+        err instanceof RequestValidationError ||
+        err instanceof RequestForbiddenError
+      ) {
         redirect(
           `/schedule?error=validation&message=${encodeURIComponent(err.message)}`
         );
@@ -165,7 +170,11 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
     try {
       await cancelRequest(actor.personId, requestId);
     } catch (err) {
-      if (err instanceof RequestValidationError) {
+      if (
+        err instanceof RequestValidationError ||
+        err instanceof RequestForbiddenError ||
+        err instanceof RequestNotFoundError
+      ) {
         redirect(
           `/schedule?error=validation&message=${encodeURIComponent(err.message)}`
         );

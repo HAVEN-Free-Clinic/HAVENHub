@@ -499,6 +499,22 @@ export async function approveRequest(
   const now = new Date();
 
   await prisma.$transaction(async (tx) => {
+    // In-transaction swap collision guard: a concurrent assignment could have
+    // been created in the window between the pre-tx check above and this tx
+    // acquiring its snapshot. Re-running inside the tx means any collision
+    // created after the outer check rolls the whole transaction back.
+    if (req.targetId && req.targetDate) {
+      await assertNoSwapCollision(
+        req.termId,
+        req.departmentId,
+        req.requesterId,
+        req.requesterDate,
+        req.targetId,
+        req.targetDate,
+        tx,
+      );
+    }
+
     // Apply mutations
     for (const mutation of mutations) {
       const dbRole = mutation.role.toUpperCase() as "DIRECTOR" | "VOLUNTEER" | "SHADOW";

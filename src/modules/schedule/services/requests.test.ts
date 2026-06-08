@@ -539,6 +539,14 @@ describe("listDepartmentRequests", () => {
 // the re-validation step catches first as "Not assigned"). The count guard
 // exists solely as a race-window backstop for the gap between validation and
 // the transaction; it is not deterministically testable without test hooks.
+//
+// Note on the swap collision guard:
+// assertNoSwapCollision is called BOTH before the transaction (friendly early
+// error) AND inside the transaction (using the tx client) as a race-window
+// backstop. The "swap collision" tests below exercise the pre-tx path
+// deterministically; the in-tx call is the enforcing point for any collision
+// that appears between the outer check and the transaction acquiring its
+// snapshot.
 // ---------------------------------------------------------------------------
 
 describe("approveRequest", () => {

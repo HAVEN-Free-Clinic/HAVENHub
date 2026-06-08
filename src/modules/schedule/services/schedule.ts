@@ -10,7 +10,7 @@
  * only invariant enforced here is data validity inside updateMyAvailability.
  */
 
-import type { Department, Term, ShiftRole } from "@prisma/client";
+import type { Department, Term, ShiftRole, ShiftRequest } from "@prisma/client";
 import type { ResolvedAvailability } from "../engine/availability";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
@@ -77,6 +77,11 @@ async function getActiveTerm() {
  * resolved from the person's ACTIVE memberships ordered by department code
  * (first wins; in practice a volunteer is in at most one department per term).
  * Shifts are returned even when no membership is found.
+ *
+ * pendingRequests is keyed by "${isoDateKey(clinicDate)}|${departmentId}" for
+ * each of the person's PENDING requests in the active term. Cancelled and
+ * approved requests are excluded. The page uses this map to decide whether to
+ * show the "request a change" disclosure or the pending-request line.
  */
 export async function mySchedule(personId: string): Promise<{
   term: Term | null;
@@ -84,18 +89,24 @@ export async function mySchedule(personId: string): Promise<{
   availability: ResolvedAvailability | null;
   legacyNote: string | null;
   clinicDates: Date[];
+  pendingRequests: Map<string, ShiftRequest>;
 }> {
   const term = await getActiveTerm();
   if (!term) {
-    return { term: null, shifts: [], availability: null, legacyNote: null, clinicDates: [] };
+    return { term: null, shifts: [], availability: null, legacyNote: null, clinicDates: [], pendingRequests: new Map() };
   }
 
-  // Load shifts in this term for the person, ordered by clinicDate asc.
-  const rawShifts = await prisma.shiftAssignment.findMany({
-    where: { termId: term.id, personId },
-    include: { department: true },
-    orderBy: { clinicDate: "asc" },
-  });
+  // Load shifts and pending requests in parallel.
+  const [rawShifts, rawPendingRequests] = await Promise.all([
+    prisma.shiftAssignment.findMany({
+      where: { termId: term.id, personId },
+      include: { department: true },
+      orderBy: { clinicDate: "asc" },
+    }),
+    prisma.shiftRequest.findMany({
+      where: { termId: term.id, requesterId: personId, status: "PENDING" },
+    }),
+  ]);
 
   const shifts: MyShift[] = rawShifts.map((s) => ({
     clinicDate: s.clinicDate,
@@ -103,6 +114,13 @@ export async function mySchedule(personId: string): Promise<{
     role: s.role,
     tags: { triage: s.triage, walkin: s.walkin, cc: s.cc, remote: s.remote },
   }));
+
+  // Build pendingRequests map keyed by "${dateKey}|${departmentId}".
+  const pendingRequests = new Map<string, ShiftRequest>();
+  for (const req of rawPendingRequests) {
+    const key = `${isoDateKey(req.requesterDate)}|${req.departmentId}`;
+    pendingRequests.set(key, req);
+  }
 
   // Load ACTIVE memberships in this term, ordered by department code.
   const memberships = await prisma.termMembership.findMany({
@@ -134,7 +152,7 @@ export async function mySchedule(personId: string): Promise<{
     }
   }
 
-  return { term, shifts, availability, legacyNote, clinicDates: term.clinicDates };
+  return { term, shifts, availability, legacyNote, clinicDates: term.clinicDates, pendingRequests };
 }
 
 // ---------------------------------------------------------------------------

@@ -292,6 +292,38 @@ describe("createRequest", () => {
     expect(second.status).toBe("PENDING");
   });
 
+  it("swap where target is SHADOW on requester's date is rejected at creation", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("AABB");
+    const requester = await createPerson("Requester");
+    const target = await createPerson("Target");
+
+    // Requester is a VOLUNTEER on dates[0]; target is a VOLUNTEER on dates[1]
+    // but ALSO a SHADOW on dates[0] (the requester's offered date).
+    await createShift(term.id, dept.id, requester.id, dates[0], "VOLUNTEER");
+    await createShift(term.id, dept.id, target.id, dates[1], "VOLUNTEER");
+    await createShift(term.id, dept.id, target.id, dates[0], "SHADOW");
+
+    await expect(
+      createRequest(requester.id, {
+        requesterDateKey: isoDateKey(dates[0]),
+        departmentId: dept.id,
+        targetId: target.id,
+        targetDateKey: isoDateKey(dates[1]),
+      })
+    ).rejects.toBeInstanceOf(RequestValidationError);
+
+    await expect(
+      createRequest(requester.id, {
+        requesterDateKey: isoDateKey(dates[0]),
+        departmentId: dept.id,
+        targetId: target.id,
+        targetDateKey: isoDateKey(dates[1]),
+      })
+    ).rejects.toThrow("Partner is not eligible");
+  });
+
   it("rejects when no active term", async () => {
     await createTerm("ARCHIVED", []);
     const dept = await createDepartment("AABB");
@@ -602,6 +634,91 @@ describe("approveRequest", () => {
       where: { termId: term.id, departmentId: dept.id, personId: vol1.id },
     });
     expect(vol1Shifts).toHaveLength(1);
+  });
+
+  it("swap collision: target gains SHADOW on requester's date after creation -> RequestValidationError on approve, request stays PENDING, shadow row untouched", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("AABB");
+    const director = await createPerson("Director");
+    const vol1 = await createPerson("Vol1");
+    const vol2 = await createPerson("Vol2");
+
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createShift(term.id, dept.id, vol1.id, dates[0], "VOLUNTEER");
+    await createShift(term.id, dept.id, vol2.id, dates[1], "VOLUNTEER");
+
+    // Create a valid swap request
+    const req = await createRequest(vol1.id, {
+      requesterDateKey: isoDateKey(dates[0]),
+      departmentId: dept.id,
+      targetId: vol2.id,
+      targetDateKey: isoDateKey(dates[1]),
+    });
+
+    // After creation, vol2 picks up a SHADOW assignment on dates[0] (vol1's date)
+    const shadowRow = await createShift(term.id, dept.id, vol2.id, dates[0], "SHADOW");
+
+    // Approve should fail due to the collision
+    await expect(approveRequest(director.id, req.id)).rejects.toBeInstanceOf(RequestValidationError);
+    await expect(approveRequest(director.id, req.id)).rejects.toThrow("Partner is not eligible");
+
+    // Request remains PENDING
+    const still = await prisma.shiftRequest.findUniqueOrThrow({ where: { id: req.id } });
+    expect(still.status).toBe("PENDING");
+
+    // vol1's original assignment is untouched
+    const vol1Shifts = await prisma.shiftAssignment.findMany({
+      where: { termId: term.id, departmentId: dept.id, personId: vol1.id },
+    });
+    expect(vol1Shifts).toHaveLength(1);
+    expect(isoDateKey(vol1Shifts[0].clinicDate)).toBe(isoDateKey(dates[0]));
+    expect(vol1Shifts[0].role).toBe("VOLUNTEER");
+
+    // The shadow row that caused the collision is also untouched
+    const shadowCheck = await prisma.shiftAssignment.findUnique({ where: { id: shadowRow.id } });
+    expect(shadowCheck).not.toBeNull();
+    expect(shadowCheck!.role).toBe("SHADOW");
+  });
+
+  it("swap collision (symmetric): requester gains SHADOW on target's date after creation -> RequestValidationError on approve, request stays PENDING", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("AABB");
+    const director = await createPerson("Director");
+    const vol1 = await createPerson("Vol1");
+    const vol2 = await createPerson("Vol2");
+
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createShift(term.id, dept.id, vol1.id, dates[0], "VOLUNTEER");
+    await createShift(term.id, dept.id, vol2.id, dates[1], "VOLUNTEER");
+
+    // Create a valid swap request
+    const req = await createRequest(vol1.id, {
+      requesterDateKey: isoDateKey(dates[0]),
+      departmentId: dept.id,
+      targetId: vol2.id,
+      targetDateKey: isoDateKey(dates[1]),
+    });
+
+    // After creation, vol1 (the requester) picks up a SHADOW assignment on dates[1] (vol2's date)
+    await createShift(term.id, dept.id, vol1.id, dates[1], "SHADOW");
+
+    // Approve should fail due to the collision
+    await expect(approveRequest(director.id, req.id)).rejects.toBeInstanceOf(RequestValidationError);
+    await expect(approveRequest(director.id, req.id)).rejects.toThrow("Partner is not eligible");
+
+    // Request remains PENDING
+    const still = await prisma.shiftRequest.findUniqueOrThrow({ where: { id: req.id } });
+    expect(still.status).toBe("PENDING");
+
+    // vol2's original assignment is untouched
+    const vol2Shifts = await prisma.shiftAssignment.findMany({
+      where: { termId: term.id, departmentId: dept.id, personId: vol2.id },
+    });
+    expect(vol2Shifts).toHaveLength(1);
+    expect(isoDateKey(vol2Shifts[0].clinicDate)).toBe(isoDateKey(dates[1]));
+    expect(vol2Shifts[0].role).toBe("VOLUNTEER");
   });
 
   it("approving a non-PENDING request throws RequestValidationError", async () => {

@@ -124,6 +124,55 @@ async function scopeCheck(actorPersonId: string, departmentId: string): Promise<
 }
 
 // ---------------------------------------------------------------------------
+// assertNoSwapCollision
+// ---------------------------------------------------------------------------
+
+/**
+ * Guards against same-date-other-role collisions that the engine's validateRequest
+ * does not cover.
+ *
+ * Background: planApply emits "add" ops for named swaps which the service applies
+ * via upsert (update role on conflict). The unique constraint on
+ * (termId, departmentId, clinicDate, personId) means a single row per person per
+ * date. If the target already holds a SHADOW assignment on the requester's date,
+ * the upsert would silently overwrite that row's role. Symmetrically, if the
+ * requester holds any assignment on the target's date, their new add-row would
+ * clobber it. validateRequest only verifies that each party has an assignment on
+ * their own offered date in the correct role; the cross-date collision check is
+ * the service's responsibility.
+ *
+ * Throws RequestValidationError("Partner is not eligible") when:
+ *   - the target holds ANY assignment on requesterDate (in this term + department), or
+ *   - the requester holds ANY assignment on targetDate (in this term + department).
+ */
+async function assertNoSwapCollision(
+  termId: string,
+  departmentId: string,
+  requesterId: string,
+  requesterDate: Date,
+  targetId: string,
+  targetDate: Date,
+  tx?: Parameters<Parameters<typeof prisma.$transaction>[0]>[0],
+): Promise<void> {
+  const db = tx ?? prisma;
+
+  const [targetOnRequesterDate, requesterOnTargetDate] = await Promise.all([
+    db.shiftAssignment.findFirst({
+      where: { termId, departmentId, personId: targetId, clinicDate: requesterDate },
+      select: { id: true },
+    }),
+    db.shiftAssignment.findFirst({
+      where: { termId, departmentId, personId: requesterId, clinicDate: targetDate },
+      select: { id: true },
+    }),
+  ]);
+
+  if (targetOnRequesterDate || requesterOnTargetDate) {
+    throw new RequestValidationError("Partner is not eligible");
+  }
+}
+
+// ---------------------------------------------------------------------------
 // createRequest
 // ---------------------------------------------------------------------------
 
@@ -191,6 +240,20 @@ export async function createRequest(
 
   if (!validationResult.ok) {
     throw new RequestValidationError(validationResult.error);
+  }
+
+  // Swap collision guard: the engine does not check for cross-date same-person
+  // rows. If the target has any assignment on the requester's date (or vice versa),
+  // the upsert in planApply would clobber that row's role.
+  if (input.targetId && canonicalTargetDate) {
+    await assertNoSwapCollision(
+      term.id,
+      input.departmentId,
+      actorPersonId,
+      canonicalRequesterDate,
+      input.targetId,
+      canonicalTargetDate,
+    );
   }
 
   // Duplicate guard + create inside a transaction
@@ -380,6 +443,20 @@ export async function approveRequest(
 
   if (!validationResult.ok) {
     throw new RequestValidationError(validationResult.error);
+  }
+
+  // Swap collision guard (re-checked at approval time against current data).
+  // Must run before the transaction so a collision discovered here keeps the
+  // request PENDING and leaves all assignments untouched.
+  if (req.targetId && req.targetDate) {
+    await assertNoSwapCollision(
+      req.termId,
+      req.departmentId,
+      req.requesterId,
+      req.requesterDate,
+      req.targetId,
+      req.targetDate,
+    );
   }
 
   // Plan mutations

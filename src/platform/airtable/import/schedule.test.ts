@@ -27,7 +27,6 @@ const TERM_CODE = "SU26";
 const REC_ALICE = "recAlice";
 const REC_BOB = "recBob";
 const REC_CAROL = "recCarol";
-const REC_DAN = "recDan";
 const REC_GHOST = "recGhost"; // intentionally never seeded in DB
 
 // Clinic date we will use: 2026-06-15 at noon UTC

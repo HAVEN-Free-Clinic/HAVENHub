@@ -1,10 +1,15 @@
 /**
  * Bridge from database rows to schedule engine shapes.
  *
- * Pure module: no Prisma imports, no platform imports.
+ * Pure module: no Prisma imports. isoDateKey lives in the platform date
+ * helpers (platform code also needs it) and is re-exported here so engine
+ * consumers keep one import surface.
  */
 
 import type { ScheduleEntry } from "./conflicts";
+import { isoDateKey } from "@/platform/dates";
+
+export { isoDateKey };
 
 export type AssignmentRow = {
   departmentId: string;
@@ -13,14 +18,6 @@ export type AssignmentRow = {
   clinicDate: Date;
   role: "DIRECTOR" | "VOLUNTEER" | "SHADOW";
 };
-
-/** Returns a UTC YYYY-MM-DD key for a date. */
-export function isoDateKey(d: Date): string {
-  const year = d.getUTCFullYear();
-  const month = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(d.getUTCDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
 
 /**
  * Groups assignment rows into engine ScheduleEntry[] by (dateKey, departmentId),

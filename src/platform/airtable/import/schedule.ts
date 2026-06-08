@@ -25,7 +25,7 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
-import { isoDateKey } from "@/modules/schedule/engine/map";
+import { isoDateKey } from "@/platform/dates";
 import type { AirtableReader } from "./importer";
 
 // ---------------------------------------------------------------------------

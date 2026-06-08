@@ -15,6 +15,7 @@ async function openVolunteerCycle() {
   const cycle = await createCycle({ track: "VOLUNTEER", termId: term.id, title: "V", publicSlug: "apply-v", departments: ["SRHD", "MDIC"], acceptsRenewals: true, createdById: person.id });
   const idSection = (await prisma.formSection.findFirstOrThrow({ where: { cycleId: cycle.id }, orderBy: { order: "asc" } }));
   await addField(idSection.id, { label: "1st choice department", type: "DEPARTMENT_CHOICE", required: true });
+  await addField(idSection.id, { label: "Resume", type: "FILE", required: false });
   const srhd = await addSection(cycle.id, { title: "SRHD Supplement", appliesTo: "NEW", departmentCode: "SRHD" });
   await addField(srhd.id, { label: "SRHD essay", type: "LONG_TEXT", required: true });
   const renew = await addSection(cycle.id, { title: "Renewal", appliesTo: "RENEWAL", departmentCode: null });
@@ -102,6 +103,17 @@ it("rejects an oversize file upload", async () => {
     })
   ).rejects.toBeInstanceOf(SubmissionValidationError);
   void cycle;
+});
+
+it("rejects a file uploaded under an unknown/path-traversal field key", async () => {
+  await openVolunteerCycle();
+  await expect(
+    submitApplication("apply-v", {
+      applicantType: "NEW",
+      answers: { first_name: "P", last_name: "T", email: "pt@yale.edu", "1st_choice_department": "MDIC" },
+      files: { "../../../../tmp/evil": { fileName: "evil.sh", mimeType: "text/x-sh", bytes: Buffer.from("x") } },
+    })
+  ).rejects.toBeInstanceOf(SubmissionValidationError);
 });
 
 it("lists and gets applications", async () => {

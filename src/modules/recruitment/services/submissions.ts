@@ -95,9 +95,15 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
   const missingFile = needFiles.find((k) => !input.files[k]);
   if (missingFile) throw new SubmissionValidationError("A required file is missing.", { [missingFile]: "required" });
 
-  // Enforce upload size caps: per-field maxFileMB, bounded by the global MAX_UPLOAD_MB.
+  // Enforce upload rules: a file may only be uploaded under the key of a visible
+  // FILE field. Rejecting unknown keys is also the primary defense against a
+  // path-traversal write (the key is used to build the on-disk filename).
   const visibleFields = visibleSections(sectionDefs, ctx).flatMap((s) => s.fields);
+  const allowedFileKeys = new Set(visibleFields.filter((f) => f.type === "FILE").map((f) => f.key));
   for (const [key, file] of Object.entries(input.files)) {
+    if (!allowedFileKeys.has(key)) {
+      throw new SubmissionValidationError("Unexpected file upload.", { [key]: "unknown field" });
+    }
     const field = visibleFields.find((f) => f.key === key);
     const capMb = Math.min(field?.validation?.maxFileMB ?? config.MAX_UPLOAD_MB, config.MAX_UPLOAD_MB);
     if (file.bytes.length > capMb * 1024 * 1024) {
@@ -167,11 +173,18 @@ async function persistFiles(cycleId: string, files: Record<string, UploadedFile>
   const answerPatch: Record<string, unknown> = {};
   const diskPaths: string[] = [];
   const entries = Object.entries(files);
+  const resolvedDir = path.resolve(uploadDir);
   if (entries.length > 0) await fs.mkdir(uploadDir, { recursive: true });
   for (const [key, file] of entries) {
-    const ext = path.extname(file.fileName) || "";
-    const storedName = `${key}-${randomUUID()}${ext}`;
-    const diskPath = path.join(uploadDir, storedName);
+    // Sanitize both path components so a hostile field key or filename can never
+    // escape uploadDir; the containment check below is a final backstop.
+    const safeKey = key.replace(/[^a-z0-9_]/gi, "_");
+    const safeExt = (path.extname(file.fileName).match(/^\.[A-Za-z0-9]{1,8}$/)?.[0]) ?? "";
+    const storedName = `${safeKey}-${randomUUID()}${safeExt}`;
+    const diskPath = path.resolve(resolvedDir, storedName);
+    if (diskPath !== resolvedDir && !diskPath.startsWith(resolvedDir + path.sep)) {
+      throw new SubmissionValidationError("Invalid file.", { [key]: "invalid" });
+    }
     await fs.writeFile(diskPath, file.bytes);
     diskPaths.push(diskPath);
     answerPatch[key] = { storedName, fileName: file.fileName, mimeType: file.mimeType, size: file.bytes.length };

@@ -1,4 +1,5 @@
 import type { AppConfig } from "@/platform/config";
+import { getAccessToken } from "./oauth";
 
 /** A single outbound email message. */
 export type EmailMessage = {
@@ -31,98 +32,33 @@ export class LogTransport implements EmailTransport {
 // ---------------------------------------------------------------------------
 
 interface GraphTransportOpts {
-  tenantId: string;
-  clientId: string;
-  clientSecret: string;
+  /** Returns a valid Graph access token (delegated). Defaults to the oauth.ts getAccessToken. */
+  getAccessToken: () => Promise<string>;
+  /** The mailbox to send AS (the shared mailbox, e.g. hfc.it@yale.edu). */
   sender: string;
-  /** Injected fetch implementation; defaults to the global fetch. Used in tests. */
+  /** Injected fetch for tests. */
   fetchImpl?: typeof fetch;
 }
 
-interface TokenCache {
-  token: string;
-  expiresAt: number; // ms epoch
-}
-
 /**
- * Production transport: sends mail via the Microsoft Graph API using
- * OAuth 2.0 client-credentials flow. Tokens are cached and refreshed
- * 60 seconds before expiry. The transport never retries -- the outbox
- * queue layer (Task 3) handles back-off and retry.
+ * Production transport: sends mail via the Microsoft Graph API using a
+ * delegated OAuth token obtained from oauth.ts. The transport never retries --
+ * the outbox queue layer handles back-off and retry.
  */
 export class GraphTransport implements EmailTransport {
-  private readonly opts: GraphTransportOpts;
+  private readonly getToken: () => Promise<string>;
+  private readonly sender: string;
   private readonly fetchImpl: typeof fetch;
-  private tokenCache: TokenCache | null = null;
 
   constructor(opts: GraphTransportOpts) {
-    this.opts = opts;
+    this.getToken = opts.getAccessToken;
+    this.sender = opts.sender;
     this.fetchImpl = opts.fetchImpl ?? fetch;
   }
 
-  private async acquireToken(): Promise<string> {
-    const now = Date.now();
-    if (this.tokenCache && now < this.tokenCache.expiresAt) {
-      return this.tokenCache.token;
-    }
-
-    const { tenantId, clientId, clientSecret } = this.opts;
-    const url = `https://login.microsoftonline.com/${encodeURIComponent(tenantId)}/oauth2/v2.0/token`;
-
-    const body = new URLSearchParams({
-      grant_type: "client_credentials",
-      client_id: clientId,
-      client_secret: clientSecret,
-      scope: "https://graph.microsoft.com/.default",
-    });
-
-    const res = await this.fetchImpl(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: body.toString(),
-    });
-
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(
-        `Graph token request failed with status ${res.status}: ${text}`
-      );
-    }
-
-    const json = (await res.json()) as {
-      access_token: string;
-      expires_in: number;
-    };
-
-    // Cache the token, expiring 60 seconds early to avoid using stale tokens.
-    const expiresAt = Date.now() + (json.expires_in - 60) * 1000;
-    this.tokenCache = { token: json.access_token, expiresAt };
-    return json.access_token;
-  }
-
   async send(message: EmailMessage): Promise<void> {
-    const token = await this.acquireToken();
-    const { sender } = this.opts;
-
-    const url = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(sender)}/sendMail`;
-
-    const payload = {
-      message: {
-        subject: message.subject,
-        body: {
-          contentType: "HTML",
-          content: message.html,
-        },
-        toRecipients: [
-          {
-            emailAddress: {
-              address: message.to,
-            },
-          },
-        ],
-      },
-      saveToSentItems: true,
-    };
+    const token = await this.getToken();
+    const url = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(this.sender)}/sendMail`;
 
     const res = await this.fetchImpl(url, {
       method: "POST",
@@ -130,14 +66,19 @@ export class GraphTransport implements EmailTransport {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        message: {
+          subject: message.subject,
+          body: { contentType: "HTML", content: message.html },
+          toRecipients: [{ emailAddress: { address: message.to } }],
+        },
+        saveToSentItems: true,
+      }),
     });
 
     if (!res.ok) {
-      const text = await res.text();
-      throw new Error(
-        `Graph sendMail failed with status ${res.status}: ${text}`
-      );
+      const text = await res.text().catch(() => "");
+      throw new Error(`Graph sendMail failed: ${res.status} ${text}`);
     }
   }
 }
@@ -148,15 +89,11 @@ export class GraphTransport implements EmailTransport {
 
 /**
  * Return the appropriate transport based on the validated app config.
- * Config validation guarantees all Graph vars are present when transport is
- * "graph", so the non-null assertions here are safe.
  */
 export function emailTransportFromConfig(config: AppConfig): EmailTransport {
   if (config.EMAIL_TRANSPORT === "graph") {
     return new GraphTransport({
-      tenantId: config.GRAPH_TENANT_ID!,
-      clientId: config.GRAPH_CLIENT_ID!,
-      clientSecret: config.GRAPH_CLIENT_SECRET!,
+      getAccessToken,
       sender: config.EMAIL_SENDER!,
     });
   }

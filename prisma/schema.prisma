@@ -90,6 +90,7 @@ model Person {
   emailLogs                 EmailLog[]           @relation("emailLogPerson")
   /// Email log rows this person triggered (may differ from the recipient).
   emailLogsTriggered        EmailLog[]           @relation("emailLogTriggeredBy")
+  complianceReminder        ComplianceReminder?
   shiftAssignments          ShiftAssignment[]
   /// Shift requests this person raised.
   shiftRequests             ShiftRequest[]       @relation("shiftRequestRequester")
@@ -451,6 +452,31 @@ model EmailLog {
 
   @@index([personId])
   @@index([status, createdAt])
+}
+
+/// Per-person HIPAA reminder state. Drives the weekly cadence (lastRemindedAt),
+/// the escalation threshold (remindersSent), and the once-only director
+/// escalation (escalatedAt). Reset to zero when the person becomes COMPLIANT.
+model ComplianceReminder {
+  id             String    @id @default(cuid())
+  personId       String    @unique
+  remindersSent  Int       @default(0)
+  lastRemindedAt DateTime?
+  lastStatus     String?
+  escalatedAt    DateTime?
+  person         Person    @relation(fields: [personId], references: [id], onDelete: Cascade)
+}
+
+/// Single-row store for the delegated Graph mail credential (the rotating
+/// refresh token and connection metadata). id defaults to a fixed sentinel so
+/// there is at most one row.
+model MailCredential {
+  id           String   @id @default("mailer")
+  refreshToken String
+  account      String?
+  scope        String?
+  connectedAt  DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }
 
 /// One row per person per clinic shift. Med-team tags apply to VOLUNTEER rows;

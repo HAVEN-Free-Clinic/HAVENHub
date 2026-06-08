@@ -9,6 +9,7 @@ import { drainOutbox, type MirrorTarget } from "../src/platform/airtable/mirror"
 import { parseFieldMap } from "../src/platform/airtable/mirror-map";
 import { reconcilePeople } from "../src/platform/airtable/reconcile";
 import { refreshComplianceMirror } from "../src/platform/compliance/mirror-status";
+import { runComplianceReminders } from "../src/platform/email/reminders";
 import { drainEmailQueue } from "../src/platform/email/send";
 import { emailTransportFromConfig } from "../src/platform/email/transport";
 
@@ -16,6 +17,7 @@ const HEARTBEAT_ID = "mirror-worker";
 const OUTBOX_QUEUE = "mirror-outbox";
 const RECONCILE_QUEUE = "mirror-reconcile";
 const COMPLIANCE_REFRESH_QUEUE = "compliance-refresh";
+const REMINDERS_QUEUE = "compliance-reminders";
 const EMAIL_QUEUE = "email-send";
 
 function mirrorTarget(): MirrorTarget {
@@ -37,6 +39,7 @@ async function main() {
   await boss.createQueue(OUTBOX_QUEUE);
   await boss.createQueue(RECONCILE_QUEUE);
   await boss.createQueue(COMPLIANCE_REFRESH_QUEUE);
+  await boss.createQueue(REMINDERS_QUEUE);
   await boss.createQueue(EMAIL_QUEUE);
 
   // Cron triggers; the drain also loops until empty, so a 1-minute cadence is
@@ -46,6 +49,10 @@ async function main() {
   // are drained, then verified by reconcile. 05:30 then 06:00 UTC.
   await boss.schedule(COMPLIANCE_REFRESH_QUEUE, "30 5 * * *");
   await boss.schedule(RECONCILE_QUEUE, "0 6 * * *"); // nightly, 06:00 UTC
+  // Daily HIPAA reminder run at 13:00 UTC (about 8am ET), after the nightly
+  // compliance refresh so statuses are fresh. Per-person 7-day dedup keeps each
+  // person at most weekly even though the job runs daily.
+  await boss.schedule(REMINDERS_QUEUE, "0 13 * * *");
   await boss.schedule(EMAIL_QUEUE, "* * * * *");
 
   const client = config.AIRTABLE_PAT ? new AirtableClient(config.AIRTABLE_PAT) : null;
@@ -74,6 +81,15 @@ async function main() {
   await boss.work(COMPLIANCE_REFRESH_QUEUE, async () => {
     const enqueued = await refreshComplianceMirror();
     console.log(`[worker] compliance refresh enqueued ${enqueued} change(s)`);
+  });
+
+  // Daily HIPAA compliance reminders: queues volunteer reminders (weekly per
+  // person) and director escalations into the email queue.
+  await boss.work(REMINDERS_QUEUE, async () => {
+    const r = await runComplianceReminders();
+    console.log(
+      `[worker] compliance reminders sent=${r.remindersSent} escalations=${r.escalationsSent} reset=${r.reset} skipped=${r.skipped}`
+    );
   });
 
   // Email send drain: loops until the queue is empty on each trigger.

@@ -158,6 +158,50 @@ describe("loadConfig", () => {
     );
   });
 
+  // --- Compliance reminder cadence config ---
+
+  it("defaults COMPLIANCE_REMINDER_INTERVAL_DAYS to 7 and COMPLIANCE_ESCALATION_THRESHOLD to 3", () => {
+    const config = loadConfig(base);
+    expect(config.COMPLIANCE_REMINDER_INTERVAL_DAYS).toBe(7);
+    expect(config.COMPLIANCE_ESCALATION_THRESHOLD).toBe(3);
+  });
+
+  it("rejects COMPLIANCE_REMINDER_INTERVAL_DAYS 'abc' naming the variable", () => {
+    expect(() =>
+      loadConfig({ ...base, COMPLIANCE_REMINDER_INTERVAL_DAYS: "abc" })
+    ).toThrowError(/COMPLIANCE_REMINDER_INTERVAL_DAYS/);
+  });
+
+  it("rejects COMPLIANCE_REMINDER_INTERVAL_DAYS '0' naming the variable", () => {
+    expect(() =>
+      loadConfig({ ...base, COMPLIANCE_REMINDER_INTERVAL_DAYS: "0" })
+    ).toThrowError(/COMPLIANCE_REMINDER_INTERVAL_DAYS/);
+  });
+
+  it("rejects COMPLIANCE_REMINDER_INTERVAL_DAYS '-1' naming the variable", () => {
+    expect(() =>
+      loadConfig({ ...base, COMPLIANCE_REMINDER_INTERVAL_DAYS: "-1" })
+    ).toThrowError(/COMPLIANCE_REMINDER_INTERVAL_DAYS/);
+  });
+
+  it("rejects COMPLIANCE_ESCALATION_THRESHOLD 'abc' naming the variable", () => {
+    expect(() =>
+      loadConfig({ ...base, COMPLIANCE_ESCALATION_THRESHOLD: "abc" })
+    ).toThrowError(/COMPLIANCE_ESCALATION_THRESHOLD/);
+  });
+
+  it("rejects COMPLIANCE_ESCALATION_THRESHOLD '0' naming the variable", () => {
+    expect(() =>
+      loadConfig({ ...base, COMPLIANCE_ESCALATION_THRESHOLD: "0" })
+    ).toThrowError(/COMPLIANCE_ESCALATION_THRESHOLD/);
+  });
+
+  it("rejects COMPLIANCE_ESCALATION_THRESHOLD '-1' naming the variable", () => {
+    expect(() =>
+      loadConfig({ ...base, COMPLIANCE_ESCALATION_THRESHOLD: "-1" })
+    ).toThrowError(/COMPLIANCE_ESCALATION_THRESHOLD/);
+  });
+
   // --- Airtable HIPAA field ---
 
   it("leaves AIRTABLE_MIRROR_HIPAA_FIELD_ID undefined when not set", () => {
@@ -269,32 +313,39 @@ describe("loadConfig", () => {
     expect(config.EMAIL_TRANSPORT).toBe("log");
   });
 
-  it("rejects graph mode without Graph vars, naming each missing key", () => {
+  it("defaults GRAPH_OAUTH_REDIRECT_URI to the localhost callback", () => {
+    const config = loadConfig(base);
+    expect(config.GRAPH_OAUTH_REDIRECT_URI).toBe(
+      "http://localhost:3000/admin/email/oauth/callback"
+    );
+  });
+
+  it("rejects graph mode without OAuth vars, naming each missing key", () => {
     expect(() =>
       loadConfig({ ...base, EMAIL_TRANSPORT: "graph" })
-    ).toThrowError(/GRAPH_TENANT_ID/);
+    ).toThrowError(/GRAPH_OAUTH_TENANT_ID/);
     expect(() =>
       loadConfig({ ...base, EMAIL_TRANSPORT: "graph" })
-    ).toThrowError(/GRAPH_CLIENT_ID/);
+    ).toThrowError(/GRAPH_OAUTH_CLIENT_ID/);
     expect(() =>
       loadConfig({ ...base, EMAIL_TRANSPORT: "graph" })
-    ).toThrowError(/GRAPH_CLIENT_SECRET/);
+    ).toThrowError(/GRAPH_OAUTH_CLIENT_SECRET/);
     expect(() =>
       loadConfig({ ...base, EMAIL_TRANSPORT: "graph" })
     ).toThrowError(/EMAIL_SENDER/);
   });
 
-  it("accepts graph mode when all four Graph/sender vars are present", () => {
+  it("accepts graph mode when all four OAuth/sender vars are present", () => {
     const config = loadConfig({
       ...base,
       EMAIL_TRANSPORT: "graph",
-      GRAPH_TENANT_ID: "tenant-id",
-      GRAPH_CLIENT_ID: "client-id",
-      GRAPH_CLIENT_SECRET: "client-secret",
+      GRAPH_OAUTH_TENANT_ID: "tenant-id",
+      GRAPH_OAUTH_CLIENT_ID: "client-id",
+      GRAPH_OAUTH_CLIENT_SECRET: "client-secret",
       EMAIL_SENDER: "noreply@example.com",
     });
     expect(config.EMAIL_TRANSPORT).toBe("graph");
-    expect(config.GRAPH_TENANT_ID).toBe("tenant-id");
+    expect(config.GRAPH_OAUTH_TENANT_ID).toBe("tenant-id");
     expect(config.EMAIL_SENDER).toBe("noreply@example.com");
   });
 });

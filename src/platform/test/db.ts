@@ -8,6 +8,7 @@ export async function resetDb() {
               "ShiftAssignment", "HipaaCertificate", "RoleAssignment", "RoleGrant", "Role", "TermMembership",
               "DepartmentDelegation", "Department", "Term", "Person", "AuditLog",
               "Outbox", "MirrorRecord", "WorkerHeartbeat",
-              "OffboardFlag", "EpicRequest", "YnhhTicket", "DisciplinaryAction", "EmailLog" CASCADE`
+              "OffboardFlag", "EpicRequest", "YnhhTicket", "DisciplinaryAction", "EmailLog",
+              "ComplianceReminder", "MailCredential" CASCADE`
   );
 }

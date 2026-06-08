@@ -20,6 +20,12 @@
  *   All person-link fields contain All People airtable record ids.
  *
  * The import NEVER deletes existing ShiftAssignment rows; it only upserts.
+ *
+ * WARNING: this is a one-time SU 26 cutover import. Re-running in apply mode
+ * after the Part 2 builder has made manual edits WILL overwrite those edits
+ * (role and tag fields are updated to match Airtable). Review the dry-run
+ * "updated" count first; do not re-apply after the builder is live unless a
+ * full Airtable resync is intended.
  */
 
 import type { Prisma } from "@prisma/client";

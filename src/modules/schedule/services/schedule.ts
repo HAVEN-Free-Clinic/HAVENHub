@@ -43,8 +43,11 @@ export type MyShift = {
 
 export type PersonLite = { id: string; name: string };
 
+/** Department fields the full-schedule view needs (subset of Department). */
+export type DepartmentLite = { id: string; name: string; code: string };
+
 export type FullScheduleDepartment = {
-  department: Department;
+  department: DepartmentLite;
   directors: PersonLite[];
   volunteers: Array<PersonLite & { tags: { triage: boolean; walkin: boolean; cc: boolean; remote: boolean } }>;
   shadows: PersonLite[];
@@ -218,17 +221,12 @@ export async function fullSchedule(
     (a) => isoDateKey(a.clinicDate) === selectedKey
   );
 
-  // Collect only departments that have at least one assignment on the selected date,
-  // preserving department metadata from the assignment rows.
-  const scheduledDeptIds = new Set(selectedAssignments.map((a) => a.departmentId));
-
-  // Load only the departments that appear on the selected date, sorted by code.
-  const scheduledDepartments = scheduledDeptIds.size > 0
-    ? await prisma.department.findMany({
-        where: { id: { in: [...scheduledDeptIds] } },
-        orderBy: { code: "asc" },
-      })
-    : [];
+  // Departments that have at least one assignment on the selected date, built
+  // from the department data already on the assignment rows (no extra query),
+  // sorted by code. Plain string comparison is fine for ASCII codes.
+  const scheduledDepartments: DepartmentLite[] = [
+    ...new Map(selectedAssignments.map((a) => [a.departmentId, a.department])).values(),
+  ].sort((a, b) => (a.code < b.code ? -1 : 1));
 
   // Map departmentId -> lists of people by role.
   const byDept = new Map<string, {

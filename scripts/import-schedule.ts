@@ -16,6 +16,11 @@ async function main() {
   const client = new AirtableClient(config.AIRTABLE_PAT);
 
   console.log(dryRun ? "Dry run -- no changes will be written." : "Apply mode -- writing to database.");
+  if (!dryRun) {
+    console.log(
+      "WARNING: apply overwrites platform-side edits to imported rows (role and tags reset to Airtable values). One-time cutover use only."
+    );
+  }
   console.log();
 
   const report = await runScheduleImport(client, {

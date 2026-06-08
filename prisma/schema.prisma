@@ -93,6 +93,7 @@ model Person {
   complianceReminder        ComplianceReminder?
   shiftAssignments          ShiftAssignment[]
   recruitmentCyclesCreated  RecruitmentCycle[]   @relation("RecruitmentCycleCreatedBy")
+  recruitmentAcceptances    Acceptance[]         @relation("recruitmentAcceptanceApprover")
   /// Shift requests this person raised.
   shiftRequests             ShiftRequest[]       @relation("shiftRequestRequester")
   /// Shift requests targeting this person as the swap partner.
@@ -726,9 +727,27 @@ model Application {
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
 
-  cycle     RecruitmentCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
-  applicant Applicant        @relation(fields: [applicantId], references: [id], onDelete: Cascade)
+  cycle       RecruitmentCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  applicant   Applicant        @relation(fields: [applicantId], references: [id], onDelete: Cascade)
+  acceptances Acceptance[]
 
   @@unique([cycleId, applicantId])
   @@index([cycleId, submittedAt])
+}
+
+model Acceptance {
+  id             String    @id @default(cuid())
+  applicationId  String
+  departmentCode String
+  approvedById   String
+  notes          String?
+  emailedAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  approvedBy  Person      @relation("recruitmentAcceptanceApprover", fields: [approvedById], references: [id], onDelete: Restrict)
+
+  @@unique([applicationId, departmentCode])
+  @@index([applicationId])
 }

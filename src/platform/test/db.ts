@@ -4,7 +4,7 @@ import { prisma } from "@/platform/db";
 export async function resetDb() {
   // CASCADE handles FK ordering. (RESTART IDENTITY would be a no-op: all PKs are cuid text.)
   await prisma.$executeRawUnsafe(
-    `TRUNCATE "Application", "Applicant", "FormField", "FormSection", "RecruitmentCycle",
+    `TRUNCATE "Acceptance", "Application", "Applicant", "FormField", "FormSection", "RecruitmentCycle",
               "ShiftRequest", "ScheduleDay", "RhdClinic", "RhdAttending",
               "ShiftAssignment", "HipaaCertificate", "RoleAssignment", "RoleGrant", "Role", "TermMembership",
               "DepartmentDelegation", "Department", "Term", "Person", "AuditLog",

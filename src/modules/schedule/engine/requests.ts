@@ -94,27 +94,16 @@ export type AssignmentMutation =
   | { op: "remove"; personId: string; dateKey: string; role: Role }
   | { op: "add"; personId: string; dateKey: string; role: Role };
 
-export type ApplyInput = {
-  scheduleRows: ScheduleRowForValidation[];
-  requesterId: string;
-  requesterDate: string;
-  targetId?: string;
-  targetDate?: string;
-};
-
-function roleOfInRow(row: ScheduleRowForValidation, personId: string): Role | null {
-  if (row.directorIds.includes(personId)) return "director";
-  if (row.volunteerIds.includes(personId)) return "volunteer";
-  if (row.shadowIds?.includes(personId)) return "shadow";
-  return null;
-}
+// Identical shape today; alias keeps the API name stable if the two diverge later.
+export type ApplyInput = ValidateInput;
 
 export function planApply(input: ApplyInput): AssignmentMutation[] {
   const { scheduleRows, requesterId, requesterDate, targetId, targetDate } = input;
 
-  const requesterRow = scheduleRows.find((r) => r.date === requesterDate);
-  if (!requesterRow) throw new Error("Requester's row not found");
-  const requesterRole = roleOfInRow(requesterRow, requesterId);
+  // Service validates before calling planApply, so these are internal invariant guards,
+  // not user-facing errors. Deliberate simplification from legacy (which distinguished
+  // "row not found" from "person not in row" with two separate messages).
+  const requesterRole = findRoleOnDate(scheduleRows, requesterId, requesterDate);
   if (!requesterRole) throw new Error("Requester not assigned to requester date");
 
   // Drop: single remove.

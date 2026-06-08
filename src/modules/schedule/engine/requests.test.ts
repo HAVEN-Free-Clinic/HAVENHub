@@ -216,12 +216,22 @@ describe("planApply", () => {
     ]);
   });
 
-  it("throws if the requester's row is missing", () => {
+  it("throws if the requester is not in the row for that date", () => {
     expect(() =>
       planApply({
         scheduleRows: baseRows,
         requesterId: "vZ",
         requesterDate: "2026-05-30",
+      }),
+    ).toThrow(/not assigned/i);
+  });
+
+  it("throws if the requester date matches no row at all", () => {
+    expect(() =>
+      planApply({
+        scheduleRows: baseRows,
+        requesterId: "vA",
+        requesterDate: "2099-01-01",
       }),
     ).toThrow(/not assigned/i);
   });

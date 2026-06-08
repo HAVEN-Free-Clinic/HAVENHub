@@ -45,6 +45,12 @@ describe("selectCurrentClinicDate", () => {
   it("returns null for an empty list", () => {
     expect(selectCurrentClinicDate([], new Date())).toBeNull();
   });
+
+  it("returns today's clinic when now equals the clinic instant", () => {
+    // now == the 06-13 clinic instant (12:00 UTC) -> NY dates equal -> 06-13.
+    const now = clinic(2026, 6, 13);
+    expect(selectCurrentClinicDate(dates, now)).toEqual(clinic(2026, 6, 13));
+  });
 });
 
 describe("formatClinicDate", () => {

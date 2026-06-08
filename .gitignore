@@ -9,3 +9,6 @@ playwright-report/
 test-results/
 coverage/
 uploads/
+
+# Claude Code session data, worktrees, agent tooling
+.claude/

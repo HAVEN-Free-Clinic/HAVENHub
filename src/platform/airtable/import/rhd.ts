@@ -9,6 +9,10 @@
  * `.name` property. Normalization: lowercase "yes" -> "yes", "no" -> "no",
  * anything else or absent -> "unknown".
  *
+ * Clinic Date values may be ISO-leading strings or display strings like
+ * "June 6th". Abbreviated month names (e.g. "Sept") are NOT recognized and
+ * land in skippedClinicDates for the operator to investigate.
+ *
  * The import NEVER deletes existing rows; it only upserts.
  */
 
@@ -90,7 +94,7 @@ function normalizeSelect(value: unknown): string {
 /** Read a string field; absent or non-string -> null. */
 function strOrNull(fields: Record<string, unknown>, fieldId: string): string | null {
   const v = fields[fieldId];
-  if (typeof v === "string" && v.trim().length > 0) return v;
+  if (typeof v === "string" && v.trim().length > 0) return v.trim();
   return null;
 }
 

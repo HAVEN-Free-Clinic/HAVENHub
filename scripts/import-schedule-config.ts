@@ -16,6 +16,11 @@ async function main() {
   const client = new AirtableClient(config.AIRTABLE_PAT);
 
   console.log(dryRun ? "Dry run -- no changes will be written." : "Apply mode -- writing to database.");
+  if (!dryRun) {
+    console.log(
+      "WARNING: apply mirrors Airtable exactly, including LOWERING spanishSpeaking/licensedRN to false when the checkbox is absent. If the Recruitment module owns these flags now, do not re-run."
+    );
+  }
   console.log();
 
   const report = await runScheduleConfigImport(client, {

@@ -18,6 +18,9 @@ async function main() {
   const client = new AirtableClient(config.AIRTABLE_PAT);
 
   console.log(dryRun ? "Dry run -- no changes will be written." : "Apply mode -- writing to database.");
+  if (!dryRun) {
+    console.log("Note: apply only upserts attendings and clinic rows; platform edits to OTHER fields are preserved, but matching fields are reset to Airtable values.");
+  }
   console.log();
 
   const report = await runRhdImport(client, {

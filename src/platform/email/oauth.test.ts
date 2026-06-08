@@ -1,6 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
+import { config } from "@/platform/config";
 import {
   buildAuthorizeUrl,
   exchangeCode,
@@ -52,6 +53,26 @@ beforeEach(async () => {
 // ---------------------------------------------------------------------------
 
 describe("buildAuthorizeUrl", () => {
+  // buildAuthorizeUrl throws when the OAuth app is unconfigured, so provide
+  // test values for the client id and tenant (restored after).
+  const prevClientId = config.GRAPH_OAUTH_CLIENT_ID;
+  const prevTenantId = config.GRAPH_OAUTH_TENANT_ID;
+  beforeAll(() => {
+    config.GRAPH_OAUTH_CLIENT_ID = "test-client-id";
+    config.GRAPH_OAUTH_TENANT_ID = "test-tenant-id";
+  });
+  afterAll(() => {
+    config.GRAPH_OAUTH_CLIENT_ID = prevClientId;
+    config.GRAPH_OAUTH_TENANT_ID = prevTenantId;
+  });
+
+  it("throws when the OAuth app is not configured", () => {
+    const saved = config.GRAPH_OAUTH_CLIENT_ID;
+    config.GRAPH_OAUTH_CLIENT_ID = undefined;
+    expect(() => buildAuthorizeUrl({ state: "s" })).toThrow(/not configured/);
+    config.GRAPH_OAUTH_CLIENT_ID = saved;
+  });
+
   it("returns a URL pointing at the Microsoft authorize endpoint", () => {
     const url = buildAuthorizeUrl({ state: "test-state" });
     expect(url).toContain("login.microsoftonline.com");

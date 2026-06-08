@@ -166,23 +166,25 @@ export default async function EmailPage({ searchParams }: PageProps) {
   async function connectMailerAction() {
     "use server";
     await requirePermission("admin.manage_sync");
-    // Build the authorize URL first; a config error (missing OAuth vars) is the
-    // only thing that can throw here. The redirect itself happens outside the try.
+    // Build the authorize URL first (it throws when the OAuth app is not
+    // configured) so an unconfigured mailer never sets a stray state cookie.
+    // The redirect itself happens outside the try so its NEXT_REDIRECT is not
+    // caught here.
+    const state = crypto.randomUUID();
     let target: string;
     try {
-      const state = crypto.randomUUID();
-      (await cookies()).set("mailer_oauth_state", state, {
-        httpOnly: true,
-        sameSite: "lax",
-        maxAge: 600,
-        path: "/",
-      });
       target = buildAuthorizeUrl({ state });
     } catch {
       redirect(
         `/admin/email?error=validation&message=${encodeURIComponent("Mailer OAuth is not configured.")}`
       );
     }
+    (await cookies()).set("mailer_oauth_state", state, {
+      httpOnly: true,
+      sameSite: "lax",
+      maxAge: 600,
+      path: "/",
+    });
     redirect(target);
   }
 

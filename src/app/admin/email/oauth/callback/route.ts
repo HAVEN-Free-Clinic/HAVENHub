@@ -28,16 +28,17 @@ export async function GET(request: NextRequest): Promise<Response> {
     back(`/admin/email?error=validation&message=${encodeURIComponent(message)}`);
 
   // --- Auth: signed-in active person with the sync permission ---
+  // Every exit path goes through back() so the CSRF cookie is always cleared.
   const session = await auth();
   if (!session?.personId) {
-    return NextResponse.redirect(new URL("/login", request.url));
+    return back("/login");
   }
   const person = await getActivePerson(session.personId);
   if (!person) {
-    return NextResponse.redirect(new URL("/welcome", request.url));
+    return back("/welcome");
   }
   if (!(await can(person.id, "admin.manage_sync"))) {
-    return NextResponse.redirect(new URL("/", request.url));
+    return back("/");
   }
 
   const params = request.nextUrl.searchParams;

@@ -78,8 +78,14 @@ export function __resetTokenCache(): void {
  * one-time code that exchangeCode() then redeems.
  */
 export function buildAuthorizeUrl(opts: { state: string }): string {
+  // Guard: a missing client id or tenant means the OAuth app is not configured;
+  // throw so the connect action surfaces a clear error instead of redirecting
+  // the admin to a malformed Microsoft URL.
+  if (!config.GRAPH_OAUTH_CLIENT_ID || !config.GRAPH_OAUTH_TENANT_ID) {
+    throw new Error("Mailer OAuth is not configured.");
+  }
   const params = new URLSearchParams({
-    client_id: config.GRAPH_OAUTH_CLIENT_ID ?? "",
+    client_id: config.GRAPH_OAUTH_CLIENT_ID,
     response_type: "code",
     redirect_uri: config.GRAPH_OAUTH_REDIRECT_URI,
     response_mode: "query",
@@ -186,6 +192,8 @@ export async function exchangeCode(
       refreshToken: json.refresh_token,
       account,
       scope: json.scope ?? null,
+      // Refresh the connection timestamp so the admin UI shows the latest connect.
+      connectedAt: new Date(),
     },
   });
 }

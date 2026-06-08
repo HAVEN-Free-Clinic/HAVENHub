@@ -10,7 +10,7 @@ export default async function ApplicantsPage({ params }: { params: Promise<{ id:
   const apps = await listApplications(id);
   return (
     <div>
-      <h1 className="text-2xl font-semibold tracking-tight">Applicants — {cycle.title}</h1>
+      <h1 className="text-2xl font-semibold tracking-tight">Applicants: {cycle.title}</h1>
       <table className="mt-6 w-full text-sm">
         <thead><tr className="text-left text-slate-500"><th className="py-2">Name</th><th>Email</th><th>Type</th><th>Departments</th><th>Submitted</th></tr></thead>
         <tbody>

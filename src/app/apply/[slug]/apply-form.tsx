@@ -35,7 +35,7 @@ export function ApplyForm({ def }: { def: Def }) {
   }
 
   if (result?.ok) {
-    return <p className="mt-8 rounded border border-green-300 bg-green-50 px-4 py-3 text-green-800">Thanks — your application was received. Check your email for a confirmation.</p>;
+    return <p className="mt-8 rounded border border-green-300 bg-green-50 px-4 py-3 text-green-800">Thanks, your application was received. Check your email for a confirmation.</p>;
   }
 
   return (

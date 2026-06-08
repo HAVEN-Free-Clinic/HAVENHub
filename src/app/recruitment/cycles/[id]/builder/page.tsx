@@ -13,7 +13,7 @@ export default async function BuilderPage({ params, searchParams }: { params: Pr
 
   return (
     <div className="max-w-3xl space-y-6">
-      <h1 className="text-2xl font-semibold tracking-tight">Form builder — {cycle.title}</h1>
+      <h1 className="text-2xl font-semibold tracking-tight">Form builder: {cycle.title}</h1>
       {!editable && <p className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">This cycle is {cycle.status}. Only safe edits (labels, help text) are allowed.</p>}
       {error && <p role="alert" className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
 

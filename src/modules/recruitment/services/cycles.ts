@@ -23,7 +23,7 @@ export type CreateCycleInput = {
 /** Create a DRAFT cycle and seed the mandatory identity section/fields so the
  *  publish guard and the public form always have name + email. Two steps: the
  *  cycle+section first (so we have both ids), then the fields with cycleId set
- *  directly — FormField.cycleId is required, so it cannot be a nested create. */
+ *  directly. FormField.cycleId is required, so it cannot be a nested create. */
 export async function createCycle(input: CreateCycleInput): Promise<RecruitmentCycle> {
   const cycle = await prisma.$transaction(async (tx) => {
     const created = await tx.recruitmentCycle.create({

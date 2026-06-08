@@ -23,7 +23,7 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
               const val = answers[f.key];
               const display = f.type === "FILE" && val && typeof val === "object"
                 ? (val as { fileName?: string }).fileName ?? "(file)"
-                : Array.isArray(val) ? val.join(", ") : val === undefined || val === "" ? "—" : String(val);
+                : Array.isArray(val) ? val.join(", ") : val === undefined || val === "" ? "(none)" : String(val);
               return (<div key={f.id}><dt className="text-xs text-slate-500">{f.label}</dt><dd className="text-sm">{display}</dd></div>);
             })}
           </dl>

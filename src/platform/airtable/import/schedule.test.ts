@@ -3,6 +3,10 @@
  *
  * Uses the real test database (resetDb) and a FakeReader pattern mirroring
  * importer.test.ts. No real Airtable calls are made.
+ *
+ * NOTE: AirtableClient.listAll requests returnFieldsByFieldId=true, so all
+ * fixture `fields` objects below are keyed by real Airtable field IDs (e.g.
+ * "fldRqPKWn6NxzoJXZ"), not display names.
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
@@ -34,6 +38,7 @@ const CLINIC_DATE_STR = "2026-06-15";
 const OTHER_DATE_STR = "2026-07-04";
 
 const DEPT_NAME = "Surgery";
+const DEPT_CODE = "SURGERY"; // seedDept uses name.toUpperCase() for the code
 
 // Default options
 const BASE_OPTS: Omit<ScheduleImportOptions, "dryRun"> = {
@@ -104,15 +109,15 @@ describe("runScheduleImport", () => {
       {
         id: "rowX",
         fields: {
-          "Department Name (from Department)": [DEPT_NAME],
-          "Date": CLINIC_DATE_STR,
-          "Directors on Shift": [REC_ALICE],
-          "Volunteers on Shift": [REC_BOB],
-          "Shadow Volunteers on Shift": [],
-          "Remote on Shift": [],
-          "Triage on Shift": [],
-          "Walk-in on Shift": [],
-          "CC on Shift": [],
+          "fldBdcAE6F8Bqu4FW": [DEPT_CODE],
+          "fldRqPKWn6NxzoJXZ": CLINIC_DATE_STR,
+          "fldWECXlelGfP9Sb0": [REC_ALICE],
+          "fldMoCbSA44uhyjxx": [REC_BOB],
+          "fldqFDr9lu1Ih4YC0": [],
+          "fldvZalLmfRQijopm": [],
+          "fldmQasTpGxocBz9l": [],
+          "fldepAQbnkNquxSYd": [],
+          "fldxyf4junebaIIYQ": [],
         },
       },
     ]);
@@ -141,15 +146,15 @@ describe("runScheduleImport", () => {
       {
         id: "rowShadow",
         fields: {
-          "Department Name (from Department)": [DEPT_NAME],
-          "Date": CLINIC_DATE_STR,
-          "Directors on Shift": [],
-          "Volunteers on Shift": [],
-          "Shadow Volunteers on Shift": [REC_CAROL],
-          "Remote on Shift": [],
-          "Triage on Shift": [],
-          "Walk-in on Shift": [],
-          "CC on Shift": [],
+          "fldBdcAE6F8Bqu4FW": [DEPT_CODE],
+          "fldRqPKWn6NxzoJXZ": CLINIC_DATE_STR,
+          "fldWECXlelGfP9Sb0": [],
+          "fldMoCbSA44uhyjxx": [],
+          "fldqFDr9lu1Ih4YC0": [REC_CAROL],
+          "fldvZalLmfRQijopm": [],
+          "fldmQasTpGxocBz9l": [],
+          "fldepAQbnkNquxSYd": [],
+          "fldxyf4junebaIIYQ": [],
         },
       },
     ]);
@@ -169,15 +174,15 @@ describe("runScheduleImport", () => {
       {
         id: "rowTags",
         fields: {
-          "Department Name (from Department)": [DEPT_NAME],
-          "Date": CLINIC_DATE_STR,
-          "Directors on Shift": [],
-          "Volunteers on Shift": [REC_BOB],
-          "Shadow Volunteers on Shift": [],
-          "Remote on Shift": [REC_BOB],
-          "Triage on Shift": [REC_BOB],
-          "Walk-in on Shift": [],
-          "CC on Shift": [],
+          "fldBdcAE6F8Bqu4FW": [DEPT_CODE],
+          "fldRqPKWn6NxzoJXZ": CLINIC_DATE_STR,
+          "fldWECXlelGfP9Sb0": [],
+          "fldMoCbSA44uhyjxx": [REC_BOB],
+          "fldqFDr9lu1Ih4YC0": [],
+          "fldvZalLmfRQijopm": [REC_BOB],
+          "fldmQasTpGxocBz9l": [REC_BOB],
+          "fldepAQbnkNquxSYd": [],
+          "fldxyf4junebaIIYQ": [],
         },
       },
     ]);
@@ -201,15 +206,15 @@ describe("runScheduleImport", () => {
       {
         id: "rowTagOnShift",
         fields: {
-          "Department Name (from Department)": [DEPT_NAME],
-          "Date": CLINIC_DATE_STR,
-          "Directors on Shift": [],
-          "Volunteers on Shift": [],
-          "Shadow Volunteers on Shift": [],
-          "Remote on Shift": [],
-          "Triage on Shift": [REC_CAROL],
-          "Walk-in on Shift": [],
-          "CC on Shift": [],
+          "fldBdcAE6F8Bqu4FW": [DEPT_CODE],
+          "fldRqPKWn6NxzoJXZ": CLINIC_DATE_STR,
+          "fldWECXlelGfP9Sb0": [],
+          "fldMoCbSA44uhyjxx": [],
+          "fldqFDr9lu1Ih4YC0": [],
+          "fldvZalLmfRQijopm": [],
+          "fldmQasTpGxocBz9l": [REC_CAROL],
+          "fldepAQbnkNquxSYd": [],
+          "fldxyf4junebaIIYQ": [],
         },
       },
     ]);
@@ -231,15 +236,15 @@ describe("runScheduleImport", () => {
       {
         id: "rowDirVol",
         fields: {
-          "Department Name (from Department)": [DEPT_NAME],
-          "Date": CLINIC_DATE_STR,
-          "Directors on Shift": [REC_ALICE],
-          "Volunteers on Shift": [REC_ALICE], // same person in both lists
-          "Shadow Volunteers on Shift": [],
-          "Remote on Shift": [],
-          "Triage on Shift": [],
-          "Walk-in on Shift": [],
-          "CC on Shift": [],
+          "fldBdcAE6F8Bqu4FW": [DEPT_CODE],
+          "fldRqPKWn6NxzoJXZ": CLINIC_DATE_STR,
+          "fldWECXlelGfP9Sb0": [REC_ALICE],
+          "fldMoCbSA44uhyjxx": [REC_ALICE], // same person in both lists
+          "fldqFDr9lu1Ih4YC0": [],
+          "fldvZalLmfRQijopm": [],
+          "fldmQasTpGxocBz9l": [],
+          "fldepAQbnkNquxSYd": [],
+          "fldxyf4junebaIIYQ": [],
         },
       },
     ]);
@@ -262,15 +267,15 @@ describe("runScheduleImport", () => {
       {
         id: "rowDirTriage",
         fields: {
-          "Department Name (from Department)": [DEPT_NAME],
-          "Date": CLINIC_DATE_STR,
-          "Directors on Shift": [REC_ALICE],
-          "Volunteers on Shift": [],
-          "Shadow Volunteers on Shift": [],
-          "Remote on Shift": [],
-          "Triage on Shift": [REC_ALICE], // same person also tagged
-          "Walk-in on Shift": [],
-          "CC on Shift": [],
+          "fldBdcAE6F8Bqu4FW": [DEPT_CODE],
+          "fldRqPKWn6NxzoJXZ": CLINIC_DATE_STR,
+          "fldWECXlelGfP9Sb0": [REC_ALICE],
+          "fldMoCbSA44uhyjxx": [],
+          "fldqFDr9lu1Ih4YC0": [],
+          "fldvZalLmfRQijopm": [],
+          "fldmQasTpGxocBz9l": [REC_ALICE], // same person also tagged
+          "fldepAQbnkNquxSYd": [],
+          "fldxyf4junebaIIYQ": [],
         },
       },
     ]);
@@ -298,15 +303,15 @@ describe("runScheduleImport", () => {
       {
         id: "rowUnresolved",
         fields: {
-          "Department Name (from Department)": [DEPT_NAME],
-          "Date": CLINIC_DATE_STR,
-          "Directors on Shift": [REC_ALICE],
-          "Volunteers on Shift": [REC_GHOST], // ghost: not in DB
-          "Shadow Volunteers on Shift": [],
-          "Remote on Shift": [],
-          "Triage on Shift": [],
-          "Walk-in on Shift": [],
-          "CC on Shift": [],
+          "fldBdcAE6F8Bqu4FW": [DEPT_CODE],
+          "fldRqPKWn6NxzoJXZ": CLINIC_DATE_STR,
+          "fldWECXlelGfP9Sb0": [REC_ALICE],
+          "fldMoCbSA44uhyjxx": [REC_GHOST], // ghost: not in DB
+          "fldqFDr9lu1Ih4YC0": [],
+          "fldvZalLmfRQijopm": [],
+          "fldmQasTpGxocBz9l": [],
+          "fldepAQbnkNquxSYd": [],
+          "fldxyf4junebaIIYQ": [],
         },
       },
     ]);
@@ -334,15 +339,15 @@ describe("runScheduleImport", () => {
       {
         id: "rowBadDate",
         fields: {
-          "Department Name (from Department)": [DEPT_NAME],
-          "Date": OTHER_DATE_STR,
-          "Directors on Shift": [REC_ALICE],
-          "Volunteers on Shift": [],
-          "Shadow Volunteers on Shift": [],
-          "Remote on Shift": [],
-          "Triage on Shift": [],
-          "Walk-in on Shift": [],
-          "CC on Shift": [],
+          "fldBdcAE6F8Bqu4FW": [DEPT_CODE],
+          "fldRqPKWn6NxzoJXZ": OTHER_DATE_STR,
+          "fldWECXlelGfP9Sb0": [REC_ALICE],
+          "fldMoCbSA44uhyjxx": [],
+          "fldqFDr9lu1Ih4YC0": [],
+          "fldvZalLmfRQijopm": [],
+          "fldmQasTpGxocBz9l": [],
+          "fldepAQbnkNquxSYd": [],
+          "fldxyf4junebaIIYQ": [],
         },
       },
     ]);
@@ -357,30 +362,30 @@ describe("runScheduleImport", () => {
   // Unknown department name
   // -------------------------------------------------------------------------
 
-  it("unknown department name is collected in unknownDepartments and row is skipped", async () => {
+  it("unknown department code is collected in unknownDepartments and row is skipped", async () => {
     await seedTerm();
-    await seedDept(); // seeds "Surgery"
+    await seedDept(); // seeds "Surgery" / code "SURGERY"
     await seedPerson("Alice", REC_ALICE);
 
     const reader = makeReader([
       {
         id: "rowUnknownDept",
         fields: {
-          "Department Name (from Department)": ["Radiology"], // not seeded
-          "Date": CLINIC_DATE_STR,
-          "Directors on Shift": [REC_ALICE],
-          "Volunteers on Shift": [],
-          "Shadow Volunteers on Shift": [],
-          "Remote on Shift": [],
-          "Triage on Shift": [],
-          "Walk-in on Shift": [],
-          "CC on Shift": [],
+          "fldBdcAE6F8Bqu4FW": ["RADIOLOGY"], // code not seeded
+          "fldRqPKWn6NxzoJXZ": CLINIC_DATE_STR,
+          "fldWECXlelGfP9Sb0": [REC_ALICE],
+          "fldMoCbSA44uhyjxx": [],
+          "fldqFDr9lu1Ih4YC0": [],
+          "fldvZalLmfRQijopm": [],
+          "fldmQasTpGxocBz9l": [],
+          "fldepAQbnkNquxSYd": [],
+          "fldxyf4junebaIIYQ": [],
         },
       },
     ]);
 
     const report = await runScheduleImport(reader, { ...BASE_OPTS, dryRun: false });
-    expect(report.unknownDepartments).toContain("Radiology");
+    expect(report.unknownDepartments).toContain("RADIOLOGY");
     expect(report.created).toBe(0);
     expect(await prisma.shiftAssignment.count()).toBe(0);
   });
@@ -399,15 +404,15 @@ describe("runScheduleImport", () => {
       {
         id: "rowIdem",
         fields: {
-          "Department Name (from Department)": [DEPT_NAME],
-          "Date": CLINIC_DATE_STR,
-          "Directors on Shift": [REC_ALICE],
-          "Volunteers on Shift": [REC_BOB],
-          "Shadow Volunteers on Shift": [],
-          "Remote on Shift": [],
-          "Triage on Shift": [],
-          "Walk-in on Shift": [],
-          "CC on Shift": [],
+          "fldBdcAE6F8Bqu4FW": [DEPT_CODE],
+          "fldRqPKWn6NxzoJXZ": CLINIC_DATE_STR,
+          "fldWECXlelGfP9Sb0": [REC_ALICE],
+          "fldMoCbSA44uhyjxx": [REC_BOB],
+          "fldqFDr9lu1Ih4YC0": [],
+          "fldvZalLmfRQijopm": [],
+          "fldmQasTpGxocBz9l": [],
+          "fldepAQbnkNquxSYd": [],
+          "fldxyf4junebaIIYQ": [],
         },
       },
     ]);
@@ -434,15 +439,15 @@ describe("runScheduleImport", () => {
       {
         id: "rowUpdate",
         fields: {
-          "Department Name (from Department)": [DEPT_NAME],
-          "Date": CLINIC_DATE_STR,
-          "Directors on Shift": [],
-          "Volunteers on Shift": [REC_BOB],
-          "Shadow Volunteers on Shift": [],
-          "Remote on Shift": [],
-          "Triage on Shift": [],
-          "Walk-in on Shift": [],
-          "CC on Shift": [],
+          "fldBdcAE6F8Bqu4FW": [DEPT_CODE],
+          "fldRqPKWn6NxzoJXZ": CLINIC_DATE_STR,
+          "fldWECXlelGfP9Sb0": [],
+          "fldMoCbSA44uhyjxx": [REC_BOB],
+          "fldqFDr9lu1Ih4YC0": [],
+          "fldvZalLmfRQijopm": [],
+          "fldmQasTpGxocBz9l": [],
+          "fldepAQbnkNquxSYd": [],
+          "fldxyf4junebaIIYQ": [],
         },
       },
     ]);
@@ -457,15 +462,15 @@ describe("runScheduleImport", () => {
       {
         id: "rowUpdate",
         fields: {
-          "Department Name (from Department)": [DEPT_NAME],
-          "Date": CLINIC_DATE_STR,
-          "Directors on Shift": [],
-          "Volunteers on Shift": [REC_BOB],
-          "Shadow Volunteers on Shift": [],
-          "Remote on Shift": [],
-          "Triage on Shift": [REC_BOB],
-          "Walk-in on Shift": [],
-          "CC on Shift": [],
+          "fldBdcAE6F8Bqu4FW": [DEPT_CODE],
+          "fldRqPKWn6NxzoJXZ": CLINIC_DATE_STR,
+          "fldWECXlelGfP9Sb0": [],
+          "fldMoCbSA44uhyjxx": [REC_BOB],
+          "fldqFDr9lu1Ih4YC0": [],
+          "fldvZalLmfRQijopm": [],
+          "fldmQasTpGxocBz9l": [REC_BOB],
+          "fldepAQbnkNquxSYd": [],
+          "fldxyf4junebaIIYQ": [],
         },
       },
     ]);
@@ -492,15 +497,15 @@ describe("runScheduleImport", () => {
       {
         id: "rowDry",
         fields: {
-          "Department Name (from Department)": [DEPT_NAME],
-          "Date": CLINIC_DATE_STR,
-          "Directors on Shift": [REC_ALICE],
-          "Volunteers on Shift": [REC_BOB],
-          "Shadow Volunteers on Shift": [],
-          "Remote on Shift": [],
-          "Triage on Shift": [],
-          "Walk-in on Shift": [],
-          "CC on Shift": [],
+          "fldBdcAE6F8Bqu4FW": [DEPT_CODE],
+          "fldRqPKWn6NxzoJXZ": CLINIC_DATE_STR,
+          "fldWECXlelGfP9Sb0": [REC_ALICE],
+          "fldMoCbSA44uhyjxx": [REC_BOB],
+          "fldqFDr9lu1Ih4YC0": [],
+          "fldvZalLmfRQijopm": [],
+          "fldmQasTpGxocBz9l": [],
+          "fldepAQbnkNquxSYd": [],
+          "fldxyf4junebaIIYQ": [],
         },
       },
     ]);
@@ -540,15 +545,15 @@ describe("runScheduleImport", () => {
       {
         id: "rowAudit",
         fields: {
-          "Department Name (from Department)": [DEPT_NAME],
-          "Date": CLINIC_DATE_STR,
-          "Directors on Shift": [REC_ALICE],
-          "Volunteers on Shift": [],
-          "Shadow Volunteers on Shift": [],
-          "Remote on Shift": [],
-          "Triage on Shift": [],
-          "Walk-in on Shift": [],
-          "CC on Shift": [],
+          "fldBdcAE6F8Bqu4FW": [DEPT_CODE],
+          "fldRqPKWn6NxzoJXZ": CLINIC_DATE_STR,
+          "fldWECXlelGfP9Sb0": [REC_ALICE],
+          "fldMoCbSA44uhyjxx": [],
+          "fldqFDr9lu1Ih4YC0": [],
+          "fldvZalLmfRQijopm": [],
+          "fldmQasTpGxocBz9l": [],
+          "fldepAQbnkNquxSYd": [],
+          "fldxyf4junebaIIYQ": [],
         },
       },
     ]);
@@ -589,29 +594,29 @@ describe("runScheduleImport", () => {
       {
         id: "rowA",
         fields: {
-          "Department Name (from Department)": ["Alpha"],
-          "Date": "2026-06-15",
-          "Directors on Shift": [REC_ALICE],
-          "Volunteers on Shift": [],
-          "Shadow Volunteers on Shift": [],
-          "Remote on Shift": [],
-          "Triage on Shift": [],
-          "Walk-in on Shift": [],
-          "CC on Shift": [],
+          "fldBdcAE6F8Bqu4FW": ["ALPHA"], // department code (seedDept("Alpha") produces code "ALPHA")
+          "fldRqPKWn6NxzoJXZ": "2026-06-15",
+          "fldWECXlelGfP9Sb0": [REC_ALICE],
+          "fldMoCbSA44uhyjxx": [],
+          "fldqFDr9lu1Ih4YC0": [],
+          "fldvZalLmfRQijopm": [],
+          "fldmQasTpGxocBz9l": [],
+          "fldepAQbnkNquxSYd": [],
+          "fldxyf4junebaIIYQ": [],
         },
       },
       {
         id: "rowB",
         fields: {
-          "Department Name (from Department)": ["Beta"],
-          "Date": "2026-06-22",
-          "Directors on Shift": [REC_BOB],
-          "Volunteers on Shift": [],
-          "Shadow Volunteers on Shift": [],
-          "Remote on Shift": [],
-          "Triage on Shift": [],
-          "Walk-in on Shift": [],
-          "CC on Shift": [],
+          "fldBdcAE6F8Bqu4FW": ["BETA"], // department code (seedDept("Beta") produces code "BETA")
+          "fldRqPKWn6NxzoJXZ": "2026-06-22",
+          "fldWECXlelGfP9Sb0": [REC_BOB],
+          "fldMoCbSA44uhyjxx": [],
+          "fldqFDr9lu1Ih4YC0": [],
+          "fldvZalLmfRQijopm": [],
+          "fldmQasTpGxocBz9l": [],
+          "fldepAQbnkNquxSYd": [],
+          "fldxyf4junebaIIYQ": [],
         },
       },
     ]);

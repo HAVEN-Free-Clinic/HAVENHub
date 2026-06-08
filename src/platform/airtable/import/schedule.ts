@@ -1,15 +1,23 @@
 /**
  * Imports the SU 26 Schedule table from Airtable into ShiftAssignment rows.
  *
- * Field names used (the Airtable reader returns fields keyed by their display
- * name for this table, matching how importer.ts reads the roster table via
- * field-name constants in fields.ts):
- *   "Department Name (from Department)" - lookup array; first element is the
- *     canonical department name, matched case-insensitively against Department.name.
- *   "Date" - ISO date string "YYYY-MM-DD".
- *   "Directors on Shift", "Volunteers on Shift", "Shadow Volunteers on Shift",
- *   "Remote on Shift", "Triage on Shift", "Walk-in on Shift", "CC on Shift" -
- *     link arrays of All People airtable record ids.
+ * AirtableClient.listAll requests returnFieldsByFieldId=true, so record fields
+ * are keyed by FIELD ID (e.g. "fldRqPKWn6NxzoJXZ"), not display name. The FIELD
+ * constants below map semantic names to those real field IDs.
+ *
+ * Fields used:
+ *   fldBdcAE6F8Bqu4FW  "Department Name (from Department)" - lookup array;
+ *     first element is the department CODE (e.g. "EDUC"), matched
+ *     case-insensitively against Department.code.
+ *   fldRqPKWn6NxzoJXZ  "Date" - ISO date string "YYYY-MM-DD".
+ *   fldWECXlelGfP9Sb0  "Directors on Shift"
+ *   fldMoCbSA44uhyjxx  "Volunteers on Shift"
+ *   fldqFDr9lu1Ih4YC0  "Shadow Volunteers on Shift"
+ *   fldvZalLmfRQijopm  "Remote on Shift"
+ *   fldmQasTpGxocBz9l  "Triage on Shift"
+ *   fldepAQbnkNquxSYd  "Walk-in on Shift"
+ *   fldxyf4junebaIIYQ  "CC on Shift"
+ *   All person-link fields contain All People airtable record ids.
  *
  * The import NEVER deletes existing ShiftAssignment rows; it only upserts.
  */
@@ -37,6 +45,7 @@ export type ScheduleImportReport = {
   updated: number;
   unchanged: number;
   unresolvedPeople: Array<{ rowId: string; recordId: string }>;
+  /** Department codes found in the lookup field that could not be matched to a DB Department. */
   unknownDepartments: string[];
   skippedDates: string[];
   /** Desired assignment counts per clinic date (ISO day key), for dry-run review. */
@@ -44,20 +53,19 @@ export type ScheduleImportReport = {
 };
 
 // ---------------------------------------------------------------------------
-// Schedule field names (display names, not field IDs; this table is accessed
-// by name because it has no stable field-ID set in the codebase yet).
+// Schedule field IDs (returnFieldsByFieldId=true; display names in comments).
 // ---------------------------------------------------------------------------
 
 const FIELD = {
-  deptNameLookup: "Department Name (from Department)",
-  date: "Date",
-  directors: "Directors on Shift",
-  volunteers: "Volunteers on Shift",
-  shadows: "Shadow Volunteers on Shift",
-  remote: "Remote on Shift",
-  triage: "Triage on Shift",
-  walkin: "Walk-in on Shift",
-  cc: "CC on Shift",
+  departmentLookup: "fldBdcAE6F8Bqu4FW", // Department Name (from Department) - value is department CODE
+  date: "fldRqPKWn6NxzoJXZ",             // Date
+  directors: "fldWECXlelGfP9Sb0",         // Directors on Shift
+  volunteers: "fldMoCbSA44uhyjxx",         // Volunteers on Shift
+  shadows: "fldqFDr9lu1Ih4YC0",           // Shadow Volunteers on Shift
+  remote: "fldvZalLmfRQijopm",            // Remote on Shift
+  triage: "fldmQasTpGxocBz9l",            // Triage on Shift
+  walkin: "fldepAQbnkNquxSYd",            // Walk-in on Shift
+  cc: "fldxyf4junebaIIYQ",               // CC on Shift
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -119,11 +127,11 @@ export async function runScheduleImport(
     clinicDateMap.set(isoDateKey(d), d);
   }
 
-  // --- Load departments (name -> id, case-insensitive) ---
+  // --- Load departments (code -> id, case-insensitive) ---
   const allDepartments = await prisma.department.findMany();
-  const deptByNameLower = new Map<string, string>(); // lower name -> dept id
+  const deptByCodeLower = new Map<string, string>(); // lower code -> dept id
   for (const dept of allDepartments) {
-    deptByNameLower.set(dept.name.toLowerCase(), dept.id);
+    deptByCodeLower.set(dept.code.toLowerCase(), dept.id);
   }
 
   // --- Load schedule rows from Airtable ---
@@ -176,16 +184,16 @@ export async function runScheduleImport(
     }
     const clinicDate = clinicDateMap.get(dateStr)!;
 
-    // Resolve department
-    const rawDeptName = firstStr(f[FIELD.deptNameLookup]);
-    if (!rawDeptName) {
-      // No department name at all; skip silently (not an unknown dept -- just empty)
+    // Resolve department: lookup value contains the department CODE (e.g. "EDUC")
+    const rawDeptCode = firstStr(f[FIELD.departmentLookup]);
+    if (!rawDeptCode) {
+      // No department code at all; skip silently (not an unknown dept -- just empty)
       continue;
     }
-    const departmentId = deptByNameLower.get(rawDeptName.toLowerCase());
+    const departmentId = deptByCodeLower.get(rawDeptCode.toLowerCase());
     if (!departmentId) {
-      if (!report.unknownDepartments.includes(rawDeptName)) {
-        report.unknownDepartments.push(rawDeptName);
+      if (!report.unknownDepartments.includes(rawDeptCode)) {
+        report.unknownDepartments.push(rawDeptCode);
       }
       continue;
     }

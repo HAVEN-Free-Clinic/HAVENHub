@@ -145,3 +145,35 @@ export async function emailHealthCounts(): Promise<{ queued: number; failed: num
 - Per-person email preferences / unsubscribe.
 - Inbound email / reply handling.
 - Retiring the legacy Airtable reminder automations (manual, once platform reminders prove out).
+
+---
+
+## Delegated-OAuth transport tasks (added; spec section 11)
+
+### Task 7a: OAuth schema + config
+**Files:** `prisma/schema.prisma`, migration `mail_credential`, `src/platform/test/db.ts`, `src/platform/config.ts` (+ config.test.ts).
+- Add `MailCredential` per spec 11.2 (id @default("mailer"), refreshToken, account?, scope?, connectedAt, updatedAt). resetDb TRUNCATE gains "MailCredential".
+- Config: REMOVE GRAPH_TENANT_ID/GRAPH_CLIENT_ID/GRAPH_CLIENT_SECRET (client-credentials, abandoned); KEEP EMAIL_SENDER. ADD GRAPH_OAUTH_TENANT_ID, GRAPH_OAUTH_CLIENT_ID, GRAPH_OAUTH_CLIENT_SECRET (all optional), GRAPH_OAUTH_REDIRECT_URI (optional, default "http://localhost:3000/admin/email/oauth/callback"). The EMAIL_TRANSPORT=graph superRefine now requires GRAPH_OAUTH_TENANT_ID, GRAPH_OAUTH_CLIENT_ID, GRAPH_OAUTH_CLIENT_SECRET, GRAPH_OAUTH_REDIRECT_URI, EMAIL_SENDER. Update config.test.ts accordingly (defaults; graph mode missing-var rejection lists the new keys).
+- Migration additive only; tests + typecheck green. Commit: `feat(email): mail credential schema + delegated oauth config`
+
+### Task 7b: OAuth helper (TDD)
+**Files:** `src/platform/email/oauth.ts` + `oauth.test.ts`.
+- Per spec 11.4: `buildAuthorizeUrl({ state }): string` (authorize endpoint `https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize` with client_id, response_type=code, redirect_uri, response_mode=query, scope "openid profile email offline_access https://graph.microsoft.com/Mail.Send https://graph.microsoft.com/Mail.Send.Shared", state); `exchangeCode(code): Promise<void>` (token endpoint grant_type=authorization_code with client_secret + redirect_uri; upsert MailCredential { id: "mailer", refreshToken, account from id_token/userinfo or the token response, scope }); `getAccessToken(): Promise<string>` (read MailCredential else throw MailNotConnectedError; redeem grant_type=refresh_token; PERSIST the rotated refresh_token back to the row; cache access token in a module var until expires_in - 60s); `mailConnectionStatus(): Promise<{ connected; account; connectedAt }>`. Typed error `MailNotConnectedError`. Inject fetch (fetchImpl param defaulting to global) for tests; the DB store uses prisma directly. Read config for tenant/client/secret/redirect.
+- Tests (mix: pure URL test + integration with resetDb for the DB-backed token store, stubbing fetch): buildAuthorizeUrl shape (contains client_id, redirect_uri encoded, scope, state); exchangeCode persists a MailCredential row with the refresh token; getAccessToken redeems + persists the ROTATED refresh token (assert the row's refreshToken changed to the new one) + caches (second call within expiry does not re-fetch); getAccessToken throws MailNotConnectedError with no row; token endpoint non-2xx throws; mailConnectionStatus reflects connected/disconnected.
+- Commit: `feat(email): delegated oauth token helper`
+
+### Task 7c: Rewrite GraphTransport (TDD)
+**Files:** `src/platform/email/transport.ts` + `transport.test.ts`.
+- GraphTransport now takes `{ getAccessToken: () => Promise<string>; sender: string; fetchImpl? }`. `send(message)` -> `const token = await getAccessToken();` then `POST https://graph.microsoft.com/v1.0/users/{encodeURIComponent(sender)}/sendMail` with Bearer token + the Graph message body (subject, body HTML, toRecipients, saveToSentItems true); non-2xx throws with status + text. Remove the old client-credentials token logic from the transport (it lives in oauth.ts now). `emailTransportFromConfig(config)`: when EMAIL_TRANSPORT=graph, return `new GraphTransport({ getAccessToken, sender: config.EMAIL_SENDER! })` where getAccessToken is the oauth.ts function; else LogTransport. Update transport.test.ts: stub getAccessToken + fetch; assert the sendMail request shape, sender in URL, non-2xx throws; LogTransport unchanged.
+- Full `npm test` + typecheck. Commit: `feat(email): graph transport sends via delegated token`
+
+### Task 7d: Admin connect UI + callback route
+**Files:** `src/app/admin/email/page.tsx` (add connection panel + connect action), `src/app/admin/email/oauth/callback/route.ts` (new).
+- Connection panel on /admin/email: call `mailConnectionStatus()`; show "Connected as <account> since <date UTC>" or "Not connected", plus a Connect/Reconnect Button posting a `connectMailerAction` server action: generate `state = crypto.randomUUID()`, set an httpOnly cookie `mailer_oauth_state` (short maxAge), `redirect(buildAuthorizeUrl({ state }))`. Only render the panel + action when EMAIL_TRANSPORT=graph? No: always render; the action will fail clearly if config is absent (catch + error banner). Gate: the page is already admin.manage_sync.
+- callback route (GET, `src/app/admin/email/oauth/callback/route.ts`): `requirePermission("admin.manage_sync")` (or redirect to /login); read `code`, `state`, `error` from the URL; read the `mailer_oauth_state` cookie; when error present or state mismatch or missing code -> redirect `/admin/email?error=validation&message=<reason>`; else `await exchangeCode(code)`, `recordAudit({ action: "email.mailer_connect", entityType: "MailCredential", actorPersonId: session.personId })`, clear the cookie, redirect `/admin/email?connected=1`. Show "Mailbox connected." success line on connected=1.
+- `npm test`, typecheck, lint, build green. Commit: `feat(admin): connect mailbox oauth flow`
+
+### Task 7e: Live cutover + e2e + gauntlet + PR
+- e2e already added in the prior Task 7 (email page renders + filter). Add one assertion that the connection panel shows "Not connected" by default (deterministic with no MailCredential row).
+- **Controller checkpoint (HARD GATE):** Jack creates the "HAVEN Hub Mailer" Entra app (delegated Mail.Send + Mail.Send.Shared + offline_access), registers the redirect URI, sets GRAPH_OAUTH_* + EMAIL_SENDER + EMAIL_TRANSPORT=graph in .env, restarts dev + worker, clicks Connect mailbox on /admin/email, completes consent, then triggers one real reminder (force a test person's status) and confirms the EmailLog row reads SENT from hfc.it@yale.edu. Revert test data.
+- Full gauntlet; screenshots /admin/email (with connection panel) -> /tmp/havenhub-shots/. Push, PR onto main, watch CI green.

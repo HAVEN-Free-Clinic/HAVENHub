@@ -145,6 +145,11 @@ test("email page renders heading, stat cards, and table or empty state", async (
   // Either the table (at least one row) or the empty-state message must be present.
   const tableOrEmpty = page.locator('table, p:has-text("No emails found.")');
   await expect(tableOrEmpty.first()).toBeVisible();
+  // Mailer connection panel: with no MailCredential row it shows "Not connected"
+  // and a Connect mailbox button.
+  await expect(page.getByText("Mailer connection", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Not connected/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Connect mailbox" })).toBeVisible();
 });
 
 test("email page status filter: FAILED param renders without error and select reflects the filter", async ({ page }) => {

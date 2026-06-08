@@ -90,6 +90,7 @@ model Person {
   emailLogs                 EmailLog[]           @relation("emailLogPerson")
   /// Email log rows this person triggered (may differ from the recipient).
   emailLogsTriggered        EmailLog[]           @relation("emailLogTriggeredBy")
+  emailTemplatesUpdated     EmailTemplate[]      @relation("emailTemplateUpdatedBy")
   complianceReminder        ComplianceReminder?
   shiftAssignments          ShiftAssignment[]
   /// Shift requests this person raised.
@@ -452,6 +453,19 @@ model EmailLog {
 
   @@index([personId])
   @@index([status, createdAt])
+}
+
+/// Admin override of a code-default email template, keyed by descriptor key (e.g. "layout", "compliance-reminder").
+model EmailTemplate {
+  id          String   @id @default(cuid())
+  /// Descriptor key this row overrides. Unique: at most one override per template.
+  key         String   @unique
+  subject     String
+  body        String
+  updatedById String?
+  updatedBy   Person?  @relation("emailTemplateUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 /// Per-person HIPAA reminder state. Drives the weekly cadence (lastRemindedAt),

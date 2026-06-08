@@ -117,6 +117,14 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
     const departmentId = (formData.get("departmentId") as string | null) ?? "";
     const note = ((formData.get("note") as string | null) ?? "").trim() || undefined;
     const partnerRaw = (formData.get("partner") as string | null) ?? "";
+    const kind = (formData.get("kind") as string | null) ?? "";
+
+    // Guard: a swap form submission with no partner selected is a user error.
+    if (kind === "swap" && !partnerRaw) {
+      redirect(
+        `/schedule?error=validation&message=${encodeURIComponent("Select a swap partner before submitting.")}`
+      );
+    }
 
     let targetId: string | undefined;
     let targetDateKey: string | undefined;
@@ -244,7 +252,7 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                             <p className="text-sm text-slate-400">
                               Change requested:{" "}
                               {pendingReq.targetId
-                                ? `swap with partner (${pendingReq.targetDate ? displayDate(isoDateKey(pendingReq.targetDate)) : "?"})`
+                                ? `swap with ${pendingReq.target?.name ?? "unknown"} (${pendingReq.targetDate ? displayDate(isoDateKey(pendingReq.targetDate)) : "?"})`
                                 : "drop"}{" "}
                               - pending director review
                             </p>
@@ -268,6 +276,7 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                               <form action={createRequestAction} className="flex flex-wrap items-end gap-3">
                                 <input type="hidden" name="dateKey" value={dateKey} />
                                 <input type="hidden" name="departmentId" value={shift.department.id} />
+                                <input type="hidden" name="kind" value="drop" />
                                 <div className="flex-1 min-w-48">
                                   <Input
                                     name="note"
@@ -288,6 +297,7 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                                 <form action={createRequestAction} className="flex flex-wrap items-end gap-3">
                                   <input type="hidden" name="dateKey" value={dateKey} />
                                   <input type="hidden" name="departmentId" value={shift.department.id} />
+                                  <input type="hidden" name="kind" value="swap" />
                                   <div className="flex-1 min-w-56">
                                     <Select name="partner">
                                       <option value="">Select swap partner...</option>

@@ -11,6 +11,9 @@
  */
 
 import type { Department, Term, ShiftRole, ShiftRequest } from "@prisma/client";
+
+/** A pending ShiftRequest with the swap target's name included (null for drops). */
+export type PendingRequest = ShiftRequest & { target: { name: string } | null };
 import type { ResolvedAvailability } from "../engine/availability";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
@@ -89,7 +92,7 @@ export async function mySchedule(personId: string): Promise<{
   availability: ResolvedAvailability | null;
   legacyNote: string | null;
   clinicDates: Date[];
-  pendingRequests: Map<string, ShiftRequest>;
+  pendingRequests: Map<string, PendingRequest>;
 }> {
   const term = await getActiveTerm();
   if (!term) {
@@ -105,6 +108,7 @@ export async function mySchedule(personId: string): Promise<{
     }),
     prisma.shiftRequest.findMany({
       where: { termId: term.id, requesterId: personId, status: "PENDING" },
+      include: { target: { select: { name: true } } },
     }),
   ]);
 
@@ -116,7 +120,7 @@ export async function mySchedule(personId: string): Promise<{
   }));
 
   // Build pendingRequests map keyed by "${dateKey}|${departmentId}".
-  const pendingRequests = new Map<string, ShiftRequest>();
+  const pendingRequests = new Map<string, PendingRequest>();
   for (const req of rawPendingRequests) {
     const key = `${isoDateKey(req.requesterDate)}|${req.departmentId}`;
     pendingRequests.set(key, req);

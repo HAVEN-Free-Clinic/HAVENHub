@@ -275,6 +275,38 @@ describe("mySchedule", () => {
     expect(result.pendingRequests.has(key1)).toBe(false);
   });
 
+  it("pendingRequests swap request includes target.name", async () => {
+    const dates = saturdays("2026-05-30", 3);
+    const term = await createTerm("ACTIVE", "SU26", dates);
+    const dept = await createDepartment("ITCM");
+    const requester = await createPerson("Harold");
+    const swapTarget = await createPerson("Ingrid");
+    await createMembership(requester.id, term.id, dept.id, "VOLUNTEER");
+    await createShift(term.id, dept.id, requester.id, dates[0], "VOLUNTEER");
+    await createShift(term.id, dept.id, swapTarget.id, dates[1], "VOLUNTEER");
+
+    // Create a PENDING swap request pointing at swapTarget.
+    await prisma.shiftRequest.create({
+      data: {
+        termId: term.id,
+        requesterId: requester.id,
+        requesterDate: dates[0],
+        departmentId: dept.id,
+        targetId: swapTarget.id,
+        targetDate: dates[1],
+        status: "PENDING",
+      },
+    });
+
+    const result = await mySchedule(requester.id);
+
+    const expectedKey = `${isoDateKey(dates[0])}|${dept.id}`;
+    expect(result.pendingRequests.size).toBe(1);
+    const row = result.pendingRequests.get(expectedKey);
+    expect(row).toBeDefined();
+    expect(row?.target?.name).toBe("Ingrid");
+  });
+
   it("pendingRequests excludes CANCELLED and APPROVED requests", async () => {
     const dates = saturdays("2026-05-30", 3);
     const term = await createTerm("ACTIVE", "SU26", dates);

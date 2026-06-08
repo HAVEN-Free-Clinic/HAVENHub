@@ -90,9 +90,9 @@ export function complianceReminderContext(p: ComplianceReminderParams): Record<s
     case "UNKNOWN_DATE":
       statusLine = "We do not have a current HIPAA certificate on file for you.";
       break;
-    case "COMPLIANT":
-      statusLine = "Your HIPAA certification is up to date.";
-      break;
+    // unreachable: callers filter COMPLIANT before building a reminder context
+    default:
+      throw new Error(`Unexpected reminder status: ${p.status}`);
   }
   return {
     personName: p.personName,

@@ -97,4 +97,36 @@ describe("compliance templates via renderEmail (passthrough layout)", () => {
       "<p>Hello Dr. Smith,</p>\n\n<p>Jane Doe in Cardiology is not HIPAA compliant (expired) and has not responded to reminders. Please follow up.</p>\n\n<p>Thank you,<br>HAVEN Free Clinic</p>",
     );
   });
+
+  it("compliance-escalation EXPIRING_SOON matches pre-refactor output", async () => {
+    const out = await renderEmail(
+      "compliance-escalation",
+      complianceEscalationContext({
+        directorName: "Dr. Smith",
+        volunteerName: "Jane Doe",
+        departmentName: "Cardiology",
+        status: "EXPIRING_SOON",
+      }),
+    );
+    expect(out.subject).toBe("[HAVEN] Volunteer HIPAA compliance needs attention");
+    expect(out.html).toBe(
+      "<p>Hello Dr. Smith,</p>\n\n<p>Jane Doe in Cardiology is not HIPAA compliant (expiring soon) and has not responded to reminders. Please follow up.</p>\n\n<p>Thank you,<br>HAVEN Free Clinic</p>",
+    );
+  });
+
+  it("compliance-escalation NO_CERTIFICATE matches pre-refactor output", async () => {
+    const out = await renderEmail(
+      "compliance-escalation",
+      complianceEscalationContext({
+        directorName: "Dr. Smith",
+        volunteerName: "Jane Doe",
+        departmentName: "Cardiology",
+        status: "NO_CERTIFICATE",
+      }),
+    );
+    expect(out.subject).toBe("[HAVEN] Volunteer HIPAA compliance needs attention");
+    expect(out.html).toBe(
+      "<p>Hello Dr. Smith,</p>\n\n<p>Jane Doe in Cardiology is not HIPAA compliant (no certificate on file) and has not responded to reminders. Please follow up.</p>\n\n<p>Thank you,<br>HAVEN Free Clinic</p>",
+    );
+  });
 });

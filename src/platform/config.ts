@@ -16,6 +16,8 @@ const schema = z
     ALL_PEOPLE_TABLE_ID: z.string().default("tblnHgBpknuqWvx9c"),
     SU26_ROSTER_TABLE_ID: z.string().default("tbl2VrP1uqwFt7QNQ"),
     SU26_SCHEDULE_TABLE_ID: z.string().default("tblqJlM85Em0AA767"),
+    RHD_ATTENDINGS_TABLE_ID: z.string().default("tblxDJehirZSLFJna"),
+    RHD_CLINICS_TABLE_ID: z.string().default("tbl0HrOcMHUQL0a6C"),
     // Mirror: WRITES. Disabled by default; points at a sandbox base until FA26 cutover.
     AIRTABLE_MIRROR_ENABLED: z
       .string()

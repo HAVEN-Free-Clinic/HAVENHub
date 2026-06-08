@@ -215,6 +215,28 @@ describe("loadConfig", () => {
     expect(config.AIRTABLE_MIRROR_STATUS_FIELD_ID).toBeUndefined();
   });
 
+  // --- RHD table IDs ---
+
+  it("defaults RHD_ATTENDINGS_TABLE_ID to tblxDJehirZSLFJna", () => {
+    const config = loadConfig(base);
+    expect(config.RHD_ATTENDINGS_TABLE_ID).toBe("tblxDJehirZSLFJna");
+  });
+
+  it("defaults RHD_CLINICS_TABLE_ID to tbl0HrOcMHUQL0a6C", () => {
+    const config = loadConfig(base);
+    expect(config.RHD_CLINICS_TABLE_ID).toBe("tbl0HrOcMHUQL0a6C");
+  });
+
+  it("accepts custom RHD_ATTENDINGS_TABLE_ID", () => {
+    const config = loadConfig({ ...base, RHD_ATTENDINGS_TABLE_ID: "tblCustomAttend" });
+    expect(config.RHD_ATTENDINGS_TABLE_ID).toBe("tblCustomAttend");
+  });
+
+  it("accepts custom RHD_CLINICS_TABLE_ID", () => {
+    const config = loadConfig({ ...base, RHD_CLINICS_TABLE_ID: "tblCustomClinics" });
+    expect(config.RHD_CLINICS_TABLE_ID).toBe("tblCustomClinics");
+  });
+
   // --- RHD max procedures config ---
 
   it("defaults RHD_MAX_PROCEDURES to 3", () => {

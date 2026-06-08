@@ -81,7 +81,7 @@ export function PendingRequests({
               <div className="flex flex-col gap-0.5">
                 <span className="text-sm font-medium">{requesterName}</span>
                 <span className="text-xs text-slate-500">
-                  {typeLabel} &mdash; {requesterDateLabel}
+                  {typeLabel} on {requesterDateLabel}
                 </span>
                 {request.note && (
                   <span className="text-xs text-slate-500 italic">{request.note}</span>
@@ -121,7 +121,7 @@ export function PendingRequests({
           </h3>
           {decidedRows.map(({ request, requesterName, decidedByName }) => (
             <p key={request.id} className="text-xs text-slate-400">
-              {requesterName} &mdash;{" "}
+              {requesterName}: {" "}
               <span
                 className={
                   request.status === "APPROVED"

@@ -89,7 +89,7 @@ export function ReadinessPanel({
             name="directorName"
             type="text"
             defaultValue={clinic?.directorName ?? ""}
-            placeholder="—"
+            placeholder="-"
           />
         </div>
 
@@ -101,7 +101,7 @@ export function ReadinessPanel({
             type="number"
             min={0}
             defaultValue={clinic?.proceduresBooked ?? ""}
-            placeholder="—"
+            placeholder="-"
           />
         </div>
 

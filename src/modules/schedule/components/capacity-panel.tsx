@@ -112,7 +112,7 @@ export function CapacityPanel({
             type="number"
             min={0}
             defaultValue={metrics.patientsBooked ?? ""}
-            placeholder="—"
+            placeholder="-"
           />
         </div>
         <Button type="submit" variant="outline" size="sm">

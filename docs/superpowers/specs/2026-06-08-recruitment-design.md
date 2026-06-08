@@ -29,6 +29,20 @@ review.
 - **Director:** Application → **Interview** (panel, evaluations, decision) →
   Accept → Director contract → roster promotion
 
+**Renewals are a first-class path.** Returning members reapply to *renew* in a
+department they are already in, and their application form is different from a new
+applicant's (usually shorter, with "what did you contribute / do you want to
+continue" style questions — mirrored by the Airtable "Returning Department",
+"Return #1/2/3", "Have you volunteered before?" fields). A single recruitment
+cycle serves **both** applicant types; the public form branches on applicant type
+the same way it branches on department choice. See §4.6 and §6.
+
+Downstream (later plans), renewals may follow a lighter review path than new
+applicants — e.g. renewal applications route to the applicant's current
+department director rather than the full review panel, and renewers skip
+interviews. Plan 10 only captures the branch and the renewal data; the
+differentiated downstream handling is specified in Plans 11–13.
+
 **Touch points with existing modules** (Recruitment feeds these; it does not
 rebuild them):
 
@@ -118,6 +132,7 @@ All new tables. Prisma models (additive migration).
 | `opensAt` | DateTime? | optional open window start |
 | `closesAt` | DateTime? | optional open window end |
 | `departments` | String[] | in-scope department codes (canonical dept codes) |
+| `acceptsRenewals` | Boolean | default false; when true the public form offers the renewal branch (§4.6, §6) |
 | `createdById` | String | FK → `Person` |
 | `createdAt` / `updatedAt` | DateTime | |
 
@@ -134,6 +149,7 @@ Back-relations: `sections FormSection[]`, `applicants Applicant[]`,
 | `description` | String? | |
 | `order` | Int | sort within the form |
 | `departmentCode` | String? | null = always shown; set = supplement shown only when applicant chooses that department |
+| `appliesTo` | enum `ApplicantScope` { NEW, RENEWAL, BOTH } | default BOTH; which applicant type sees this section (§4.6) |
 
 Back-relation: `fields FormField[]`.
 
@@ -166,12 +182,43 @@ rather than guessing from a free-form select:
 - It may be single- or multi-select (governed by `validation.max`, e.g. "rank up
   to 2"); the Airtable forms use 1st/2nd-choice department fields.
 - The applicant's selected department codes populate `Application.departmentChoices`
-  and are the input to the conditional-supplement resolver (§6.1–6.2). A
+  and are an input to the conditional-supplement resolver (§4.6). A
   `FormSection.departmentCode` supplement shows iff its code is among the chosen
-  departments.
+  departments (and the section's `appliesTo` matches the applicant type).
 - **Publish guard:** a cycle that has any `departmentCode`-tagged supplement
   section must contain exactly one `DEPARTMENT_CHOICE` field before it can move
   `DRAFT → OPEN` (otherwise no supplement could ever surface).
+
+### 4.6 Renewal branch
+
+A renewal is a returning member reapplying to continue in a department they are
+already in, answering a *different* form. The model treats applicant type as a
+second branching dimension alongside department:
+
+- `RecruitmentCycle.acceptsRenewals` turns the branch on. When off, the cycle is
+  new-applicants-only and behaves exactly as §4.1–4.5 describe.
+- Every `FormSection` carries `appliesTo` ∈ { NEW, RENEWAL, BOTH } (default BOTH).
+  Identity sections stay BOTH; new-applicant essays are tagged NEW; the shorter
+  "do you want to continue / what did you contribute" sections are tagged RENEWAL.
+- On the public form (§6), when `acceptsRenewals` is true the applicant first
+  chooses **New applicant** or **Renewing**. This routing step is **built-in**
+  (structural), not a builder-authored field — like the required identity fields.
+- A NEW applicant answers the `DEPARTMENT_CHOICE` field (ranked choices), which
+  drives new-applicant supplements. A RENEWAL applicant instead picks a **single
+  current department** from the cycle's `departments` (built into the renewal
+  branch), stored as `renewalDepartment`; that drives renewal supplements.
+- **Identity can't be verified at intake** (public, no login). The
+  `renewalDepartment` is self-asserted; confirming the applicant truly holds that
+  department membership happens at review/acceptance time (Plan 11+), where the
+  renewal application is matched to the existing `Person`.
+
+**Conditional-supplement resolver (the single authority for visibility).** Given
+`(applicantType, selectedDepartmentCodes)` — where `selectedDepartmentCodes` is
+`departmentChoices` for NEW or `[renewalDepartment]` for RENEWAL — a section `S`
+is visible iff:
+
+1. `S.appliesTo ∈ { BOTH, applicantType }`, **and**
+2. `S.departmentCode` is null **or** `S.departmentCode ∈ selectedDepartmentCodes`.
 
 ### Applicant
 
@@ -198,7 +245,9 @@ applicant to an existing `Person` is **deferred to Plan 13**; no `personId` yet.
 | `cycleId` | String | FK → RecruitmentCycle (onDelete: Cascade) |
 | `applicantId` | String | FK → Applicant (onDelete: Cascade) |
 | `answers` | Json | object keyed by `FormField.key` |
-| `departmentChoices` | String[] | department codes the applicant selected |
+| `applicantType` | enum `ApplicantType` { NEW, RENEWAL } | default NEW; RENEWAL only possible when the cycle `acceptsRenewals` (§4.6) |
+| `departmentChoices` | String[] | NEW: ranked department codes chosen. RENEWAL: the single current department, stored as a one-element array (see `renewalDepartment`) |
+| `renewalDepartment` | String? | RENEWAL only: the department code the applicant is renewing in; must be one of the cycle's `departments`. Null for NEW |
 | `status` | enum `ApplicationStatus` { SUBMITTED } | only SUBMITTED in Plan 10; later plans extend |
 | `submittedAt` | DateTime @default(now()) | |
 | `createdAt` / `updatedAt` | DateTime | |
@@ -246,6 +295,10 @@ Routes under the module, guarded by `recruitment.manage_cycles`:
 - A section tagged with a `departmentCode` becomes a **supplement** shown only
   when the applicant selects that department; untagged sections always show. This
   models the Airtable "SRHD Supplement", "MDIC Supplement", etc.
+- Each section also has an **Applies to** selector — New applicants / Renewals /
+  Both (default Both) — surfaced only when the cycle's "Accept renewals" toggle is
+  on. This is how a lead builds the shorter renewal variant alongside the new
+  form. The cycle overview carries the **Accept renewals** toggle itself.
 - `FormField.key` auto-generates from the label (slugified, de-duplicated). It is
   **immutable once submissions exist** so historical answers never orphan.
 
@@ -257,6 +310,9 @@ Routes under the module, guarded by `recruitment.manage_cycles`:
   allowed (label, help text, reorder, add an *optional* field).
 - Publishing (`DRAFT → OPEN`) requires the core identity fields present — first
   name, last name, email — so every applicant is contactable and dedupable.
+- When `acceptsRenewals` is true, publishing also requires at least one section
+  visible to each applicant type (i.e. coverage for both NEW and RENEWAL after
+  resolving `appliesTo`), so neither branch renders an empty form.
 - `CLOSED`: public form stops accepting submissions; staff surfaces stay
   readable. `ARCHIVED`: hidden from the default cycle list.
 
@@ -268,18 +324,23 @@ Routes under the module, guarded by `recruitment.manage_cycles`:
 
 1. Load cycle by `publicSlug`. If status ≠ `OPEN`, or now is outside
    `opensAt`/`closesAt`, render a closed-state page (no form).
-2. Render always-on sections. The department-choice field(s) drive which
-   supplements appear; resolved client-side for UX.
-3. The single authority for "which supplements apply" is a pure resolver
-   re-run **server-side** on submit.
+2. If `acceptsRenewals`, the first step asks **New applicant or Renewing?**
+   (built-in routing). A renewer then picks their single current department; a new
+   applicant proceeds to the `DEPARTMENT_CHOICE` field.
+3. Render the sections the resolver (§4.6) returns for `(applicantType,
+   selectedDepartmentCodes)`; resolved client-side for UX.
+4. The single authority for visibility is that same pure resolver, re-run
+   **server-side** on submit.
 
 ### 6.2 Validate
 
-`buildApplicationSchema(fields, chosenDepartments)` builds a zod schema from the
-*current* field definitions and validates the payload. Only supplements for
-departments the applicant actually chose are validated; required-but-hidden
-supplement fields are **not** enforced. The client mirrors this for inline UX but
-never decides — "UI reflects, server decides".
+`buildApplicationSchema(fields, applicantType, selectedDepartmentCodes)` builds a
+zod schema from the *current* field definitions, restricted to the sections the
+resolver (§4.6) deems visible for that applicant type and department selection.
+Fields in non-visible sections (wrong applicant type, or unchosen-department
+supplements) are **not** enforced. For RENEWAL submissions the server also checks
+`renewalDepartment` is one of the cycle's `departments`. The client mirrors this
+for inline UX but never decides — "UI reflects, server decides".
 
 ### 6.3 Files
 
@@ -339,25 +400,31 @@ boundary since it renders outside the authed shell.
 **Engine (pure, unit):**
 
 - `buildApplicationSchema` — each field type; required vs optional;
-  regex/min/max; file constraints.
-- conditional-supplement resolver — chosen depts → visible sections; hidden
-  required fields are not enforced.
+  regex/min/max; file constraints; scoping to visible sections only.
+- conditional-supplement resolver (§4.6) — the `(applicantType,
+  selectedDepartmentCodes)` matrix: NEW vs RENEWAL section visibility, department
+  supplements, BOTH sections always shown; hidden required fields are not enforced.
 - `key` generation + immutability.
 
 **Services (integration, real DB):**
 
 - cycle CRUD + status transitions (DRAFT→OPEN→CLOSED).
-- publish guard rejects structurally-unsafe edits after OPEN.
+- publish guard rejects structurally-unsafe edits after OPEN; and (when
+  `acceptsRenewals`) rejects publishing if either applicant-type branch is empty.
 - submission: happy path, dedup block, validation rejection, file persistence.
+- renewal submission: routes to RENEWAL sections, stores `applicantType` +
+  `renewalDepartment`, rejects a `renewalDepartment` outside the cycle's
+  departments.
 - applicant-list read.
 
 **e2e (Playwright):**
 
-- Sign in as `j.carney@yale.edu` → create a cycle → add a section + a department
-  supplement → publish → open `/apply/[slug]` **unauthenticated** → submit with a
-  file and a department choice → submission appears in the authenticated applicant
-  list. This single flow proves the public/authenticated boundary and the whole
-  loop.
+- Sign in as `j.carney@yale.edu` → create a cycle (renewals on) → add a BOTH
+  identity section, a NEW-only section, and a department supplement → publish →
+  open `/apply/[slug]` **unauthenticated** → submit once as a new applicant (with a
+  file + department choice) and once via the renewing branch → both submissions
+  appear in the authenticated applicant list, correctly typed. This proves the
+  public/authenticated boundary, the whole loop, and the renewal branch.
 
 ---
 
@@ -366,6 +433,9 @@ boundary since it renders outside the authed shell.
 - `recruitment` module is `active` in the registry with nav + permissions.
 - SRR can build a cycle's form from scratch (dynamic sections/fields + department
   supplements) and publish a public link.
+- A cycle can offer a **renewal branch**: renewers reapply into their current
+  department via a different (typically shorter) form, captured with
+  `applicantType` + `renewalDepartment`.
 - Unauthenticated applicants submit at `/apply/[slug]`; submissions are validated,
   deduped, store file references, and appear in the authenticated applicant list.
 - Public route is correctly exempted from the auth gate and refuses submissions

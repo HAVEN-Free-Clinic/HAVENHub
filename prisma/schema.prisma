@@ -92,6 +92,7 @@ model Person {
   emailLogsTriggered        EmailLog[]           @relation("emailLogTriggeredBy")
   complianceReminder        ComplianceReminder?
   shiftAssignments          ShiftAssignment[]
+  recruitmentCyclesCreated  RecruitmentCycle[]   @relation("RecruitmentCycleCreatedBy")
   /// Shift requests this person raised.
   shiftRequests             ShiftRequest[]       @relation("shiftRequestRequester")
   /// Shift requests targeting this person as the swap partner.
@@ -130,45 +131,46 @@ model HipaaCertificate {
 }
 
 model Term {
-  id               String            @id @default(cuid())
-  code             String            @unique // "SU26", "FA26"
-  name             String // "Summer 2026"
-  startDate        DateTime
-  endDate          DateTime
-  status           TermStatus        @default(PLANNING)
-  clinicDates      DateTime[]
-  memberships      TermMembership[]
-  roleAssignments  RoleAssignment[]
+  id                String             @id @default(cuid())
+  code              String             @unique // "SU26", "FA26"
+  name              String // "Summer 2026"
+  startDate         DateTime
+  endDate           DateTime
+  status            TermStatus         @default(PLANNING)
+  clinicDates       DateTime[]
+  memberships       TermMembership[]
+  roleAssignments   RoleAssignment[]
   /// Offboard flags raised for this term.
-  offboardFlags    OffboardFlag[]
-  shiftAssignments ShiftAssignment[]
-  shiftRequests    ShiftRequest[]
-  scheduleDays     ScheduleDay[]
-  rhdClinics       RhdClinic[]
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+  offboardFlags     OffboardFlag[]
+  shiftAssignments  ShiftAssignment[]
+  shiftRequests     ShiftRequest[]
+  scheduleDays      ScheduleDay[]
+  rhdClinics        RhdClinic[]
+  recruitmentCycles RecruitmentCycle[]
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
 }
 
 model Department {
-  id                   String                 @id @default(cuid())
-  code                 String                 @unique // "ITCM", "EXEC", "SRR", ...
-  name                 String
-  isActive             Boolean                @default(true)
-  memberships          TermMembership[]
-  roleAssignments      RoleAssignment[]
+  id                         String                 @id @default(cuid())
+  code                       String                 @unique // "ITCM", "EXEC", "SRR", ...
+  name                       String
+  isActive                   Boolean                @default(true)
+  memberships                TermMembership[]
+  roleAssignments            RoleAssignment[]
   /// Delegations where this department is the MANAGER (it manages the listed departments).
-  managesDelegations   DepartmentDelegation[] @relation("delegationManager")
+  managesDelegations         DepartmentDelegation[] @relation("delegationManager")
   /// Delegations where this department is MANAGED BY another department.
-  managedByDelegations DepartmentDelegation[] @relation("delegationManaged")
-  shiftAssignments     ShiftAssignment[]
-  shiftRequests        ShiftRequest[]
-  scheduleDays         ScheduleDay[]
+  managedByDelegations       DepartmentDelegation[] @relation("delegationManaged")
+  shiftAssignments           ShiftAssignment[]
+  shiftRequests              ShiftRequest[]
+  scheduleDays               ScheduleDay[]
   /// Capacity panel config: imported then admin-maintained.
-  idealHeadcount            Int?
+  idealHeadcount             Int?
   /// Capacity panel config: imported then admin-maintained.
   patientCapacityPerProvider Int?
-  createdAt            DateTime               @default(now())
-  updatedAt            DateTime               @updatedAt
+  createdAt                  DateTime               @default(now())
+  updatedAt                  DateTime               @updatedAt
 }
 
 /// One row per "manager department oversees managed department" edge. Used to
@@ -302,6 +304,47 @@ enum EmailStatus {
   QUEUED
   SENT
   FAILED
+}
+
+enum RecruitmentTrack {
+  VOLUNTEER
+  DIRECTOR
+}
+
+enum CycleStatus {
+  DRAFT
+  OPEN
+  CLOSED
+  ARCHIVED
+}
+
+enum FieldType {
+  SHORT_TEXT
+  LONG_TEXT
+  SINGLE_SELECT
+  MULTI_SELECT
+  CHECKBOX
+  EMAIL
+  PHONE
+  NUMBER
+  DATE
+  FILE
+  DEPARTMENT_CHOICE
+}
+
+enum ApplicantScope {
+  NEW
+  RENEWAL
+  BOTH
+}
+
+enum ApplicantType {
+  NEW
+  RENEWAL
+}
+
+enum ApplicationStatus {
+  SUBMITTED
 }
 
 /// One row per mirrored change. Written in the same transaction as the domain
@@ -532,13 +575,13 @@ model ShiftRequest {
   note          String?
   decidedById   String?
   decidedAt     DateTime?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  term          Term        @relation(fields: [termId], references: [id], onDelete: Restrict)
-  requester     Person      @relation("shiftRequestRequester", fields: [requesterId], references: [id], onDelete: Cascade)
-  target        Person?     @relation("shiftRequestTarget", fields: [targetId], references: [id], onDelete: SetNull)
-  decidedBy     Person?     @relation("shiftRequestDecidedBy", fields: [decidedById], references: [id], onDelete: Restrict)
-  department    Department  @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  term          Term               @relation(fields: [termId], references: [id], onDelete: Restrict)
+  requester     Person             @relation("shiftRequestRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  target        Person?            @relation("shiftRequestTarget", fields: [targetId], references: [id], onDelete: SetNull)
+  decidedBy     Person?            @relation("shiftRequestDecidedBy", fields: [decidedById], references: [id], onDelete: Restrict)
+  department    Department         @relation(fields: [departmentId], references: [id], onDelete: Restrict)
 
   @@index([termId, departmentId, status])
   @@index([requesterId])
@@ -590,4 +633,102 @@ model RhdClinic {
   attending        RhdAttending? @relation(fields: [attendingId], references: [id], onDelete: SetNull)
 
   @@unique([termId, clinicDate])
+}
+
+model RecruitmentCycle {
+  id              String           @id @default(cuid())
+  track           RecruitmentTrack
+  termId          String
+  title           String
+  status          CycleStatus      @default(DRAFT)
+  publicSlug      String           @unique
+  opensAt         DateTime?
+  closesAt        DateTime?
+  departments     String[]
+  acceptsRenewals Boolean          @default(false)
+  createdById     String
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  term         Term          @relation(fields: [termId], references: [id], onDelete: Restrict)
+  createdBy    Person        @relation("RecruitmentCycleCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  sections     FormSection[]
+  fields       FormField[]
+  applicants   Applicant[]
+  applications Application[]
+
+  @@index([status, track])
+}
+
+model FormSection {
+  id             String         @id @default(cuid())
+  cycleId        String
+  title          String
+  description    String?
+  order          Int
+  departmentCode String?
+  appliesTo      ApplicantScope @default(BOTH)
+
+  cycle  RecruitmentCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  fields FormField[]
+
+  @@index([cycleId, order])
+}
+
+model FormField {
+  id         String    @id @default(cuid())
+  sectionId  String
+  cycleId    String
+  key        String
+  label      String
+  helpText   String?
+  type       FieldType
+  required   Boolean   @default(false)
+  options    Json?
+  validation Json?
+  order      Int
+
+  section FormSection      @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  cycle   RecruitmentCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+
+  @@unique([cycleId, key])
+  @@index([sectionId, order])
+}
+
+model Applicant {
+  id         String   @id @default(cuid())
+  cycleId    String
+  firstName  String
+  lastName   String
+  email      String
+  /// Must equal lower(email); set by the submission service. Backs the (cycleId, emailLower) dedup unique.
+  emailLower String
+  netId      String?
+  phone      String?
+  createdAt  DateTime @default(now())
+
+  cycle        RecruitmentCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  applications Application[]
+
+  @@unique([cycleId, emailLower])
+}
+
+model Application {
+  id                String            @id @default(cuid())
+  cycleId           String
+  applicantId       String
+  answers           Json
+  applicantType     ApplicantType     @default(NEW)
+  departmentChoices String[]
+  renewalDepartment String?
+  status            ApplicationStatus @default(SUBMITTED)
+  submittedAt       DateTime          @default(now())
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  cycle     RecruitmentCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  applicant Applicant        @relation(fields: [applicantId], references: [id], onDelete: Cascade)
+
+  @@unique([cycleId, applicantId])
+  @@index([cycleId, submittedAt])
 }

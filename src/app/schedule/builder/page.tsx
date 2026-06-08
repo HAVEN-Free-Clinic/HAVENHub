@@ -196,16 +196,14 @@ export default async function BuilderPage({ searchParams }: PageProps) {
 
   // ---------------------------------------------------------------------------
   // Server actions
+  //
+  // Each action captures only primitive values from the outer scope
+  // (dept.id, selectedDateKey, view, mode -- all strings/null) so that
+  // Next.js can serialize the closure for progressive enhancement.
+  // The module-level buildHref function is referenced directly; the local
+  // helpers errorRedirect/successRedirect have been inlined to avoid
+  // capturing non-serializable function references in the closure.
   // ---------------------------------------------------------------------------
-
-  // Redirect URL that preserves params, with optional error info.
-  function successRedirect(): never {
-    redirect(href({}));
-  }
-
-  function errorRedirect(msg: string): never {
-    redirect(href({ error: "validation", message: msg }));
-  }
 
   async function assignAction(formData: FormData) {
     "use server";
@@ -214,16 +212,17 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     const dateKey = (formData.get("dateKey") as string) ?? "";
     const personId = (formData.get("personId") as string) ?? "";
     const role = (formData.get("role") as "VOLUNTEER" | "SHADOW" | "DIRECTOR") ?? "VOLUNTEER";
+    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode });
     try {
       await setAssignment(actor.personId, { departmentId, dateKey, personId, role });
     } catch (err) {
       if (err instanceof BuilderValidationError || err instanceof BuilderForbiddenError) {
-        errorRedirect(err.message);
+        redirect(buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, error: "validation", message: err.message }));
       }
       throw err;
     }
     revalidatePath("/schedule/builder");
-    successRedirect();
+    redirect(base);
   }
 
   async function unassignAction(formData: FormData) {
@@ -233,16 +232,17 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     const dateKey = (formData.get("dateKey") as string) ?? "";
     const personId = (formData.get("personId") as string) ?? "";
     const reason = ((formData.get("reason") as string) ?? "").trim() || undefined;
+    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode });
     try {
       await setAssignment(actor.personId, { departmentId, dateKey, personId, role: null, reason });
     } catch (err) {
       if (err instanceof BuilderValidationError || err instanceof BuilderForbiddenError) {
-        errorRedirect(err.message);
+        redirect(buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, error: "validation", message: err.message }));
       }
       throw err;
     }
     revalidatePath("/schedule/builder");
-    successRedirect();
+    redirect(base);
   }
 
   async function toggleTagAction(formData: FormData) {
@@ -252,16 +252,17 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     const dateKey = (formData.get("dateKey") as string) ?? "";
     const personId = (formData.get("personId") as string) ?? "";
     const tag = (formData.get("tag") as "triage" | "walkin" | "cc" | "remote") ?? "triage";
+    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode });
     try {
       await toggleTag(actor.personId, { departmentId, dateKey, personId, tag });
     } catch (err) {
       if (err instanceof BuilderValidationError || err instanceof BuilderForbiddenError) {
-        errorRedirect(err.message);
+        redirect(buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, error: "validation", message: err.message }));
       }
       throw err;
     }
     revalidatePath("/schedule/builder");
-    successRedirect();
+    redirect(base);
   }
 
   async function saveOverrideAction(formData: FormData) {
@@ -269,48 +270,51 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     const actor = await requireModuleAccess("schedule");
     const membershipId = (formData.get("membershipId") as string) ?? "";
     const rawDates = formData.getAll("dates") as string[];
+    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode });
     try {
       await setAvailabilityOverride(actor.personId, { membershipId, dateKeys: rawDates });
     } catch (err) {
       if (err instanceof BuilderValidationError || err instanceof BuilderForbiddenError) {
-        errorRedirect(err.message);
+        redirect(buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, error: "validation", message: err.message }));
       }
       throw err;
     }
     revalidatePath("/schedule/builder");
-    successRedirect();
+    redirect(base);
   }
 
   async function clearOverrideAction(formData: FormData) {
     "use server";
     const actor = await requireModuleAccess("schedule");
     const membershipId = (formData.get("membershipId") as string) ?? "";
+    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode });
     try {
       await setAvailabilityOverride(actor.personId, { membershipId, dateKeys: null });
     } catch (err) {
       if (err instanceof BuilderValidationError || err instanceof BuilderForbiddenError) {
-        errorRedirect(err.message);
+        redirect(buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, error: "validation", message: err.message }));
       }
       throw err;
     }
     revalidatePath("/schedule/builder");
-    successRedirect();
+    redirect(base);
   }
 
   async function acknowledgeAction(formData: FormData) {
     "use server";
     const actor = await requireModuleAccess("schedule");
     const membershipId = (formData.get("membershipId") as string) ?? "";
+    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode });
     try {
       await acknowledgeAvailability(actor.personId, membershipId);
     } catch (err) {
       if (err instanceof BuilderValidationError || err instanceof BuilderForbiddenError) {
-        errorRedirect(err.message);
+        redirect(buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, error: "validation", message: err.message }));
       }
       throw err;
     }
     revalidatePath("/schedule/builder");
-    successRedirect();
+    redirect(base);
   }
 
   async function patientsBookedAction(formData: FormData) {
@@ -320,16 +324,17 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     const dateKey = (formData.get("dateKey") as string) ?? "";
     const raw = (formData.get("patientsBooked") as string) ?? "";
     const patientsBooked = raw === "" ? null : Number(raw);
+    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode });
     try {
       await setPatientsBooked(actor.personId, { departmentId, dateKey, patientsBooked });
     } catch (err) {
       if (err instanceof BuilderValidationError || err instanceof BuilderForbiddenError) {
-        errorRedirect(err.message);
+        redirect(buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, error: "validation", message: err.message }));
       }
       throw err;
     }
     revalidatePath("/schedule/builder");
-    successRedirect();
+    redirect(base);
   }
 
   async function rhdClinicAction(formData: FormData) {
@@ -342,32 +347,34 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     const attendingId = rawAttendingId === "" ? null : rawAttendingId;
     const directorName = rawDirectorName.trim() === "" ? null : rawDirectorName.trim();
     const proceduresBooked = rawProceduresBooked === "" ? null : Number(rawProceduresBooked);
+    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode });
     try {
       await upsertRhdClinic(actor.personId, { dateKey, attendingId, directorName, proceduresBooked });
     } catch (err) {
       if (err instanceof BuilderValidationError || err instanceof BuilderForbiddenError) {
-        errorRedirect(err.message);
+        redirect(buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, error: "validation", message: err.message }));
       }
       throw err;
     }
     revalidatePath("/schedule/builder");
-    successRedirect();
+    redirect(base);
   }
 
   async function approveRequestAction(formData: FormData) {
     "use server";
     const actor = await requireModuleAccess("schedule");
     const requestId = (formData.get("requestId") as string) ?? "";
+    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode });
     try {
       await approveRequest(actor.personId, requestId);
     } catch (err) {
       if (err instanceof RequestValidationError || err instanceof RequestForbiddenError || err instanceof RequestNotFoundError) {
-        errorRedirect(err.message);
+        redirect(buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, error: "validation", message: err.message }));
       }
       throw err;
     }
     revalidatePath("/schedule/builder");
-    successRedirect();
+    redirect(base);
   }
 
   async function denyRequestAction(formData: FormData) {
@@ -375,16 +382,17 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     const actor = await requireModuleAccess("schedule");
     const requestId = (formData.get("requestId") as string) ?? "";
     const note = ((formData.get("denyNote") as string) ?? "").trim() || undefined;
+    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode });
     try {
       await denyRequest(actor.personId, requestId, note);
     } catch (err) {
       if (err instanceof RequestValidationError || err instanceof RequestForbiddenError || err instanceof RequestNotFoundError) {
-        errorRedirect(err.message);
+        redirect(buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, error: "validation", message: err.message }));
       }
       throw err;
     }
     revalidatePath("/schedule/builder");
-    successRedirect();
+    redirect(base);
   }
 
   // ---------------------------------------------------------------------------

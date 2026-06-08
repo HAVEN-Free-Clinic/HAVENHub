@@ -31,6 +31,7 @@ import {
 } from "@/modules/schedule/services/builder";
 import { BuilderCell } from "@/modules/schedule/components/builder-cell";
 import { displayDate } from "@/modules/schedule/engine/display";
+import { rolesForDept } from "@/modules/schedule/engine/capacity";
 import { isoDateKey } from "@/platform/dates";
 
 // ---------------------------------------------------------------------------
@@ -481,7 +482,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                           </div>
                           {/* Tag toggles */}
                           <div className="mt-2 flex flex-wrap gap-1">
-                            {(["triage", "walkin", "cc", "remote"] as const).map((tag) => (
+                            {([...rolesForDept(dept.code), "remote"] as Array<"triage" | "walkin" | "cc" | "remote">).map((tag) => (
                               <BuilderCell
                                 key={tag}
                                 action={toggleTagAction}

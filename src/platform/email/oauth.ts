@@ -1,5 +1,7 @@
 /**
- * Delegated OAuth helper for Microsoft Graph Mail.Send access.
+ * Delegated OAuth helper for Microsoft Graph. Provides the token used for
+ * Mail.Send (the Mailer) and Channel.ReadBasic.All (the clinic Teams channel
+ * link) -- both ride the single SCOPES string and the one cached access token.
  *
  * Flow overview:
  *   1. Admin visits the consent URL built by buildAuthorizeUrl().
@@ -24,7 +26,7 @@ import { prisma } from "@/platform/db";
 // ---------------------------------------------------------------------------
 
 const SCOPES =
-  "openid profile email offline_access https://graph.microsoft.com/Mail.Send https://graph.microsoft.com/Mail.Send.Shared";
+  "openid profile email offline_access https://graph.microsoft.com/Mail.Send https://graph.microsoft.com/Mail.Send.Shared https://graph.microsoft.com/Channel.ReadBasic.All";
 
 function tokenEndpoint(): string {
   const tenant = config.GRAPH_OAUTH_TENANT_ID ?? "common";

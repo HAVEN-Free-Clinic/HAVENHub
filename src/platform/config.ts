@@ -49,6 +49,11 @@ const schema = z
       .string()
       .default("http://localhost:3000/admin/email/oauth/callback"),
     EMAIL_SENDER: z.string().optional(),
+    // The Microsoft Teams clinic Team's groupId. When set (and the Mailer OAuth is
+    // connected with the Channel.ReadBasic.All scope), the home dashboard shows a
+    // link to the current clinic week's channel. Optional: when unset, the card is
+    // simply not rendered. The connected mailbox must be a member of this Team.
+    TEAMS_CLINIC_GROUP_ID: z.string().optional(),
     // Uploads: local filesystem storage for HIPAA certificates.
     // Mount this as a persistent volume in production (SpinUp).
     UPLOAD_DIR: z.string().default("./uploads"),

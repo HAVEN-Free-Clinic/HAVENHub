@@ -348,4 +348,21 @@ describe("loadConfig", () => {
     expect(config.GRAPH_OAUTH_TENANT_ID).toBe("tenant-id");
     expect(config.EMAIL_SENDER).toBe("noreply@example.com");
   });
+
+  // --- Teams clinic channel config ---
+
+  it("exposes TEAMS_CLINIC_GROUP_ID when provided", () => {
+    const config = loadConfig({
+      ...base,
+      TEAMS_CLINIC_GROUP_ID: "4796e633-27e4-4053-8631-d3b4fe64ebe6",
+    });
+    expect(config.TEAMS_CLINIC_GROUP_ID).toBe(
+      "4796e633-27e4-4053-8631-d3b4fe64ebe6"
+    );
+  });
+
+  it("leaves TEAMS_CLINIC_GROUP_ID undefined when absent", () => {
+    const config = loadConfig(base);
+    expect(config.TEAMS_CLINIC_GROUP_ID).toBeUndefined();
+  });
 });

@@ -95,3 +95,56 @@ With the Entra app registration ready: set `EMAIL_TRANSPORT=graph` and `GRAPH_TE
 - Per-person email preferences / unsubscribe (internal clinic tool; not needed now).
 - Inbound email / reply handling.
 - Retiring the legacy Airtable reminder automations (manual, once the platform reminders prove out).
+
+---
+
+## 11. Addendum: delegated-OAuth Graph transport (revises section 8)
+
+**Why:** Yale ITS is unlikely to grant tenant admin consent for an application `Mail.Send` permission (the Plan 6 client-credentials flow). Instead, an app admin (Jack) OAuths once as himself, consenting to DELEGATED scopes, which a user can grant for themselves without admin consent. The app then sends as the shared mailbox via a stored, rotating refresh token. This replaces the section-8 client-credentials cutover.
+
+**Binding decisions (from Jack):** rotating refresh token persisted in a DB table; one-time authorize via an admin "Connect mailbox" button with a real OAuth callback route; send as `hfc.it@yale.edu` (shared) using delegated `Mail.Send.Shared`.
+
+### 11.1 OAuth model
+- A separate Entra app registration ("HAVEN Hub Mailer"), confidential web client, with delegated permissions `Mail.Send`, `Mail.Send.Shared`, `offline_access` (+ `openid profile email`). Jack creates it and registers the redirect URI.
+- Authorization-code flow: the admin clicks Connect -> redirect to the Microsoft authorize endpoint with client_id, redirect_uri, scope, response_type=code, and a CSRF `state`. Microsoft redirects back to the app callback with a code; the app exchanges code -> { access_token, refresh_token } at the token endpoint (grant_type=authorization_code, client_secret). The refresh token is stored.
+- Sending: redeem the stored refresh token (grant_type=refresh_token) for a fresh access token; Entra returns a NEW refresh token on each redemption, which the app PERSISTS (rotation). The access token is cached in memory until ~60s before expiry. Send via `POST https://graph.microsoft.com/v1.0/users/{EMAIL_SENDER}/sendMail` (send-as the shared mailbox).
+
+### 11.2 Data model
+```prisma
+/// Single-row store for the delegated Graph mail credential (the rotating
+/// refresh token and connection metadata). id is a fixed sentinel so there is
+/// at most one row.
+model MailCredential {
+  id           String   @id @default("mailer")
+  refreshToken String
+  account      String?  // the email of the admin who connected
+  scope        String?
+  connectedAt  DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+```
+The refresh token is a secret at rest; acceptable for an internal clinic tool on a trusted DB (same posture as the Airtable PAT and Azure secrets already in env). No new encryption layer in this plan (noted as a deferred hardening).
+
+### 11.3 Config
+`EMAIL_TRANSPORT` value `graph` now means the delegated transport. New vars: `GRAPH_OAUTH_TENANT_ID` (Yale tenant id or "organizations"), `GRAPH_OAUTH_CLIENT_ID`, `GRAPH_OAUTH_CLIENT_SECRET`, `GRAPH_OAUTH_REDIRECT_URI` (default `http://localhost:3000/admin/email/oauth/callback` for dev; the deployed URL in prod), and `EMAIL_SENDER` (the shared mailbox, e.g. `hfc.it@yale.edu`). Config validation requires these only when `EMAIL_TRANSPORT=graph`. The Plan 6 client-credentials vars (`GRAPH_CLIENT_ID` etc.) are removed/retired since that flow is abandoned.
+
+### 11.4 OAuth helper (`src/platform/email/oauth.ts`, TDD)
+Pure-ish functions with injected fetch + a DB-backed credential store:
+- `buildAuthorizeUrl({ state }): string`.
+- `exchangeCode(code: string): Promise<void>` -> token endpoint, persist the refresh token to MailCredential.
+- `getAccessToken(): Promise<string>` -> read the stored refresh token, redeem it, PERSIST the rotated refresh token, cache the access token in memory until expiry; throws a typed `MailNotConnectedError` when no credential row exists.
+- `mailConnectionStatus(): Promise<{ connected: boolean; account: string | null; connectedAt: Date | null }>`.
+
+### 11.5 Transport
+`GraphTransport` is rewritten to take a `getAccessToken: () => Promise<string>` (from oauth.ts) + the sender; `send` gets a token and POSTs sendMail. `emailTransportFromConfig` wires the delegated transport when `EMAIL_TRANSPORT=graph`. The token-refresh/caching logic moves into oauth.ts; the transport just sends. Tests stub fetch + a fake getAccessToken.
+
+### 11.6 Admin connect UI + callback
+- `/admin/email` gains a "Mailer connection" panel: status (connected as `<account>` since `<date>`, or "Not connected") and a "Connect mailbox" / "Reconnect" button. The button posts a server action that generates a `state`, stores it in an httpOnly cookie, and redirects to `buildAuthorizeUrl({ state })`.
+- `src/app/admin/email/oauth/callback/route.ts` (GET, gated `admin.manage_sync`): validate the `state` cookie against the query `state` (reject mismatch), call `exchangeCode(code)`, audit `email.mailer_connect`, redirect to `/admin/email?connected=1`. On error (denied/invalid) redirect with an error banner.
+
+### 11.7 Cutover (revised hard gate)
+Jack creates the "HAVEN Hub Mailer" Entra app with the delegated scopes + the redirect URI, sets the five OAuth config vars + `EMAIL_TRANSPORT=graph`, clicks Connect mailbox and completes the OAuth consent, then we trigger one real reminder send and confirm the EmailLog row reads SENT (received from `hfc.it@yale.edu`). Verified before the PR.
+
+### 11.8 Deferred
+- Encrypting the refresh token at rest (KMS/sealed secret) is a later hardening; the token sits in the same trust boundary as the other secrets today.
+- Automatic re-auth nudges when the refresh token nears expiry (a banner can come later); for now a failed send surfaces in /admin/email and the admin reconnects.

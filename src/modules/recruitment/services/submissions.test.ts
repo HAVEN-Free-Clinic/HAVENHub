@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import { config } from "@/platform/config";
@@ -27,7 +27,7 @@ beforeEach(async () => { await resetDb(); });
 afterEach(async () => { await resetDb(); });
 
 it("accepts a valid NEW submission, dedups, and queues a confirmation email", async () => {
-  const { cycle } = await openVolunteerCycle();
+  await openVolunteerCycle();
   const app = await submitApplication("apply-v", {
     applicantType: "NEW",
     answers: { first_name: "Ann", last_name: "Lee", email: "ann@yale.edu", "1st_choice_department": "SRHD", srhd_essay: "because" },

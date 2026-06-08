@@ -170,6 +170,10 @@ export async function getCurrentClinicChannelLink(
   let value: ClinicChannelLink | null = null;
   try {
     const token = await getToken();
+    // Graph returns up to ~200 channels in one unpaged response. A clinic Team
+    // accrues ~one channel per week, so a single page covers years; we do not
+    // page. If a Team ever exceeds ~200 channels, this would need @odata.nextLink
+    // handling to stay reliable.
     const url = `https://graph.microsoft.com/v1.0/teams/${encodeURIComponent(
       groupId
     )}/channels`;

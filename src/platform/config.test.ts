@@ -52,6 +52,11 @@ describe("loadConfig", () => {
     expect(config.AIRTABLE_MIRROR_ENABLED).toBe(false);
   });
 
+  it("defaults SU26_SCHEDULE_TABLE_ID to the known table id", () => {
+    const config = loadConfig(base);
+    expect(config.SU26_SCHEDULE_TABLE_ID).toBe("tblqJlM85Em0AA767");
+  });
+
   it("requires mirror base/table and PAT when the mirror is enabled", () => {
     expect(() =>
       loadConfig({ ...base, AIRTABLE_MIRROR_ENABLED: "true" })

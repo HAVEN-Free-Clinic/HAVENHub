@@ -15,6 +15,7 @@ const schema = z
     HAVEN_MGMT_BASE_ID: z.string().default("appkxTQ19GmaHgW1O"),
     ALL_PEOPLE_TABLE_ID: z.string().default("tblnHgBpknuqWvx9c"),
     SU26_ROSTER_TABLE_ID: z.string().default("tbl2VrP1uqwFt7QNQ"),
+    SU26_SCHEDULE_TABLE_ID: z.string().default("tblqJlM85Em0AA767"),
     // Mirror: WRITES. Disabled by default; points at a sandbox base until FA26 cutover.
     AIRTABLE_MIRROR_ENABLED: z
       .string()

@@ -22,6 +22,8 @@
     "import:certs:apply": "tsx --env-file=.env scripts/import-certificates.ts --apply",
     "backfill:dates:dry": "tsx --env-file=.env scripts/backfill-completion-dates.ts",
     "backfill:dates:apply": "tsx --env-file=.env scripts/backfill-completion-dates.ts --apply",
+    "import:schedule:dry": "tsx --env-file=.env scripts/import-schedule.ts",
+    "import:schedule:apply": "tsx --env-file=.env scripts/import-schedule.ts --apply",
     "worker": "tsx --env-file=.env worker/index.ts"
   },
   "prisma": {

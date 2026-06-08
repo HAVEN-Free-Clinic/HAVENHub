@@ -1,0 +1,352 @@
+/**
+ * Imports the SU 26 Schedule table from Airtable into ShiftAssignment rows.
+ *
+ * Field names used (the Airtable reader returns fields keyed by their display
+ * name for this table, matching how importer.ts reads the roster table via
+ * field-name constants in fields.ts):
+ *   "Department Name (from Department)" - lookup array; first element is the
+ *     canonical department name, matched case-insensitively against Department.name.
+ *   "Date" - ISO date string "YYYY-MM-DD".
+ *   "Directors on Shift", "Volunteers on Shift", "Shadow Volunteers on Shift",
+ *   "Remote on Shift", "Triage on Shift", "Walk-in on Shift", "CC on Shift" -
+ *     link arrays of All People airtable record ids.
+ *
+ * The import NEVER deletes existing ShiftAssignment rows; it only upserts.
+ */
+
+import type { Prisma } from "@prisma/client";
+import { prisma } from "@/platform/db";
+import { recordAudit } from "@/platform/audit";
+import { isoDateKey } from "@/modules/schedule/engine/map";
+import type { AirtableReader } from "./importer";
+
+// ---------------------------------------------------------------------------
+// Public types
+// ---------------------------------------------------------------------------
+
+export type ScheduleImportOptions = {
+  baseId: string;
+  scheduleTableId: string;
+  termCode: string;
+  dryRun: boolean;
+};
+
+export type ScheduleImportReport = {
+  rows: number;
+  created: number;
+  updated: number;
+  unchanged: number;
+  unresolvedPeople: Array<{ rowId: string; recordId: string }>;
+  unknownDepartments: string[];
+  skippedDates: string[];
+};
+
+// ---------------------------------------------------------------------------
+// Schedule field names (display names, not field IDs; this table is accessed
+// by name because it has no stable field-ID set in the codebase yet).
+// ---------------------------------------------------------------------------
+
+const FIELD = {
+  deptNameLookup: "Department Name (from Department)",
+  date: "Date",
+  directors: "Directors on Shift",
+  volunteers: "Volunteers on Shift",
+  shadows: "Shadow Volunteers on Shift",
+  remote: "Remote on Shift",
+  triage: "Triage on Shift",
+  walkin: "Walk-in on Shift",
+  cc: "CC on Shift",
+} as const;
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+/** Extract a string array from a field value (link or lookup arrays). */
+function strArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((v): v is string => typeof v === "string");
+}
+
+/** Extract the first non-empty string from a lookup array. */
+function firstStr(value: unknown): string | null {
+  const arr = strArray(value);
+  for (const s of arr) {
+    const t = s.trim();
+    if (t.length) return t;
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Main export
+// ---------------------------------------------------------------------------
+
+/**
+ * Runs the SU 26 Schedule import.
+ *
+ * In apply mode, upserts ShiftAssignment rows and writes one AuditLog entry.
+ * In dry-run mode, computes the same counts without any DB writes.
+ */
+export async function runScheduleImport(
+  reader: AirtableReader,
+  options: ScheduleImportOptions
+): Promise<ScheduleImportReport> {
+  const report: ScheduleImportReport = {
+    rows: 0,
+    created: 0,
+    updated: 0,
+    unchanged: 0,
+    unresolvedPeople: [],
+    unknownDepartments: [],
+    skippedDates: [],
+  };
+
+  // --- Load term ---
+  const term = await prisma.term.findUnique({ where: { code: options.termCode } });
+  if (!term) {
+    throw new Error(
+      `Term with code "${options.termCode}" not found. Run the people/roster import first.`
+    );
+  }
+
+  // Build a map of ISO day key -> clinic date (DateTime)
+  const clinicDateMap = new Map<string, Date>();
+  for (const d of term.clinicDates) {
+    clinicDateMap.set(isoDateKey(d), d);
+  }
+
+  // --- Load departments (name -> id, case-insensitive) ---
+  const allDepartments = await prisma.department.findMany();
+  const deptByNameLower = new Map<string, string>(); // lower name -> dept id
+  for (const dept of allDepartments) {
+    deptByNameLower.set(dept.name.toLowerCase(), dept.id);
+  }
+
+  // --- Load schedule rows from Airtable ---
+  const scheduleRecords = await reader.listAll(options.baseId, options.scheduleTableId);
+
+  // Collect all linked person record ids for a single bulk DB lookup
+  const allPersonRecordIds = new Set<string>();
+  for (const record of scheduleRecords) {
+    const f = record.fields;
+    for (const field of [
+      FIELD.directors,
+      FIELD.volunteers,
+      FIELD.shadows,
+      FIELD.remote,
+      FIELD.triage,
+      FIELD.walkin,
+      FIELD.cc,
+    ]) {
+      for (const id of strArray(f[field])) {
+        allPersonRecordIds.add(id);
+      }
+    }
+  }
+
+  // One query to resolve all airtableRecordIds to DB person ids
+  const personRows = await prisma.person.findMany({
+    where: { airtableRecordId: { in: [...allPersonRecordIds] } },
+    select: { id: true, airtableRecordId: true },
+  });
+  const personIdByRecordId = new Map<string, string>();
+  for (const p of personRows) {
+    if (p.airtableRecordId) {
+      personIdByRecordId.set(p.airtableRecordId, p.id);
+    }
+  }
+
+  // --- Process each row ---
+  for (const record of scheduleRecords) {
+    report.rows++;
+    const f = record.fields;
+    const rowId = record.id;
+
+    // Resolve date
+    const dateStr = typeof f[FIELD.date] === "string" ? (f[FIELD.date] as string).trim() : null;
+    if (!dateStr || !clinicDateMap.has(dateStr)) {
+      if (dateStr) report.skippedDates.push(dateStr);
+      continue;
+    }
+    const clinicDate = clinicDateMap.get(dateStr)!;
+
+    // Resolve department
+    const rawDeptName = firstStr(f[FIELD.deptNameLookup]);
+    if (!rawDeptName) {
+      // No department name at all; skip silently (not an unknown dept -- just empty)
+      continue;
+    }
+    const departmentId = deptByNameLower.get(rawDeptName.toLowerCase());
+    if (!departmentId) {
+      if (!report.unknownDepartments.includes(rawDeptName)) {
+        report.unknownDepartments.push(rawDeptName);
+      }
+      continue;
+    }
+
+    // --- Build desired assignments for this row ---
+    // Each entry: { personId, role, triage, walkin, cc, remote }
+    type DesiredAssignment = {
+      personId: string;
+      role: "DIRECTOR" | "VOLUNTEER" | "SHADOW";
+      triage: boolean;
+      walkin: boolean;
+      cc: boolean;
+      remote: boolean;
+    };
+
+    // Helper: resolve ids, log unresolved
+    const resolve = (recordIds: string[]): string[] => {
+      const resolved: string[] = [];
+      for (const rid of recordIds) {
+        const pid = personIdByRecordId.get(rid);
+        if (pid) {
+          resolved.push(pid);
+        } else {
+          report.unresolvedPeople.push({ rowId, recordId: rid });
+        }
+      }
+      return resolved;
+    };
+
+    const directorIds = resolve(strArray(f[FIELD.directors]));
+    const volunteerIds = resolve(strArray(f[FIELD.volunteers]));
+    const shadowIds = resolve(strArray(f[FIELD.shadows]));
+    const triageIds = resolve(strArray(f[FIELD.triage]));
+    const walkinIds = resolve(strArray(f[FIELD.walkin]));
+    const ccIds = resolve(strArray(f[FIELD.cc]));
+    const remoteIds = resolve(strArray(f[FIELD.remote]));
+
+    // Build desired map: personId -> DesiredAssignment
+    // Rule: if a person is in both directors and volunteers, keep DIRECTOR only
+    //       (the unique key is per person per dept/date; pick DIRECTOR and count it once).
+    const desiredMap = new Map<string, DesiredAssignment>();
+
+    for (const pid of directorIds) {
+      desiredMap.set(pid, { personId: pid, role: "DIRECTOR", triage: false, walkin: false, cc: false, remote: false });
+    }
+
+    for (const pid of shadowIds) {
+      if (!desiredMap.has(pid)) {
+        desiredMap.set(pid, { personId: pid, role: "SHADOW", triage: false, walkin: false, cc: false, remote: false });
+      }
+    }
+
+    for (const pid of volunteerIds) {
+      if (!desiredMap.has(pid)) {
+        desiredMap.set(pid, { personId: pid, role: "VOLUNTEER", triage: false, walkin: false, cc: false, remote: false });
+      }
+      // If already a DIRECTOR, skip (director takes precedence)
+    }
+
+    // Tag lists: triage/walkin/cc/remote set booleans on the VOLUNTEER assignment.
+    // "Tag implies on-shift" invariant: a tagged person not already in the row
+    // gets a new VOLUNTEER row. Tags only apply to VOLUNTEER-role rows; if the
+    // person is already a DIRECTOR or SHADOW, leave their row untouched.
+    const tagSets: Array<{ ids: string[]; flag: "triage" | "walkin" | "cc" | "remote" }> = [
+      { ids: triageIds, flag: "triage" },
+      { ids: walkinIds, flag: "walkin" },
+      { ids: ccIds, flag: "cc" },
+      { ids: remoteIds, flag: "remote" },
+    ];
+
+    for (const { ids, flag } of tagSets) {
+      for (const pid of ids) {
+        const existing = desiredMap.get(pid);
+        if (!existing) {
+          // Tag-implies-on-shift: create a VOLUNTEER row for this person
+          desiredMap.set(pid, { personId: pid, role: "VOLUNTEER", triage: false, walkin: false, cc: false, remote: false });
+        }
+        const entry = desiredMap.get(pid)!;
+        // Only VOLUNTEER rows carry tags (directors/shadows do not have tag columns
+        // in the schema; however, to keep invariant clean, we still mark the flag
+        // on the row regardless of role -- the DB schema allows it on any row)
+        entry[flag] = true;
+      }
+    }
+
+    if (desiredMap.size === 0) continue;
+
+    // --- Diff against existing rows ---
+    const existing = await prisma.shiftAssignment.findMany({
+      where: { termId: term.id, departmentId, clinicDate },
+    });
+    const existingMap = new Map<string, typeof existing[number]>();
+    for (const row of existing) {
+      existingMap.set(row.personId, row);
+    }
+
+    // Apply: upsert each desired row
+    for (const desired of desiredMap.values()) {
+      const existingRow = existingMap.get(desired.personId);
+
+      if (existingRow) {
+        // Check if anything changed
+        const changed =
+          existingRow.role !== desired.role ||
+          existingRow.triage !== desired.triage ||
+          existingRow.walkin !== desired.walkin ||
+          existingRow.cc !== desired.cc ||
+          existingRow.remote !== desired.remote;
+
+        if (!changed) {
+          report.unchanged++;
+          continue;
+        }
+
+        // Dry run: count update but do not write
+        if (options.dryRun) {
+          report.updated++;
+          continue;
+        }
+
+        await prisma.shiftAssignment.update({
+          where: { id: existingRow.id },
+          data: {
+            role: desired.role,
+            triage: desired.triage,
+            walkin: desired.walkin,
+            cc: desired.cc,
+            remote: desired.remote,
+          },
+        });
+        report.updated++;
+      } else {
+        // Dry run: count create but do not write
+        if (options.dryRun) {
+          report.created++;
+          continue;
+        }
+
+        await prisma.shiftAssignment.create({
+          data: {
+            termId: term.id,
+            departmentId,
+            personId: desired.personId,
+            clinicDate,
+            role: desired.role,
+            triage: desired.triage,
+            walkin: desired.walkin,
+            cc: desired.cc,
+            remote: desired.remote,
+          },
+        });
+        report.created++;
+      }
+    }
+  }
+
+  // One audit entry in apply mode
+  if (!options.dryRun) {
+    await recordAudit({
+      actorPersonId: null,
+      action: "schedule.import",
+      entityType: "ShiftAssignment",
+      entityId: null,
+      after: report as unknown as Prisma.InputJsonValue,
+    });
+  }
+
+  return report;
+}

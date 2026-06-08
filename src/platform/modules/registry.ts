@@ -24,8 +24,11 @@ export const MODULES: ModuleManifest[] = [
       "schedule.edit_all",
       "schedule.manage_requests",
     ],
-    status: "coming-soon",
-    nav: [],
+    status: "active",
+    nav: [
+      { label: "My schedule", href: "/schedule" },
+      { label: "Full schedule", href: "/schedule/full" },
+    ],
   },
   {
     id: "my-info",

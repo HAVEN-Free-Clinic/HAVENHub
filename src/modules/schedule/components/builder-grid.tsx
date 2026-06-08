@@ -74,7 +74,7 @@ function CellContent({
   deptCode: string;
 }) {
   if (!assignment) {
-    return <span className="text-slate-300 text-xs" aria-hidden>-</span>;
+    return <span className="text-slate-300 text-xs" aria-hidden="true">-</span>;
   }
 
   const glyph = roleGlyph(assignment.role);
@@ -190,7 +190,6 @@ function GridCell({
           label={roleGlyph(assignment.role) || "?"}
           variant="grid-filled"
           ariaLabel={`Unassign ${memberName} (${assignment.role.toLowerCase()}) from ${displayD}`}
-          deptCode={deptCode}
           assignment={assignment}
         />
       </td>
@@ -234,7 +233,6 @@ function GridCell({
           label="S"
           variant="grid-filled"
           ariaLabel={`Unassign ${memberName} (shadow) from ${displayD}`}
-          deptCode={deptCode}
           assignment={assignment}
         />
       </td>
@@ -315,7 +313,7 @@ export function BuilderGrid({
             return (
               <tr key={member.person.id} className="hover:bg-slate-50/60">
                 {/* Sticky member name column */}
-                <td className="sticky left-0 z-10 bg-white border border-slate-200 px-3 py-2 whitespace-nowrap">
+                <th scope="row" className="sticky left-0 z-10 bg-white border border-slate-200 px-3 py-2 whitespace-nowrap text-left font-normal">
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs font-medium text-slate-800">
                       {member.person.name}
@@ -326,7 +324,7 @@ export function BuilderGrid({
                       {isDirector ? "Dir" : "Vol"}
                     </Badge>
                   </div>
-                </td>
+                </th>
                 {clinicDates.map((d) => {
                   const dk = isoDateKey(d);
                   const assignment = assignmentsByDate[dk]?.[member.person.id];

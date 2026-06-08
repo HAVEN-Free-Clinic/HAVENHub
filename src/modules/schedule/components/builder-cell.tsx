@@ -39,8 +39,6 @@ type Props = {
    * can render role glyph + tag dots inline.
    */
   assignment?: BuilderAssignmentEntry;
-  /** Department code for deriving which tags to show (grid-filled). */
-  deptCode?: string;
 };
 
 function SubmitButton({

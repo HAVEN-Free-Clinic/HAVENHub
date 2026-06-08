@@ -1,8 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   selectCurrentClinicDate,
   formatClinicDate,
   matchChannel,
+  getCurrentClinicChannelLink,
+  __resetChannelCache,
+  type ClinicChannelLink,
 } from "./channel-link";
 
 // Clinic dates are anchored at 12:00 UTC like Term.clinicDates.
@@ -81,5 +84,138 @@ describe("matchChannel", () => {
 
   it("returns null when no channel matches", () => {
     expect(matchChannel(channels, "07-04-26")).toBeNull();
+  });
+});
+
+beforeEach(() => {
+  __resetChannelCache();
+});
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe("getCurrentClinicChannelLink", () => {
+  const groupId = "4796e633-27e4-4053-8631-d3b4fe64ebe6";
+  const now = new Date(Date.UTC(2026, 5, 8, 12, 0, 0)); // Mon -> upcoming 06-13
+  const clinicDates = [clinic(2026, 6, 6), clinic(2026, 6, 13), clinic(2026, 6, 20)];
+
+  function okChannelsFetch() {
+    return vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          value: [
+            { id: "1", displayName: "General", webUrl: "https://x/general" },
+            { id: "2", displayName: "06-13-26 Clinic", webUrl: "https://x/0613" },
+          ],
+        }),
+        { status: 200 }
+      )
+    );
+  }
+
+  it("returns the matched channel's webUrl for the current week", async () => {
+    const fetchImpl = okChannelsFetch();
+    const result = await getCurrentClinicChannelLink({
+      fetchImpl,
+      getToken: async () => "tok",
+      now,
+      groupId,
+      loadClinicDates: async () => clinicDates,
+    });
+    expect(result).toEqual<ClinicChannelLink>({
+      webUrl: "https://x/0613",
+      displayName: "06-13-26 Clinic",
+      clinicDate: clinic(2026, 6, 13),
+    });
+    const firstCall = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    const init = firstCall[1];
+    expect((init.headers as Record<string, string>).Authorization).toBe(
+      "Bearer tok"
+    );
+  });
+
+  it("returns null when groupId is unset (no Graph call)", async () => {
+    const fetchImpl = vi.fn();
+    const result = await getCurrentClinicChannelLink({
+      fetchImpl,
+      getToken: async () => "tok",
+      now,
+      groupId: undefined,
+      loadClinicDates: async () => clinicDates,
+    });
+    expect(result).toBeNull();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("returns null when there is no active term / no clinic dates", async () => {
+    const fetchImpl = vi.fn();
+    const result = await getCurrentClinicChannelLink({
+      fetchImpl,
+      getToken: async () => "tok",
+      now,
+      groupId,
+      loadClinicDates: async () => null,
+    });
+    expect(result).toBeNull();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("returns null when no channel matches the current week", async () => {
+    const fetchImpl = vi.fn(async () =>
+      new Response(JSON.stringify({ value: [{ id: "1", displayName: "General", webUrl: "u" }] }), {
+        status: 200,
+      })
+    );
+    const result = await getCurrentClinicChannelLink({
+      fetchImpl,
+      getToken: async () => "tok",
+      now,
+      groupId,
+      loadClinicDates: async () => clinicDates,
+    });
+    expect(result).toBeNull();
+  });
+
+  it("returns null (never throws) on a non-2xx Graph response", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetchImpl = vi.fn(async () => new Response("forbidden", { status: 403 }));
+    const result = await getCurrentClinicChannelLink({
+      fetchImpl,
+      getToken: async () => "tok",
+      now,
+      groupId,
+      loadClinicDates: async () => clinicDates,
+    });
+    expect(result).toBeNull();
+  });
+
+  it("returns null (never throws) when the token getter throws", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetchImpl = vi.fn();
+    const result = await getCurrentClinicChannelLink({
+      fetchImpl,
+      getToken: async () => {
+        throw new Error("MailNotConnected");
+      },
+      now,
+      groupId,
+      loadClinicDates: async () => clinicDates,
+    });
+    expect(result).toBeNull();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("caches within the TTL: a second call does not re-fetch", async () => {
+    const fetchImpl = okChannelsFetch();
+    const deps = {
+      fetchImpl,
+      getToken: async () => "tok",
+      now,
+      groupId,
+      loadClinicDates: async () => clinicDates,
+    };
+    await getCurrentClinicChannelLink(deps);
+    await getCurrentClinicChannelLink(deps);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 });

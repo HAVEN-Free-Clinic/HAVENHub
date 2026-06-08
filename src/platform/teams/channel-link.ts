@@ -11,6 +11,10 @@
  * Every failure path degrades to null so the dashboard simply hides the card.
  */
 
+import { config } from "@/platform/config";
+import { prisma } from "@/platform/db";
+import { getAccessToken } from "@/platform/email/oauth";
+
 /** A Microsoft Graph channel object (subset we use). */
 export interface GraphChannel {
   id: string;
@@ -80,4 +84,115 @@ export function matchChannel(
       (c.displayName ?? "").trim().toLowerCase().startsWith(target)
     ) ?? null
   );
+}
+
+/** The resolved link for the current clinic week's Teams channel. */
+export interface ClinicChannelLink {
+  webUrl: string;
+  displayName: string;
+  clinicDate: Date;
+}
+
+/** Injectable dependencies (defaults wire up real config/prisma/Graph). */
+export interface ChannelLinkDeps {
+  fetchImpl?: typeof fetch;
+  getToken?: () => Promise<string>;
+  now?: Date;
+  groupId?: string | undefined;
+  loadClinicDates?: () => Promise<Date[] | null>;
+}
+
+const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+interface CacheEntry {
+  dateStr: string;
+  value: ClinicChannelLink | null;
+  expiresAt: number;
+}
+
+let cache: CacheEntry | null = null;
+
+/** Clear the module-level cache. Exported for test isolation only. */
+export function __resetChannelCache(): void {
+  cache = null;
+}
+
+/** Default clinic-date source: the active term's clinicDates array. */
+async function loadActiveTermClinicDates(): Promise<Date[] | null> {
+  const term = await prisma.term.findFirst({
+    where: { status: "ACTIVE" },
+    orderBy: { startDate: "desc" },
+    select: { clinicDates: true },
+  });
+  return term?.clinicDates ?? null;
+}
+
+function logChannelError(stage: string, err: unknown): void {
+  console.error(`[teams/channel-link] ${stage} failed:`, err);
+}
+
+/**
+ * Resolve the current clinic week's Teams channel link, or null when it cannot
+ * be determined (unconfigured, not connected, no active term, channel missing,
+ * or any Graph error). Never throws.
+ */
+export async function getCurrentClinicChannelLink(
+  deps: ChannelLinkDeps = {}
+): Promise<ClinicChannelLink | null> {
+  const {
+    fetchImpl = fetch,
+    getToken = getAccessToken,
+    now = new Date(),
+    groupId = config.TEAMS_CLINIC_GROUP_ID,
+    loadClinicDates = loadActiveTermClinicDates,
+  } = deps;
+
+  if (!groupId) return null;
+
+  let clinicDates: Date[] | null;
+  try {
+    clinicDates = await loadClinicDates();
+  } catch (err) {
+    logChannelError("load clinic dates", err);
+    return null;
+  }
+  if (!clinicDates || clinicDates.length === 0) return null;
+
+  const clinicDate = selectCurrentClinicDate(clinicDates, now);
+  if (!clinicDate) return null;
+  const dateStr = formatClinicDate(clinicDate);
+
+  // Serve from cache when the week and TTL still hold (caches null misses too).
+  if (cache && cache.dateStr === dateStr && now.getTime() < cache.expiresAt) {
+    return cache.value;
+  }
+
+  let value: ClinicChannelLink | null = null;
+  try {
+    const token = await getToken();
+    const url = `https://graph.microsoft.com/v1.0/teams/${encodeURIComponent(
+      groupId
+    )}/channels`;
+    const res = await fetchImpl(url, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      throw new Error(`Graph channels list failed: ${res.status}`);
+    }
+    const json = (await res.json()) as { value?: GraphChannel[] };
+    const channel = matchChannel(json.value ?? [], dateStr);
+    if (channel?.webUrl) {
+      value = {
+        webUrl: channel.webUrl,
+        displayName: channel.displayName,
+        clinicDate,
+      };
+    }
+  } catch (err) {
+    logChannelError("resolve channel", err);
+    value = null;
+  }
+
+  cache = { dateStr, value, expiresAt: now.getTime() + CACHE_TTL_MS };
+  return value;
 }

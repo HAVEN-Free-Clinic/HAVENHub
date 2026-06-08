@@ -15,10 +15,12 @@
  *     3. A reminder email is queued; remindersSent is incremented; lastRemindedAt = now.
  *     4. Escalation fires once per non-compliant streak, guarded by escalatedAt:
  *        when the NEW remindersSent >= COMPLIANCE_ESCALATION_THRESHOLD AND escalatedAt
- *        is currently null, an escalation email is queued to each director of any
+ *        is currently null, escalation emails are queued to each director of any
  *        department where the volunteer holds an ACTIVE membership in the active term.
  *        Directors are deduped by personId and the volunteer themselves is excluded.
- *        escalatedAt is set to now so the escalation does not fire again for this streak.
+ *        Escalation emails are queued BEFORE escalatedAt is persisted so that a crash
+ *        between the two re-queues on the next run (at-least-once) rather than leaving
+ *        escalatedAt set with no director notification ever sent.
  *
  * All emails are queued via queueEmail; no transport is invoked here.
  */
@@ -194,7 +196,15 @@ export async function runComplianceReminders(
     const shouldEscalate =
       newRemindersSent >= threshold && (existing?.escalatedAt ?? null) === null;
 
-    // Upsert the ComplianceReminder row.
+    // d. Queue escalation emails BEFORE writing escalatedAt. This way a crash
+    //    between the queue call and the upsert re-queues on the next run
+    //    (at-least-once) rather than leaving escalatedAt set with no emails sent.
+    if (shouldEscalate) {
+      await sendEscalations(person, termId, status, result);
+    }
+
+    // Upsert the ComplianceReminder row. escalatedAt is set here, after
+    // escalation emails have already been queued above.
     await prisma.complianceReminder.upsert({
       where: { personId: person.id },
       create: {
@@ -213,11 +223,6 @@ export async function runComplianceReminders(
     });
 
     result.remindersSent++;
-
-    // d. Escalate if threshold just crossed and not already escalated.
-    if (shouldEscalate) {
-      await sendEscalations(person, termId, status, now, result);
-    }
   }
 
   return result;
@@ -232,12 +237,15 @@ export async function runComplianceReminders(
  * one escalation email per unique director (with a contactEmail). The volunteer
  * themselves are excluded. The department name for the email is the first
  * department by code where both the volunteer and the director share a membership.
+ *
+ * Escalation emails are queued before escalatedAt is recorded in the caller's
+ * upsert. A crash between the two re-queues on the next run (at-least-once)
+ * rather than dropping the director notification silently.
  */
 async function sendEscalations(
   volunteer: { id: string; name: string },
   termId: string,
   status: import("@/platform/compliance/rules").ComplianceStatus,
-  now: Date,
   result: ReminderRunResult
 ): Promise<void> {
   // Load the volunteer's active-term ACTIVE memberships with department info.

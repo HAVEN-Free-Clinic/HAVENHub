@@ -41,7 +41,8 @@ const EXPIRING_COMPLETION = new Date("2025-07-01T12:00:00.000Z");
 // => use 2026-01-01 (expiresAt = 2027-01-01 -- well compliant)
 const COMPLIANT_COMPLETION = new Date("2026-01-01T12:00:00.000Z");
 
-// Interval = 7 days; advance by 8 days to be past the window
+// Interval = 7 days; mirrors config.COMPLIANCE_REMINDER_INTERVAL_DAYS default.
+// Advance by 8 days to be past the window.
 const INTERVAL_DAYS = 7;
 const ADVANCE_DAYS = INTERVAL_DAYS + 1;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -491,13 +492,11 @@ describe("director with no contactEmail", () => {
     expect(r3.escalationsSent).toBe(0);
     expect(await emailLogCount("compliance-escalation")).toBe(0);
 
-    // escalatedAt should still be set because the threshold was met
-    // (we attempted escalation, even if no emails went to directors)
-    // Note: this depends on implementation. The spec says set escalatedAt=now;
-    // however if there are NO directors to send to, escalatedAt should still be set
-    // to prevent infinite re-escalation checks.
+    // escalatedAt must be set even when no director email goes out: the threshold
+    // was met and we attempted escalation, so the once-per-streak guard must fire.
     const row = await getReminderRow(volunteer.id);
     expect(row!.remindersSent).toBe(3);
+    expect(row!.escalatedAt).not.toBeNull();
   });
 });
 

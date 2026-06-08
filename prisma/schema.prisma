@@ -12,6 +12,19 @@ enum PersonStatus {
   OFFBOARDED
 }
 
+enum ShiftRequestStatus {
+  PENDING
+  APPROVED
+  DENIED
+  CANCELLED
+}
+
+enum ShiftRole {
+  DIRECTOR
+  VOLUNTEER
+  SHADOW
+}
+
 enum TermStatus {
   PLANNING
   ACTIVE
@@ -78,6 +91,17 @@ model Person {
   /// Email log rows this person triggered (may differ from the recipient).
   emailLogsTriggered        EmailLog[]           @relation("emailLogTriggeredBy")
   complianceReminder        ComplianceReminder?
+  shiftAssignments          ShiftAssignment[]
+  /// Shift requests this person raised.
+  shiftRequests             ShiftRequest[]       @relation("shiftRequestRequester")
+  /// Shift requests targeting this person as the swap partner.
+  shiftRequestsTargeted     ShiftRequest[]       @relation("shiftRequestTarget")
+  /// Shift requests this person decided (approved or denied).
+  shiftRequestsDecided      ShiftRequest[]       @relation("shiftRequestDecidedBy")
+  /// Capacity/RHD attributes imported from Airtable; future source is the Recruitment module.
+  spanishSpeaking           Boolean              @default(false)
+  /// Capacity/RHD attributes imported from Airtable; future source is the Recruitment module.
+  licensedRN                Boolean              @default(false)
   createdAt                 DateTime             @default(now())
   updatedAt                 DateTime             @updatedAt
 }
@@ -106,19 +130,23 @@ model HipaaCertificate {
 }
 
 model Term {
-  id              String           @id @default(cuid())
-  code            String           @unique // "SU26", "FA26"
-  name            String // "Summer 2026"
-  startDate       DateTime
-  endDate         DateTime
-  status          TermStatus       @default(PLANNING)
-  clinicDates     DateTime[]
-  memberships     TermMembership[]
-  roleAssignments RoleAssignment[]
+  id               String            @id @default(cuid())
+  code             String            @unique // "SU26", "FA26"
+  name             String // "Summer 2026"
+  startDate        DateTime
+  endDate          DateTime
+  status           TermStatus        @default(PLANNING)
+  clinicDates      DateTime[]
+  memberships      TermMembership[]
+  roleAssignments  RoleAssignment[]
   /// Offboard flags raised for this term.
-  offboardFlags   OffboardFlag[]
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
+  offboardFlags    OffboardFlag[]
+  shiftAssignments ShiftAssignment[]
+  shiftRequests    ShiftRequest[]
+  scheduleDays     ScheduleDay[]
+  rhdClinics       RhdClinic[]
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
 }
 
 model Department {
@@ -132,6 +160,13 @@ model Department {
   managesDelegations   DepartmentDelegation[] @relation("delegationManager")
   /// Delegations where this department is MANAGED BY another department.
   managedByDelegations DepartmentDelegation[] @relation("delegationManaged")
+  shiftAssignments     ShiftAssignment[]
+  shiftRequests        ShiftRequest[]
+  scheduleDays         ScheduleDay[]
+  /// Capacity panel config: imported then admin-maintained.
+  idealHeadcount            Int?
+  /// Capacity panel config: imported then admin-maintained.
+  patientCapacityPerProvider Int?
   createdAt            DateTime               @default(now())
   updatedAt            DateTime               @updatedAt
 }
@@ -156,11 +191,24 @@ model TermMembership {
   departmentId               String
   kind                       MembershipKind
   status                     MembershipStatus @default(ACTIVE)
+  /// Tier 3 (lowest): availability from the member's application, set at import
+  /// or roster build. The fallback when no self update or director override exists.
   baselineAvailability       DateTime[]
   /// Free-text availability from volunteer self-update (legacy scheduler behavior).
+  /// Read-only note since plan 7; superseded by selfAvailabilityDates.
   selfUpdatedAvailability    String?
+  /// Set whenever the member self-updates availability (free text historically,
+  /// structured dates since plan 7); doubles as the presence marker for tier 2.
   availabilityUpdatedAt      DateTime?
   availabilityAcknowledgedAt DateTime?
+  /// Tier 2: structured self-updated availability (clinic dates the member can
+  /// attend). Presence is signaled by availabilityUpdatedAt; replaces the
+  /// legacy free-text selfUpdatedAvailability, which stays read-only as a note.
+  selfAvailabilityDates      DateTime[]
+  /// Tier 1 (highest): director override. Empty-but-set is distinguished from
+  /// never-set by directorAvailabilitySetAt.
+  directorAvailabilityDates  DateTime[]
+  directorAvailabilitySetAt  DateTime?
   person                     Person           @relation(fields: [personId], references: [id])
   term                       Term             @relation(fields: [termId], references: [id])
   department                 Department       @relation(fields: [departmentId], references: [id])
@@ -429,4 +477,117 @@ model MailCredential {
   scope        String?
   connectedAt  DateTime @default(now())
   updatedAt    DateTime @updatedAt
+}
+
+/// One row per person per clinic shift. Med-team tags apply to VOLUNTEER rows;
+/// the legacy invariant holds: a triage/walk-in/CC/remote designee is also on
+/// shift (their row IS the on-shift row, tags are attributes of it).
+model ShiftAssignment {
+  id           String     @id @default(cuid())
+  termId       String
+  departmentId String
+  personId     String
+  /// Calendar date, anchored at 12:00 UTC like Term.clinicDates and the
+  /// availability arrays. Compare by UTC day key, never by raw timestamp.
+  clinicDate   DateTime
+  role         ShiftRole
+  triage       Boolean    @default(false)
+  walkin       Boolean    @default(false)
+  cc           Boolean    @default(false)
+  remote       Boolean    @default(false)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  /// Restrict: term deletion is blocked while schedule history references it.
+  term         Term       @relation(fields: [termId], references: [id], onDelete: Restrict)
+  /// Restrict: department deletion is blocked while schedule history references it.
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  /// Cascade: assignments belong to the person and die with them.
+  person       Person     @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@unique([termId, departmentId, clinicDate, personId])
+  @@index([termId, clinicDate])
+  @@index([personId, termId])
+}
+
+/// Swap/drop requests against the schedule. Drop when targetId/targetDate are
+/// null; named swap otherwise. Approval re-validates and applies transactionally.
+/// DB-LEVEL GUARDS LIVE IN RAW SQL (see migrations): a partial unique index
+/// (ShiftRequest_pending_unique) prevents duplicate PENDING rows for the same
+/// (requesterId, requesterDate, departmentId) triple. Guarded by
+/// src/modules/schedule/services/schedule-schema-guards.test.ts. Never resolve
+/// a prisma migrate diff by accepting a DROP of objects you do not recognize.
+model ShiftRequest {
+  id            String             @id @default(cuid())
+  termId        String
+  requesterId   String
+  /// Clinic date of the shift being dropped or swapped away (noon-UTC anchored).
+  requesterDate DateTime
+  departmentId  String
+  targetId      String?
+  /// Populated only for swaps; may remain set even if targetId was NULLed by
+  /// onDelete SetNull. The service layer must treat (targetId null AND
+  /// targetDate set) as a stale/malformed swap.
+  targetDate    DateTime?
+  status        ShiftRequestStatus @default(PENDING)
+  note          String?
+  decidedById   String?
+  decidedAt     DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  term          Term        @relation(fields: [termId], references: [id], onDelete: Restrict)
+  requester     Person      @relation("shiftRequestRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  target        Person?     @relation("shiftRequestTarget", fields: [targetId], references: [id], onDelete: SetNull)
+  decidedBy     Person?     @relation("shiftRequestDecidedBy", fields: [decidedById], references: [id], onDelete: Restrict)
+  department    Department  @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+
+  @@index([termId, departmentId, status])
+  @@index([requesterId])
+}
+
+/// Per-(department, clinic date) operational data maintained by directors
+/// in the builder (currently: patients booked, for capacity math).
+model ScheduleDay {
+  id             String     @id @default(cuid())
+  termId         String
+  departmentId   String
+  /// Noon-UTC anchored calendar date; compare by UTC day key.
+  clinicDate     DateTime
+  patientsBooked Int?
+  term           Term       @relation(fields: [termId], references: [id], onDelete: Restrict)
+  department     Department @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+
+  @@unique([termId, departmentId, clinicDate])
+}
+
+/// RHD attending physicians and their procedure qualification matrix.
+/// Procedure values are "yes" | "no" | "unknown" strings (legacy semantics).
+model RhdAttending {
+  id           String      @id @default(cuid())
+  scheduleName String      @unique
+  fullName     String
+  iudIn        String      @default("unknown")
+  iudOut       String      @default("unknown")
+  nexplanon    String      @default("unknown")
+  gac          String      @default("unknown")
+  emb          String      @default("unknown")
+  seesMale     String      @default("unknown")
+  notes        String?
+  isActive     Boolean     @default(true)
+  clinics      RhdClinic[]
+}
+
+/// Per-Saturday RHD clinic row (attending on duty, director on point,
+/// procedures booked). One row per clinic date per term.
+model RhdClinic {
+  id               String        @id @default(cuid())
+  termId           String
+  /// Noon-UTC anchored calendar date; compare by UTC day key.
+  clinicDate       DateTime
+  attendingId      String?
+  directorName     String?
+  proceduresBooked Int?
+  term             Term          @relation(fields: [termId], references: [id], onDelete: Restrict)
+  attending        RhdAttending? @relation(fields: [attendingId], references: [id], onDelete: SetNull)
+
+  @@unique([termId, clinicDate])
 }

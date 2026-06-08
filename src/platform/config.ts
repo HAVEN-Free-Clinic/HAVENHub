@@ -15,6 +15,9 @@ const schema = z
     HAVEN_MGMT_BASE_ID: z.string().default("appkxTQ19GmaHgW1O"),
     ALL_PEOPLE_TABLE_ID: z.string().default("tblnHgBpknuqWvx9c"),
     SU26_ROSTER_TABLE_ID: z.string().default("tbl2VrP1uqwFt7QNQ"),
+    SU26_SCHEDULE_TABLE_ID: z.string().default("tblqJlM85Em0AA767"),
+    RHD_ATTENDINGS_TABLE_ID: z.string().default("tblxDJehirZSLFJna"),
+    RHD_CLINICS_TABLE_ID: z.string().default("tbl0HrOcMHUQL0a6C"),
     // Mirror: WRITES. Disabled by default; points at a sandbox base until FA26 cutover.
     AIRTABLE_MIRROR_ENABLED: z
       .string()
@@ -97,6 +100,23 @@ const schema = z
               code: "custom",
               path: [],
               message: "COMPLIANCE_ESCALATION_THRESHOLD must be a positive number",
+            });
+          }
+        })
+      ),
+    // Maximum procedures per RHD clinic session. Stored as a string in env; transformed to
+    // a number. Rejected if not a positive finite number.
+    RHD_MAX_PROCEDURES: z
+      .string()
+      .default("3")
+      .transform(Number)
+      .pipe(
+        z.number().superRefine((val, ctx) => {
+          if (Number.isNaN(val) || val <= 0) {
+            ctx.addIssue({
+              code: "custom",
+              path: [],
+              message: "RHD_MAX_PROCEDURES must be a positive number",
             });
           }
         })

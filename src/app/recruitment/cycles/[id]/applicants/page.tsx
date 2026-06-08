@@ -12,8 +12,7 @@ function badge(depts: string[]): string {
 
 export default async function ApplicantsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const person = await requirePersonSession();
-  const cycle = await getCycle(id);
+  const [person, cycle] = await Promise.all([requirePersonSession(), getCycle(id)]);
   if (!cycle) notFound();
   const apps = await listApplicantsForReview(id, person.personId);
   return (

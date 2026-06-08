@@ -3,6 +3,7 @@ import { getApplication } from "@/modules/recruitment/services/submissions";
 import { visibleSections } from "@/modules/recruitment/engine/visibility";
 import { requirePersonSession } from "@/platform/auth/session";
 import { reviewScope, listAcceptances } from "@/modules/recruitment/services/review";
+import { can } from "@/platform/rbac/engine";
 import { acceptApplicantAction, revokeAcceptanceAction } from "../actions";
 
 export default async function ApplicationDetailPage({ params, searchParams }: { params: Promise<{ id: string; applicationId: string }>; searchParams: Promise<{ error?: string }> }) {
@@ -11,9 +12,16 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
   const app = await getApplication(applicationId);
   if (!app) notFound();
   const person = await requirePersonSession();
-  const scope = await reviewScope(person.personId);
-  const acceptances = await listAcceptances(applicationId);
-  const eligible = scope.all
+  if (app.cycleId !== id) notFound();
+  const [scope, managesCycles, acceptances] = await Promise.all([
+    reviewScope(person.personId),
+    can(person.personId, "recruitment.manage_cycles"),
+    listAcceptances(applicationId),
+  ]);
+  const seeAll = scope.all || managesCycles;
+  const canView = seeAll || app.departmentChoices.some((d) => scope.departmentCodes.includes(d));
+  if (!canView) notFound();
+  const eligible = seeAll
     ? app.cycle.departments
     : app.cycle.departments.filter((d) => scope.departmentCodes.includes(d) && app.departmentChoices.includes(d));
   const accepted = new Set(acceptances.map((a) => a.departmentCode));

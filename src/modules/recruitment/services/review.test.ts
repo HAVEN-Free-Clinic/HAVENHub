@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import {
-  reviewScope, listApplicantsForReview, acceptApplicant, revokeAcceptance,
+  reviewScope, listApplicantsForReview, acceptApplicant, revokeAcceptance, listAcceptances,
   RecruitmentAuthError, AcceptanceError,
 } from "./review";
 
@@ -81,6 +81,16 @@ describe("acceptApplicant", () => {
     const { director, appSrhd } = await seed();
     await acceptApplicant(appSrhd.id, "SRHD", director.id, null);
     await expect(acceptApplicant(appSrhd.id, "SRHD", director.id, null)).rejects.toBeInstanceOf(AcceptanceError);
+  });
+});
+
+describe("listAcceptances", () => {
+  it("returns an application's acceptances in creation order", async () => {
+    const { srr, appSrhd } = await seed();
+    await acceptApplicant(appSrhd.id, "SRHD", srr.id, "a");
+    await acceptApplicant(appSrhd.id, "MDIC", srr.id, "b");
+    const accs = await listAcceptances(appSrhd.id);
+    expect(accs.map((x) => x.departmentCode)).toEqual(["SRHD", "MDIC"]);
   });
 });
 

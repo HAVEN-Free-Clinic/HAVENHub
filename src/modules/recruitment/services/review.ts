@@ -36,8 +36,11 @@ export type ReviewApplication = Application & {
  *  managers) see all; a director sees only applications intersecting their
  *  department codes. */
 export async function listApplicantsForReview(cycleId: string, viewerId: string): Promise<ReviewApplication[]> {
-  const scope = await reviewScope(viewerId);
-  const seeAll = scope.all || (await can(viewerId, "recruitment.manage_cycles"));
+  const [scope, managesCycles] = await Promise.all([
+    reviewScope(viewerId),
+    can(viewerId, "recruitment.manage_cycles"),
+  ]);
+  const seeAll = scope.all || managesCycles;
   const apps = await prisma.application.findMany({
     where: { cycleId },
     include: { applicant: { select: { firstName: true, lastName: true, email: true } }, acceptances: true },
@@ -72,7 +75,7 @@ export async function acceptApplicant(
 
   try {
     const acceptance = await prisma.acceptance.create({
-      data: { applicationId, departmentCode, approvedById, notes: notes || null },
+      data: { applicationId, departmentCode, approvedById, notes },
     });
     await recordAudit({ actorPersonId: approvedById, action: "recruitment.accept", entityType: "Acceptance", entityId: acceptance.id, after: { applicationId, departmentCode } });
     return acceptance;

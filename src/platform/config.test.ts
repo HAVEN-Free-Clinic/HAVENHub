@@ -215,6 +215,53 @@ describe("loadConfig", () => {
     expect(config.AIRTABLE_MIRROR_STATUS_FIELD_ID).toBeUndefined();
   });
 
+  // --- RHD table IDs ---
+
+  it("defaults RHD_ATTENDINGS_TABLE_ID to tblxDJehirZSLFJna", () => {
+    const config = loadConfig(base);
+    expect(config.RHD_ATTENDINGS_TABLE_ID).toBe("tblxDJehirZSLFJna");
+  });
+
+  it("defaults RHD_CLINICS_TABLE_ID to tbl0HrOcMHUQL0a6C", () => {
+    const config = loadConfig(base);
+    expect(config.RHD_CLINICS_TABLE_ID).toBe("tbl0HrOcMHUQL0a6C");
+  });
+
+  it("accepts custom RHD_ATTENDINGS_TABLE_ID", () => {
+    const config = loadConfig({ ...base, RHD_ATTENDINGS_TABLE_ID: "tblCustomAttend" });
+    expect(config.RHD_ATTENDINGS_TABLE_ID).toBe("tblCustomAttend");
+  });
+
+  it("accepts custom RHD_CLINICS_TABLE_ID", () => {
+    const config = loadConfig({ ...base, RHD_CLINICS_TABLE_ID: "tblCustomClinics" });
+    expect(config.RHD_CLINICS_TABLE_ID).toBe("tblCustomClinics");
+  });
+
+  // --- RHD max procedures config ---
+
+  it("defaults RHD_MAX_PROCEDURES to 3", () => {
+    const config = loadConfig(base);
+    expect(config.RHD_MAX_PROCEDURES).toBe(3);
+  });
+
+  it("rejects RHD_MAX_PROCEDURES 'abc' naming the variable", () => {
+    expect(() =>
+      loadConfig({ ...base, RHD_MAX_PROCEDURES: "abc" })
+    ).toThrowError(/RHD_MAX_PROCEDURES/);
+  });
+
+  it("rejects RHD_MAX_PROCEDURES '0' naming the variable", () => {
+    expect(() =>
+      loadConfig({ ...base, RHD_MAX_PROCEDURES: "0" })
+    ).toThrowError(/RHD_MAX_PROCEDURES/);
+  });
+
+  it("rejects RHD_MAX_PROCEDURES negative value naming the variable", () => {
+    expect(() =>
+      loadConfig({ ...base, RHD_MAX_PROCEDURES: "-5" })
+    ).toThrowError(/RHD_MAX_PROCEDURES/);
+  });
+
   // --- Email transport config ---
 
   it("defaults EMAIL_TRANSPORT to log with no vars set", () => {

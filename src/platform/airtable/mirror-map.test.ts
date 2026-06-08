@@ -18,6 +18,8 @@ function nullPerson(): Person {
     status: "ACTIVE",
     airtableRecordId: null,
     mirroredHipaaStatus: null,
+    spanishSpeaking: false,
+    licensedRN: false,
     createdAt: new Date(),
     updatedAt: new Date(),
   };

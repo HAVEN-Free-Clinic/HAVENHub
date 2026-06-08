@@ -7,6 +7,8 @@
  *   - legacyNote surfaces when selfUpdatedAvailability is set on a membership.
  *   - No active term returns the all-empty shape.
  *   - No membership: availability null, legacyNote null; shifts still returned if any.
+ *   - pendingRequests contains only PENDING requests, keyed by dateKey|departmentId.
+ *   - pendingRequests excludes CANCELLED and APPROVED requests.
  *
  * fullSchedule:
  *   - dateKey param selects the correct Saturday.
@@ -241,6 +243,104 @@ describe("mySchedule", () => {
     expect(result.shifts).toHaveLength(1);
     expect(result.availability).toBeNull();
     expect(result.legacyNote).toBeNull();
+  });
+
+  it("pendingRequests contains only PENDING requests keyed by dateKey|departmentId", async () => {
+    const dates = saturdays("2026-05-30", 3);
+    const term = await createTerm("ACTIVE", "SU26", dates);
+    const dept = await createDepartment("ITCM");
+    const person = await createPerson("Frank");
+    await createMembership(person.id, term.id, dept.id, "VOLUNTEER");
+    await createShift(term.id, dept.id, person.id, dates[0], "VOLUNTEER");
+    await createShift(term.id, dept.id, person.id, dates[1], "VOLUNTEER");
+
+    // Create a PENDING request for dates[0].
+    await prisma.shiftRequest.create({
+      data: {
+        termId: term.id,
+        requesterId: person.id,
+        requesterDate: dates[0],
+        departmentId: dept.id,
+        status: "PENDING",
+      },
+    });
+
+    const result = await mySchedule(person.id);
+
+    const expectedKey = `${isoDateKey(dates[0])}|${dept.id}`;
+    expect(result.pendingRequests.size).toBe(1);
+    expect(result.pendingRequests.has(expectedKey)).toBe(true);
+    // dates[1] has no pending request.
+    const key1 = `${isoDateKey(dates[1])}|${dept.id}`;
+    expect(result.pendingRequests.has(key1)).toBe(false);
+  });
+
+  it("pendingRequests swap request includes target.name", async () => {
+    const dates = saturdays("2026-05-30", 3);
+    const term = await createTerm("ACTIVE", "SU26", dates);
+    const dept = await createDepartment("ITCM");
+    const requester = await createPerson("Harold");
+    const swapTarget = await createPerson("Ingrid");
+    await createMembership(requester.id, term.id, dept.id, "VOLUNTEER");
+    await createShift(term.id, dept.id, requester.id, dates[0], "VOLUNTEER");
+    await createShift(term.id, dept.id, swapTarget.id, dates[1], "VOLUNTEER");
+
+    // Create a PENDING swap request pointing at swapTarget.
+    await prisma.shiftRequest.create({
+      data: {
+        termId: term.id,
+        requesterId: requester.id,
+        requesterDate: dates[0],
+        departmentId: dept.id,
+        targetId: swapTarget.id,
+        targetDate: dates[1],
+        status: "PENDING",
+      },
+    });
+
+    const result = await mySchedule(requester.id);
+
+    const expectedKey = `${isoDateKey(dates[0])}|${dept.id}`;
+    expect(result.pendingRequests.size).toBe(1);
+    const row = result.pendingRequests.get(expectedKey);
+    expect(row).toBeDefined();
+    expect(row?.target?.name).toBe("Ingrid");
+  });
+
+  it("pendingRequests excludes CANCELLED and APPROVED requests", async () => {
+    const dates = saturdays("2026-05-30", 3);
+    const term = await createTerm("ACTIVE", "SU26", dates);
+    const dept = await createDepartment("ITCM");
+    const person = await createPerson("Grace");
+    await createMembership(person.id, term.id, dept.id, "VOLUNTEER");
+    await createShift(term.id, dept.id, person.id, dates[0], "VOLUNTEER");
+    await createShift(term.id, dept.id, person.id, dates[1], "VOLUNTEER");
+
+    // CANCELLED request for dates[0].
+    await prisma.shiftRequest.create({
+      data: {
+        termId: term.id,
+        requesterId: person.id,
+        requesterDate: dates[0],
+        departmentId: dept.id,
+        status: "CANCELLED",
+      },
+    });
+
+    // APPROVED request for dates[1].
+    await prisma.shiftRequest.create({
+      data: {
+        termId: term.id,
+        requesterId: person.id,
+        requesterDate: dates[1],
+        departmentId: dept.id,
+        status: "APPROVED",
+      },
+    });
+
+    const result = await mySchedule(person.id);
+
+    expect(result.pendingRequests.size).toBe(0);
   });
 });
 

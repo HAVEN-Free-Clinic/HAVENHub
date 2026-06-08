@@ -493,6 +493,9 @@ model ShiftRequest {
   requesterDate DateTime
   departmentId  String
   targetId      String?
+  /// Populated only for swaps; may remain set even if targetId was NULLed by
+  /// onDelete SetNull. The service layer must treat (targetId null AND
+  /// targetDate set) as a stale/malformed swap.
   targetDate    DateTime?
   status        ShiftRequestStatus @default(PENDING)
   note          String?
@@ -506,7 +509,7 @@ model ShiftRequest {
   decidedBy     Person?     @relation("shiftRequestDecidedBy", fields: [decidedById], references: [id], onDelete: Restrict)
   department    Department  @relation(fields: [departmentId], references: [id], onDelete: Restrict)
 
-  @@index([termId, status])
+  @@index([termId, departmentId, status])
   @@index([requesterId])
 }
 

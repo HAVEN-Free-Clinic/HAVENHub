@@ -228,6 +228,18 @@ describe("loadConfig", () => {
     ).toThrowError(/RHD_MAX_PROCEDURES/);
   });
 
+  it("rejects RHD_MAX_PROCEDURES '0' naming the variable", () => {
+    expect(() =>
+      loadConfig({ ...base, RHD_MAX_PROCEDURES: "0" })
+    ).toThrowError(/RHD_MAX_PROCEDURES/);
+  });
+
+  it("rejects RHD_MAX_PROCEDURES negative value naming the variable", () => {
+    expect(() =>
+      loadConfig({ ...base, RHD_MAX_PROCEDURES: "-5" })
+    ).toThrowError(/RHD_MAX_PROCEDURES/);
+  });
+
   // --- Email transport config ---
 
   it("defaults EMAIL_TRANSPORT to log with no vars set", () => {

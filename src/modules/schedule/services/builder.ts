@@ -448,9 +448,9 @@ export async function upsertRhdClinic(
   actor: string,
   opts: {
     dateKey: string;
-    attendingId?: string;
-    directorName?: string;
-    proceduresBooked?: number;
+    attendingId?: string | null;
+    directorName?: string | null;
+    proceduresBooked?: number | null;
   }
 ): Promise<void> {
   // Scope: must manage at least one RHD department.
@@ -481,9 +481,9 @@ export async function upsertRhdClinic(
       proceduresBooked: opts.proceduresBooked ?? null,
     },
     update: {
-      ...(opts.attendingId !== undefined && { attendingId: opts.attendingId }),
-      ...(opts.directorName !== undefined && { directorName: opts.directorName }),
-      ...(opts.proceduresBooked !== undefined && { proceduresBooked: opts.proceduresBooked }),
+      ...("attendingId" in opts && { attendingId: opts.attendingId ?? null }),
+      ...("directorName" in opts && { directorName: opts.directorName ?? null }),
+      ...("proceduresBooked" in opts && { proceduresBooked: opts.proceduresBooked ?? null }),
     },
   });
 
@@ -729,7 +729,8 @@ export async function builderView(
     const newestCert = certs.length > 0 ? certs[0] : null;
     const status = complianceStatus(
       newestCert ? { completionDate: newestCert.completionDate } : null,
-      term.endDate
+      term.endDate,
+      now
     );
     const person = memberEntry?.person ?? a.person;
     return { id: person.id, name: person.name, status };

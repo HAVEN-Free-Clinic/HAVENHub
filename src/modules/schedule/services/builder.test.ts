@@ -756,6 +756,37 @@ describe("upsertRhdClinic", () => {
       upsertRhdClinic(director.id, { dateKey: "2099-01-01" })
     ).rejects.toBeInstanceOf(BuilderValidationError);
   });
+
+  it("clears attendingId when passed null, but leaves it unchanged when omitted", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const scts = await createDepartment("SCTS");
+    const director = await createPerson("Director");
+    await createMembership(director.id, term.id, scts.id, "DIRECTOR");
+
+    const attending = await prisma.rhdAttending.create({
+      data: { scheduleName: "Dr. Null Test", fullName: "Dr. Full Null" },
+    });
+
+    // Create with an attending.
+    await upsertRhdClinic(director.id, { dateKey: isoDateKey(dates[0]), attendingId: attending.id });
+
+    const before = await prisma.rhdClinic.findFirstOrThrow({ where: { termId: term.id } });
+    expect(before.attendingId).toBe(attending.id);
+
+    // Clear attendingId by passing null explicitly.
+    await upsertRhdClinic(director.id, { dateKey: isoDateKey(dates[0]), attendingId: null });
+
+    const afterClear = await prisma.rhdClinic.findFirstOrThrow({ where: { termId: term.id } });
+    expect(afterClear.attendingId).toBeNull();
+
+    // Restore, then upsert without attendingId at all - it should remain null, not be touched.
+    await upsertRhdClinic(director.id, { dateKey: isoDateKey(dates[0]), directorName: "Someone" });
+
+    const afterOmit = await prisma.rhdClinic.findFirstOrThrow({ where: { termId: term.id } });
+    expect(afterOmit.attendingId).toBeNull();
+    expect(afterOmit.directorName).toBe("Someone");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1034,6 +1065,51 @@ describe("builderView", () => {
     expect(view.rhd!.attendingOptions.length).toBeGreaterThan(0);
     expect(view.rhd!.readiness.attending).not.toBeNull();
     expect(view.rhd!.readiness.procedures.iudIn).toBe("yes");
+  });
+
+  it("threads opts.now into complianceStatus: a cert compliant today reads EXPIRED when now is far future", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const dept = await createDepartment("PCAR");
+    const director = await createPerson("Director");
+    const certVol = await createPerson("CertVol");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(certVol.id, term.id, dept.id, "VOLUNTEER");
+    await createShift(term.id, dept.id, certVol.id, dates[0], "VOLUNTEER");
+
+    // completionDate = 2026-01-01 -> expiresAt = 2027-01-01.
+    // With now = 2026-06-07 (today), the cert clears the term bar and is COMPLIANT.
+    // With now = 2027-02-01, expiresAt < now so it is EXPIRED.
+    await prisma.hipaaCertificate.create({
+      data: {
+        personId: certVol.id,
+        fileName: "cert.pdf",
+        storedName: "cert.pdf",
+        size: 100,
+        mimeType: "application/pdf",
+        completionDate: new Date("2026-01-01T12:00:00Z"),
+      },
+    });
+
+    // Verify COMPLIANT today: banner should not include certVol.
+    const today = new Date("2026-06-07T12:00:00Z");
+    const viewToday = await builderView(director.id, {
+      departmentId: dept.id,
+      dateKey: isoDateKey(dates[0]),
+      now: today,
+    });
+    const nonCompliantIdsToday = viewToday.banner.flatMap((b) => b.nonCompliant.map((v) => v.id));
+    expect(nonCompliantIdsToday).not.toContain(certVol.id);
+
+    // Verify EXPIRED in the future: banner should include certVol.
+    const farFuture = new Date("2027-02-01T12:00:00Z");
+    const viewFuture = await builderView(director.id, {
+      departmentId: dept.id,
+      dateKey: isoDateKey(dates[0]),
+      now: farFuture,
+    });
+    const nonCompliantIdsFuture = viewFuture.banner.flatMap((b) => b.nonCompliant.map((v) => v.id));
+    expect(nonCompliantIdsFuture).toContain(certVol.id);
   });
 
   it("rhd block is null for a non-RHD department", async () => {

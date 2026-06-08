@@ -36,6 +36,7 @@ import {
   approveRequest,
   denyRequest,
   RequestForbiddenError,
+  RequestNotFoundError,
   RequestValidationError,
 } from "@/modules/schedule/services/requests";
 import { BuilderCell } from "@/modules/schedule/components/builder-cell";
@@ -360,7 +361,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     try {
       await approveRequest(actor.personId, requestId);
     } catch (err) {
-      if (err instanceof RequestValidationError || err instanceof RequestForbiddenError) {
+      if (err instanceof RequestValidationError || err instanceof RequestForbiddenError || err instanceof RequestNotFoundError) {
         errorRedirect(err.message);
       }
       throw err;
@@ -377,7 +378,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     try {
       await denyRequest(actor.personId, requestId, note);
     } catch (err) {
-      if (err instanceof RequestValidationError || err instanceof RequestForbiddenError) {
+      if (err instanceof RequestValidationError || err instanceof RequestForbiddenError || err instanceof RequestNotFoundError) {
         errorRedirect(err.message);
       }
       throw err;

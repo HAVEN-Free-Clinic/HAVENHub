@@ -39,6 +39,8 @@ export type ScheduleImportReport = {
   unresolvedPeople: Array<{ rowId: string; recordId: string }>;
   unknownDepartments: string[];
   skippedDates: string[];
+  /** Desired assignment counts per clinic date (ISO day key), for dry-run review. */
+  perDateCounts: Record<string, number>;
 };
 
 // ---------------------------------------------------------------------------
@@ -100,6 +102,7 @@ export async function runScheduleImport(
     unresolvedPeople: [],
     unknownDepartments: [],
     skippedDates: [],
+    perDateCounts: {},
   };
 
   // --- Load term ---
@@ -166,7 +169,9 @@ export async function runScheduleImport(
     // Resolve date
     const dateStr = typeof f[FIELD.date] === "string" ? (f[FIELD.date] as string).trim() : null;
     if (!dateStr || !clinicDateMap.has(dateStr)) {
-      if (dateStr) report.skippedDates.push(dateStr);
+      if (dateStr && !report.skippedDates.includes(dateStr)) {
+        report.skippedDates.push(dateStr);
+      }
       continue;
     }
     const clinicDate = clinicDateMap.get(dateStr)!;
@@ -260,14 +265,17 @@ export async function runScheduleImport(
           desiredMap.set(pid, { personId: pid, role: "VOLUNTEER", triage: false, walkin: false, cc: false, remote: false });
         }
         const entry = desiredMap.get(pid)!;
-        // Only VOLUNTEER rows carry tags (directors/shadows do not have tag columns
-        // in the schema; however, to keep invariant clean, we still mark the flag
-        // on the row regardless of role -- the DB schema allows it on any row)
+        // Tag-implies-on-shift creates a VOLUNTEER row only when the person has
+        // no existing entry. If they are already a DIRECTOR or SHADOW, the flag
+        // is set on that row instead so tag data is never silently dropped (the
+        // schema has no role restriction on the tag columns).
         entry[flag] = true;
       }
     }
 
     if (desiredMap.size === 0) continue;
+
+    report.perDateCounts[dateStr] = (report.perDateCounts[dateStr] ?? 0) + desiredMap.size;
 
     // --- Diff against existing rows ---
     const existing = await prisma.shiftAssignment.findMany({

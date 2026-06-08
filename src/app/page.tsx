@@ -15,11 +15,13 @@ export default async function HubPage() {
   const person = await requirePersonSession();
   // One permission fetch per render; tiles filter in memory (never can() in a loop).
   const permissions = await getEffectivePermissions(person.personId);
-  const activeTerm = await prisma.term.findFirst({
-    where: { status: "ACTIVE" },
-    orderBy: { startDate: "desc" },
-  });
-  const clinicChannel = await getCurrentClinicChannelLink();
+  const [activeTerm, clinicChannel] = await Promise.all([
+    prisma.term.findFirst({
+      where: { status: "ACTIVE" },
+      orderBy: { startDate: "desc" },
+    }),
+    getCurrentClinicChannelLink(),
+  ]);
 
   const visible = MODULES.filter(
     (m) =>
@@ -51,6 +53,7 @@ export default async function HubPage() {
             <span className="mt-0.5 block text-sm font-medium text-slate-700">
               {clinicChannel.displayName}
             </span>
+            <span className="sr-only"> (opens in a new tab)</span>
           </span>
           <span aria-hidden className="text-brand">
             &rarr;

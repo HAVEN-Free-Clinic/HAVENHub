@@ -12,6 +12,7 @@
  * This is flagged for review in the PR.
  */
 
+import { esc } from "../render/escape";
 import type { TemplateDescriptor } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -30,19 +31,6 @@ export type EpicEmailParams = {
 /** The three epic template keys. */
 export type EpicTemplateKey = "epic-onboarding" | "epic-activation" | "epic-password-reset";
 
-// ---------------------------------------------------------------------------
-// HTML helpers (module-private)
-// ---------------------------------------------------------------------------
-
-/** Escape user-supplied values before interpolating into HTML. */
-function esc(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
 
 // ---------------------------------------------------------------------------
 // Shared static blocks (no interpolations)

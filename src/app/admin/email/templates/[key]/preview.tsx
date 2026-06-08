@@ -52,6 +52,7 @@ export function TemplateEditor(props: {
         </div>
         <iframe
           title="preview"
+          sandbox="allow-same-origin"
           className="mt-2 h-[28rem] w-full rounded border border-slate-200"
           srcDoc={previewHtml}
         />

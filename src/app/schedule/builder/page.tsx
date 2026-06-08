@@ -26,11 +26,23 @@ import {
   toggleTag,
   setAvailabilityOverride,
   acknowledgeAvailability,
+  setPatientsBooked,
+  upsertRhdClinic,
   BuilderForbiddenError,
   BuilderValidationError,
 } from "@/modules/schedule/services/builder";
+import {
+  listDepartmentRequests,
+  approveRequest,
+  denyRequest,
+  RequestForbiddenError,
+  RequestValidationError,
+} from "@/modules/schedule/services/requests";
 import { BuilderCell } from "@/modules/schedule/components/builder-cell";
 import { BuilderGrid } from "@/modules/schedule/components/builder-grid";
+import { CapacityPanel } from "@/modules/schedule/components/capacity-panel";
+import { ReadinessPanel } from "@/modules/schedule/components/readiness-panel";
+import { PendingRequests } from "@/modules/schedule/components/pending-requests";
 import { displayDate } from "@/modules/schedule/engine/display";
 import { rolesForDept } from "@/modules/schedule/engine/capacity";
 import { isoDateKey } from "@/platform/dates";
@@ -126,6 +138,9 @@ export default async function BuilderPage({ searchParams }: PageProps) {
 
   const { selectedDepartment, clinicDates, selectedDateKey, members, assignmentsByDate, conflicts } = data;
   const dept = selectedDepartment!;
+
+  // Load request rows for the pending-requests panel.
+  const requestRows = await listDepartmentRequests(session.personId, dept.id);
 
   // Shorthand for building hrefs that preserve all current params.
   function href(overrides: HrefParams): string {
@@ -297,6 +312,80 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     successRedirect();
   }
 
+  async function patientsBookedAction(formData: FormData) {
+    "use server";
+    const actor = await requireModuleAccess("schedule");
+    const departmentId = (formData.get("departmentId") as string) ?? "";
+    const dateKey = (formData.get("dateKey") as string) ?? "";
+    const raw = (formData.get("patientsBooked") as string) ?? "";
+    const patientsBooked = raw === "" ? null : Number(raw);
+    try {
+      await setPatientsBooked(actor.personId, { departmentId, dateKey, patientsBooked });
+    } catch (err) {
+      if (err instanceof BuilderValidationError || err instanceof BuilderForbiddenError) {
+        errorRedirect(err.message);
+      }
+      throw err;
+    }
+    revalidatePath("/schedule/builder");
+    successRedirect();
+  }
+
+  async function rhdClinicAction(formData: FormData) {
+    "use server";
+    const actor = await requireModuleAccess("schedule");
+    const dateKey = (formData.get("dateKey") as string) ?? "";
+    const rawAttendingId = (formData.get("attendingId") as string) ?? "";
+    const rawDirectorName = (formData.get("directorName") as string) ?? "";
+    const rawProceduresBooked = (formData.get("proceduresBooked") as string) ?? "";
+    const attendingId = rawAttendingId === "" ? null : rawAttendingId;
+    const directorName = rawDirectorName.trim() === "" ? null : rawDirectorName.trim();
+    const proceduresBooked = rawProceduresBooked === "" ? null : Number(rawProceduresBooked);
+    try {
+      await upsertRhdClinic(actor.personId, { dateKey, attendingId, directorName, proceduresBooked });
+    } catch (err) {
+      if (err instanceof BuilderValidationError || err instanceof BuilderForbiddenError) {
+        errorRedirect(err.message);
+      }
+      throw err;
+    }
+    revalidatePath("/schedule/builder");
+    successRedirect();
+  }
+
+  async function approveRequestAction(formData: FormData) {
+    "use server";
+    const actor = await requireModuleAccess("schedule");
+    const requestId = (formData.get("requestId") as string) ?? "";
+    try {
+      await approveRequest(actor.personId, requestId);
+    } catch (err) {
+      if (err instanceof RequestValidationError || err instanceof RequestForbiddenError) {
+        errorRedirect(err.message);
+      }
+      throw err;
+    }
+    revalidatePath("/schedule/builder");
+    successRedirect();
+  }
+
+  async function denyRequestAction(formData: FormData) {
+    "use server";
+    const actor = await requireModuleAccess("schedule");
+    const requestId = (formData.get("requestId") as string) ?? "";
+    const note = ((formData.get("denyNote") as string) ?? "").trim() || undefined;
+    try {
+      await denyRequest(actor.personId, requestId, note);
+    } catch (err) {
+      if (err instanceof RequestValidationError || err instanceof RequestForbiddenError) {
+        errorRedirect(err.message);
+      }
+      throw err;
+    }
+    revalidatePath("/schedule/builder");
+    successRedirect();
+  }
+
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
@@ -435,7 +524,23 @@ export default async function BuilderPage({ searchParams }: PageProps) {
           />
         ) : (
           /* Saturday view: assign or shadow mode */
-          <div className="grid grid-cols-1 gap-8 md:grid-cols-2">
+          <div className="flex flex-col gap-8">
+            {/* HIPAA compliance banner */}
+            {data.banner.length > 0 && (
+              <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                <p className="font-medium mb-1">HIPAA compliance issues on this date:</p>
+                <ul className="list-disc list-inside space-y-0.5">
+                  {data.banner.flatMap((b) =>
+                    b.nonCompliant.map((v) => (
+                      <li key={v.id}>{v.name} (not HIPAA compliant)</li>
+                    ))
+                  )}
+                </ul>
+              </div>
+            )}
+
+            {/* Main two-column layout + panels column */}
+            <div className="grid grid-cols-1 gap-8 md:grid-cols-3">
             {/* Column 1: Assigned */}
             <section>
               <h2 className="mb-4 text-base font-semibold">Assigned</h2>
@@ -599,7 +704,35 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                 </div>
               )}
             </section>
+
+            {/* Column 3: Panels */}
+            <div className="flex flex-col gap-4">
+              {selectedDateKey && (
+                <CapacityPanel
+                  metrics={data.capacity}
+                  deptCode={dept.code}
+                  patientsBookedAction={patientsBookedAction}
+                  departmentId={dept.id}
+                  dateKey={selectedDateKey}
+                />
+              )}
+
+              {data.rhd != null && selectedDateKey && (
+                <ReadinessPanel
+                  rhd={data.rhd}
+                  clinicAction={rhdClinicAction}
+                  dateKey={selectedDateKey}
+                />
+              )}
+
+              <PendingRequests
+                rows={requestRows}
+                approveAction={approveRequestAction}
+                denyAction={denyRequestAction}
+              />
+            </div>
           </div>
+        </div>
         )}
       </div>
     </div>

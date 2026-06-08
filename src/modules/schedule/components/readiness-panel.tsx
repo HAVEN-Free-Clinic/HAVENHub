@@ -1,0 +1,162 @@
+/**
+ * RHD Clinic Readiness panel for the schedule builder Saturday view.
+ *
+ * Renders the clinic config form (attending, director, procedures booked)
+ * and the computed readiness readout from ClinicReadiness.
+ *
+ * Server component: no "use client" directive.
+ */
+
+import { Badge } from "@/platform/ui/badge";
+import { Button } from "@/platform/ui/button";
+import { Input } from "@/platform/ui/input";
+import { Select } from "@/platform/ui/select";
+import { PROCEDURE_KEYS } from "@/modules/schedule/engine/rhd";
+import type { BuilderRhd } from "@/modules/schedule/services/builder";
+import type { ProcedureKey, ProcedureStatus } from "@/modules/schedule/engine/rhd";
+
+// ---------------------------------------------------------------------------
+// Label maps
+// ---------------------------------------------------------------------------
+
+const PROCEDURE_LABELS: Record<ProcedureKey, string> = {
+  iudIn: "IUD In",
+  iudOut: "IUD Out",
+  nexplanon: "Nexplanon",
+  gac: "GAC",
+  emb: "EMB",
+  seesMale: "Sees Male",
+};
+
+// ---------------------------------------------------------------------------
+// Tone helpers
+// ---------------------------------------------------------------------------
+
+function procedureTone(
+  status: ProcedureStatus,
+): "success" | "critical" | "default" {
+  if (status === "yes") return "success";
+  if (status === "no") return "critical";
+  return "default";
+}
+
+// ---------------------------------------------------------------------------
+// Props
+// ---------------------------------------------------------------------------
+
+type ReadinessPanelProps = {
+  rhd: BuilderRhd;
+  clinicAction: (fd: FormData) => Promise<void>;
+  dateKey: string;
+};
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
+export function ReadinessPanel({
+  rhd,
+  clinicAction,
+  dateKey,
+}: ReadinessPanelProps) {
+  const { readiness, attendingOptions, clinic } = rhd;
+
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white px-4 py-3 flex flex-col gap-4">
+      <h2 className="text-sm font-semibold text-slate-700">RHD Clinic Readiness</h2>
+
+      {/* Clinic config form */}
+      <form action={clinicAction} className="flex flex-col gap-3">
+        <input type="hidden" name="dateKey" value={dateKey} />
+
+        {/* Attending select */}
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-medium text-slate-500">Attending</label>
+          <Select name="attendingId" defaultValue={clinic?.attendingId ?? ""}>
+            <option value="">-- none --</option>
+            {attendingOptions.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.scheduleName}
+              </option>
+            ))}
+          </Select>
+        </div>
+
+        {/* Director name */}
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-medium text-slate-500">Director name</label>
+          <Input
+            name="directorName"
+            type="text"
+            defaultValue={clinic?.directorName ?? ""}
+            placeholder="—"
+          />
+        </div>
+
+        {/* Procedures booked */}
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-medium text-slate-500">Procedures booked</label>
+          <Input
+            name="proceduresBooked"
+            type="number"
+            min={0}
+            defaultValue={clinic?.proceduresBooked ?? ""}
+            placeholder="—"
+          />
+        </div>
+
+        <Button type="submit" variant="outline" size="sm" className="self-start">
+          Save clinic
+        </Button>
+      </form>
+
+      {/* Readiness readout */}
+      <div className="flex flex-col gap-3 border-t border-slate-100 pt-3">
+        <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+          Readiness
+        </h3>
+
+        {/* Closed badge */}
+        {readiness.closed && (
+          <Badge tone="warning">Closed</Badge>
+        )}
+
+        {/* Procedure matrix */}
+        <div className="flex flex-wrap gap-2">
+          {PROCEDURE_KEYS.map((key) => {
+            const status = readiness.procedures[key];
+            return (
+              <Badge key={key} tone={procedureTone(status)}>
+                {PROCEDURE_LABELS[key]}: {status}
+              </Badge>
+            );
+          })}
+        </div>
+
+        {/* Coverage line */}
+        <p className="text-sm text-slate-600">
+          SCTM {readiness.coverage.sctm}, JCTM {readiness.coverage.jctm},{" "}
+          RN {readiness.coverage.rn}, Spanish {readiness.coverage.spanish}
+        </p>
+
+        {/* Depo badge */}
+        <Badge tone={readiness.depoOk ? "success" : "critical"}>
+          {readiness.depoOk ? "Depo OK" : "No RN for Depo"}
+        </Badge>
+
+        {/* Procedure cap warning */}
+        {readiness.procedureCapWarning && (
+          <Badge tone="critical">Over procedure cap</Badge>
+        )}
+
+        {/* Clinic emails */}
+        {readiness.emails.length > 0 && (
+          <p className="text-sm text-slate-600 break-all">
+            <span className="font-medium">Clinic emails:</span>{" "}
+            {readiness.emails.join(", ")}
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}

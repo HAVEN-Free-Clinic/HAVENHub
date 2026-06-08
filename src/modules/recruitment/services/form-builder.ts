@@ -83,6 +83,12 @@ export async function deleteField(fieldId: string): Promise<void> {
 }
 
 export async function reorderFields(sectionId: string, orderedFieldIds: string[]): Promise<void> {
+  const section = await prisma.formSection.findUnique({ where: { id: sectionId } });
+  if (!section) throw new FormEditError("Section not found.");
+  await assertCycleEditable(section.cycleId, false);
+  // Every supplied id must belong to this section; reject unknown/foreign ids.
+  const owned = await prisma.formField.count({ where: { id: { in: orderedFieldIds }, sectionId } });
+  if (owned !== orderedFieldIds.length) throw new FormEditError("Invalid field ids for this section.");
   await prisma.$transaction(
     orderedFieldIds.map((id, index) =>
       prisma.formField.updateMany({ where: { id, sectionId }, data: { order: index } })
@@ -91,6 +97,10 @@ export async function reorderFields(sectionId: string, orderedFieldIds: string[]
 }
 
 export async function reorderSections(cycleId: string, orderedSectionIds: string[]): Promise<void> {
+  await assertCycleEditable(cycleId, false);
+  // Every supplied id must belong to this cycle; reject unknown/foreign ids.
+  const owned = await prisma.formSection.count({ where: { id: { in: orderedSectionIds }, cycleId } });
+  if (owned !== orderedSectionIds.length) throw new FormEditError("Invalid section ids for this cycle.");
   await prisma.$transaction(
     orderedSectionIds.map((id, index) =>
       prisma.formSection.updateMany({ where: { id, cycleId }, data: { order: index } })

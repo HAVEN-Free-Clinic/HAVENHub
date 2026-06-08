@@ -2,6 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/platform/db";
 import { PageHeader } from "@/platform/ui/page-header";
 import { buttonClasses } from "@/platform/ui/button";
+import { emailHealthCounts } from "@/modules/admin/services/email";
 
 // requirePermission already ran in the admin layout; this page is reachable only
 // by users with admin.access. No second permission check needed here.
@@ -44,6 +45,7 @@ export default async function AdminOverviewPage() {
     recentAuditCount,
     outboxPendingCount,
     outboxFailedCount,
+    emailCounts,
   ] = await Promise.all([
     prisma.person.count({ where: { status: "ACTIVE" } }),
     prisma.department.count({ where: { isActive: true } }),
@@ -56,6 +58,7 @@ export default async function AdminOverviewPage() {
     prisma.auditLog.count({ where: { createdAt: { gte: sevenDaysAgo } } }),
     prisma.outbox.count({ where: { status: "PENDING" } }),
     prisma.outbox.count({ where: { status: "FAILED" } }),
+    emailHealthCounts(),
   ]);
 
   const quickLinks = [
@@ -116,6 +119,11 @@ export default async function AdminOverviewPage() {
           label={`Outbox (${outboxPendingCount} pending, ${outboxFailedCount} failed)`}
           value={outboxPendingCount + outboxFailedCount}
           href="/admin/sync"
+        />
+        <StatCard
+          label={`Email (${emailCounts.queued} queued, ${emailCounts.failed} failed)`}
+          value={emailCounts.failed}
+          href="/admin/email"
         />
       </div>
     </div>

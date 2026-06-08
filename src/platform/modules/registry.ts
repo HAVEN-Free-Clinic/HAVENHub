@@ -82,6 +82,7 @@ export const MODULES: ModuleManifest[] = [
       { label: "Roles", href: "/admin/roles" },
       { label: "Audit", href: "/admin/audit" },
       { label: "Sync", href: "/admin/sync" },
+      { label: "Email", href: "/admin/email" },
     ],
   },
   {

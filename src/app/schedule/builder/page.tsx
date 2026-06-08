@@ -30,6 +30,7 @@ import {
   BuilderValidationError,
 } from "@/modules/schedule/services/builder";
 import { BuilderCell } from "@/modules/schedule/components/builder-cell";
+import { BuilderGrid } from "@/modules/schedule/components/builder-grid";
 import { displayDate } from "@/modules/schedule/engine/display";
 import { rolesForDept } from "@/modules/schedule/engine/capacity";
 import { isoDateKey } from "@/platform/dates";
@@ -410,8 +411,18 @@ export default async function BuilderPage({ searchParams }: PageProps) {
       {/* Main content area */}
       <div className="mt-8">
         {view === "grid" ? (
-          /* Grid placeholder for Task 8 */
-          <p className="text-sm text-slate-400">Grid view coming in the next step.</p>
+          /* Grid view: member x clinic-date matrix */
+          <BuilderGrid
+            members={members}
+            clinicDates={clinicDates}
+            assignmentsByDate={assignmentsByDate}
+            selectedDateKey={selectedDateKey}
+            deptId={dept.id}
+            deptCode={dept.code}
+            mode={mode}
+            assignAction={assignAction}
+            unassignAction={unassignAction}
+          />
         ) : mode === "availability" ? (
           /* Availability mode */
           <AvailabilityView

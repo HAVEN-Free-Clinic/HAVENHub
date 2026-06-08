@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
+import { config } from "@/platform/config";
 import { createCycle, publishCycle } from "./cycles";
 import { addSection, addField } from "./form-builder";
 import {
@@ -88,6 +89,19 @@ it("rejects submissions to a non-OPEN cycle", async () => {
   await expect(
     submitApplication("draft-x", { applicantType: "NEW", answers: { first_name: "A", last_name: "B", email: "a@b.edu" }, files: {} })
   ).rejects.toBeInstanceOf(CycleNotOpenError);
+});
+
+it("rejects an oversize file upload", async () => {
+  const { cycle } = await openVolunteerCycle();
+  const oversizeBytes = Buffer.alloc(config.MAX_UPLOAD_MB * 1024 * 1024 + 1);
+  await expect(
+    submitApplication("apply-v", {
+      applicantType: "NEW",
+      answers: { first_name: "X", last_name: "Y", email: "x@yale.edu", "1st_choice_department": "MDIC" },
+      files: { resume: { fileName: "big.pdf", mimeType: "application/pdf", bytes: oversizeBytes } },
+    })
+  ).rejects.toBeInstanceOf(SubmissionValidationError);
+  void cycle;
 });
 
 it("lists and gets applications", async () => {

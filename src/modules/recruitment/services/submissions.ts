@@ -1,5 +1,6 @@
 import path from "node:path";
 import { promises as fs } from "node:fs";
+import { randomUUID } from "node:crypto";
 import type { Application, FieldType } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { config } from "@/platform/config";
@@ -9,7 +10,11 @@ import {
   buildApplicationSchema, requiredFileKeys,
   type SectionDef, type FieldDef,
 } from "../engine/schema-builder";
-import type { ApplicantType } from "../engine/visibility";
+import { visibleSections, type ApplicantType } from "../engine/visibility";
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
 
 export class CycleNotOpenError extends Error { constructor(m = "This application is closed.") { super(m); this.name = "CycleNotOpenError"; } }
 export class DuplicateApplicationError extends Error { constructor(m = "You have already applied.") { super(m); this.name = "DuplicateApplicationError"; } }
@@ -90,6 +95,16 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
   const missingFile = needFiles.find((k) => !input.files[k]);
   if (missingFile) throw new SubmissionValidationError("A required file is missing.", { [missingFile]: "required" });
 
+  // Enforce upload size caps: per-field maxFileMB, bounded by the global MAX_UPLOAD_MB.
+  const visibleFields = visibleSections(sectionDefs, ctx).flatMap((s) => s.fields);
+  for (const [key, file] of Object.entries(input.files)) {
+    const field = visibleFields.find((f) => f.key === key);
+    const capMb = Math.min(field?.validation?.maxFileMB ?? config.MAX_UPLOAD_MB, config.MAX_UPLOAD_MB);
+    if (file.bytes.length > capMb * 1024 * 1024) {
+      throw new SubmissionValidationError(`File is too large (max ${capMb} MB).`, { [key]: `max ${capMb} MB` });
+    }
+  }
+
   const email = String(input.answers.email ?? "").trim();
   const emailLower = email.toLowerCase();
   const firstName = String(input.answers.first_name ?? "").trim();
@@ -117,7 +132,7 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
       await queueEmail(tx, {
         to: email,
         subject: `We received your ${cycle.title} application`,
-        html: `<p>Hi ${firstName || "there"},</p><p>Thanks for applying to HAVEN Free Clinic. We have received your application and will be in touch.</p>`,
+        html: `<p>Hi ${escapeHtml(firstName) || "there"},</p><p>Thanks for applying to HAVEN Free Clinic. We have received your application and will be in touch.</p>`,
         template: "recruitment.application_received",
       });
       return app;
@@ -143,7 +158,7 @@ async function persistFiles(cycleId: string, files: Record<string, UploadedFile>
   if (entries.length > 0) await fs.mkdir(uploadDir, { recursive: true });
   for (const [key, file] of entries) {
     const ext = path.extname(file.fileName) || "";
-    const storedName = `${key}-${Date.now()}${ext}`;
+    const storedName = `${key}-${randomUUID()}${ext}`;
     const diskPath = path.join(uploadDir, storedName);
     await fs.writeFile(diskPath, file.bytes);
     diskPaths.push(diskPath);

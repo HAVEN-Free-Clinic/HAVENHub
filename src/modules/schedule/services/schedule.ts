@@ -11,15 +11,15 @@
  */
 
 import type { Department, Term, ShiftRole, ShiftRequest } from "@prisma/client";
-
-/** A pending ShiftRequest with the swap target's name included (null for drops). */
-export type PendingRequest = ShiftRequest & { target: { name: string } | null };
 import type { ResolvedAvailability } from "../engine/availability";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { resolveAvailability } from "../engine/availability";
 import { isoDateKey, toScheduleEntries } from "../engine/map";
 import { computeConflicts } from "../engine/conflicts";
+
+/** A pending ShiftRequest with the swap target's name included (null for drops). */
+export type PendingRequest = ShiftRequest & { target: { name: string } | null };
 
 // ---------------------------------------------------------------------------
 // Typed error

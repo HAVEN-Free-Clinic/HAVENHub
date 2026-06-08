@@ -77,6 +77,7 @@ model Person {
   emailLogs                 EmailLog[]           @relation("emailLogPerson")
   /// Email log rows this person triggered (may differ from the recipient).
   emailLogsTriggered        EmailLog[]           @relation("emailLogTriggeredBy")
+  complianceReminder        ComplianceReminder?
   createdAt                 DateTime             @default(now())
   updatedAt                 DateTime             @updatedAt
 }
@@ -403,4 +404,17 @@ model EmailLog {
 
   @@index([personId])
   @@index([status, createdAt])
+}
+
+/// Per-person HIPAA reminder state. Drives the weekly cadence (lastRemindedAt),
+/// the escalation threshold (remindersSent), and the once-only director
+/// escalation (escalatedAt). Reset to zero when the person becomes COMPLIANT.
+model ComplianceReminder {
+  id             String    @id @default(cuid())
+  personId       String    @unique
+  remindersSent  Int       @default(0)
+  lastRemindedAt DateTime?
+  lastStatus     String?
+  escalatedAt    DateTime?
+  person         Person    @relation(fields: [personId], references: [id], onDelete: Cascade)
 }

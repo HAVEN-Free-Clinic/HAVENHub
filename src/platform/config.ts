@@ -64,6 +64,40 @@ const schema = z
           }
         })
       ),
+    // Compliance reminder cadence: how many days between reminder emails.
+    // Default is 7 (weekly). Rejected if not a positive finite number.
+    COMPLIANCE_REMINDER_INTERVAL_DAYS: z
+      .string()
+      .default("7")
+      .transform(Number)
+      .pipe(
+        z.number().superRefine((val, ctx) => {
+          if (Number.isNaN(val) || val <= 0) {
+            ctx.addIssue({
+              code: "custom",
+              path: [],
+              message: "COMPLIANCE_REMINDER_INTERVAL_DAYS must be a positive number",
+            });
+          }
+        })
+      ),
+    // Number of reminder emails sent before escalating to the director.
+    // Default is 3. Rejected if not a positive finite number.
+    COMPLIANCE_ESCALATION_THRESHOLD: z
+      .string()
+      .default("3")
+      .transform(Number)
+      .pipe(
+        z.number().superRefine((val, ctx) => {
+          if (Number.isNaN(val) || val <= 0) {
+            ctx.addIssue({
+              code: "custom",
+              path: [],
+              message: "COMPLIANCE_ESCALATION_THRESHOLD must be a positive number",
+            });
+          }
+        })
+      ),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV !== "production") return;

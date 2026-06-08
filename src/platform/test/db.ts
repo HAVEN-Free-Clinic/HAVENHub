@@ -7,6 +7,7 @@ export async function resetDb() {
     `TRUNCATE "HipaaCertificate", "RoleAssignment", "RoleGrant", "Role", "TermMembership",
               "DepartmentDelegation", "Department", "Term", "Person", "AuditLog",
               "Outbox", "MirrorRecord", "WorkerHeartbeat",
-              "OffboardFlag", "EpicRequest", "YnhhTicket", "DisciplinaryAction", "EmailLog" CASCADE`
+              "OffboardFlag", "EpicRequest", "YnhhTicket", "DisciplinaryAction", "EmailLog",
+              "ComplianceReminder" CASCADE`
   );
 }

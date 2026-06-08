@@ -58,6 +58,8 @@ type HrefParams = {
   date?: string | null;
   view?: string | null;
   mode?: string | null;
+  error?: string;
+  message?: string;
 };
 
 function buildHref(base: string, p: HrefParams): string {
@@ -66,6 +68,9 @@ function buildHref(base: string, p: HrefParams): string {
   if (p.date) params.set("date", p.date);
   if (p.view) params.set("view", p.view);
   if (p.mode) params.set("mode", p.mode);
+  // URLSearchParams.toString() percent-encodes all values; no manual encoding needed.
+  if (p.error) params.set("error", p.error);
+  if (p.message) params.set("message", p.message);
   const qs = params.toString();
   return qs ? `${base}?${qs}` : base;
 }
@@ -90,11 +95,13 @@ export default async function BuilderPage({ searchParams }: PageProps) {
         : "assign";
 
   // Error banner state.
+  // sp.message is already the plain string: URLSearchParams encoded it once and Next
+  // decodes once on parse, so no manual decodeURIComponent is needed.
   const errorCode = sp.error ?? null;
   const errorMessage = errorCode
     ? errorCode === "validation" && sp.message
-      ? decodeURIComponent(sp.message)
-      : decodeURIComponent(errorCode)
+      ? sp.message
+      : errorCode
     : null;
 
   // Load view.
@@ -176,23 +183,11 @@ export default async function BuilderPage({ searchParams }: PageProps) {
 
   // Redirect URL that preserves params, with optional error info.
   function successRedirect(): never {
-    const u = new URL("http://x/schedule/builder");
-    u.searchParams.set("dept", dept.id);
-    if (selectedDateKey) u.searchParams.set("date", selectedDateKey);
-    u.searchParams.set("view", view);
-    u.searchParams.set("mode", mode);
-    redirect(`/schedule/builder?${u.searchParams.toString()}`);
+    redirect(href({}));
   }
 
   function errorRedirect(msg: string): never {
-    const u = new URL("http://x/schedule/builder");
-    u.searchParams.set("dept", dept.id);
-    if (selectedDateKey) u.searchParams.set("date", selectedDateKey);
-    u.searchParams.set("view", view);
-    u.searchParams.set("mode", mode);
-    u.searchParams.set("error", "validation");
-    u.searchParams.set("message", encodeURIComponent(msg));
-    redirect(`/schedule/builder?${u.searchParams.toString()}`);
+    redirect(href({ error: "validation", message: msg }));
   }
 
   async function assignAction(formData: FormData) {
@@ -371,7 +366,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
         <span className="text-xs font-medium text-slate-500">View:</span>
         <a
           href={href({ view: "saturday" })}
-          aria-current={view === "saturday" ? "true" : undefined}
+          aria-current={view === "saturday" ? "page" : undefined}
           className={
             view === "saturday"
               ? "rounded-md px-3 py-1 text-sm font-medium bg-slate-200 text-slate-800"
@@ -382,7 +377,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
         </a>
         <a
           href={href({ view: "grid" })}
-          aria-current={view === "grid" ? "true" : undefined}
+          aria-current={view === "grid" ? "page" : undefined}
           className={
             view === "grid"
               ? "rounded-md px-3 py-1 text-sm font-medium bg-slate-200 text-slate-800"
@@ -400,7 +395,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
           <a
             key={m}
             href={href({ mode: m })}
-            aria-current={mode === m ? "true" : undefined}
+            aria-current={mode === m ? "page" : undefined}
             className={
               mode === m
                 ? "rounded-md px-3 py-1 text-sm font-medium bg-brand text-white"
@@ -616,7 +611,7 @@ type AvailabilityViewProps = {
 function AvailabilityView({
   members,
   clinicDates,
-  dept: _dept,
+  dept: _dept, // reserved for Task 9 panels (per-department availability breakdown)
   saveOverrideAction,
   clearOverrideAction,
   acknowledgeAction,

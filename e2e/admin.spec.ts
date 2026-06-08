@@ -132,3 +132,30 @@ test("admin opens /admin/sync and sees mirror-disabled banner and Worker card", 
   // Worker card must be present (the card label is "Worker", exact match inside a stat card).
   await expect(page.getByText("Worker", { exact: true })).toBeVisible();
 });
+
+test("email page renders heading, stat cards, and table or empty state", async ({ page }) => {
+  await devLogin(page, "j.carney@yale.edu");
+  await page.goto("/admin/email");
+  // Page heading must be visible.
+  await expect(page.getByRole("heading", { name: "Email" })).toBeVisible();
+  // All three health-stat card labels must be present (deterministic -- counts from DB, no seeding needed).
+  await expect(page.getByText("Queued", { exact: true })).toBeVisible();
+  await expect(page.getByText("Failed", { exact: true })).toBeVisible();
+  await expect(page.getByText("Sent today", { exact: true })).toBeVisible();
+  // Either the table (at least one row) or the empty-state message must be present.
+  const tableOrEmpty = page.locator('table, p:has-text("No emails found.")');
+  await expect(tableOrEmpty.first()).toBeVisible();
+});
+
+test("email page status filter: FAILED param renders without error and select reflects the filter", async ({ page }) => {
+  await devLogin(page, "j.carney@yale.edu");
+  await page.goto("/admin/email?status=FAILED");
+  // Page must render without crashing -- heading visible.
+  await expect(page.getByRole("heading", { name: "Email" })).toBeVisible();
+  // Stat cards still render.
+  await expect(page.getByText("Queued", { exact: true })).toBeVisible();
+  await expect(page.getByText("Failed", { exact: true })).toBeVisible();
+  await expect(page.getByText("Sent today", { exact: true })).toBeVisible();
+  // The status <select name="status"> must reflect the FAILED selection.
+  await expect(page.locator('select[name="status"]')).toHaveValue("FAILED");
+});

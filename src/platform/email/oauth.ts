@@ -139,6 +139,11 @@ export async function exchangeCode(
   code: string,
   fetchImpl: typeof fetch = fetch
 ): Promise<void> {
+  // Invalidate any cached access token so the next getAccessToken redeems the
+  // freshly connected credential rather than serving a stale token from a
+  // previously connected (possibly different) account.
+  tokenCache = null;
+
   const body = new URLSearchParams({
     grant_type: "authorization_code",
     client_id: config.GRAPH_OAUTH_CLIENT_ID ?? "",

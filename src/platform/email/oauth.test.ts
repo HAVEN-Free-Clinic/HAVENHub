@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import {
@@ -332,6 +332,69 @@ describe("getAccessToken", () => {
 
     const fetchStub = makeFailFetch(401, "Unauthorized");
     await expect(getAccessToken(fetchStub as typeof fetch)).rejects.toThrow(/401/);
+  });
+
+  it("re-fetches after reconnect: exchangeCode invalidates the stale cache", async () => {
+    // Seed a credential and populate the cache with a1.
+    await prisma.mailCredential.create({ data: { id: "mailer", refreshToken: "r1" } });
+    const fetchFirst = makeOkFetch({ access_token: "a1", expires_in: 3600, refresh_token: "r2" });
+    const cachedToken = await getAccessToken(fetchFirst as typeof fetch);
+    expect(cachedToken).toBe("a1");
+    expect(fetchFirst).toHaveBeenCalledTimes(1);
+
+    // Admin reconnects with a new code (possibly a different account).
+    const exchangeFetch = makeOkFetch({
+      refresh_token: "r-new",
+      access_token: "a-unused",
+      expires_in: 3600,
+    });
+    await exchangeCode("new-auth-code", exchangeFetch as typeof fetch);
+
+    // Now getAccessToken must hit the network again -- not return the stale a1.
+    const fetchSecond = makeOkFetch({ access_token: "a2", expires_in: 3600, refresh_token: "r-new2" });
+    const freshToken = await getAccessToken(fetchSecond as typeof fetch);
+
+    expect(freshToken).toBe("a2");
+    expect(fetchSecond).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 60-second skew boundary
+// ---------------------------------------------------------------------------
+
+describe("getAccessToken -- 60-second skew boundary", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    __resetTokenCache();
+  });
+
+  it("serves from cache before the skew window and re-fetches inside it", async () => {
+    vi.useFakeTimers();
+    const now = Date.now();
+    vi.setSystemTime(now);
+
+    await prisma.mailCredential.create({ data: { id: "mailer", refreshToken: "r1" } });
+
+    // expires_in = 120 s  => token expires at now + 120 000 ms
+    // skew window starts at now + 120 000 - 60 000 = now + 60 000 ms
+    const fetchFirst = makeOkFetch({ access_token: "a1", expires_in: 120, refresh_token: "r2" });
+    const first = await getAccessToken(fetchFirst as typeof fetch);
+    expect(first).toBe("a1");
+    expect(fetchFirst).toHaveBeenCalledTimes(1);
+
+    // Advance to 59 s after issue -- still outside the 60 s skew window; cache hit.
+    vi.setSystemTime(now + 59_000);
+    const cached = await getAccessToken(fetchFirst as typeof fetch);
+    expect(cached).toBe("a1");
+    expect(fetchFirst).toHaveBeenCalledTimes(1); // no new network call
+
+    // Advance to 61 s after issue -- inside the skew window; must re-fetch.
+    vi.setSystemTime(now + 61_000);
+    const fetchSecond = makeOkFetch({ access_token: "a2", expires_in: 120, refresh_token: "r3" });
+    const refreshed = await getAccessToken(fetchSecond as typeof fetch);
+    expect(refreshed).toBe("a2");
+    expect(fetchSecond).toHaveBeenCalledTimes(1);
   });
 });
 

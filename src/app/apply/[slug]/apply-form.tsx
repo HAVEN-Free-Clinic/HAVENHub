@@ -84,7 +84,11 @@ function Field({ f, departments, fieldError, onDeptChoice }: { f: FieldDef; depa
     case "NUMBER": control = <input type="number" name={f.key} required={f.required} className={common} />; break;
     case "DATE": control = <input type="date" name={f.key} required={f.required} className={common} />; break;
     case "EMAIL": control = <input type="email" name={f.key} required={f.required} className={common} />; break;
-    case "FILE": control = <input type="file" name={f.key} required={f.required} className={common} />; break;
+    case "FILE": {
+      const accept = Array.isArray(f.validation?.acceptedTypes) ? (f.validation!.acceptedTypes as string[]).join(",") : undefined;
+      control = <input type="file" name={f.key} required={f.required} accept={accept} className={common} />;
+      break;
+    }
     case "DEPARTMENT_CHOICE":
       control = <select name={f.key} required={f.required} className={common} onChange={(e) => onDeptChoice?.(e.target.value)} defaultValue=""><option value="" disabled>Select…</option>{departments.map((d) => <option key={d} value={d}>{d}</option>)}</select>;
       break;

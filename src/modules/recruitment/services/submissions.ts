@@ -103,6 +103,18 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
     if (file.bytes.length > capMb * 1024 * 1024) {
       throw new SubmissionValidationError(`File is too large (max ${capMb} MB).`, { [key]: `max ${capMb} MB` });
     }
+    const accepted = field?.validation?.acceptedTypes;
+    if (accepted && accepted.length > 0) {
+      const name = file.fileName.toLowerCase();
+      const mime = file.mimeType.toLowerCase();
+      const ok = accepted.some((t) => {
+        const tl = t.toLowerCase();
+        return tl.startsWith(".") ? name.endsWith(tl) : mime === tl || (tl.endsWith("/*") && mime.startsWith(tl.slice(0, -1)));
+      });
+      if (!ok) {
+        throw new SubmissionValidationError(`File type not allowed for this field.`, { [key]: `allowed: ${accepted.join(", ")}` });
+      }
+    }
   }
 
   const email = String(input.answers.email ?? "").trim();

@@ -10,7 +10,8 @@ export type SubmitResult =
   | { ok: false; message: string; fieldErrors?: Record<string, string> };
 
 export async function submitPublicApplication(slug: string, formData: FormData): Promise<SubmitResult> {
-  const applicantType = (String(formData.get("__applicantType") ?? "NEW") as ApplicantType);
+  const rawType = String(formData.get("__applicantType") ?? "NEW");
+  const applicantType: ApplicantType = rawType === "RENEWAL" ? "RENEWAL" : "NEW";
   const renewalDepartment = String(formData.get("__renewalDepartment") ?? "") || undefined;
 
   const answers: Record<string, unknown> = {};

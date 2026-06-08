@@ -84,6 +84,12 @@ export function validateRequest(input: ValidateInput): ValidationResult {
 // planApply - re-targeted mutation emitter
 // ---------------------------------------------------------------------------
 
+/**
+ * Mutation contract: "add" ops are emitted unconditionally (the legacy
+ * withAdded dedupe moved to the consumer). The executing service must apply
+ * adds idempotently (upsert on the assignment unique key) and guard removes
+ * with the role so a concurrent change cannot delete the wrong row.
+ */
 export type AssignmentMutation =
   | { op: "remove"; personId: string; dateKey: string; role: Role }
   | { op: "add"; personId: string; dateKey: string; role: Role };

@@ -1,6 +1,7 @@
 import { requireModuleAccess } from "@/platform/auth/session";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
+import { Button } from "@/platform/ui/button";
 import { redirect } from "next/navigation";
 import {
   mySchedule,
@@ -102,9 +103,10 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
               <p className="text-sm text-slate-400">No shifts assigned yet.</p>
             ) : (
               <div className="flex flex-col gap-3">
-                {shifts.map((shift, idx) => (
+                {shifts.map((shift) => (
                   <div
-                    key={idx}
+                    // Unique per (date, department) for one person, per the DB constraint.
+                    key={`${isoDateKey(shift.clinicDate)}-${shift.department.id}`}
                     className="rounded-lg border border-slate-200 bg-white px-4 py-3"
                   >
                     <div className="flex flex-wrap items-center gap-2">
@@ -181,12 +183,9 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                     })}
                   </div>
 
-                  <button
-                    type="submit"
-                    className="mt-4 inline-flex items-center justify-center rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-not-allowed disabled:opacity-50"
-                  >
+                  <Button type="submit" variant="outline" className="mt-4">
                     Save availability
-                  </button>
+                  </Button>
                 </form>
               </>
             )}

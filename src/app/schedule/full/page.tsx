@@ -48,6 +48,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
                   <a
                     key={key}
                     href={`/schedule/full?date=${key}`}
+                    aria-current={isSelected ? "page" : undefined}
                     className={
                       isSelected
                         ? "rounded-full px-3 py-1 text-sm font-medium bg-brand text-white"

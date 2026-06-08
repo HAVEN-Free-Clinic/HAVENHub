@@ -1,4 +1,5 @@
 "use server";
+import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requirePermission } from "@/platform/auth/session";
 import {
@@ -14,11 +15,16 @@ function bouncePath(cycleId: string, error?: string) {
 export async function addSectionAction(cycleId: string, formData: FormData) {
   await requirePermission("recruitment.manage_cycles");
   const departmentCode = String(formData.get("departmentCode") ?? "").trim() || null;
-  await addSection(cycleId, {
-    title: String(formData.get("title") ?? "Section"),
-    appliesTo: (String(formData.get("appliesTo") ?? "BOTH") as ApplicantScope),
-    departmentCode,
-  });
+  try {
+    await addSection(cycleId, {
+      title: String(formData.get("title") ?? "Section"),
+      appliesTo: String(formData.get("appliesTo") ?? "BOTH") as ApplicantScope,
+      departmentCode,
+    });
+  } catch (err) {
+    if (err instanceof FormEditError) redirect(bouncePath(cycleId, err.message));
+    throw err;
+  }
   revalidatePath(bouncePath(cycleId));
 }
 
@@ -33,8 +39,8 @@ export async function addFieldAction(cycleId: string, sectionId: string, formDat
       options: options.length ? options : undefined,
     });
   } catch (err) {
-    if (err instanceof FormEditError) revalidatePath(bouncePath(cycleId, err.message));
-    else throw err;
+    if (err instanceof FormEditError) redirect(bouncePath(cycleId, err.message));
+    throw err;
   }
   revalidatePath(bouncePath(cycleId));
 }
@@ -47,22 +53,30 @@ export async function updateFieldAction(cycleId: string, fieldId: string, formDa
       required: formData.get("required") === "on" ? true : undefined,
     });
   } catch (err) {
-    if (err instanceof FormEditError) revalidatePath(bouncePath(cycleId, err.message));
-    else throw err;
+    if (err instanceof FormEditError) redirect(bouncePath(cycleId, err.message));
+    throw err;
   }
   revalidatePath(bouncePath(cycleId));
 }
 
 export async function deleteFieldAction(cycleId: string, fieldId: string) {
   await requirePermission("recruitment.manage_cycles");
-  try { await deleteField(fieldId); }
-  catch (err) { if (err instanceof FormEditError) revalidatePath(bouncePath(cycleId, err.message)); else throw err; }
+  try {
+    await deleteField(fieldId);
+  } catch (err) {
+    if (err instanceof FormEditError) redirect(bouncePath(cycleId, err.message));
+    throw err;
+  }
   revalidatePath(bouncePath(cycleId));
 }
 
 export async function deleteSectionAction(cycleId: string, sectionId: string) {
   await requirePermission("recruitment.manage_cycles");
-  try { await deleteSection(sectionId); }
-  catch (err) { if (err instanceof FormEditError) revalidatePath(bouncePath(cycleId, err.message)); else throw err; }
+  try {
+    await deleteSection(sectionId);
+  } catch (err) {
+    if (err instanceof FormEditError) redirect(bouncePath(cycleId, err.message));
+    throw err;
+  }
   revalidatePath(bouncePath(cycleId));
 }

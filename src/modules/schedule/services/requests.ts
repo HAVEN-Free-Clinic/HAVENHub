@@ -13,6 +13,7 @@
  */
 
 import type { ShiftRequest } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { isoDateKey } from "@/platform/dates";
@@ -256,36 +257,51 @@ export async function createRequest(
     );
   }
 
-  // Duplicate guard + create inside a transaction
-  const created = await prisma.$transaction(async (tx) => {
-    const existing = await tx.shiftRequest.findFirst({
-      where: {
-        requesterId: actorPersonId,
-        requesterDate: canonicalRequesterDate,
-        departmentId: input.departmentId,
-        status: "PENDING",
-      },
-    });
+  // Duplicate guard + create inside a transaction.
+  // The in-tx findFirst gives a friendly error for the sequential case.
+  // The partial unique index "ShiftRequest_pending_unique" is the race-window
+  // backstop: if two concurrent requests slip through we catch P2002 and
+  // surface the same user-facing message.
+  let created: ShiftRequest;
+  try {
+    created = await prisma.$transaction(async (tx) => {
+      const existing = await tx.shiftRequest.findFirst({
+        where: {
+          requesterId: actorPersonId,
+          requesterDate: canonicalRequesterDate,
+          departmentId: input.departmentId,
+          status: "PENDING",
+        },
+      });
 
-    if (existing) {
-      throw new RequestValidationError(
-        "You already have a pending request for this shift.",
-      );
+      if (existing) {
+        throw new RequestValidationError(
+          "You already have a pending request for this shift.",
+        );
+      }
+
+      return tx.shiftRequest.create({
+        data: {
+          termId: term.id,
+          requesterId: actorPersonId,
+          requesterDate: canonicalRequesterDate,
+          departmentId: input.departmentId,
+          targetId: input.targetId ?? null,
+          targetDate: canonicalTargetDate,
+          note: input.note ?? null,
+          status: "PENDING",
+        },
+      });
+    });
+  } catch (err) {
+    // Race backstop: two concurrent createRequest calls can both pass the
+    // in-tx findFirst check before either commits; the partial unique index
+    // then rejects the second insert with a unique violation (P2002).
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      throw new RequestValidationError("You already have a pending request for this shift.");
     }
-
-    return tx.shiftRequest.create({
-      data: {
-        termId: term.id,
-        requesterId: actorPersonId,
-        requesterDate: canonicalRequesterDate,
-        departmentId: input.departmentId,
-        targetId: input.targetId ?? null,
-        targetDate: canonicalTargetDate,
-        note: input.note ?? null,
-        status: "PENDING",
-      },
-    });
-  });
+    throw err;
+  }
 
   const isSwap = !!(input.targetId && input.targetDateKey);
   await recordAudit({
@@ -376,7 +392,9 @@ export async function listDepartmentRequests(
       where: {
         termId: term.id,
         departmentId,
-        status: { in: ["APPROVED", "DENIED", "CANCELLED"] },
+        // CANCELLED rows share the decided bucket deliberately: self-service
+      // withdrawals are part of recent history and relevant to directors.
+      status: { in: ["APPROVED", "DENIED", "CANCELLED"] },
       },
       include: {
         requester: { select: { name: true } },
@@ -493,7 +511,14 @@ export async function approveRequest(
       }
 
       if (mutation.op === "remove") {
-        await tx.shiftAssignment.deleteMany({
+        // Capture the delete count and assert exactly one row was removed.
+        // The re-validation above (outside the tx) catches all deterministic
+        // cases (e.g. assignment already deleted). This count guard is a
+        // last-resort race backstop: if the row vanishes between validation
+        // and this tx the delete would silently succeed with count=0, leaving
+        // the schedule in a half-mutated state. Rolling back here keeps the
+        // request PENDING so the director can retry with fresh state.
+        const { count } = await tx.shiftAssignment.deleteMany({
           where: {
             termId: req.termId,
             departmentId: req.departmentId,
@@ -502,6 +527,11 @@ export async function approveRequest(
             role: dbRole,
           },
         });
+        if (count !== 1) {
+          throw new RequestValidationError(
+            "Schedule changed while approving; please retry.",
+          );
+        }
       } else {
         // Add idempotently: upsert on the unique key
         await tx.shiftAssignment.upsert({

@@ -485,6 +485,11 @@ model ShiftAssignment {
 
 /// Swap/drop requests against the schedule. Drop when targetId/targetDate are
 /// null; named swap otherwise. Approval re-validates and applies transactionally.
+/// DB-LEVEL GUARDS LIVE IN RAW SQL (see migrations): a partial unique index
+/// (ShiftRequest_pending_unique) prevents duplicate PENDING rows for the same
+/// (requesterId, requesterDate, departmentId) triple. Guarded by
+/// src/modules/schedule/services/schedule-schema-guards.test.ts. Never resolve
+/// a prisma migrate diff by accepting a DROP of objects you do not recognize.
 model ShiftRequest {
   id            String             @id @default(cuid())
   termId        String

@@ -530,6 +530,15 @@ describe("listDepartmentRequests", () => {
 
 // ---------------------------------------------------------------------------
 // approveRequest
+//
+// Note on the deleteMany count guard (in requests.ts approveRequest):
+// The guard throws when count !== 1 inside the transaction, rolling back all
+// mutations so the request stays PENDING. There is no direct test for this path
+// because validation outside the transaction catches all deterministic cases
+// (e.g. "stale swap" test below deletes the assignment before approval, which
+// the re-validation step catches first as "Not assigned"). The count guard
+// exists solely as a race-window backstop for the gap between validation and
+// the transaction; it is not deterministically testable without test hooks.
 // ---------------------------------------------------------------------------
 
 describe("approveRequest", () => {

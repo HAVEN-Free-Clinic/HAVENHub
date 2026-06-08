@@ -53,8 +53,9 @@ From `src/platform/email/oauth.ts`:
 
 1. **Teams structure:** one fixed Team, one channel per clinic week, named
    `MM-DD-YY Clinic`.
-2. **Source of truth for "current week":** the codebase clinic schedule (the
-   active `Term.clinicDates` array — see Open Question 1).
+2. **Source of truth for "current week":** the active `Term.clinicDates` array.
+   (`RhdClinic.clinicDate` is explicitly NOT used — it covers the RHD department
+   only, not the clinic week as a whole.)
 3. **Auth:** reuse the delegated Mailer token; add `Channel.ReadBasic.All` scope.
 4. **Display:** home dashboard (`src/app/page.tsx`), all signed-in users.
 5. **Rollover:** show a clinic date's channel through that clinic day; at midnight
@@ -194,12 +195,10 @@ Team membership prerequisites being satisfied in the live tenant.
 - **Modify** admin docs / `/admin/email` copy (optional) — note the added scope
   requires re-consent. (Decide during planning; may be out of scope.)
 
-## Open questions (confirm during spec review)
+## Resolved questions
 
-1. **Clinic date source:** spec assumes the active `Term.clinicDates` array holds
-   the Saturday clinic dates that map to channel names. If the canonical dates
-   live in `RhdClinic.clinicDate` rows instead, swap the query — same matching
-   logic. (Example `06-13-26` is a Saturday, consistent with the RHD cadence.)
-2. **Channel name exactness:** assumed format is `MM-DD-YY` prefix (optionally
-   followed by " Clinic"). Confirm zero-padding and 2-digit year are always used
-   in channel names; if naming varies, broaden the parser.
+1. **Clinic date source — RESOLVED:** use the active `Term.clinicDates` array.
+   `RhdClinic.clinicDate` is NOT used (RHD department only, not the clinic week).
+2. **Channel name format — RESOLVED:** the convention is always `MM-DD-YY`
+   (zero-padded month/day, 2-digit year) followed by " Clinic", e.g.
+   `06-13-26 Clinic`. Match on the `MM-DD-YY` prefix.

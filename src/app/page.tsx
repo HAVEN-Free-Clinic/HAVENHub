@@ -4,6 +4,7 @@ import { getEffectivePermissions, hasPermission } from "@/platform/rbac/engine";
 import { MODULES } from "@/platform/modules/registry";
 import { AppShell } from "@/platform/ui/app-shell";
 import { prisma } from "@/platform/db";
+import { getCurrentClinicChannelLink } from "@/platform/teams/channel-link";
 
 /**
  * The hub lives at the root: the deployed domain is hub.havenfreeclinic.org,
@@ -18,6 +19,7 @@ export default async function HubPage() {
     where: { status: "ACTIVE" },
     orderBy: { startDate: "desc" },
   });
+  const clinicChannel = await getCurrentClinicChannelLink();
 
   const visible = MODULES.filter(
     (m) =>
@@ -34,6 +36,27 @@ export default async function HubPage() {
       <p className="mt-1 text-sm text-slate-500">
         HAVEN Free Clinic{activeTerm ? ` · ${activeTerm.name}` : ""}
       </p>
+
+      {clinicChannel ? (
+        <a
+          href={clinicChannel.webUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-6 flex items-center justify-between rounded-lg border border-brand/30 bg-brand-faint p-4 transition hover:border-brand/50 hover:shadow-sm"
+        >
+          <span>
+            <span className="block text-xs font-semibold uppercase tracking-wider text-brand">
+              This week&apos;s clinic Teams channel
+            </span>
+            <span className="mt-0.5 block text-sm font-medium text-slate-700">
+              {clinicChannel.displayName}
+            </span>
+          </span>
+          <span aria-hidden className="text-brand">
+            &rarr;
+          </span>
+        </a>
+      ) : null}
 
       <h2 className="mt-10 text-xs font-semibold uppercase tracking-wider text-slate-400">
         Modules

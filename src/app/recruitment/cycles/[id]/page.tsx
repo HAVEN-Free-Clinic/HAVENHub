@@ -31,9 +31,11 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
           ? <a className="text-blue-700 underline" href={applyUrl}>{applyUrl}</a>
           : <p className="text-slate-500">Publish the cycle to activate {applyUrl}</p>}
       </div>
-      <form action={toggleRenewalsAction.bind(null, id, !cycle.acceptsRenewals)}>
-        <button className="text-sm underline">{cycle.acceptsRenewals ? "Disable" : "Enable"} renewal branch</button>
-      </form>
+      {(cycle.status === "DRAFT" || cycle.status === "OPEN") && (
+        <form action={toggleRenewalsAction.bind(null, id, !cycle.acceptsRenewals)}>
+          <button className="text-sm underline">{cycle.acceptsRenewals ? "Disable" : "Enable"} renewal branch</button>
+        </form>
+      )}
       <div className="flex gap-3">
         {cycle.status === "DRAFT" && <form action={publishCycleAction.bind(null, id)}><button className="rounded-md bg-slate-900 px-3 py-1.5 text-sm text-white">Publish</button></form>}
         {cycle.status === "OPEN" && <form action={closeCycleAction.bind(null, id)}><button className="rounded-md border px-3 py-1.5 text-sm">Close</button></form>}

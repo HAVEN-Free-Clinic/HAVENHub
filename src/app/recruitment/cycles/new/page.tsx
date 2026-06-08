@@ -1,11 +1,17 @@
 import { prisma } from "@/platform/db";
 import { createCycleAction } from "../../actions";
 
-export default async function NewCyclePage() {
+type PageProps = {
+  searchParams: Promise<{ error?: string }>;
+};
+
+export default async function NewCyclePage({ searchParams }: PageProps) {
+  const { error } = await searchParams;
   const terms = await prisma.term.findMany({ orderBy: { startDate: "desc" } });
   return (
     <div className="max-w-lg">
       <h1 className="text-2xl font-semibold tracking-tight">New recruitment cycle</h1>
+      {error && <p role="alert" className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
       <form action={createCycleAction} className="mt-6 space-y-4">
         <label className="block text-sm">Title<input name="title" required className="mt-1 w-full rounded border px-2 py-1" /></label>
         <label className="block text-sm">Track

@@ -17,6 +17,9 @@ export async function createCycleAction(formData: FormData) {
   const termId = String(formData.get("termId") ?? "");
   const departments = String(formData.get("departments") ?? "").split(",").map((d) => d.trim()).filter(Boolean);
   const slug = slugify(String(formData.get("publicSlug") || title));
+  if (!title || !slug) {
+    redirect(`/recruitment/cycles/new?error=${encodeURIComponent("Title is required.")}`);
+  }
   const cycle = await createCycle({ track, termId, title, publicSlug: slug, departments, acceptsRenewals: false, createdById: person.personId });
   redirect(`/recruitment/cycles/${cycle.id}/builder`);
 }
@@ -36,12 +39,26 @@ export async function publishCycleAction(cycleId: string) {
 
 export async function closeCycleAction(cycleId: string) {
   const person = await requirePermission("recruitment.manage_cycles");
-  await closeCycle(cycleId, person.personId);
+  try {
+    await closeCycle(cycleId, person.personId);
+  } catch (err) {
+    if (err instanceof CyclePublishError) {
+      redirect(`/recruitment/cycles/${cycleId}?error=${encodeURIComponent(err.message)}`);
+    }
+    throw err;
+  }
   revalidatePath(`/recruitment/cycles/${cycleId}`);
 }
 
 export async function toggleRenewalsAction(cycleId: string, value: boolean) {
   const person = await requirePermission("recruitment.manage_cycles");
-  await setAcceptsRenewals(cycleId, value, person.personId);
+  try {
+    await setAcceptsRenewals(cycleId, value, person.personId);
+  } catch (err) {
+    if (err instanceof CyclePublishError) {
+      redirect(`/recruitment/cycles/${cycleId}?error=${encodeURIComponent(err.message)}`);
+    }
+    throw err;
+  }
   revalidatePath(`/recruitment/cycles/${cycleId}`);
 }

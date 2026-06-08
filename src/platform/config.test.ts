@@ -261,32 +261,39 @@ describe("loadConfig", () => {
     expect(config.EMAIL_TRANSPORT).toBe("log");
   });
 
-  it("rejects graph mode without Graph vars, naming each missing key", () => {
+  it("defaults GRAPH_OAUTH_REDIRECT_URI to the localhost callback", () => {
+    const config = loadConfig(base);
+    expect(config.GRAPH_OAUTH_REDIRECT_URI).toBe(
+      "http://localhost:3000/admin/email/oauth/callback"
+    );
+  });
+
+  it("rejects graph mode without OAuth vars, naming each missing key", () => {
     expect(() =>
       loadConfig({ ...base, EMAIL_TRANSPORT: "graph" })
-    ).toThrowError(/GRAPH_TENANT_ID/);
+    ).toThrowError(/GRAPH_OAUTH_TENANT_ID/);
     expect(() =>
       loadConfig({ ...base, EMAIL_TRANSPORT: "graph" })
-    ).toThrowError(/GRAPH_CLIENT_ID/);
+    ).toThrowError(/GRAPH_OAUTH_CLIENT_ID/);
     expect(() =>
       loadConfig({ ...base, EMAIL_TRANSPORT: "graph" })
-    ).toThrowError(/GRAPH_CLIENT_SECRET/);
+    ).toThrowError(/GRAPH_OAUTH_CLIENT_SECRET/);
     expect(() =>
       loadConfig({ ...base, EMAIL_TRANSPORT: "graph" })
     ).toThrowError(/EMAIL_SENDER/);
   });
 
-  it("accepts graph mode when all four Graph/sender vars are present", () => {
+  it("accepts graph mode when all four OAuth/sender vars are present", () => {
     const config = loadConfig({
       ...base,
       EMAIL_TRANSPORT: "graph",
-      GRAPH_TENANT_ID: "tenant-id",
-      GRAPH_CLIENT_ID: "client-id",
-      GRAPH_CLIENT_SECRET: "client-secret",
+      GRAPH_OAUTH_TENANT_ID: "tenant-id",
+      GRAPH_OAUTH_CLIENT_ID: "client-id",
+      GRAPH_OAUTH_CLIENT_SECRET: "client-secret",
       EMAIL_SENDER: "noreply@example.com",
     });
     expect(config.EMAIL_TRANSPORT).toBe("graph");
-    expect(config.GRAPH_TENANT_ID).toBe("tenant-id");
+    expect(config.GRAPH_OAUTH_TENANT_ID).toBe("tenant-id");
     expect(config.EMAIL_SENDER).toBe("noreply@example.com");
   });
 });

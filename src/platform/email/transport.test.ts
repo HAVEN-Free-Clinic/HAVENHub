@@ -48,9 +48,10 @@ function makeConfig(
     UPLOAD_DIR: "./uploads",
     MAX_UPLOAD_MB: 5,
     EMAIL_TRANSPORT: "log",
-    GRAPH_TENANT_ID: undefined,
-    GRAPH_CLIENT_ID: undefined,
-    GRAPH_CLIENT_SECRET: undefined,
+    GRAPH_OAUTH_TENANT_ID: undefined,
+    GRAPH_OAUTH_CLIENT_ID: undefined,
+    GRAPH_OAUTH_CLIENT_SECRET: undefined,
+    GRAPH_OAUTH_REDIRECT_URI: "http://localhost:3000/admin/email/oauth/callback",
     EMAIL_SENDER: undefined,
     ...overrides,
   } as AppConfig;
@@ -255,16 +256,17 @@ describe("emailTransportFromConfig", () => {
     expect(transport).toBeInstanceOf(LogTransport);
   });
 
-  it("returns a GraphTransport when EMAIL_TRANSPORT is graph", () => {
+  it("returns a LogTransport when EMAIL_TRANSPORT is graph (delegated transport pending task 7c)", () => {
     const transport = emailTransportFromConfig(
       makeConfig({
         EMAIL_TRANSPORT: "graph",
-        GRAPH_TENANT_ID: "t",
-        GRAPH_CLIENT_ID: "c",
-        GRAPH_CLIENT_SECRET: "s",
+        GRAPH_OAUTH_TENANT_ID: "t",
+        GRAPH_OAUTH_CLIENT_ID: "c",
+        GRAPH_OAUTH_CLIENT_SECRET: "s",
         EMAIL_SENDER: "noreply@example.com",
       })
     );
-    expect(transport).toBeInstanceOf(GraphTransport);
+    // TODO(task 7c): update this assertion to expect the delegated transport.
+    expect(transport).toBeInstanceOf(LogTransport);
   });
 });

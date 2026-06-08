@@ -37,11 +37,14 @@ const schema = z
     // teams enable the mirror before the status field exists in their base (the sandbox has none).
     AIRTABLE_MIRROR_STATUS_FIELD_ID: z.string().optional(),
     // Email transport: "log" prints to stdout (default, safe for development/CI);
-    // "graph" sends via Microsoft Graph API (requires all four vars below).
+    // "graph" sends via Microsoft Graph delegated OAuth flow (requires the OAuth vars below).
     EMAIL_TRANSPORT: z.enum(["log", "graph"]).default("log"),
-    GRAPH_TENANT_ID: z.string().optional(),
-    GRAPH_CLIENT_ID: z.string().optional(),
-    GRAPH_CLIENT_SECRET: z.string().optional(),
+    GRAPH_OAUTH_TENANT_ID: z.string().optional(),
+    GRAPH_OAUTH_CLIENT_ID: z.string().optional(),
+    GRAPH_OAUTH_CLIENT_SECRET: z.string().optional(),
+    GRAPH_OAUTH_REDIRECT_URI: z
+      .string()
+      .default("http://localhost:3000/admin/email/oauth/callback"),
     EMAIL_SENDER: z.string().optional(),
     // Uploads: local filesystem storage for HIPAA certificates.
     // Mount this as a persistent volume in production (SpinUp).
@@ -180,12 +183,13 @@ const schema = z
     }
   })
   .superRefine((env, ctx) => {
-    // When graph transport is selected, all four credentials are required.
+    // When graph transport is selected, all OAuth credentials and the sender are required.
+    // GRAPH_OAUTH_REDIRECT_URI always has a default so it is excluded from this check.
     if (env.EMAIL_TRANSPORT !== "graph") return;
     for (const key of [
-      "GRAPH_TENANT_ID",
-      "GRAPH_CLIENT_ID",
-      "GRAPH_CLIENT_SECRET",
+      "GRAPH_OAUTH_TENANT_ID",
+      "GRAPH_OAUTH_CLIENT_ID",
+      "GRAPH_OAUTH_CLIENT_SECRET",
       "EMAIL_SENDER",
     ] as const) {
       if (!env[key]) {

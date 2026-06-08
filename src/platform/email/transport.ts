@@ -148,17 +148,12 @@ export class GraphTransport implements EmailTransport {
 
 /**
  * Return the appropriate transport based on the validated app config.
- * Config validation guarantees all Graph vars are present when transport is
- * "graph", so the non-null assertions here are safe.
+ * TODO(task 7c): wire delegated OAuth transport when graph branch is selected.
  */
 export function emailTransportFromConfig(config: AppConfig): EmailTransport {
   if (config.EMAIL_TRANSPORT === "graph") {
-    return new GraphTransport({
-      tenantId: config.GRAPH_TENANT_ID!,
-      clientId: config.GRAPH_CLIENT_ID!,
-      clientSecret: config.GRAPH_CLIENT_SECRET!,
-      sender: config.EMAIL_SENDER!,
-    });
+    // TODO(task 7c): replace with the delegated-OAuth transport once implemented.
+    return new LogTransport();
   }
   return new LogTransport();
 }

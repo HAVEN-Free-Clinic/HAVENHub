@@ -12,6 +12,7 @@ import { requirePermission } from "@/platform/auth/session";
 import {
   listEmails,
   retryEmail,
+  EMAIL_PAGE_SIZE,
   EmailNotFoundError,
   EmailStateError,
 } from "@/modules/admin/services/email";
@@ -120,8 +121,7 @@ export default async function EmailPage({ searchParams }: PageProps) {
     page,
   });
 
-  const pageSize = 25;
-  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  const pageCount = Math.max(1, Math.ceil(total / EMAIL_PAGE_SIZE));
 
   function hrefFor(p: number): string {
     const params = new URLSearchParams();

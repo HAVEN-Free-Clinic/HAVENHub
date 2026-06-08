@@ -41,7 +41,7 @@ export type EmailHealthCounts = {
   sentToday: number;
 };
 
-const PAGE_SIZE = 25;
+export const EMAIL_PAGE_SIZE = 25;
 
 // ---------------------------------------------------------------------------
 // emailHealthCounts
@@ -101,7 +101,7 @@ export async function listEmails(query: ListEmailsQuery): Promise<{
   counts: EmailHealthCounts;
 }> {
   const page = query.page ?? 1;
-  const skip = (page - 1) * PAGE_SIZE;
+  const skip = (page - 1) * EMAIL_PAGE_SIZE;
 
   const where: Prisma.EmailLogWhereInput = {};
 
@@ -122,7 +122,7 @@ export async function listEmails(query: ListEmailsQuery): Promise<{
       where,
       orderBy: { createdAt: "desc" },
       skip,
-      take: PAGE_SIZE,
+      take: EMAIL_PAGE_SIZE,
     }),
     prisma.emailLog.count({ where }),
     emailHealthCounts(),

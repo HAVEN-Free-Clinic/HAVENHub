@@ -1,6 +1,6 @@
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
-import { getDescriptor, listDescriptors } from "@/platform/email/templates/registry";
+import { getDescriptor, listDescriptors, LAYOUT_KEY } from "@/platform/email/templates/registry";
 import type { TemplateDescriptor } from "@/platform/email/templates/types";
 import { validateTemplate } from "@/platform/email/render/validate";
 
@@ -25,12 +25,30 @@ export type TemplateForEdit = {
   subject: string;
   body: string;
   hasOverride: boolean;
+  /** True when the template being edited is the shared layout wrapper itself. */
+  isLayout: boolean;
+  /**
+   * The effective layout body (override or code default). The editor uses this to
+   * render a full-email preview: it injects the template body into this layout's
+   * `{{{ body }}}` slot. When `isLayout` is true the editor previews its own body
+   * directly instead of wrapping.
+   */
+  layoutSource: string;
 };
 
 export async function getTemplateForEdit(key: string): Promise<TemplateForEdit> {
   const d = getDescriptor(key);
   if (!d) throw new Error(`Unknown email template: ${key}`);
-  const override = await prisma.emailTemplate.findUnique({ where: { key } });
+  const layout = getDescriptor(LAYOUT_KEY);
+  if (!layout) throw new Error("Missing layout template");
+
+  const isLayout = key === LAYOUT_KEY;
+  const keysToLoad = isLayout ? [key] : [key, LAYOUT_KEY];
+  const overrides = await prisma.emailTemplate.findMany({ where: { key: { in: keysToLoad } } });
+  const byKey = new Map(overrides.map((o) => [o.key, o]));
+  const override = byKey.get(key) ?? null;
+  const layoutSource = byKey.get(LAYOUT_KEY)?.body ?? layout.defaultBody;
+
   return {
     key: d.key,
     name: d.name,
@@ -41,6 +59,8 @@ export async function getTemplateForEdit(key: string): Promise<TemplateForEdit> 
     subject: override?.subject ?? d.defaultSubject,
     body: override?.body ?? d.defaultBody,
     hasOverride: override !== null,
+    isLayout,
+    layoutSource,
   };
 }
 

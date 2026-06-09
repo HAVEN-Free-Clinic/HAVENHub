@@ -72,6 +72,8 @@ export default async function EditTemplatePage({ params, searchParams }: Props) 
           variables={t.variables}
           initialSubject={t.subject}
           initialBody={t.body}
+          isLayout={t.isLayout}
+          layoutSource={t.layoutSource}
         />
         <div className="mt-4 flex gap-2">
           <Button type="submit">Save</Button>

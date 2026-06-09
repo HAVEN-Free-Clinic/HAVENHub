@@ -1,9 +1,10 @@
 /**
  * Golden-master tests for compliance email templates via renderEmail.
  *
- * These tests assert that the new descriptor + renderEmail system produces
- * byte-identical output compared to the pre-refactor complianceReminderEmail /
- * complianceEscalationEmail functions.
+ * These tests assert that the new descriptor + renderEmail system produces the
+ * same body content as the pre-refactor complianceReminderEmail /
+ * complianceEscalationEmail functions. The body is now injected verbatim into the
+ * branded layout shell, so we assert the body is contained in the rendered email.
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
@@ -13,7 +14,7 @@ import { complianceReminderContext, complianceEscalationContext } from "./compli
 
 beforeEach(resetDb);
 
-describe("compliance templates via renderEmail (passthrough layout)", () => {
+describe("compliance templates via renderEmail (body inside branded layout)", () => {
   // ---------------------------------------------------------------------------
   // compliance-reminder
   // ---------------------------------------------------------------------------
@@ -28,7 +29,7 @@ describe("compliance templates via renderEmail (passthrough layout)", () => {
       }),
     );
     expect(out.subject).toBe("[HAVEN] HIPAA certification reminder");
-    expect(out.html).toBe(
+    expect(out.html).toContain(
       "<p>Hello Jane Doe,</p>\n\n<p>Your HIPAA certification expired on January 15, 2026.</p>\n\n<p>Please upload or renew your certificate in My Info.</p>\n\n<p>Thank you,<br>HAVEN Free Clinic</p>",
     );
   });
@@ -43,7 +44,7 @@ describe("compliance templates via renderEmail (passthrough layout)", () => {
       }),
     );
     expect(out.subject).toBe("[HAVEN] HIPAA certification reminder");
-    expect(out.html).toBe(
+    expect(out.html).toContain(
       "<p>Hello Jane Doe,</p>\n\n<p>Your HIPAA certification expires on January 15, 2026.</p>\n\n<p>Please upload or renew your certificate in My Info.</p>\n\n<p>Thank you,<br>HAVEN Free Clinic</p>",
     );
   });
@@ -58,7 +59,7 @@ describe("compliance templates via renderEmail (passthrough layout)", () => {
       }),
     );
     expect(out.subject).toBe("[HAVEN] HIPAA certification reminder");
-    expect(out.html).toBe(
+    expect(out.html).toContain(
       "<p>Hello Jane Doe,</p>\n\n<p>We do not have a current HIPAA certificate on file for you.</p>\n\n<p>Please upload or renew your certificate in My Info.</p>\n\n<p>Thank you,<br>HAVEN Free Clinic</p>",
     );
   });
@@ -73,7 +74,7 @@ describe("compliance templates via renderEmail (passthrough layout)", () => {
       }),
     );
     expect(out.subject).toBe("[HAVEN] HIPAA certification reminder");
-    expect(out.html).toBe(
+    expect(out.html).toContain(
       "<p>Hello Jane Doe,</p>\n\n<p>We do not have a current HIPAA certificate on file for you.</p>\n\n<p>Please upload or renew your certificate in My Info.</p>\n\n<p>Thank you,<br>HAVEN Free Clinic</p>",
     );
   });
@@ -93,7 +94,7 @@ describe("compliance templates via renderEmail (passthrough layout)", () => {
       }),
     );
     expect(out.subject).toBe("[HAVEN] Volunteer HIPAA compliance needs attention");
-    expect(out.html).toBe(
+    expect(out.html).toContain(
       "<p>Hello Dr. Smith,</p>\n\n<p>Jane Doe in Cardiology is not HIPAA compliant (expired) and has not responded to reminders. Please follow up.</p>\n\n<p>Thank you,<br>HAVEN Free Clinic</p>",
     );
   });
@@ -109,7 +110,7 @@ describe("compliance templates via renderEmail (passthrough layout)", () => {
       }),
     );
     expect(out.subject).toBe("[HAVEN] Volunteer HIPAA compliance needs attention");
-    expect(out.html).toBe(
+    expect(out.html).toContain(
       "<p>Hello Dr. Smith,</p>\n\n<p>Jane Doe in Cardiology is not HIPAA compliant (expiring soon) and has not responded to reminders. Please follow up.</p>\n\n<p>Thank you,<br>HAVEN Free Clinic</p>",
     );
   });
@@ -125,7 +126,7 @@ describe("compliance templates via renderEmail (passthrough layout)", () => {
       }),
     );
     expect(out.subject).toBe("[HAVEN] Volunteer HIPAA compliance needs attention");
-    expect(out.html).toBe(
+    expect(out.html).toContain(
       "<p>Hello Dr. Smith,</p>\n\n<p>Jane Doe in Cardiology is not HIPAA compliant (no certificate on file) and has not responded to reminders. Please follow up.</p>\n\n<p>Thank you,<br>HAVEN Free Clinic</p>",
     );
   });

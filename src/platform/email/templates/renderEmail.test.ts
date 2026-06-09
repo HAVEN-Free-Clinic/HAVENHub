@@ -10,11 +10,14 @@ describe("renderEmail", () => {
     await expect(renderEmail("nope", {})).rejects.toThrow(/Unknown email template/);
   });
 
-  it("uses the code default when no override exists and wraps in the passthrough layout", async () => {
-    // 'layout' is a real descriptor; rendering it with a body var yields the body unchanged.
+  it("uses the code default when no override exists and wraps the body in the branded layout", async () => {
+    // 'layout' is a real descriptor; its default is the branded shell with a {{{ body }}} slot.
     const out = await renderEmail("layout", { body: "<p>hi</p>", subject: "S" });
     expect(out.subject).toBe("S");
-    expect(out.html).toBe("<p>hi</p>");
+    // The branded shell injects the body verbatim and is a full HTML document.
+    expect(out.html).toContain("<p>hi</p>");
+    expect(out.html).toContain("<!DOCTYPE html>");
+    expect(out.html).toContain("HAVEN Free Clinic");
   });
 
   it("prefers a DB override over the code default", async () => {

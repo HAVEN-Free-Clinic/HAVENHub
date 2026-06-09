@@ -29,6 +29,7 @@ export const MODULES: ModuleManifest[] = [
       { label: "My schedule", href: "/schedule" },
       { label: "Full schedule", href: "/schedule/full" },
       { label: "Builder", href: "/schedule/builder" },
+      { label: "Attendings", href: "/schedule/attendings" },
     ],
   },
   {

@@ -52,7 +52,7 @@ export class BuilderValidationError extends Error {
 // RHD department codes
 // ---------------------------------------------------------------------------
 
-const RHD_CODES = new Set(["SCTS", "JCTS", "CCRH"]);
+export const RHD_CODES = new Set(["SCTS", "JCTS", "CCRH"]);
 
 // ---------------------------------------------------------------------------
 // Internal helpers

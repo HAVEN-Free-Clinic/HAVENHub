@@ -545,3 +545,29 @@ test("Builder grid shadow assign: Jack toggles Shadow and assigns from a grid ce
   // The same cell reverts to an assignable shadow cell.
   await expect(page.getByRole("button", { name: cellLabel! })).toBeVisible();
 });
+
+test("RHD attendings: add one and see it in the readiness dropdown", async ({ page }) => {
+  const name = `Test-${Date.now()}`;
+  await devLogin(page, "j.carney@yale.edu");
+
+  // Create via the management page.
+  await page.goto("/schedule/attendings/new");
+  await page.waitForURL((url) => url.pathname === "/schedule/attendings/new");
+  await page.fill('input[name="scheduleName"]', name);
+  await page.fill('input[name="fullName"]', `Dr. ${name}`);
+  await page.getByRole("button", { name: "Save" }).click();
+  await page.waitForURL((url) => url.pathname === "/schedule/attendings");
+  await expect(page.getByText(name, { exact: true })).toBeVisible();
+
+  // It appears in the builder readiness Attending dropdown for an RHD dept (SCTS).
+  await page.goto("/schedule/builder");
+  await selectDeptByCode(page, "SCTS");
+  await page.getByRole("button", { name: "Go" }).click();
+  await page.waitForLoadState("networkidle");
+  await page.locator('nav[aria-label="Clinic dates"]').getByRole("link").first().click();
+  await page.waitForLoadState("networkidle");
+
+  const attendingSelect = page.locator('select[name="attendingId"]');
+  await expect(attendingSelect).toBeVisible();
+  await expect(attendingSelect.locator("option", { hasText: name })).toHaveCount(1);
+});

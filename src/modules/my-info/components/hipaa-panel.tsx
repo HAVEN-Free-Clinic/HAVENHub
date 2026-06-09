@@ -13,8 +13,9 @@
 
 import type { HipaaCertificate } from "@prisma/client";
 import Link from "next/link";
-import { Input } from "@/platform/ui/input";
-import { Button } from "@/platform/ui/button";
+import { Input, Field } from "@/platform/ui/input";
+import { SubmitButton } from "@/platform/ui/submit-button";
+import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
 import { certExpiresAt } from "@/platform/compliance/rules";
 import type { ComplianceStatus } from "@/platform/compliance/rules";
@@ -115,21 +116,25 @@ export function HipaaPanel({
                   We could not read a completion date from your certificate. Enter the date printed on it.
                 </p>
                 {dateError && (
-                  <p role="alert" className="mb-2 text-sm text-critical">
+                  <Alert tone="error" className="mb-2">
                     {dateError}
-                  </p>
+                  </Alert>
                 )}
                 {dateSaved && (
-                  <p className="mb-2 text-sm text-success">Date saved.</p>
+                  <Alert tone="success" className="mb-2">
+                    Date saved.
+                  </Alert>
                 )}
                 <form action={dateAction} className="flex items-end gap-3">
                   <input type="hidden" name="certId" value={latest.id} />
                   <div className="flex-1">
-                    <Input type="date" name="completionDate" required max={new Date().toISOString().split("T")[0]} />
+                    <Field label="Completion date">
+                      <Input type="date" name="completionDate" required max={new Date().toISOString().split("T")[0]} />
+                    </Field>
                   </div>
-                  <Button type="submit" variant="outline" size="sm">
+                  <SubmitButton variant="outline" size="sm" pendingLabel="Saving…">
                     Save date
-                  </Button>
+                  </SubmitButton>
                 </form>
               </div>
             )}
@@ -143,28 +148,29 @@ export function HipaaPanel({
       <div>
         <h3 className="mb-2 text-sm font-medium text-slate-700">Upload New Certificate</h3>
         {error && (
-          <p
-            role="alert"
-            className="mb-3 rounded-md border border-critical/20 bg-red-50 px-3 py-2 text-sm text-critical"
-          >
+          <Alert tone="error" className="mb-3">
             {error}
-          </p>
+          </Alert>
         )}
         {certSaved && (
-          <p className="mb-3 text-sm text-success">Certificate uploaded successfully.</p>
+          <Alert tone="success" className="mb-3">
+            Certificate uploaded successfully.
+          </Alert>
         )}
         <form action={uploadAction} className="flex items-end gap-3">
           <div className="flex-1">
-            <Input
-              type="file"
-              name="certificate"
-              accept="application/pdf"
-              className="cursor-pointer"
-            />
+            <Field label="HIPAA certificate (PDF)" hint="PDF only.">
+              <Input
+                type="file"
+                name="certificate"
+                accept="application/pdf"
+                className="cursor-pointer"
+              />
+            </Field>
           </div>
-          <Button type="submit" variant="outline" size="sm">
+          <SubmitButton variant="outline" size="sm" pendingLabel="Uploading…">
             Upload certificate
-          </Button>
+          </SubmitButton>
         </form>
       </div>
 

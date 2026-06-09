@@ -101,6 +101,7 @@ export function PendingRequests({
                 <input type="hidden" name="requestId" value={request.id} />
                 <Input
                   name="denyNote"
+                  aria-label="Denial reason"
                   placeholder="Reason (optional)"
                   className="flex-1 min-w-32 py-1 text-xs"
                 />

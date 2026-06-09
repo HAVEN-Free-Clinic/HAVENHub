@@ -23,8 +23,10 @@ import { searchPeople } from "@/modules/admin/services/people";
 import { listTerms, TermNotFoundError } from "@/modules/admin/services/terms";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
-import { Input } from "@/platform/ui/input";
+import { Input, Field } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
+import { Checkbox } from "@/platform/ui/checkbox";
+import { Alert } from "@/platform/ui/alert";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 
 // ---------------------------------------------------------------------------
@@ -260,27 +262,17 @@ export async function RosterPanel({
       <SectionHeading>Roster</SectionHeading>
 
       {/* Error and status messages */}
-      {rosterError && (
-        <p
-          role="alert"
-          className="rounded-md border border-critical/20 bg-red-50 px-3 py-2 text-sm text-critical"
-        >
-          {rosterError}
-        </p>
-      )}
+      {rosterError && <Alert tone="error">{rosterError}</Alert>}
       {copiedCount !== undefined && skippedCount !== undefined && (
-        <p className="text-sm text-success">
+        <Alert tone="success">
           Copied {copiedCount} membership(s); {skippedCount} already existed and were skipped.
-        </p>
+        </Alert>
       )}
 
       {/* Add-member search box (global, above cards) */}
       <form method="GET" className="flex items-end gap-3">
         {/* No other params are preserved; this form resets all query state. */}
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-medium text-slate-500">
-            Search people to add
-          </label>
+        <Field label="Search people to add">
           <Input
             type="search"
             name="addq"
@@ -288,7 +280,7 @@ export async function RosterPanel({
             placeholder="Name or netID..."
             className="w-72"
           />
-        </div>
+        </Field>
         <Button type="submit" variant="outline" size="sm">
           Search
         </Button>
@@ -327,8 +319,7 @@ export async function RosterPanel({
                   </div>
                   <form action={addAction} className="flex flex-wrap items-center gap-2">
                     <input type="hidden" name="personId" value={person.id} />
-                    <div className="flex flex-col gap-1">
-                      <label className="text-xs font-medium text-slate-500">Department</label>
+                    <Field label="Department">
                       <Select name="departmentId" className="w-48">
                         {allActiveDepts.map((dept) => (
                           <option key={dept.id} value={dept.id}>
@@ -336,14 +327,13 @@ export async function RosterPanel({
                           </option>
                         ))}
                       </Select>
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="text-xs font-medium text-slate-500">Role</label>
+                    </Field>
+                    <Field label="Role">
                       <Select name="kind" className="w-36">
                         <option value="VOLUNTEER">Volunteer</option>
                         <option value="DIRECTOR">Director</option>
                       </Select>
-                    </div>
+                    </Field>
                     <Button type="submit" variant="primary" size="sm" className="self-end">
                       Add
                     </Button>
@@ -443,8 +433,7 @@ export async function RosterPanel({
           ) : (
             <form action={copyRosterAction} className="space-y-4">
               <div className="flex flex-wrap gap-6">
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs font-medium text-slate-500">Source term</label>
+                <Field label="Source term">
                   <Select name="fromTermId" className="w-56">
                     {sourceTerms.map((t) => (
                       <option key={t.id} value={t.id}>
@@ -452,28 +441,16 @@ export async function RosterPanel({
                       </option>
                     ))}
                   </Select>
-                </div>
+                </Field>
                 <div className="flex flex-col gap-1">
                   <p className="text-xs font-medium text-slate-500">Kinds to copy</p>
                   <div className="flex gap-4 pt-1">
                     <label className="flex items-center gap-2 text-sm text-slate-700">
-                      <input
-                        type="checkbox"
-                        name="kinds"
-                        value="DIRECTOR"
-                        defaultChecked
-                        className="rounded border-slate-300"
-                      />
+                      <Checkbox name="kinds" value="DIRECTOR" defaultChecked />
                       Directors
                     </label>
                     <label className="flex items-center gap-2 text-sm text-slate-700">
-                      <input
-                        type="checkbox"
-                        name="kinds"
-                        value="VOLUNTEER"
-                        defaultChecked
-                        className="rounded border-slate-300"
-                      />
+                      <Checkbox name="kinds" value="VOLUNTEER" defaultChecked />
                       Volunteers
                     </label>
                   </div>
@@ -484,22 +461,13 @@ export async function RosterPanel({
               <fieldset className="space-y-2">
                 <legend className="text-xs font-medium text-slate-500">Departments</legend>
                 <label className="flex items-center gap-2 text-sm text-slate-700">
-                  <input
-                    type="checkbox"
-                    name="allDepartments"
-                    className="rounded border-slate-300"
-                  />
+                  <Checkbox name="allDepartments" />
                   All departments
                 </label>
                 <div className="grid grid-cols-3 gap-x-4 gap-y-1 sm:grid-cols-4">
                   {allActiveDepts.map((dept) => (
                     <label key={dept.id} className="flex items-center gap-1.5 text-sm text-slate-700">
-                      <input
-                        type="checkbox"
-                        name="departmentIds"
-                        value={dept.id}
-                        className="rounded border-slate-300"
-                      />
+                      <Checkbox name="departmentIds" value={dept.id} />
                       {dept.code}
                     </label>
                   ))}

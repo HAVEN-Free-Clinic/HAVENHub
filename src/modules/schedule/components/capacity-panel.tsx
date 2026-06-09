@@ -9,7 +9,7 @@
 
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
-import { Input } from "@/platform/ui/input";
+import { Input, Field } from "@/platform/ui/input";
 import { rolesForDept } from "@/modules/schedule/engine/capacity";
 import type { DayMetrics, Quota } from "@/modules/schedule/engine/capacity";
 
@@ -32,10 +32,18 @@ function quotaTone(q: Quota): "critical" | "success" | "warning" {
 }
 
 function quotaLabel(q: Quota): string {
-  if (q === "missing") return "missing";
-  if (q === "ok") return "ok";
-  return "excess";
+  if (q === "missing") return "Missing";
+  if (q === "ok") return "OK";
+  return "Excess";
 }
+
+// Human-readable headcount status copy (keeps raw status for tone logic).
+const HEADCOUNT_LABELS: Record<DayMetrics["headcountStatus"], string> = {
+  under: "Understaffed",
+  over: "Overstaffed",
+  at: "At target",
+  unknown: "No target",
+};
 
 // ---------------------------------------------------------------------------
 // Props
@@ -72,9 +80,7 @@ export function CapacityPanel({
           {metrics.headcount} / {metrics.idealHeadcount ?? "-"} on shift
         </span>
         <Badge tone={headcountTone(metrics.headcountStatus)}>
-          {metrics.headcountStatus === "unknown"
-            ? "no target"
-            : metrics.headcountStatus}
+          {HEADCOUNT_LABELS[metrics.headcountStatus]}
         </Badge>
       </div>
 
@@ -105,15 +111,16 @@ export function CapacityPanel({
       <form action={patientsBookedAction} className="flex flex-wrap items-end gap-2">
         <input type="hidden" name="departmentId" value={departmentId} />
         <input type="hidden" name="dateKey" value={dateKey} />
-        <div className="flex flex-col gap-1 flex-1 min-w-28">
-          <label className="text-xs font-medium text-slate-500">Patients booked</label>
-          <Input
-            name="patientsBooked"
-            type="number"
-            min={0}
-            defaultValue={metrics.patientsBooked ?? ""}
-            placeholder="-"
-          />
+        <div className="flex-1 min-w-28">
+          <Field label="Patients booked">
+            <Input
+              name="patientsBooked"
+              type="number"
+              min={0}
+              defaultValue={metrics.patientsBooked ?? ""}
+              placeholder="-"
+            />
+          </Field>
         </div>
         <Button type="submit" variant="outline" size="sm">
           Save

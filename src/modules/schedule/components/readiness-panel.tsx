@@ -10,7 +10,7 @@
 import Link from "next/link";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
-import { Input } from "@/platform/ui/input";
+import { Input, Field } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { PROCEDURE_KEYS } from "@/modules/schedule/engine/rhd";
 import type { BuilderRhd } from "@/modules/schedule/services/builder";
@@ -40,6 +40,13 @@ function procedureTone(
   if (status === "no") return "critical";
   return "default";
 }
+
+// Readable copy for the raw procedure status enum (keeps values for tone logic).
+const PROCEDURE_STATUS_LABELS: Record<ProcedureStatus, string> = {
+  yes: "Yes",
+  no: "No",
+  unknown: "N/A",
+};
 
 // ---------------------------------------------------------------------------
 // Props
@@ -73,8 +80,7 @@ export function ReadinessPanel({
         <input type="hidden" name="dateKey" value={dateKey} />
 
         {/* Attending select */}
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-medium text-slate-500">Attending</label>
+        <Field label="Attending">
           <Select name="attendingId" defaultValue={clinic?.attendingId ?? ""}>
             <option value="">-- none --</option>
             {attendingOptions.map((a) => (
@@ -83,22 +89,20 @@ export function ReadinessPanel({
               </option>
             ))}
           </Select>
-        </div>
+        </Field>
 
         {/* Director name */}
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-medium text-slate-500">Director name</label>
+        <Field label="Director name">
           <Input
             name="directorName"
             type="text"
             defaultValue={clinic?.directorName ?? ""}
             placeholder="-"
           />
-        </div>
+        </Field>
 
         {/* Procedures booked */}
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-medium text-slate-500">Procedures booked</label>
+        <Field label="Procedures booked">
           <Input
             name="proceduresBooked"
             type="number"
@@ -106,7 +110,7 @@ export function ReadinessPanel({
             defaultValue={clinic?.proceduresBooked ?? ""}
             placeholder="-"
           />
-        </div>
+        </Field>
 
         <Button type="submit" variant="outline" size="sm" className="self-start">
           Save clinic
@@ -143,7 +147,7 @@ export function ReadinessPanel({
             const status = readiness.procedures[key];
             return (
               <Badge key={key} tone={procedureTone(status)}>
-                {PROCEDURE_LABELS[key]}: {status}
+                {PROCEDURE_LABELS[key]}: {PROCEDURE_STATUS_LABELS[status]}
               </Badge>
             );
           })}
@@ -167,7 +171,7 @@ export function ReadinessPanel({
 
         {/* Clinic emails */}
         {readiness.emails.length > 0 && (
-          <p className="text-sm text-slate-600 break-all">
+          <p className="text-sm text-slate-600 break-words [overflow-wrap:anywhere]">
             <span className="font-medium">Clinic emails:</span>{" "}
             {readiness.emails.join(", ")}
           </p>

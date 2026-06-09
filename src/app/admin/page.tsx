@@ -2,28 +2,11 @@ import Link from "next/link";
 import { prisma } from "@/platform/db";
 import { PageHeader } from "@/platform/ui/page-header";
 import { buttonClasses } from "@/platform/ui/button";
+import { StatCard } from "@/platform/ui/stat-card";
 import { emailHealthCounts } from "@/modules/admin/services/email";
 
 // requirePermission already ran in the admin layout; this page is reachable only
 // by users with admin.access. No second permission check needed here.
-
-type StatCardProps = {
-  label: string;
-  value: number;
-  href: string;
-};
-
-function StatCard({ label, value, href }: StatCardProps) {
-  return (
-    <Link
-      href={href}
-      className="block rounded-lg border border-slate-200 bg-white p-5 transition hover:border-brand/40 hover:shadow-sm"
-    >
-      <p className="text-2xl font-semibold">{value.toLocaleString()}</p>
-      <p className="mt-1 text-xs uppercase tracking-wider text-slate-400">{label}</p>
-    </Link>
-  );
-}
 
 export default async function AdminOverviewPage() {
   // Find the active term first so we can scope membership counts.

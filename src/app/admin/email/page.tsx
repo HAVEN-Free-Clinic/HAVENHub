@@ -28,6 +28,8 @@ import { Select } from "@/platform/ui/select";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { Pagination } from "@/platform/ui/pagination";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
+import { Alert } from "@/platform/ui/alert";
+import { StatCard } from "@/platform/ui/stat-card";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -217,23 +219,12 @@ export default async function EmailPage({ searchParams }: PageProps) {
       />
 
       {/* Banners */}
-      {errorMessage && (
-        <p
-          role="alert"
-          className="rounded-md border border-critical/20 bg-red-50 px-3 py-2 text-sm text-critical"
-        >
-          {errorMessage}
-        </p>
-      )}
+      {errorMessage && <Alert tone="error">{errorMessage}</Alert>}
       {retriedSuccess && !errorMessage && (
-        <p className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-success">
-          Email re-queued.
-        </p>
+        <Alert tone="success">Email re-queued.</Alert>
       )}
       {connectedSuccess && !errorMessage && (
-        <p className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-success">
-          Mailbox connected.
-        </p>
+        <Alert tone="success">Mailbox connected.</Alert>
       )}
 
       {/* Mailer connection panel */}
@@ -259,30 +250,13 @@ export default async function EmailPage({ searchParams }: PageProps) {
 
       {/* Health stat cards */}
       <div className="grid gap-4 sm:grid-cols-3">
-        <div className="rounded-lg border border-slate-200 bg-white p-5">
-          <p className="text-2xl font-semibold">{counts.queued.toLocaleString()}</p>
-          <p className="mt-1 text-xs uppercase tracking-wider text-slate-400">Queued</p>
-        </div>
-        <div
-          className={`rounded-lg border p-5 ${
-            counts.failed > 0
-              ? "border-critical/30 bg-red-50"
-              : "border-slate-200 bg-white"
-          }`}
-        >
-          <p
-            className={`text-2xl font-semibold ${
-              counts.failed > 0 ? "text-critical" : ""
-            }`}
-          >
-            {counts.failed.toLocaleString()}
-          </p>
-          <p className="mt-1 text-xs uppercase tracking-wider text-slate-400">Failed</p>
-        </div>
-        <div className="rounded-lg border border-slate-200 bg-white p-5">
-          <p className="text-2xl font-semibold">{counts.sentToday.toLocaleString()}</p>
-          <p className="mt-1 text-xs uppercase tracking-wider text-slate-400">Sent today</p>
-        </div>
+        <StatCard label="Queued" value={counts.queued} />
+        <StatCard
+          label="Failed"
+          value={counts.failed}
+          tone={counts.failed > 0 ? "critical" : "default"}
+        />
+        <StatCard label="Sent today" value={counts.sentToday} />
       </div>
 
       {/* Filter bar (GET form) */}
@@ -291,6 +265,7 @@ export default async function EmailPage({ searchParams }: PageProps) {
           <Select
             name="status"
             defaultValue={validatedStatus ?? ""}
+            aria-label="Filter by status"
           >
             <option value="">All statuses</option>
             {VALID_STATUSES.map((s) => (
@@ -304,6 +279,7 @@ export default async function EmailPage({ searchParams }: PageProps) {
           <Select
             name="template"
             defaultValue={validatedTemplate ?? ""}
+            aria-label="Filter by template"
           >
             <option value="">All templates</option>
             {KNOWN_TEMPLATES.map((t) => (
@@ -318,6 +294,7 @@ export default async function EmailPage({ searchParams }: PageProps) {
             name="q"
             defaultValue={q ?? ""}
             placeholder="Recipient email..."
+            aria-label="Search by recipient email"
           />
         </div>
         <Button type="submit" variant="outline" size="sm">

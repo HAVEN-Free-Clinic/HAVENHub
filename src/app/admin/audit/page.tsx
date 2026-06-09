@@ -49,10 +49,15 @@ export default async function AuditPage({ searchParams }: PageProps) {
             name="action"
             defaultValue={action ?? ""}
             placeholder="action contains..."
+            aria-label="Filter by action"
           />
         </div>
         <div className="w-44">
-          <Select name="entityType" defaultValue={entityType ?? ""}>
+          <Select
+            name="entityType"
+            defaultValue={entityType ?? ""}
+            aria-label="Filter by entity type"
+          >
             <option value="">All types</option>
             {entityTypes.map((t) => (
               <option key={t} value={t}>

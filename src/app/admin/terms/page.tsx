@@ -24,6 +24,7 @@ export default async function TermsListPage() {
     <div className="space-y-6">
       <PageHeader
         title="Terms"
+        description="Manage clinic terms, their dates, lifecycle, and rosters."
         action={
           <Link href="/admin/terms/new" className={buttonClasses("primary", "sm")}>
             Create term
@@ -72,15 +73,9 @@ export default async function TermsListPage() {
           ))}
           {terms.length === 0 && (
             <TR>
-              <TD>
-                <span className="text-slate-400">No terms yet.</span>
+              <TD colSpan={7} className="py-10 text-center text-sm text-slate-400">
+                No terms yet.
               </TD>
-              <TD />
-              <TD />
-              <TD />
-              <TD />
-              <TD />
-              <TD />
             </TR>
           )}
         </tbody>

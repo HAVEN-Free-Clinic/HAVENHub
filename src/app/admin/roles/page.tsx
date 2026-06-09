@@ -15,6 +15,7 @@ import { listRoles, listAssignments } from "@/modules/admin/services/rbac";
 import { listTerms } from "@/modules/admin/services/terms";
 import { prisma } from "@/platform/db";
 import { PageHeader } from "@/platform/ui/page-header";
+import { Alert } from "@/platform/ui/alert";
 import { RolesPanel } from "@/modules/admin/components/roles-panel";
 import { AssignmentForm } from "@/modules/admin/components/assignment-form";
 
@@ -49,17 +50,8 @@ export default async function RolesPage({ searchParams }: PageProps) {
       <PageHeader title="Roles" description="Manage roles, permission grants, and assignments." />
 
       {/* Status messages */}
-      {rbacError && (
-        <p
-          role="alert"
-          className="rounded-md border border-critical/20 bg-red-50 px-3 py-2 text-sm text-critical"
-        >
-          {rbacError}
-        </p>
-      )}
-      {saved === "1" && (
-        <p className="text-sm text-success">Saved.</p>
-      )}
+      {rbacError && <Alert tone="error">{rbacError}</Alert>}
+      {saved === "1" && <Alert tone="success">Saved.</Alert>}
 
       {/* Roles section */}
       <RolesPanel roles={roles} pageHref={PAGE_HREF} />

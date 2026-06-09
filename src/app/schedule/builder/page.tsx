@@ -514,7 +514,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
               {view !== "saturday" && <input type="hidden" name="view" value={view} />}
               {mode !== "assign" && <input type="hidden" name="mode" value={mode} />}
               {gmode !== "assign" && <input type="hidden" name="gmode" value={gmode} />}
-              <Select name="dept" defaultValue={dept.id} className="text-sm text-slate-800 bg-white">
+              <Select name="dept" aria-label="Department" defaultValue={dept.id} className="text-sm text-slate-800 bg-white">
                 {data.departments.map((d) => (
                   <option key={d.id} value={d.id}>{d.code} - {d.name}</option>
                 ))}
@@ -614,7 +614,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
 
               {/* HIPAA banner */}
               {data.banner.length > 0 && (
-                <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                <div role="status" className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
                   <p className="font-semibold mb-1">⚠ HIPAA issues on this date</p>
                   <ul className="list-disc list-inside space-y-0.5">
                     {data.banner.flatMap((b) =>
@@ -699,7 +699,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                             <input type="hidden" name="departmentId" value={dept.id} />
                             <input type="hidden" name="dateKey" value={selectedDateKey ?? ""} />
                             <input type="hidden" name="personId" value={pid} />
-                            <Input name="reason" placeholder="Reason (optional)" className="flex-1 min-w-32 py-1 text-xs" />
+                            <Input name="reason" aria-label="Removal reason" placeholder="Reason (optional)" className="flex-1 min-w-32 py-1 text-xs" />
                             <ConfirmButton label="Remove" confirmLabel="Remove this volunteer?" />
                           </form>
                         </div>

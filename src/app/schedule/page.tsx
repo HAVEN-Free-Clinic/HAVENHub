@@ -254,7 +254,7 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                                       <input type="hidden" name="departmentId" value={shift.department.id} />
                                       <input type="hidden" name="kind" value="swap" />
                                       <div className="flex-1 min-w-56">
-                                        <Select name="partner">
+                                        <Select name="partner" aria-label="Swap partner">
                                           <option value="">Select swap partner...</option>
                                           {swapPartners.map((p) => (
                                             <option key={`${p.personId}|${p.dateKey}`} value={`${p.personId}|${p.dateKey}`}>

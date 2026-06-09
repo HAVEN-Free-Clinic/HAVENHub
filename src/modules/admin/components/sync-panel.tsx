@@ -14,6 +14,7 @@ import type { SyncOverview } from "@/modules/admin/services/sync";
 import { Badge } from "@/platform/ui/badge";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
+import { StatCard } from "@/platform/ui/stat-card";
 import { ALL_PEOPLE_FIELDS } from "@/platform/airtable/fields";
 
 // ---------------------------------------------------------------------------
@@ -62,26 +63,6 @@ function relativeTime(date: Date): string {
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
-
-function StatCard({
-  label,
-  value,
-  children,
-}: {
-  label: string;
-  value?: string | number;
-  children?: React.ReactNode;
-}) {
-  return (
-    <div className="rounded-lg border border-slate-200 bg-white p-5">
-      <p className="text-xs uppercase tracking-wider text-slate-400">{label}</p>
-      {value !== undefined && (
-        <p className="mt-2 text-2xl font-semibold text-slate-900">{value}</p>
-      )}
-      {children}
-    </div>
-  );
-}
 
 function FailuresTable({ rows }: { rows: Outbox[] }) {
   if (rows.length === 0) {
@@ -245,7 +226,11 @@ export function SyncPanel({ overview, requeued, retryAction }: SyncPanelProps) {
         <StatCard label="Outbox Pending" value={outbox.pending} />
 
         {/* Failed card */}
-        <StatCard label="Outbox Failed" value={outbox.failed} />
+        <StatCard
+          label="Outbox Failed"
+          value={outbox.failed}
+          tone={outbox.failed > 0 ? "critical" : "default"}
+        />
 
         {/* Sent last 24h card */}
         <StatCard label="Sent (24h)" value={outbox.sentLast24h} />

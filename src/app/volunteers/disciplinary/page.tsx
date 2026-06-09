@@ -21,9 +21,11 @@ import { Badge } from "@/platform/ui/badge";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { Pagination } from "@/platform/ui/pagination";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
-import { Input } from "@/platform/ui/input";
+import { Field, Input, Textarea } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
-import { Button } from "@/platform/ui/button";
+import { Button, buttonClasses } from "@/platform/ui/button";
+import { Checkbox } from "@/platform/ui/checkbox";
+import { Alert } from "@/platform/ui/alert";
 import {
   issueAction,
   deleteAction,
@@ -263,12 +265,9 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
       />
 
       {errorMessage && (
-        <p
-          role="alert"
-          className="mt-4 rounded-md border border-critical/20 bg-red-50 px-3 py-2 text-sm text-critical"
-        >
+        <Alert tone="error" className="mt-4">
           {errorMessage}
-        </p>
+        </Alert>
       )}
 
       {/* Issue form */}
@@ -279,111 +278,100 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
           {/* Person picker: free input for central, select for directors */}
           {issuable.all ? (
             <div className="w-56">
-              <label className="block text-xs font-medium text-slate-500 mb-1">
-                NetID or email
-              </label>
-              <Input
-                name="personKey"
-                placeholder="netid or email@yale.edu"
-                required
-              />
+              <Field label="NetID or email">
+                <Input
+                  name="personKey"
+                  placeholder="netid or email@yale.edu"
+                  required
+                />
+              </Field>
             </div>
           ) : (
             <div className="w-64">
-              <label className="block text-xs font-medium text-slate-500 mb-1">
-                Person
-              </label>
-              <Select name="personId" required>
-                <option value="">Select person...</option>
-                {issuable.people.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name ?? p.id}
-                    {p.departmentNames.length > 0 ? ` (${p.departmentNames.join(", ")})` : ""}
-                  </option>
-                ))}
-              </Select>
+              <Field label="Person">
+                <Select name="personId" required>
+                  <option value="">Select person...</option>
+                  {issuable.people.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name ?? p.id}
+                      {p.departmentNames.length > 0 ? ` (${p.departmentNames.join(", ")})` : ""}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
             </div>
           )}
 
           {/* Date */}
           <div className="w-44">
-            <label className="block text-xs font-medium text-slate-500 mb-1">
-              Date of incident
-            </label>
-            <Input type="date" name="occurredAt" required />
+            <Field label="Date of incident">
+              <Input type="date" name="occurredAt" required />
+            </Field>
           </div>
 
           {/* Category */}
           <div className="w-52">
-            <label className="block text-xs font-medium text-slate-500 mb-1">
-              Category
-            </label>
-            <Select name="category" required>
-              <option value="">Select category...</option>
-              {DISCIPLINARY_CATEGORIES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </Select>
+            <Field label="Category">
+              <Select name="category" required>
+                <option value="">Select category...</option>
+                {DISCIPLINARY_CATEGORIES.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </Select>
+            </Field>
           </div>
 
           {/* Description */}
           <div className="w-full">
-            <label className="block text-xs font-medium text-slate-500 mb-1">
-              Description <span className="text-critical">*</span>
-            </label>
-            <textarea
-              name="description"
-              rows={3}
-              required
-              className="block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
-              placeholder="Describe the incident..."
-            />
+            <Field label="Description *">
+              <Textarea
+                name="description"
+                rows={3}
+                required
+                placeholder="Describe the incident..."
+              />
+            </Field>
           </div>
 
           {/* Follow-up actions */}
           <div className="w-full">
-            <label className="block text-xs font-medium text-slate-500 mb-1">
-              Follow-up actions
-            </label>
-            <textarea
-              name="followUpActions"
-              rows={2}
-              className="block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
-              placeholder="Optional follow-up actions..."
-            />
+            <Field label="Follow-up actions">
+              <Textarea
+                name="followUpActions"
+                rows={2}
+                placeholder="Optional follow-up actions..."
+              />
+            </Field>
           </div>
 
           {/* Policy reference */}
           <div className="w-56">
-            <label className="block text-xs font-medium text-slate-500 mb-1">
-              Policy reference
-            </label>
-            <Input name="policyReference" placeholder="Optional" />
+            <Field label="Policy reference">
+              <Input name="policyReference" placeholder="Optional" />
+            </Field>
           </div>
 
           {/* Notes */}
           <div className="flex-1 min-w-48">
-            <label className="block text-xs font-medium text-slate-500 mb-1">
-              Notes
-            </label>
-            <textarea
-              name="notes"
-              rows={2}
-              className="block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
-              placeholder="Optional internal notes..."
-            />
+            <Field label="Notes">
+              <Textarea
+                name="notes"
+                rows={2}
+                placeholder="Optional internal notes..."
+              />
+            </Field>
           </div>
 
           {/* Checkboxes */}
           <div className="flex items-center gap-4">
             <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
-              <input type="checkbox" name="confidential" className="rounded" />
+              <Checkbox name="confidential" />
               Confidential
             </label>
             <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
-              <input type="checkbox" name="patientInvolved" className="rounded" />
+              <Checkbox name="patientInvolved" />
               Patient involved
             </label>
           </div>
@@ -401,50 +389,50 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
         className="mt-10 flex flex-wrap items-end gap-3"
       >
         <div className="flex-1 min-w-44">
-          <label className="block text-xs font-medium text-slate-500 mb-1">Search</label>
-          <Input
-            type="search"
-            name="q"
-            defaultValue={qSearch ?? ""}
-            placeholder="Person name..."
-          />
+          <Field label="Search">
+            <Input
+              type="search"
+              name="q"
+              defaultValue={qSearch ?? ""}
+              placeholder="Person name..."
+            />
+          </Field>
         </div>
 
         <div className="w-52">
-          <label className="block text-xs font-medium text-slate-500 mb-1">Department</label>
-          <Select name="departmentId" defaultValue={departmentId ?? ""}>
-            <option value="">All departments</option>
-            {departments.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.code} - {d.name}
-              </option>
-            ))}
-          </Select>
+          <Field label="Department">
+            <Select name="departmentId" defaultValue={departmentId ?? ""}>
+              <option value="">All departments</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.code} - {d.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
         </div>
 
         <div className="w-52">
-          <label className="block text-xs font-medium text-slate-500 mb-1">Category</label>
-          <Select name="category" defaultValue={categoryFilter ?? ""}>
-            <option value="">All categories</option>
-            {DISCIPLINARY_CATEGORIES.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </Select>
+          <Field label="Category">
+            <Select name="category" defaultValue={categoryFilter ?? ""}>
+              <option value="">All categories</option>
+              {DISCIPLINARY_CATEGORIES.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </Select>
+          </Field>
         </div>
 
-        <button
-          type="submit"
-          className="rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:opacity-90 transition-opacity"
-        >
+        <Button type="submit" variant="primary" size="sm">
           Filter
-        </button>
+        </Button>
 
         {(qSearch || departmentId || categoryFilter) && (
           <Link
             href="/volunteers/disciplinary"
-            className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors"
+            className={buttonClasses("outline", "sm")}
           >
             Clear
           </Link>
@@ -458,7 +446,9 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
             <p>You do not have access to disciplinary records.</p>
           </div>
         ) : rows.length === 0 ? (
-          <p className="text-sm text-slate-400">No disciplinary actions found.</p>
+          <div className="mt-12 flex flex-col items-center justify-center gap-3 text-center text-sm text-slate-500">
+            <p>No disciplinary actions found.</p>
+          </div>
         ) : (
           <>
             <p className="mb-3 text-sm text-slate-500">
@@ -475,7 +465,7 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
                   <TH>Issued by</TH>
                   <TH>Flags</TH>
                   <TH>Strikes</TH>
-                  {canManageAll && <TH></TH>}
+                  {canManageAll && <TH><span className="sr-only">Actions</span></TH>}
                 </TR>
               </THead>
               <tbody>

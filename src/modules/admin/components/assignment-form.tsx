@@ -27,7 +27,7 @@ import {
 import { searchPeople } from "@/modules/admin/services/people";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
-import { Input } from "@/platform/ui/input";
+import { Input, Field } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
@@ -242,10 +242,7 @@ export async function AssignmentForm({
 
         {/* Person search box */}
         <form method="GET" className="flex items-end gap-3">
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-slate-500">
-              Search people
-            </label>
+          <Field label="Search people">
             <Input
               type="search"
               name="assignq"
@@ -253,7 +250,7 @@ export async function AssignmentForm({
               placeholder="Name or netID..."
               className="w-64"
             />
-          </div>
+          </Field>
           <Button type="submit" variant="outline" size="sm">
             Search
           </Button>
@@ -292,8 +289,7 @@ export async function AssignmentForm({
                     </div>
                     <form action={assignPersonAction} className="flex flex-wrap items-center gap-2">
                       <input type="hidden" name="personId" value={person.id} />
-                      <div className="flex flex-col gap-1">
-                        <label className="text-xs font-medium text-slate-500">Role</label>
+                      <Field label="Role">
                         <Select name="roleId" className="w-44">
                           {roles.map((r) => (
                             <option key={r.id} value={r.id}>
@@ -301,9 +297,8 @@ export async function AssignmentForm({
                             </option>
                           ))}
                         </Select>
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        <label className="text-xs font-medium text-slate-500">Term</label>
+                      </Field>
+                      <Field label="Term">
                         <Select name="termId" className="w-36">
                           <option value="">Global</option>
                           {terms.map((t) => (
@@ -312,7 +307,7 @@ export async function AssignmentForm({
                             </option>
                           ))}
                         </Select>
-                      </div>
+                      </Field>
                       <Button type="submit" variant="primary" size="sm" className="self-end">
                         Assign
                       </Button>
@@ -329,8 +324,7 @@ export async function AssignmentForm({
       <div className="rounded-lg border border-slate-200 bg-white p-5 space-y-4">
         <h3 className="text-sm font-semibold text-slate-700">Assign role to department</h3>
         <form action={assignDepartmentAction} className="flex flex-wrap items-end gap-3">
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-slate-500">Department</label>
+          <Field label="Department">
             <Select name="departmentId" className="w-56">
               {departments.map((d) => (
                 <option key={d.id} value={d.id}>
@@ -338,9 +332,8 @@ export async function AssignmentForm({
                 </option>
               ))}
             </Select>
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-slate-500">Role</label>
+          </Field>
+          <Field label="Role">
             <Select name="roleId" className="w-44">
               {roles.map((r) => (
                 <option key={r.id} value={r.id}>
@@ -348,9 +341,8 @@ export async function AssignmentForm({
                 </option>
               ))}
             </Select>
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-slate-500">Term</label>
+          </Field>
+          <Field label="Term">
             <Select name="termId" className="w-36">
               <option value="">Global</option>
               {terms.map((t) => (
@@ -359,7 +351,7 @@ export async function AssignmentForm({
                 </option>
               ))}
             </Select>
-          </div>
+          </Field>
           <Button type="submit" variant="primary" size="sm">
             Assign department
           </Button>

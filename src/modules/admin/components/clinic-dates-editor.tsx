@@ -11,7 +11,7 @@
  */
 
 import type { ReactNode } from "react";
-import { Input } from "@/platform/ui/input";
+import { Input, Field } from "@/platform/ui/input";
 import { Button } from "@/platform/ui/button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 
@@ -82,10 +82,9 @@ export function ClinicDatesEditor({
         <input type="hidden" name="termId" value={termId} />
         {/* existing dates; the action appends the new one */}
         <HiddenDatesField dates={currentIsos} />
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-medium text-slate-500">Add date</label>
+        <Field label="Add date">
           <Input type="date" name="addDate" className="w-44" />
-        </div>
+        </Field>
         <Button type="submit" variant="outline" size="sm">
           Add
         </Button>

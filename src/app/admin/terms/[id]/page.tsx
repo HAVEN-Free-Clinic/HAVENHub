@@ -11,6 +11,7 @@ import {
 import { prisma } from "@/platform/db";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
+import { Alert } from "@/platform/ui/alert";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { ClinicDatesEditor } from "@/modules/admin/components/clinic-dates-editor";
 import { RosterPanel } from "@/modules/admin/components/roster-panel";
@@ -169,17 +170,8 @@ export default async function TermDetailPage({ params, searchParams }: PageProps
         action={statusBadge}
       />
 
-      {error && (
-        <p
-          role="alert"
-          className="rounded-md border border-critical/20 bg-red-50 px-3 py-2 text-sm text-critical"
-        >
-          {error}
-        </p>
-      )}
-      {saved === "1" && (
-        <p className="text-sm text-success">Saved.</p>
-      )}
+      {error && <Alert tone="error">{error}</Alert>}
+      {saved === "1" && <Alert tone="success">Saved.</Alert>}
 
       {/* Lifecycle section */}
       <section>

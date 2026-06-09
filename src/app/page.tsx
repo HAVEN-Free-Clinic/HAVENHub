@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { requirePersonSession } from "@/platform/auth/session";
-import { getEffectivePermissions, hasPermission } from "@/platform/rbac/engine";
+import { getEffectivePermissions } from "@/platform/rbac/engine";
 import { MODULES } from "@/platform/modules/registry";
+import { canAccessModule } from "@/platform/modules/access";
 import { AppShell } from "@/platform/ui/app-shell";
 import { prisma } from "@/platform/db";
 import { getCurrentClinicChannelLink } from "@/platform/teams/channel-link";
@@ -26,12 +27,11 @@ export default async function HubPage() {
   const visible = MODULES.filter(
     (m) =>
       m.status === "coming-soon" || // roadmap is visible to everyone (spec §8)
-      !m.accessPermission || // open to any signed-in matched person (e.g. my-info)
-      hasPermission(permissions, m.accessPermission)
+      canAccessModule(m, permissions)
   );
 
   return (
-    <AppShell userName={person.name} termLabel={activeTerm?.name ?? null}>
+    <AppShell userName={person.name} termLabel={activeTerm?.name ?? null} personId={person.personId}>
       <h1 className="text-2xl font-semibold tracking-tight">
         Welcome{person.name ? `, ${person.name}` : ""}
       </h1>

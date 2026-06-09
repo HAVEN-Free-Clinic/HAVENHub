@@ -815,3 +815,51 @@ describe("masterCompliance", () => {
     expect(result.rows[0].verifiedByName).toBe("Bob Verifier");
   });
 });
+
+describe("training clearance on compliance rows", () => {
+  it("departmentCompliance carries training state and overall clearance", async () => {
+    const term = await createTerm("ACTIVE");
+    const dept = await createDepartment("SRHD");
+    const viewer = await createPerson("Dir");
+    const vol = await createPerson("Vol");
+    await createMembership(viewer.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(vol.id, term.id, dept.id, "VOLUNTEER");
+    await createCert(vol.id, daysFromNow(-1)); // recent completion -> COMPLIANT
+
+    const srr = await createPerson("SRR");
+    const cycle = await prisma.recruitmentCycle.create({ data: { track: "VOLUNTEER", termId: term.id, title: "T", publicSlug: "t", departments: ["SRHD"], createdById: srr.id, isTermTraining: true } });
+    await prisma.volunteerTraining.create({ data: { personId: vol.id, termId: term.id, cycleId: cycle.id, status: "COMPLETE", completedVia: "QUIZ", completedAt: new Date() } });
+
+    const cards = await departmentCompliance(viewer.id);
+    const row = cards.flatMap((c) => c.members).find((m) => m.person.id === vol.id)!;
+    expect(row.trainingState).toBe("COMPLETE");
+    expect(row.overallClearance).toBe("CLEARED");
+
+    // A volunteer with a valid cert but NO training row is PENDING / NOT_CLEARED.
+    const vol2 = await createPerson("Vol2");
+    await createMembership(vol2.id, term.id, dept.id, "VOLUNTEER");
+    await createCert(vol2.id, daysFromNow(-1));
+    const cards2 = await departmentCompliance(viewer.id);
+    const row2 = cards2.flatMap((c) => c.members).find((m) => m.person.id === vol2.id)!;
+    expect(row2.trainingState).toBe("PENDING");
+    expect(row2.overallClearance).toBe("NOT_CLEARED");
+  });
+
+  it("masterCompliance rows carry training state and overall clearance", async () => {
+    const term = await createTerm("ACTIVE");
+    const dept = await createDepartment("SRHD");
+    const viewer = await createPerson("Dir");
+    const vol = await createPerson("Vol");
+    await createMembership(viewer.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(vol.id, term.id, dept.id, "VOLUNTEER");
+    await createCert(vol.id, daysFromNow(-1));
+    const srr = await createPerson("SRR");
+    const cycle = await prisma.recruitmentCycle.create({ data: { track: "VOLUNTEER", termId: term.id, title: "T", publicSlug: "t", departments: ["SRHD"], createdById: srr.id, isTermTraining: true } });
+    await prisma.volunteerTraining.create({ data: { personId: vol.id, termId: term.id, cycleId: cycle.id, status: "COMPLETE", completedVia: "ATTENDANCE", completedAt: new Date() } });
+
+    const res = await masterCompliance({});
+    const row = res.rows.find((r) => r.person.id === vol.id)!;
+    expect(row.trainingState).toBe("COMPLETE");
+    expect(row.overallClearance).toBe("CLEARED");
+  });
+});

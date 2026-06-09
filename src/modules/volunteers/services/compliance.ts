@@ -9,8 +9,8 @@
 import type { Department, HipaaCertificate, Person } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
-import { complianceStatus } from "@/platform/compliance/rules";
-import type { ComplianceStatus } from "@/platform/compliance/rules";
+import { complianceStatus, overallClearance } from "@/platform/compliance/rules";
+import type { ComplianceStatus, TrainingState, OverallClearance } from "@/platform/compliance/rules";
 import { canViewCertificate } from "@/platform/compliance/access";
 import { manageableDepartmentIds } from "@/platform/departments";
 
@@ -44,6 +44,8 @@ export type MemberCompliance = {
   cert: HipaaCertificate | null;
   status: ComplianceStatus;
   verifiedByName: string | null;
+  trainingState: TrainingState;
+  overallClearance: OverallClearance;
 };
 
 type DepartmentCompliance = {
@@ -144,7 +146,15 @@ export async function departmentCompliance(
     }
   }
 
-  // 5. Group by department and compute per-member compliance.
+  // 5. Fetch the set of people with COMPLETE training for the active term once.
+  const completedTraining = new Set(
+    (await prisma.volunteerTraining.findMany({
+      where: { termId: activeTerm.id, status: "COMPLETE" },
+      select: { personId: true },
+    })).map((t) => t.personId)
+  );
+
+  // 6. Group by department and compute per-member compliance.
   const deptMap = new Map<string, { department: Department; members: MemberCompliance[] }>();
 
   // Ensure we have an entry for every manageable department, in code order.
@@ -173,12 +183,15 @@ export async function departmentCompliance(
       ? (verifierNameMap.get(newestCert.verifiedById) ?? null)
       : null;
 
+    const trainingState: TrainingState = completedTraining.has(m.person.id) ? "COMPLETE" : "PENDING";
     entry.members.push({
       person: m.person,
       kind: m.kind,
       cert: newestCert,
       status,
       verifiedByName,
+      trainingState,
+      overallClearance: overallClearance(status, trainingState),
     });
   }
 
@@ -300,6 +313,14 @@ export async function masterCompliance(
     },
   });
 
+  // 2b. Fetch the set of people with COMPLETE training for the active term once.
+  const completedTraining = new Set(
+    (await prisma.volunteerTraining.findMany({
+      where: { termId: activeTerm.id, status: "COMPLETE" },
+      select: { personId: true },
+    })).map((t) => t.personId)
+  );
+
   // 3. Deduplicate by person: one row per person, accumulating dept codes.
   //    personMap: personId -> { person, certs, deptCodes }
   const personMap = new Map<
@@ -370,6 +391,7 @@ export async function masterCompliance(
       ? (verifierNameMap.get(newestCert.verifiedById) ?? null)
       : null;
 
+    const trainingState: TrainingState = completedTraining.has(person.id) ? "COMPLETE" : "PENDING";
     return {
       // One row per person (not per membership): kind is intentionally omitted.
       person,
@@ -377,6 +399,8 @@ export async function masterCompliance(
       status: computedStatus,
       verifiedByName,
       departments: Array.from(deptCodes).sort(),
+      trainingState,
+      overallClearance: overallClearance(computedStatus, trainingState),
     };
   });
 

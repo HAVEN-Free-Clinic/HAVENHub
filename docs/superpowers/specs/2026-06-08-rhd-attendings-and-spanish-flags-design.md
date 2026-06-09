@@ -104,14 +104,18 @@ Define a `CAPABILITY_KEYS = ["iudIn","iudOut","nexplanon","gac","emb","seesMale"
 and a `CapabilityValue = "yes" | "no" | "unknown"` type, reused by the service, the form,
 and validation. Errors use a typed `AttendingValidationError` like the other services.
 
-Permission gate: an admin/schedule permission. Verify the right one in the plan — likely a
-schedule-management permission (e.g. `schedule.edit_all`) since RHD config is schedule
-domain; do not reuse `admin.manage_people`.
+Permission gate: page access is `requireModuleAccess("schedule")`. **Mutations** in the
+service enforce the RHD-manager scope (actor manages an RHD-family department) via an
+`assertRhdManager(actor)` helper extracted from the `upsertRhdClinic` pattern, so a
+platform admin or an RHD director can manage the roster, but a non-RHD schedule manager
+cannot create/edit attendings. (We do NOT put this under `/admin` — `src/app/admin/layout.tsx`
+gates every `/admin/*` page on `admin.access`, which RHD directors lack; the schedule
+module is the correct home.)
 
-### 2b. Admin page
+### 2b. Management page
 
-`src/app/admin/rhd-attendings/page.tsx` (+ an `[id]` edit route, mirroring
-`/admin/people`):
+`src/app/schedule/attendings/page.tsx` (+ an `[id]` edit route, mirroring
+`/admin/people`'s structure but gated by `requireModuleAccess("schedule")`):
 
 - List table: Name (`scheduleName` / `fullName`), the six capabilities, Active, Edit link.
 - Add / edit form (`AttendingForm` component under `src/modules/schedule/components/` or
@@ -120,7 +124,7 @@ domain; do not reuse `admin.manage_people`.
   server actions wrapping `createAttending` / `updateAttending` / `setAttendingActive`.
 
 ```
-/admin/rhd-attendings
+/schedule/attendings
 ────────────────────────────────────────────────────────────
 Name      IUD-In  IUD-Out  Nexp  GAC  EMB  Male  Active
 Rivera     yes     yes      yes   no   yes  no     ✓   [edit]
@@ -136,7 +140,7 @@ In `src/modules/schedule/components/readiness-panel.tsx` + `builder/page.tsx`:
   creates a new `RhdAttending` (scheduleName + fullName; capabilities default `"unknown"`)
   via a new server action in `builder/page.tsx` wrapping `createAttending`. On success the
   page revalidates and the new attending appears in the Attending `<select>`.
-- A "Manage attendings" link to `/admin/rhd-attendings` for full capability editing.
+- A "Manage attendings" link to `/schedule/attendings` for full capability editing.
 - Quick-add gate: the existing RHD scope used by `upsertRhdClinic` (actor manages an RHD
   department), so an RHD director can add one without admin rights.
 

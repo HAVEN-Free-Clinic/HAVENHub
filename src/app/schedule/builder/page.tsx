@@ -408,11 +408,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
           <Badge tone={isDirectorKind ? "brand" : "default"}>
             {isDirectorKind ? "Director" : "Volunteer"}
           </Badge>
-          {!available && (
-            <span className="text-xs font-semibold text-amber-700 bg-amber-100 rounded-full px-2 py-0.5">
-              not free
-            </span>
-          )}
+          {!available && <Badge tone="warning">not free</Badge>}
         </div>
         <div className="flex flex-wrap gap-2">
           {isDirectorKind && (

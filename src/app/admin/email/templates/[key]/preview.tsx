@@ -10,7 +10,7 @@ import type { VariableDef } from "@/platform/email/templates/types";
 type Mode = "rich" | "source";
 
 export function TemplateEditor(props: {
-  templateKey: string;
+  templateKey?: string;
   variables: VariableDef[];
   initialSubject: string;
   initialBody: string;

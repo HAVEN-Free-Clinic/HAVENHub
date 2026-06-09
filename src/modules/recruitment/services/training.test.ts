@@ -3,9 +3,10 @@ import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import { RecruitmentAuthError } from "./review";
 import {
-  setTrainingCycle, getTrainingCycleForTerm, updateQuizSettings, TrainingStateError,
+  setTrainingCycle, getTrainingCycleForTerm, updateQuizSettings, TrainingStateError, QuizLockedError,
 } from "./training";
-import { recordAttendance, resolveTrainingState, completeTraining } from "./training";
+import { recordAttendance, resolveTrainingState } from "./training";
+import { getMyTraining, submitQuiz, resetTraining } from "./training";
 
 async function seed() {
   const term = await prisma.term.create({ data: { code: "SU26", name: "Summer", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
@@ -86,4 +87,55 @@ it("recordAttendance fails when the term has no designated training cycle", asyn
   const { term, srr, vol, c1 } = await seedMember();
   await setTrainingCycle(c1.id, false, srr.id);
   await expect(recordAttendance(vol.id, term.id, srr.id)).rejects.toBeInstanceOf(TrainingStateError);
+});
+
+/** Add a 2-question quiz to the designated cycle (both graded). */
+async function addQuiz(cycleId: string) {
+  const section = await prisma.formSection.create({ data: { cycleId, title: "Quiz", order: 10, appliesTo: "BOTH", purpose: "QUIZ" } });
+  await prisma.formField.createMany({ data: [
+    { sectionId: section.id, cycleId, key: "q1", label: "Q1", type: "SINGLE_SELECT", order: 0, options: [{ value: "a", label: "A" }, { value: "b", label: "B" }], correctValue: "a" },
+    { sectionId: section.id, cycleId, key: "q2", label: "Q2", type: "SINGLE_SELECT", order: 1, options: [{ value: "x", label: "X" }, { value: "y", label: "Y" }], correctValue: "y" },
+  ] });
+}
+
+it("quiz path: failing accrues attempts then locks; passing completes and saves intake", async () => {
+  const { term, srr, vol, c1 } = await seedMember();
+  await updateQuizSettings(c1.id, { quizPassPercent: 100, quizMaxAttempts: 2 }, srr.id);
+  await addQuiz(c1.id);
+
+  const r1 = await submitQuiz(vol.id, { answers: { q1: "a", q2: "x" }, intake: { feedback: "hi" } });
+  expect(r1.passed).toBe(false);
+  expect(await resolveTrainingState(vol.id, term.id)).toBe("PENDING");
+
+  const r2 = await submitQuiz(vol.id, { answers: { q1: "a", q2: "x" }, intake: {} });
+  expect(r2.passed).toBe(false);
+  const locked = await prisma.volunteerTraining.findUniqueOrThrow({ where: { personId_termId: { personId: vol.id, termId: term.id } } });
+  expect(locked.locked).toBe(true);
+
+  await expect(submitQuiz(vol.id, { answers: { q1: "a", q2: "y" }, intake: {} })).rejects.toBeInstanceOf(QuizLockedError);
+
+  await resetTraining(vol.id, term.id, srr.id);
+  const r3 = await submitQuiz(vol.id, { answers: { q1: "a", q2: "y" }, intake: { feedback: "done" } });
+  expect(r3.passed).toBe(true);
+  const done = await prisma.volunteerTraining.findUniqueOrThrow({ where: { personId_termId: { personId: vol.id, termId: term.id } } });
+  expect(done.status).toBe("COMPLETE");
+  expect(done.completedVia).toBe("QUIZ");
+  expect(done.feedback).toBe("done");
+  expect(await prisma.quizAttempt.count({ where: { training: { personId: vol.id, termId: term.id } } })).toBe(3);
+});
+
+it("getMyTraining returns the cycle, questions, and state for the volunteer", async () => {
+  const { vol, c1 } = await seedMember();
+  await addQuiz(c1.id);
+  const my = await getMyTraining(vol.id);
+  expect(my.state).toBe("PENDING");
+  expect(my.locked).toBe(false);
+  expect(my.questions.map((q) => q.key)).toEqual(["q1", "q2"]);
+});
+
+it("submitQuiz rejects when already complete", async () => {
+  const { term, srr, vol, c1 } = await seedMember();
+  await addQuiz(c1.id);
+  await recordAttendance(vol.id, term.id, srr.id);
+  await expect(submitQuiz(vol.id, { answers: { q1: "a", q2: "y" }, intake: {} })).rejects.toBeInstanceOf(TrainingStateError);
 });

@@ -91,6 +91,7 @@ model Person {
   /// Email log rows this person triggered (may differ from the recipient).
   emailLogsTriggered        EmailLog[]           @relation("emailLogTriggeredBy")
   emailTemplatesUpdated     EmailTemplate[]      @relation("emailTemplateUpdatedBy")
+  campaignsCreated          EmailCampaign[]      @relation("campaignCreatedBy")
   complianceReminder        ComplianceReminder?
   shiftAssignments          ShiftAssignment[]
   /// Shift requests this person raised.
@@ -427,12 +428,46 @@ model DisciplinaryAction {
   @@index([personId])
 }
 
+enum EmailCampaignStatus {
+  DRAFT
+  SENDING
+  SENT
+  CANCELLED
+}
+
+model EmailCampaign {
+  id           String              @id @default(cuid())
+  name         String
+  recordType   String              @default("PERSON")
+  audienceJson Json
+  subject      String              @default("")
+  body         String              @default("")
+  status       EmailCampaignStatus @default(DRAFT)
+  createdById  String?
+  createdBy    Person?             @relation("campaignCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  runs         EmailCampaignRun[]
+}
+
+model EmailCampaignRun {
+  id             String        @id @default(cuid())
+  campaignId     String
+  campaign       EmailCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  runAt          DateTime      @default(now())
+  recipientCount Int           @default(0)
+  status         String        @default("SENT")
+  emails         EmailLog[]    @relation("emailLogCampaignRun")
+
+  @@index([campaignId])
+}
+
 /// Outbox for transactional emails. The drain worker reads QUEUED rows and
 /// sends them via the mail provider. Unlike Outbox, the html body is stored
 /// on the row so the drain needs no template knowledge. Both person references
 /// are optional with SetNull so email history survives person deletion.
 model EmailLog {
-  id            String      @id @default(cuid())
+  id            String            @id @default(cuid())
   toEmail       String
   subject       String
   html          String
@@ -441,16 +476,19 @@ model EmailLog {
   personId      String?
   /// Person who triggered the email (e.g. the director who performed an action). SetNull on delete.
   triggeredById String?
-  status        EmailStatus @default(QUEUED)
-  attempts      Int         @default(0)
+  campaignRunId String?
+  status        EmailStatus       @default(QUEUED)
+  attempts      Int               @default(0)
   lastError     String?
   sentAt        DateTime?
-  createdAt     DateTime    @default(now())
+  createdAt     DateTime          @default(now())
   /// SetNull: email logs outlive the people they reference.
-  person        Person?     @relation("emailLogPerson", fields: [personId], references: [id], onDelete: SetNull)
+  person        Person?           @relation("emailLogPerson", fields: [personId], references: [id], onDelete: SetNull)
   /// SetNull: email logs outlive the people they reference.
-  triggeredBy   Person?     @relation("emailLogTriggeredBy", fields: [triggeredById], references: [id], onDelete: SetNull)
+  triggeredBy   Person?           @relation("emailLogTriggeredBy", fields: [triggeredById], references: [id], onDelete: SetNull)
+  campaignRun   EmailCampaignRun? @relation("emailLogCampaignRun", fields: [campaignRunId], references: [id], onDelete: SetNull)
 
+  @@unique([campaignRunId, toEmail])
   @@index([personId])
   @@index([status, createdAt])
 }

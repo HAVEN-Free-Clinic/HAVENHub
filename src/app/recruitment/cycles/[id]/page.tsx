@@ -25,6 +25,7 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
         <Link href={`/recruitment/cycles/${id}/builder`} className="rounded-md border px-3 py-1.5 text-sm">Edit form</Link>
         <Link href={`/recruitment/cycles/${id}/applicants`} className="rounded-md border px-3 py-1.5 text-sm">View applicants</Link>
         <Link href={`/recruitment/cycles/${id}/decisions`} className="rounded-md border px-3 py-1.5 text-sm">Decisions</Link>
+        {cycle.track === "DIRECTOR" && <Link href={`/recruitment/cycles/${id}/interviews`} className="rounded-md border px-3 py-1.5 text-sm">Interviews</Link>}
       </div>
       <div className="rounded border p-4 text-sm">
         <p className="font-medium">Public link</p>

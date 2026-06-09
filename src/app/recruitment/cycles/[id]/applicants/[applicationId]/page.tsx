@@ -4,7 +4,7 @@ import { visibleSections } from "@/modules/recruitment/engine/visibility";
 import { requirePersonSession } from "@/platform/auth/session";
 import { reviewScope, listAcceptances } from "@/modules/recruitment/services/review";
 import { can } from "@/platform/rbac/engine";
-import { acceptApplicantAction, revokeAcceptanceAction } from "../actions";
+import { acceptApplicantAction, revokeAcceptanceAction, scheduleInterviewAction } from "../actions";
 
 export default async function ApplicationDetailPage({ params, searchParams }: { params: Promise<{ id: string; applicationId: string }>; searchParams: Promise<{ error?: string }> }) {
   const { id, applicationId } = await params;
@@ -49,27 +49,40 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
           </dl>
         </section>
       ))}
-      <section className="rounded border p-4">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Decision</h2>
-        {error && <p role="alert" className="mt-2 rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
-        {acceptances.length > 0 ? (
-          <ul className="mt-2 space-y-1 text-sm">
-            {acceptances.map((a) => (
-              <li key={a.id} className="flex items-center justify-between border-t py-1">
-                <span>Accepted into <strong>{a.departmentCode}</strong>{a.notes ? `: ${a.notes}` : ""}{a.emailedAt ? " (notified)" : ""}</span>
-                <form action={revokeAcceptanceAction.bind(null, id, applicationId, a.id)}><button className="text-xs text-red-600">Revoke</button></form>
-              </li>
-            ))}
-          </ul>
-        ) : <p className="mt-2 text-sm text-slate-500">No acceptances yet.</p>}
-        {choices.length > 0 && (
-          <form action={acceptApplicantAction.bind(null, id, applicationId)} className="mt-3 flex flex-wrap items-end gap-2 text-sm">
-            <select name="departmentCode" required className="rounded border px-2 py-1">{choices.map((d) => <option key={d} value={d}>{d}</option>)}</select>
-            <input name="notes" placeholder="notes (optional)" className="rounded border px-2 py-1" />
-            <button className="rounded bg-slate-900 px-2 py-1 text-white">Accept</button>
-          </form>
-        )}
-      </section>
+      {app.cycle.track === "VOLUNTEER" ? (
+        <section className="rounded border p-4">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Decision</h2>
+          {error && <p role="alert" className="mt-2 rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+          {acceptances.length > 0 ? (
+            <ul className="mt-2 space-y-1 text-sm">
+              {acceptances.map((a) => (
+                <li key={a.id} className="flex items-center justify-between border-t py-1">
+                  <span>Accepted into <strong>{a.departmentCode}</strong>{a.notes ? `: ${a.notes}` : ""}{a.emailedAt ? " (notified)" : ""}</span>
+                  <form action={revokeAcceptanceAction.bind(null, id, applicationId, a.id)}><button className="text-xs text-red-600">Revoke</button></form>
+                </li>
+              ))}
+            </ul>
+          ) : <p className="mt-2 text-sm text-slate-500">No acceptances yet.</p>}
+          {choices.length > 0 && (
+            <form action={acceptApplicantAction.bind(null, id, applicationId)} className="mt-3 flex flex-wrap items-end gap-2 text-sm">
+              <select name="departmentCode" required className="rounded border px-2 py-1">{choices.map((d) => <option key={d} value={d}>{d}</option>)}</select>
+              <input name="notes" placeholder="notes (optional)" className="rounded border px-2 py-1" />
+              <button className="rounded bg-slate-900 px-2 py-1 text-white">Accept</button>
+            </form>
+          )}
+        </section>
+      ) : (
+        <section className="rounded border p-4">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Interview</h2>
+          {error && <p role="alert" className="mt-2 rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+          {choices.length > 0 ? (
+            <form action={scheduleInterviewAction.bind(null, id, applicationId)} className="mt-3 flex flex-wrap items-end gap-2 text-sm">
+              <select name="departmentCode" required className="rounded border px-2 py-1">{choices.map((d) => <option key={d} value={d}>{d}</option>)}</select>
+              <button className="rounded bg-slate-900 px-2 py-1 text-white">Schedule interview</button>
+            </form>
+          ) : <p className="mt-2 text-sm text-slate-500">No eligible department to interview for in your scope.</p>}
+        </section>
+      )}
     </div>
   );
 }

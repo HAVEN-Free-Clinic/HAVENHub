@@ -63,6 +63,16 @@ describe("campaign service", () => {
     await expect(sendCampaignNow(null, c.id, {})).rejects.toThrow(/already sent/i);
   });
 
+  it("rejects editing a campaign that has already been sent", async () => {
+    await activePerson("Sam Rivera", "sam@example.com");
+    const c = await createDraft(null, "Locked");
+    await updateCampaign(null, c.id, { subject: "s", body: "<p>hi</p>", audience: ALL_ACTIVE });
+    await sendCampaignNow(null, c.id, {});
+    await expect(
+      updateCampaign(null, c.id, { subject: "s2", body: "<p>x</p>", audience: ALL_ACTIVE }),
+    ).rejects.toThrow(/cannot edit/i);
+  });
+
   it("de-duplicates recipients by email (case-insensitive)", async () => {
     // The DB enforces lower(contactEmail) uniqueness, so two Person rows with
     // emails differing only in case cannot coexist. To exercise the service's

@@ -5,7 +5,7 @@ import { isAudience } from "@/platform/email/audience/types";
 import type { Audience } from "@/platform/email/audience/types";
 import { PERSON_VARIABLES } from "@/platform/email/audience/variables";
 import { resolveAudience } from "@/platform/email/audience/resolve";
-import { renderInlineEmail } from "@/platform/email/templates/renderEmail";
+import { renderInlineEmail, loadLayoutSource } from "@/platform/email/templates/renderEmail";
 import { queueEmail } from "@/platform/email/send";
 
 export const CAMPAIGN_CONFIRM_THRESHOLD = 25;
@@ -56,6 +56,9 @@ export async function updateCampaign(
   id: string,
   input: { name?: string; subject?: string; body?: string; audience: Audience },
 ) {
+  const existing = await prisma.emailCampaign.findUniqueOrThrow({ where: { id } });
+  if (existing.status !== "DRAFT") throw new Error("Cannot edit a campaign that has been sent");
+
   if (!isAudience(input.audience)) {
     throw new CampaignValidationError(["Invalid audience"]);
   }
@@ -95,7 +98,10 @@ export async function updateCampaign(
 
 export async function previewAudience(id: string) {
   const campaign = await prisma.emailCampaign.findUniqueOrThrow({ where: { id } });
-  const audience = campaign.audienceJson as Audience;
+  if (!isAudience(campaign.audienceJson)) {
+    throw new CampaignValidationError(["Stored audience is malformed"]);
+  }
+  const audience = campaign.audienceJson;
   const { recipients, excludedNoEmail } = await resolveAudience(audience);
   return {
     count: recipients.length,
@@ -141,7 +147,10 @@ export async function sendCampaignNow(
     throw new Error("Campaign already sent");
   }
 
-  const audience = campaign.audienceJson as Audience;
+  if (!isAudience(campaign.audienceJson)) {
+    throw new CampaignValidationError(["Stored audience is malformed"]);
+  }
+  const audience = campaign.audienceJson;
   const { recipients } = await resolveAudience(audience);
 
   // Deduplicate by lowercased email (keep first)
@@ -160,21 +169,21 @@ export async function sendCampaignNow(
     throw new CampaignConfirmationError(deduped.length);
   }
 
-  let runId: string;
+  const layoutSource = await loadLayoutSource();
 
-  await prisma.$transaction(async (tx) => {
+  const runId = await prisma.$transaction(async (tx) => {
     const run = await tx.emailCampaignRun.create({
       data: {
         campaignId: id,
         recipientCount: deduped.length,
       },
     });
-    runId = run.id;
 
     for (const recipient of deduped) {
       const { subject, html } = await renderInlineEmail(
         { subject: campaign.subject, body: campaign.body },
         recipient.variables,
+        layoutSource,
       );
       await queueEmail(tx, {
         to: recipient.email,
@@ -191,6 +200,8 @@ export async function sendCampaignNow(
       where: { id },
       data: { status: "SENT" },
     });
+
+    return run.id;
   });
 
   await recordAudit({
@@ -198,8 +209,8 @@ export async function sendCampaignNow(
     action: "campaign.send",
     entityType: "EmailCampaign",
     entityId: id,
-    after: { recipientCount: deduped.length, runId: runId! },
+    after: { recipientCount: deduped.length, runId },
   });
 
-  return { runId: runId!, recipientCount: deduped.length };
+  return { runId, recipientCount: deduped.length };
 }

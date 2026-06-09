@@ -39,7 +39,7 @@ export async function renderEmail(
   return { subject, html };
 }
 
-async function loadLayoutSource(): Promise<string> {
+export async function loadLayoutSource(): Promise<string> {
   const layout = getDescriptor(LAYOUT_KEY);
   if (!layout) throw new Error("Missing layout template");
   const override = await prisma.emailTemplate.findUnique({ where: { key: LAYOUT_KEY } });
@@ -49,10 +49,11 @@ async function loadLayoutSource(): Promise<string> {
 export async function renderInlineEmail(
   input: { subject: string; body: string },
   context: Record<string, unknown>,
+  layoutSource?: string,
 ): Promise<RenderedEmail> {
   const subject = renderTemplate(input.subject, context);
   const renderedBody = renderTemplate(input.body, context);
-  const layoutSource = await loadLayoutSource();
-  const html = renderTemplate(layoutSource, { ...context, body: renderedBody, subject });
+  const src = layoutSource ?? (await loadLayoutSource());
+  const html = renderTemplate(src, { ...context, body: renderedBody, subject });
   return { subject, html };
 }

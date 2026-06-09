@@ -23,7 +23,12 @@ export function filterAccessibleModules(
     .map((m) => ({ id: m.id, title: m.title, href: `/${m.id}` }));
 }
 
-/** Active-state test for a module link given the current pathname. */
+/**
+ * Active-state test for a module link given the current pathname.
+ * Intentionally differs from ModuleNav's active logic: module links stay highlighted across
+ * the whole module subtree (always prefix-match), whereas ModuleNav avoids prefix-matching
+ * the module-root tab to prevent every sub-page from highlighting the root tab.
+ */
 export function isModuleActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }

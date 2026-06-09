@@ -6,6 +6,8 @@ import { buildBreadcrumbs, type BreadcrumbModule } from "./breadcrumb-trail";
 
 export function Breadcrumbs({
   modules,
+  // leafLabel is plumbed for a future enhancement (per-route entity names, "option B").
+  // AppShell does not currently supply it, so detail pages render the trail ending at the parent section.
   leafLabel,
 }: {
   modules: BreadcrumbModule[];

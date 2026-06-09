@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Menu, X } from "lucide-react";
@@ -15,6 +15,20 @@ function linkClasses(active: boolean): string {
 export function GlobalNav({ items }: { items: NavModule[] }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
+  // Escape closes the mobile menu and returns focus to the toggle button.
+  useEffect(() => {
+    if (!open) return;
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setOpen(false);
+        buttonRef.current?.focus();
+      }
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [open]);
 
   if (items.length === 0) return null;
 
@@ -40,6 +54,7 @@ export function GlobalNav({ items }: { items: NavModule[] }) {
       {/* Mobile: hamburger + dropdown */}
       <div className="sm:hidden">
         <button
+          ref={buttonRef}
           type="button"
           aria-label="Open navigation menu"
           aria-expanded={open}
@@ -52,7 +67,7 @@ export function GlobalNav({ items }: { items: NavModule[] }) {
         {open && (
           <nav
             id="global-nav-mobile"
-            aria-label="Modules"
+            aria-label="Modules (menu)"
             className="absolute left-0 right-0 top-14 z-20 border-b border-slate-200 bg-white shadow-sm"
           >
             <div className="mx-auto flex max-w-6xl flex-col gap-1 px-6 py-3">

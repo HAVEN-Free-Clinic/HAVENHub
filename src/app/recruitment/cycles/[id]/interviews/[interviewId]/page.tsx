@@ -4,7 +4,9 @@ import { can } from "@/platform/rbac/engine";
 import { getInterview } from "@/modules/recruitment/services/interviews";
 import { reviewScope } from "@/modules/recruitment/services/review";
 import { evaluationSummary } from "@/modules/recruitment/engine/interview-eval";
-import { scheduleAction, addPanelistAction, removePanelistAction, sendInviteAction, decideAction } from "../actions";
+import { scheduleAction, addPanelistAction, removePanelistAction, sendInviteAction, decideAction, submitEvaluationAction } from "../actions";
+
+const RECS = ["STRONG_YES", "YES", "MAYBE", "NO"];
 
 export default async function InterviewDetail({ params, searchParams }: { params: Promise<{ id: string; interviewId: string }>; searchParams: Promise<{ error?: string }> }) {
   const { id, interviewId } = await params;
@@ -87,7 +89,19 @@ export default async function InterviewDetail({ params, searchParams }: { params
         </section>
       )}
 
-      {isPanelist && <div data-evaluator-slot />}
+      {isPanelist && (
+        <section className="rounded border p-4">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Your evaluation</h2>
+          <form action={submitEvaluationAction.bind(null, id, interviewId)} className="mt-3 flex flex-wrap items-end gap-2 text-sm">
+            <select name="recommendation" required defaultValue={iv.evaluations.find((e) => e.evaluator.id === person.personId)?.recommendation ?? ""} className="rounded border px-2 py-1">
+              <option value="" disabled>Recommendation</option>
+              {RECS.map((r) => <option key={r} value={r}>{r.replace("_", " ")}</option>)}
+            </select>
+            <input name="comments" placeholder="comments" defaultValue={iv.evaluations.find((e) => e.evaluator.id === person.personId)?.comments ?? ""} className="rounded border px-2 py-1" />
+            <button className="rounded bg-slate-900 px-2 py-1 text-white">Submit</button>
+          </form>
+        </section>
+      )}
     </div>
   );
 }

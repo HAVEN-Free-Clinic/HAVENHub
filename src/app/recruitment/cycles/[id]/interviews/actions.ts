@@ -5,6 +5,8 @@ import { requirePersonSession } from "@/platform/auth/session";
 import { updateInterview, addPanelist, removePanelist, sendInterviewInvite, InterviewError } from "@/modules/recruitment/services/interviews";
 import { decideInterview, type InterviewOutcome } from "@/modules/recruitment/services/interview-decisions";
 import { RecruitmentAuthError, AcceptanceError } from "@/modules/recruitment/services/review";
+import { submitEvaluation } from "@/modules/recruitment/services/evaluations";
+import type { Recommendation } from "@prisma/client";
 
 function detail(cycleId: string, interviewId: string, error?: string) {
   return `/recruitment/cycles/${cycleId}/interviews/${interviewId}${error ? `?error=${encodeURIComponent(error)}` : ""}`;
@@ -52,6 +54,15 @@ export async function decideAction(cycleId: string, interviewId: string, formDat
   const outcome = String(formData.get("outcome") ?? "") as InterviewOutcome;
   const notes = String(formData.get("notes") ?? "").trim() || null;
   try { await decideInterview(interviewId, outcome, person.personId, notes); }
+  catch (err) { if (isDomain(err)) redirect(detail(cycleId, interviewId, (err as Error).message)); throw err; }
+  revalidatePath(detail(cycleId, interviewId));
+}
+
+export async function submitEvaluationAction(cycleId: string, interviewId: string, formData: FormData) {
+  const person = await requirePersonSession();
+  const recommendation = String(formData.get("recommendation") ?? "") as Recommendation;
+  const comments = String(formData.get("comments") ?? "").trim() || null;
+  try { await submitEvaluation(interviewId, person.personId, recommendation, comments); }
   catch (err) { if (isDomain(err)) redirect(detail(cycleId, interviewId, (err as Error).message)); throw err; }
   revalidatePath(detail(cycleId, interviewId));
 }

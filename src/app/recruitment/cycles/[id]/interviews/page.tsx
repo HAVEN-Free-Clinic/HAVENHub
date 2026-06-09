@@ -19,18 +19,19 @@ export default async function InterviewsPage({ params }: { params: Promise<{ id:
     <div>
       <h1 className="text-2xl font-semibold tracking-tight">Interviews: {cycle.title}</h1>
       <table className="mt-6 w-full text-sm">
-        <thead><tr className="text-left text-slate-500"><th className="py-2">Candidate</th><th>Dept</th><th>Status</th><th>Panel</th><th>Evals</th></tr></thead>
+        <thead><tr className="text-left text-slate-500"><th className="py-2">Candidate</th><th>Dept</th><th>Status</th><th>When</th><th>Panel</th><th>Evals</th></tr></thead>
         <tbody>
           {interviews.map((iv) => (
             <tr key={iv.id} className="border-t">
               <td className="py-2"><Link className="font-medium" href={`/recruitment/cycles/${id}/interviews/${iv.id}`}>{iv.application.applicant.firstName} {iv.application.applicant.lastName}</Link></td>
               <td>{iv.departmentCode}</td>
               <td>{status(iv)}</td>
+              <td>{iv.scheduledAt ? iv.scheduledAt.toLocaleString() : "TBD"}</td>
               <td>{iv.panelists.length}</td>
               <td>{iv.evaluations.length}/{iv.panelists.length}</td>
             </tr>
           ))}
-          {interviews.length === 0 && <tr><td colSpan={5} className="py-6 text-slate-500">No interviews in your scope.</td></tr>}
+          {interviews.length === 0 && <tr><td colSpan={6} className="py-6 text-slate-500">No interviews in your scope.</td></tr>}
         </tbody>
       </table>
     </div>

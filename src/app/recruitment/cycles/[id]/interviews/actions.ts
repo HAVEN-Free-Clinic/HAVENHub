@@ -53,6 +53,9 @@ export async function decideAction(cycleId: string, interviewId: string, formDat
   const person = await requirePersonSession();
   const outcome = String(formData.get("outcome") ?? "") as InterviewOutcome;
   const notes = String(formData.get("notes") ?? "").trim() || null;
+  if (!(["ACCEPT", "REJECT", "WAITLIST"] as InterviewOutcome[]).includes(outcome)) {
+    redirect(detail(cycleId, interviewId, "Invalid outcome."));
+  }
   try { await decideInterview(interviewId, outcome, person.personId, notes); }
   catch (err) { if (isDomain(err)) redirect(detail(cycleId, interviewId, (err as Error).message)); throw err; }
   revalidatePath(detail(cycleId, interviewId));
@@ -62,6 +65,9 @@ export async function submitEvaluationAction(cycleId: string, interviewId: strin
   const person = await requirePersonSession();
   const recommendation = String(formData.get("recommendation") ?? "") as Recommendation;
   const comments = String(formData.get("comments") ?? "").trim() || null;
+  if (!(["STRONG_YES", "YES", "MAYBE", "NO"] as Recommendation[]).includes(recommendation)) {
+    redirect(detail(cycleId, interviewId, "Invalid recommendation."));
+  }
   try { await submitEvaluation(interviewId, person.personId, recommendation, comments); }
   catch (err) { if (isDomain(err)) redirect(detail(cycleId, interviewId, (err as Error).message)); throw err; }
   revalidatePath(detail(cycleId, interviewId));

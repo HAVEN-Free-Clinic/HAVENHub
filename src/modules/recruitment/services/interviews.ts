@@ -136,3 +136,7 @@ export async function getInterview(interviewId: string) {
     },
   });
 }
+
+export async function listApplicationInterviews(applicationId: string) {
+  return prisma.interview.findMany({ where: { applicationId }, select: { id: true, departmentCode: true } });
+}

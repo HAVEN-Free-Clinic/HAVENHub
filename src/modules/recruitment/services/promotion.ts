@@ -51,7 +51,7 @@ export async function promoteContracts(contractIds: string[], actorId: string): 
         }
         const effectiveEpicId = person.epicId ?? contract.existingEpicId ?? null;
 
-        const existingMembership = await tx.termMembership.findFirst({ where: { personId: person.id, termId: cycle.termId, departmentId: dept.id } });
+        const existingMembership = await tx.termMembership.findFirst({ where: { personId: person.id, termId: cycle.termId, departmentId: dept.id, kind } });
         if (!existingMembership) {
           await tx.termMembership.create({ data: { personId: person.id, termId: cycle.termId, departmentId: dept.id, kind, status: "ACTIVE" } });
         }
@@ -81,7 +81,8 @@ export async function promoteContracts(contractIds: string[], actorId: string): 
       });
       if (wasNew) created += 1; else reactivated += 1;
       await recordAudit({ actorPersonId: actorId, action: "recruitment.promote", entityType: "OnboardingContract", entityId: id });
-    } catch {
+    } catch (err) {
+      console.error("[promotion] skipping contract", id, err);
       skipped += 1;
     }
   }

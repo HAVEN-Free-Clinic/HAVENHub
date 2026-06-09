@@ -71,3 +71,14 @@ it("requires review_all", async () => {
   const plain = await prisma.person.create({ data: { name: "No", status: "ACTIVE" } });
   await expect(promoteContracts([contract.id], plain.id)).rejects.toBeInstanceOf(RecruitmentAuthError);
 });
+
+it("reactivates a returning person matched by email when the contract has no netId", async () => {
+  const existing = await prisma.person.create({ data: { name: "Mary Match", contactEmail: "mary@yale.edu", status: "OFFBOARDED" } });
+  const { srr, contract } = await seedSubmitted({ email: "mary@yale.edu" });
+  // clear the contract netId so matching falls through to contactEmail
+  await prisma.onboardingContract.update({ where: { id: contract.id }, data: { netId: null } });
+  const res = await promoteContracts([contract.id], srr.id);
+  expect(res).toEqual({ created: 0, reactivated: 1, skipped: 0 });
+  expect(await prisma.person.count({ where: { contactEmail: "mary@yale.edu" } })).toBe(1);
+  expect((await prisma.person.findUniqueOrThrow({ where: { id: existing.id } })).status).toBe("ACTIVE");
+});

@@ -80,3 +80,41 @@ export async function deleteSectionAction(cycleId: string, sectionId: string) {
   }
   revalidatePath(bouncePath(cycleId));
 }
+
+export async function addQuizSectionAction(cycleId: string, formData: FormData) {
+  await requirePermission("recruitment.manage_cycles");
+  const title = String(formData.get("title") ?? "").trim() || "Quiz";
+  try {
+    await addSection(cycleId, { title, appliesTo: "BOTH", departmentCode: null, purpose: "QUIZ" });
+  } catch (err) {
+    if (err instanceof FormEditError) redirect(`/recruitment/cycles/${cycleId}/builder/quiz?error=${encodeURIComponent(err.message)}`);
+    throw err;
+  }
+  revalidatePath(`/recruitment/cycles/${cycleId}/builder/quiz`);
+}
+
+export async function addQuizQuestionAction(cycleId: string, sectionId: string, formData: FormData) {
+  await requirePermission("recruitment.manage_cycles");
+  const label = String(formData.get("label") ?? "").trim();
+  const values = formData.getAll("optionValue").map(String);
+  const labels = formData.getAll("optionLabel").map(String);
+  const options = values.map((v, i) => ({ value: v, label: labels[i] ?? v })).filter((o) => o.value.length > 0);
+  const correctValue = String(formData.get("correctValue") ?? "") || null;
+  if (!label || options.length < 2) {
+    redirect(`/recruitment/cycles/${cycleId}/builder/quiz?error=${encodeURIComponent("A question needs a label and at least two options.")}`);
+  }
+  try {
+    await addField(sectionId, { label, type: "SINGLE_SELECT", required: true, options, correctValue });
+  } catch (err) {
+    if (err instanceof FormEditError) redirect(`/recruitment/cycles/${cycleId}/builder/quiz?error=${encodeURIComponent(err.message)}`);
+    throw err;
+  }
+  revalidatePath(`/recruitment/cycles/${cycleId}/builder/quiz`);
+}
+
+export async function setCorrectAnswerAction(cycleId: string, fieldId: string, formData: FormData) {
+  await requirePermission("recruitment.manage_cycles");
+  const correctValue = String(formData.get("correctValue") ?? "") || null;
+  await updateField(fieldId, { correctValue });
+  revalidatePath(`/recruitment/cycles/${cycleId}/builder/quiz`);
+}

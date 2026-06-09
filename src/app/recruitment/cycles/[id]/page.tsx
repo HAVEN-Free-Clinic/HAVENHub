@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getCycle } from "@/modules/recruitment/services/cycles";
+import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
+import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 import { publishCycleAction, closeCycleAction, toggleRenewalsAction, setTrainingCycleAction, updateQuizSettingsAction } from "../../actions";
 
 type PageProps = {
@@ -16,6 +18,7 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
   const applyUrl = `/apply/${cycle.publicSlug}`;
   return (
     <div className="max-w-2xl space-y-6">
+      <SetBreadcrumb trail={cycleTrail({ cycleId: id, cycleTitle: cycle.title })} />
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold tracking-tight">{cycle.title}</h1>
         <span className="rounded bg-slate-100 px-2 py-1 text-xs">{cycle.status}</span>

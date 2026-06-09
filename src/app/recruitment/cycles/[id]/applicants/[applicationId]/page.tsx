@@ -6,6 +6,8 @@ import { reviewScope, listAcceptances } from "@/modules/recruitment/services/rev
 import { can } from "@/platform/rbac/engine";
 import { acceptApplicantAction, revokeAcceptanceAction, scheduleInterviewAction } from "../actions";
 import { listApplicationInterviews } from "@/modules/recruitment/services/interviews";
+import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
+import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 
 export default async function ApplicationDetailPage({ params, searchParams }: { params: Promise<{ id: string; applicationId: string }>; searchParams: Promise<{ error?: string }> }) {
   const { id, applicationId } = await params;
@@ -37,6 +39,14 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
   });
   return (
     <div className="max-w-2xl space-y-6">
+      <SetBreadcrumb
+        trail={cycleTrail({
+          cycleId: id,
+          cycleTitle: app.cycle.title,
+          section: { label: "Applicants", slug: "applicants" },
+          leaf: `${app.applicant.firstName} ${app.applicant.lastName}`,
+        })}
+      />
       <h1 className="text-2xl font-semibold tracking-tight">{app.applicant.firstName} {app.applicant.lastName}</h1>
       <p className="text-sm text-slate-500">{app.applicant.email} · {app.applicantType}{app.renewalDepartment ? ` · renewing in ${app.renewalDepartment}` : ""}</p>
       {sections.map((section) => (

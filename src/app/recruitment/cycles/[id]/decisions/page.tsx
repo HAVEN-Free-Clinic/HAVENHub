@@ -3,6 +3,8 @@ import { requirePermission } from "@/platform/auth/session";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { listConflicts, releaseSummary } from "@/modules/recruitment/services/decisions";
 import { releaseDecisionsAction } from "./actions";
+import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
+import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 
 export default async function DecisionsPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ sent?: string; skipped?: string; error?: string }> }) {
   const { id } = await params;
@@ -14,6 +16,13 @@ export default async function DecisionsPage({ params, searchParams }: { params: 
 
   return (
     <div className="max-w-2xl space-y-6">
+      <SetBreadcrumb
+        trail={cycleTrail({
+          cycleId: id,
+          cycleTitle: cycle.title,
+          section: { label: "Decisions", slug: "decisions" },
+        })}
+      />
       <h1 className="text-2xl font-semibold tracking-tight">Decisions: {cycle.title}</h1>
       {sp.error && <p role="alert" className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">{sp.error}</p>}
       {sp.sent !== undefined && <p className="rounded border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-800">Released {sp.sent} acceptance email(s); skipped {sp.skipped} conflicted applicant(s).</p>}

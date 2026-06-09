@@ -6,6 +6,7 @@ import { getAccessibleModules } from "@/platform/modules/access";
 import { HavenLogo } from "./haven-logo";
 import { GlobalNav } from "./global-nav";
 import { Breadcrumbs } from "./breadcrumbs";
+import { BreadcrumbProvider } from "./breadcrumb-context";
 import type { BreadcrumbModule } from "./breadcrumb-trail";
 
 export async function AppShell({
@@ -67,11 +68,13 @@ export async function AppShell({
         </div>
       </header>
 
-      <Breadcrumbs modules={breadcrumbModules} />
+      <BreadcrumbProvider>
+        <Breadcrumbs modules={breadcrumbModules} />
 
-      <main className="mx-auto w-full max-w-6xl px-6 py-10 flex-1">
-        {children}
-      </main>
+        <main className="mx-auto w-full max-w-6xl px-6 py-10 flex-1">
+          {children}
+        </main>
+      </BreadcrumbProvider>
 
       <footer className="border-t border-slate-100">
         <div className="mx-auto max-w-6xl px-6 py-8 text-xs text-slate-400">

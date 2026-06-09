@@ -5,6 +5,8 @@ import { getInterview } from "@/modules/recruitment/services/interviews";
 import { reviewScope } from "@/modules/recruitment/services/review";
 import { evaluationSummary } from "@/modules/recruitment/engine/interview-eval";
 import { scheduleAction, addPanelistAction, removePanelistAction, sendInviteAction, decideAction, submitEvaluationAction } from "../actions";
+import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
+import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 
 const RECS = ["STRONG_YES", "YES", "MAYBE", "NO"];
 
@@ -28,6 +30,14 @@ export default async function InterviewDetail({ params, searchParams }: { params
 
   return (
     <div className="max-w-2xl space-y-6">
+      <SetBreadcrumb
+        trail={cycleTrail({
+          cycleId: id,
+          cycleTitle: iv.application.cycle.title,
+          section: { label: "Interviews", slug: "interviews" },
+          leaf: `${iv.application.applicant.firstName} ${iv.application.applicant.lastName}`,
+        })}
+      />
       <h1 className="text-2xl font-semibold tracking-tight">{iv.application.applicant.firstName} {iv.application.applicant.lastName}</h1>
       <p className="text-sm text-slate-500">{iv.departmentCode} director interview · {iv.decision}</p>
       {error && <p role="alert" className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}

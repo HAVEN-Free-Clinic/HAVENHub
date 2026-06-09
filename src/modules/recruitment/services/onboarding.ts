@@ -45,6 +45,9 @@ export async function createOrResendContract(
   if (!acceptance) throw new ContractError("Acceptance not found.");
   const applicant = acceptance.application.applicant;
   let contract = acceptance.contract;
+  if (contract && contract.status !== "PENDING") {
+    throw new ContractError("This applicant has already submitted their onboarding contract.");
+  }
   if (!contract) {
     contract = await prisma.onboardingContract.create({
       data: {
@@ -83,7 +86,7 @@ export async function createOrResendContract(
     entityType: "OnboardingContract",
     entityId: c.id,
   });
-  return c;
+  return prisma.onboardingContract.findUniqueOrThrow({ where: { id: c.id } });
 }
 
 export async function getContractByToken(token: string) {
@@ -146,6 +149,7 @@ export async function submitContract(
     hipaaMimeType?: string;
     hipaaSize?: number;
   } = {};
+  let writtenPath: string | null = null;
   if (input.hipaaFile) {
     const capBytes = config.MAX_UPLOAD_MB * 1024 * 1024;
     if (input.hipaaFile.bytes.length > capBytes) {
@@ -163,6 +167,7 @@ export async function submitContract(
       throw new ContractValidationError("Invalid file.", { hipaaFile: "invalid" });
     }
     await fs.writeFile(diskPath, input.hipaaFile.bytes);
+    writtenPath = diskPath;
     fileRef = {
       hipaaStoredName: storedName,
       hipaaFileName: input.hipaaFile.fileName,
@@ -171,33 +176,39 @@ export async function submitContract(
     };
   }
 
-  const updated = await prisma.onboardingContract.update({
-    where: { id: contract.id },
-    data: {
-      firstName: input.firstName.trim(),
-      lastName: input.lastName.trim(),
-      email: input.email.trim(),
-      netId: input.netId?.trim() || null,
-      phone: input.phone?.trim() || null,
-      dateOfBirth: input.dateOfBirth ?? null,
-      dietaryRestrictions: input.dietaryRestrictions?.trim() || null,
-      yaleAffiliation: input.yaleAffiliation?.trim() || null,
-      gradYear: input.gradYear?.trim() || null,
-      agreementSignature: input.agreementSignature.trim(),
-      professionalismSignature: input.professionalismSignature.trim(),
-      trainingSignature: input.trainingSignature.trim(),
-      initials: input.initials.trim(),
-      epicNeeded: input.epicNeeded,
-      hasEpic: input.hasEpic,
-      existingEpicId: input.existingEpicId?.trim() || null,
-      epicAccessType: input.epicAccessType?.trim() || null,
-      worksWithYnhh: input.worksWithYnhh,
-      hipaaCompletedAt: input.hipaaCompletedAt ?? null,
-      ...fileRef,
-      status: "SUBMITTED",
-      submittedAt: new Date(),
-    },
-  });
+  let updated;
+  try {
+    updated = await prisma.onboardingContract.update({
+      where: { id: contract.id },
+      data: {
+        firstName: input.firstName.trim(),
+        lastName: input.lastName.trim(),
+        email: input.email.trim(),
+        netId: input.netId?.trim() || null,
+        phone: input.phone?.trim() || null,
+        dateOfBirth: input.dateOfBirth ?? null,
+        dietaryRestrictions: input.dietaryRestrictions?.trim() || null,
+        yaleAffiliation: input.yaleAffiliation?.trim() || null,
+        gradYear: input.gradYear?.trim() || null,
+        agreementSignature: input.agreementSignature.trim(),
+        professionalismSignature: input.professionalismSignature.trim(),
+        trainingSignature: input.trainingSignature.trim(),
+        initials: input.initials.trim(),
+        epicNeeded: input.epicNeeded,
+        hasEpic: input.hasEpic,
+        existingEpicId: input.existingEpicId?.trim() || null,
+        epicAccessType: input.epicAccessType?.trim() || null,
+        worksWithYnhh: input.worksWithYnhh,
+        hipaaCompletedAt: input.hipaaCompletedAt ?? null,
+        ...fileRef,
+        status: "SUBMITTED",
+        submittedAt: new Date(),
+      },
+    });
+  } catch (err) {
+    if (writtenPath) await fs.rm(writtenPath, { force: true }).catch(() => undefined);
+    throw err;
+  }
   await recordAudit({
     action: "recruitment.onboarding_submit",
     entityType: "OnboardingContract",

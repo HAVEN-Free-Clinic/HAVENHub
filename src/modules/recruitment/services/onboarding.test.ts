@@ -1,0 +1,84 @@
+import { afterEach, beforeEach, expect, it } from "vitest";
+import { resetDb } from "@/platform/test/db";
+import { prisma } from "@/platform/db";
+import { RecruitmentAuthError } from "./review";
+import {
+  createOrResendContract, getContractByToken, submitContract, listOnboarding,
+  ContractError, ContractValidationError,
+} from "./onboarding";
+
+async function seed() {
+  const term = await prisma.term.create({ data: { code: "FA26", name: "Fall", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
+  const srhd = await prisma.department.create({ data: { code: "SRHD", name: "SRHD" } });
+  const srr = await prisma.person.create({ data: { name: "SRR", status: "ACTIVE" } });
+  const role = await prisma.role.create({ data: { name: "Rec Admin", grants: { create: [{ permission: "recruitment.review_all" }] } } });
+  await prisma.roleAssignment.create({ data: { personId: srr.id, roleId: role.id } });
+  const plain = await prisma.person.create({ data: { name: "Nobody", status: "ACTIVE" } });
+  const cycle = await prisma.recruitmentCycle.create({ data: { track: "VOLUNTEER", termId: term.id, title: "V", publicSlug: "v", departments: ["SRHD"], createdById: srr.id, status: "OPEN" } });
+  const applicant = await prisma.applicant.create({ data: { cycleId: cycle.id, firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu", emailLower: "ada@yale.edu", netId: "al99" } });
+  const application = await prisma.application.create({ data: { cycleId: cycle.id, applicantId: applicant.id, answers: {}, applicantType: "NEW", departmentChoices: ["SRHD"] } });
+  const acceptance = await prisma.acceptance.create({ data: { applicationId: application.id, departmentCode: "SRHD", approvedById: srr.id } });
+  return { srr, plain, cycle, acceptance };
+}
+
+beforeEach(async () => { await resetDb(); });
+afterEach(async () => { await resetDb(); });
+
+it("creates a PENDING contract with a token and queues an onboarding email; resend does not duplicate", async () => {
+  const { srr, acceptance } = await seed();
+  const c1 = await createOrResendContract(acceptance.id, srr.id, "http://test");
+  expect(c1.status).toBe("PENDING");
+  expect(c1.token).toBeTruthy();
+  expect(await prisma.emailLog.count()).toBe(1);
+  const c2 = await createOrResendContract(acceptance.id, srr.id, "http://test");
+  expect(c2.id).toBe(c1.id);
+  expect(await prisma.onboardingContract.count()).toBe(1);
+  expect(await prisma.emailLog.count()).toBe(2);
+});
+
+it("requires review_all to send", async () => {
+  const { plain, acceptance } = await seed();
+  await expect(createOrResendContract(acceptance.id, plain.id, "http://test")).rejects.toBeInstanceOf(RecruitmentAuthError);
+});
+
+it("getContractByToken returns the contract", async () => {
+  const { srr, acceptance } = await seed();
+  const c = await createOrResendContract(acceptance.id, srr.id, "http://test");
+  expect((await getContractByToken(c.token))?.id).toBe(c.id);
+});
+
+it("submitContract validates signatures + hipaa and stores SUBMITTED", async () => {
+  const { srr, acceptance } = await seed();
+  const c = await createOrResendContract(acceptance.id, srr.id, "http://test");
+  await expect(submitContract(c.token, {
+    firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu",
+    agreementSignature: "", professionalismSignature: "Ada", trainingSignature: "Ada", initials: "AL",
+    epicNeeded: false, hasEpic: false, worksWithYnhh: false,
+    hipaaCompletedAt: new Date("2026-01-01"), hipaaFile: { fileName: "c.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") },
+  })).rejects.toBeInstanceOf(ContractValidationError);
+
+  const ok = await submitContract(c.token, {
+    firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu", netId: "al99", phone: "203",
+    agreementSignature: "Ada", professionalismSignature: "Ada", trainingSignature: "Ada", initials: "AL",
+    epicNeeded: true, hasEpic: false, worksWithYnhh: false,
+    hipaaCompletedAt: new Date("2026-01-01"), hipaaFile: { fileName: "c.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") },
+  });
+  expect(ok.status).toBe("SUBMITTED");
+  expect(ok.hipaaStoredName).toBeTruthy();
+  expect(ok.epicNeeded).toBe(true);
+
+  await expect(submitContract(c.token, {
+    firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu",
+    agreementSignature: "Ada", professionalismSignature: "Ada", trainingSignature: "Ada", initials: "AL",
+    epicNeeded: false, hasEpic: false, worksWithYnhh: false,
+    hipaaCompletedAt: new Date("2026-01-01"), hipaaFile: { fileName: "c.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") },
+  })).rejects.toBeInstanceOf(ContractError);
+});
+
+it("listOnboarding returns acceptances with contract status", async () => {
+  const { srr, cycle, acceptance } = await seed();
+  await createOrResendContract(acceptance.id, srr.id, "http://test");
+  const rows = await listOnboarding(cycle.id);
+  expect(rows).toHaveLength(1);
+  expect(rows[0].contract?.status).toBe("PENDING");
+});

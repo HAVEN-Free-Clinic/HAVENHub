@@ -77,6 +77,15 @@ describe("updateAttending", () => {
     expect(u.notes).toBe("fast");
     expect(u.scheduleName).toBe("Rivera");
   });
+
+  it("rejects renaming to an existing scheduleName", async () => {
+    await rhdManager();
+    await createAttending(ACTOR, { scheduleName: "Rivera", fullName: "Dr. Rivera" });
+    const b = await createAttending(ACTOR, { scheduleName: "Chen", fullName: "Dr. Chen" });
+    await expect(
+      updateAttending(ACTOR, b.id, { scheduleName: "Rivera" }),
+    ).rejects.toBeInstanceOf(AttendingValidationError);
+  });
 });
 
 describe("setAttendingActive", () => {

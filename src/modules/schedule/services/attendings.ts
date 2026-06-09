@@ -82,7 +82,7 @@ export async function createAttending(
     action: "schedule.attending_create",
     entityType: "RhdAttending",
     entityId: created.id,
-    after: { scheduleName, fullName, ...caps },
+    after: { scheduleName, fullName, ...caps, notes: input.notes ?? null, isActive: true },
   });
   return created;
 }
@@ -107,9 +107,9 @@ export async function updateAttending(
     data.scheduleName = sn;
   }
   if (patch.fullName !== undefined) {
-    const fn = patch.fullName.trim();
-    if (!fn) throw new AttendingValidationError("Full name is required.");
-    data.fullName = fn;
+    const fullName = patch.fullName.trim();
+    if (!fullName) throw new AttendingValidationError("Full name is required.");
+    data.fullName = fullName;
   }
   if (patch.capabilities) {
     for (const k of CAPABILITY_KEYS) {

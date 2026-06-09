@@ -11,9 +11,9 @@ function statusLabel(c: { status: string } | null): string {
   return "Promoted";
 }
 
-export default async function OnboardingPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ msg?: string }> }) {
+export default async function OnboardingPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ msg?: string; err?: string }> }) {
   const { id } = await params;
-  const { msg } = await searchParams;
+  const { msg, err } = await searchParams;
   await requirePermission("recruitment.review_all");
   const cycle = await getCycle(id);
   if (!cycle) notFound();
@@ -22,6 +22,7 @@ export default async function OnboardingPage({ params, searchParams }: { params:
   return (
     <div className="max-w-3xl">
       <h1 className="text-2xl font-semibold tracking-tight">Onboarding: {cycle.title}</h1>
+      {err && <p role="alert" className="mt-3 rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">{err}</p>}
       {msg && <p className="mt-3 rounded border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-800">{msg}</p>}
 
       <form action={sendLinksAction.bind(null, id)} className="mt-6">

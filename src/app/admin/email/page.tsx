@@ -199,12 +199,20 @@ export default async function EmailPage({ searchParams }: PageProps) {
         title="Email"
         description="Monitor outgoing email logs. Retry failed messages to re-queue them for the next drain pass."
         action={
-          <Link
-            href="/admin/email/templates"
-            className="text-sm font-medium underline underline-offset-2"
-          >
-            Manage templates
-          </Link>
+          <div className="flex gap-4">
+            <Link
+              href="/admin/email/campaigns"
+              className="text-sm font-medium underline underline-offset-2"
+            >
+              Campaigns
+            </Link>
+            <Link
+              href="/admin/email/templates"
+              className="text-sm font-medium underline underline-offset-2"
+            >
+              Manage templates
+            </Link>
+          </div>
         }
       />
 

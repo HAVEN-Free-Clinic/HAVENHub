@@ -107,13 +107,17 @@ block, so a draft quiz can be saved mid-authoring.
 
 ### 2.4 New model `VolunteerTraining`
 
-One row per gated membership. Created **lazily** on the first training action
-(attendance tick or first quiz attempt). Absence of a row means `PENDING`.
+One row per `(personId, termId)`. Training is "attend once per term", and the
+quiz state (attempts, lock) is inherently per person-per-term, so the row is keyed
+on the person and term rather than a single membership: a volunteer in two
+departments trains once and clears both. Created **lazily** on the first training
+action (attendance tick or first quiz attempt). Absence of a row means `PENDING`.
 
 | Field | Type | Notes |
 |-------|------|-------|
 | `id` | `String @id @default(cuid())` | |
-| `membershipId` | `String @unique` | FK to `TermMembership` (onDelete: Cascade). |
+| `personId` | `String` | FK to `Person` (onDelete: Cascade). |
+| `termId` | `String` | FK to `Term` (onDelete: Cascade). `@@unique([personId, termId])`. |
 | `cycleId` | `String` | FK to the designated training `RecruitmentCycle` (onDelete: Restrict). |
 | `status` | `TrainingStatus @default(PENDING)` | enum `{ PENDING, COMPLETE }`. |
 | `completedVia` | `TrainingMethod?` | enum `{ ATTENDANCE, QUIZ }`. Null while PENDING. |
@@ -230,9 +234,11 @@ valid through the term bar today) **and** `training === "COMPLETE"`. Otherwise
 compliance surface now shows three things: certificate status, training state,
 and the derived overall clearance with a per-dimension breakdown.
 
-Training state for a membership is resolved as: `COMPLETE` if a
+Training state for a member is resolved per `(personId, termId)`: `COMPLETE` if a
 `VolunteerTraining` row exists with `status = COMPLETE`, else `PENDING` (this is
-how "no backfill" yields `PENDING` for legacy memberships with no row).
+how "no backfill" yields `PENDING` for legacy volunteers with no row). A
+membership row in a compliance view resolves its training state from its person
+and the active term.
 
 ---
 
@@ -378,8 +384,9 @@ read does the same in reverse.
   locked raises `QuizLockedError`; director reset clears the lock, stamps
   `lockResetAt`, and lets the volunteer attempt again while prior attempts stay in
   history; a session cannot submit for another membership.
-- Training-state resolution: a membership with no row resolves PENDING (no
-  backfill); a COMPLETE row resolves COMPLETE.
+- Training-state resolution: a person with no row resolves PENDING (no
+  backfill); a COMPLETE row resolves COMPLETE; completing once clears every active
+  volunteer membership the person holds in the term.
 - Compliance read extension: `departmentCompliance` rows carry training state and
   overall clearance, scoped to manageable departments.
 

@@ -22,6 +22,12 @@ export function certExpiresAt(completionDate: Date): Date {
 }
 
 /**
+ * The resolved training state for a volunteer in a given term.
+ * PENDING unless the person has a COMPLETE VolunteerTraining row for the term.
+ */
+export type TrainingState = "COMPLETE" | "PENDING";
+
+/**
  * The computed compliance status. Never stored; always re-derived from data.
  *
  *   NO_CERTIFICATE   no cert record on file

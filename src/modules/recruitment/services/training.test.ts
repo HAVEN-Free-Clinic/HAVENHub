@@ -5,6 +5,7 @@ import { RecruitmentAuthError } from "./review";
 import {
   setTrainingCycle, getTrainingCycleForTerm, updateQuizSettings, TrainingStateError,
 } from "./training";
+import { recordAttendance, resolveTrainingState, completeTraining } from "./training";
 
 async function seed() {
   const term = await prisma.term.create({ data: { code: "SU26", name: "Summer", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
@@ -44,4 +45,45 @@ it("updates quiz settings within bounds and rejects bad values", async () => {
   expect(updated.quizMaxAttempts).toBe(5);
   await expect(updateQuizSettings(c1.id, { quizPassPercent: 150, quizMaxAttempts: 5 }, srr.id)).rejects.toBeInstanceOf(TrainingStateError);
   await expect(updateQuizSettings(c1.id, { quizPassPercent: 80, quizMaxAttempts: 0 }, srr.id)).rejects.toBeInstanceOf(TrainingStateError);
+});
+
+async function seedMember() {
+  const base = await seed();
+  const dept = await prisma.department.findUniqueOrThrow({ where: { code: "SRHD" } });
+  await setTrainingCycle(base.c1.id, true, base.srr.id);
+  const vol = await prisma.person.create({ data: { name: "Vol", status: "ACTIVE" } });
+  const membership = await prisma.termMembership.create({ data: { personId: vol.id, termId: base.term.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" } });
+  const dir = await prisma.person.create({ data: { name: "Dir", status: "ACTIVE" } });
+  await prisma.termMembership.create({ data: { personId: dir.id, termId: base.term.id, departmentId: dept.id, kind: "DIRECTOR", status: "ACTIVE" } });
+  return { ...base, dept, vol, membership, dir };
+}
+
+it("records attendance: marks COMPLETE/ATTENDANCE for the person and is idempotent", async () => {
+  const { term, srr, vol } = await seedMember();
+  await recordAttendance(vol.id, term.id, srr.id);
+  expect(await resolveTrainingState(vol.id, term.id)).toBe("COMPLETE");
+  const row = await prisma.volunteerTraining.findUniqueOrThrow({ where: { personId_termId: { personId: vol.id, termId: term.id } } });
+  expect(row.completedVia).toBe("ATTENDANCE");
+  expect(row.attendanceRecordedById).toBe(srr.id);
+  await recordAttendance(vol.id, term.id, srr.id);
+  expect(await prisma.volunteerTraining.count({ where: { personId: vol.id, termId: term.id } })).toBe(1);
+});
+
+it("a director in scope can record attendance; an unrelated person cannot", async () => {
+  const { term, vol, dir, plain } = await seedMember();
+  await recordAttendance(vol.id, term.id, dir.id);
+  expect(await resolveTrainingState(vol.id, term.id)).toBe("COMPLETE");
+  await prisma.volunteerTraining.deleteMany({});
+  await expect(recordAttendance(vol.id, term.id, plain.id)).rejects.toBeInstanceOf(RecruitmentAuthError);
+});
+
+it("resolveTrainingState is PENDING with no row (no backfill)", async () => {
+  const { term, vol } = await seedMember();
+  expect(await resolveTrainingState(vol.id, term.id)).toBe("PENDING");
+});
+
+it("recordAttendance fails when the term has no designated training cycle", async () => {
+  const { term, srr, vol, c1 } = await seedMember();
+  await setTrainingCycle(c1.id, false, srr.id);
+  await expect(recordAttendance(vol.id, term.id, srr.id)).rejects.toBeInstanceOf(TrainingStateError);
 });

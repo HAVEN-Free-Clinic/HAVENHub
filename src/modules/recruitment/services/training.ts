@@ -1,8 +1,9 @@
-import type { RecruitmentCycle } from "@prisma/client";
+import type { RecruitmentCycle, Prisma, TrainingMethod } from "@prisma/client";
+import type { TrainingState } from "@/platform/compliance/rules";
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { recordAudit } from "@/platform/audit";
-import { RecruitmentAuthError } from "./review";
+import { RecruitmentAuthError, reviewScope } from "./review";
 
 export class TrainingStateError extends Error {
   constructor(message: string) { super(message); this.name = "TrainingStateError"; }
@@ -53,4 +54,56 @@ export async function updateQuizSettings(
   const updated = await prisma.recruitmentCycle.update({ where: { id: cycleId }, data: { quizPassPercent: input.quizPassPercent, quizMaxAttempts: input.quizMaxAttempts } });
   await recordAudit({ actorPersonId: actorId, action: "recruitment.training_quiz_settings", entityType: "RecruitmentCycle", entityId: cycleId, after: input });
   return updated;
+}
+
+type Tx = Prisma.TransactionClient;
+
+/** PENDING unless the person has a COMPLETE VolunteerTraining row for the term. */
+export async function resolveTrainingState(personId: string, termId: string): Promise<TrainingState> {
+  const row = await prisma.volunteerTraining.findUnique({ where: { personId_termId: { personId, termId } } });
+  return row?.status === "COMPLETE" ? "COMPLETE" : "PENDING";
+}
+
+/** Upsert the person's training row to COMPLETE for the term, stamping the method.
+ *  Shared by the attendance and quiz paths. Idempotent. */
+export async function completeTraining(
+  db: Tx | typeof prisma,
+  args: { personId: string; termId: string; cycleId: string; via: TrainingMethod; actorId?: string }
+): Promise<void> {
+  const now = new Date();
+  const attendance = args.via === "ATTENDANCE";
+  await db.volunteerTraining.upsert({
+    where: { personId_termId: { personId: args.personId, termId: args.termId } },
+    create: {
+      personId: args.personId, termId: args.termId, cycleId: args.cycleId,
+      status: "COMPLETE", completedVia: args.via, completedAt: now,
+      attendanceRecordedById: attendance ? (args.actorId ?? null) : null,
+      attendanceRecordedAt: attendance ? now : null,
+    },
+    update: {
+      status: "COMPLETE", completedVia: args.via, completedAt: now, locked: false,
+      ...(attendance ? { attendanceRecordedById: args.actorId ?? null, attendanceRecordedAt: now } : {}),
+    },
+  });
+}
+
+/** Record live-session attendance for a volunteer (by personId) in the term.
+ *  Director-scoped (the volunteer must be in a department the actor manages) or
+ *  review_all. Completes via ATTENDANCE. */
+export async function recordAttendance(personId: string, termId: string, actorId: string): Promise<void> {
+  const cycle = await getTrainingCycleForTerm(termId);
+  if (!cycle) throw new TrainingStateError("This term has no designated training cycle.");
+
+  const memberships = await prisma.termMembership.findMany({
+    where: { personId, termId, kind: "VOLUNTEER", status: "ACTIVE" },
+    include: { department: { select: { code: true } } },
+  });
+  if (memberships.length === 0) throw new TrainingStateError("Not an active volunteer this term.");
+
+  const [scope, canManage] = await Promise.all([reviewScope(actorId), can(actorId, "recruitment.manage_cycles")]);
+  const inScope = scope.all || canManage || memberships.some((m) => scope.departmentCodes.includes(m.department.code));
+  if (!inScope) throw new RecruitmentAuthError("You can't record training for that volunteer.");
+
+  await completeTraining(prisma, { personId, termId, cycleId: cycle.id, via: "ATTENDANCE", actorId });
+  await recordAudit({ actorPersonId: actorId, action: "recruitment.training_attendance", entityType: "VolunteerTraining", entityId: `${personId}:${termId}`, after: { personId, termId } });
 }

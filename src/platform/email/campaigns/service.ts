@@ -5,6 +5,7 @@ import { isAudience } from "@/platform/email/audience/types";
 import type { Audience } from "@/platform/email/audience/types";
 import { PERSON_VARIABLES } from "@/platform/email/audience/variables";
 import { resolveAudience } from "@/platform/email/audience/resolve";
+import type { Recipient } from "@/platform/email/audience/resolve";
 import { renderInlineEmail, loadLayoutSource } from "@/platform/email/templates/renderEmail";
 import { queueEmail } from "@/platform/email/send";
 import type { Prisma } from "@prisma/client";
@@ -140,20 +141,26 @@ export async function testSend(actorId: string | null, id: string, toEmail: stri
 
 export async function executeRun(
   campaignId: string,
-  opts: { actorId: string | null; statusUpdate: Prisma.EmailCampaignUpdateInput },
+  opts: { actorId: string | null; statusUpdate: Prisma.EmailCampaignUpdateInput; recipients?: Recipient[] },
 ): Promise<{ runId: string; recipientCount: number }> {
   const campaign = await prisma.emailCampaign.findUniqueOrThrow({ where: { id: campaignId } });
-  if (!isAudience(campaign.audienceJson)) {
-    throw new CampaignValidationError(["Stored audience is malformed"]);
+
+  let deduped: Recipient[];
+  if (opts.recipients) {
+    deduped = opts.recipients;
+  } else {
+    if (!isAudience(campaign.audienceJson)) {
+      throw new CampaignValidationError(["Stored audience is malformed"]);
+    }
+    const { recipients } = await resolveAudience(campaign.audienceJson);
+    const seen = new Set<string>();
+    deduped = recipients.filter((r) => {
+      const key = r.email.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
   }
-  const { recipients } = await resolveAudience(campaign.audienceJson);
-  const seen = new Set<string>();
-  const deduped = recipients.filter((r) => {
-    const key = r.email.toLowerCase();
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
   const layoutSource = await loadLayoutSource();
 
   const runId = await prisma.$transaction(async (tx) => {
@@ -189,12 +196,20 @@ export async function sendCampaignNow(
   const campaign = await prisma.emailCampaign.findUniqueOrThrow({ where: { id } });
   if (campaign.status !== "DRAFT") throw new Error("Campaign already sent");
   if (!isAudience(campaign.audienceJson)) throw new CampaignValidationError(["Stored audience is malformed"]);
+
   const { recipients } = await resolveAudience(campaign.audienceJson);
-  const count = new Set(recipients.map((r) => r.email.toLowerCase())).size;
-  if (count > CAMPAIGN_CONFIRM_THRESHOLD && opts.confirmCount !== count) {
-    throw new CampaignConfirmationError(count);
+  const seen = new Set<string>();
+  const deduped = recipients.filter((r) => {
+    const key = r.email.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  if (deduped.length > CAMPAIGN_CONFIRM_THRESHOLD && opts.confirmCount !== deduped.length) {
+    throw new CampaignConfirmationError(deduped.length);
   }
-  return executeRun(id, { actorId, statusUpdate: { status: "SENT" } });
+  return executeRun(id, { actorId, statusUpdate: { status: "SENT" }, recipients: deduped });
 }
 
 export type ScheduleInput =

@@ -26,7 +26,7 @@ import { summarizeNonCompliant } from "../engine/banner";
 import type { DeptBanner } from "../engine/banner";
 import { computeClinicReadiness } from "../engine/rhd";
 import type { ClinicReadiness, RhdPersonLite, Attending } from "../engine/rhd";
-import { config } from "@/platform/config";
+import { getSetting } from "@/platform/settings/service";
 
 // ---------------------------------------------------------------------------
 // Typed errors
@@ -962,7 +962,7 @@ async function buildRhdBlock(
     jctsOnShift,
     ccrhOnShift,
     proceduresBooked: clinic?.proceduresBooked ?? null,
-    maxProceduresPerClinic: config.RHD_MAX_PROCEDURES,
+    maxProceduresPerClinic: await getSetting<number>("rhd.maxProcedures"),
   });
 
   // Strip the included attending relation before returning to match RhdClinic type.

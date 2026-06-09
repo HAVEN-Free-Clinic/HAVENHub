@@ -7,16 +7,10 @@
  * URL params:
  *   ?dept=<departmentId>   -- selected department
  *   ?date=<YYYY-MM-DD>     -- selected clinic date
- *   ?view=saturday|grid    -- view toggle (grid is a placeholder for Task 8)
- *   ?mode=assign|shadow|availability -- mode toggle
- */
-
-/**
- * Schedule Builder page.
- */
-
-/**
- * Schedule Builder page.
+ *   ?view=grid             -- show the Grid view; default (absent) is the Day view
+ *   ?gmode=shadow          -- Grid view only: empty-cell click assigns SHADOW;
+ *                             default (absent) assigns VOLUNTEER
+ *   ?mode=availability      -- show the availability-override editor (over either view)
  */
 
 import { requireModuleAccess } from "@/platform/auth/session";
@@ -65,6 +59,7 @@ type PageProps = {
     date?: string;
     view?: string;
     mode?: string;
+    gmode?: string;
     error?: string;
     message?: string;
   }>;
@@ -79,6 +74,7 @@ type HrefParams = {
   date?: string | null;
   view?: string | null;
   mode?: string | null;
+  gmode?: string | null;
   error?: string;
   message?: string;
 };
@@ -89,6 +85,7 @@ function buildHref(base: string, p: HrefParams): string {
   if (p.date) params.set("date", p.date);
   if (p.view) params.set("view", p.view);
   if (p.mode) params.set("mode", p.mode);
+  if (p.gmode) params.set("gmode", p.gmode);
   if (p.error) params.set("error", p.error);
   if (p.message) params.set("message", p.message);
   const qs = params.toString();
@@ -107,6 +104,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
   const dateParam = sp.date ?? undefined;
   const view = sp.view === "grid" ? "grid" : "saturday";
   const mode = sp.mode === "availability" ? "availability" : "assign";
+  const gmode = sp.gmode === "shadow" ? "shadow" : "assign";
 
   const errorCode = sp.error ?? null;
   const errorMessage = errorCode
@@ -143,6 +141,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
       date: selectedDateKey,
       view,
       mode,
+      gmode,
       ...overrides,
     });
   }
@@ -199,12 +198,12 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     const dateKey = (formData.get("dateKey") as string) ?? "";
     const personId = (formData.get("personId") as string) ?? "";
     const role = (formData.get("role") as "VOLUNTEER" | "SHADOW" | "DIRECTOR") ?? "VOLUNTEER";
-    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode });
+    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode });
     try {
       await setAssignment(actor.personId, { departmentId, dateKey, personId, role });
     } catch (err) {
       if (err instanceof BuilderValidationError || err instanceof BuilderForbiddenError) {
-        redirect(buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, error: "validation", message: err.message }));
+        redirect(buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message: err.message }));
       }
       throw err;
     }
@@ -219,12 +218,12 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     const dateKey = (formData.get("dateKey") as string) ?? "";
     const personId = (formData.get("personId") as string) ?? "";
     const reason = ((formData.get("reason") as string) ?? "").trim() || undefined;
-    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode });
+    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode });
     try {
       await setAssignment(actor.personId, { departmentId, dateKey, personId, role: null, reason });
     } catch (err) {
       if (err instanceof BuilderValidationError || err instanceof BuilderForbiddenError) {
-        redirect(buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, error: "validation", message: err.message }));
+        redirect(buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message: err.message }));
       }
       throw err;
     }
@@ -239,12 +238,12 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     const dateKey = (formData.get("dateKey") as string) ?? "";
     const personId = (formData.get("personId") as string) ?? "";
     const tag = (formData.get("tag") as "triage" | "walkin" | "cc" | "remote") ?? "triage";
-    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode });
+    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode });
     try {
       await toggleTag(actor.personId, { departmentId, dateKey, personId, tag });
     } catch (err) {
       if (err instanceof BuilderValidationError || err instanceof BuilderForbiddenError) {
-        redirect(buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, error: "validation", message: err.message }));
+        redirect(buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message: err.message }));
       }
       throw err;
     }
@@ -257,12 +256,12 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     const actor = await requireModuleAccess("schedule");
     const membershipId = (formData.get("membershipId") as string) ?? "";
     const rawDates = formData.getAll("dates") as string[];
-    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode });
+    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode });
     try {
       await setAvailabilityOverride(actor.personId, { membershipId, dateKeys: rawDates });
     } catch (err) {
       if (err instanceof BuilderValidationError || err instanceof BuilderForbiddenError) {
-        redirect(buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, error: "validation", message: err.message }));
+        redirect(buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message: err.message }));
       }
       throw err;
     }
@@ -274,12 +273,12 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     "use server";
     const actor = await requireModuleAccess("schedule");
     const membershipId = (formData.get("membershipId") as string) ?? "";
-    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode });
+    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode });
     try {
       await setAvailabilityOverride(actor.personId, { membershipId, dateKeys: null });
     } catch (err) {
       if (err instanceof BuilderValidationError || err instanceof BuilderForbiddenError) {
-        redirect(buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, error: "validation", message: err.message }));
+        redirect(buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message: err.message }));
       }
       throw err;
     }
@@ -291,12 +290,12 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     "use server";
     const actor = await requireModuleAccess("schedule");
     const membershipId = (formData.get("membershipId") as string) ?? "";
-    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode });
+    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode });
     try {
       await acknowledgeAvailability(actor.personId, membershipId);
     } catch (err) {
       if (err instanceof BuilderValidationError || err instanceof BuilderForbiddenError) {
-        redirect(buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, error: "validation", message: err.message }));
+        redirect(buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message: err.message }));
       }
       throw err;
     }
@@ -311,12 +310,12 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     const dateKey = (formData.get("dateKey") as string) ?? "";
     const raw = (formData.get("patientsBooked") as string) ?? "";
     const patientsBooked = raw === "" ? null : Number(raw);
-    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode });
+    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode });
     try {
       await setPatientsBooked(actor.personId, { departmentId, dateKey, patientsBooked });
     } catch (err) {
       if (err instanceof BuilderValidationError || err instanceof BuilderForbiddenError) {
-        redirect(buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, error: "validation", message: err.message }));
+        redirect(buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message: err.message }));
       }
       throw err;
     }
@@ -334,12 +333,12 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     const attendingId = rawAttendingId === "" ? null : rawAttendingId;
     const directorName = rawDirectorName.trim() === "" ? null : rawDirectorName.trim();
     const proceduresBooked = rawProceduresBooked === "" ? null : Number(rawProceduresBooked);
-    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode });
+    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode });
     try {
       await upsertRhdClinic(actor.personId, { dateKey, attendingId, directorName, proceduresBooked });
     } catch (err) {
       if (err instanceof BuilderValidationError || err instanceof BuilderForbiddenError) {
-        redirect(buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, error: "validation", message: err.message }));
+        redirect(buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message: err.message }));
       }
       throw err;
     }
@@ -351,12 +350,12 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     "use server";
     const actor = await requireModuleAccess("schedule");
     const requestId = (formData.get("requestId") as string) ?? "";
-    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode });
+    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode });
     try {
       await approveRequest(actor.personId, requestId);
     } catch (err) {
       if (err instanceof RequestValidationError || err instanceof RequestForbiddenError || err instanceof RequestNotFoundError) {
-        redirect(buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, error: "validation", message: err.message }));
+        redirect(buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message: err.message }));
       }
       throw err;
     }
@@ -369,12 +368,12 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     const actor = await requireModuleAccess("schedule");
     const requestId = (formData.get("requestId") as string) ?? "";
     const note = ((formData.get("denyNote") as string) ?? "").trim() || undefined;
-    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode });
+    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode });
     try {
       await denyRequest(actor.personId, requestId, note);
     } catch (err) {
       if (err instanceof RequestValidationError || err instanceof RequestForbiddenError || err instanceof RequestNotFoundError) {
-        redirect(buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, error: "validation", message: err.message }));
+        redirect(buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message: err.message }));
       }
       throw err;
     }
@@ -407,16 +406,28 @@ export default async function BuilderPage({ searchParams }: PageProps) {
             <p className="text-sm text-white/70 mt-0.5 font-semibold uppercase tracking-widest">{dept.code} &middot; {dept.name}</p>
           </div>
           <div className="flex items-center gap-3">
-            {/* View toggle */}
-            <div className="flex items-center rounded-lg bg-white/10 overflow-hidden">
-              <a href={href({ view: "saturday" })} className={`px-3 py-1.5 text-xs font-medium transition-colors ${view === "saturday" ? "bg-white text-brand" : "text-white/70 hover:text-white"}`}>Day view</a>
-              <a href={href({ view: "grid" })} className={`px-3 py-1.5 text-xs font-medium transition-colors border-l border-white/20 ${view === "grid" ? "bg-white text-brand" : "text-white/70 hover:text-white"}`}>Grid view</a>
-            </div>
+            {mode === "availability" ? (
+              <a href={href({ mode: "assign" })} className="px-3 py-1.5 rounded-lg bg-white/10 text-xs font-medium text-white/80 hover:text-white transition-colors">
+                &larr; Back to assigning
+              </a>
+            ) : (
+              <>
+                {/* View toggle */}
+                <div className="flex items-center rounded-lg bg-white/10 overflow-hidden">
+                  <a href={href({ view: "saturday" })} className={`px-3 py-1.5 text-xs font-medium transition-colors ${view === "saturday" ? "bg-white text-brand" : "text-white/70 hover:text-white"}`}>Day view</a>
+                  <a href={href({ view: "grid" })} className={`px-3 py-1.5 text-xs font-medium transition-colors border-l border-white/20 ${view === "grid" ? "bg-white text-brand" : "text-white/70 hover:text-white"}`}>Grid view</a>
+                </div>
+                <a href={href({ mode: "availability" })} className="px-3 py-1.5 rounded-lg bg-white/10 text-xs font-medium text-white/80 hover:text-white transition-colors">
+                  Edit availability
+                </a>
+              </>
+            )}
             {/* Department selector */}
             <form method="GET" action="/schedule/builder" className="flex items-center gap-2">
               {dateParam && <input type="hidden" name="date" value={dateParam} />}
               {view !== "saturday" && <input type="hidden" name="view" value={view} />}
               {mode !== "assign" && <input type="hidden" name="mode" value={mode} />}
+              {gmode !== "assign" && <input type="hidden" name="gmode" value={gmode} />}
               <Select name="dept" defaultValue={dept.id} className="text-sm text-slate-800 bg-white">
                 {data.departments.map((d) => (
                   <option key={d.id} value={d.id}>{d.code} - {d.name}</option>
@@ -459,39 +470,9 @@ export default async function BuilderPage({ searchParams }: PageProps) {
         </nav>
       )}
 
-      {/* Mode tabs */}
-      <div className="flex gap-4 mb-8 border-b border-slate-200">
-        <a
-          href={href({ mode: "assign" })}
-          className={`pb-3 text-sm font-semibold border-b-2 transition-colors ${mode === "assign" ? "border-brand text-brand" : "border-transparent text-slate-400 hover:text-slate-600"}`}
-        >
-          Assign shifts
-          <span className="block text-xs font-normal mt-0.5">Add directors, volunteers, and shadows to this date</span>
-        </a>
-        <a
-          href={href({ mode: "availability" })}
-          className={`pb-3 text-sm font-semibold border-b-2 transition-colors ${mode === "availability" ? "border-brand text-brand" : "border-transparent text-slate-400 hover:text-slate-600"}`}
-        >
-          View availability
-          <span className="block text-xs font-normal mt-0.5">See who is available across all clinic dates</span>
-        </a>
-      </div>
-
       {/* Main content */}
       <div>
-        {view === "grid" ? (
-          <BuilderGrid
-            members={members}
-            clinicDates={clinicDates}
-            assignmentsByDate={assignmentsByDate}
-            selectedDateKey={selectedDateKey}
-            deptId={dept.id}
-            deptCode={dept.code}
-            mode={mode}
-            assignAction={assignAction}
-            unassignAction={unassignAction}
-          />
-        ) : mode === "availability" ? (
+        {mode === "availability" ? (
           <AvailabilityView
             members={members}
             clinicDates={clinicDates}
@@ -500,6 +481,37 @@ export default async function BuilderPage({ searchParams }: PageProps) {
             clearOverrideAction={clearOverrideAction}
             acknowledgeAction={acknowledgeAction}
           />
+        ) : view === "grid" ? (
+          <>
+            <div className="mb-4 flex items-center gap-3">
+              <span className="text-sm font-semibold text-slate-600">Assigning as:</span>
+              <div className="flex items-center rounded-lg border border-slate-200 overflow-hidden">
+                <a
+                  href={href({ gmode: "assign" })}
+                  className={`px-3 py-1.5 text-xs font-medium transition-colors ${gmode === "assign" ? "bg-brand text-white" : "text-slate-500 hover:text-slate-700"}`}
+                >
+                  Volunteer
+                </a>
+                <a
+                  href={href({ gmode: "shadow" })}
+                  className={`px-3 py-1.5 text-xs font-medium transition-colors border-l border-slate-200 ${gmode === "shadow" ? "bg-amber-400 text-white" : "text-slate-500 hover:text-slate-700"}`}
+                >
+                  Shadow
+                </a>
+              </div>
+            </div>
+            <BuilderGrid
+              members={members}
+              clinicDates={clinicDates}
+              assignmentsByDate={assignmentsByDate}
+              selectedDateKey={selectedDateKey}
+              deptId={dept.id}
+              deptCode={dept.code}
+              mode={gmode}
+              assignAction={assignAction}
+              unassignAction={unassignAction}
+            />
+          </>
         ) : (
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_1fr_280px]">
 

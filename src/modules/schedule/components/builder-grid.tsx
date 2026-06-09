@@ -10,7 +10,6 @@
  *                   for DIRECTOR role assignment (keeps grid actions uniform and simple).
  *   shadow       -- empty cell posts assignAction(role=SHADOW); filled SHADOW cell posts unassignAction.
  *                   Non-shadow filled cells are read-only in the grid (role changes via Saturday view).
- *   availability -- entirely read-only; availability editing stays in the Saturday availability mode.
  */
 
 import { BuilderCell } from "./builder-cell";
@@ -33,7 +32,7 @@ type Props = {
   selectedDateKey: string | null;
   deptId: string;
   deptCode: string;
-  mode: "assign" | "shadow" | "availability";
+  mode: "assign" | "shadow";
   assignAction: (fd: FormData) => Promise<void>;
   unassignAction: (fd: FormData) => Promise<void>;
 };
@@ -110,7 +109,7 @@ type GridCellProps = {
   assignment: BuilderAssignmentEntry | undefined;
   deptId: string;
   deptCode: string;
-  mode: "assign" | "shadow" | "availability";
+  mode: "assign" | "shadow";
   isSelectedDate: boolean;
   assignAction: (fd: FormData) => Promise<void>;
   unassignAction: (fd: FormData) => Promise<void>;
@@ -141,18 +140,6 @@ function GridCell({
     ? `${assignment.role.toLowerCase()} on ${displayD}`
     : `unassigned on ${displayD}`;
   const ariaLabel = `${memberName}, ${stateLabel}`;
-
-  // Availability mode: read-only cell.
-  if (mode === "availability") {
-    return (
-      <td
-        className={`border border-slate-200 px-2 py-1.5 text-center align-middle min-w-[52px] ${availBg} ${selectedHighlight}`}
-        aria-label={ariaLabel}
-      >
-        <CellContent assignment={assignment} deptCode={deptCode} />
-      </td>
-    );
-  }
 
   // Assign mode: empty -> VOLUNTEER; filled -> unassign.
   if (mode === "assign") {

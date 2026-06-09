@@ -1,10 +1,11 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import {
   createDraft, updateCampaign, previewAudience, sendCampaignNow,
   CampaignValidationError, CampaignConfirmationError,
 } from "./service";
+import * as audienceResolve from "@/platform/email/audience/resolve";
 
 beforeEach(resetDb);
 
@@ -52,5 +53,40 @@ describe("campaign service", () => {
     await expect(sendCampaignNow(null, c.id, {})).rejects.toBeInstanceOf(CampaignConfirmationError);
     const ok = await sendCampaignNow(null, c.id, { confirmCount: 26 });
     expect(ok.recipientCount).toBe(26);
+  });
+
+  it("rejects sending a campaign that is not a draft", async () => {
+    await activePerson("Sam Rivera", "sam@example.com");
+    const c = await createDraft(null, "Once");
+    await updateCampaign(null, c.id, { subject: "s", body: "<p>hi</p>", audience: ALL_ACTIVE });
+    await sendCampaignNow(null, c.id, {});
+    await expect(sendCampaignNow(null, c.id, {})).rejects.toThrow(/already sent/i);
+  });
+
+  it("de-duplicates recipients by email (case-insensitive)", async () => {
+    // The DB enforces lower(contactEmail) uniqueness, so two Person rows with
+    // emails differing only in case cannot coexist. To exercise the service's
+    // dedup logic we mock resolveAudience to return two entries whose emails
+    // collapse to the same lowercase key, verifying the Set-based filter fires.
+    const person = await activePerson("Sam Rivera", "dup@example.com");
+    const c = await createDraft(null, "Dedup");
+    await updateCampaign(null, c.id, { subject: "s", body: "<p>hi {{ firstName }}</p>", audience: ALL_ACTIVE });
+
+    const spy = vi.spyOn(audienceResolve, "resolveAudience").mockResolvedValueOnce({
+      recipients: [
+        { email: "dup@example.com", displayName: "Sam Rivera", recordType: "PERSON", recordId: person.id, variables: { firstName: "Sam", name: "Sam Rivera" } },
+        { email: "DUP@example.com", displayName: "Sam Clone", recordType: "PERSON", recordId: person.id, variables: { firstName: "Sam", name: "Sam Clone" } },
+      ],
+      excludedNoEmail: 0,
+    });
+
+    try {
+      const res = await sendCampaignNow(null, c.id, {});
+      expect(res.recipientCount).toBe(1);
+      const logs = await prisma.emailLog.findMany({ where: { campaignRunId: res.runId } });
+      expect(logs.length).toBe(1);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

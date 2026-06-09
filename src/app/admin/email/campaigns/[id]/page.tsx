@@ -229,7 +229,17 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
     <div className="space-y-6">
       <PageHeader
         title={campaign.name}
-        description={isSent ? "This campaign has already been sent." : "Draft"}
+        description={
+          isSent
+            ? "This campaign has already been sent."
+            : isScheduled
+              ? "Scheduled — waiting to send."
+              : isActive
+                ? "Recurring — sends on a schedule."
+                : campaign.status === "CANCELLED"
+                  ? "Cancelled."
+                  : "Draft"
+        }
       />
 
       {/* Flash banners */}
@@ -277,8 +287,8 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
         </p>
       )}
 
-      {/* Main save form */}
-      {!isSent && (
+      {/* Main save form — editable only while a draft */}
+      {isDraft && (
         <form action={saveAction} className="space-y-8">
           {/* Campaign name */}
           <div>
@@ -315,8 +325,8 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
         </form>
       )}
 
-      {/* Sent-campaign read-only summary */}
-      {isSent && (
+      {/* Read-only summary for any non-draft campaign (sent / scheduled / recurring / cancelled) */}
+      {!isDraft && (
         <div className="space-y-4">
           <div className="rounded-lg border border-slate-200 bg-white p-5 space-y-2">
             <p className="text-sm font-medium text-slate-700">Subject</p>
@@ -325,8 +335,8 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
         </div>
       )}
 
-      {/* Action forms: preview / test send / send */}
-      {!isSent && (
+      {/* Action forms: preview / test send / send — drafts only */}
+      {isDraft && (
         <div className="flex flex-wrap gap-3 border-t border-slate-200 pt-6">
           {/* Preview audience */}
           <form action={previewAction}>

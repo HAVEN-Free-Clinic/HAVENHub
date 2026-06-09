@@ -7,6 +7,7 @@
  * Server component: no "use client" directive.
  */
 
+import Link from "next/link";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
 import { Input, Field } from "@/platform/ui/input";
@@ -54,6 +55,7 @@ const PROCEDURE_STATUS_LABELS: Record<ProcedureStatus, string> = {
 type ReadinessPanelProps = {
   rhd: BuilderRhd;
   clinicAction: (fd: FormData) => Promise<void>;
+  addAttendingAction: (fd: FormData) => Promise<void>;
   dateKey: string;
 };
 
@@ -64,6 +66,7 @@ type ReadinessPanelProps = {
 export function ReadinessPanel({
   rhd,
   clinicAction,
+  addAttendingAction,
   dateKey,
 }: ReadinessPanelProps) {
   const { readiness, attendingOptions, clinic } = rhd;
@@ -113,6 +116,19 @@ export function ReadinessPanel({
           Save clinic
         </Button>
       </form>
+
+      {/* Quick-add a new attending */}
+      <details className="text-xs">
+        <summary className="cursor-pointer text-slate-500 hover:text-slate-700">&#xFF0B; Add attending</summary>
+        <form action={addAttendingAction} className="mt-2 flex flex-col gap-2">
+          <Input name="scheduleName" placeholder="Schedule name (e.g. Rivera)" required className="text-sm" />
+          <Input name="fullName" placeholder="Full name (optional)" className="text-sm" />
+          <Button type="submit" variant="outline" size="sm">Add</Button>
+        </form>
+      </details>
+      <Link href="/schedule/attendings" className="text-xs text-brand hover:underline">
+        Manage attendings
+      </Link>
 
       {/* Readiness readout */}
       <div className="flex flex-col gap-3 border-t border-slate-100 pt-3">

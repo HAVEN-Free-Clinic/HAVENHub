@@ -29,6 +29,7 @@ export const MODULES: ModuleManifest[] = [
       { label: "My schedule", href: "/schedule" },
       { label: "Full schedule", href: "/schedule/full" },
       { label: "Builder", href: "/schedule/builder" },
+      { label: "Attendings", href: "/schedule/attendings" },
     ],
   },
   {
@@ -77,6 +78,8 @@ export const MODULES: ModuleManifest[] = [
       "admin.manage_roles",
       "admin.view_audit",
       "admin.manage_sync",
+      "admin.manage_email_templates",
+      "admin.send_email_campaign",
     ],
     status: "active",
     nav: [

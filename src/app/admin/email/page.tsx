@@ -6,6 +6,7 @@
  * emails. Gates on admin.manage_sync.
  */
 
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
@@ -199,6 +200,22 @@ export default async function EmailPage({ searchParams }: PageProps) {
       <PageHeader
         title="Email"
         description="Monitor outgoing email logs. Retry failed messages to re-queue them for the next drain pass."
+        action={
+          <div className="flex gap-4">
+            <Link
+              href="/admin/email/campaigns"
+              className="text-sm font-medium underline underline-offset-2"
+            >
+              Campaigns
+            </Link>
+            <Link
+              href="/admin/email/templates"
+              className="text-sm font-medium underline underline-offset-2"
+            >
+              Manage templates
+            </Link>
+          </div>
+        }
       />
 
       {/* Banners */}

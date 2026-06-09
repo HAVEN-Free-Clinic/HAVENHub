@@ -6,11 +6,10 @@
  *
  * Interaction model by mode:
  *   assign       -- empty cell posts assignAction(role=VOLUNTEER); filled cell posts unassignAction.
- *                   Director-kind members also get VOLUNTEER in grid mode; use the Saturday view
+ *                   Director-kind members also get VOLUNTEER in grid mode; use the Day view
  *                   for DIRECTOR role assignment (keeps grid actions uniform and simple).
  *   shadow       -- empty cell posts assignAction(role=SHADOW); filled SHADOW cell posts unassignAction.
- *                   Non-shadow filled cells are read-only in the grid (role changes via Saturday view).
- *   availability -- entirely read-only; availability editing stays in the Saturday availability mode.
+ *                   Non-shadow filled cells are read-only in the grid (role changes via Day view).
  */
 
 import { BuilderCell } from "./builder-cell";
@@ -33,7 +32,7 @@ type Props = {
   selectedDateKey: string | null;
   deptId: string;
   deptCode: string;
-  mode: "assign" | "shadow" | "availability";
+  mode: "assign" | "shadow";
   assignAction: (fd: FormData) => Promise<void>;
   unassignAction: (fd: FormData) => Promise<void>;
 };
@@ -110,7 +109,7 @@ type GridCellProps = {
   assignment: BuilderAssignmentEntry | undefined;
   deptId: string;
   deptCode: string;
-  mode: "assign" | "shadow" | "availability";
+  mode: "assign" | "shadow";
   isSelectedDate: boolean;
   assignAction: (fd: FormData) => Promise<void>;
   unassignAction: (fd: FormData) => Promise<void>;
@@ -154,19 +153,6 @@ function GridCell({
       &middot;
     </span>
   );
-
-  // Availability mode: read-only cell.
-  if (mode === "availability") {
-    return (
-      <td
-        className={`relative border border-slate-200 px-2 py-1.5 text-center align-middle min-w-[52px] ${availBg} ${selectedHighlight}`}
-        aria-label={ariaLabel}
-      >
-        <CellContent assignment={assignment} deptCode={deptCode} />
-        {unavailableMarker}
-      </td>
-    );
-  }
 
   // Assign mode: empty -> VOLUNTEER; filled -> unassign.
   if (mode === "assign") {
@@ -261,7 +247,7 @@ function GridCell({
   return (
     <td
       className={`relative border border-slate-200 px-2 py-1.5 text-center align-middle min-w-[52px] ${availBg} ${selectedHighlight}`}
-      aria-label={`${ariaLabel} (role change via Saturday view)`}
+      aria-label={`${ariaLabel} (role change via Day view)`}
     >
       <CellContent assignment={assignment} deptCode={deptCode} />
       {unavailableMarker}

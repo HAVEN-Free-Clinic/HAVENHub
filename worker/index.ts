@@ -12,6 +12,7 @@ import { refreshComplianceMirror } from "../src/platform/compliance/mirror-statu
 import { runComplianceReminders } from "../src/platform/email/reminders";
 import { drainEmailQueue } from "../src/platform/email/send";
 import { emailTransportFromConfig } from "../src/platform/email/transport";
+import { dispatchDueCampaigns } from "../src/platform/email/campaigns/dispatch";
 
 const HEARTBEAT_ID = "mirror-worker";
 const OUTBOX_QUEUE = "mirror-outbox";
@@ -19,6 +20,7 @@ const RECONCILE_QUEUE = "mirror-reconcile";
 const COMPLIANCE_REFRESH_QUEUE = "compliance-refresh";
 const REMINDERS_QUEUE = "compliance-reminders";
 const EMAIL_QUEUE = "email-send";
+const CAMPAIGN_DISPATCH_QUEUE = "campaign-dispatch";
 
 function mirrorTarget(): MirrorTarget {
   return {
@@ -41,6 +43,7 @@ async function main() {
   await boss.createQueue(COMPLIANCE_REFRESH_QUEUE);
   await boss.createQueue(REMINDERS_QUEUE);
   await boss.createQueue(EMAIL_QUEUE);
+  await boss.createQueue(CAMPAIGN_DISPATCH_QUEUE);
 
   // Cron triggers; the drain also loops until empty, so a 1-minute cadence is
   // a latency bound, not a throughput bound.
@@ -54,6 +57,9 @@ async function main() {
   // person at most weekly even though the job runs daily.
   await boss.schedule(REMINDERS_QUEUE, "0 13 * * *");
   await boss.schedule(EMAIL_QUEUE, "* * * * *");
+  // Campaign dispatcher: every minute, run any scheduled/recurring campaigns whose
+  // nextRunAt has passed. The enqueued emails drain via the email-send job above.
+  await boss.schedule(CAMPAIGN_DISPATCH_QUEUE, "* * * * *");
 
   const client = config.AIRTABLE_PAT ? new AirtableClient(config.AIRTABLE_PAT) : null;
   // Build the transport once outside the handler so the token cache is shared
@@ -101,6 +107,15 @@ async function main() {
       total += processed;
     } while (processed > 0);
     if (total > 0) console.log(`[worker] email drain processed ${total} message(s)`);
+  });
+
+  // Campaign dispatch: fire any due scheduled/recurring campaigns, re-evaluating
+  // their audience against current data on each run.
+  await boss.work(CAMPAIGN_DISPATCH_QUEUE, async () => {
+    const r = await dispatchDueCampaigns(new Date());
+    if (r.executed > 0 || r.errors > 0) {
+      console.log(`[worker] campaign dispatch executed=${r.executed} errors=${r.errors}`);
+    }
   });
 
   const beat = async () => {

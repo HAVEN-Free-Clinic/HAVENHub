@@ -14,7 +14,7 @@ export default async function TrainingPage({
   const my = await getMyTraining(person.personId);
 
   return (
-    <AppShell userName={person.name} termLabel={my.term.name}>
+    <AppShell userName={person.name} termLabel={my.term.name} personId={person.personId}>
       <PageHeader
         title="Volunteer Training"
         description="Complete training to be cleared for the term."

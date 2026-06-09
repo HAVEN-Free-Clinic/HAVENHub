@@ -1,10 +1,10 @@
 import path from "node:path";
-import { promises as fs } from "node:fs";
 import { randomUUID } from "node:crypto";
 import type { OnboardingContract } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { config } from "@/platform/config";
+import { putObject, deleteObject } from "@/platform/storage";
 import { queueEmail } from "@/platform/email/send";
 import { recordAudit } from "@/platform/audit";
 import { RecruitmentAuthError } from "./review";
@@ -149,7 +149,7 @@ export async function submitContract(
     hipaaMimeType?: string;
     hipaaSize?: number;
   } = {};
-  let writtenPath: string | null = null;
+  let writtenKey: string | null = null;
   if (input.hipaaFile) {
     const capBytes = config.MAX_UPLOAD_MB * 1024 * 1024;
     if (input.hipaaFile.bytes.length > capBytes) {
@@ -161,17 +161,12 @@ export async function submitContract(
     if (!ALLOWED_MIME.includes(input.hipaaFile.mimeType)) {
       throw new ContractValidationError("File type not supported.", { hipaaFile: "Upload a PDF or image." });
     }
-    const dir = path.resolve(path.join(config.UPLOAD_DIR, "onboarding", contract.id));
-    await fs.mkdir(dir, { recursive: true });
     const safeExt =
       (path.extname(input.hipaaFile.fileName).match(/^\.[A-Za-z0-9]{1,8}$/)?.[0]) ?? "";
     const storedName = `hipaa-${randomUUID()}${safeExt}`;
-    const diskPath = path.resolve(dir, storedName);
-    if (!diskPath.startsWith(dir + path.sep)) {
-      throw new ContractValidationError("Invalid file.", { hipaaFile: "invalid" });
-    }
-    await fs.writeFile(diskPath, input.hipaaFile.bytes);
-    writtenPath = diskPath;
+    const storageKey = `onboarding/${contract.id}/${storedName}`;
+    await putObject(storageKey, input.hipaaFile.bytes, input.hipaaFile.mimeType);
+    writtenKey = storageKey;
     fileRef = {
       hipaaStoredName: storedName,
       hipaaFileName: input.hipaaFile.fileName,
@@ -210,7 +205,7 @@ export async function submitContract(
       },
     });
   } catch (err) {
-    if (writtenPath) await fs.rm(writtenPath, { force: true }).catch(() => undefined);
+    if (writtenKey) await deleteObject(writtenKey);
     throw err;
   }
   await recordAudit({

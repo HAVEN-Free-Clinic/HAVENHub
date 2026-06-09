@@ -10,7 +10,7 @@ export default async function RecruitmentLayout({ children }: { children: ReactN
   const activeTerm = await prisma.term.findFirst({ where: { status: "ACTIVE" }, orderBy: { startDate: "desc" } });
   const mod = getModule("recruitment")!;
   return (
-    <AppShell userName={person.name} termLabel={activeTerm?.name ?? null}>
+    <AppShell userName={person.name} termLabel={activeTerm?.name ?? null} personId={person.personId}>
       <ModuleNav items={mod.nav} />
       <div className="mt-8">{children}</div>
     </AppShell>

@@ -10,6 +10,6 @@ export async function resetDb() {
               "DepartmentDelegation", "Department", "Term", "Person", "AuditLog",
               "Outbox", "MirrorRecord", "WorkerHeartbeat",
               "OffboardFlag", "EpicRequest", "YnhhTicket", "DisciplinaryAction", "EmailLog", "EmailCampaignRun", "EmailCampaign", "EmailTemplate",
-              "ComplianceReminder", "MailCredential" CASCADE`
+              "ComplianceReminder", "MailCredential", "Setting" CASCADE`
   );
 }

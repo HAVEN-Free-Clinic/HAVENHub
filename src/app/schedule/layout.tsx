@@ -13,7 +13,7 @@ export default async function ScheduleLayout({ children }: { children: ReactNode
   });
   const mod = getModule("schedule")!;
   return (
-    <AppShell userName={person.name} termLabel={activeTerm?.name ?? null}>
+    <AppShell userName={person.name} termLabel={activeTerm?.name ?? null} personId={person.personId}>
       <ModuleNav items={mod.nav} />
       <div className="mt-8">{children}</div>
     </AppShell>

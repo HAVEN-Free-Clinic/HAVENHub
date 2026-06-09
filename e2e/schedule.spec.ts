@@ -523,11 +523,21 @@ test("Builder grid shadow assign: Jack toggles Shadow and assigns from a grid ce
 
   const shadowCell = page.getByRole("button", { name: /as shadow on/ }).first();
   await expect(shadowCell).toBeVisible();
+  const cellLabel = await shadowCell.getAttribute("aria-label"); // "Assign <name> as shadow on <date>"
+  expect(cellLabel).toBeTruthy();
   await shadowCell.click();
   await page.waitForLoadState("networkidle");
 
-  const unassignShadow = page.getByRole("button", { name: /Unassign .*\(shadow\)/ }).first();
+  // Unassign the SAME member+date we just assigned, derived from the cell's label.
+  const parts = cellLabel!.match(/^Assign (.+) as shadow on (.+)$/);
+  expect(parts).toBeTruthy();
+  const unassignShadow = page.getByRole("button", {
+    name: `Unassign ${parts![1]} (shadow) from ${parts![2]}`,
+  });
   await expect(unassignShadow).toBeVisible();
   await unassignShadow.click();
   await page.waitForLoadState("networkidle");
+
+  // The same cell reverts to an assignable shadow cell.
+  await expect(page.getByRole("button", { name: cellLabel! })).toBeVisible();
 });

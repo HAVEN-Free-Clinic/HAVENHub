@@ -57,6 +57,13 @@ export default async function SettingsPage({ searchParams }: PageProps) {
     "use server";
     const session = await requirePermission(PERMISSION);
     const key = String(formData.get("__key"));
+    // Defensive: resetSetting throws (500) for an unregistered key. The key
+    // comes from a server-rendered hidden input so this is unreachable in
+    // practice, but guard it to match updateAction and fail gracefully.
+    const known = (await Promise.all(listCategories().map((c) => getCategory(c))))
+      .flat()
+      .some((s) => s.key === key);
+    if (!known) redirect(`/admin/settings?error=${encodeURIComponent("Unknown setting")}`);
     await resetSetting(key, session.personId);
     revalidatePath("/admin/settings");
     redirect("/admin/settings?saved=1");
@@ -126,7 +133,7 @@ export default async function SettingsPage({ searchParams }: PageProps) {
                       Save
                     </button>
                     {s.isOverridden && (
-                      <span className="text-xs text-amber-600">Overridden (default: not in use)</span>
+                      <span className="text-xs text-amber-600">Currently overriding the default</span>
                     )}
                   </div>
                 </form>

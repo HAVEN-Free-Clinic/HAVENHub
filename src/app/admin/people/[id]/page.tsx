@@ -40,6 +40,8 @@ export default async function PersonDetailPage({ params, searchParams }: PagePro
         epicId: (formData.get("epicId") as string) || null,
         yaleAffiliation: (formData.get("yaleAffiliation") as string) || null,
         gradYear: (formData.get("gradYear") as string) || null,
+        spanishSpeaking: formData.get("spanishSpeaking") === "on",
+        licensedRN: formData.get("licensedRN") === "on",
       });
     } catch (err) {
       if (err instanceof PersonConflictError) {

@@ -68,6 +68,8 @@ export type PersonInput = {
   epicId?: string | null;
   yaleAffiliation?: string | null;
   gradYear?: string | null;
+  spanishSpeaking?: boolean;
+  licensedRN?: boolean;
 };
 
 /** Normalize values that must be lowercase (ids, emails). */
@@ -159,6 +161,8 @@ export async function updatePersonFields(
     "epicId",
     "yaleAffiliation",
     "gradYear",
+    "spanishSpeaking",
+    "licensedRN",
   ];
 
   for (const key of fields) {

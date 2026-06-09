@@ -30,7 +30,14 @@ import { recordAudit } from "@/platform/audit";
 import { can } from "@/platform/rbac/engine";
 import { updatePersonFields, PersonNotFoundError } from "@/platform/people";
 import { queueEmail } from "@/platform/email/send";
-import { EPIC_TEMPLATES, type EpicTemplateKey } from "@/platform/email/templates/epic";
+import {
+  epicOnboardingContext,
+  epicActivationContext,
+  epicPasswordResetContext,
+  type EpicEmailParams,
+  type EpicTemplateKey,
+} from "@/platform/email/templates/epic";
+import { renderEmail } from "@/platform/email/templates/renderEmail";
 
 const PAGE_SIZE = 25;
 
@@ -576,7 +583,7 @@ export async function cancelRequest(
  * (EpicNotFoundError). Person must have a contactEmail (EpicStateError).
  *
  * Builds params including departmentNames from the person's ACTIVE memberships
- * in the ACTIVE term. Renders via EPIC_TEMPLATES and enqueues with queueEmail.
+ * in the ACTIVE term. Renders via renderEmail and enqueues with queueEmail.
  *
  * Audits "epic.email" with the template key.
  */
@@ -617,16 +624,21 @@ export async function sendEpicEmail(
     departmentNames = memberships.map((m) => m.department.name).sort();
   }
 
-  const params = {
+  const params: EpicEmailParams = {
     personName: person.name ?? "",
     netId: person.netId,
     contactEmail: person.contactEmail,
     epicId: person.epicId,
     departmentNames,
-    kind: req.kind,
+    kind: req.kind ?? undefined,
   };
 
-  const { subject, html } = EPIC_TEMPLATES[template](params);
+  const contextBuilders: Record<EpicTemplateKey, (p: EpicEmailParams) => Record<string, unknown>> = {
+    "epic-onboarding": epicOnboardingContext,
+    "epic-activation": epicActivationContext,
+    "epic-password-reset": epicPasswordResetContext,
+  };
+  const { subject, html } = await renderEmail(template, contextBuilders[template](params));
 
   // Global prisma client is intentional: there is no surrounding domain write to be transactional with.
   await queueEmail(prisma, {
@@ -718,7 +730,7 @@ export async function updateRequestDetails(
  * Returns epic-template EmailLog rows for the given personIds, grouped into
  * a Map keyed by personId, newest first.
  *
- * Only rows whose template is a key in EPIC_TEMPLATES are included. Non-epic
+ * Only rows whose template is an epic template key are included. Non-epic
  * template rows are silently excluded.
  *
  * Trusts callers: the page gates this to manage_epic holders.
@@ -726,7 +738,11 @@ export async function updateRequestDetails(
 export async function emailHistory(personIds: string[]): Promise<Map<string, EmailLog[]>> {
   if (personIds.length === 0) return new Map();
 
-  const epicTemplateKeys = Object.keys(EPIC_TEMPLATES);
+  const epicTemplateKeys: EpicTemplateKey[] = [
+    "epic-onboarding",
+    "epic-activation",
+    "epic-password-reset",
+  ];
 
   const rows = await prisma.emailLog.findMany({
     where: {

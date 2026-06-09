@@ -29,9 +29,10 @@ import { prisma } from "@/platform/db";
 import { config } from "@/platform/config";
 import { complianceStatus, certExpiresAt } from "@/platform/compliance/rules";
 import { queueEmail } from "./send";
+import { renderEmail } from "./templates/renderEmail";
 import {
-  complianceReminderEmail,
-  complianceEscalationEmail,
+  complianceReminderContext,
+  complianceEscalationContext,
 } from "./templates/compliance";
 
 // ---------------------------------------------------------------------------
@@ -179,13 +180,14 @@ export async function runComplianceReminders(
     const expiresAt =
       cert?.completionDate ? certExpiresAt(cert.completionDate) : null;
 
+    const renderedReminder = await renderEmail(
+      "compliance-reminder",
+      complianceReminderContext({ personName: person.name, status, expiresAt }),
+    );
     await queueEmail(prisma, {
       to: person.contactEmail,
-      ...complianceReminderEmail({
-        personName: person.name,
-        status,
-        expiresAt,
-      }),
+      subject: renderedReminder.subject,
+      html: renderedReminder.html,
       template: "compliance-reminder",
       personId: person.id,
     });
@@ -314,14 +316,19 @@ async function sendEscalations(
   for (const [, director] of seenDirectors) {
     if (!director.contactEmail) continue;
 
-    await queueEmail(prisma, {
-      to: director.contactEmail,
-      ...complianceEscalationEmail({
+    const renderedEscalation = await renderEmail(
+      "compliance-escalation",
+      complianceEscalationContext({
         directorName: director.name,
         volunteerName: volunteer.name,
         departmentName: director.departmentName,
         status,
       }),
+    );
+    await queueEmail(prisma, {
+      to: director.contactEmail,
+      subject: renderedEscalation.subject,
+      html: renderedEscalation.html,
       template: "compliance-escalation",
       personId: volunteer.id,
     });

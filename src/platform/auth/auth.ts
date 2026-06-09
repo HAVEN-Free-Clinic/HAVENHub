@@ -47,7 +47,7 @@ async function resolveEntraLogin(
 export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
   secret: config.AUTH_SECRET,
-  session: { strategy: "jwt", maxAge: 60 * 60 * 24 * 7 }, // 7 days; status re-checked per request anyway
+  session: { strategy: "jwt", maxAge: 60 * 60 * 24 * 7 }, // 7 days
   providers: [
     ...(config.AZURE_AD_CLIENT_ID
       ? [

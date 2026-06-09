@@ -109,6 +109,11 @@ describe("buildAuthorizeUrl", () => {
     expect(decodeURIComponent(url)).toContain("Mail.Send.Shared");
   });
 
+  it("includes Channel.ReadBasic.All in the scope", () => {
+    const url = buildAuthorizeUrl({ state: "xyz" });
+    expect(decodeURIComponent(url)).toContain("Channel.ReadBasic.All");
+  });
+
   it("includes the client_id param key", () => {
     const url = buildAuthorizeUrl({ state: "s1" });
     // Value may be undefined in test env but the key must be present.

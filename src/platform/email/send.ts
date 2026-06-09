@@ -11,6 +11,7 @@ export type QueueEmailInput = {
   template: string;
   personId?: string | null;
   triggeredById?: string | null;
+  campaignRunId?: string | null;
 };
 
 const MAX_ATTEMPTS = 8;
@@ -29,6 +30,7 @@ export async function queueEmail(db: Db, input: QueueEmailInput): Promise<EmailL
       template: input.template,
       personId: input.personId ?? null,
       triggeredById: input.triggeredById ?? null,
+      campaignRunId: input.campaignRunId ?? null,
     },
   });
 }

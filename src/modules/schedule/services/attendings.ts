@@ -15,6 +15,15 @@ export type CapabilityValue = "yes" | "no" | "unknown";
 export const CAPABILITY_KEYS = ["iudIn", "iudOut", "nexplanon", "gac", "emb", "seesMale"] as const;
 export type CapabilityKey = (typeof CAPABILITY_KEYS)[number];
 
+export const CAPABILITY_LABELS: Record<CapabilityKey, string> = {
+  iudIn: "IUD In",
+  iudOut: "IUD Out",
+  nexplanon: "Nexplanon",
+  gac: "GAC",
+  emb: "EMB",
+  seesMale: "Sees Male",
+};
+
 export class AttendingForbiddenError extends Error {
   constructor(message = "Actor does not manage any RHD-family department.") {
     super(message);

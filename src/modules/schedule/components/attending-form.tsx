@@ -7,16 +7,7 @@ import type { RhdAttending } from "@prisma/client";
 import { Input, Field } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Button } from "@/platform/ui/button";
-import { CAPABILITY_KEYS } from "@/modules/schedule/services/attendings";
-
-const CAPABILITY_LABELS: Record<(typeof CAPABILITY_KEYS)[number], string> = {
-  iudIn: "IUD In",
-  iudOut: "IUD Out",
-  nexplanon: "Nexplanon",
-  gac: "GAC",
-  emb: "EMB",
-  seesMale: "Sees Male",
-};
+import { CAPABILITY_KEYS, CAPABILITY_LABELS } from "@/modules/schedule/services/attendings";
 
 type AttendingFormProps = {
   action: (formData: FormData) => Promise<void>;
@@ -57,10 +48,12 @@ export function AttendingForm({ action, attending, error }: AttendingFormProps) 
         <Input name="notes" defaultValue={attending?.notes ?? ""} placeholder="Optional" />
       </Field>
 
-      <label className="flex items-center gap-2 text-sm text-slate-700">
-        <input type="checkbox" name="isActive" defaultChecked={attending?.isActive ?? true} className="h-4 w-4 rounded accent-brand" />
-        Active
-      </label>
+      {attending !== undefined && (
+        <label className="flex items-center gap-2 text-sm text-slate-700">
+          <input type="checkbox" name="isActive" defaultChecked={attending.isActive} className="h-4 w-4 rounded accent-brand" />
+          Active
+        </label>
+      )}
 
       <Button type="submit" variant="primary">Save</Button>
     </form>

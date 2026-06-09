@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { requireModuleAccess } from "@/platform/auth/session";
-import { listAttendings, CAPABILITY_KEYS } from "@/modules/schedule/services/attendings";
+import { listAttendings, CAPABILITY_KEYS, CAPABILITY_LABELS } from "@/modules/schedule/services/attendings";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
 import { buttonClasses } from "@/platform/ui/button";
@@ -28,7 +28,7 @@ export default async function AttendingsListPage() {
             <TR>
               <TH>Name</TH>
               {CAPABILITY_KEYS.map((k) => (
-                <TH key={k}>{k}</TH>
+                <TH key={k}>{CAPABILITY_LABELS[k]}</TH>
               ))}
               <TH>Active</TH>
               <TH></TH>

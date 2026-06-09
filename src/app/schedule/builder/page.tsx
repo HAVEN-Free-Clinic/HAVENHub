@@ -32,6 +32,7 @@ import {
   BuilderForbiddenError,
   BuilderValidationError,
 } from "@/modules/schedule/services/builder";
+import { createAttending, AttendingValidationError, AttendingForbiddenError } from "@/modules/schedule/services/attendings";
 import {
   listDepartmentRequests,
   approveRequest,
@@ -336,6 +337,24 @@ export default async function BuilderPage({ searchParams }: PageProps) {
       await upsertRhdClinic(actor.personId, { dateKey, attendingId, directorName, proceduresBooked });
     } catch (err) {
       if (err instanceof BuilderValidationError || err instanceof BuilderForbiddenError) {
+        redirect(buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message: err.message }));
+      }
+      throw err;
+    }
+    revalidatePath("/schedule/builder");
+    redirect(base);
+  }
+
+  async function addAttendingAction(formData: FormData) {
+    "use server";
+    const actor = await requireModuleAccess("schedule");
+    const scheduleName = ((formData.get("scheduleName") as string) ?? "").trim();
+    const fullName = ((formData.get("fullName") as string) ?? "").trim();
+    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode });
+    try {
+      await createAttending(actor.personId, { scheduleName, fullName: fullName || scheduleName });
+    } catch (err) {
+      if (err instanceof AttendingValidationError || err instanceof AttendingForbiddenError) {
         redirect(buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message: err.message }));
       }
       throw err;
@@ -781,6 +800,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                 <ReadinessPanel
                   rhd={data.rhd!}
                   clinicAction={rhdClinicAction}
+                  addAttendingAction={addAttendingAction}
                   dateKey={selectedDateKey!}
                 />
               )}

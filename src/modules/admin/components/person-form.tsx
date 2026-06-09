@@ -24,6 +24,8 @@ type PersonFormProps = {
     | "epicId"
     | "yaleAffiliation"
     | "gradYear"
+    | "spanishSpeaking"
+    | "licensedRN"
   >;
   /** Error string to display (e.g. "netId already belongs to another person"). */
   error?: string;
@@ -107,6 +109,27 @@ export function PersonForm({ action, person, error, saved, children }: PersonFor
             placeholder="2027"
           />
         </Field>
+      </div>
+
+      <div className="flex flex-wrap gap-6">
+        <label className="flex items-center gap-2 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            name="spanishSpeaking"
+            defaultChecked={person?.spanishSpeaking ?? false}
+            className="h-4 w-4 rounded accent-brand"
+          />
+          Spanish-speaking
+        </label>
+        <label className="flex items-center gap-2 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            name="licensedRN"
+            defaultChecked={person?.licensedRN ?? false}
+            className="h-4 w-4 rounded accent-brand"
+          />
+          Licensed RN
+        </label>
       </div>
 
       <div className="flex items-center gap-3 pt-2">

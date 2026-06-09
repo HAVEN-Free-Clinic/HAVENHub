@@ -191,8 +191,8 @@ test("Builder assign round trip: Jack assigns then removes a member via VADM", a
   await page.goto("/schedule/builder");
   await page.waitForURL((url) => url.pathname === "/schedule/builder");
 
-  // The Schedule Builder heading must be visible.
-  await expect(page.getByRole("heading", { name: "Schedule Builder" })).toBeVisible();
+  // "Schedule Builder" renders as a paragraph (breadcrumb) in the refactored builder layout.
+  await expect(page.locator("p", { hasText: "Schedule Builder" })).toBeVisible();
 
   // Select VADM department from the Department select.
   await selectDeptByCode(page, "VADM");
@@ -212,16 +212,22 @@ test("Builder assign round trip: Jack assigns then removes a member via VADM", a
   const availableSection = page.locator("section").filter({ has: page.locator("h2", { hasText: "Available to assign" }) });
   await expect(availableSection.locator("h2", { hasText: "Available to assign" })).toBeVisible();
 
-  // Find the first "Assign" button in the "Available to assign" section.
-  const assignBtn = availableSection.getByRole("button", { name: "Assign" }).first();
+  // The unified Day view shows the "said yes" subsection header.
+  await expect(availableSection.getByText(/Available · said yes/)).toBeVisible();
+
+  // Find the first "Assign as volunteer" button in the "Available to assign" section.
+  // Button labels changed from plain "Assign" to role-specific "Assign as volunteer",
+  // "Assign as shadow", "Assign as director" in the refactored builder.
+  const assignBtn = availableSection.getByRole("button", { name: /Assign as volunteer/ }).first();
   await expect(assignBtn).toBeVisible();
 
   // Capture the member name from the row containing the Assign button.
+  // Member name span changed from font-medium to font-semibold in the refactored builder.
   const memberRow = assignBtn.locator("xpath=ancestor::div[contains(@class,'rounded-lg')]").first();
-  const memberName = await memberRow.locator("span.font-medium").first().textContent();
+  const memberName = await memberRow.locator("span.font-semibold").first().textContent();
   expect(memberName).toBeTruthy();
 
-  // Click Assign -- this is a regular submit (BuilderCell), not a ConfirmButton.
+  // Click Assign as volunteer -- this is a regular submit (BuilderCell), not a ConfirmButton.
   await assignBtn.click();
   await page.waitForLoadState("networkidle");
 
@@ -232,25 +238,27 @@ test("Builder assign round trip: Jack assigns then removes a member via VADM", a
   });
   await expect(assignedSection.locator("h2").filter({ hasText: /^Assigned$/ })).toBeVisible();
 
-  // The member name should appear somewhere in the Assigned section.
-  await expect(assignedSection.getByText(memberName!.trim(), { exact: false })).toBeVisible();
+  // The member name should appear in the Assigned section (scoped to the volunteer span).
+  await expect(assignedSection.locator("span.font-medium", { hasText: memberName!.trim() }).first()).toBeVisible();
 
-  // Now remove: find the "Remove" ConfirmButton in the Assigned section.
-  const removeBtn = assignedSection.getByRole("button", { name: "Remove" }).first();
+  // Now remove: find the "Remove" ConfirmButton in the Volunteers subsection.
+  // Use the Volunteers paragraph to scope the Remove button to avoid hitting a Director's Remove.
+  const volunteerPara = assignedSection.locator("p", { hasText: /^Volunteers/ });
+  const removeBtn = volunteerPara.locator("xpath=following-sibling::*").getByRole("button", { name: "Remove" }).first();
   await expect(removeBtn).toBeVisible();
 
   // ConfirmButton two-click: first click arms, second click submits.
   await removeBtn.click();
   // After arming, the button text changes to the confirmLabel ("Remove this volunteer?").
-  const confirmBtn = assignedSection.getByRole("button", { name: "Remove this volunteer?" }).first();
+  const confirmBtn = page.getByRole("button", { name: "Remove this volunteer?" }).first();
   await expect(confirmBtn).toBeVisible();
   await confirmBtn.click();
   await page.waitForLoadState("networkidle");
 
-  // The member should be back in "Available to assign".
+  // The member should be back in "Available to assign" (either subsection).
   const availableSectionAfter = page.locator("section").filter({ has: page.locator("h2", { hasText: "Available to assign" }) });
   await expect(availableSectionAfter.locator("h2", { hasText: "Available to assign" })).toBeVisible();
-  await expect(availableSectionAfter.getByText(memberName!.trim(), { exact: false })).toBeVisible();
+  await expect(availableSectionAfter.locator("span", { hasText: memberName!.trim() }).first()).toBeVisible();
 });
 
 // ---------------------------------------------------------------------------
@@ -293,8 +301,9 @@ test("Request round trip: Jack assigns dev.volunteer, volunteer requests drop, J
   const availableSection = page.locator("section").filter({ has: page.locator("h2", { hasText: "Available to assign" }) });
 
   // Look for "Dev Volunteer" in the available section.
+  // Member name span changed from font-medium to font-semibold in the refactored builder.
   const volunteerRow = availableSection.locator("div.rounded-lg").filter({
-    has: page.locator("span.font-medium", { hasText: "Dev Volunteer" }),
+    has: page.locator("span.font-semibold", { hasText: "Dev Volunteer" }),
   });
 
   // If Dev Volunteer is already assigned (from a previous test run), skip the assign step.
@@ -306,13 +315,14 @@ test("Request round trip: Jack assigns dev.volunteer, volunteer requests drop, J
 
   if (!alreadyAssigned) {
     await expect(volunteerRow).toBeVisible({ timeout: 10_000 });
-    const assignBtn = volunteerRow.getByRole("button", { name: "Assign" }).first();
+    // Button labels changed from "Assign" to role-specific "Assign as volunteer".
+    const assignBtn = volunteerRow.getByRole("button", { name: /Assign as volunteer/ }).first();
     await assignBtn.click();
     await page.waitForLoadState("networkidle");
   }
 
-  // Confirm Dev Volunteer is in the Assigned section.
-  await expect(assignedSection.getByText("Dev Volunteer", { exact: false })).toBeVisible();
+  // Confirm Dev Volunteer is in the Assigned section (scoped to the volunteer name span).
+  await expect(assignedSection.locator("span.font-medium", { hasText: "Dev Volunteer" }).first()).toBeVisible();
 
   // Step 2: dev.volunteer opens /schedule and requests a drop.
   await devLogin(page, "dev.volunteer@yale.edu");
@@ -442,4 +452,82 @@ test("RHD Clinic Readiness panel renders for an RHD department (SCTS)", async ({
   // The "RHD Clinic Readiness" panel must be visible.
   const rhdPanel = page.locator("section").filter({ has: page.locator("h2", { hasText: "RHD Clinic Readiness" }) });
   await expect(rhdPanel.locator("h2", { hasText: "RHD Clinic Readiness" })).toBeVisible();
+});
+
+// ---------------------------------------------------------------------------
+// Test 8: Builder day-view shadow assign
+// ---------------------------------------------------------------------------
+
+test("Builder day-view shadow assign: Jack assigns a member as a shadow via VADM", async ({ page }) => {
+  await devLogin(page, "j.carney@yale.edu");
+  await page.goto("/schedule/builder");
+  await page.waitForURL((url) => url.pathname === "/schedule/builder");
+
+  await selectDeptByCode(page, "VADM");
+  await page.getByRole("button", { name: "Go" }).click();
+  await page.waitForLoadState("networkidle");
+
+  const dateNav = page.locator('nav[aria-label="Clinic dates"]');
+  await dateNav.getByRole("link").first().click();
+  await page.waitForLoadState("networkidle");
+
+  const availableSection = page.locator("section").filter({
+    has: page.locator("h2", { hasText: "Available to assign" }),
+  });
+  const shadowBtn = availableSection.getByRole("button", { name: /Assign as shadow/ }).first();
+  await expect(shadowBtn).toBeVisible();
+  const memberRow = shadowBtn.locator("xpath=ancestor::div[contains(@class,'rounded-lg')]").first();
+  const memberName = (await memberRow.locator("span.font-semibold").first().textContent())?.trim();
+  expect(memberName).toBeTruthy();
+
+  await shadowBtn.click();
+  await page.waitForLoadState("networkidle");
+
+  const assignedSection = page.locator("section").filter({
+    has: page.locator("h2").filter({ hasText: /^Assigned$/ }),
+  });
+  await expect(assignedSection.getByText(memberName!, { exact: false })).toBeVisible();
+
+  // Clean up so the test is idempotent.
+  // Scope Remove to the Shadows subsection to avoid hitting a Director's Remove button.
+  const shadowsPara = assignedSection.locator("p", { hasText: /^Shadows/ });
+  const removeBtn = shadowsPara.locator("xpath=following-sibling::*").getByRole("button", { name: "Remove" }).first();
+  await removeBtn.click();
+  // Use page-level locator for the confirm button to avoid React re-render scoping issues.
+  const confirmBtn = page.getByRole("button", { name: "Remove this shadow?" }).first();
+  await expect(confirmBtn).toBeVisible();
+  await confirmBtn.click();
+  await page.waitForLoadState("networkidle");
+});
+
+// ---------------------------------------------------------------------------
+// Test 9: Builder grid shadow assign
+// ---------------------------------------------------------------------------
+
+test("Builder grid shadow assign: Jack toggles Shadow and assigns from a grid cell", async ({ page }) => {
+  await devLogin(page, "j.carney@yale.edu");
+  await page.goto("/schedule/builder");
+  await page.waitForURL((url) => url.pathname === "/schedule/builder");
+
+  await selectDeptByCode(page, "VADM");
+  await page.getByRole("button", { name: "Go" }).click();
+  await page.waitForLoadState("networkidle");
+
+  await page.locator('nav[aria-label="Clinic dates"]').getByRole("link").first().click();
+  await page.waitForLoadState("networkidle");
+  await page.getByRole("link", { name: "Grid view" }).click();
+  await page.waitForLoadState("networkidle");
+
+  await page.getByRole("link", { name: "Shadow" }).click();
+  await page.waitForLoadState("networkidle");
+
+  const shadowCell = page.getByRole("button", { name: /as shadow on/ }).first();
+  await expect(shadowCell).toBeVisible();
+  await shadowCell.click();
+  await page.waitForLoadState("networkidle");
+
+  const unassignShadow = page.getByRole("button", { name: /Unassign .*\(shadow\)/ }).first();
+  await expect(unassignShadow).toBeVisible();
+  await unassignShadow.click();
+  await page.waitForLoadState("networkidle");
 });

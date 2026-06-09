@@ -124,3 +124,16 @@ it("lists and gets applications", async () => {
   const one = await getApplication(list[0].id);
   expect(one?.applicant.email).toBe("ann@yale.edu");
 });
+
+it("ignores QUIZ sections when validating the public application", async () => {
+  const { cycle } = await openVolunteerCycle();
+  const quiz = await prisma.formSection.create({ data: { cycleId: cycle.id, title: "Quiz", order: 99, appliesTo: "BOTH", purpose: "QUIZ" } });
+  await prisma.formField.create({ data: { sectionId: quiz.id, cycleId: cycle.id, key: "secret_q", label: "Q", type: "SINGLE_SELECT", required: true, order: 0, options: [{ value: "a", label: "A" }], correctValue: "a" } });
+  // Submitting WITHOUT secret_q must still succeed: quiz fields are not enforced on the public form.
+  const app = await submitApplication("apply-v", {
+    applicantType: "NEW",
+    answers: { first_name: "Cy", last_name: "Q", email: "cy@yale.edu", "1st_choice_department": "MDIC" },
+    files: {},
+  });
+  expect(app).toBeTruthy();
+});

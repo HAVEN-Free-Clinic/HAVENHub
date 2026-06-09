@@ -19,18 +19,18 @@ async function assertCycleEditable(cycleId: string, structural: boolean): Promis
 
 export async function addSection(
   cycleId: string,
-  input: { title: string; appliesTo: ApplicantScope; departmentCode: string | null; description?: string }
+  input: { title: string; appliesTo: ApplicantScope; departmentCode: string | null; description?: string; purpose?: "APPLICATION" | "QUIZ" }
 ): Promise<FormSection> {
   await assertCycleEditable(cycleId, false);
   const count = await prisma.formSection.count({ where: { cycleId } });
   return prisma.formSection.create({
-    data: { cycleId, title: input.title, description: input.description ?? null, appliesTo: input.appliesTo, departmentCode: input.departmentCode, order: count },
+    data: { cycleId, title: input.title, description: input.description ?? null, appliesTo: input.appliesTo, departmentCode: input.departmentCode, purpose: input.purpose ?? "APPLICATION", order: count },
   });
 }
 
 export async function addField(
   sectionId: string,
-  input: { label: string; type: FieldType; required: boolean; helpText?: string; options?: unknown; validation?: unknown }
+  input: { label: string; type: FieldType; required: boolean; helpText?: string; options?: unknown; validation?: unknown; correctValue?: string | null }
 ): Promise<FormField> {
   const section = await prisma.formSection.findUnique({ where: { id: sectionId } });
   if (!section) throw new FormEditError("Section not found.");
@@ -45,6 +45,7 @@ export async function addField(
       sectionId, cycleId: section.cycleId, key, label: input.label, type: input.type,
       required: input.required, helpText: input.helpText ?? null,
       options: (input.options ?? undefined) as never, validation: (input.validation ?? undefined) as never,
+      correctValue: input.correctValue ?? null,
       order: count,
     },
   });
@@ -52,7 +53,7 @@ export async function addField(
 
 export async function updateField(
   fieldId: string,
-  patch: { label?: string; helpText?: string; type?: FieldType; required?: boolean; options?: unknown; validation?: unknown }
+  patch: { label?: string; helpText?: string; type?: FieldType; required?: boolean; options?: unknown; validation?: unknown; correctValue?: string | null }
 ): Promise<FormField> {
   const field = await prisma.formField.findUnique({ where: { id: fieldId } });
   if (!field) throw new FormEditError("Field not found.");
@@ -71,6 +72,7 @@ export async function updateField(
       required: patch.required ?? undefined,
       options: patch.options === undefined ? undefined : (patch.options as never),
       validation: patch.validation === undefined ? undefined : (patch.validation as never),
+      correctValue: patch.correctValue === undefined ? undefined : patch.correctValue,
     },
   });
 }

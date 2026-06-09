@@ -58,7 +58,7 @@ function toSectionDefs(
 export async function submitApplication(slug: string, input: SubmitInput): Promise<Application> {
   const cycle = await prisma.recruitmentCycle.findUnique({
     where: { publicSlug: slug },
-    include: { sections: { include: { fields: { orderBy: { order: "asc" } } }, orderBy: { order: "asc" } } },
+    include: { sections: { where: { purpose: "APPLICATION" }, include: { fields: { orderBy: { order: "asc" } } }, orderBy: { order: "asc" } } },
   });
   if (!cycle) throw new CycleNotOpenError("Application not found.");
 

@@ -5,7 +5,7 @@ export default async function ApplyPage({ params }: { params: Promise<{ slug: st
   const { slug } = await params;
   const cycle = await prisma.recruitmentCycle.findUnique({
     where: { publicSlug: slug },
-    include: { sections: { include: { fields: { orderBy: { order: "asc" } } }, orderBy: { order: "asc" } } },
+    include: { sections: { where: { purpose: "APPLICATION" }, include: { fields: { orderBy: { order: "asc" } } }, orderBy: { order: "asc" } } },
   });
 
   const now = new Date();

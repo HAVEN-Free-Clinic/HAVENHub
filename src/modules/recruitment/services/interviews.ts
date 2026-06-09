@@ -22,7 +22,13 @@ export async function createInterview(applicationId: string, departmentCode: str
   if (!app) throw new InterviewError("Application not found.");
   if (app.cycle.track !== "DIRECTOR") throw new InterviewError("Interviews apply to director cycles.");
   if (!app.cycle.departments.includes(departmentCode)) throw new InterviewError("That department is not part of this cycle.");
-  await assertCanManage(departmentCode, createdById);
+  const scope = await reviewScope(createdById);
+  if (!(scope.all || scope.departmentCodes.includes(departmentCode))) {
+    throw new RecruitmentAuthError("You can't manage interviews for that department.");
+  }
+  if (!scope.all && !app.departmentChoices.includes(departmentCode)) {
+    throw new RecruitmentAuthError("This applicant did not rank that department.");
+  }
   try {
     const interview = await prisma.interview.create({ data: { applicationId, departmentCode, createdById } });
     await recordAudit({ actorPersonId: createdById, action: "recruitment.interview_create", entityType: "Interview", entityId: interview.id, after: { applicationId, departmentCode } });

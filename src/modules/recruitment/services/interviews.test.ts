@@ -66,6 +66,14 @@ it("schedules, panels, and invites; invite requires a time and stamps invitedAt 
   expect(await prisma.interviewPanelist.count({ where: { interviewId: iv.id } })).toBe(0);
 });
 
+it("rejects a director scheduling for a department the applicant did not rank", async () => {
+  const { application, term, pcar } = await seed();
+  const pcarDir = await prisma.person.create({ data: { name: "PcarDir", status: "ACTIVE" } });
+  await prisma.termMembership.create({ data: { personId: pcarDir.id, termId: term.id, departmentId: pcar.id, kind: "DIRECTOR", status: "ACTIVE" } });
+  // pcarDir directs PCAR (in scope) but the applicant ranked only EDUC
+  await expect(createInterview(application.id, "PCAR", pcarDir.id)).rejects.toBeInstanceOf(RecruitmentAuthError);
+});
+
 it("lists interviews in scope and the panelist's assignments", async () => {
   const { director, panelist, srr, cycle, application } = await seed();
   const iv = await createInterview(application.id, "EDUC", director.id);

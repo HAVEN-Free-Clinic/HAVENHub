@@ -1,16 +1,20 @@
 "use client";
 
 import { useEffect } from "react";
-import { useSession } from "next-auth/react";
 import { signOut } from "next-auth/react";
 
 const TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
-export function InactivityTracker() {
-  const { status } = useSession();
-
+/**
+ * Signs the user out after 30 minutes of inactivity.
+ *
+ * `authenticated` is resolved on the server (via `auth()` in the root layout)
+ * and passed in as a prop, so this works without a SessionProvider: the timer
+ * only runs for signed-in users and is a no-op on the login page.
+ */
+export function InactivityTracker({ authenticated }: { authenticated: boolean }) {
   useEffect(() => {
-    if (status !== "authenticated") return;
+    if (!authenticated) return;
 
     let timer: ReturnType<typeof setTimeout>;
 
@@ -29,7 +33,7 @@ export function InactivityTracker() {
       clearTimeout(timer);
       events.forEach((e) => window.removeEventListener(e, reset));
     };
-  }, [status]);
+  }, [authenticated]);
 
   return null;
 }

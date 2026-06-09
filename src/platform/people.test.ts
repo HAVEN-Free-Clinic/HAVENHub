@@ -158,6 +158,22 @@ describe("updatePersonFields", () => {
       updatePersonFields(ACTOR, "nonexistent-id", { name: "Ghost" })
     ).rejects.toBeInstanceOf(PersonNotFoundError);
   });
+
+  it("persists spanishSpeaking and licensedRN and audits only the changed flag", async () => {
+    const person = await createPersonRecord(ACTOR, { name: "Flagged" });
+    expect(person.spanishSpeaking).toBe(false);
+    expect(person.licensedRN).toBe(false);
+    await prisma.auditLog.deleteMany();
+    await prisma.outbox.deleteMany();
+
+    const updated = await updatePersonFields(ACTOR, person.id, { spanishSpeaking: true });
+    expect(updated.spanishSpeaking).toBe(true);
+    expect(updated.licensedRN).toBe(false);
+
+    // Only the changed flag is audited; these flags are not mirrored to Airtable.
+    expect(await prisma.auditLog.count()).toBe(1);
+    expect(await prisma.outbox.count()).toBe(0);
+  });
 });
 
 describe("setPersonStatusField", () => {

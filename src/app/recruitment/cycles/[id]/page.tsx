@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getCycle } from "@/modules/recruitment/services/cycles";
-import { publishCycleAction, closeCycleAction, toggleRenewalsAction } from "../../actions";
+import { publishCycleAction, closeCycleAction, toggleRenewalsAction, setTrainingCycleAction, updateQuizSettingsAction } from "../../actions";
 
 type PageProps = {
   params: Promise<{ id: string }>;
@@ -43,6 +43,23 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
         {cycle.status === "DRAFT" && <form action={publishCycleAction.bind(null, id)}><button className="rounded-md bg-slate-900 px-3 py-1.5 text-sm text-white">Publish</button></form>}
         {cycle.status === "OPEN" && <form action={closeCycleAction.bind(null, id)}><button className="rounded-md border px-3 py-1.5 text-sm">Close</button></form>}
       </div>
+      {cycle.track === "VOLUNTEER" && (
+        <div className="rounded border p-4 text-sm space-y-3">
+          <p className="font-medium">Training</p>
+          <div className="flex gap-3">
+            <Link href={`/recruitment/cycles/${id}/builder/quiz`} className="rounded-md border px-3 py-1.5">Edit quiz</Link>
+            <Link href={`/recruitment/cycles/${id}/training`} className="rounded-md border px-3 py-1.5">Training roster</Link>
+          </div>
+          <form action={setTrainingCycleAction.bind(null, id, !cycle.isTermTraining)}>
+            <button className="underline">{cycle.isTermTraining ? "Stop using as this term's training" : "Use as this term's training"}</button>
+          </form>
+          <form action={updateQuizSettingsAction.bind(null, id)} className="flex items-end gap-3">
+            <label className="flex flex-col">Pass %<input name="quizPassPercent" type="number" min={0} max={100} defaultValue={cycle.quizPassPercent} className="w-20 rounded border px-2 py-1" /></label>
+            <label className="flex flex-col">Max attempts<input name="quizMaxAttempts" type="number" min={1} defaultValue={cycle.quizMaxAttempts} className="w-20 rounded border px-2 py-1" /></label>
+            <button className="rounded-md border px-3 py-1.5">Save quiz settings</button>
+          </form>
+        </div>
+      )}
     </div>
   );
 }

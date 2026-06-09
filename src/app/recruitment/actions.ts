@@ -5,6 +5,8 @@ import { requirePermission } from "@/platform/auth/session";
 import {
   createCycle, publishCycle, closeCycle, setAcceptsRenewals, CyclePublishError,
 } from "@/modules/recruitment/services/cycles";
+import { setTrainingCycle, updateQuizSettings, TrainingStateError } from "@/modules/recruitment/services/training";
+import { RecruitmentAuthError } from "@/modules/recruitment/services/review";
 
 function slugify(input: string): string {
   return input.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
@@ -56,6 +58,34 @@ export async function toggleRenewalsAction(cycleId: string, value: boolean) {
     await setAcceptsRenewals(cycleId, value, person.personId);
   } catch (err) {
     if (err instanceof CyclePublishError) {
+      redirect(`/recruitment/cycles/${cycleId}?error=${encodeURIComponent(err.message)}`);
+    }
+    throw err;
+  }
+  revalidatePath(`/recruitment/cycles/${cycleId}`);
+}
+
+export async function setTrainingCycleAction(cycleId: string, value: boolean) {
+  const person = await requirePermission("recruitment.manage_cycles");
+  try {
+    await setTrainingCycle(cycleId, value, person.personId);
+  } catch (err) {
+    if (err instanceof TrainingStateError || err instanceof RecruitmentAuthError) {
+      redirect(`/recruitment/cycles/${cycleId}?error=${encodeURIComponent((err as Error).message)}`);
+    }
+    throw err;
+  }
+  revalidatePath(`/recruitment/cycles/${cycleId}`);
+}
+
+export async function updateQuizSettingsAction(cycleId: string, formData: FormData) {
+  const person = await requirePermission("recruitment.manage_cycles");
+  const quizPassPercent = Number(formData.get("quizPassPercent"));
+  const quizMaxAttempts = Number(formData.get("quizMaxAttempts"));
+  try {
+    await updateQuizSettings(cycleId, { quizPassPercent, quizMaxAttempts }, person.personId);
+  } catch (err) {
+    if (err instanceof TrainingStateError) {
       redirect(`/recruitment/cycles/${cycleId}?error=${encodeURIComponent(err.message)}`);
     }
     throw err;

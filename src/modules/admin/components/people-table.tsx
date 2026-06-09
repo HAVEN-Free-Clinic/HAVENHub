@@ -30,6 +30,7 @@ export function PeopleTable({ rows }: { rows: Row[] }) {
           <TH>NetID</TH>
           <TH>Email</TH>
           <TH>Memberships</TH>
+          <TH>Flags</TH>
           <TH>Status</TH>
         </TR>
       </THead>
@@ -50,6 +51,12 @@ export function PeopleTable({ rows }: { rows: Row[] }) {
             </TD>
             <TD className="text-slate-500 tabular-nums">
               {person._membershipCount ?? 0}
+            </TD>
+            <TD>
+              <span className="flex flex-wrap gap-1">
+                {person.spanishSpeaking && <Badge tone="default">ES</Badge>}
+                {person.licensedRN && <Badge tone="default">RN</Badge>}
+              </span>
             </TD>
             <TD>
               {person.status === "ACTIVE" ? (

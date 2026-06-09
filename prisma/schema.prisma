@@ -94,6 +94,10 @@ model Person {
   shiftAssignments          ShiftAssignment[]
   recruitmentCyclesCreated  RecruitmentCycle[]   @relation("RecruitmentCycleCreatedBy")
   recruitmentAcceptances    Acceptance[]         @relation("recruitmentAcceptanceApprover")
+  interviewsCreated         Interview[]          @relation("interviewCreatedBy")
+  interviewsDecided         Interview[]          @relation("interviewDecidedBy")
+  interviewPanels           InterviewPanelist[]  @relation("interviewPanelistPerson")
+  interviewEvaluations      Evaluation[]         @relation("interviewEvaluator")
   /// Shift requests this person raised.
   shiftRequests             ShiftRequest[]       @relation("shiftRequestRequester")
   /// Shift requests targeting this person as the swap partner.
@@ -346,6 +350,20 @@ enum ApplicantType {
 
 enum ApplicationStatus {
   SUBMITTED
+}
+
+enum InterviewDecision {
+  PENDING
+  ACCEPT
+  REJECT
+  WAITLIST
+}
+
+enum Recommendation {
+  STRONG_YES
+  YES
+  MAYBE
+  NO
 }
 
 /// One row per mirrored change. Written in the same transaction as the domain
@@ -730,6 +748,7 @@ model Application {
   cycle       RecruitmentCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
   applicant   Applicant        @relation(fields: [applicantId], references: [id], onDelete: Cascade)
   acceptances Acceptance[]
+  interviews  Interview[]
 
   @@unique([cycleId, applicantId])
   @@index([cycleId, submittedAt])
@@ -750,4 +769,57 @@ model Acceptance {
 
   @@unique([applicationId, departmentCode])
   @@index([applicationId])
+}
+
+model Interview {
+  id             String            @id @default(cuid())
+  applicationId  String
+  departmentCode String
+  scheduledAt    DateTime?
+  zoomLink       String?
+  invitedAt      DateTime?
+  decision       InterviewDecision @default(PENDING)
+  decidedById    String?
+  decidedAt      DateTime?
+  notes          String?
+  createdById    String
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  application Application         @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  decidedBy   Person?            @relation("interviewDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
+  createdBy   Person             @relation("interviewCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  panelists   InterviewPanelist[]
+  evaluations Evaluation[]
+
+  @@unique([applicationId, departmentCode])
+  @@index([applicationId])
+}
+
+model InterviewPanelist {
+  id          String  @id @default(cuid())
+  interviewId String
+  personId    String
+  isLead      Boolean @default(false)
+
+  interview Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  person    Person    @relation("interviewPanelistPerson", fields: [personId], references: [id], onDelete: Cascade)
+
+  @@unique([interviewId, personId])
+  @@index([personId])
+}
+
+model Evaluation {
+  id             String         @id @default(cuid())
+  interviewId    String
+  evaluatorId    String
+  recommendation Recommendation
+  comments       String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  interview Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  evaluator Person    @relation("interviewEvaluator", fields: [evaluatorId], references: [id], onDelete: Cascade)
+
+  @@unique([interviewId, evaluatorId])
 }

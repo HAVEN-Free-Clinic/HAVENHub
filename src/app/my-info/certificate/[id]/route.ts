@@ -1,9 +1,7 @@
-import fs from "node:fs/promises";
-import path from "node:path";
 import { auth } from "@/platform/auth/auth";
 import { getActivePerson } from "@/platform/auth/match-person";
-import { config } from "@/platform/config";
 import { prisma } from "@/platform/db";
+import { getObject } from "@/platform/storage";
 import { canViewCertificate } from "@/platform/compliance/access";
 
 type RouteContext = {
@@ -46,25 +44,21 @@ export async function GET(
     return Response.json({ error: "Not found" }, { status: 404 });
   }
 
-  // --- Read the file from disk (storedName comes only from the DB row) ---
-  const diskPath = path.join(config.UPLOAD_DIR, cert.storedName);
-
-  let fileBytes: ArrayBuffer;
-  let fileByteLength: number;
-  try {
-    const buf = await fs.readFile(diskPath);
-    fileBytes = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
-    fileByteLength = buf.byteLength;
-  } catch (err) {
+  // --- Read the file from storage (storedName comes only from the DB row) ---
+  const buf = await getObject(cert.storedName);
+  if (!buf) {
     console.error(
-      "[my-info/certificate] file missing on disk for cert id",
+      "[my-info/certificate] file missing in storage for cert id",
       cert.id,
-      "expected path",
-      diskPath,
-      err
+      "stored name",
+      cert.storedName
     );
     return Response.json({ error: "Not found" }, { status: 404 });
   }
+  // Copy into a standalone Uint8Array (a valid BodyInit) so the Response owns
+  // bytes independent of the source Buffer's backing store.
+  const fileBytes = new Uint8Array(buf);
+  const fileByteLength = buf.byteLength;
 
   // Strip control characters and double-quotes from the original file name for
   // use in the ASCII filename parameter (RFC 5987 / RFC 6266 safety).

@@ -58,8 +58,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           }),
         ]
       : []),
-    // Dev-only login: email lookup, no password. Never registered in production.
-    ...(config.NODE_ENV !== "production"
+    // Email-only login (no password): the dev convenience login. Registered
+    // outside production, or in a DEMO_MODE deploy that has no Azure AD app.
+    ...(config.NODE_ENV !== "production" || config.DEMO_MODE
       ? [
           Credentials({
             id: "credentials",

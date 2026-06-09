@@ -4,6 +4,8 @@ import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Input } from "@/platform/ui/input";
+import { Alert } from "@/platform/ui/alert";
+import { Checkbox } from "@/platform/ui/checkbox";
 import { Select } from "@/platform/ui/select";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
@@ -194,12 +196,9 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
       <PageHeader title="My Schedule" description="Your shifts and availability for the active term" />
 
       {errorMessage && (
-        <p
-          role="alert"
-          className="mt-4 rounded-md border border-critical/20 bg-red-50 px-3 py-2 text-sm text-critical"
-        >
+        <Alert tone="error" className="mt-4">
           {errorMessage}
-        </p>
+        </Alert>
       )}
 
       {saved && (
@@ -308,7 +307,7 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                                   <input type="hidden" name="departmentId" value={shift.department.id} />
                                   <input type="hidden" name="kind" value="swap" />
                                   <div className="flex-1 min-w-56">
-                                    <Select name="partner">
+                                    <Select name="partner" aria-label="Swap partner">
                                       <option value="">Select swap partner...</option>
                                       {swapPartners.map((p) => (
                                         <option
@@ -373,13 +372,11 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                         (ad) => isoDateKey(ad) === key
                       );
                       return (
-                        <label key={key} className="flex items-center gap-2 text-sm">
-                          <input
-                            type="checkbox"
+                        <label key={key} className="flex items-center gap-2 py-1 text-sm">
+                          <Checkbox
                             name="dates"
                             value={key}
                             defaultChecked={checked}
-                            className="h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
                           />
                           {displayDate(key)}
                         </label>

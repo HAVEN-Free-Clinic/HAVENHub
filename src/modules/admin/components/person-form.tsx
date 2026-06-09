@@ -10,6 +10,7 @@ import type { Person } from "@prisma/client";
 import type { ReactNode } from "react";
 import { Input, Field } from "@/platform/ui/input";
 import { Button } from "@/platform/ui/button";
+import { Alert } from "@/platform/ui/alert";
 
 type PersonFormProps = {
   /** The server action to bind to the form's action prop. */
@@ -36,17 +37,8 @@ type PersonFormProps = {
 export function PersonForm({ action, person, error, saved, children }: PersonFormProps) {
   return (
     <form action={action} className="space-y-6">
-      {error && (
-        <p
-          role="alert"
-          className="rounded-md border border-critical/20 bg-red-50 px-3 py-2 text-sm text-critical"
-        >
-          {error}
-        </p>
-      )}
-      {saved && (
-        <p className="text-sm text-success">{saved}</p>
-      )}
+      {error && <Alert tone="error">{error}</Alert>}
+      {saved && <Alert tone="success">{saved}</Alert>}
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Full Name">

@@ -11,7 +11,8 @@
 import type { Person } from "@prisma/client";
 import { Input, Field } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
-import { Button } from "@/platform/ui/button";
+import { SubmitButton } from "@/platform/ui/submit-button";
+import { Alert } from "@/platform/ui/alert";
 
 const YALE_AFFILIATIONS = [
   "Yale College",
@@ -48,17 +49,8 @@ export function MyInfoForm({ action, person, error, saved }: MyInfoFormProps) {
 
   return (
     <form action={action} className="space-y-6">
-      {error && (
-        <p
-          role="alert"
-          className="rounded-md border border-critical/20 bg-red-50 px-3 py-2 text-sm text-critical"
-        >
-          {error}
-        </p>
-      )}
-      {saved && (
-        <p className="text-sm text-success">{saved}</p>
-      )}
+      {error && <Alert tone="error">{error}</Alert>}
+      {saved && <Alert tone="success">{saved}</Alert>}
 
       {/* Read-only identity rows */}
       <div className="grid gap-4 sm:grid-cols-2">
@@ -130,14 +122,17 @@ export function MyInfoForm({ action, person, error, saved }: MyInfoFormProps) {
             name="gradYear"
             defaultValue={person.gradYear ?? ""}
             placeholder="2027"
+            inputMode="numeric"
+            maxLength={4}
+            pattern="\d{4}"
           />
         </Field>
       </div>
 
       <div className="pt-2">
-        <Button type="submit" variant="primary">
+        <SubmitButton variant="primary" pendingLabel="Saving…">
           Save
-        </Button>
+        </SubmitButton>
       </div>
     </form>
   );

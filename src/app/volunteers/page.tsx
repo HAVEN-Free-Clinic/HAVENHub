@@ -4,6 +4,7 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
+import { Alert } from "@/platform/ui/alert";
 import {
   departmentCompliance,
   verifyCertificate,
@@ -133,12 +134,9 @@ export default async function VolunteersPage({ searchParams }: PageProps) {
       />
 
       {errorMessage && (
-        <p
-          role="alert"
-          className="mt-4 rounded-md border border-critical/20 bg-red-50 px-3 py-2 text-sm text-critical"
-        >
+        <Alert tone="error" className="mt-4">
           {errorMessage}
-        </p>
+        </Alert>
       )}
 
       <div className="mt-8 flex flex-col gap-10">
@@ -178,7 +176,7 @@ export default async function VolunteersPage({ searchParams }: PageProps) {
                     <TH>Completed</TH>
                     <TH>Expires</TH>
                     <TH>Verified</TH>
-                    <TH></TH>
+                    <TH><span className="sr-only">Actions</span></TH>
                   </TR>
                 </THead>
                 <tbody>

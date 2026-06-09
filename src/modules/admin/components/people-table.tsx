@@ -44,9 +44,11 @@ export function PeopleTable({ rows }: { rows: Row[] }) {
                 {person.name}
               </Link>
             </TD>
-            <TD className="text-slate-500">{person.netId ?? ""}</TD>
             <TD className="text-slate-500">
-              {person.contactEmail ?? ""}
+              {person.netId ?? <span className="text-slate-300">-</span>}
+            </TD>
+            <TD className="text-slate-500">
+              {person.contactEmail ?? <span className="text-slate-300">-</span>}
             </TD>
             <TD className="text-slate-500 tabular-nums">
               {person._membershipCount ?? 0}

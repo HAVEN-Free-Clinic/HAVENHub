@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { buttonClasses } from "@/platform/ui/button";
 import type { BuilderAssignmentEntry } from "@/modules/schedule/services/builder";
@@ -41,6 +42,105 @@ type Props = {
   assignment?: BuilderAssignmentEntry;
 };
 
+/**
+ * Filled grid cell with a two-click arm/confirm unassign (mirrors ConfirmButton).
+ *
+ * First click: type="button", arms the cell (red bg + "Remove?" / "✕") and
+ * starts a 3s auto-reset timer; does NOT submit. Second click within the
+ * window: type="submit", posts the unassign action. This gives the grid the
+ * same accidental-removal protection the Saturday view gets from ConfirmButton,
+ * without a hover-only affordance that is invisible on touch.
+ */
+function GridFilledButton({
+  label,
+  ariaLabel,
+  assignment,
+  pending,
+}: {
+  label: string;
+  ariaLabel?: string;
+  assignment?: BuilderAssignmentEntry;
+  pending: boolean;
+}) {
+  const [armed, setArmed] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function clearTimer() {
+    if (timerRef.current !== null) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  }
+
+  function arm() {
+    setArmed(true);
+    clearTimer();
+    timerRef.current = setTimeout(() => {
+      setArmed(false);
+      timerRef.current = null;
+    }, 3000);
+  }
+
+  // Clean up on unmount.
+  useEffect(() => () => clearTimer(), []);
+
+  const activeTags = assignment
+    ? (["triage", "walkin", "cc", "remote"] as const).filter(
+        (t) => assignment.tags[t],
+      )
+    : [];
+
+  if (armed) {
+    return (
+      <button
+        type="submit"
+        disabled={pending}
+        aria-label={`Confirm remove. ${ariaLabel ?? label}`}
+        className="flex h-9 w-full min-w-[40px] touch-manipulation items-center justify-center rounded border border-red-300 bg-red-50 text-red-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+        title="Click again to remove"
+      >
+        <span className="text-xs font-semibold leading-none">
+          {pending ? "..." : "Remove?"}
+        </span>
+      </button>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      disabled={pending}
+      onClick={(e) => {
+        e.preventDefault();
+        arm();
+      }}
+      aria-label={ariaLabel ?? label}
+      className="flex h-9 w-full min-w-[40px] touch-manipulation flex-col items-center justify-center rounded border border-slate-300 bg-slate-100 text-slate-700 hover:bg-red-50 hover:border-red-300 hover:text-red-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+      title={ariaLabel ?? label}
+    >
+      {pending ? (
+        <span className="text-xs">...</span>
+      ) : (
+        <>
+          <span className="text-xs font-semibold leading-none">{label}</span>
+          {activeTags.length > 0 && (
+            <span className="mt-0.5 inline-flex gap-0.5">
+              {activeTags.map((t) => (
+                <span
+                  key={t}
+                  className="rounded-sm bg-brand-faint px-0.5 text-[10px] font-medium text-brand leading-tight"
+                >
+                  {TAG_SHORT[t]}
+                </span>
+              ))}
+            </span>
+          )}
+        </>
+      )}
+    </button>
+  );
+}
+
 function SubmitButton({
   label,
   pressed,
@@ -63,7 +163,7 @@ function SubmitButton({
         type="submit"
         disabled={pending}
         aria-label={ariaLabel ?? label}
-        className="flex h-7 w-full min-w-[40px] items-center justify-center rounded border border-dashed border-slate-300 text-slate-300 hover:border-brand hover:text-brand transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+        className="flex h-9 w-full min-w-[40px] touch-manipulation items-center justify-center rounded border border-dashed border-slate-300 text-slate-300 hover:border-brand hover:text-brand transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
       >
         {pending ? "..." : "+"}
       </button>
@@ -71,41 +171,13 @@ function SubmitButton({
   }
 
   if (variant === "grid-filled") {
-    // Filled grid cell: compact button showing role + active tags.
-    const activeTags = assignment
-      ? (["triage", "walkin", "cc", "remote"] as const).filter(
-          (t) => assignment.tags[t],
-        )
-      : [];
-
     return (
-      <button
-        type="submit"
-        disabled={pending}
-        aria-label={ariaLabel ?? label}
-        className="flex h-7 w-full min-w-[40px] flex-col items-center justify-center rounded border border-slate-300 bg-slate-100 text-slate-700 hover:bg-red-50 hover:border-red-300 hover:text-red-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
-        title={ariaLabel ?? label}
-      >
-        {pending ? (
-          <span className="text-[10px]">...</span>
-        ) : (
-          <>
-            <span className="text-[10px] font-semibold leading-none">{label}</span>
-            {activeTags.length > 0 && (
-              <span className="mt-0.5 inline-flex gap-0.5">
-                {activeTags.map((t) => (
-                  <span
-                    key={t}
-                    className="rounded-sm bg-brand-faint px-0.5 text-[8px] font-medium text-brand leading-tight"
-                  >
-                    {TAG_SHORT[t]}
-                  </span>
-                ))}
-              </span>
-            )}
-          </>
-        )}
-      </button>
+      <GridFilledButton
+        label={label}
+        ariaLabel={ariaLabel}
+        assignment={assignment}
+        pending={pending}
+      />
     );
   }
 

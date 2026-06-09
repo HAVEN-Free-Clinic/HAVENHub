@@ -98,16 +98,21 @@ export default async function PeopleListPage({ searchParams }: PageProps) {
             name="q"
             defaultValue={q ?? ""}
             placeholder="Search name, NetID, or email..."
+            aria-label="Search people"
           />
         </div>
         <div className="w-44">
-          <Select name="status" defaultValue={effectiveStatus}>
+          <Select
+            name="status"
+            defaultValue={effectiveStatus}
+            aria-label="Filter by status"
+          >
             <option value="ACTIVE">Active</option>
             <option value="OFFBOARDED">Offboarded</option>
             <option value="">All statuses</option>
           </Select>
         </div>
-        <Button type="submit" variant="outline">
+        <Button type="submit" variant="outline" size="sm">
           Search
         </Button>
       </form>

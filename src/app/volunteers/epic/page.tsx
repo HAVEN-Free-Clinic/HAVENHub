@@ -19,9 +19,13 @@ import { Badge } from "@/platform/ui/badge";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { Pagination } from "@/platform/ui/pagination";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
-import { Input } from "@/platform/ui/input";
+import { Field, Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Button } from "@/platform/ui/button";
+import { Checkbox } from "@/platform/ui/checkbox";
+import { Alert } from "@/platform/ui/alert";
+import { StatCard } from "@/platform/ui/stat-card";
+import { SelectAllCheckbox } from "./select-all-checkbox";
 import {
   listEpicRequests,
   listTickets,
@@ -117,35 +121,6 @@ function businessDaysSince(start: Date, now: Date): number {
     cursor += 86400_000;
   }
   return count;
-}
-
-// ---------------------------------------------------------------------------
-// Summary stat card (same markup as master/page.tsx)
-// ---------------------------------------------------------------------------
-
-function SummaryCard({ label, count, tone }: { label: string; count: number; tone: Tone }) {
-  const colorClasses: Record<Tone, string> = {
-    success: "border-green-200 bg-green-50",
-    warning: "border-amber-200 bg-amber-50",
-    critical: "border-red-200 bg-red-50",
-    default: "border-slate-200 bg-slate-50",
-  };
-  const countClasses: Record<Tone, string> = {
-    success: "text-success",
-    warning: "text-warning",
-    critical: "text-critical",
-    default: "text-slate-600",
-  };
-
-  return (
-    <div
-      className={`rounded-lg border px-4 py-3 ${colorClasses[tone]}`}
-      aria-label={`${label}: ${count}`}
-    >
-      <p className={`text-2xl font-semibold tabular-nums ${countClasses[tone]}`}>{count}</p>
-      <p className="mt-0.5 text-xs text-slate-500">{label}</p>
-    </div>
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -434,40 +409,35 @@ export default async function EpicQueuePage({ searchParams }: PageProps) {
       />
 
       {errorMessage && (
-        <p
-          role="alert"
-          className="mt-4 rounded-md border border-critical/20 bg-red-50 px-3 py-2 text-sm text-critical"
-        >
+        <Alert tone="error" className="mt-4">
           {errorMessage}
-        </p>
+        </Alert>
       )}
 
       {/* Summary stat cards */}
       <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <SummaryCard label="Pending" count={counts.PENDING} tone="default" />
-        <SummaryCard label="Submitted" count={counts.SUBMITTED} tone="warning" />
-        <SummaryCard label="Completed" count={counts.COMPLETED} tone="success" />
-        <SummaryCard label="Cancelled" count={counts.CANCELLED} tone="critical" />
+        <StatCard label="Pending" value={counts.PENDING} tone="default" />
+        <StatCard label="Submitted" value={counts.SUBMITTED} tone="warning" />
+        <StatCard label="Completed" value={counts.COMPLETED} tone="success" />
+        <StatCard label="Cancelled" value={counts.CANCELLED} tone="critical" />
       </div>
 
       {/* Status filter bar */}
       <form method="GET" action="/volunteers/epic" className="mt-6 flex flex-wrap items-end gap-3">
         <div className="w-44">
-          <label className="block text-xs font-medium text-slate-500 mb-1">Status</label>
-          <Select name="status" defaultValue={statusFilter}>
-            {ALL_STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {STATUS_LABEL[s]}
-              </option>
-            ))}
-          </Select>
+          <Field label="Status">
+            <Select name="status" defaultValue={statusFilter}>
+              {ALL_STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {STATUS_LABEL[s]}
+                </option>
+              ))}
+            </Select>
+          </Field>
         </div>
-        <button
-          type="submit"
-          className="rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:opacity-90 transition-opacity"
-        >
+        <Button type="submit" variant="primary" size="sm">
           Filter
-        </button>
+        </Button>
       </form>
 
       {/* New request form */}
@@ -475,32 +445,35 @@ export default async function EpicQueuePage({ searchParams }: PageProps) {
         <h2 className="mb-3 text-base font-semibold">New Request</h2>
         <form action={newRequestAction} className="flex flex-wrap items-end gap-3">
           <div className="w-52">
-            <label className="block text-xs font-medium text-slate-500 mb-1">NetID or email</label>
-            <Input name="personKey" placeholder="netid or email@yale.edu" required />
+            <Field label="NetID or email">
+              <Input name="personKey" placeholder="netid or email@yale.edu" required />
+            </Field>
           </div>
           <div className="w-36">
-            <label className="block text-xs font-medium text-slate-500 mb-1">Kind</label>
-            <Select name="kind" defaultValue="NEW">
-              {ALL_KINDS.map((k) => (
-                <option key={k} value={k}>
-                  {k}
-                </option>
-              ))}
-            </Select>
+            <Field label="Kind">
+              <Select name="kind" defaultValue="NEW">
+                {ALL_KINDS.map((k) => (
+                  <option key={k} value={k}>
+                    {k}
+                  </option>
+                ))}
+              </Select>
+            </Field>
           </div>
           <div className="w-44">
-            <label className="block text-xs font-medium text-slate-500 mb-1">Job title</label>
-            <Input name="jobTitle" placeholder="Optional" />
+            <Field label="Job title">
+              <Input name="jobTitle" placeholder="Optional" />
+            </Field>
           </div>
           <div className="w-44">
-            <label className="block text-xs font-medium text-slate-500 mb-1">
-              Mirror Epic ID
-            </label>
-            <Input name="mirrorEpicId" placeholder="Optional" />
+            <Field label="Mirror Epic ID">
+              <Input name="mirrorEpicId" placeholder="Optional" />
+            </Field>
           </div>
           <div className="flex-1 min-w-44">
-            <label className="block text-xs font-medium text-slate-500 mb-1">Notes</label>
-            <Input name="notes" placeholder="Optional" />
+            <Field label="Notes">
+              <Input name="notes" placeholder="Optional" />
+            </Field>
           </div>
           <Button type="submit" variant="outline" size="sm">
             Create request
@@ -524,10 +497,9 @@ export default async function EpicQueuePage({ searchParams }: PageProps) {
           <form id="ticket-form" action={createTicketAction}>
             <div className="mb-2 flex items-end gap-3">
               <div className="w-64">
-                <label className="block text-xs font-medium text-slate-500 mb-1">
-                  Ticket description (optional)
-                </label>
-                <Input name="description" placeholder="Optional description" />
+                <Field label="Ticket description (optional)">
+                  <Input name="description" placeholder="Optional description" />
+                </Field>
               </div>
               <Button type="submit" variant="outline" size="sm">
                 Submit selected to YNHH
@@ -537,15 +509,20 @@ export default async function EpicQueuePage({ searchParams }: PageProps) {
         )}
 
         {rows.length === 0 ? (
-          <p className="mt-4 text-sm text-slate-400">
-            No {STATUS_LABEL[statusFilter].toLowerCase()} requests.
-          </p>
+          <div className="mt-12 flex flex-col items-center justify-center gap-3 text-center text-sm text-slate-500">
+            <p>No {STATUS_LABEL[statusFilter].toLowerCase()} requests.</p>
+          </div>
         ) : (
           <>
             <Table>
               <THead>
                 <TR>
-                  {statusFilter === "PENDING" && <TH>Select</TH>}
+                  {statusFilter === "PENDING" && (
+                    <TH>
+                      <SelectAllCheckbox formId="ticket-form" />
+                      <span className="sr-only">Select</span>
+                    </TH>
+                  )}
                   <TH>Person</TH>
                   <TH>Kind</TH>
                   <TH>Status</TH>
@@ -572,8 +549,7 @@ export default async function EpicQueuePage({ searchParams }: PageProps) {
                         <TD>
                           {/* form attribute associates this checkbox with ticket-form
                               even though it is inside a different <form> element */}
-                          <input
-                            type="checkbox"
+                          <Checkbox
                             name="requestIds"
                             value={row.id}
                             form="ticket-form"
@@ -674,7 +650,7 @@ export default async function EpicQueuePage({ searchParams }: PageProps) {
                                 className="w-28 py-1 text-xs"
                                 required
                               />
-                              <Button type="submit" variant="outline" size="sm">
+                              <Button type="submit" variant="danger" size="sm">
                                 Cancel
                               </Button>
                             </form>
@@ -685,23 +661,17 @@ export default async function EpicQueuePage({ searchParams }: PageProps) {
                                 <form action={sendEmailAction}>
                                   <input type="hidden" name="requestId" value={row.id} />
                                   <input type="hidden" name="template" value="epic-onboarding" />
-                                  <Button type="submit" variant="ghost" size="sm">
-                                    Send onboarding
-                                  </Button>
+                                  <ConfirmButton label="Send onboarding" confirmLabel="Confirm send?" />
                                 </form>
                                 <form action={sendEmailAction}>
                                   <input type="hidden" name="requestId" value={row.id} />
                                   <input type="hidden" name="template" value="epic-activation" />
-                                  <Button type="submit" variant="ghost" size="sm">
-                                    Send activation
-                                  </Button>
+                                  <ConfirmButton label="Send activation" confirmLabel="Confirm send?" />
                                 </form>
                                 <form action={sendEmailAction}>
                                   <input type="hidden" name="requestId" value={row.id} />
                                   <input type="hidden" name="template" value="epic-password-reset" />
-                                  <Button type="submit" variant="ghost" size="sm">
-                                    Send PW reset
-                                  </Button>
+                                  <ConfirmButton label="Send PW reset" confirmLabel="Confirm send?" />
                                 </form>
                               </div>
                               {/* Last-send info */}
@@ -746,7 +716,9 @@ export default async function EpicQueuePage({ searchParams }: PageProps) {
         <h2 className="mb-3 text-base font-semibold">YNHH Tickets</h2>
 
         {tickets.length === 0 ? (
-          <p className="text-sm text-slate-400">No tickets yet.</p>
+          <div className="mt-12 flex flex-col items-center justify-center gap-3 text-center text-sm text-slate-500">
+            <p>No tickets yet.</p>
+          </div>
         ) : (
           <Table>
             <THead>
@@ -757,7 +729,7 @@ export default async function EpicQueuePage({ searchParams }: PageProps) {
                 <TH>Age (biz days)</TH>
                 <TH>Requests</TH>
                 <TH>Status</TH>
-                <TH></TH>
+                <TH><span className="sr-only">Actions</span></TH>
               </TR>
             </THead>
             <tbody>
@@ -782,7 +754,10 @@ export default async function EpicQueuePage({ searchParams }: PageProps) {
                         </Button>
                       </form>
                     </TD>
-                    <TD className="text-slate-600 text-sm max-w-xs truncate">
+                    <TD
+                      className="text-slate-600 text-sm max-w-xs truncate"
+                      title={ticket.description ?? undefined}
+                    >
                       {ticket.description ?? "-"}
                     </TD>
                     <TD>

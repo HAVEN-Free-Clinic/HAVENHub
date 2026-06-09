@@ -140,16 +140,30 @@ function GridCell({
   const stateLabel = assignment
     ? `${assignment.role.toLowerCase()} on ${displayD}`
     : `unassigned on ${displayD}`;
-  const ariaLabel = `${memberName}, ${stateLabel}`;
+  // Encode availability in the accessible label so it is not conveyed by the
+  // muted background color alone.
+  const availLabel = isAvailable ? "" : ", unavailable";
+  const ariaLabel = `${memberName}, ${stateLabel}${availLabel}`;
+
+  // Non-color cue for unavailable cells: a faint centered middot (decorative).
+  const unavailableMarker = isAvailable ? null : (
+    <span
+      aria-hidden="true"
+      className="pointer-events-none absolute bottom-0.5 right-1 text-[10px] leading-none text-slate-300"
+    >
+      &middot;
+    </span>
+  );
 
   // Availability mode: read-only cell.
   if (mode === "availability") {
     return (
       <td
-        className={`border border-slate-200 px-2 py-1.5 text-center align-middle min-w-[52px] ${availBg} ${selectedHighlight}`}
+        className={`relative border border-slate-200 px-2 py-1.5 text-center align-middle min-w-[52px] ${availBg} ${selectedHighlight}`}
         aria-label={ariaLabel}
       >
         <CellContent assignment={assignment} deptCode={deptCode} />
+        {unavailableMarker}
       </td>
     );
   }
@@ -159,7 +173,7 @@ function GridCell({
     if (!assignment) {
       return (
         <td
-          className={`border border-slate-200 px-1 py-1 text-center align-middle min-w-[52px] ${availBg} ${selectedHighlight}`}
+          className={`relative border border-slate-200 px-1 py-1 text-center align-middle min-w-[52px] ${availBg} ${selectedHighlight}`}
         >
           <BuilderCell
             action={assignAction}
@@ -171,14 +185,15 @@ function GridCell({
             }}
             label="+"
             variant="grid"
-            ariaLabel={`Assign ${memberName} as volunteer on ${displayD}`}
+            ariaLabel={`Assign ${memberName} as volunteer on ${displayD}${availLabel}`}
           />
+          {unavailableMarker}
         </td>
       );
     }
     return (
       <td
-        className={`border border-slate-200 px-1 py-1 text-center align-middle min-w-[52px] ${availBg} ${selectedHighlight}`}
+        className={`relative border border-slate-200 px-1 py-1 text-center align-middle min-w-[52px] ${availBg} ${selectedHighlight}`}
       >
         <BuilderCell
           action={unassignAction}
@@ -189,9 +204,10 @@ function GridCell({
           }}
           label={roleGlyph(assignment.role) || "?"}
           variant="grid-filled"
-          ariaLabel={`Unassign ${memberName} (${assignment.role.toLowerCase()}) from ${displayD}`}
+          ariaLabel={`Unassign ${memberName} (${assignment.role.toLowerCase()}) from ${displayD}${availLabel}`}
           assignment={assignment}
         />
+        {unavailableMarker}
       </td>
     );
   }
@@ -200,7 +216,7 @@ function GridCell({
   if (!assignment) {
     return (
       <td
-        className={`border border-slate-200 px-1 py-1 text-center align-middle min-w-[52px] ${availBg} ${selectedHighlight}`}
+        className={`relative border border-slate-200 px-1 py-1 text-center align-middle min-w-[52px] ${availBg} ${selectedHighlight}`}
       >
         <BuilderCell
           action={assignAction}
@@ -212,8 +228,9 @@ function GridCell({
           }}
           label="+"
           variant="grid"
-          ariaLabel={`Assign ${memberName} as shadow on ${displayD}`}
+          ariaLabel={`Assign ${memberName} as shadow on ${displayD}${availLabel}`}
         />
+        {unavailableMarker}
       </td>
     );
   }
@@ -221,7 +238,7 @@ function GridCell({
   if (assignment.role === "SHADOW") {
     return (
       <td
-        className={`border border-slate-200 px-1 py-1 text-center align-middle min-w-[52px] ${availBg} ${selectedHighlight}`}
+        className={`relative border border-slate-200 px-1 py-1 text-center align-middle min-w-[52px] ${availBg} ${selectedHighlight}`}
       >
         <BuilderCell
           action={unassignAction}
@@ -232,9 +249,10 @@ function GridCell({
           }}
           label="S"
           variant="grid-filled"
-          ariaLabel={`Unassign ${memberName} (shadow) from ${displayD}`}
+          ariaLabel={`Unassign ${memberName} (shadow) from ${displayD}${availLabel}`}
           assignment={assignment}
         />
+        {unavailableMarker}
       </td>
     );
   }
@@ -242,10 +260,11 @@ function GridCell({
   // Non-shadow filled cell in shadow mode: read-only.
   return (
     <td
-      className={`border border-slate-200 px-2 py-1.5 text-center align-middle min-w-[52px] ${availBg} ${selectedHighlight}`}
+      className={`relative border border-slate-200 px-2 py-1.5 text-center align-middle min-w-[52px] ${availBg} ${selectedHighlight}`}
       aria-label={`${ariaLabel} (role change via Saturday view)`}
     >
       <CellContent assignment={assignment} deptCode={deptCode} />
+      {unavailableMarker}
     </td>
   );
 }

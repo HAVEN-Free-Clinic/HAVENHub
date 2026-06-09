@@ -16,7 +16,8 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
-import { Input } from "@/platform/ui/input";
+import { Input, Field } from "@/platform/ui/input";
+import { Alert } from "@/platform/ui/alert";
 import { Select } from "@/platform/ui/select";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -408,12 +409,9 @@ export default async function BuilderPage({ searchParams }: PageProps) {
 
       {/* Error banner */}
       {errorMessage && (
-        <p
-          role="alert"
-          className="mt-4 rounded-md border border-critical/20 bg-red-50 px-3 py-2 text-sm text-critical"
-        >
+        <Alert tone="error" className="mt-4">
           {errorMessage}
-        </p>
+        </Alert>
       )}
 
       {/* Department selector */}
@@ -422,14 +420,15 @@ export default async function BuilderPage({ searchParams }: PageProps) {
         {view !== "saturday" && <input type="hidden" name="view" value={view} />}
         {mode !== "assign" && <input type="hidden" name="mode" value={mode} />}
         <div className="w-56">
-          <label className="block text-xs font-medium text-slate-500 mb-1">Department</label>
-          <Select name="dept" defaultValue={dept.id}>
-            {data.departments.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.code} - {d.name}
-              </option>
-            ))}
-          </Select>
+          <Field label="Department">
+            <Select name="dept" defaultValue={dept.id}>
+              {data.departments.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.code} - {d.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
         </div>
         <Button type="submit" variant="outline" size="sm">
           Go
@@ -461,7 +460,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
       )}
 
       {/* View toggle */}
-      <div className="mt-5 flex items-center gap-2">
+      <nav className="mt-5 flex items-center gap-2" aria-label="View">
         <span className="text-xs font-medium text-slate-500">View:</span>
         <a
           href={href({ view: "saturday" })}
@@ -485,10 +484,10 @@ export default async function BuilderPage({ searchParams }: PageProps) {
         >
           Grid
         </a>
-      </div>
+      </nav>
 
       {/* Mode toggle */}
-      <div className="mt-3 flex items-center gap-2">
+      <nav className="mt-3 flex items-center gap-2" aria-label="Mode">
         <span className="text-xs font-medium text-slate-500">Mode:</span>
         {(["assign", "shadow", "availability"] as const).map((m) => (
           <a
@@ -504,7 +503,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
             {m === "assign" ? "Assign" : m === "shadow" ? "Shadow" : "Availability"}
           </a>
         ))}
-      </div>
+      </nav>
 
       {/* Main content area */}
       <div className="mt-8">
@@ -534,9 +533,13 @@ export default async function BuilderPage({ searchParams }: PageProps) {
         ) : (
           /* Saturday view: assign or shadow mode */
           <div className="flex flex-col gap-8">
-            {/* HIPAA compliance banner */}
+            {/* HIPAA compliance banner (warning tokens; uses a div since it has
+                block-level list content that cannot nest inside Alert's <p>) */}
             {data.banner.length > 0 && (
-              <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              <div
+                role="status"
+                className="rounded-md border border-warning/30 bg-amber-50 px-4 py-3 text-sm text-warning"
+              >
                 <p className="font-medium mb-1">HIPAA compliance issues on this date:</p>
                 <ul className="list-disc list-inside space-y-0.5">
                   {data.banner.flatMap((b) =>
@@ -623,7 +626,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                             <input type="hidden" name="departmentId" value={dept.id} />
                             <input type="hidden" name="dateKey" value={selectedDateKey ?? ""} />
                             <input type="hidden" name="personId" value={pid} />
-                            <Input name="reason" placeholder="Reason (optional)" className="flex-1 min-w-32 py-1 text-xs" />
+                            <Input name="reason" aria-label="Removal reason" placeholder="Reason (optional)" className="flex-1 min-w-32 py-1 text-xs" />
                             <ConfirmButton label="Remove" confirmLabel="Remove this volunteer?" />
                           </form>
                         </div>

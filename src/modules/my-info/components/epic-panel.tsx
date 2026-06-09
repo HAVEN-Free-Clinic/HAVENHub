@@ -10,9 +10,10 @@
  */
 
 import type { EpicRequest } from "@prisma/client";
-import { Input } from "@/platform/ui/input";
+import { Input, Field } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
-import { Button } from "@/platform/ui/button";
+import { SubmitButton } from "@/platform/ui/submit-button";
+import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
 
 function formatDate(date: Date): string {
@@ -43,9 +44,7 @@ export function EpicPanel({ epicId, openRequest, action, error, saved }: EpicPan
         <p className="mt-0.5 text-xs text-slate-400">Managed by the IT team.</p>
       </div>
 
-      {saved && (
-        <p className="text-sm text-green-600">Epic request submitted.</p>
-      )}
+      {saved && <Alert tone="success">Epic request submitted.</Alert>}
 
       {/* Current Epic ID row */}
       <div className="flex items-center gap-3">
@@ -61,7 +60,7 @@ export function EpicPanel({ epicId, openRequest, action, error, saved }: EpicPan
       {openRequest ? (
         <div className="rounded-md border border-slate-200 bg-slate-50 px-4 py-3">
           <div className="flex items-center gap-2">
-            <Badge tone={openRequest.status === "SUBMITTED" ? "warning" : "default"}>
+            <Badge tone="warning">
               {openRequest.kind} {openRequest.status === "SUBMITTED" ? "submitted to YNHH" : "request pending"}
             </Badge>
             <span className="text-xs text-slate-500">since {formatDate(openRequest.createdAt)}</span>
@@ -77,12 +76,9 @@ export function EpicPanel({ epicId, openRequest, action, error, saved }: EpicPan
           <h4 className="mb-2 text-xs font-medium text-slate-500">Request Epic Access</h4>
 
           {error && (
-            <p
-              role="alert"
-              className="mb-3 rounded-md border border-critical/20 bg-red-50 px-3 py-2 text-sm text-critical"
-            >
+            <Alert tone="error" className="mb-3">
               {error}
-            </p>
+            </Alert>
           )}
 
           <form action={action} className="space-y-3">
@@ -93,27 +89,21 @@ export function EpicPanel({ epicId, openRequest, action, error, saved }: EpicPan
                 <p className="text-sm text-slate-600">Request a new Epic account.</p>
               </>
             ) : (
-              <div>
-                <label className="block text-xs font-medium text-slate-500 mb-1">
-                  Request type
-                </label>
+              <Field label="Request type">
                 <Select name="kind" defaultValue="RENEW" className="max-w-[200px]">
                   <option value="MODIFY">Modify (update account)</option>
                   <option value="RENEW">Renew (extend access)</option>
                 </Select>
-              </div>
+              </Field>
             )}
 
-            <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1">
-                Notes <span className="font-normal text-slate-400">(optional)</span>
-              </label>
+            <Field label="Notes (optional)">
               <Input name="notes" placeholder="Any details for the IT team" />
-            </div>
+            </Field>
 
-            <Button type="submit" variant="outline" size="sm">
+            <SubmitButton variant="outline" size="sm" pendingLabel="Requesting…">
               Request
-            </Button>
+            </SubmitButton>
           </form>
         </div>
       )}

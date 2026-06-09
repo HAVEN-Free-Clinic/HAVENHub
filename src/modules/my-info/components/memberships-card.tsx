@@ -11,6 +11,7 @@
 
 import type { TermMembership, Department, Term } from "@prisma/client";
 import { Badge } from "@/platform/ui/badge";
+import { Alert } from "@/platform/ui/alert";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 
 type MembershipWithRelations = TermMembership & {
@@ -35,9 +36,9 @@ export function MembershipsCard({
   return (
     <div>
       {withdrawn !== undefined && withdrawn > 0 && (
-        <p className="mb-3 text-sm text-success">
+        <Alert tone="success" className="mb-3">
           Withdrawn from {withdrawn} volunteer assignment{withdrawn !== 1 ? "s" : ""} this term.
-        </p>
+        </Alert>
       )}
 
       {memberships.length === 0 ? (

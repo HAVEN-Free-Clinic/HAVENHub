@@ -4,6 +4,7 @@ import { Badge } from "@/platform/ui/badge";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Input } from "@/platform/ui/input";
+import { Alert } from "@/platform/ui/alert";
 import {
   offboardingView,
   flagForOffboarding,
@@ -114,12 +115,9 @@ export default async function OffboardingPage({ searchParams }: PageProps) {
       />
 
       {errorMessage && (
-        <p
-          role="alert"
-          className="mt-4 rounded-md border border-critical/20 bg-red-50 px-3 py-2 text-sm text-critical"
-        >
+        <Alert tone="error" className="mt-4">
           {errorMessage}
-        </p>
+        </Alert>
       )}
 
       {/* Director section: one card per manageable department */}
@@ -142,7 +140,7 @@ export default async function OffboardingPage({ searchParams }: PageProps) {
                     <TH>Role</TH>
                     <TH>Status</TH>
                     <TH>Note</TH>
-                    <TH></TH>
+                    <TH><span className="sr-only">Actions</span></TH>
                   </TR>
                 </THead>
                 <tbody>
@@ -209,7 +207,7 @@ export default async function OffboardingPage({ searchParams }: PageProps) {
                 <TH>Flagged by</TH>
                 <TH>Flagged date</TH>
                 <TH>Note</TH>
-                <TH></TH>
+                <TH><span className="sr-only">Actions</span></TH>
               </TR>
             </THead>
             <tbody>

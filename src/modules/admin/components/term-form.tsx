@@ -8,6 +8,7 @@
 import type { Term } from "@prisma/client";
 import { Input, Field } from "@/platform/ui/input";
 import { Button } from "@/platform/ui/button";
+import { Alert } from "@/platform/ui/alert";
 
 function toDateInputValue(d: Date): string {
   // Return YYYY-MM-DD in UTC for the date input default value.
@@ -28,17 +29,8 @@ type TermFormProps = {
 export function TermForm({ action, term, error, saved }: TermFormProps) {
   return (
     <form action={action} className="space-y-6">
-      {error && (
-        <p
-          role="alert"
-          className="rounded-md border border-critical/20 bg-red-50 px-3 py-2 text-sm text-critical"
-        >
-          {error}
-        </p>
-      )}
-      {saved && (
-        <p className="text-sm text-success">{saved}</p>
-      )}
+      {error && <Alert tone="error">{error}</Alert>}
+      {saved && <Alert tone="success">{saved}</Alert>}
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Code" hint="E.g. FA26. Will be uppercased automatically.">

@@ -29,7 +29,8 @@ import {
 } from "@/modules/admin/services/rbac";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
-import { Input } from "@/platform/ui/input";
+import { Input, Field } from "@/platform/ui/input";
+import { Checkbox } from "@/platform/ui/checkbox";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 
 // ---------------------------------------------------------------------------
@@ -151,8 +152,7 @@ export async function RolesPanel({ roles, pageHref }: RolesPanelProps): Promise<
       <div className="rounded-lg border border-slate-200 bg-white p-5">
         <h3 className="mb-4 text-sm font-semibold text-slate-700">Create new role</h3>
         <form action={createRoleAction} className="flex flex-wrap items-end gap-3">
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-slate-500">Name</label>
+          <Field label="Name">
             <Input
               type="text"
               name="roleName"
@@ -160,19 +160,15 @@ export async function RolesPanel({ roles, pageHref }: RolesPanelProps): Promise<
               placeholder="e.g. Schedule Editor"
               className="w-56"
             />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-slate-500">
-              Description{" "}
-              <span className="font-normal text-slate-400">(optional)</span>
-            </label>
+          </Field>
+          <Field label="Description" hint="Optional.">
             <Input
               type="text"
               name="roleDescription"
               placeholder="Short description..."
               className="w-72"
             />
-          </div>
+          </Field>
           <Button type="submit" variant="primary" size="sm">
             Create role
           </Button>
@@ -233,12 +229,10 @@ export async function RolesPanel({ roles, pageHref }: RolesPanelProps): Promise<
                         key={perm}
                         className="flex items-center gap-2 text-sm text-slate-700"
                       >
-                        <input
-                          type="checkbox"
+                        <Checkbox
                           name="permissions"
                           value={perm}
                           defaultChecked={grantedSet.has(perm)}
-                          className="rounded border-slate-300"
                         />
                         <span className="font-mono text-xs">{perm}</span>
                       </label>
@@ -254,12 +248,10 @@ export async function RolesPanel({ roles, pageHref }: RolesPanelProps): Promise<
                 </p>
                 <div className="flex flex-wrap gap-x-6 gap-y-1.5">
                   <label className="flex items-center gap-2 text-sm text-slate-700">
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       name="permissions"
                       value="*"
                       defaultChecked={grantedSet.has("*")}
-                      className="rounded border-slate-300"
                     />
                     <span className="font-mono text-xs">*</span>
                     <span className="text-xs text-slate-400">(superadmin: all permissions)</span>

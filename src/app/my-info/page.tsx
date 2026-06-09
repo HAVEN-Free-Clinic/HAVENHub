@@ -177,20 +177,20 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
       <div className="mt-8 space-y-10">
         {/* Profile form */}
         <section>
-          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-400">
+          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-500">
             Profile
           </h2>
           <MyInfoForm
             action={updateAction}
             person={myInfo.person}
-            error={sp.error}
+            error={sp.error ? decodeURIComponent(sp.error) : undefined}
             saved={sp.saved === "1" ? "Saved." : undefined}
           />
         </section>
 
         {/* Memberships */}
         <section>
-          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-400">
+          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-500">
             Memberships
           </h2>
           <MembershipsCard
@@ -202,16 +202,16 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
 
         {/* HIPAA certificate */}
         <section>
-          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-400">
+          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-500">
             HIPAA Certificate
           </h2>
           <HipaaPanel
             certificates={certificates}
             uploadAction={uploadAction}
             dateAction={dateAction}
-            error={sp.certError}
+            error={sp.certError ? decodeURIComponent(sp.certError) : undefined}
             certSaved={sp.certSaved === "1"}
-            dateError={sp.dateError}
+            dateError={sp.dateError ? decodeURIComponent(sp.dateError) : undefined}
             dateSaved={sp.dateSaved === "1"}
             status={status}
           />
@@ -219,7 +219,7 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
 
         {/* Epic access */}
         <section>
-          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-400">
+          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-500">
             Epic Access
           </h2>
           <EpicPanel

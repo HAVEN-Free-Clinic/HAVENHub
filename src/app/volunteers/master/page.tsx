@@ -19,8 +19,10 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { Pagination } from "@/platform/ui/pagination";
-import { Input } from "@/platform/ui/input";
+import { Field, Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
+import { Button, buttonClasses } from "@/platform/ui/button";
+import { StatCard } from "@/platform/ui/stat-card";
 import { masterCompliance } from "@/modules/volunteers/services/compliance";
 import type { ComplianceStatus } from "@/platform/compliance/rules";
 import { certExpiresAt } from "@/platform/compliance/rules";
@@ -77,43 +79,6 @@ function fmtDate(d: Date | null | undefined): string {
     day: "numeric",
     timeZone: "UTC",
   });
-}
-
-// ---------------------------------------------------------------------------
-// Summary stat card
-// ---------------------------------------------------------------------------
-
-function SummaryCard({
-  label,
-  count,
-  tone,
-}: {
-  label: string;
-  count: number;
-  tone: Tone;
-}) {
-  const colorClasses: Record<Tone, string> = {
-    success: "border-green-200 bg-green-50",
-    warning: "border-amber-200 bg-amber-50",
-    critical: "border-red-200 bg-red-50",
-    default: "border-slate-200 bg-slate-50",
-  };
-  const countClasses: Record<Tone, string> = {
-    success: "text-success",
-    warning: "text-warning",
-    critical: "text-critical",
-    default: "text-slate-600",
-  };
-
-  return (
-    <div
-      className={`rounded-lg border px-4 py-3 ${colorClasses[tone]}`}
-      aria-label={`${label}: ${count}`}
-    >
-      <p className={`text-2xl font-semibold tabular-nums ${countClasses[tone]}`}>{count}</p>
-      <p className="mt-0.5 text-xs text-slate-500">{label}</p>
-    </div>
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -183,30 +148,30 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
       />
 
       {/* Summary stat cards */}
-      <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-5">
-        <SummaryCard
+      <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <StatCard
           label="Compliant"
-          count={result.summary.COMPLIANT}
+          value={result.summary.COMPLIANT}
           tone="success"
         />
-        <SummaryCard
+        <StatCard
           label="Expiring Soon"
-          count={result.summary.EXPIRING_SOON}
+          value={result.summary.EXPIRING_SOON}
           tone="warning"
         />
-        <SummaryCard
+        <StatCard
           label="Expired"
-          count={result.summary.EXPIRED}
+          value={result.summary.EXPIRED}
           tone="critical"
         />
-        <SummaryCard
+        <StatCard
           label="Date Unknown"
-          count={result.summary.UNKNOWN_DATE}
+          value={result.summary.UNKNOWN_DATE}
           tone="default"
         />
-        <SummaryCard
+        <StatCard
           label="No Certificate"
-          count={result.summary.NO_CERTIFICATE}
+          value={result.summary.NO_CERTIFICATE}
           tone="default"
         />
       </div>
@@ -218,56 +183,50 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
         className="mt-6 flex flex-wrap items-end gap-3"
       >
         <div className="flex-1 min-w-48">
-          <label className="block text-xs font-medium text-slate-500 mb-1">
-            Search
-          </label>
-          <Input
-            type="search"
-            name="q"
-            defaultValue={q ?? ""}
-            placeholder="Name or NetID..."
-          />
+          <Field label="Search">
+            <Input
+              type="search"
+              name="q"
+              defaultValue={q ?? ""}
+              placeholder="Name or NetID..."
+            />
+          </Field>
         </div>
 
         <div className="w-52">
-          <label className="block text-xs font-medium text-slate-500 mb-1">
-            Department
-          </label>
-          <Select name="departmentId" defaultValue={departmentId ?? ""}>
-            <option value="">All departments</option>
-            {departments.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.code} - {d.name}
-              </option>
-            ))}
-          </Select>
+          <Field label="Department">
+            <Select name="departmentId" defaultValue={departmentId ?? ""}>
+              <option value="">All departments</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.code} - {d.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
         </div>
 
         <div className="w-44">
-          <label className="block text-xs font-medium text-slate-500 mb-1">
-            Status
-          </label>
-          <Select name="status" defaultValue={statusFilter ?? ""}>
-            <option value="">All statuses</option>
-            {ALL_STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {STATUS_LABEL[s]}
-              </option>
-            ))}
-          </Select>
+          <Field label="Status">
+            <Select name="status" defaultValue={statusFilter ?? ""}>
+              <option value="">All statuses</option>
+              {ALL_STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {STATUS_LABEL[s]}
+                </option>
+              ))}
+            </Select>
+          </Field>
         </div>
 
-        <button
-          type="submit"
-          className="rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:opacity-90 transition-opacity"
-        >
+        <Button type="submit" variant="primary" size="sm">
           Filter
-        </button>
+        </Button>
 
         {(q || departmentId || statusFilter) && (
           <Link
             href="/volunteers/master"
-            className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors"
+            className={buttonClasses("outline", "sm")}
           >
             Clear
           </Link>
@@ -293,7 +252,7 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
                   <TH>Completed</TH>
                   <TH>Expires</TH>
                   <TH>Verified</TH>
-                  <TH></TH>
+                  <TH><span className="sr-only">Actions</span></TH>
                 </TR>
               </THead>
               <tbody>

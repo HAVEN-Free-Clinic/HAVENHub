@@ -94,6 +94,8 @@ model Person {
   shiftAssignments          ShiftAssignment[]
   recruitmentCyclesCreated  RecruitmentCycle[]   @relation("RecruitmentCycleCreatedBy")
   recruitmentAcceptances    Acceptance[]         @relation("recruitmentAcceptanceApprover")
+  contractsPromoted         OnboardingContract[] @relation("contractPromotedBy")
+  contractsPromotedTo       OnboardingContract[] @relation("contractPromotedPerson")
   interviewsCreated         Interview[]          @relation("interviewCreatedBy")
   interviewsDecided         Interview[]          @relation("interviewDecidedBy")
   interviewPanels           InterviewPanelist[]  @relation("interviewPanelistPerson")
@@ -364,6 +366,12 @@ enum Recommendation {
   YES
   MAYBE
   NO
+}
+
+enum ContractStatus {
+  PENDING
+  SUBMITTED
+  PROMOTED
 }
 
 /// One row per mirrored change. Written in the same transaction as the domain
@@ -764,11 +772,55 @@ model Acceptance {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-  approvedBy  Person      @relation("recruitmentAcceptanceApprover", fields: [approvedById], references: [id], onDelete: Restrict)
+  application Application        @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  approvedBy  Person             @relation("recruitmentAcceptanceApprover", fields: [approvedById], references: [id], onDelete: Restrict)
+  contract    OnboardingContract?
 
   @@unique([applicationId, departmentCode])
   @@index([applicationId])
+}
+
+model OnboardingContract {
+  id                       String         @id @default(cuid())
+  acceptanceId             String         @unique
+  token                    String         @unique
+  status                   ContractStatus @default(PENDING)
+  firstName                String
+  lastName                 String
+  email                    String
+  netId                    String?
+  phone                    String?
+  dateOfBirth              DateTime?
+  dietaryRestrictions      String?
+  yaleAffiliation          String?
+  gradYear                 String?
+  agreementSignature       String?
+  professionalismSignature String?
+  trainingSignature        String?
+  initials                 String?
+  epicNeeded               Boolean        @default(false)
+  hasEpic                  Boolean        @default(false)
+  existingEpicId           String?
+  epicAccessType           String?
+  worksWithYnhh            Boolean        @default(false)
+  hipaaStoredName          String?
+  hipaaFileName            String?
+  hipaaMimeType            String?
+  hipaaSize                Int?
+  hipaaCompletedAt         DateTime?
+  sentAt                   DateTime?
+  submittedAt              DateTime?
+  promotedAt               DateTime?
+  promotedById             String?
+  promotedPersonId         String?
+  createdAt                DateTime       @default(now())
+  updatedAt                DateTime       @updatedAt
+
+  acceptance     Acceptance @relation(fields: [acceptanceId], references: [id], onDelete: Cascade)
+  promotedBy     Person?    @relation("contractPromotedBy", fields: [promotedById], references: [id], onDelete: SetNull)
+  promotedPerson Person?    @relation("contractPromotedPerson", fields: [promotedPersonId], references: [id], onDelete: SetNull)
+
+  @@index([status])
 }
 
 model Interview {

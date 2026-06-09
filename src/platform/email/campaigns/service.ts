@@ -7,6 +7,8 @@ import { PERSON_VARIABLES } from "@/platform/email/audience/variables";
 import { resolveAudience } from "@/platform/email/audience/resolve";
 import { renderInlineEmail, loadLayoutSource } from "@/platform/email/templates/renderEmail";
 import { queueEmail } from "@/platform/email/send";
+import type { Prisma } from "@prisma/client";
+import { isValidCron, nextCronAfter } from "./cron";
 
 export const CAMPAIGN_CONFIRM_THRESHOLD = 25;
 
@@ -44,7 +46,7 @@ export async function createDraft(actorId: string | null, name: string) {
 }
 
 export async function getCampaign(id: string) {
-  return prisma.emailCampaign.findUnique({ where: { id } });
+  return prisma.emailCampaign.findUnique({ where: { id }, include: { runs: { orderBy: { runAt: "desc" } } } });
 }
 
 export async function listCampaigns() {
@@ -136,24 +138,15 @@ export async function testSend(actorId: string | null, id: string, toEmail: stri
   });
 }
 
-export async function sendCampaignNow(
-  actorId: string | null,
-  id: string,
-  opts: { confirmCount?: number },
+export async function executeRun(
+  campaignId: string,
+  opts: { actorId: string | null; statusUpdate: Prisma.EmailCampaignUpdateInput },
 ): Promise<{ runId: string; recipientCount: number }> {
-  const campaign = await prisma.emailCampaign.findUniqueOrThrow({ where: { id } });
-
-  if (campaign.status !== "DRAFT") {
-    throw new Error("Campaign already sent");
-  }
-
+  const campaign = await prisma.emailCampaign.findUniqueOrThrow({ where: { id: campaignId } });
   if (!isAudience(campaign.audienceJson)) {
     throw new CampaignValidationError(["Stored audience is malformed"]);
   }
-  const audience = campaign.audienceJson;
-  const { recipients } = await resolveAudience(audience);
-
-  // Deduplicate by lowercased email (keep first)
+  const { recipients } = await resolveAudience(campaign.audienceJson);
   const seen = new Set<string>();
   const deduped = recipients.filter((r) => {
     const key = r.email.toLowerCase();
@@ -161,24 +154,10 @@ export async function sendCampaignNow(
     seen.add(key);
     return true;
   });
-
-  if (
-    deduped.length > CAMPAIGN_CONFIRM_THRESHOLD &&
-    opts.confirmCount !== deduped.length
-  ) {
-    throw new CampaignConfirmationError(deduped.length);
-  }
-
   const layoutSource = await loadLayoutSource();
 
   const runId = await prisma.$transaction(async (tx) => {
-    const run = await tx.emailCampaignRun.create({
-      data: {
-        campaignId: id,
-        recipientCount: deduped.length,
-      },
-    });
-
+    const run = await tx.emailCampaignRun.create({ data: { campaignId, recipientCount: deduped.length } });
     for (const recipient of deduped) {
       const { subject, html } = await renderInlineEmail(
         { subject: campaign.subject, body: campaign.body },
@@ -186,31 +165,70 @@ export async function sendCampaignNow(
         layoutSource,
       );
       await queueEmail(tx, {
-        to: recipient.email,
-        subject,
-        html,
-        template: "campaign",
-        personId: recipient.recordId,
-        triggeredById: actorId,
-        campaignRunId: run.id,
+        to: recipient.email, subject, html, template: "campaign",
+        personId: recipient.recordId, triggeredById: opts.actorId, campaignRunId: run.id,
       });
     }
-
-    await tx.emailCampaign.update({
-      where: { id },
-      data: { status: "SENT" },
-    });
-
+    await tx.emailCampaign.update({ where: { id: campaignId }, data: opts.statusUpdate });
     return run.id;
   });
 
   await recordAudit({
-    actorPersonId: actorId,
-    action: "campaign.send",
-    entityType: "EmailCampaign",
-    entityId: id,
+    actorPersonId: opts.actorId, action: "campaign.send",
+    entityType: "EmailCampaign", entityId: campaignId,
     after: { recipientCount: deduped.length, runId },
   });
-
   return { runId, recipientCount: deduped.length };
+}
+
+export async function sendCampaignNow(
+  actorId: string | null,
+  id: string,
+  opts: { confirmCount?: number },
+): Promise<{ runId: string; recipientCount: number }> {
+  const campaign = await prisma.emailCampaign.findUniqueOrThrow({ where: { id } });
+  if (campaign.status !== "DRAFT") throw new Error("Campaign already sent");
+  if (!isAudience(campaign.audienceJson)) throw new CampaignValidationError(["Stored audience is malformed"]);
+  const { recipients } = await resolveAudience(campaign.audienceJson);
+  const count = new Set(recipients.map((r) => r.email.toLowerCase())).size;
+  if (count > CAMPAIGN_CONFIRM_THRESHOLD && opts.confirmCount !== count) {
+    throw new CampaignConfirmationError(count);
+  }
+  return executeRun(id, { actorId, statusUpdate: { status: "SENT" } });
+}
+
+export type ScheduleInput =
+  | { scheduleType: "SCHEDULED"; scheduledAt?: Date }
+  | { scheduleType: "RECURRING"; cronExpr?: string };
+
+export async function scheduleCampaign(
+  actorId: string | null,
+  id: string,
+  input: ScheduleInput,
+  now: Date = new Date(),
+): Promise<void> {
+  const campaign = await prisma.emailCampaign.findUniqueOrThrow({ where: { id } });
+  if (campaign.status !== "DRAFT") throw new Error("Only a draft can be scheduled");
+
+  if (input.scheduleType === "SCHEDULED") {
+    if (!input.scheduledAt) throw new CampaignValidationError(["A send time is required"]);
+    await prisma.emailCampaign.update({
+      where: { id },
+      data: { scheduleType: "SCHEDULED", scheduledAt: input.scheduledAt, cronExpr: null, nextRunAt: input.scheduledAt, status: "SCHEDULED" },
+    });
+  } else {
+    if (!input.cronExpr || !isValidCron(input.cronExpr)) {
+      throw new CampaignValidationError(["A valid cron expression is required"]);
+    }
+    await prisma.emailCampaign.update({
+      where: { id },
+      data: { scheduleType: "RECURRING", cronExpr: input.cronExpr, scheduledAt: null, nextRunAt: nextCronAfter(input.cronExpr, now), status: "ACTIVE" },
+    });
+  }
+  await recordAudit({ actorPersonId: actorId, action: "campaign.schedule", entityType: "EmailCampaign", entityId: id, after: { scheduleType: input.scheduleType } });
+}
+
+export async function cancelCampaign(actorId: string | null, id: string): Promise<void> {
+  await prisma.emailCampaign.update({ where: { id }, data: { status: "CANCELLED", nextRunAt: null } });
+  await recordAudit({ actorPersonId: actorId, action: "campaign.cancel", entityType: "EmailCampaign", entityId: id });
 }

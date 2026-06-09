@@ -3,6 +3,7 @@ import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import {
   createDraft, updateCampaign, previewAudience, sendCampaignNow,
+  scheduleCampaign, cancelCampaign,
   CampaignValidationError, CampaignConfirmationError,
 } from "./service";
 import * as audienceResolve from "@/platform/email/audience/resolve";
@@ -98,5 +99,49 @@ describe("campaign service", () => {
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+describe("campaign scheduling", () => {
+  it("schedules a one-time send and sets SCHEDULED + nextRunAt = scheduledAt", async () => {
+    const c = await createDraft(null, "Later");
+    await updateCampaign(null, c.id, { subject: "s", body: "<p>hi</p>", audience: ALL_ACTIVE });
+    const at = new Date("2030-01-01T12:00:00Z");
+    await scheduleCampaign(null, c.id, { scheduleType: "SCHEDULED", scheduledAt: at });
+    const after = await prisma.emailCampaign.findUniqueOrThrow({ where: { id: c.id } });
+    expect(after.status).toBe("SCHEDULED");
+    expect(after.scheduledAt?.toISOString()).toBe(at.toISOString());
+    expect(after.nextRunAt?.toISOString()).toBe(at.toISOString());
+  });
+
+  it("schedules a recurring send and sets ACTIVE + nextRunAt from cron", async () => {
+    const c = await createDraft(null, "Weekly");
+    await updateCampaign(null, c.id, { subject: "s", body: "<p>hi</p>", audience: ALL_ACTIVE });
+    const now = new Date("2026-06-10T12:00:00Z");
+    await scheduleCampaign(null, c.id, { scheduleType: "RECURRING", cronExpr: "0 13 * * *" }, now);
+    const after = await prisma.emailCampaign.findUniqueOrThrow({ where: { id: c.id } });
+    expect(after.status).toBe("ACTIVE");
+    expect(after.cronExpr).toBe("0 13 * * *");
+    expect(after.nextRunAt?.toISOString()).toBe("2026-06-10T13:00:00.000Z");
+  });
+
+  it("rejects an invalid cron and a scheduled time/cron mismatch", async () => {
+    const c = await createDraft(null, "Bad");
+    await updateCampaign(null, c.id, { subject: "s", body: "<p>hi</p>", audience: ALL_ACTIVE });
+    await expect(
+      scheduleCampaign(null, c.id, { scheduleType: "RECURRING", cronExpr: "nope" }),
+    ).rejects.toBeInstanceOf(CampaignValidationError);
+    await expect(
+      scheduleCampaign(null, c.id, { scheduleType: "SCHEDULED" }),
+    ).rejects.toBeInstanceOf(CampaignValidationError);
+  });
+
+  it("cancel sets CANCELLED", async () => {
+    const c = await createDraft(null, "Stop");
+    await updateCampaign(null, c.id, { subject: "s", body: "<p>hi</p>", audience: ALL_ACTIVE });
+    await scheduleCampaign(null, c.id, { scheduleType: "SCHEDULED", scheduledAt: new Date("2030-01-01T00:00:00Z") });
+    await cancelCampaign(null, c.id);
+    const after = await prisma.emailCampaign.findUniqueOrThrow({ where: { id: c.id } });
+    expect(after.status).toBe("CANCELLED");
   });
 });

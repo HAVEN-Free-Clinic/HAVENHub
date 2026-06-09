@@ -7,6 +7,8 @@ import {
   previewAudience,
   testSend,
   sendCampaignNow,
+  scheduleCampaign,
+  cancelCampaign,
   CampaignValidationError,
   CampaignConfirmationError,
 } from "@/platform/email/campaigns/service";
@@ -32,6 +34,8 @@ type Props = {
     preview?: string;
     count?: string;
     excluded?: string;
+    scheduled?: string;
+    cancelled?: string;
   }>;
 };
 
@@ -50,6 +54,9 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
   if (!campaign) redirect("/admin/email/campaigns");
 
   const isSent = campaign.status === "SENT";
+  const isDraft = campaign.status === "DRAFT";
+  const isScheduled = campaign.status === "SCHEDULED";
+  const isActive = campaign.status === "ACTIVE";
 
   const [layoutSource, departments] = await Promise.all([
     loadLayoutSource(),
@@ -170,6 +177,48 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
     redirect(`/admin/email/campaigns/${id}?sent=${recipientCount}`);
   }
 
+  async function scheduleLaterAction(formData: FormData) {
+    "use server";
+    const actor = await requirePermission("admin.send_email_campaign");
+    const raw = (formData.get("scheduledAt") as string | null) ?? "";
+    if (!raw) redirect(`/admin/email/campaigns/${id}?error=${encodeURIComponent("Pick a date and time")}`);
+    const scheduledAt = new Date(raw);
+    try {
+      await scheduleCampaign(actor.personId, id, { scheduleType: "SCHEDULED", scheduledAt });
+    } catch (err) {
+      if (err instanceof CampaignValidationError) {
+        redirect(`/admin/email/campaigns/${id}?error=${encodeURIComponent(err.problems.join("; "))}`);
+      }
+      throw err;
+    }
+    revalidatePath(`/admin/email/campaigns/${id}`);
+    redirect(`/admin/email/campaigns/${id}?scheduled=1`);
+  }
+
+  async function scheduleRecurringAction(formData: FormData) {
+    "use server";
+    const actor = await requirePermission("admin.send_email_campaign");
+    const cronExpr = ((formData.get("cronExpr") as string | null) ?? "").trim();
+    try {
+      await scheduleCampaign(actor.personId, id, { scheduleType: "RECURRING", cronExpr });
+    } catch (err) {
+      if (err instanceof CampaignValidationError) {
+        redirect(`/admin/email/campaigns/${id}?error=${encodeURIComponent(err.problems.join("; "))}`);
+      }
+      throw err;
+    }
+    revalidatePath(`/admin/email/campaigns/${id}`);
+    redirect(`/admin/email/campaigns/${id}?scheduled=1`);
+  }
+
+  async function cancelAction() {
+    "use server";
+    const actor = await requirePermission("admin.send_email_campaign");
+    await cancelCampaign(actor.personId, id);
+    revalidatePath(`/admin/email/campaigns/${id}`);
+    redirect(`/admin/email/campaigns/${id}?cancelled=1`);
+  }
+
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
@@ -216,6 +265,16 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
             : ""}
           .
         </div>
+      )}
+      {sp.scheduled === "1" && !errorMessage && (
+        <p className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-success">
+          Campaign scheduled.
+        </p>
+      )}
+      {sp.cancelled === "1" && !errorMessage && (
+        <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+          Schedule cancelled.
+        </p>
       )}
 
       {/* Main save form */}
@@ -302,6 +361,106 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
               Send now
             </Button>
           </form>
+        </div>
+      )}
+
+      {/* Schedule status banner (SCHEDULED or ACTIVE) */}
+      {(isScheduled || isActive) && (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 space-y-3">
+          {isScheduled && campaign.scheduledAt && (
+            <p className="text-sm text-blue-800">
+              <strong>Scheduled to send on</strong>{" "}
+              {campaign.scheduledAt.toLocaleString()}
+            </p>
+          )}
+          {isActive && (
+            <p className="text-sm text-blue-800">
+              <strong>Recurring:</strong> {campaign.cronExpr}
+              {campaign.nextRunAt && (
+                <> &mdash; next run {campaign.nextRunAt.toLocaleString()}</>
+              )}
+            </p>
+          )}
+          <form action={cancelAction}>
+            <Button type="submit" variant="outline">
+              Cancel schedule
+            </Button>
+          </form>
+        </div>
+      )}
+
+      {/* Timing section — DRAFT only */}
+      {isDraft && (
+        <div className="space-y-5 border-t border-slate-200 pt-6">
+          <h2 className="text-base font-semibold text-slate-800">Timing</h2>
+
+          {/* Schedule for later */}
+          <div className="space-y-2">
+            <p className="text-sm font-medium text-slate-700">Schedule for later</p>
+            <form action={scheduleLaterAction} className="flex flex-wrap items-end gap-3">
+              <div>
+                <label className="block text-xs text-slate-500" htmlFor="scheduledAt">
+                  Send at
+                </label>
+                <input
+                  id="scheduledAt"
+                  name="scheduledAt"
+                  type="datetime-local"
+                  required
+                  className="mt-0.5 rounded border border-slate-300 px-2 py-1.5 text-sm"
+                />
+              </div>
+              <Button type="submit">Schedule</Button>
+            </form>
+          </div>
+
+          {/* Recurring */}
+          <div className="space-y-2">
+            <p className="text-sm font-medium text-slate-700">Recurring</p>
+            <form action={scheduleRecurringAction} className="flex flex-wrap items-end gap-3">
+              <div>
+                <label className="block text-xs text-slate-500" htmlFor="cronExpr">
+                  Cron expression
+                </label>
+                <input
+                  id="cronExpr"
+                  name="cronExpr"
+                  type="text"
+                  placeholder="0 13 * * 1"
+                  required
+                  className="mt-0.5 w-48 rounded border border-slate-300 px-2 py-1.5 text-sm font-mono"
+                />
+              </div>
+              <Button type="submit">Start recurring</Button>
+            </form>
+            <p className="text-xs text-slate-500">
+              Cron format: minute hour day month weekday, in UTC. Example:{" "}
+              <code className="font-mono">0 13 * * 1</code> = Mondays at 13:00 UTC.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Sent runs list */}
+      {campaign.runs.length > 0 && (
+        <div className="space-y-3 border-t border-slate-200 pt-6">
+          <h2 className="text-base font-semibold text-slate-800">Sent runs</h2>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs font-medium text-slate-500 border-b border-slate-200">
+                <th className="pb-2 pr-6">Sent at</th>
+                <th className="pb-2">Recipients</th>
+              </tr>
+            </thead>
+            <tbody>
+              {campaign.runs.map((run) => (
+                <tr key={run.id} className="border-b border-slate-100 last:border-0">
+                  <td className="py-2 pr-6 text-slate-700">{run.runAt.toLocaleString()}</td>
+                  <td className="py-2 text-slate-700">{run.recipientCount}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

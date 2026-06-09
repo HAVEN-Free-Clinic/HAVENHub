@@ -24,6 +24,7 @@ import { Input } from "@/platform/ui/input";
 import { TemplateEditor } from "../../templates/[key]/preview";
 import { AudienceBuilder } from "./audience-builder";
 import { CronPresets } from "./cron-presets";
+import { SubmitButton } from "./submit-button";
 
 type Props = {
   params: Promise<{ id: string }>;
@@ -125,7 +126,7 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
     }
 
     redirect(
-      `/admin/email/campaigns/${id}?preview=1&count=${count}&excluded=${excluded}`,
+      `/admin/email/campaigns/${id}?preview=1&count=${count}&excluded=${excluded}#review`,
     );
   }
 
@@ -144,7 +145,7 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
         `/admin/email/campaigns/${id}?error=${encodeURIComponent("Test send failed. Check that the campaign has a subject and body.")}`,
       );
     }
-    redirect(`/admin/email/campaigns/${id}?tested=1`);
+    redirect(`/admin/email/campaigns/${id}?tested=1#review`);
   }
 
   async function sendAction(formData: FormData) {
@@ -246,7 +247,7 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
         }
       />
 
-      {/* Flash banners */}
+      {/* Flash banners — saved / sent / scheduled / cancelled only */}
       {errorMessage && (
         <p
           role="alert"
@@ -260,25 +261,10 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
           Campaign saved.
         </p>
       )}
-      {sp.tested === "1" && !errorMessage && (
-        <p className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-success">
-          Test email sent to your address.
-        </p>
-      )}
       {sp.sent && !errorMessage && (
         <p className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-success">
           Campaign sent to {sp.sent} {sp.sent === "1" ? "recipient" : "recipients"}.
         </p>
-      )}
-      {sp.preview === "1" && !errorMessage && (
-        <div className="rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-          <strong>Audience preview:</strong> {sp.count ?? "0"} recipient
-          {sp.count !== "1" ? "s" : ""}
-          {Number(sp.excluded ?? "0") > 0
-            ? `, ${sp.excluded} excluded (no email address on file)`
-            : ""}
-          .
-        </div>
       )}
       {sp.scheduled === "1" && !errorMessage && (
         <p className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-success">
@@ -294,38 +280,49 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
       {/* Main save form — editable only while a draft */}
       {isDraft && (
         <form action={saveAction} className="space-y-8">
-          {/* Campaign name */}
-          <div>
-            <label className="block text-sm font-medium text-slate-700" htmlFor="campaign-name">
-              Campaign name
-            </label>
-            <Input
-              id="campaign-name"
-              name="name"
-              type="text"
-              defaultValue={campaign.name}
-              required
-              className="mt-1 max-w-sm"
+          {/* Section 1: Compose */}
+          <div className="space-y-6">
+            <h2 className="text-base font-semibold text-slate-800">1. Compose</h2>
+
+            {/* Campaign name */}
+            <div>
+              <label className="block text-sm font-medium text-slate-700" htmlFor="campaign-name">
+                Campaign name
+              </label>
+              <Input
+                id="campaign-name"
+                name="name"
+                type="text"
+                defaultValue={campaign.name}
+                required
+                className="mt-1 max-w-sm"
+              />
+            </div>
+
+            {/* Template editor (subject + body) */}
+            <TemplateEditor
+              variables={PERSON_VARIABLES}
+              initialSubject={campaign.subject}
+              initialBody={campaign.body}
+              isLayout={false}
+              layoutSource={layoutSource}
             />
           </div>
 
-          {/* Template editor (subject + body) */}
-          <TemplateEditor
-            variables={PERSON_VARIABLES}
-            initialSubject={campaign.subject}
-            initialBody={campaign.body}
-            isLayout={false}
-            layoutSource={layoutSource}
-          />
+          {/* Section 2: Audience */}
+          <div className="border-t border-slate-200 pt-6 space-y-4">
+            <h2 className="text-base font-semibold text-slate-800">2. Audience</h2>
+            <AudienceBuilder
+              fields={PERSON_FIELDS}
+              departments={departments}
+              initial={parsedAudience}
+            />
+          </div>
 
-          {/* Audience builder */}
-          <AudienceBuilder
-            fields={PERSON_FIELDS}
-            departments={departments}
-            initial={parsedAudience}
-          />
-
-          <Button type="submit">Save</Button>
+          {/* Sticky save footer */}
+          <div className="sticky bottom-0 -mx-1 border-t border-slate-200 bg-white py-3">
+            <SubmitButton pendingLabel="Saving...">Save</SubmitButton>
+          </div>
         </form>
       )}
 
@@ -339,42 +336,65 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
         </div>
       )}
 
-      {/* Action forms: preview / test send / send — drafts only */}
+      {/* Section 3: Review & send — drafts only */}
       {isDraft && (
-        <div className="flex flex-wrap gap-3 border-t border-slate-200 pt-6">
-          {/* Preview audience */}
-          <form action={previewAction}>
-            <Button type="submit" variant="outline">
-              Preview audience
-            </Button>
-          </form>
+        <div id="review" className="space-y-4 border-t border-slate-200 pt-6">
+          <h2 className="text-base font-semibold text-slate-800">3. Review &amp; send</h2>
 
-          {/* Test send */}
-          <form action={testAction}>
-            <Button type="submit" variant="outline">
-              Send test to me
-            </Button>
-          </form>
+          <div className="flex flex-wrap gap-3">
+            {/* Preview audience */}
+            <form action={previewAction}>
+              <SubmitButton variant="outline" pendingLabel="Previewing...">
+                Preview audience
+              </SubmitButton>
+            </form>
 
-          {/* Live send */}
-          <form action={sendAction} className="flex items-center gap-2">
-            <div>
-              <label className="block text-xs text-slate-500" htmlFor="confirmCount">
-                Confirm count (required for &gt;25 recipients)
-              </label>
-              <Input
-                id="confirmCount"
-                name="confirmCount"
-                type="number"
-                min={1}
-                placeholder="e.g. 42"
-                className="mt-0.5 w-24"
-              />
+            {/* Test send */}
+            <form action={testAction}>
+              <SubmitButton variant="outline" pendingLabel="Sending test...">
+                Send test to me
+              </SubmitButton>
+            </form>
+
+            {/* Live send */}
+            <form action={sendAction} className="flex items-center gap-2">
+              <div>
+                <label className="block text-xs text-slate-500" htmlFor="confirmCount">
+                  Confirm count (required for &gt;25 recipients)
+                </label>
+                <Input
+                  id="confirmCount"
+                  name="confirmCount"
+                  type="number"
+                  min={1}
+                  placeholder="e.g. 42"
+                  className="mt-0.5 w-24"
+                />
+              </div>
+              <SubmitButton variant="danger" pendingLabel="Sending...">
+                Send now
+              </SubmitButton>
+            </form>
+          </div>
+
+          {/* Inline audience preview result */}
+          {sp.preview === "1" && !errorMessage && (
+            <div className="rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+              <strong>Audience preview:</strong> {sp.count ?? "0"} recipient
+              {sp.count !== "1" ? "s" : ""}
+              {Number(sp.excluded ?? "0") > 0
+                ? `, ${sp.excluded} excluded (no email address on file)`
+                : ""}
+              .
             </div>
-            <Button type="submit" variant="danger" className="self-end">
-              Send now
-            </Button>
-          </form>
+          )}
+
+          {/* Inline test-send confirmation */}
+          {sp.tested === "1" && !errorMessage && (
+            <p className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-success">
+              Test email sent to your address.
+            </p>
+          )}
         </div>
       )}
 

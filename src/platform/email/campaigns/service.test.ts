@@ -3,7 +3,7 @@ import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import {
   createDraft, updateCampaign, previewAudience, sendCampaignNow,
-  scheduleCampaign, cancelCampaign,
+  scheduleCampaign, cancelCampaign, executeRun,
   CampaignValidationError, CampaignConfirmationError,
 } from "./service";
 import * as audienceResolve from "@/platform/email/audience/resolve";
@@ -106,6 +106,24 @@ describe("campaign service", () => {
     } finally {
       spy.mockRestore();
     }
+  });
+
+  it("executeRun refuses to re-run a SENT campaign (double-dispatch guard)", async () => {
+    await prisma.person.create({ data: { name: "Sam Rivera", contactEmail: "sam@example.com", status: "ACTIVE" } });
+    const c = await createDraft(null, "Once2");
+    await updateCampaign(null, c.id, { subject: "s", body: "<p>hi</p>", audience: ALL_ACTIVE });
+    await sendCampaignNow(null, c.id, {}); // now SENT
+    await expect(
+      executeRun(c.id, { actorId: null, statusUpdate: { status: "SENT" } }),
+    ).rejects.toThrow(/already dispatched/i);
+  });
+
+  it("cancel refuses a non-scheduled campaign", async () => {
+    await prisma.person.create({ data: { name: "Sam Rivera", contactEmail: "sam2@example.com", status: "ACTIVE" } });
+    const c = await createDraft(null, "Sent3");
+    await updateCampaign(null, c.id, { subject: "s", body: "<p>hi</p>", audience: ALL_ACTIVE });
+    await sendCampaignNow(null, c.id, {}); // SENT
+    await expect(cancelCampaign(null, c.id)).rejects.toThrow(/scheduled or recurring/i);
   });
 });
 

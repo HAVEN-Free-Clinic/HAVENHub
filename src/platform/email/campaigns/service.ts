@@ -145,6 +145,10 @@ export async function executeRun(
 ): Promise<{ runId: string; recipientCount: number }> {
   const campaign = await prisma.emailCampaign.findUniqueOrThrow({ where: { id: campaignId } });
 
+  if (campaign.subject.trim() === "") {
+    throw new CampaignValidationError(["Campaign has no subject."]);
+  }
+
   let deduped: Recipient[];
   if (opts.recipients) {
     deduped = opts.recipients;
@@ -164,6 +168,15 @@ export async function executeRun(
   const layoutSource = await loadLayoutSource();
 
   const runId = await prisma.$transaction(async (tx) => {
+    // Guard against double-dispatch: re-read inside the transaction so two
+    // worker instances racing can't both proceed past this point.
+    // (Single-worker deployments are already safe via pg-boss SKIP LOCKED,
+    // but this makes the service itself robust regardless of job-queue config.)
+    const current = await tx.emailCampaign.findUniqueOrThrow({ where: { id: campaignId } });
+    if (current.status === "SENT" || current.status === "CANCELLED") {
+      throw new Error("Campaign already dispatched");
+    }
+
     const run = await tx.emailCampaignRun.create({ data: { campaignId, recipientCount: deduped.length } });
     for (const recipient of deduped) {
       const { subject, html } = await renderInlineEmail(
@@ -246,6 +259,10 @@ export async function scheduleCampaign(
 }
 
 export async function cancelCampaign(actorId: string | null, id: string): Promise<void> {
+  const campaign = await prisma.emailCampaign.findUniqueOrThrow({ where: { id } });
+  if (campaign.status !== "SCHEDULED" && campaign.status !== "ACTIVE") {
+    throw new Error("Only a scheduled or recurring campaign can be cancelled");
+  }
   await prisma.emailCampaign.update({ where: { id }, data: { status: "CANCELLED", nextRunAt: null } });
   await recordAudit({ actorPersonId: actorId, action: "campaign.cancel", entityType: "EmailCampaign", entityId: id });
 }

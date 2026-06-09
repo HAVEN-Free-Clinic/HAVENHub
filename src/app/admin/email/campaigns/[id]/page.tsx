@@ -184,6 +184,9 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
     const raw = (formData.get("scheduledAt") as string | null) ?? "";
     if (!raw) redirect(`/admin/email/campaigns/${id}?error=${encodeURIComponent("Pick a date and time")}`);
     const scheduledAt = new Date(raw);
+    if (Number.isNaN(scheduledAt.getTime())) {
+      redirect(`/admin/email/campaigns/${id}?error=${encodeURIComponent("Pick a valid date and time")}`);
+    }
     try {
       await scheduleCampaign(actor.personId, id, { scheduleType: "SCHEDULED", scheduledAt });
     } catch (err) {

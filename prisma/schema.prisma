@@ -100,6 +100,8 @@ model Person {
   interviewsDecided         Interview[]          @relation("interviewDecidedBy")
   interviewPanels           InterviewPanelist[]  @relation("interviewPanelistPerson")
   interviewEvaluations      Evaluation[]         @relation("interviewEvaluator")
+  volunteerTrainings        VolunteerTraining[]  @relation("volunteerTrainingPerson")
+  trainingAttendanceMarked  VolunteerTraining[]  @relation("volunteerTrainingAttendanceRecorder")
   /// Shift requests this person raised.
   shiftRequests             ShiftRequest[]       @relation("shiftRequestRequester")
   /// Shift requests targeting this person as the swap partner.
@@ -154,6 +156,7 @@ model Term {
   scheduleDays      ScheduleDay[]
   rhdClinics        RhdClinic[]
   recruitmentCycles RecruitmentCycle[]
+  volunteerTrainings VolunteerTraining[]
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
 }
@@ -372,6 +375,21 @@ enum ContractStatus {
   PENDING
   SUBMITTED
   PROMOTED
+}
+
+enum FormPurpose {
+  APPLICATION
+  QUIZ
+}
+
+enum TrainingStatus {
+  PENDING
+  COMPLETE
+}
+
+enum TrainingMethod {
+  ATTENDANCE
+  QUIZ
 }
 
 /// One row per mirrored change. Written in the same transaction as the domain
@@ -673,6 +691,9 @@ model RecruitmentCycle {
   closesAt        DateTime?
   departments     String[]
   acceptsRenewals Boolean          @default(false)
+  isTermTraining  Boolean          @default(false)
+  quizPassPercent Int              @default(80)
+  quizMaxAttempts Int              @default(3)
   createdById     String
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
@@ -683,6 +704,7 @@ model RecruitmentCycle {
   fields       FormField[]
   applicants   Applicant[]
   applications Application[]
+  trainings    VolunteerTraining[]
 
   @@index([status, track])
 }
@@ -695,6 +717,7 @@ model FormSection {
   order          Int
   departmentCode String?
   appliesTo      ApplicantScope @default(BOTH)
+  purpose        FormPurpose    @default(APPLICATION)
 
   cycle  RecruitmentCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
   fields FormField[]
@@ -713,6 +736,7 @@ model FormField {
   required   Boolean   @default(false)
   options    Json?
   validation Json?
+  correctValue String?
   order      Int
 
   section FormSection      @relation(fields: [sectionId], references: [id], onDelete: Cascade)
@@ -821,6 +845,49 @@ model OnboardingContract {
   promotedPerson Person?    @relation("contractPromotedPerson", fields: [promotedPersonId], references: [id], onDelete: SetNull)
 
   @@index([status])
+}
+
+model VolunteerTraining {
+  id                     String           @id @default(cuid())
+  personId               String
+  termId                 String
+  cycleId                String
+  status                 TrainingStatus   @default(PENDING)
+  completedVia           TrainingMethod?
+  completedAt            DateTime?
+  attendanceRecordedById String?
+  attendanceRecordedAt   DateTime?
+  locked                 Boolean          @default(false)
+  lockResetAt            DateTime?
+  subcommitteeInterest   String?
+  additionalShiftAvailability String?
+  minShiftsWanted        String?
+  feedback               String?
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime         @updatedAt
+
+  person               Person           @relation("volunteerTrainingPerson", fields: [personId], references: [id], onDelete: Cascade)
+  term                 Term             @relation(fields: [termId], references: [id], onDelete: Cascade)
+  cycle                RecruitmentCycle @relation(fields: [cycleId], references: [id], onDelete: Restrict)
+  attendanceRecordedBy Person?          @relation("volunteerTrainingAttendanceRecorder", fields: [attendanceRecordedById], references: [id], onDelete: SetNull)
+  attempts             QuizAttempt[]
+
+  @@unique([personId, termId])
+  @@index([termId])
+}
+
+model QuizAttempt {
+  id         String   @id @default(cuid())
+  trainingId String
+  answers    Json
+  score      Int
+  total      Int
+  passed     Boolean
+  takenAt    DateTime @default(now())
+
+  training VolunteerTraining @relation(fields: [trainingId], references: [id], onDelete: Cascade)
+
+  @@index([trainingId, takenAt])
 }
 
 model Interview {

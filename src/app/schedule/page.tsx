@@ -1,5 +1,4 @@
 import { requireModuleAccess } from "@/platform/auth/session";
-import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";

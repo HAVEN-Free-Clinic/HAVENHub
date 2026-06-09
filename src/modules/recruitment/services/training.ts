@@ -1,5 +1,6 @@
 import type { RecruitmentCycle, Prisma, TrainingMethod } from "@prisma/client";
-import type { TrainingState } from "@/platform/compliance/rules";
+import { complianceStatus, overallClearance } from "@/platform/compliance/rules";
+import type { TrainingState, OverallClearance } from "@/platform/compliance/rules";
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { recordAudit } from "@/platform/audit";
@@ -248,4 +249,54 @@ export async function resetTraining(personId: string, termId: string, actorId: s
 
   await prisma.volunteerTraining.updateMany({ where: { personId, termId, status: { not: "COMPLETE" } }, data: { locked: false, lockResetAt: new Date() } });
   await recordAudit({ actorPersonId: actorId, action: "recruitment.training_reset", entityType: "VolunteerTraining", entityId: `${personId}:${termId}` });
+}
+
+export type TrainingRosterRow = {
+  personId: string;
+  name: string;
+  departmentCode: string;
+  certStatus: ReturnType<typeof complianceStatus>;
+  trainingState: TrainingState;
+  locked: boolean;
+  overallClearance: OverallClearance;
+};
+
+/** The designated cycle's training roster: in-scope active volunteer memberships
+ *  in the cycle's term, each with cert status and training state. Director-scoped
+ *  or review_all. Throws TrainingStateError if the cycle is not the designated
+ *  training cycle for its term. */
+export async function listTrainingRoster(cycleId: string, viewerId: string): Promise<TrainingRosterRow[]> {
+  const cycle = await prisma.recruitmentCycle.findUnique({ where: { id: cycleId } });
+  if (!cycle) throw new TrainingStateError("Cycle not found.");
+  if (!cycle.isTermTraining) throw new TrainingStateError("This cycle is not the term's training cycle.");
+
+  const term = await prisma.term.findUniqueOrThrow({ where: { id: cycle.termId } });
+  const scope = await reviewScope(viewerId);
+
+  const memberships = await prisma.termMembership.findMany({
+    where: {
+      termId: cycle.termId, kind: "VOLUNTEER", status: "ACTIVE",
+      ...(scope.all ? {} : { department: { code: { in: scope.departmentCodes } } }),
+    },
+    include: {
+      department: { select: { code: true } },
+      person: { select: { id: true, name: true, hipaaCertificates: { orderBy: { uploadedAt: "desc" }, take: 1 } } },
+    },
+  });
+
+  const training = new Map(
+    (await prisma.volunteerTraining.findMany({ where: { termId: cycle.termId } })).map((t) => [t.personId, t])
+  );
+
+  return memberships.map((m) => {
+    const cert = m.person.hipaaCertificates[0] ?? null;
+    const certStatus = complianceStatus(cert ? { completionDate: cert.completionDate } : null, term.endDate);
+    const row = training.get(m.person.id);
+    const trainingState: TrainingState = row?.status === "COMPLETE" ? "COMPLETE" : "PENDING";
+    return {
+      personId: m.person.id, name: m.person.name, departmentCode: m.department.code,
+      certStatus, trainingState, locked: row?.locked ?? false,
+      overallClearance: overallClearance(certStatus, trainingState),
+    };
+  }).sort((a, b) => a.name.localeCompare(b.name));
 }

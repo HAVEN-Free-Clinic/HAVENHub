@@ -139,3 +139,20 @@ it("submitQuiz rejects when already complete", async () => {
   await recordAttendance(vol.id, term.id, srr.id);
   await expect(submitQuiz(vol.id, { answers: { q1: "a", q2: "y" }, intake: {} })).rejects.toBeInstanceOf(TrainingStateError);
 });
+
+import { listTrainingRoster } from "./training";
+
+it("listTrainingRoster lists in-scope active volunteers with cert + training state", async () => {
+  const { srr, vol, c1, dept } = await seedMember();
+  await prisma.hipaaCertificate.create({ data: { personId: vol.id, fileName: "c.pdf", storedName: "c.pdf", size: 1, mimeType: "application/pdf", completionDate: new Date() } });
+  const rows = await listTrainingRoster(c1.id, srr.id);
+  const row = rows.find((r) => r.personId === vol.id)!;
+  expect(row.departmentCode).toBe(dept.code);
+  expect(row.trainingState).toBe("PENDING");
+  expect(row.overallClearance).toBe("NOT_CLEARED"); // cert valid but training pending
+});
+
+it("listTrainingRoster rejects a cycle that is not the term training cycle", async () => {
+  const { srr, c2 } = await seedMember(); // c2 is not designated
+  await expect(listTrainingRoster(c2.id, srr.id)).rejects.toBeInstanceOf(TrainingStateError);
+});

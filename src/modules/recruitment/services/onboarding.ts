@@ -157,6 +157,10 @@ export async function submitContract(
         hipaaFile: `max ${config.MAX_UPLOAD_MB} MB`,
       });
     }
+    const ALLOWED_MIME = ["application/pdf", "image/jpeg", "image/png", "image/gif"];
+    if (!ALLOWED_MIME.includes(input.hipaaFile.mimeType)) {
+      throw new ContractValidationError("File type not supported.", { hipaaFile: "Upload a PDF or image." });
+    }
     const dir = path.resolve(path.join(config.UPLOAD_DIR, "onboarding", contract.id));
     await fs.mkdir(dir, { recursive: true });
     const safeExt =

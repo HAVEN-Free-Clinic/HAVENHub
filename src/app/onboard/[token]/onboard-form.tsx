@@ -57,7 +57,7 @@ export function OnboardForm({ token, prefill }: { token: string; prefill: Prefil
       <fieldset className="space-y-3"><legend className="text-sm font-semibold uppercase tracking-wide text-slate-400">HIPAA</legend>
         {field("HIPAA completion date", "hipaaCompletedAt", { type: "date", required: true })}
         <label className="block text-sm">HIPAA certificate (PDF)<span className="text-red-600"> *</span>
-          <input name="hipaaFile" type="file" className="mt-1 w-full rounded border px-2 py-1" />
+          <input name="hipaaFile" type="file" accept="application/pdf,image/*" className="mt-1 w-full rounded border px-2 py-1" />
           {err("hipaaFile") && <span className="block text-xs text-red-600">{err("hipaaFile")}</span>}
         </label>
       </fieldset>

@@ -6,10 +6,10 @@
  *
  * Interaction model by mode:
  *   assign       -- empty cell posts assignAction(role=VOLUNTEER); filled cell posts unassignAction.
- *                   Director-kind members also get VOLUNTEER in grid mode; use the Saturday view
+ *                   Director-kind members also get VOLUNTEER in grid mode; use the Day view
  *                   for DIRECTOR role assignment (keeps grid actions uniform and simple).
  *   shadow       -- empty cell posts assignAction(role=SHADOW); filled SHADOW cell posts unassignAction.
- *                   Non-shadow filled cells are read-only in the grid (role changes via Saturday view).
+ *                   Non-shadow filled cells are read-only in the grid (role changes via Day view).
  */
 
 import { BuilderCell } from "./builder-cell";
@@ -230,7 +230,7 @@ function GridCell({
   return (
     <td
       className={`border border-slate-200 px-2 py-1.5 text-center align-middle min-w-[52px] ${availBg} ${selectedHighlight}`}
-      aria-label={`${ariaLabel} (role change via Saturday view)`}
+      aria-label={`${ariaLabel} (role change via Day view)`}
     >
       <CellContent assignment={assignment} deptCode={deptCode} />
     </td>

@@ -14,8 +14,13 @@ export default async function InterviewDetail({ params, searchParams }: { params
   if (!iv || iv.application.cycle.id !== id) notFound();
   const [scope, managesCycles] = await Promise.all([reviewScope(person.personId), can(person.personId, "recruitment.manage_cycles")]);
   const isPanelist = iv.panelists.some((p) => p.person.id === person.personId);
-  const canManage = scope.all || managesCycles || scope.departmentCodes.includes(iv.departmentCode);
-  if (!canManage && !isPanelist) notFound();
+  // canView gates the page (cycle admins and panelists may read it); canManage
+  // gates the action controls and matches the service authz exactly (scope.all
+  // or the interview's department is in the actor's review scope) so a control
+  // is never shown to someone whose submit would be rejected.
+  const canView = scope.all || managesCycles || scope.departmentCodes.includes(iv.departmentCode) || isPanelist;
+  if (!canView) notFound();
+  const canManage = scope.all || scope.departmentCodes.includes(iv.departmentCode);
   const summary = evaluationSummary(iv.evaluations);
   const scheduledValue = iv.scheduledAt ? new Date(iv.scheduledAt.getTime() - iv.scheduledAt.getTimezoneOffset() * 60000).toISOString().slice(0, 16) : "";
 

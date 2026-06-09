@@ -205,5 +205,5 @@ export async function listApplications(cycleId: string) {
 }
 
 export async function getApplication(id: string) {
-  return prisma.application.findUnique({ where: { id }, include: { applicant: true, cycle: { include: { sections: { include: { fields: { orderBy: { order: "asc" } } }, orderBy: { order: "asc" } } } } } });
+  return prisma.application.findUnique({ where: { id }, include: { applicant: true, cycle: { include: { sections: { where: { purpose: "APPLICATION" }, include: { fields: { orderBy: { order: "asc" } } }, orderBy: { order: "asc" } } } } } });
 }

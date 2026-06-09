@@ -284,8 +284,9 @@ export async function listTrainingRoster(cycleId: string, viewerId: string): Pro
     },
   });
 
+  const personIds = memberships.map((m) => m.person.id);
   const training = new Map(
-    (await prisma.volunteerTraining.findMany({ where: { termId: cycle.termId } })).map((t) => [t.personId, t])
+    (await prisma.volunteerTraining.findMany({ where: { termId: cycle.termId, personId: { in: personIds } } })).map((t) => [t.personId, t])
   );
 
   return memberships.map((m) => {

@@ -137,3 +137,13 @@ it("ignores QUIZ sections when validating the public application", async () => {
   });
   expect(app).toBeTruthy();
 });
+
+it("getApplication excludes QUIZ sections from the loaded cycle form", async () => {
+  const { cycle } = await openVolunteerCycle();
+  const quiz = await prisma.formSection.create({ data: { cycleId: cycle.id, title: "Quiz", order: 99, appliesTo: "BOTH", purpose: "QUIZ" } });
+  await prisma.formField.create({ data: { sectionId: quiz.id, cycleId: cycle.id, key: "graded_q", label: "Q", type: "SINGLE_SELECT", required: false, order: 0, options: [{ value: "a", label: "A" }], correctValue: "a" } });
+  const app = await submitApplication("apply-v", { applicantType: "NEW", answers: { first_name: "Di", last_name: "T", email: "di@yale.edu", "1st_choice_department": "MDIC" }, files: {} });
+  const loaded = await getApplication(app.id);
+  const titles = loaded!.cycle.sections.map((s) => s.title);
+  expect(titles).not.toContain("Quiz");
+});

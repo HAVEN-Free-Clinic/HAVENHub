@@ -34,7 +34,8 @@ export async function addField(
 ): Promise<FormField> {
   const section = await prisma.formSection.findUnique({ where: { id: sectionId } });
   if (!section) throw new FormEditError("Section not found.");
-  await assertCycleEditable(section.cycleId, input.required === true);
+  const structural = input.required === true && section.purpose !== "QUIZ";
+  await assertCycleEditable(section.cycleId, structural);
 
   const existing = await prisma.formField.findMany({ where: { cycleId: section.cycleId }, select: { key: true } });
   const key = uniqueKey(input.label, existing.map((f) => f.key));
@@ -55,12 +56,13 @@ export async function updateField(
   fieldId: string,
   patch: { label?: string; helpText?: string; type?: FieldType; required?: boolean; options?: unknown; validation?: unknown; correctValue?: string | null }
 ): Promise<FormField> {
-  const field = await prisma.formField.findUnique({ where: { id: fieldId } });
+  const field = await prisma.formField.findUnique({ where: { id: fieldId }, include: { section: { select: { purpose: true } } } });
   if (!field) throw new FormEditError("Field not found.");
 
-  const structural =
+  const structural = field.section.purpose !== "QUIZ" && (
     (patch.type !== undefined && patch.type !== field.type) ||
-    (patch.required === true && field.required === false);
+    (patch.required === true && field.required === false)
+  );
   await assertCycleEditable(field.cycleId, structural);
 
   return prisma.formField.update({
@@ -78,9 +80,9 @@ export async function updateField(
 }
 
 export async function deleteField(fieldId: string): Promise<void> {
-  const field = await prisma.formField.findUnique({ where: { id: fieldId } });
+  const field = await prisma.formField.findUnique({ where: { id: fieldId }, include: { section: { select: { purpose: true } } } });
   if (!field) throw new FormEditError("Field not found.");
-  await assertCycleEditable(field.cycleId, true);
+  await assertCycleEditable(field.cycleId, field.section.purpose !== "QUIZ");
   await prisma.formField.delete({ where: { id: fieldId } });
 }
 

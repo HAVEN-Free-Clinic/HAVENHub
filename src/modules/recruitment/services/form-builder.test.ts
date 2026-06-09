@@ -67,3 +67,24 @@ it("creates a QUIZ section and a graded question with a correctValue", async () 
   const updated = await updateField(field.id, { correctValue: "lyon" });
   expect(updated.correctValue).toBe("lyon");
 });
+
+it("allows adding and deleting quiz questions on an OPEN cycle (quiz sections never affect applications)", async () => {
+  const term = await prisma.term.create({ data: { code: "SU26", name: "S", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
+  const srr = await prisma.person.create({ data: { name: "SRR", status: "ACTIVE" } });
+  const cycle = await prisma.recruitmentCycle.create({ data: { track: "VOLUNTEER", termId: term.id, title: "C", publicSlug: "c-open-quiz", departments: [], createdById: srr.id, status: "OPEN" } });
+  const quiz = await addSection(cycle.id, { title: "Quiz", appliesTo: "BOTH", departmentCode: null, purpose: "QUIZ" });
+  // Adding a required quiz question on an OPEN cycle must succeed (it cannot invalidate applicant answers).
+  const q = await addField(quiz.id, { label: "Q1", type: "SINGLE_SELECT", required: true, options: [{ value: "a", label: "A" }, { value: "b", label: "B" }], correctValue: "a" });
+  expect(q.id).toBeTruthy();
+  // Deleting a quiz question on an OPEN cycle must also succeed.
+  await deleteField(q.id);
+  expect(await prisma.formField.findUnique({ where: { id: q.id } })).toBeNull();
+});
+
+it("still blocks adding a required APPLICATION field on an OPEN cycle", async () => {
+  const term = await prisma.term.create({ data: { code: "SU26", name: "S", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
+  const srr = await prisma.person.create({ data: { name: "SRR", status: "ACTIVE" } });
+  const cycle = await prisma.recruitmentCycle.create({ data: { track: "VOLUNTEER", termId: term.id, title: "C", publicSlug: "c-open-app", departments: [], createdById: srr.id, status: "OPEN" } });
+  const sec = await addSection(cycle.id, { title: "More", appliesTo: "BOTH", departmentCode: null });
+  await expect(addField(sec.id, { label: "Extra", type: "SHORT_TEXT", required: true })).rejects.toBeInstanceOf(FormEditError);
+});

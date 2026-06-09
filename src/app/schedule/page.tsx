@@ -128,12 +128,6 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
     redirect("/schedule");
   }
 
-  const roleColors: Record<string, string> = {
-    DIRECTOR: "bg-blue-50 border-blue-300",
-    VOLUNTEER: "bg-emerald-50 border-emerald-200",
-    SHADOW: "bg-amber-50 border-amber-300",
-  };
-
   const roleBadgeTone: Record<string, "default" | "warning" | "brand"> = {
     DIRECTOR: "brand",
     VOLUNTEER: "default",

@@ -9,7 +9,7 @@ import {
 
 async function seed() {
   const term = await prisma.term.create({ data: { code: "FA26", name: "Fall", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
-  const srhd = await prisma.department.create({ data: { code: "SRHD", name: "SRHD" } });
+  await prisma.department.create({ data: { code: "SRHD", name: "SRHD" } });
   const srr = await prisma.person.create({ data: { name: "SRR", status: "ACTIVE" } });
   const role = await prisma.role.create({ data: { name: "Rec Admin", grants: { create: [{ permission: "recruitment.review_all" }] } } });
   await prisma.roleAssignment.create({ data: { personId: srr.id, roleId: role.id } });

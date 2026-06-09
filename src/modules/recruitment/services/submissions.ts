@@ -1,9 +1,9 @@
 import path from "node:path";
-import { promises as fs } from "node:fs";
 import { randomUUID } from "node:crypto";
 import type { Application, FieldType } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { config } from "@/platform/config";
+import { putObject, deleteObject } from "@/platform/storage";
 import { queueEmail } from "@/platform/email/send";
 import { recordAudit } from "@/platform/audit";
 import {
@@ -157,10 +157,10 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
     });
   } catch (err) {
     if (typeof err === "object" && err && "code" in err && (err as { code?: string }).code === "P2002") {
-      await cleanupFiles(fileRefs.diskPaths);
+      await cleanupFiles(fileRefs.storageKeys);
       throw new DuplicateApplicationError();
     }
-    await cleanupFiles(fileRefs.diskPaths);
+    await cleanupFiles(fileRefs.storageKeys);
     throw err;
   }
 
@@ -169,31 +169,25 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
 }
 
 async function persistFiles(cycleId: string, files: Record<string, UploadedFile>) {
-  const uploadDir = path.join(config.UPLOAD_DIR, "recruitment", cycleId);
   const answerPatch: Record<string, unknown> = {};
-  const diskPaths: string[] = [];
+  const storageKeys: string[] = [];
   const entries = Object.entries(files);
-  const resolvedDir = path.resolve(uploadDir);
-  if (entries.length > 0) await fs.mkdir(uploadDir, { recursive: true });
   for (const [key, file] of entries) {
     // Sanitize both path components so a hostile field key or filename can never
-    // escape uploadDir; the containment check below is a final backstop.
+    // escape the recruitment prefix; storage layer enforces a final backstop.
     const safeKey = key.replace(/[^a-z0-9_]/gi, "_");
     const safeExt = (path.extname(file.fileName).match(/^\.[A-Za-z0-9]{1,8}$/)?.[0]) ?? "";
     const storedName = `${safeKey}-${randomUUID()}${safeExt}`;
-    const diskPath = path.resolve(resolvedDir, storedName);
-    if (diskPath !== resolvedDir && !diskPath.startsWith(resolvedDir + path.sep)) {
-      throw new SubmissionValidationError("Invalid file.", { [key]: "invalid" });
-    }
-    await fs.writeFile(diskPath, file.bytes);
-    diskPaths.push(diskPath);
+    const storageKey = `recruitment/${cycleId}/${storedName}`;
+    await putObject(storageKey, file.bytes, file.mimeType);
+    storageKeys.push(storageKey);
     answerPatch[key] = { storedName, fileName: file.fileName, mimeType: file.mimeType, size: file.bytes.length };
   }
-  return { answerPatch, diskPaths };
+  return { answerPatch, storageKeys };
 }
 
-async function cleanupFiles(diskPaths: string[]) {
-  await Promise.all(diskPaths.map((p) => fs.rm(p, { force: true }).catch(() => undefined)));
+async function cleanupFiles(storageKeys: string[]) {
+  await Promise.all(storageKeys.map((k) => deleteObject(k)));
 }
 
 export async function listApplications(cycleId: string) {

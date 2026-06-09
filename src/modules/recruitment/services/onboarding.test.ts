@@ -1,11 +1,22 @@
+import path from "node:path";
+import { promises as fs } from "node:fs";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
+import { config } from "@/platform/config";
 import { RecruitmentAuthError } from "./review";
 import {
   createOrResendContract, getContractByToken, submitContract, listOnboarding,
   ContractError, ContractValidationError,
 } from "./onboarding";
+
+/** submitContract streams HIPAA files to UPLOAD_DIR/onboarding/<contractId>/.
+ *  resetDb only truncates the database, so remove the on-disk files this suite
+ *  writes; otherwise the leftover directory leaks into other suites (e.g. the
+ *  certificates import dry-run test asserts UPLOAD_DIR is empty). */
+async function cleanOnboardingUploads() {
+  await fs.rm(path.join(config.UPLOAD_DIR, "onboarding"), { recursive: true, force: true });
+}
 
 async function seed() {
   const term = await prisma.term.create({ data: { code: "FA26", name: "Fall", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
@@ -22,7 +33,7 @@ async function seed() {
 }
 
 beforeEach(async () => { await resetDb(); });
-afterEach(async () => { await resetDb(); });
+afterEach(async () => { await resetDb(); await cleanOnboardingUploads(); });
 
 it("creates a PENDING contract with a token and queues an onboarding email; resend does not duplicate", async () => {
   const { srr, acceptance } = await seed();

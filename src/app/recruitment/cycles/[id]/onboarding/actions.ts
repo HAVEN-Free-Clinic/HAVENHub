@@ -1,18 +1,12 @@
 "use server";
 import { redirect } from "next/navigation";
-import { headers } from "next/headers";
 import { prisma } from "@/platform/db";
+import { config } from "@/platform/config";
 import { requirePersonSession } from "@/platform/auth/session";
 import { createOrResendContract, ContractError } from "@/modules/recruitment/services/onboarding";
 import { promoteContracts } from "@/modules/recruitment/services/promotion";
 import { RecruitmentAuthError } from "@/modules/recruitment/services/review";
 
-async function baseUrl(): Promise<string> {
-  const h = await headers();
-  const host = h.get("host") ?? "localhost:3000";
-  const proto = h.get("x-forwarded-proto") ?? "http";
-  return `${proto}://${host}`;
-}
 function bounce(cycleId: string, params: { msg?: string; err?: string }) {
   const q = new URLSearchParams();
   if (params.msg) q.set("msg", params.msg);
@@ -26,7 +20,7 @@ export async function sendLinksAction(cycleId: string, formData: FormData) {
   if (ids.length === 0) redirect(bounce(cycleId, { err: "Select at least one applicant." }));
   // Scope to this cycle: ignore any acceptance id that does not belong to it.
   const owned = new Set((await prisma.acceptance.findMany({ where: { id: { in: ids }, application: { cycleId } }, select: { id: true } })).map((a) => a.id));
-  const base = await baseUrl();
+  const base = config.APP_BASE_URL;
   let sent = 0, failed = 0;
   for (const acceptanceId of ids) {
     if (!owned.has(acceptanceId)) { failed += 1; continue; }

@@ -49,6 +49,10 @@ const schema = z
       .string()
       .default("http://localhost:3000/admin/email/oauth/callback"),
     EMAIL_SENDER: z.string().optional(),
+    // Trusted public base URL for links embedded in outbound email (e.g. the
+    // recruitment onboarding contract link). Deploy-time value; never derived
+    // from the request Host header, which is attacker-controllable.
+    APP_BASE_URL: z.string().default("http://localhost:3000"),
     // Uploads: local filesystem storage for HIPAA certificates.
     // Mount this as a persistent volume in production (SpinUp).
     UPLOAD_DIR: z.string().default("./uploads"),

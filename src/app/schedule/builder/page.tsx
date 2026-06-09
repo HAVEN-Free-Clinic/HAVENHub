@@ -488,13 +488,15 @@ export default async function BuilderPage({ searchParams }: PageProps) {
               <div className="flex items-center rounded-lg border border-slate-200 overflow-hidden">
                 <a
                   href={href({ gmode: "assign" })}
+                  aria-current={gmode === "assign" ? "true" : undefined}
                   className={`px-3 py-1.5 text-xs font-medium transition-colors ${gmode === "assign" ? "bg-brand text-white" : "text-slate-500 hover:text-slate-700"}`}
                 >
                   Volunteer
                 </a>
                 <a
                   href={href({ gmode: "shadow" })}
-                  className={`px-3 py-1.5 text-xs font-medium transition-colors border-l border-slate-200 ${gmode === "shadow" ? "bg-amber-400 text-white" : "text-slate-500 hover:text-slate-700"}`}
+                  aria-current={gmode === "shadow" ? "true" : undefined}
+                  className={`px-3 py-1.5 text-xs font-medium transition-colors border-l ${gmode === "shadow" ? "border-slate-200 bg-amber-400 text-white" : "border-transparent text-slate-500 hover:text-slate-700"}`}
                 >
                   Shadow
                 </a>

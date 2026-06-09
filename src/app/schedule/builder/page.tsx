@@ -11,8 +11,15 @@
  *   ?mode=assign|shadow|availability -- mode toggle
  */
 
+/**
+ * Schedule Builder page.
+ */
+
+/**
+ * Schedule Builder page.
+ */
+
 import { requireModuleAccess } from "@/platform/auth/session";
-import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
@@ -82,7 +89,6 @@ function buildHref(base: string, p: HrefParams): string {
   if (p.date) params.set("date", p.date);
   if (p.view) params.set("view", p.view);
   if (p.mode) params.set("mode", p.mode);
-  // URLSearchParams.toString() percent-encodes all values; no manual encoding needed.
   if (p.error) params.set("error", p.error);
   if (p.message) params.set("message", p.message);
   const qs = params.toString();
@@ -97,20 +103,11 @@ export default async function BuilderPage({ searchParams }: PageProps) {
   const session = await requireModuleAccess("schedule");
   const sp = await searchParams;
 
-  // Resolve params.
   const deptParam = sp.dept ?? undefined;
   const dateParam = sp.date ?? undefined;
   const view = sp.view === "grid" ? "grid" : "saturday";
-  const mode =
-    sp.mode === "shadow"
-      ? "shadow"
-      : sp.mode === "availability"
-        ? "availability"
-        : "assign";
+  const mode = sp.mode === "availability" ? "availability" : "assign";
 
-  // Error banner state.
-  // sp.message is already the plain string: URLSearchParams encoded it once and Next
-  // decodes once on parse, so no manual decodeURIComponent is needed.
   const errorCode = sp.error ?? null;
   const errorMessage = errorCode
     ? errorCode === "validation" && sp.message
@@ -118,21 +115,19 @@ export default async function BuilderPage({ searchParams }: PageProps) {
       : errorCode
     : null;
 
-  // Load view.
   const data = await builderView(session.personId, {
     departmentId: deptParam,
     dateKey: dateParam,
   });
 
-  // ---------------------------------------------------------------------------
-  // Empty state: actor manages no departments
-  // ---------------------------------------------------------------------------
-
   if (data.departments.length === 0) {
     return (
       <div>
-        <PageHeader title="Schedule Builder" description="Assign volunteers and manage clinic days" />
-        <p className="mt-8 text-sm text-slate-400">You do not direct any departments.</p>
+        <div className="rounded-xl bg-brand px-8 py-6 text-white mb-8">
+          <p className="text-xs font-semibold uppercase tracking-widest text-white/60 mb-1">Schedule Builder</p>
+          <h1 className="text-2xl font-bold">No departments</h1>
+          <p className="text-sm text-white/70 mt-1">You do not direct any departments this term.</p>
+        </div>
       </div>
     );
   }
@@ -140,10 +135,8 @@ export default async function BuilderPage({ searchParams }: PageProps) {
   const { selectedDepartment, clinicDates, selectedDateKey, members, assignmentsByDate, conflicts } = data;
   const dept = selectedDepartment!;
 
-  // Load request rows for the pending-requests panel.
   const requestRows = await listDepartmentRequests(session.personId, dept.id);
 
-  // Shorthand for building hrefs that preserve all current params.
   function href(overrides: HrefParams): string {
     return buildHref("/schedule/builder", {
       dept: dept.id,
@@ -154,14 +147,11 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     });
   }
 
-  // Assignments on the selected date.
   const assignmentsOnDate: Record<string, { role: "VOLUNTEER" | "SHADOW" | "DIRECTOR"; tags: { triage: boolean; walkin: boolean; cc: boolean; remote: boolean } }> =
     selectedDateKey ? (assignmentsByDate[selectedDateKey] ?? {}) : {};
 
-  // Member index by personId for O(1) lookup.
   const memberByPersonId = new Map(members.map((m) => [m.person.id, m]));
 
-  // Partition assigned members.
   const assignedDirectors = Object.entries(assignmentsOnDate)
     .filter(([, a]) => a.role === "DIRECTOR")
     .map(([pid]) => pid);
@@ -176,12 +166,10 @@ export default async function BuilderPage({ searchParams }: PageProps) {
 
   const assignedPersonIds = new Set(Object.keys(assignmentsOnDate));
 
-  // Unassigned members (not currently assigned on selectedDate).
   const unassignedMembers = selectedDateKey
     ? members.filter((m) => !assignedPersonIds.has(m.person.id))
     : members;
 
-  // Sort unassigned: available first.
   const sortedUnassigned = [...unassignedMembers].sort((a, b) => {
     const aAvail = selectedDateKey
       ? a.availability.dates.some((d) => isoDateKey(d) === selectedDateKey)
@@ -194,15 +182,14 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     return a.person.name.localeCompare(b.person.name);
   });
 
+  const availableCount = sortedUnassigned.filter((m) =>
+    selectedDateKey
+      ? m.availability.dates.some((d) => isoDateKey(d) === selectedDateKey)
+      : false
+  ).length;
+
   // ---------------------------------------------------------------------------
   // Server actions
-  //
-  // Each action captures only primitive values from the outer scope
-  // (dept.id, selectedDateKey, view, mode -- all strings/null) so that
-  // Next.js can serialize the closure for progressive enhancement.
-  // The module-level buildHref function is referenced directly; the local
-  // helpers errorRedirect/successRedirect have been inlined to avoid
-  // capturing non-serializable function references in the closure.
   // ---------------------------------------------------------------------------
 
   async function assignAction(formData: FormData) {
@@ -399,46 +386,58 @@ export default async function BuilderPage({ searchParams }: PageProps) {
   // Render
   // ---------------------------------------------------------------------------
 
+  const selectedDisplay = selectedDateKey
+    ? new Date(selectedDateKey + "T12:00:00Z").toLocaleDateString("en-US", {
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+        timeZone: "UTC",
+      })
+    : null;
+
   return (
     <div>
-      <PageHeader
-        title="Schedule Builder"
-        description={`${dept.code} - ${dept.name}`}
-      />
+      {/* Hero */}
+      <div className="rounded-xl bg-brand px-8 py-6 text-white mb-6">
+        <p className="text-xs font-semibold uppercase tracking-widest text-white/60 mb-1">Schedule Builder</p>
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold">{selectedDisplay ?? "Select a date"}</h1>
+            <p className="text-sm text-white/70 mt-0.5 font-semibold uppercase tracking-widest">{dept.code} &middot; {dept.name}</p>
+          </div>
+          <div className="flex items-center gap-3">
+            {/* View toggle */}
+            <div className="flex items-center rounded-lg bg-white/10 overflow-hidden">
+              <a href={href({ view: "saturday" })} className={`px-3 py-1.5 text-xs font-medium transition-colors ${view === "saturday" ? "bg-white text-brand" : "text-white/70 hover:text-white"}`}>Day view</a>
+              <a href={href({ view: "grid" })} className={`px-3 py-1.5 text-xs font-medium transition-colors border-l border-white/20 ${view === "grid" ? "bg-white text-brand" : "text-white/70 hover:text-white"}`}>Grid view</a>
+            </div>
+            {/* Department selector */}
+            <form method="GET" action="/schedule/builder" className="flex items-center gap-2">
+              {dateParam && <input type="hidden" name="date" value={dateParam} />}
+              {view !== "saturday" && <input type="hidden" name="view" value={view} />}
+              {mode !== "assign" && <input type="hidden" name="mode" value={mode} />}
+              <Select name="dept" defaultValue={dept.id} className="text-sm text-slate-800 bg-white">
+                {data.departments.map((d) => (
+                  <option key={d.id} value={d.id}>{d.code} - {d.name}</option>
+                ))}
+              </Select>
+              <Button type="submit" variant="outline" size="sm" className="text-slate-800 border-slate-300 bg-white">Go</Button>
+            </form>
+          </div>
+        </div>
+      </div>
 
       {/* Error banner */}
       {errorMessage && (
-        <p
-          role="alert"
-          className="mt-4 rounded-md border border-critical/20 bg-red-50 px-3 py-2 text-sm text-critical"
-        >
+        <div role="alert" className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {errorMessage}
-        </p>
+        </div>
       )}
 
-      {/* Department selector */}
-      <form method="GET" action="/schedule/builder" className="mt-6 flex items-end gap-2">
-        {dateParam && <input type="hidden" name="date" value={dateParam} />}
-        {view !== "saturday" && <input type="hidden" name="view" value={view} />}
-        {mode !== "assign" && <input type="hidden" name="mode" value={mode} />}
-        <div className="w-56">
-          <label className="block text-xs font-medium text-slate-500 mb-1">Department</label>
-          <Select name="dept" defaultValue={dept.id}>
-            {data.departments.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.code} - {d.name}
-              </option>
-            ))}
-          </Select>
-        </div>
-        <Button type="submit" variant="outline" size="sm">
-          Go
-        </Button>
-      </form>
-
-      {/* Date tab strip */}
+      {/* Date strip */}
       {clinicDates.length > 0 && (
-        <nav className="mt-5 flex flex-wrap gap-2" aria-label="Clinic dates">
+        <nav className="flex flex-wrap gap-2 mb-6" aria-label="Clinic dates">
           {clinicDates.map((d) => {
             const key = isoDateKey(d);
             const isSelected = key === selectedDateKey;
@@ -460,56 +459,27 @@ export default async function BuilderPage({ searchParams }: PageProps) {
         </nav>
       )}
 
-      {/* View toggle */}
-      <div className="mt-5 flex items-center gap-2">
-        <span className="text-xs font-medium text-slate-500">View:</span>
+      {/* Mode tabs */}
+      <div className="flex gap-4 mb-8 border-b border-slate-200">
         <a
-          href={href({ view: "saturday" })}
-          aria-current={view === "saturday" ? "page" : undefined}
-          className={
-            view === "saturday"
-              ? "rounded-md px-3 py-1 text-sm font-medium bg-slate-200 text-slate-800"
-              : "rounded-md px-3 py-1 text-sm font-medium text-slate-500 hover:bg-slate-100 transition-colors"
-          }
+          href={href({ mode: "assign" })}
+          className={`pb-3 text-sm font-semibold border-b-2 transition-colors ${mode === "assign" ? "border-brand text-brand" : "border-transparent text-slate-400 hover:text-slate-600"}`}
         >
-          Saturday
+          Assign shifts
+          <span className="block text-xs font-normal mt-0.5">Add directors, volunteers, and shadows to this date</span>
         </a>
         <a
-          href={href({ view: "grid" })}
-          aria-current={view === "grid" ? "page" : undefined}
-          className={
-            view === "grid"
-              ? "rounded-md px-3 py-1 text-sm font-medium bg-slate-200 text-slate-800"
-              : "rounded-md px-3 py-1 text-sm font-medium text-slate-500 hover:bg-slate-100 transition-colors"
-          }
+          href={href({ mode: "availability" })}
+          className={`pb-3 text-sm font-semibold border-b-2 transition-colors ${mode === "availability" ? "border-brand text-brand" : "border-transparent text-slate-400 hover:text-slate-600"}`}
         >
-          Grid
+          View availability
+          <span className="block text-xs font-normal mt-0.5">See who is available across all clinic dates</span>
         </a>
       </div>
 
-      {/* Mode toggle */}
-      <div className="mt-3 flex items-center gap-2">
-        <span className="text-xs font-medium text-slate-500">Mode:</span>
-        {(["assign", "shadow", "availability"] as const).map((m) => (
-          <a
-            key={m}
-            href={href({ mode: m })}
-            aria-current={mode === m ? "page" : undefined}
-            className={
-              mode === m
-                ? "rounded-md px-3 py-1 text-sm font-medium bg-brand text-white"
-                : "rounded-md px-3 py-1 text-sm font-medium text-slate-500 hover:bg-slate-100 transition-colors"
-            }
-          >
-            {m === "assign" ? "Assign" : m === "shadow" ? "Shadow" : "Availability"}
-          </a>
-        ))}
-      </div>
-
-      {/* Main content area */}
-      <div className="mt-8">
+      {/* Main content */}
+      <div>
         {view === "grid" ? (
-          /* Grid view: member x clinic-date matrix */
           <BuilderGrid
             members={members}
             clinicDates={clinicDates}
@@ -522,7 +492,6 @@ export default async function BuilderPage({ searchParams }: PageProps) {
             unassignAction={unassignAction}
           />
         ) : mode === "availability" ? (
-          /* Availability mode */
           <AvailabilityView
             members={members}
             clinicDates={clinicDates}
@@ -532,41 +501,52 @@ export default async function BuilderPage({ searchParams }: PageProps) {
             acknowledgeAction={acknowledgeAction}
           />
         ) : (
-          /* Saturday view: assign or shadow mode */
-          <div className="flex flex-col gap-8">
-            {/* HIPAA compliance banner */}
-            {data.banner.length > 0 && (
-              <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                <p className="font-medium mb-1">HIPAA compliance issues on this date:</p>
-                <ul className="list-disc list-inside space-y-0.5">
-                  {data.banner.flatMap((b) =>
-                    b.nonCompliant.map((v) => (
-                      <li key={v.id}>{v.name} (not HIPAA compliant)</li>
-                    ))
-                  )}
-                </ul>
-              </div>
-            )}
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_1fr_280px]">
 
-            {/* Main two-column layout + panels column */}
-            <div className="grid grid-cols-1 gap-8 md:grid-cols-3">
             {/* Column 1: Assigned */}
             <section>
-              <h2 className="mb-4 text-base font-semibold">Assigned</h2>
+              <div className="flex items-center gap-2 mb-4">
+                <h2 className="text-base font-bold text-slate-800">Assigned</h2>
+                <span className="rounded-full bg-brand text-white text-xs font-semibold px-2.5 py-0.5">
+                  {assignedDirectors.length + assignedVolunteers.length + assignedShadows.length}
+                </span>
+              </div>
+
+              {/* HIPAA banner */}
+              {data.banner.length > 0 && (
+                <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                  <p className="font-semibold mb-1">⚠ HIPAA issues on this date</p>
+                  <ul className="list-disc list-inside space-y-0.5">
+                    {data.banner.flatMap((b) =>
+                      b.nonCompliant.map((v) => (
+                        <li key={v.id}>{v.name}</li>
+                      ))
+                    )}
+                  </ul>
+                </div>
+              )}
 
               {/* Directors */}
-              <div className="mb-6">
-                <h3 className="mb-2 text-sm font-medium text-slate-600">Directors</h3>
+              <div className="mb-5">
+                <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-2">
+                  Directors <span className="text-brand">({assignedDirectors.length})</span>
+                </p>
                 {assignedDirectors.length === 0 ? (
-                  <p className="text-sm text-slate-400">None assigned.</p>
+                  <p className="text-sm text-slate-300 italic">None assigned</p>
                 ) : (
                   <div className="flex flex-col gap-2">
                     {assignedDirectors.map((pid) => {
                       const m = memberByPersonId.get(pid);
                       const name = m?.person.name ?? pid;
                       return (
-                        <div key={pid} className="flex flex-wrap items-center gap-2 text-sm">
-                          <span className="font-medium">{name}</span>
+                        <div key={pid} className="rounded-lg border-l-4 border-l-brand border border-slate-200 bg-white px-3 py-2 flex items-center justify-between">
+                          <span className="text-sm font-bold text-slate-800">{name}</span>
+                          <form action={unassignAction} className="flex items-center gap-2">
+                            <input type="hidden" name="departmentId" value={dept.id} />
+                            <input type="hidden" name="dateKey" value={selectedDateKey ?? ""} />
+                            <input type="hidden" name="personId" value={pid} />
+                            <ConfirmButton label="Remove" confirmLabel="Remove this director?" />
+                          </form>
                         </div>
                       );
                     })}
@@ -575,12 +555,14 @@ export default async function BuilderPage({ searchParams }: PageProps) {
               </div>
 
               {/* Volunteers */}
-              <div className="mb-6">
-                <h3 className="mb-2 text-sm font-medium text-slate-600">Volunteers</h3>
+              <div className="mb-5">
+                <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-2">
+                  Volunteers <span className="text-emerald-600">({assignedVolunteers.length})</span>
+                </p>
                 {assignedVolunteers.length === 0 ? (
-                  <p className="text-sm text-slate-400">None assigned.</p>
+                  <p className="text-sm text-slate-300 italic">None assigned</p>
                 ) : (
-                  <div className="flex flex-col gap-3">
+                  <div className="flex flex-col gap-2">
                     {assignedVolunteers.map((pid) => {
                       const m = memberByPersonId.get(pid);
                       const name = m?.person.name ?? pid;
@@ -588,37 +570,27 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                       const tags = assignment.tags;
                       const personConflicts = conflicts[pid] ?? [];
                       return (
-                        <div key={pid} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                        <div key={pid} className="rounded-lg border-l-4 border-l-emerald-400 border border-slate-200 bg-white px-3 py-2">
                           <div className="flex flex-wrap items-center gap-2 text-sm">
-                            <span className="font-medium">{name}</span>
+                            <span className="font-medium text-slate-800">{name}</span>
                             {personConflicts.length > 0 && (
-                              <Badge
-                                tone="warning"
-                                title={personConflicts.join(", ")}
-                              >
+                              <Badge tone="warning" title={personConflicts.join(", ")}>
                                 Also in {personConflicts.join(", ")}
                               </Badge>
                             )}
                           </div>
-                          {/* Tag toggles */}
                           <div className="mt-2 flex flex-wrap gap-1">
                             {([...rolesForDept(dept.code), "remote"] as Array<"triage" | "walkin" | "cc" | "remote">).map((tag) => (
                               <BuilderCell
                                 key={tag}
                                 action={toggleTagAction}
-                                hidden={{
-                                  departmentId: dept.id,
-                                  dateKey: selectedDateKey ?? "",
-                                  personId: pid,
-                                  tag,
-                                }}
+                                hidden={{ departmentId: dept.id, dateKey: selectedDateKey ?? "", personId: pid, tag }}
                                 label={tag === "walkin" ? "Walk-in" : tag.charAt(0).toUpperCase() + tag.slice(1)}
                                 pressed={tags[tag]}
                                 variant="tag"
                               />
                             ))}
                           </div>
-                          {/* Unassign */}
                           <form action={unassignAction} className="mt-2 flex flex-wrap items-center gap-2">
                             <input type="hidden" name="departmentId" value={dept.id} />
                             <input type="hidden" name="dateKey" value={selectedDateKey ?? ""} />
@@ -635,18 +607,20 @@ export default async function BuilderPage({ searchParams }: PageProps) {
 
               {/* Shadows */}
               <div>
-                <h3 className="mb-2 text-sm font-medium text-slate-600">Shadows</h3>
+                <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-2">
+                  Shadows <span className="text-amber-500">({assignedShadows.length})</span>
+                </p>
                 {assignedShadows.length === 0 ? (
-                  <p className="text-sm text-slate-400">None assigned.</p>
+                  <p className="text-sm text-slate-300 italic">None assigned</p>
                 ) : (
                   <div className="flex flex-col gap-2">
                     {assignedShadows.map((pid) => {
                       const m = memberByPersonId.get(pid);
                       const name = m?.person.name ?? pid;
                       return (
-                        <div key={pid} className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
-                          <span className="text-sm font-medium">{name}</span>
-                          <form action={unassignAction} className="ml-auto flex flex-wrap items-center gap-2">
+                        <div key={pid} className="rounded-lg border-l-4 border-l-amber-400 border border-slate-200 bg-white px-3 py-2 flex items-center justify-between">
+                          <span className="text-sm font-medium text-slate-700">{name}</span>
+                          <form action={unassignAction} className="flex items-center gap-2">
                             <input type="hidden" name="departmentId" value={dept.id} />
                             <input type="hidden" name="dateKey" value={selectedDateKey ?? ""} />
                             <input type="hidden" name="personId" value={pid} />
@@ -662,9 +636,19 @@ export default async function BuilderPage({ searchParams }: PageProps) {
 
             {/* Column 2: Available to assign */}
             <section>
-              <h2 className="mb-4 text-base font-semibold">Available to assign</h2>
-              {sortedUnassigned.length === 0 ? (
-                <p className="text-sm text-slate-400">All members are already assigned.</p>
+              <div className="flex items-center gap-2 mb-4">
+                <h2 className="text-base font-bold text-slate-800">Available to assign</h2>
+                <span className="rounded-full bg-emerald-100 text-emerald-700 text-xs font-semibold px-2.5 py-0.5">
+                  {availableCount} available
+                </span>
+              </div>
+
+              {!selectedDateKey ? (
+                <div className="rounded-xl border-2 border-dashed border-slate-200 px-6 py-10 text-center text-sm text-slate-400">
+                  Select a date above to start assigning.
+                </div>
+              ) : sortedUnassigned.length === 0 ? (
+                <p className="text-sm text-slate-400 italic">All members are already assigned.</p>
               ) : (
                 <div className="flex flex-col gap-2">
                   {sortedUnassigned.map((member) => {
@@ -673,27 +657,23 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                       : false;
                     const isDirectorKind = member.kind === "DIRECTOR";
                     return (
-                      <div key={member.person.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
-                        <span className="text-sm font-medium">{member.person.name}</span>
-                        <Badge tone={isDirectorKind ? "brand" : "default"}>
-                          {isDirectorKind ? "Director" : "Volunteer"}
-                        </Badge>
-                        {isAvail && <Badge tone="success">Available</Badge>}
-                        <div className="ml-auto flex flex-wrap gap-2">
-                          {/* Assign as volunteer (or shadow in shadow mode) */}
-                          <BuilderCell
-                            action={assignAction}
-                            hidden={{
-                              departmentId: dept.id,
-                              dateKey: selectedDateKey ?? "",
-                              personId: member.person.id,
-                              role: mode === "shadow" ? "SHADOW" : "VOLUNTEER",
-                            }}
-                            label={mode === "shadow" ? "Assign as shadow" : "Assign"}
-                            variant="assign"
-                          />
-                          {/* Assign as director -- only in assign mode for director-kind members */}
-                          {mode === "assign" && isDirectorKind && (
+                      <div
+                        key={member.person.id}
+                        className={`rounded-lg border bg-white px-3 py-3 ${isAvail ? "border-emerald-200 bg-emerald-50/30" : "border-slate-200"}`}
+                      >
+                        <div className="flex flex-wrap items-center gap-2 mb-2">
+                          <span className="text-sm font-semibold text-slate-800">{member.person.name}</span>
+                          <Badge tone={isDirectorKind ? "brand" : "default"}>
+                            {isDirectorKind ? "Director" : "Volunteer"}
+                          </Badge>
+                          {isAvail ? (
+                            <span className="text-xs font-semibold text-emerald-600 bg-emerald-100 rounded-full px-2 py-0.5">Available</span>
+                          ) : (
+                            <span className="text-xs text-slate-400 bg-slate-100 rounded-full px-2 py-0.5">Unavailable</span>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {isDirectorKind && (
                             <BuilderCell
                               action={assignAction}
                               hidden={{
@@ -706,6 +686,28 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                               variant="assign"
                             />
                           )}
+                          <BuilderCell
+                            action={assignAction}
+                            hidden={{
+                              departmentId: dept.id,
+                              dateKey: selectedDateKey ?? "",
+                              personId: member.person.id,
+                              role: "VOLUNTEER",
+                            }}
+                            label="Assign as volunteer"
+                            variant="assign"
+                          />
+                          <BuilderCell
+                            action={assignAction}
+                            hidden={{
+                              departmentId: dept.id,
+                              dateKey: selectedDateKey ?? "",
+                              personId: member.person.id,
+                              role: "SHADOW",
+                            }}
+                            label="Assign as shadow"
+                            variant="assign"
+                          />
                         </div>
                       </div>
                     );
@@ -714,7 +716,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
               )}
             </section>
 
-            {/* Column 3: Panels */}
+            {/* Column 3: Sidebar */}
             <div className="flex flex-col gap-4">
               {selectedDateKey && (
                 <CapacityPanel
@@ -722,18 +724,16 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                   deptCode={dept.code}
                   patientsBookedAction={patientsBookedAction}
                   departmentId={dept.id}
-                  dateKey={selectedDateKey}
+                  dateKey={selectedDateKey!}
                 />
               )}
-
               {data.rhd != null && selectedDateKey && (
                 <ReadinessPanel
-                  rhd={data.rhd}
+                  rhd={data.rhd!}
                   clinicAction={rhdClinicAction}
-                  dateKey={selectedDateKey}
+                  dateKey={selectedDateKey!}
                 />
               )}
-
               <PendingRequests
                 rows={requestRows}
                 approveAction={approveRequestAction}
@@ -741,7 +741,6 @@ export default async function BuilderPage({ searchParams }: PageProps) {
               />
             </div>
           </div>
-        </div>
         )}
       </div>
     </div>
@@ -749,7 +748,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
 }
 
 // ---------------------------------------------------------------------------
-// Availability mode sub-view (server component)
+// Availability mode sub-view
 // ---------------------------------------------------------------------------
 
 type AvailabilityViewProps = {
@@ -764,13 +763,13 @@ type AvailabilityViewProps = {
 function AvailabilityView({
   members,
   clinicDates,
-  dept: _dept, // reserved for Task 9 panels (per-department availability breakdown)
+  dept: _dept,
   saveOverrideAction,
   clearOverrideAction,
   acknowledgeAction,
 }: AvailabilityViewProps) {
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-4">
       {members.length === 0 && (
         <p className="text-sm text-slate-400">No members in this department.</p>
       )}
@@ -779,78 +778,61 @@ function AvailabilityView({
           member.availability.tier === "DIRECTOR"
             ? "Director override"
             : member.availability.tier === "SELF"
-              ? "Self-reported"
-              : "Application";
+            ? "Self-reported"
+            : "Application";
 
         const tierTone: "brand" | "default" | "warning" =
           member.availability.tier === "DIRECTOR"
             ? "brand"
             : member.availability.tier === "SELF"
-              ? "default"
-              : "warning";
+            ? "default"
+            : "warning";
 
         const availKeys = new Set(member.availability.dates.map((d) => isoDateKey(d)));
 
         return (
-          <div key={member.membershipId} className="rounded-lg border border-slate-200 bg-white px-4 py-3">
-            {/* Header */}
+          <div key={member.membershipId} className="rounded-xl border border-slate-200 bg-white px-4 py-4">
             <div className="flex flex-wrap items-center gap-2 mb-3">
-              <span className="text-sm font-medium">{member.person.name}</span>
+              <span className="text-sm font-bold text-slate-800">{member.person.name}</span>
               <Badge tone="default">{member.kind === "DIRECTOR" ? "Director" : "Volunteer"}</Badge>
               <Badge tone={tierTone}>{tierLabel}</Badge>
-              {member.acknowledgePending && (
-                <Badge tone="warning">Availability updated</Badge>
-              )}
+              {member.acknowledgePending && <Badge tone="warning">Availability updated</Badge>}
             </div>
-
-            {/* Legacy note */}
             {member.legacyNote && (
               <p className="mb-3 text-xs text-slate-400 italic">{member.legacyNote}</p>
             )}
-
-            {/* Override form (date checkboxes) */}
             <form action={saveOverrideAction} className="mb-2">
               <input type="hidden" name="membershipId" value={member.membershipId} />
-              <div className="flex flex-wrap gap-3 mb-3">
+              <div className="flex flex-wrap gap-2 mb-3">
                 {clinicDates.map((d) => {
                   const key = isoDateKey(d);
+                  const checked = availKeys.has(key);
                   return (
-                    <label key={key} className="flex items-center gap-1.5 text-xs text-slate-700">
+                    <label key={key} className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs cursor-pointer transition-colors whitespace-nowrap ${checked ? "border-brand bg-brand/5 text-brand font-semibold" : "border-slate-200 text-slate-500 hover:border-slate-300"}`}>
                       <input
                         type="checkbox"
                         name="dates"
                         value={key}
-                        defaultChecked={availKeys.has(key)}
-                        className="h-3.5 w-3.5 rounded border-slate-300 text-brand focus:ring-brand"
+                        defaultChecked={checked}
+                        className="h-3 w-3 rounded accent-brand"
                       />
                       {displayDate(key)}
                     </label>
                   );
                 })}
               </div>
-              <Button type="submit" variant="outline" size="sm">
-                Save override
-              </Button>
+              <Button type="submit" variant="outline" size="sm">Save override</Button>
             </form>
-
-            {/* Clear override (only when override is active) */}
             {member.overrideActive && (
               <form action={clearOverrideAction} className="inline mr-2">
                 <input type="hidden" name="membershipId" value={member.membershipId} />
-                <Button type="submit" variant="ghost" size="sm">
-                  Clear override
-                </Button>
+                <Button type="submit" variant="ghost" size="sm">Clear override</Button>
               </form>
             )}
-
-            {/* Acknowledge availability */}
             {member.acknowledgePending && (
               <form action={acknowledgeAction} className="inline">
                 <input type="hidden" name="membershipId" value={member.membershipId} />
-                <ConfirmButton
-                  label="Acknowledge"
-                  confirmLabel="Mark availability as reviewed?"
-                />
+                <ConfirmButton label="Acknowledge" confirmLabel="Mark availability as reviewed?" />
               </form>
             )}
           </div>

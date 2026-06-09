@@ -52,7 +52,6 @@ describe("getCategory", () => {
     ]);
 
     await setSetting("rhd.maxProcedures", 7, null);
-    _resetSettingsCache();
     const after = await getCategory("Operations");
     expect(after[0]).toMatchObject({ value: 7, isOverridden: true });
   });
@@ -91,5 +90,12 @@ describe("resetSetting", () => {
 
     const audit = await prisma.auditLog.findFirst({ where: { action: "setting.reset" } });
     expect(audit).toMatchObject({ entityId: "rhd.maxProcedures", before: 9, after: 3 });
+  });
+
+  it("is a no-op (no audit) when the key has no override", async () => {
+    await resetSetting("rhd.maxProcedures", "person-1");
+    const audit = await prisma.auditLog.findFirst({ where: { action: "setting.reset" } });
+    expect(audit).toBeNull();
+    expect(await getSetting<number>("rhd.maxProcedures")).toBe(3);
   });
 });

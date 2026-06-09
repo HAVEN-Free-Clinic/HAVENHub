@@ -75,11 +75,19 @@ export async function getCategory(category: string): Promise<ResolvedSetting[]> 
   const overrides = new Map(rows.map((r) => [r.key, r.value]));
 
   return defs.map((def) => {
-    const hasOverride = overrides.has(def.key);
     let value = def.envDefault();
-    if (hasOverride) {
+    let isOverridden = false;
+    if (overrides.has(def.key)) {
       const parsed = def.schema.safeParse(overrides.get(def.key));
-      if (parsed.success) value = parsed.data;
+      if (parsed.success) {
+        value = parsed.data;
+        isOverridden = true;
+      } else {
+        console.warn(
+          `[settings] invalid stored value for "${def.key}"; using default`,
+          parsed.error.issues
+        );
+      }
     }
     return {
       key: def.key,
@@ -88,7 +96,7 @@ export async function getCategory(category: string): Promise<ResolvedSetting[]> 
       help: def.help,
       input: def.input,
       value,
-      isOverridden: hasOverride,
+      isOverridden,
     };
   });
 }
@@ -134,9 +142,12 @@ export async function resetSetting(
   actorPersonId: string | null
 ): Promise<void> {
   const def = getSettingDef(key);
+  const existing = await prisma.setting.findUnique({ where: { key } });
+  if (!existing) return; // nothing to reset; no change, no audit
+
   const before = await getSetting(key);
 
-  await prisma.setting.deleteMany({ where: { key } });
+  await prisma.setting.delete({ where: { key } });
   cache.delete(key);
 
   await recordAudit({

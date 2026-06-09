@@ -64,8 +64,8 @@ test("Jack opens /schedule/full and sees at least 10 date pills and a department
   await page.goto("/schedule/full");
   await page.waitForURL((url) => url.pathname === "/schedule/full");
 
-  // Page heading (rendered by PageHeader with title="Full Schedule")
-  await expect(page.getByRole("heading", { name: "Full Schedule" })).toBeVisible();
+  // Hero eyebrow label ("Full Schedule"); the h1 now renders the selected date.
+  await expect(page.locator("p").filter({ hasText: "Full Schedule" }).first()).toBeVisible();
 
   // Date tab strip: links inside the nav[aria-label="Schedule dates"]
   // displayDate("2026-05-30") = "May 30th", etc.
@@ -82,13 +82,13 @@ test("Jack opens /schedule/full and sees at least 10 date pills and a department
   const validPills = pillTexts.filter((t) => datePattern.test(t.trim()));
   expect(validPills.length).toBeGreaterThanOrEqual(10);
 
-  // At least one department section heading must render (real imported data: 1496 assignments)
-  // h2 renders as "{code} · {name}" using &middot; (unicode U+00B7)
-  const deptHeadings = page.locator("h2").filter({ hasText: /·/ });
-  await expect(deptHeadings.first()).toBeVisible();
+  // At least one department card must render (real imported data: 1496 assignments).
+  // The card header shows the dept code in a font-black uppercase span.
+  const deptCode = page.locator("span.font-black.uppercase");
+  await expect(deptCode.first()).toBeVisible();
 
-  // At least one role group line must render: "Directors:" label inside a department section
-  await expect(page.locator("span").filter({ hasText: /^Directors:/ }).first()).toBeVisible();
+  // At least one role group label ("Directors") must render inside a department card.
+  await expect(page.locator("p").filter({ hasText: /^Directors$/ }).first()).toBeVisible();
 });
 
 // ---------------------------------------------------------------------------
@@ -139,7 +139,7 @@ test("dev.volunteer availability round trip: toggle first checkbox, save, reload
   await page.waitForURL((url) => url.pathname === "/schedule" && url.searchParams.get("saved") === "1");
 
   // Success indicator must be visible
-  await expect(page.locator("p").filter({ hasText: "Availability saved." })).toBeVisible();
+  await expect(page.getByText("Availability saved successfully.")).toBeVisible();
 
   // Reload to confirm persistence (a fresh server render reads from the DB)
   await page.goto("/schedule");
@@ -311,7 +311,7 @@ test("Request round trip: Jack assigns dev.volunteer, volunteer requests drop, J
   const assignedSection = page.locator("section").filter({
     has: page.locator("h2").filter({ hasText: /^Assigned$/ }),
   });
-  const alreadyAssigned = await assignedSection.getByText("Dev Volunteer", { exact: false }).isVisible().catch(() => false);
+  const alreadyAssigned = (await assignedSection.getByText("Dev Volunteer", { exact: false }).count()) > 0;
 
   if (!alreadyAssigned) {
     await expect(volunteerRow).toBeVisible({ timeout: 10_000 });
@@ -335,7 +335,7 @@ test("Request round trip: Jack assigns dev.volunteer, volunteer requests drop, J
 
   // Find the shift card -- it should show VADM or "Vaccine Administration".
   // Open the "Request a change" details element.
-  const shiftCard = myShiftsSection.locator("div.rounded-lg").first();
+  const shiftCard = myShiftsSection.locator("div.rounded-xl").first();
   await expect(shiftCard).toBeVisible({ timeout: 10_000 });
 
   const requestDetails = shiftCard.locator("details");
@@ -354,7 +354,7 @@ test("Request round trip: Jack assigns dev.volunteer, volunteer requests drop, J
 
   // Redirect to /schedule?requested=1.
   await page.waitForURL((url) => url.pathname === "/schedule" && url.searchParams.get("requested") === "1", { timeout: 15_000 });
-  await expect(page.locator("p").filter({ hasText: "Change request submitted." })).toBeVisible();
+  await expect(page.getByText(/Change request submitted\./)).toBeVisible();
 
   // Step 3: Jack opens the builder, finds the pending request, approves it.
   await devLogin(page, "j.carney@yale.edu");
@@ -388,7 +388,7 @@ test("Request round trip: Jack assigns dev.volunteer, volunteer requests drop, J
 
   // Assert the decided section shows at least one "approved" entry.
   const pendingPanelAfter = page.locator("section").filter({ has: page.locator("h2", { hasText: "Pending Requests" }) });
-  await expect(pendingPanelAfter.locator("span", { hasText: "approved" }).first()).toBeVisible();
+  await expect(pendingPanelAfter.getByText(/approved/i).first()).toBeVisible();
 });
 
 // ---------------------------------------------------------------------------

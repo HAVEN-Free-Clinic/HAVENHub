@@ -400,26 +400,30 @@ test("Request round trip: Jack assigns dev.volunteer, volunteer requests drop, J
  * The "Capacity" panel heading and the headcount metric text ("on shift")
  * must be visible in the third column.
  */
-test("Capacity panel renders headcount metric on builder Saturday view", async ({ page }) => {
+test("Capacity panel is gated to departments with capacity config", async ({ page }) => {
   await devLogin(page, "j.carney@yale.edu");
   await page.goto("/schedule/builder");
   await page.waitForURL((url) => url.pathname === "/schedule/builder");
 
-  // Select VADM.
+  // VADM has no capacity config, so the Capacity panel must NOT render.
   await selectDeptByCode(page, "VADM");
   await page.getByRole("button", { name: "Go" }).click();
   await page.waitForLoadState("networkidle");
+  await page.locator('nav[aria-label="Clinic dates"]').getByRole("link").first().click();
+  await page.waitForLoadState("networkidle");
+  await expect(
+    page.locator("section").filter({ has: page.locator("h2", { hasText: "Capacity" }) }),
+  ).toHaveCount(0);
 
-  // Click the first date pill to trigger the capacity panel render.
-  const dateNav = page.locator('nav[aria-label="Clinic dates"]');
-  await dateNav.getByRole("link").first().click();
+  // SCTP has capacity config (idealHeadcount/patientCapacityPerProvider), so it renders.
+  await selectDeptByCode(page, "SCTP");
+  await page.getByRole("button", { name: "Go" }).click();
+  await page.waitForLoadState("networkidle");
+  await page.locator('nav[aria-label="Clinic dates"]').getByRole("link").first().click();
   await page.waitForLoadState("networkidle");
 
-  // The Capacity panel must have a visible heading.
   const capacityPanel = page.locator("section").filter({ has: page.locator("h2", { hasText: "Capacity" }) });
   await expect(capacityPanel.locator("h2", { hasText: "Capacity" })).toBeVisible();
-
-  // The headcount metric text "on shift" must be visible.
   await expect(capacityPanel.locator("span", { hasText: /on shift/ })).toBeVisible();
 });
 

@@ -502,8 +502,8 @@ export default async function BuilderPage({ searchParams }: PageProps) {
         </div>
       )}
 
-      {/* Date strip */}
-      {clinicDates.length > 0 && (
+      {/* Date strip -- hidden in the Grid view, which already shows every date as a column */}
+      {clinicDates.length > 0 && !(view === "grid" && mode !== "availability") && (
         <nav className="flex flex-wrap gap-2 mb-6" aria-label="Clinic dates">
           {clinicDates.map((d) => {
             const key = isoDateKey(d);
@@ -750,7 +750,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
 
             {/* Column 3: Sidebar */}
             <div className="flex flex-col gap-4">
-              {selectedDateKey && (
+              {selectedDateKey && data.hasCapacityConfig && (
                 <CapacityPanel
                   metrics={data.capacity}
                   deptCode={dept.code}

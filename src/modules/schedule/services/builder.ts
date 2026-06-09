@@ -545,6 +545,10 @@ export type BuilderView = {
   /** Nested map: dateKey -> personId -> assignment entry. */
   assignmentsByDate: Record<string, Record<string, BuilderAssignmentEntry>>;
   capacity: DayMetrics;
+  /** True when the selected department has capacity config (idealHeadcount or
+   *  patientCapacityPerProvider). The capacity panel renders only for these
+   *  departments, mirroring the legacy `capacity && <CapacityPanel/>` gate. */
+  hasCapacityConfig: boolean;
   banner: DeptBanner[];
   /** Map: personId -> array of other-department names with same-day conflict. */
   conflicts: Record<string, string[]>;
@@ -588,6 +592,7 @@ export async function builderView(
       members: [],
       assignmentsByDate: {},
       capacity: emptyMetrics,
+      hasCapacityConfig: false,
       banner: [],
       conflicts: {},
       pendingRequestCount: 0,
@@ -621,6 +626,7 @@ export async function builderView(
       members: [],
       assignmentsByDate: {},
       capacity: emptyMetrics,
+      hasCapacityConfig: false,
       banner: [],
       conflicts: {},
       pendingRequestCount: 0,
@@ -813,6 +819,8 @@ export async function builderView(
     members: builderMembers,
     assignmentsByDate,
     capacity,
+    hasCapacityConfig:
+      selectedDept.idealHeadcount != null || selectedDept.patientCapacityPerProvider != null,
     banner,
     conflicts,
     pendingRequestCount: pendingCount,

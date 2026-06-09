@@ -95,7 +95,7 @@ export function TemplateEditor(props: {
           value={subject}
           onChange={(e) => setSubject(e.target.value)}
           placeholder="e.g. Welcome to HAVEN!"
-          className="mt-1 w-full rounded border border-slate-200 px-3 py-2 text-sm"
+          className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15"
         />
 
         <div className="mt-4 flex items-center justify-between">
@@ -130,7 +130,7 @@ export function TemplateEditor(props: {
             onChange={(e) => setBody(e.target.value)}
             rows={16}
             placeholder="<p>Your message…</p>"
-            className="mt-1 w-full rounded border border-slate-200 px-3 py-2 font-mono text-xs"
+            className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-xs outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15"
           />
         )}
 

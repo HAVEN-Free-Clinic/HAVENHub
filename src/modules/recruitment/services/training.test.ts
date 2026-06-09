@@ -11,7 +11,7 @@ async function seed() {
   const term = await prisma.term.create({ data: { code: "SU26", name: "Summer", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
   await prisma.department.create({ data: { code: "SRHD", name: "SRHD" } });
   const srr = await prisma.person.create({ data: { name: "SRR", status: "ACTIVE" } });
-  const role = await prisma.role.create({ data: { name: "Rec Admin", grants: { create: [{ permission: "recruitment.manage_cycles" }] } } });
+  const role = await prisma.role.create({ data: { name: "Rec Admin", grants: { create: [{ permission: "recruitment.manage_cycles" }, { permission: "recruitment.review_all" }] } } });
   await prisma.roleAssignment.create({ data: { personId: srr.id, roleId: role.id } });
   const plain = await prisma.person.create({ data: { name: "Nobody", status: "ACTIVE" } });
   const c1 = await prisma.recruitmentCycle.create({ data: { track: "VOLUNTEER", termId: term.id, title: "A", publicSlug: "a", departments: ["SRHD"], createdById: srr.id, status: "OPEN" } });

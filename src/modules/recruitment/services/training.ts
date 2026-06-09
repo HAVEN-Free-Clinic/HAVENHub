@@ -100,8 +100,8 @@ export async function recordAttendance(personId: string, termId: string, actorId
   });
   if (memberships.length === 0) throw new TrainingStateError("Not an active volunteer this term.");
 
-  const [scope, canManage] = await Promise.all([reviewScope(actorId), can(actorId, "recruitment.manage_cycles")]);
-  const inScope = scope.all || canManage || memberships.some((m) => scope.departmentCodes.includes(m.department.code));
+  const scope = await reviewScope(actorId);
+  const inScope = scope.all || memberships.some((m) => scope.departmentCodes.includes(m.department.code));
   if (!inScope) throw new RecruitmentAuthError("You can't record training for that volunteer.");
 
   await completeTraining(prisma, { personId, termId, cycleId: cycle.id, via: "ATTENDANCE", actorId });

@@ -85,3 +85,16 @@ export function complianceStatus(
   if (expiresMs >= renewalThresholdMs) return "COMPLIANT";
   return "EXPIRING_SOON";
 }
+
+/** The combined clearance a volunteer needs to be active for the term: a valid
+ *  certificate AND completed training. The certificate-specific ComplianceStatus
+ *  values are unchanged; this only combines them with training. */
+export type OverallClearance = "CLEARED" | "NOT_CLEARED";
+
+export function overallClearance(
+  certStatus: ComplianceStatus,
+  training: TrainingState
+): OverallClearance {
+  const certValid = certStatus === "COMPLIANT" || certStatus === "EXPIRING_SOON";
+  return certValid && training === "COMPLETE" ? "CLEARED" : "NOT_CLEARED";
+}

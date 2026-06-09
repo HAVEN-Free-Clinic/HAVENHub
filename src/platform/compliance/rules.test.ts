@@ -5,6 +5,7 @@ import {
   RENEWAL_WARNING_DAYS,
   certExpiresAt,
   complianceStatus,
+  overallClearance,
 } from "./rules";
 
 // All tests use noon UTC to avoid any day-boundary ambiguity.
@@ -175,5 +176,21 @@ describe("complianceStatus - with termEnd", () => {
     const expiresAt = noon(2025, 8, 1);
     const completion = new Date(expiresAt.getTime() - 365 * 24 * 60 * 60 * 1000);
     expect(complianceStatus({ completionDate: completion }, termEnd, now)).toBe("EXPIRING_SOON");
+  });
+});
+
+describe("overallClearance", () => {
+  it("is CLEARED only when the cert is valid and training is COMPLETE", () => {
+    expect(overallClearance("COMPLIANT", "COMPLETE")).toBe("CLEARED");
+    expect(overallClearance("EXPIRING_SOON", "COMPLETE")).toBe("CLEARED");
+    expect(overallClearance("COMPLIANT", "PENDING")).toBe("NOT_CLEARED");
+    expect(overallClearance("EXPIRING_SOON", "PENDING")).toBe("NOT_CLEARED");
+  });
+
+  it("is NOT_CLEARED for any invalid cert regardless of training", () => {
+    for (const s of ["EXPIRED", "UNKNOWN_DATE", "NO_CERTIFICATE"] as const) {
+      expect(overallClearance(s, "COMPLETE")).toBe("NOT_CLEARED");
+      expect(overallClearance(s, "PENDING")).toBe("NOT_CLEARED");
+    }
   });
 });

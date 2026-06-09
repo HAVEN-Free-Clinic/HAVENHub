@@ -22,7 +22,7 @@ export function OnboardForm({ token, prefill }: { token: string; prefill: Prefil
   const err = (k: string) => (result && !result.ok ? result.fieldErrors?.[k] : undefined);
   const field = (label: string, name: string, opts: { type?: string; defaultValue?: string; required?: boolean } = {}) => (
     <label className="block text-sm">{label}{opts.required && <span className="text-red-600"> *</span>}
-      <input name={name} type={opts.type ?? "text"} defaultValue={opts.defaultValue} className="mt-1 w-full rounded border px-2 py-1" />
+      <input name={name} type={opts.type ?? "text"} defaultValue={opts.defaultValue} required={opts.required} className="mt-1 w-full rounded border px-2 py-1" />
       {err(name) && <span className="block text-xs text-red-600">{err(name)}</span>}
     </label>
   );
@@ -38,6 +38,8 @@ export function OnboardForm({ token, prefill }: { token: string; prefill: Prefil
         {field("Phone", "phone", { defaultValue: prefill.phone })}
         {field("Date of birth", "dateOfBirth", { type: "date" })}
         {field("Dietary restrictions", "dietaryRestrictions")}
+        {field("Yale affiliation", "yaleAffiliation")}
+        {field("Graduation year", "gradYear")}
       </fieldset>
       <fieldset className="space-y-3"><legend className="text-sm font-semibold uppercase tracking-wide text-slate-400">Acknowledgements</legend>
         {field("Volunteer agreement (type your full name)", "agreementSignature", { required: true })}

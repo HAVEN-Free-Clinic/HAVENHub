@@ -84,7 +84,7 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
       <div>
         <label className="block text-sm font-medium text-slate-700">Audience</label>
         <p className="mt-0.5 text-xs text-slate-500">
-          Choose who receives this campaign. Leave empty to include everyone with an email.
+          Choose who receives this campaign. Add at least one condition &mdash; an empty audience matches nobody (a safeguard against an accidental send-all).
         </p>
       </div>
 
@@ -112,7 +112,7 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
       {/* Condition rows */}
       {conditions.length === 0 && (
         <p className="text-sm text-slate-400 italic">
-          No conditions -- all people with an email will be included.
+          No conditions yet &mdash; this audience matches nobody. Add a condition to choose recipients.
         </p>
       )}
 

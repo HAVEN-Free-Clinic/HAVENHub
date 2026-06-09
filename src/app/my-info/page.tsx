@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireModuleAccess } from "@/platform/auth/session";
 import { AppShell } from "@/platform/ui/app-shell";
@@ -17,7 +18,8 @@ import { MyInfoForm } from "@/modules/my-info/components/my-info-form";
 import { MembershipsCard } from "@/modules/my-info/components/memberships-card";
 import { HipaaPanel } from "@/modules/my-info/components/hipaa-panel";
 import { EpicPanel } from "@/modules/my-info/components/epic-panel";
-import { complianceStatus } from "@/platform/compliance/rules";
+import { complianceStatus, overallClearance } from "@/platform/compliance/rules";
+import { resolveTrainingState } from "@/modules/recruitment/services/training";
 import {
   myEpicPanel,
   createEpicRequest,
@@ -165,6 +167,11 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
     activeTerm?.endDate ?? null
   );
 
+  const trainingState = activeTerm
+    ? await resolveTrainingState(person.personId, activeTerm.id)
+    : "PENDING";
+  const clearance = overallClearance(status, trainingState);
+
   const withdrawn = sp.withdrawn !== undefined ? parseInt(sp.withdrawn, 10) : undefined;
 
   return (
@@ -215,6 +222,29 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
             dateSaved={sp.dateSaved === "1"}
             status={status}
           />
+        </section>
+
+        {/* Clearance */}
+        <section>
+          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-400">
+            Clearance
+          </h2>
+          <div className="rounded border p-4 text-sm space-y-1">
+            <p>
+              HIPAA certificate: <span className="font-medium">{status}</span>
+            </p>
+            <p>
+              Training: <span className="font-medium">{trainingState}</span>
+            </p>
+            <p>
+              Overall: <span className="font-medium">{clearance}</span>
+            </p>
+            {trainingState !== "COMPLETE" && (
+              <Link href="/training" className="text-blue-700 underline">
+                Complete your training
+              </Link>
+            )}
+          </div>
         </section>
 
         {/* Epic access */}

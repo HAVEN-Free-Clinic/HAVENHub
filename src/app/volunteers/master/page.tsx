@@ -249,6 +249,8 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
                   <TH>Name</TH>
                   <TH>Departments</TH>
                   <TH>Status</TH>
+                  <TH>Training</TH>
+                  <TH>Overall</TH>
                   <TH>Completed</TH>
                   <TH>Expires</TH>
                   <TH>Verified</TH>
@@ -281,6 +283,22 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
                       <TD>
                         <Badge tone={STATUS_TONE[row.status]}>
                           {STATUS_LABEL[row.status]}
+                        </Badge>
+                      </TD>
+                      <TD>
+                        <Badge
+                          tone={row.trainingState === "COMPLETE" ? "success" : "default"}
+                        >
+                          {row.trainingState === "COMPLETE" ? "Complete" : "Pending"}
+                        </Badge>
+                      </TD>
+                      <TD>
+                        <Badge
+                          tone={
+                            row.overallClearance === "CLEARED" ? "success" : "critical"
+                          }
+                        >
+                          {row.overallClearance === "CLEARED" ? "Cleared" : "Not Cleared"}
                         </Badge>
                       </TD>
                       <TD className="text-slate-600 tabular-nums">

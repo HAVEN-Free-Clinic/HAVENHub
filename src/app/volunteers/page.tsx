@@ -173,6 +173,8 @@ export default async function VolunteersPage({ searchParams }: PageProps) {
                     <TH>Name</TH>
                     <TH>Role</TH>
                     <TH>Status</TH>
+                    <TH>Training</TH>
+                    <TH>Overall</TH>
                     <TH>Completed</TH>
                     <TH>Expires</TH>
                     <TH>Verified</TH>
@@ -197,6 +199,30 @@ export default async function VolunteersPage({ searchParams }: PageProps) {
                           <Badge tone={STATUS_TONE[m.status]}>
                             {STATUS_LABEL[m.status]}
                           </Badge>
+                        </TD>
+                        <TD>
+                          {m.kind === "VOLUNTEER" ? (
+                            <Badge
+                              tone={m.trainingState === "COMPLETE" ? "success" : "default"}
+                            >
+                              {m.trainingState === "COMPLETE" ? "Complete" : "Pending"}
+                            </Badge>
+                          ) : (
+                            <span className="text-slate-400">-</span>
+                          )}
+                        </TD>
+                        <TD>
+                          {m.kind === "VOLUNTEER" ? (
+                            <Badge
+                              tone={
+                                m.overallClearance === "CLEARED" ? "success" : "critical"
+                              }
+                            >
+                              {m.overallClearance === "CLEARED" ? "Cleared" : "Not Cleared"}
+                            </Badge>
+                          ) : (
+                            <span className="text-slate-400">-</span>
+                          )}
                         </TD>
                         <TD className="text-slate-600 tabular-nums">
                           {fmtDate(m.cert?.completionDate)}

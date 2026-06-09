@@ -15,7 +15,7 @@ const MODULE_IDS = [
 const eslintConfig = [
   ...coreWebVitals,
   ...nextTypescript,
-  { ignores: [".next/**", "node_modules/**", "playwright-report/**", "test-results/**"] },
+  { ignores: [".next/**", "node_modules/**", "playwright-report/**", "test-results/**", ".claude/**"] },
   {
     rules: {
       "@typescript-eslint/no-unused-vars": [

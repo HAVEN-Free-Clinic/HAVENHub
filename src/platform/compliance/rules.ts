@@ -22,6 +22,12 @@ export function certExpiresAt(completionDate: Date): Date {
 }
 
 /**
+ * The resolved training state for a volunteer in a given term.
+ * PENDING unless the person has a COMPLETE VolunteerTraining row for the term.
+ */
+export type TrainingState = "COMPLETE" | "PENDING";
+
+/**
  * The computed compliance status. Never stored; always re-derived from data.
  *
  *   NO_CERTIFICATE   no cert record on file
@@ -78,4 +84,17 @@ export function complianceStatus(
   // No active term: COMPLIANT iff expiresAt >= now + 60d
   if (expiresMs >= renewalThresholdMs) return "COMPLIANT";
   return "EXPIRING_SOON";
+}
+
+/** The combined clearance a volunteer needs to be active for the term: a valid
+ *  certificate AND completed training. The certificate-specific ComplianceStatus
+ *  values are unchanged; this only combines them with training. */
+export type OverallClearance = "CLEARED" | "NOT_CLEARED";
+
+export function overallClearance(
+  certStatus: ComplianceStatus,
+  training: TrainingState
+): OverallClearance {
+  const certValid = certStatus === "COMPLIANT" || certStatus === "EXPIRING_SOON";
+  return certValid && training === "COMPLETE" ? "CLEARED" : "NOT_CLEARED";
 }

@@ -57,6 +57,10 @@ const schema = z
       .string()
       .default("http://localhost:3000/admin/email/oauth/callback"),
     EMAIL_SENDER: z.string().optional(),
+    // Trusted public base URL for links embedded in outbound email (e.g. the
+    // recruitment onboarding contract link). Deploy-time value; never derived
+    // from the request Host header, which is attacker-controllable.
+    APP_BASE_URL: z.string().default("http://localhost:3000"),
     // The Microsoft Teams clinic Team's groupId. When set (and the Mailer OAuth is
     // connected with the Channel.ReadBasic.All scope), the home dashboard shows a
     // link to the current clinic week's channel. Optional: when unset, the card is

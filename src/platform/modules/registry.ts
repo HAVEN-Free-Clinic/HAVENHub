@@ -95,12 +95,12 @@ export const MODULES: ModuleManifest[] = [
   {
     id: "recruitment",
     title: "Recruitment",
-    description: "Run recruitment cycles and applications",
+    description: "Run recruitment cycles, build applications, review submissions",
     icon: ClipboardList,
     accessPermission: "recruitment.access",
-    permissions: ["recruitment.access"],
-    status: "coming-soon",
-    nav: [],
+    permissions: ["recruitment.access", "recruitment.manage_cycles", "recruitment.review", "recruitment.review_all"],
+    status: "active",
+    nav: [{ label: "Cycles", href: "/recruitment" }],
   },
   {
     id: "triage",

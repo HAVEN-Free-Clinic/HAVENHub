@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
-import { renderEmail } from "./renderEmail";
+import { renderEmail, renderInlineEmail } from "./renderEmail";
 
 beforeEach(resetDb);
 
@@ -27,5 +27,15 @@ describe("renderEmail", () => {
     const out = await renderEmail("layout", { body: "B", subject: "S" });
     expect(out.subject).toBe("OVR S");
     expect(out.html).toBe("<x>B</x>");
+  });
+
+  it("renderInlineEmail renders inline subject/body and wraps in the layout", async () => {
+    const out = await renderInlineEmail(
+      { subject: "Hi {{ firstName }}", body: "<p>Hello {{ name }}</p>" },
+      { firstName: "Sam", name: "Sam Rivera" },
+    );
+    expect(out.subject).toBe("Hi Sam");
+    expect(out.html).toContain("<p>Hello Sam Rivera</p>");
+    expect(out.html).toContain("HAVEN Free Clinic"); // wrapped in branded layout
   });
 });

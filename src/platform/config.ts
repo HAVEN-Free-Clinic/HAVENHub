@@ -4,6 +4,14 @@ const schema = z
   .object({
     DATABASE_URL: z.string().min(1),
     AUTH_SECRET: z.string().min(1),
+    // Demo/staging escape hatch. When "true", relaxes the production Azure-AD
+    // requirement and re-enables the email-only credentials login (see auth.ts)
+    // so a deployment without a Yale Entra app is still usable. NEVER set this on
+    // a real production deploy holding live volunteer data.
+    DEMO_MODE: z
+      .string()
+      .default("false")
+      .transform((v) => v === "true"),
     AZURE_AD_CLIENT_ID: z.string().optional(),
     AZURE_AD_CLIENT_SECRET: z.string().optional(),
     AZURE_AD_TENANT_ID: z.string().optional(),
@@ -129,6 +137,8 @@ const schema = z
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV !== "production") return;
+    // Demo/staging deploys log in via credentials (auth.ts), so Azure is optional.
+    if (env.DEMO_MODE) return;
     // `next build` runs with NODE_ENV=production but without runtime secrets;
     // Azure vars are enforced at server boot, not at build time.
     if (process.env.NEXT_PHASE === "phase-production-build") return;

@@ -18,14 +18,13 @@
  *   - audits every mutation
  */
 
-import path from "node:path";
-import fs from "node:fs/promises";
 import type { HipaaCertificate } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { enqueueMirror } from "@/platform/outbox";
 import { updatePersonFields } from "@/platform/people";
 import { config } from "@/platform/config";
+import { putObject } from "@/platform/storage";
 import { extractCompletionDate } from "@/platform/compliance/parser";
 import type { ParsedDate } from "@/platform/compliance/parser";
 
@@ -299,16 +298,11 @@ export async function saveCertificate(
     return updated;
   });
 
-  // --- 3. Write bytes to disk (after tx commits) ---
-  const uploadDir = config.UPLOAD_DIR;
-  const diskPath = path.join(uploadDir, cert.storedName);
-
+  // --- 3. Write bytes to storage (after tx commits) ---
   try {
-    // mkdir -p on first use
-    await fs.mkdir(uploadDir, { recursive: true });
-    await fs.writeFile(diskPath, file.bytes);
+    await putObject(cert.storedName, file.bytes, file.type);
   } catch (err) {
-    // --- 4. Disk write failed: clean up the DB row and its outbox row ---
+    // --- 4. Storage write failed: clean up the DB row and its outbox row ---
     // The outbox row was created in the transaction above; delete it too so the
     // drain worker cannot pick up a cert row that has no file on disk.
     try {

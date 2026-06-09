@@ -430,6 +430,8 @@ model DisciplinaryAction {
 
 enum EmailCampaignStatus {
   DRAFT
+  SCHEDULED
+  ACTIVE
   SENDING
   SENT
   CANCELLED
@@ -443,6 +445,11 @@ model EmailCampaign {
   subject      String              @default("")
   body         String              @default("")
   status       EmailCampaignStatus @default(DRAFT)
+  scheduleType String              @default("NOW") // NOW | SCHEDULED | RECURRING
+  scheduledAt  DateTime?
+  cronExpr     String?
+  lastRunAt    DateTime?
+  nextRunAt    DateTime?
   createdById  String?
   createdBy    Person?             @relation("campaignCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   createdAt    DateTime            @default(now())

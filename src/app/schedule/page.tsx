@@ -138,7 +138,7 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
     <div>
       {/* Hero banner */}
       <div className="rounded-xl bg-brand px-8 py-6 text-white mb-8">
-        <p className="text-xs font-semibold uppercase tracking-widest text-white/60 mb-1">Summer 2026</p>
+        <p className="text-xs font-semibold uppercase tracking-widest text-white/60 mb-1">{term?.name ?? "Active Term"}</p>
         <h1 className="text-2xl font-bold mb-1">My Schedule</h1>
         {shifts.length > 0 ? (
           <p className="text-sm text-white/70">

@@ -169,23 +169,21 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     ? members.filter((m) => !assignedPersonIds.has(m.person.id))
     : members;
 
-  const sortedUnassigned = [...unassignedMembers].sort((a, b) => {
-    const aAvail = selectedDateKey
-      ? a.availability.dates.some((d) => isoDateKey(d) === selectedDateKey)
-      : false;
-    const bAvail = selectedDateKey
-      ? b.availability.dates.some((d) => isoDateKey(d) === selectedDateKey)
-      : false;
-    if (aAvail && !bAvail) return -1;
-    if (!aAvail && bAvail) return 1;
-    return a.person.name.localeCompare(b.person.name);
-  });
-
-  const availableCount = sortedUnassigned.filter((m) =>
+  const isAvailableOnDate = (m: (typeof unassignedMembers)[number]) =>
     selectedDateKey
       ? m.availability.dates.some((d) => isoDateKey(d) === selectedDateKey)
-      : false
-  ).length;
+      : false;
+
+  const byName = (
+    a: (typeof unassignedMembers)[number],
+    b: (typeof unassignedMembers)[number],
+  ) => a.person.name.localeCompare(b.person.name);
+
+  const availableMembers = unassignedMembers.filter(isAvailableOnDate).sort(byName);
+  const notAvailableMembers = unassignedMembers
+    .filter((m) => !isAvailableOnDate(m))
+    .sort(byName);
+  const availableCount = availableMembers.length;
 
   // ---------------------------------------------------------------------------
   // Server actions
@@ -394,6 +392,68 @@ export default async function BuilderPage({ searchParams }: PageProps) {
         timeZone: "UTC",
       })
     : null;
+
+  function assignCard(member: (typeof unassignedMembers)[number], available: boolean) {
+    const isDirectorKind = member.kind === "DIRECTOR";
+    const warn = available ? "" : " ⚠";
+    return (
+      <div
+        key={member.person.id}
+        className={`rounded-lg border px-3 py-3 ${
+          available ? "border-emerald-200 bg-emerald-50/30" : "border-slate-200 bg-slate-50 opacity-75"
+        }`}
+      >
+        <div className="flex flex-wrap items-center gap-2 mb-2">
+          <span className="text-sm font-semibold text-slate-800">{member.person.name}</span>
+          <Badge tone={isDirectorKind ? "brand" : "default"}>
+            {isDirectorKind ? "Director" : "Volunteer"}
+          </Badge>
+          {!available && (
+            <span className="text-xs font-semibold text-amber-700 bg-amber-100 rounded-full px-2 py-0.5">
+              not free
+            </span>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {isDirectorKind && (
+            <BuilderCell
+              action={assignAction}
+              hidden={{
+                departmentId: dept.id,
+                dateKey: selectedDateKey ?? "",
+                personId: member.person.id,
+                role: "DIRECTOR",
+              }}
+              label={`Assign as director${warn}`}
+              variant="assign"
+            />
+          )}
+          <BuilderCell
+            action={assignAction}
+            hidden={{
+              departmentId: dept.id,
+              dateKey: selectedDateKey ?? "",
+              personId: member.person.id,
+              role: "VOLUNTEER",
+            }}
+            label={`Assign as volunteer${warn}`}
+            variant="assign"
+          />
+          <BuilderCell
+            action={assignAction}
+            hidden={{
+              departmentId: dept.id,
+              dateKey: selectedDateKey ?? "",
+              personId: member.person.id,
+              role: "SHADOW",
+            }}
+            label={`Assign as shadow${warn}`}
+            variant="assign"
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -661,71 +721,33 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                 <div className="rounded-xl border-2 border-dashed border-slate-200 px-6 py-10 text-center text-sm text-slate-400">
                   Select a date above to start assigning.
                 </div>
-              ) : sortedUnassigned.length === 0 ? (
-                <p className="text-sm text-slate-400 italic">All members are already assigned.</p>
               ) : (
-                <div className="flex flex-col gap-2">
-                  {sortedUnassigned.map((member) => {
-                    const isAvail = selectedDateKey
-                      ? member.availability.dates.some((d) => isoDateKey(d) === selectedDateKey)
-                      : false;
-                    const isDirectorKind = member.kind === "DIRECTOR";
-                    return (
-                      <div
-                        key={member.person.id}
-                        className={`rounded-lg border bg-white px-3 py-3 ${isAvail ? "border-emerald-200 bg-emerald-50/30" : "border-slate-200"}`}
-                      >
-                        <div className="flex flex-wrap items-center gap-2 mb-2">
-                          <span className="text-sm font-semibold text-slate-800">{member.person.name}</span>
-                          <Badge tone={isDirectorKind ? "brand" : "default"}>
-                            {isDirectorKind ? "Director" : "Volunteer"}
-                          </Badge>
-                          {isAvail ? (
-                            <span className="text-xs font-semibold text-emerald-600 bg-emerald-100 rounded-full px-2 py-0.5">Available</span>
-                          ) : (
-                            <span className="text-xs text-slate-400 bg-slate-100 rounded-full px-2 py-0.5">Unavailable</span>
-                          )}
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {isDirectorKind && (
-                            <BuilderCell
-                              action={assignAction}
-                              hidden={{
-                                departmentId: dept.id,
-                                dateKey: selectedDateKey ?? "",
-                                personId: member.person.id,
-                                role: "DIRECTOR",
-                              }}
-                              label="Assign as director"
-                              variant="assign"
-                            />
-                          )}
-                          <BuilderCell
-                            action={assignAction}
-                            hidden={{
-                              departmentId: dept.id,
-                              dateKey: selectedDateKey ?? "",
-                              personId: member.person.id,
-                              role: "VOLUNTEER",
-                            }}
-                            label="Assign as volunteer"
-                            variant="assign"
-                          />
-                          <BuilderCell
-                            action={assignAction}
-                            hidden={{
-                              departmentId: dept.id,
-                              dateKey: selectedDateKey ?? "",
-                              personId: member.person.id,
-                              role: "SHADOW",
-                            }}
-                            label="Assign as shadow"
-                            variant="assign"
-                          />
-                        </div>
+                <div className="flex flex-col gap-5">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-widest text-emerald-600 mb-2">
+                      Available &middot; said yes ({availableMembers.length})
+                    </p>
+                    {availableMembers.length === 0 ? (
+                      <p className="text-sm text-slate-400 italic">No one is marked available for this date.</p>
+                    ) : (
+                      <div className="flex flex-col gap-2">
+                        {availableMembers.map((m) => assignCard(m, true))}
                       </div>
-                    );
-                  })}
+                    )}
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-2">
+                      Not available ({notAvailableMembers.length})
+                    </p>
+                    {notAvailableMembers.length === 0 ? (
+                      <p className="text-sm text-slate-300 italic">Everyone else is already assigned.</p>
+                    ) : (
+                      <div className="flex flex-col gap-2">
+                        {notAvailableMembers.map((m) => assignCard(m, false))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </section>

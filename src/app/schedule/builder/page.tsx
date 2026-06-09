@@ -393,6 +393,16 @@ export default async function BuilderPage({ searchParams }: PageProps) {
       })
     : null;
 
+  function flagBadges(person: { spanishSpeaking: boolean; licensedRN: boolean }) {
+    if (!person.spanishSpeaking && !person.licensedRN) return null;
+    return (
+      <>
+        {person.spanishSpeaking && <Badge tone="default">ES</Badge>}
+        {person.licensedRN && <Badge tone="default">RN</Badge>}
+      </>
+    );
+  }
+
   function assignCard(member: (typeof unassignedMembers)[number], available: boolean) {
     const isDirectorKind = member.kind === "DIRECTOR";
     const warn = available ? "" : " ⚠";
@@ -408,6 +418,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
           <Badge tone={isDirectorKind ? "brand" : "default"}>
             {isDirectorKind ? "Director" : "Volunteer"}
           </Badge>
+          {flagBadges(member.person)}
           {!available && <Badge tone="warning">not free</Badge>}
         </div>
         <div className="flex flex-wrap gap-2">
@@ -610,7 +621,10 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                       const name = m?.person.name ?? pid;
                       return (
                         <div key={pid} className="rounded-lg border-l-4 border-l-brand border border-slate-200 bg-white px-3 py-2 flex items-center justify-between">
-                          <span className="text-sm font-bold text-slate-800">{name}</span>
+                          <span className="flex flex-wrap items-center gap-2">
+                            <span className="text-sm font-bold text-slate-800">{name}</span>
+                            {m?.person && flagBadges(m.person)}
+                          </span>
                           <form action={unassignAction} className="flex items-center gap-2">
                             <input type="hidden" name="departmentId" value={dept.id} />
                             <input type="hidden" name="dateKey" value={selectedDateKey ?? ""} />
@@ -643,6 +657,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                         <div key={pid} className="rounded-lg border-l-4 border-l-emerald-400 border border-slate-200 bg-white px-3 py-2">
                           <div className="flex flex-wrap items-center gap-2 text-sm">
                             <span className="font-medium text-slate-800">{name}</span>
+                            {m?.person && flagBadges(m.person)}
                             {personConflicts.length > 0 && (
                               <Badge tone="warning" title={personConflicts.join(", ")}>
                                 Also in {personConflicts.join(", ")}
@@ -689,7 +704,10 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                       const name = m?.person.name ?? pid;
                       return (
                         <div key={pid} className="rounded-lg border-l-4 border-l-amber-400 border border-slate-200 bg-white px-3 py-2 flex items-center justify-between">
-                          <span className="text-sm font-medium text-slate-700">{name}</span>
+                          <span className="flex flex-wrap items-center gap-2">
+                            <span className="text-sm font-medium text-slate-700">{name}</span>
+                            {m?.person && flagBadges(m.person)}
+                          </span>
                           <form action={unassignAction} className="flex items-center gap-2">
                             <input type="hidden" name="departmentId" value={dept.id} />
                             <input type="hidden" name="dateKey" value={selectedDateKey ?? ""} />

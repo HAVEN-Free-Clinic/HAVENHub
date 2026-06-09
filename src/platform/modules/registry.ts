@@ -78,6 +78,7 @@ export const MODULES: ModuleManifest[] = [
       "admin.view_audit",
       "admin.manage_sync",
       "admin.manage_email_templates",
+      "admin.send_email_campaign",
     ],
     status: "active",
     nav: [

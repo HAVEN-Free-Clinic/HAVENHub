@@ -1,8 +1,10 @@
+import Image from "next/image";
 import { redirect } from "next/navigation";
 import { AuthError } from "next-auth";
 import { auth, signIn } from "@/platform/auth/auth";
 import { config } from "@/platform/config";
 import { HavenLogo } from "@/platform/ui/haven-logo";
+import { SignInButton } from "./sign-in-button";
 
 const ERROR_MESSAGES: Record<string, string> = {
   CredentialsSignin:
@@ -22,31 +24,24 @@ export default async function LoginPage({
 
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[45%_1fr]">
-      {/* Left brand panel (desktop only) */}
-      <div className="hidden lg:flex bg-brand text-white flex-col justify-between p-10 relative overflow-hidden">
-        {/* Plus-sign motif overlay */}
-        <svg
+      {/* Left brand panel (desktop only): Yale Physicians Building under a Yale-blue overlay */}
+      <div className="relative hidden flex-col justify-between overflow-hidden bg-brand-deep p-10 text-white lg:flex">
+        <Image
+          src="/brand/login-building.webp"
+          alt=""
           aria-hidden="true"
-          className="pointer-events-none absolute inset-0 h-full w-full"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <defs>
-            <pattern
-              id="plus-pattern"
-              x="0"
-              y="0"
-              width="24"
-              height="24"
-              patternUnits="userSpaceOnUse"
-            >
-              {/* Horizontal bar of + */}
-              <rect x="10" y="11" width="4" height="2" fill="white" />
-              {/* Vertical bar of + */}
-              <rect x="11" y="10" width="2" height="4" fill="white" />
-            </pattern>
-          </defs>
-          <rect width="100%" height="100%" fill="url(#plus-pattern)" opacity="0.06" />
-        </svg>
+          fill
+          priority
+          sizes="(min-width: 1024px) 45vw, 0px"
+          className="object-cover object-center"
+        />
+        {/* Yale-blue tint mutes the photo to brand-monochrome texture */}
+        <div aria-hidden="true" className="absolute inset-0 bg-brand/70" />
+        {/* Vertical gradient: heavier at top and bottom so the logo and copy stay legible */}
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 bg-gradient-to-b from-brand-deep/80 via-brand-deep/20 to-brand-deep/90"
+        />
 
         {/* Top: official lockup */}
         <div className="relative z-10">
@@ -55,31 +50,36 @@ export default async function LoginPage({
 
         {/* Bottom: copy */}
         <div className="relative z-10">
-          <p className="text-2xl font-semibold tracking-tight leading-snug">
+          <p className="text-2xl font-semibold leading-snug tracking-tight">
             One platform for the clinic.
           </p>
-          <p className="mt-2 text-sm text-white/70">
+          <p className="mt-2 text-sm text-white/80">
             Scheduling, volunteer management, and compliance in one place.
           </p>
-          <p className="mt-8 text-xs text-white/50">HAVEN Free Clinic · Yale University</p>
+          <p className="mt-8 text-xs text-white/70">HAVEN Free Clinic · Yale University</p>
         </div>
       </div>
 
-      {/* Mobile top band */}
-      <div className="flex lg:hidden items-center bg-brand px-6 py-4 text-white">
+      {/* Mobile top band: condensed identity + value prop for first-time recruits on a phone */}
+      <div className="flex flex-col gap-1.5 bg-brand px-6 py-5 text-white lg:hidden">
         <HavenLogo className="h-9 text-white" />
+        <p className="text-sm text-white/80">
+          Scheduling, volunteering, and compliance for HAVEN Free Clinic.
+        </p>
       </div>
 
       {/* Right panel */}
       <div className="flex items-center justify-center p-8">
         <div className="w-full max-w-sm">
-          <h1 className="text-xl font-semibold tracking-tight">Sign in to HAVEN Hub</h1>
-          <p className="mt-1 text-sm text-slate-500">Use your Yale account to continue.</p>
+          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+            Sign in to HAVEN Hub
+          </h1>
+          <p className="mt-2 text-sm text-slate-600">Use your Yale account to continue.</p>
 
           {errorMessage && (
             <p
               role="alert"
-              className="mt-4 rounded-md border border-critical/20 bg-red-50 px-3 py-2 text-sm text-critical"
+              className="mt-5 rounded-md border border-critical/20 bg-critical/5 px-3 py-2 text-sm text-critical"
             >
               {errorMessage}
             </p>
@@ -87,7 +87,7 @@ export default async function LoginPage({
 
           {config.AZURE_AD_CLIENT_ID ? (
             <form
-              className="mt-6"
+              className="mt-7"
               action={async () => {
                 "use server";
                 try {
@@ -100,18 +100,24 @@ export default async function LoginPage({
                 }
               }}
             >
-              <button
-                type="submit"
-                className="w-full rounded-md bg-brand px-4 py-2.5 text-sm font-medium text-white hover:bg-brand-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-              >
-                Sign in with Yale
-              </button>
+              <SignInButton />
             </form>
           ) : (
-            <p className="mt-6 rounded-md border border-warning/30 bg-amber-50 px-3 py-2 text-sm text-warning">
+            <p className="mt-7 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-sm text-warning">
               Entra ID is not configured (AZURE_AD_* unset).
             </p>
           )}
+
+          {/* Persistent help affordance, available before any error occurs */}
+          <p className="mt-5 text-sm text-slate-500">
+            Trouble signing in?{" "}
+            <a
+              href="mailto:hfc.it@yale.edu"
+              className="font-medium text-brand underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+            >
+              Contact the HAVEN IT team
+            </a>
+          </p>
 
           {config.NODE_ENV !== "production" && (
             <form

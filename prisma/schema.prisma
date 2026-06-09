@@ -1001,3 +1001,15 @@ model Evaluation {
 
   @@unique([interviewId, evaluatorId])
 }
+
+/// Admin-configurable settings stored as key/value overrides. The key is a
+/// well-known string defined in the code registry; value is stored as JSON to
+/// support any scalar or structured type. updatedById is a loose reference to
+/// the Person who last changed the setting (no FK, so settings survive person
+/// deletion).
+model Setting {
+  key         String   @id
+  value       Json
+  updatedById String?
+  updatedAt   DateTime @updatedAt
+}

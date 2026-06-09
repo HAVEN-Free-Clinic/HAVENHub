@@ -23,6 +23,7 @@ import { Button } from "@/platform/ui/button";
 import { Input } from "@/platform/ui/input";
 import { TemplateEditor } from "../../templates/[key]/preview";
 import { AudienceBuilder } from "./audience-builder";
+import { CronPresets } from "./cron-presets";
 
 type Props = {
   params: Promise<{ id: string }>;
@@ -358,13 +359,13 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
               <label className="block text-xs text-slate-500" htmlFor="confirmCount">
                 Confirm count (required for &gt;25 recipients)
               </label>
-              <input
+              <Input
                 id="confirmCount"
                 name="confirmCount"
                 type="number"
                 min={1}
                 placeholder="e.g. 42"
-                className="mt-0.5 w-24 rounded border border-slate-300 px-2 py-1.5 text-sm"
+                className="mt-0.5 w-24"
               />
             </div>
             <Button type="submit" variant="danger" className="self-end">
@@ -412,12 +413,12 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
                 <label className="block text-xs text-slate-500" htmlFor="scheduledAt">
                   Send at
                 </label>
-                <input
+                <Input
                   id="scheduledAt"
                   name="scheduledAt"
                   type="datetime-local"
                   required
-                  className="mt-0.5 rounded border border-slate-300 px-2 py-1.5 text-sm"
+                  className="mt-0.5 w-auto"
                 />
               </div>
               <Button type="submit">Schedule</Button>
@@ -432,14 +433,7 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
                 <label className="block text-xs text-slate-500" htmlFor="cronExpr">
                   Cron expression
                 </label>
-                <input
-                  id="cronExpr"
-                  name="cronExpr"
-                  type="text"
-                  placeholder="0 13 * * 1"
-                  required
-                  className="mt-0.5 w-48 rounded border border-slate-300 px-2 py-1.5 text-sm font-mono"
-                />
+                <CronPresets />
               </div>
               <Button type="submit">Start recurring</Button>
             </form>

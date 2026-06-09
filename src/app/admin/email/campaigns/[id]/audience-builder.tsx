@@ -131,7 +131,7 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
               <select
                 value={cond.field}
                 onChange={(e) => changeField(idx, e.target.value)}
-                className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm"
+                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15"
               >
                 {fields.map((f) => (
                   <option key={f.key} value={f.key}>
@@ -145,7 +145,7 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
                 <select
                   value={typeof cond.value === "string" ? cond.value : ""}
                   onChange={(e) => changeEnumValue(idx, e.target.value)}
-                  className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm"
+                  className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15"
                 >
                   {options.map((o) => (
                     <option key={o.value} value={o.value}>
@@ -178,7 +178,7 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
                 <select
                   value={cond.op}
                   onChange={(e) => changeBooleanOp(idx, e.target.value as "isTrue" | "isFalse")}
-                  className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm"
+                  className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15"
                 >
                   <option value="isTrue">Yes</option>
                   <option value="isFalse">No</option>

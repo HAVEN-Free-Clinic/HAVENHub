@@ -74,6 +74,13 @@ describe("campaign service", () => {
     ).rejects.toThrow(/cannot edit/i);
   });
 
+  it("refuses to send a campaign with a blank subject", async () => {
+    await prisma.person.create({ data: { name: "Sam Rivera", contactEmail: "sam@example.com", status: "ACTIVE" } });
+    const c = await createDraft(null, "NoSubject");
+    await updateCampaign(null, c.id, { subject: "   ", body: "<p>hi</p>", audience: ALL_ACTIVE });
+    await expect(sendCampaignNow(null, c.id, {})).rejects.toBeInstanceOf(CampaignValidationError);
+  });
+
   it("de-duplicates recipients by email (case-insensitive)", async () => {
     // The DB enforces lower(contactEmail) uniqueness, so two Person rows with
     // emails differing only in case cannot coexist. To exercise the service's
@@ -133,6 +140,14 @@ describe("campaign scheduling", () => {
     ).rejects.toBeInstanceOf(CampaignValidationError);
     await expect(
       scheduleCampaign(null, c.id, { scheduleType: "SCHEDULED" }),
+    ).rejects.toBeInstanceOf(CampaignValidationError);
+  });
+
+  it("refuses to schedule a campaign with a blank subject", async () => {
+    const c = await createDraft(null, "NoSubjectSched");
+    await updateCampaign(null, c.id, { subject: "", body: "<p>hi</p>", audience: ALL_ACTIVE });
+    await expect(
+      scheduleCampaign(null, c.id, { scheduleType: "SCHEDULED", scheduledAt: new Date("2030-01-01T00:00:00Z") }),
     ).rejects.toBeInstanceOf(CampaignValidationError);
   });
 

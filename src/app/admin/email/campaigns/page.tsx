@@ -28,7 +28,17 @@ export default async function EmailCampaignsPage() {
       />
 
       {campaigns.length === 0 ? (
-        <p className="text-sm text-slate-400">No campaigns yet.</p>
+        <div className="space-y-3">
+          <p className="text-sm text-slate-500">
+            Campaigns let you send a one-off or recurring email to a filtered group of people.
+          </p>
+          <Link
+            href="/admin/email/campaigns/new"
+            className="inline-flex items-center justify-center rounded-md bg-brand px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-brand-hover"
+          >
+            New campaign
+          </Link>
+        </div>
       ) : (
         <ul className="divide-y rounded-lg border border-slate-200 bg-white">
           {campaigns.map((c) => (

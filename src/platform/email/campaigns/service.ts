@@ -195,6 +195,7 @@ export async function sendCampaignNow(
 ): Promise<{ runId: string; recipientCount: number }> {
   const campaign = await prisma.emailCampaign.findUniqueOrThrow({ where: { id } });
   if (campaign.status !== "DRAFT") throw new Error("Campaign already sent");
+  if (campaign.subject.trim() === "") throw new CampaignValidationError(["Add a subject before sending."]);
   if (!isAudience(campaign.audienceJson)) throw new CampaignValidationError(["Stored audience is malformed"]);
 
   const { recipients } = await resolveAudience(campaign.audienceJson);
@@ -224,6 +225,7 @@ export async function scheduleCampaign(
 ): Promise<void> {
   const campaign = await prisma.emailCampaign.findUniqueOrThrow({ where: { id } });
   if (campaign.status !== "DRAFT") throw new Error("Only a draft can be scheduled");
+  if (campaign.subject.trim() === "") throw new CampaignValidationError(["Add a subject before sending."]);
 
   if (input.scheduleType === "SCHEDULED") {
     if (!input.scheduledAt) throw new CampaignValidationError(["A send time is required"]);

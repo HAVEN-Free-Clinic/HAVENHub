@@ -4,6 +4,7 @@ import { useMemo, useRef, useState } from "react";
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
+import Placeholder from "@tiptap/extension-placeholder";
 import { renderTemplate } from "@/platform/email/render/render";
 import type { VariableDef } from "@/platform/email/templates/types";
 
@@ -27,6 +28,7 @@ export function TemplateEditor(props: {
     extensions: [
       StarterKit.configure({ link: false }),
       Link.configure({ openOnClick: false }),
+      Placeholder.configure({ placeholder: "Write your message…" }),
     ],
     content: props.initialBody,
     editorProps: {
@@ -92,6 +94,7 @@ export function TemplateEditor(props: {
           name="subject"
           value={subject}
           onChange={(e) => setSubject(e.target.value)}
+          placeholder="e.g. Welcome to HAVEN!"
           className="mt-1 w-full rounded border border-slate-200 px-3 py-2 text-sm"
         />
 
@@ -126,6 +129,7 @@ export function TemplateEditor(props: {
             value={body}
             onChange={(e) => setBody(e.target.value)}
             rows={16}
+            placeholder="<p>Your message…</p>"
             className="mt-1 w-full rounded border border-slate-200 px-3 py-2 font-mono text-xs"
           />
         )}
@@ -253,6 +257,7 @@ function EditorStyles() {
       .tt-content li { margin: 0 0 4px; }
       .tt-content a { color: #00356b; text-decoration: underline; }
       .tt-content blockquote { border-left: 3px solid #cbd5e1; padding-left: 12px; color: #475569; margin: 0 0 10px; }
+      .tt-content p.is-editor-empty:first-child::before { content: attr(data-placeholder); color: #94a3b8; float: left; height: 0; pointer-events: none; }
     `}</style>
   );
 }

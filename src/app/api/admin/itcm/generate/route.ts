@@ -395,21 +395,34 @@ export async function POST(req: Request) {
   oneYearOut.setFullYear(oneYearOut.getFullYear() + 1);
   const oneYearStr = oneYearOut.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
 
-  const emailBodyBuilder = EMAIL_BODIES[requestType];
-  if (
-    !Object.prototype.hasOwnProperty.call(EMAIL_BODIES, requestType) ||
-    typeof emailBodyBuilder !== "function"
-  ) {
-    return NextResponse.json({ error: "Invalid request type" }, { status: 400 });
-  }
-
-  const emailBody = emailBodyBuilder({
+  const emailBodyArgs = {
     personName: isBulk ? "Multiple Users" : firstPerson.name,
     epicId: firstPerson.epicId ?? "",
     endDate: isNew ? oneYearStr : endDate,
     authorizerName: auth.name,
     userCount: people.length,
-  });
+  };
+
+  let emailBody: string;
+  switch (requestType) {
+    case "NEW_ACCESS":
+      emailBody = EMAIL_BODIES.NEW_ACCESS(emailBodyArgs);
+      break;
+    case "MODIFY_ACCESS":
+      emailBody = EMAIL_BODIES.MODIFY_ACCESS(emailBodyArgs);
+      break;
+    case "REMOVE_ACCESS":
+      emailBody = EMAIL_BODIES.REMOVE_ACCESS(emailBodyArgs);
+      break;
+    case "TRANSFER_ACCESS":
+      emailBody = EMAIL_BODIES.TRANSFER_ACCESS(emailBodyArgs);
+      break;
+    case "BULK_ACCESS":
+      emailBody = EMAIL_BODIES.BULK_ACCESS(emailBodyArgs);
+      break;
+    default:
+      return NextResponse.json({ error: "Invalid request type" }, { status: 400 });
+  }
 
   // Generate spreadsheet for bulk requests.
   let xlsxBase64: string | null = null;

@@ -5,14 +5,15 @@ import { PgBoss } from "pg-boss";
 import { config } from "../src/platform/config";
 import { prisma } from "../src/platform/db";
 import { AirtableClient } from "../src/platform/airtable/client";
-import { drainOutbox, type MirrorTarget } from "../src/platform/airtable/mirror";
-import { parseFieldMap } from "../src/platform/airtable/mirror-map";
+import { drainOutbox } from "../src/platform/airtable/mirror";
+import { mirrorTarget } from "../src/platform/airtable/mirror-target";
 import { reconcilePeople } from "../src/platform/airtable/reconcile";
 import { refreshComplianceMirror } from "../src/platform/compliance/mirror-status";
 import { runComplianceReminders } from "../src/platform/email/reminders";
 import { drainEmailQueue } from "../src/platform/email/send";
 import { resolveEmailTransport } from "../src/platform/email/transport";
 import { dispatchDueCampaigns } from "../src/platform/email/campaigns/dispatch";
+import { getSetting } from "../src/platform/settings/service";
 
 const HEARTBEAT_ID = "mirror-worker";
 const OUTBOX_QUEUE = "mirror-outbox";
@@ -21,17 +22,6 @@ const COMPLIANCE_REFRESH_QUEUE = "compliance-refresh";
 const REMINDERS_QUEUE = "compliance-reminders";
 const EMAIL_QUEUE = "email-send";
 const CAMPAIGN_DISPATCH_QUEUE = "campaign-dispatch";
-
-function mirrorTarget(): MirrorTarget {
-  return {
-    enabled: config.AIRTABLE_MIRROR_ENABLED,
-    baseId: config.AIRTABLE_MIRROR_BASE_ID ?? "",
-    peopleTableId: config.AIRTABLE_MIRROR_PEOPLE_TABLE_ID ?? "",
-    fieldMap: parseFieldMap(config.AIRTABLE_MIRROR_FIELD_MAP),
-    hipaaFieldId: config.AIRTABLE_MIRROR_HIPAA_FIELD_ID ?? null,
-    statusFieldId: config.AIRTABLE_MIRROR_STATUS_FIELD_ID ?? null,
-  };
-}
 
 async function main() {
   const boss = new PgBoss(config.DATABASE_URL);
@@ -70,13 +60,13 @@ async function main() {
     if (!client) return;
     let processed: number;
     do {
-      processed = await drainOutbox(client, mirrorTarget());
+      processed = await drainOutbox(client, await mirrorTarget());
     } while (processed > 0);
   });
 
   await boss.work(RECONCILE_QUEUE, async () => {
     if (!client) return;
-    const corrected = await reconcilePeople(client, mirrorTarget());
+    const corrected = await reconcilePeople(client, await mirrorTarget());
     if (corrected > 0) console.log(`[worker] reconciliation corrected ${corrected} record(s)`);
   });
 
@@ -141,8 +131,9 @@ async function main() {
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
 
+  const mirrorOn = await getSetting<boolean>("airtable.mirrorEnabled");
   console.log(
-    `[worker] running. mirror=${config.AIRTABLE_MIRROR_ENABLED ? "ENABLED" : "disabled"} heartbeat=${HEARTBEAT_ID}`
+    `[worker] running. mirror=${mirrorOn ? "ENABLED" : "disabled"} heartbeat=${HEARTBEAT_ID}`
   );
 }
 

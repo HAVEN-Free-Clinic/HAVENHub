@@ -30,10 +30,10 @@ export async function GET(req: Request): Promise<Response> {
   if (client) {
     let processed: number;
     do {
-      processed = await drainOutbox(client, mirrorTarget());
+      processed = await drainOutbox(client, await mirrorTarget());
       outbox += processed;
     } while (processed > 0);
-    corrected = await reconcilePeople(client, mirrorTarget());
+    corrected = await reconcilePeople(client, await mirrorTarget());
   }
 
   const transport = await resolveEmailTransport();

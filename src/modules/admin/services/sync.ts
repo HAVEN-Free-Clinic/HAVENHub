@@ -14,6 +14,7 @@ import type { AuditLog, Outbox } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { config } from "@/platform/config";
+import { getSetting } from "@/platform/settings/service";
 
 /** Heartbeat staleness threshold in milliseconds. */
 const HEARTBEAT_THRESHOLD_MS = 90_000;
@@ -74,7 +75,7 @@ export async function syncOverview(): Promise<SyncOverview> {
     now - heartbeat.beatAt.getTime() <= HEARTBEAT_THRESHOLD_MS;
 
   return {
-    mirrorEnabled: config.AIRTABLE_MIRROR_ENABLED,
+    mirrorEnabled: await getSetting<boolean>("airtable.mirrorEnabled"),
     targetBaseId: config.AIRTABLE_MIRROR_BASE_ID ?? null,
     worker: {
       ok: workerOk,

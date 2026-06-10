@@ -26,7 +26,7 @@ export async function GET(req: Request): Promise<Response> {
   const client = airtableClient();
   if (client) {
     do {
-      processed = await drainOutbox(client, mirrorTarget());
+      processed = await drainOutbox(client, await mirrorTarget());
       outbox += processed;
     } while (processed > 0);
   }

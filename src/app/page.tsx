@@ -22,6 +22,7 @@ import { MODULES } from "@/platform/modules/registry";
 import { canAccessModule } from "@/platform/modules/access";
 import type { ModuleManifest } from "@/platform/modules/types";
 import { AppShell } from "@/platform/ui/app-shell";
+import { TimeGreeting } from "@/platform/ui/time-greeting";
 import { getCurrentClinicChannelLink } from "@/platform/teams/channel-link";
 import { mySchedule } from "@/modules/schedule/services/schedule";
 import { listMyCertificates } from "@/modules/my-info/services/my-info";
@@ -278,7 +279,7 @@ export default async function HubPage() {
           <div className="mb-6">
             <p className="text-[11px] font-bold uppercase tracking-[0.09em] text-slate-500">{eyebrow}</p>
             <h1 className="mt-2 text-3xl font-bold leading-tight tracking-tight text-slate-900">
-              {timeGreeting()}
+              <TimeGreeting initial={timeGreeting()} />
               {firstName ? (
                 <>
                   , <span className="text-brand">{firstName}</span>

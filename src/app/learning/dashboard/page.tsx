@@ -2,6 +2,7 @@ import { requirePermission } from "@/platform/auth/session";
 import { AppShell } from "@/platform/ui/app-shell";
 import { PageHeader } from "@/platform/ui/page-header";
 import { listCoursesForDashboard, getCourseCompletion } from "@/modules/learning/services/dashboard";
+import { resetCourseQuizAction } from "./actions";
 
 export default async function LearningDashboardPage({
   searchParams,
@@ -39,9 +40,23 @@ export default async function LearningDashboardPage({
                 <td>{r.departmentCode}</td>
                 <td>
                   {r.status === "COMPLETE" ? "Complete" : r.status === "IN_PROGRESS" ? "In progress" : "Not started"}
-                  {r.hasLockedQuiz && <span className="ml-2 text-xs text-red-600">locked</span>}
+                  {r.lockedQuizModuleIds.length > 0 && <span className="ml-2 text-xs text-red-600">locked</span>}
                 </td>
-                <td className="text-right text-xs text-slate-400">{r.completedAt ? r.completedAt.toLocaleDateString() : ""}</td>
+                <td className="text-right text-xs text-slate-400">
+                  {r.completedAt ? r.completedAt.toLocaleDateString() : ""}
+                  {r.lockedQuizModuleIds.map((moduleId) => (
+                    <form key={moduleId} action={resetCourseQuizAction} className="inline ml-2">
+                      <input type="hidden" name="personId" value={r.personId} />
+                      <input type="hidden" name="moduleId" value={moduleId} />
+                      <button
+                        type="submit"
+                        className="rounded bg-red-600 px-2 py-0.5 text-white text-xs hover:bg-red-700"
+                      >
+                        Reset quiz
+                      </button>
+                    </form>
+                  ))}
+                </td>
               </tr>
             ))}
             {rows.length === 0 && <tr><td colSpan={4} className="py-3 text-slate-500">No learners for this course.</td></tr>}

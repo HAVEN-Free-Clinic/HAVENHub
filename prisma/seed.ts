@@ -67,7 +67,7 @@ const SYSTEM_ROLES: Array<{ name: string; description: string; grants: string[] 
   {
     name: "Volunteer",
     description: "Baseline access for current-term volunteers",
-    grants: ["schedule.view", "my-info.access"],
+    grants: ["schedule.view", "my-info.access", "learning.access"],
   },
   {
     name: "Compliance Manager",

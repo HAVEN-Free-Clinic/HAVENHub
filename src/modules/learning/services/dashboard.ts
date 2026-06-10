@@ -1,6 +1,7 @@
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { recordAudit } from "@/platform/audit";
+import { isCourseComplete, type ModuleState } from "../engine/completion";
 import { LearningAuthError } from "./errors";
 
 async function requireViewer(actorId: string): Promise<void> {
@@ -15,7 +16,8 @@ export type CompletionRow = {
   departmentCode: string;
   status: "COMPLETE" | "IN_PROGRESS" | "NOT_STARTED";
   completedAt: Date | null;
-  hasLockedQuiz: boolean;
+  /** Module ids (within this course) where this person has a locked quiz. */
+  lockedQuizModuleIds: string[];
 };
 
 /** For one course: every active member of an assigned department in the active
@@ -24,7 +26,10 @@ export async function getCourseCompletion(courseId: string, viewerId: string): P
   await requireViewer(viewerId);
   const course = await prisma.course.findUniqueOrThrow({
     where: { id: courseId },
-    include: { departments: { select: { departmentId: true } } },
+    include: {
+      departments: { select: { departmentId: true } },
+      modules: { select: { id: true, kind: true } },
+    },
   });
   const term = await prisma.term.findFirst({ where: { status: "ACTIVE" }, orderBy: { startDate: "desc" } });
   if (!term) return [];
@@ -33,35 +38,98 @@ export async function getCourseCompletion(courseId: string, viewerId: string): P
     ? {}
     : { departmentId: { in: course.departments.map((d) => d.departmentId) } };
 
+  // Fix 2: removed `kind: "VOLUNTEER"` — match any active member kind (VOLUNTEER or DIRECTOR)
   const memberships = await prisma.termMembership.findMany({
-    where: { termId: term.id, kind: "VOLUNTEER", status: "ACTIVE", ...deptFilter },
+    where: { termId: term.id, status: "ACTIVE", ...deptFilter },
     include: { person: { select: { id: true, name: true } }, department: { select: { code: true } } },
   });
 
   const personIds = memberships.map((m) => m.person.id);
-  const progress = new Map(
-    (await prisma.courseProgress.findMany({ where: { courseId, personId: { in: personIds } } })).map((p) => [p.personId, p])
-  );
-  const lockedModulePersons = new Set(
-    (
-      await prisma.moduleProgress.findMany({
-        where: { personId: { in: personIds }, locked: true, module: { courseId } },
-        select: { personId: true },
-      })
-    ).map((m) => m.personId)
-  );
+  const courseModuleIds = course.modules.map((m) => m.id);
 
-  return memberships
+  // Fix 3: load module-level progress for ALL members in one batch (no N+1)
+  const moduleProgressRows = await prisma.moduleProgress.findMany({
+    where: { personId: { in: personIds }, moduleId: { in: courseModuleIds } },
+    select: { personId: true, moduleId: true, completedAt: true, locked: true },
+  });
+
+  // Which (personId, moduleId) pairs have a passing quiz attempt
+  const passingProgressRows = await prisma.moduleProgress.findMany({
+    where: {
+      personId: { in: personIds },
+      moduleId: { in: courseModuleIds },
+      attempts: { some: { passed: true } },
+    },
+    select: { personId: true, moduleId: true },
+  });
+  const passingSet = new Set(passingProgressRows.map((r) => `${r.personId}:${r.moduleId}`));
+
+  // Persisted completedAt for members who have a CourseProgress row (Fix 3: use only when live status = COMPLETE)
+  const courseProgressRows = await prisma.courseProgress.findMany({
+    where: { courseId, personId: { in: personIds } },
+    select: { personId: true, completedAt: true },
+  });
+  const persistedCompletedAt = new Map(courseProgressRows.map((p) => [p.personId, p.completedAt]));
+
+  // Build per-person module progress lookup
+  type ModProgressEntry = { completedAt: Date | null; locked: boolean };
+  const progressByPersonModule = new Map<string, ModProgressEntry>();
+  for (const row of moduleProgressRows) {
+    progressByPersonModule.set(`${row.personId}:${row.moduleId}`, {
+      completedAt: row.completedAt,
+      locked: row.locked,
+    });
+  }
+
+  // De-duplicate by personId so multi-dept memberships don't produce duplicate rows.
+  // Keep first occurrence (sorted later by name, so the original sort order is preserved).
+  const seenPersonIds = new Set<string>();
+  const uniqueMemberships = memberships.filter((m) => {
+    if (seenPersonIds.has(m.person.id)) return false;
+    seenPersonIds.add(m.person.id);
+    return true;
+  });
+
+  return uniqueMemberships
     .map<CompletionRow>((m) => {
-      const p = progress.get(m.person.id);
-      const status = p ? p.status : "NOT_STARTED";
+      const pid = m.person.id;
+
+      // Fix 3: derive live status from module states
+      const states = course.modules.map<ModuleState>((mod) => {
+        const entry = progressByPersonModule.get(`${pid}:${mod.id}`);
+        return {
+          kind: mod.kind,
+          completed: entry?.completedAt != null,
+          quizPassed: passingSet.has(`${pid}:${mod.id}`),
+        };
+      });
+
+      const hasAnyProgress = states.some((s) => s.completed || s.quizPassed);
+      const complete = isCourseComplete(states);
+      const status: CompletionRow["status"] = complete
+        ? "COMPLETE"
+        : hasAnyProgress
+        ? "IN_PROGRESS"
+        : "NOT_STARTED";
+
+      // Fix 3: show persisted completedAt only when live status is COMPLETE
+      const completedAt = complete ? (persistedCompletedAt.get(pid) ?? null) : null;
+
+      // Fix 1: collect locked quiz module ids for this person in this course
+      const lockedQuizModuleIds = course.modules
+        .filter((mod) => {
+          const entry = progressByPersonModule.get(`${pid}:${mod.id}`);
+          return entry?.locked === true;
+        })
+        .map((mod) => mod.id);
+
       return {
-        personId: m.person.id,
+        personId: pid,
         name: m.person.name,
         departmentCode: m.department.code,
         status,
-        completedAt: p?.completedAt ?? null,
-        hasLockedQuiz: lockedModulePersons.has(m.person.id),
+        completedAt,
+        lockedQuizModuleIds,
       };
     })
     .sort((a, b) => a.name.localeCompare(b.name));

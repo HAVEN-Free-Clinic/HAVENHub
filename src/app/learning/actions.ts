@@ -1,10 +1,10 @@
 "use server";
 import { revalidatePath } from "next/cache";
-import { requirePersonSession } from "@/platform/auth/session";
+import { requirePermission } from "@/platform/auth/session";
 import { markModuleComplete, submitCourseQuiz } from "@/modules/learning/services/enrollment";
 
 export async function markModuleCompleteAction(formData: FormData): Promise<void> {
-  const person = await requirePersonSession();
+  const person = await requirePermission("learning.access");
   const moduleId = String(formData.get("moduleId"));
   const courseId = String(formData.get("courseId"));
   await markModuleComplete(person.personId, moduleId);
@@ -12,7 +12,7 @@ export async function markModuleCompleteAction(formData: FormData): Promise<void
 }
 
 export async function submitCourseQuizAction(formData: FormData): Promise<void> {
-  const person = await requirePersonSession();
+  const person = await requirePermission("learning.access");
   const moduleId = String(formData.get("moduleId"));
   const courseId = String(formData.get("courseId"));
   const answers: Record<string, string> = {};

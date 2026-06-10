@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { requireModuleAccess } from "@/platform/auth/session";
-import { AppShell } from "@/platform/ui/app-shell";
 import { PageHeader } from "@/platform/ui/page-header";
 import { getMyCourses } from "@/modules/learning/services/enrollment";
 
@@ -9,7 +8,7 @@ export default async function LearningPage() {
   const courses = await getMyCourses(person.personId);
 
   return (
-    <AppShell userName={person.name} personId={person.personId}>
+    <>
       <PageHeader title="Learning" description="Complete the training courses assigned to your department." />
       <div className="mt-6 max-w-2xl space-y-3">
         {courses.length === 0 && (
@@ -37,6 +36,6 @@ export default async function LearningPage() {
           </Link>
         ))}
       </div>
-    </AppShell>
+    </>
   );
 }

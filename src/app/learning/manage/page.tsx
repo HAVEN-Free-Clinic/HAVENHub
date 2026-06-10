@@ -1,16 +1,15 @@
 import Link from "next/link";
 import { requirePermission } from "@/platform/auth/session";
-import { AppShell } from "@/platform/ui/app-shell";
 import { PageHeader } from "@/platform/ui/page-header";
 import { listCourses } from "@/modules/learning/services/courses";
 import { createCourseAction } from "./actions";
 
 export default async function ManageCoursesPage() {
-  const person = await requirePermission("learning.manage_courses");
+  await requirePermission("learning.manage_courses");
   const courses = await listCourses();
 
   return (
-    <AppShell userName={person.name} personId={person.personId}>
+    <>
       <PageHeader title="Manage courses" description="Create and edit training courses." />
       <div className="mt-6 max-w-2xl space-y-6">
         <form action={createCourseAction} className="flex gap-2">
@@ -30,6 +29,6 @@ export default async function ManageCoursesPage() {
           ))}
         </ul>
       </div>
-    </AppShell>
+    </>
   );
 }

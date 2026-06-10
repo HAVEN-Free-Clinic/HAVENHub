@@ -1,13 +1,12 @@
 import { notFound } from "next/navigation";
 import { requirePermission } from "@/platform/auth/session";
 import { prisma } from "@/platform/db";
-import { AppShell } from "@/platform/ui/app-shell";
 import { PageHeader } from "@/platform/ui/page-header";
 import { getCourseForEdit } from "@/modules/learning/services/courses";
 import { updateCourseAction, setAssignmentAction, addModuleAction } from "../actions";
 
 export default async function EditCoursePage({ params }: { params: Promise<{ courseId: string }> }) {
-  const person = await requirePermission("learning.manage_courses");
+  await requirePermission("learning.manage_courses");
   const { courseId } = await params;
   const course = await getCourseForEdit(courseId);
   if (!course) notFound();
@@ -15,7 +14,7 @@ export default async function EditCoursePage({ params }: { params: Promise<{ cou
   const assignedDeptIds = new Set(course.departments.map((d) => d.departmentId));
 
   return (
-    <AppShell userName={person.name} personId={person.personId}>
+    <>
       <PageHeader title={`Edit: ${course.title}`} />
       <div className="mt-6 grid max-w-3xl gap-8">
         <form action={updateCourseAction} className="space-y-2">
@@ -65,6 +64,6 @@ export default async function EditCoursePage({ params }: { params: Promise<{ cou
           </form>
         </div>
       </div>
-    </AppShell>
+    </>
   );
 }

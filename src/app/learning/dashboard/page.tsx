@@ -1,5 +1,4 @@
 import { requirePermission } from "@/platform/auth/session";
-import { AppShell } from "@/platform/ui/app-shell";
 import { PageHeader } from "@/platform/ui/page-header";
 import { listCoursesForDashboard, getCourseCompletion } from "@/modules/learning/services/dashboard";
 import { resetCourseQuizAction } from "./actions";
@@ -16,7 +15,7 @@ export default async function LearningDashboardPage({
   const rows = selected ? await getCourseCompletion(selected, person.personId) : [];
 
   return (
-    <AppShell userName={person.name} personId={person.personId}>
+    <>
       <PageHeader title="Course completion" description="Who has completed each course, by department." />
       <div className="mt-6 max-w-3xl space-y-4">
         <form method="get" className="flex items-center gap-2 text-sm">
@@ -63,6 +62,6 @@ export default async function LearningDashboardPage({
           </tbody>
         </table>
       </div>
-    </AppShell>
+    </>
   );
 }

@@ -1,6 +1,5 @@
 import { notFound } from "next/navigation";
 import { requireModuleAccess } from "@/platform/auth/session";
-import { AppShell } from "@/platform/ui/app-shell";
 import { PageHeader } from "@/platform/ui/page-header";
 import { getCourseForLearner } from "@/modules/learning/services/enrollment";
 import { LearningAuthError } from "@/modules/learning/services/errors";
@@ -23,7 +22,7 @@ export default async function LearningCoursePage({
   }
 
   return (
-    <AppShell userName={person.name} personId={person.personId}>
+    <>
       <PageHeader title={course.title} description={course.description ?? undefined} />
       <div className="mt-6 max-w-2xl space-y-5">
         {course.status === "COMPLETE" && (
@@ -97,6 +96,6 @@ export default async function LearningCoursePage({
           </section>
         ))}
       </div>
-    </AppShell>
+    </>
   );
 }

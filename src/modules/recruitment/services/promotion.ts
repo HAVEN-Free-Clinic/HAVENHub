@@ -57,11 +57,15 @@ export async function promoteContracts(contractIds: string[], actorId: string): 
         }
 
         if (contract.hipaaStoredName) {
-          const existingCert = await tx.hipaaCertificate.findFirst({ where: { personId: person.id, storedName: contract.hipaaStoredName } });
+          // submitContract stored the bytes under "onboarding/<contractId>/<storedName>".
+          // Point the cert at that exact key so the download route can resolve it;
+          // the contract is retained (PROMOTED, never deleted), so the object persists.
+          const certStoredName = `onboarding/${contract.id}/${contract.hipaaStoredName}`;
+          const existingCert = await tx.hipaaCertificate.findFirst({ where: { personId: person.id, storedName: certStoredName } });
           if (!existingCert) {
             await tx.hipaaCertificate.create({
               data: {
-                personId: person.id, fileName: contract.hipaaFileName ?? contract.hipaaStoredName, storedName: contract.hipaaStoredName,
+                personId: person.id, fileName: contract.hipaaFileName ?? contract.hipaaStoredName, storedName: certStoredName,
                 size: contract.hipaaSize ?? 0, mimeType: contract.hipaaMimeType ?? "application/octet-stream",
                 completionDate: contract.hipaaCompletedAt, source: "IMPORT",
               },

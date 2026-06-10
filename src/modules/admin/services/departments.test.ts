@@ -68,6 +68,16 @@ describe("updateDepartment", () => {
       updateDepartment("a", "nope", { name: "x", isActive: true, idealHeadcount: null, patientCapacityPerProvider: null })
     ).rejects.toBeInstanceOf(DepartmentNotFoundError);
   });
+
+  it("rejects an empty name or a non-positive capacity on update", async () => {
+    const d = await createDepartment("a", { code: "ITCM", name: "Old" });
+    await expect(
+      updateDepartment("a", d.id, { name: "  ", isActive: true, idealHeadcount: null, patientCapacityPerProvider: null })
+    ).rejects.toBeInstanceOf(DepartmentValidationError);
+    await expect(
+      updateDepartment("a", d.id, { name: "Ok", isActive: true, idealHeadcount: -2, patientCapacityPerProvider: null })
+    ).rejects.toBeInstanceOf(DepartmentValidationError);
+  });
 });
 
 describe("setDelegations", () => {
@@ -88,6 +98,10 @@ describe("setDelegations", () => {
   it("rejects unknown managed ids", async () => {
     const pcar = await createDepartment("a", { code: "PCAR", name: "PCAR" });
     await expect(setDelegations("a", pcar.id, ["ghost"])).rejects.toBeInstanceOf(DepartmentValidationError);
+  });
+
+  it("throws DepartmentNotFoundError when the manager does not exist", async () => {
+    await expect(setDelegations("a", "no-manager", [])).rejects.toBeInstanceOf(DepartmentNotFoundError);
   });
 });
 

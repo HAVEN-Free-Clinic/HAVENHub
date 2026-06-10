@@ -24,4 +24,12 @@ describe("mirrorTarget", () => {
       Object.assign(configModule.config, { AIRTABLE_MIRROR_ENABLED: savedEnabled });
     }
   });
+
+  it("maps the remaining fields from env config (out of UI scope)", async () => {
+    const t = await mirrorTarget();
+    expect(t.baseId).toBe(configModule.config.AIRTABLE_MIRROR_BASE_ID ?? "");
+    expect(t.peopleTableId).toBe(configModule.config.AIRTABLE_MIRROR_PEOPLE_TABLE_ID ?? "");
+    expect(t.hipaaFieldId).toBe(configModule.config.AIRTABLE_MIRROR_HIPAA_FIELD_ID ?? null);
+    expect(t.statusFieldId).toBe(configModule.config.AIRTABLE_MIRROR_STATUS_FIELD_ID ?? null);
+  });
 });

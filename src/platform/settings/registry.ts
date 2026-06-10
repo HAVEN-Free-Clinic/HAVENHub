@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { config, type AppConfig } from "@/platform/config";
+import { brandingAssetSchema, type BrandingAsset } from "@/platform/branding/asset-types";
 
 export interface SettingValidateCtx {
   /** Env config, for checking that required secrets are present. */
@@ -14,6 +15,7 @@ export type SettingInput =
   | { type: "textarea" }
   | { type: "boolean" }
   | { type: "color" }
+  | { type: "image" }
   | { type: "select"; options: { value: string; label: string }[] };
 
 export interface SettingDef<T> {
@@ -186,6 +188,26 @@ export const SETTINGS: SettingDef<unknown>[] = [
     input: { type: "color" },
     schema: z.string().regex(/^#[0-9a-fA-F]{6}$/, "Must be a 6-digit hex color like #00356b"),
     envDefault: () => "#00356b",
+    secret: false,
+  }),
+  define<BrandingAsset>({
+    key: "branding.logo",
+    category: "Branding",
+    label: "Logo",
+    help: "Monochrome or transparent PNG silhouette. It is tinted to the brand color automatically. PNG, JPEG, or WebP.",
+    input: { type: "image" },
+    schema: brandingAssetSchema,
+    envDefault: () => ({ contentType: "", version: 0 }),
+    secret: false,
+  }),
+  define<BrandingAsset>({
+    key: "branding.favicon",
+    category: "Branding",
+    label: "Favicon",
+    help: "Small square icon shown in the browser tab. PNG, ICO, or WebP.",
+    input: { type: "image" },
+    schema: brandingAssetSchema,
+    envDefault: () => ({ contentType: "", version: 0 }),
     secret: false,
   }),
 ];

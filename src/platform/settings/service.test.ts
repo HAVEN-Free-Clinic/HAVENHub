@@ -209,3 +209,17 @@ describe("phase 2a branding settings", () => {
     expect(await getSetting<string>("branding.brandColor")).toBe("#00356b");
   });
 });
+
+describe("phase 2b branding asset settings", () => {
+  it("resolves branding.logo to the default descriptor", async () => {
+    expect(await getSetting("branding.logo")).toEqual({ contentType: "", version: 0 });
+  });
+
+  it("resolves a stored branding.favicon descriptor", async () => {
+    await prisma.setting.create({
+      data: { key: "branding.favicon", value: { contentType: "image/png", version: 2 } },
+    });
+    _resetSettingsCache();
+    expect(await getSetting("branding.favicon")).toEqual({ contentType: "image/png", version: 2 });
+  });
+});

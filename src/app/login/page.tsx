@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { AuthError } from "next-auth";
 import { auth, signIn } from "@/platform/auth/auth";
 import { config } from "@/platform/config";
+import { getSetting } from "@/platform/settings/service";
 import { HavenLogo } from "@/platform/ui/haven-logo";
 import { SignInButton } from "./sign-in-button";
 
@@ -20,6 +21,7 @@ export default async function LoginPage({
   const session = await auth();
   if (session?.personId) redirect("/");
   const { error } = await searchParams;
+  const appName = await getSetting<string>("branding.appName");
   const errorMessage = error ? (ERROR_MESSAGES[error] ?? DEFAULT_ERROR) : null;
 
   return (
@@ -72,7 +74,7 @@ export default async function LoginPage({
       <div className="flex items-center justify-center p-8">
         <div className="w-full max-w-sm">
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-            Sign in to HAVEN Hub
+            Sign in to {appName}
           </h1>
           <p className="mt-2 text-sm text-slate-600">Use your Yale account to continue.</p>
 

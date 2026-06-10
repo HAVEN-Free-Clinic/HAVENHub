@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/platform/db";
+import { getSetting } from "@/platform/settings/service";
 import { PageHeader } from "@/platform/ui/page-header";
 import { buttonClasses } from "@/platform/ui/button";
 import { StatCard } from "@/platform/ui/stat-card";
@@ -9,6 +10,8 @@ import { emailHealthCounts } from "@/modules/admin/services/email";
 // by users with admin.access. No second permission check needed here.
 
 export default async function AdminOverviewPage() {
+  const appName = await getSetting<string>("branding.appName");
+
   // Find the active term first so we can scope membership counts.
   const activeTerm = await prisma.term.findFirst({
     where: { status: "ACTIVE" },
@@ -56,7 +59,7 @@ export default async function AdminOverviewPage() {
     <div>
       <PageHeader
         title="Admin"
-        description="HAVEN Hub operations: people, terms, roles, audit, and sync."
+        description={`${appName} operations: people, terms, roles, audit, and sync.`}
         action={
           <div className="flex flex-wrap gap-2">
             {quickLinks.map((ql) => (

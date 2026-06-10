@@ -16,7 +16,7 @@ export function DepartmentForm({ action, mode, department, error, saved }: Depar
   return (
     <form action={action} className="space-y-6">
       {error && <Alert tone="error">{error}</Alert>}
-      {saved && <Alert tone="success">{saved}</Alert>}
+      {saved && <Alert tone="success">Changes saved.</Alert>}
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Field

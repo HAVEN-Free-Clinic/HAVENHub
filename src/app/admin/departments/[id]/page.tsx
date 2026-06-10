@@ -10,11 +10,7 @@ import {
 import { PageHeader } from "@/platform/ui/page-header";
 import { DepartmentForm } from "@/modules/admin/components/department-form";
 import { DelegationEditor } from "@/modules/admin/components/delegation-editor";
-
-function optionalInt(raw: FormDataEntryValue | null): number | null {
-  if (raw === null || String(raw).trim() === "") return null;
-  return Number(raw);
-}
+import { optionalInt } from "@/modules/admin/form-coerce";
 
 type PageProps = {
   params: Promise<{ id: string }>;

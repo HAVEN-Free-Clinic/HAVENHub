@@ -7,11 +7,7 @@ import {
 } from "@/modules/admin/services/departments";
 import { PageHeader } from "@/platform/ui/page-header";
 import { DepartmentForm } from "@/modules/admin/components/department-form";
-
-function optionalInt(raw: FormDataEntryValue | null): number | null {
-  if (raw === null || String(raw).trim() === "") return null;
-  return Number(raw);
-}
+import { optionalInt } from "@/modules/admin/form-coerce";
 
 type PageProps = { searchParams: Promise<{ error?: string }> };
 

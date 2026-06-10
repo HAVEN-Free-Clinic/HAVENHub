@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { signOut } from "next-auth/react";
 
 const TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
@@ -8,16 +8,24 @@ const WARNING_MS = 5 * 60 * 1000;  // warn 5 minutes before logout
 
 /**
  * Signs the user out after 30 minutes of inactivity.
- * Shows a warning banner 2 minutes before logout so the user can stay logged in.
+ * Shows a warning banner 5 minutes before logout so the user can stay logged in.
  *
  * `authenticated` is resolved on the server (via `auth()` in the root layout)
- * and passed in as a prop, so this works without a SessionProvider.
+ * and passed in as a prop, so this works without a SessionProvider: the timer
+ * only runs for signed-in users and is a no-op on the login page.
  */
 export function InactivityTracker({ authenticated }: { authenticated: boolean }) {
   const [showWarning, setShowWarning] = useState(false);
+  // Holds the latest timer-reset function so the "Stay signed in" button can
+  // re-arm the timers directly instead of relying on event bubbling.
+  const resetRef = useRef<() => void>(() => {});
 
   useEffect(() => {
-    if (!authenticated) return;
+    if (!authenticated) {
+      // If we de-authenticate while the warning is up, clear it.
+      setShowWarning(false);
+      return;
+    }
 
     let logoutTimer: ReturnType<typeof setTimeout>;
     let warningTimer: ReturnType<typeof setTimeout>;
@@ -35,6 +43,7 @@ export function InactivityTracker({ authenticated }: { authenticated: boolean })
         signOut({ callbackUrl: "/login" });
       }, TIMEOUT_MS);
     };
+    resetRef.current = reset;
 
     const events = ["mousedown", "keydown", "scroll", "touchstart", "click"];
     events.forEach((e) => window.addEventListener(e, reset));
@@ -56,7 +65,7 @@ export function InactivityTracker({ authenticated }: { authenticated: boolean })
         You&apos;ll be signed out in 5 minutes due to inactivity.
       </p>
       <button
-        onClick={() => setShowWarning(false)}
+        onClick={() => resetRef.current()}
         className="rounded-lg bg-amber-800 px-4 py-1.5 text-sm font-medium text-white hover:bg-amber-900 transition-colors"
       >
         Stay signed in

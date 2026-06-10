@@ -200,8 +200,6 @@ async function generatePdf(args: {
     // skip
   }
 
-  // Flatten so fields are baked in and visible in all PDF viewers.
-  form.flatten();
 
   return pdfDoc.save();
 }

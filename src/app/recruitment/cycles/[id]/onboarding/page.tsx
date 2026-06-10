@@ -3,6 +3,8 @@ import { requirePermission } from "@/platform/auth/session";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { listOnboarding } from "@/modules/recruitment/services/onboarding";
 import { sendLinksAction, promoteAction } from "./actions";
+import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
+import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 
 function statusLabel(c: { status: string } | null): string {
   if (!c) return "No contract";
@@ -21,6 +23,13 @@ export default async function OnboardingPage({ params, searchParams }: { params:
 
   return (
     <div className="max-w-3xl">
+      <SetBreadcrumb
+        trail={cycleTrail({
+          cycleId: id,
+          cycleTitle: cycle.title,
+          section: { label: "Onboarding", slug: "onboarding" },
+        })}
+      />
       <h1 className="text-2xl font-semibold tracking-tight">Onboarding: {cycle.title}</h1>
       {err && <p role="alert" className="mt-3 rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">{err}</p>}
       {msg && <p className="mt-3 rounded border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-800">{msg}</p>}

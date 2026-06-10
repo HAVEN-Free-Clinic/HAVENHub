@@ -3,18 +3,14 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { buildBreadcrumbs, type BreadcrumbModule } from "./breadcrumb-trail";
+import { useBreadcrumbOverride } from "./breadcrumb-context";
 
-export function Breadcrumbs({
-  modules,
-  // leafLabel is plumbed for a future enhancement (per-route entity names, "option B").
-  // AppShell does not currently supply it, so detail pages render the trail ending at the parent section.
-  leafLabel,
-}: {
-  modules: BreadcrumbModule[];
-  leafLabel?: string;
-}) {
+export function Breadcrumbs({ modules }: { modules: BreadcrumbModule[] }) {
   const pathname = usePathname();
-  const crumbs = buildBreadcrumbs(pathname, modules, leafLabel);
+  // A page may supply a rich trail (entity names, dynamic sections) via context.
+  // Otherwise fall back to the route-derived trail from the module registry.
+  const override = useBreadcrumbOverride(pathname);
+  const crumbs = override ?? buildBreadcrumbs(pathname, modules);
 
   // Nothing useful to show on the hub root (just "Hub").
   if (crumbs.length <= 1) return null;

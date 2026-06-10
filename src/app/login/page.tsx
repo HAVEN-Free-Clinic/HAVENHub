@@ -119,7 +119,7 @@ export default async function LoginPage({
             </a>
           </p>
 
-          {config.NODE_ENV !== "production" && (
+          {(config.NODE_ENV !== "production" || config.DEMO_MODE) && (
             <form
               className="mt-8 border-t border-slate-100 pt-6"
               action={async (formData: FormData) => {

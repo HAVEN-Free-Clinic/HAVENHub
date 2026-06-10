@@ -1,4 +1,6 @@
 import { prisma } from "@/platform/db";
+import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
+import { recruitmentTrail } from "@/modules/recruitment/breadcrumbs";
 import { createCycleAction } from "../../actions";
 
 type PageProps = {
@@ -10,6 +12,7 @@ export default async function NewCyclePage({ searchParams }: PageProps) {
   const terms = await prisma.term.findMany({ orderBy: { startDate: "desc" } });
   return (
     <div className="max-w-lg">
+      <SetBreadcrumb trail={recruitmentTrail({ label: "New cycle" })} />
       <h1 className="text-2xl font-semibold tracking-tight">New recruitment cycle</h1>
       {error && <p role="alert" className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
       <form action={createCycleAction} className="mt-6 space-y-4">

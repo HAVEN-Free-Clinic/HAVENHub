@@ -9,6 +9,16 @@ import { Breadcrumbs } from "./breadcrumbs";
 import { BreadcrumbProvider } from "./breadcrumb-context";
 import type { BreadcrumbModule } from "./breadcrumb-trail";
 
+/** First letters of the first and last name parts, e.g. "Maya Chen" -> "MC". */
+function toInitials(name: string | null): string {
+  if (!name) return "·";
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "·";
+  const first = parts[0][0] ?? "";
+  const last = parts.length > 1 ? parts[parts.length - 1][0] ?? "" : "";
+  return (first + last).toUpperCase();
+}
+
 export async function AppShell({
   userName,
   termLabel,
@@ -26,13 +36,14 @@ export async function AppShell({
     title: m.title,
     nav: m.nav,
   }));
+  const initials = toInitials(userName);
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-screen flex flex-col bg-canvas">
       {/* Brand accent line */}
       <div className="h-0.5 bg-brand" />
 
-      <header className="relative border-b border-slate-200 bg-white">
+      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/85 backdrop-blur-md backdrop-saturate-150">
         <div className="mx-auto flex max-w-6xl items-center gap-4 px-6 h-14">
           <div className="flex items-center gap-2">
             <Link href="/" aria-label="Go to hub home" className="flex items-center hover:opacity-80 transition-opacity">
@@ -49,8 +60,18 @@ export async function AppShell({
             <GlobalNav items={navModules} />
           </div>
 
-          <div className="flex items-center gap-4">
-            <span className="hidden text-sm text-slate-600 sm:inline">{userName}</span>
+          <div className="flex items-center gap-3">
+            <div className="hidden items-center gap-2.5 sm:flex">
+              <span
+                aria-hidden
+                className="grid h-8 w-8 place-items-center rounded-full bg-gradient-to-br from-brand to-brand-deep text-xs font-semibold tracking-wide text-white"
+              >
+                {initials}
+              </span>
+              {userName && (
+                <span className="text-sm font-medium text-slate-700">{userName}</span>
+              )}
+            </div>
             <form
               action={async () => {
                 "use server";
@@ -59,7 +80,7 @@ export async function AppShell({
             >
               <button
                 type="submit"
-                className="text-sm font-medium text-slate-500 hover:text-slate-900 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                className="rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-500 transition-colors hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
               >
                 Sign out
               </button>

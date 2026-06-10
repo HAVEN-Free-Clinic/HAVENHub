@@ -12,5 +12,26 @@
   --color-critical: #dc2626;
   --color-info: #2563eb;
 
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  /* Calm cool-neutral canvas the hub shell sits on (vs. flat white). */
+  --color-canvas: #eef1f5;
+
+  --font-sans: var(--font-hanken), ui-sans-serif, system-ui, sans-serif;
+}
+
+/*
+ * Module accent hues. One L/C family, varied hue, so the tiles read as quiet
+ * category coding rather than candy. Consumed via inline `style` (e.g.
+ * `--mh`/`--mhbg`) so Tailwind's static scan never has to see them.
+ */
+:root {
+  --mod-schedule:    oklch(0.50 0.085 250);
+  --mod-schedule-bg: oklch(0.96 0.022 250);
+  --mod-info:        oklch(0.52 0.07 210);
+  --mod-info-bg:     oklch(0.96 0.022 210);
+  --mod-volunteers:    oklch(0.51 0.075 160);
+  --mod-volunteers-bg: oklch(0.96 0.026 160);
+  --mod-admin:    oklch(0.54 0.085 65);
+  --mod-admin-bg: oklch(0.96 0.03 70);
+  --mod-recruit:    oklch(0.50 0.08 300);
+  --mod-recruit-bg: oklch(0.96 0.024 300);
 }

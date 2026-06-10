@@ -19,7 +19,7 @@ describe("GET /api/branding/[asset]", () => {
   it("redirects to the bundled default when no custom asset is set", async () => {
     const res = await GET(new Request("http://localhost/api/branding/logo"), ctx("logo"));
     expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toContain("/brand/haven-logo-white.png");
+    expect(res.headers.get("location")).toBe("http://localhost/brand/haven-logo-white.png");
   });
 
   it("serves the stored bytes with content-type and nosniff when present", async () => {
@@ -31,6 +31,8 @@ describe("GET /api/branding/[asset]", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("image/png");
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(res.headers.get("cache-control")).toBe("public, max-age=300, must-revalidate");
+    expect(res.headers.get("content-security-policy")).toBe("default-src 'none'; style-src 'unsafe-inline'");
     expect(Buffer.from(await res.arrayBuffer())).toEqual(bytes);
   });
 });

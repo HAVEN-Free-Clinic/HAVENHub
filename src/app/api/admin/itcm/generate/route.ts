@@ -32,7 +32,7 @@ import { prisma } from "@/platform/db";
 // ---------------------------------------------------------------------------
 
 const AUTHORIZERS = {
-  CC: { name: "Caprice Culkin", phone: "203-000-0000", email: "hfc.it@yale.edu" },
+  CC: { name: "Caprice Culkin", phone: "720-254-2589", email: "caprice.culkin@yale.edu" },
   RT: { name: "Renee Tracey", phone: "201-815-6054", email: "renee.tracey@yale.edu" },
   JC: { name: "Jack Carney", phone: "585-689-9720", email: "j.carney@yale.edu" },
 } as const;

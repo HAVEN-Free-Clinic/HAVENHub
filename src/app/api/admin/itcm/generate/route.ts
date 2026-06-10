@@ -388,7 +388,11 @@ export async function POST(req: Request) {
   // Build date string for filenames.
   const now = new Date();
   const dateStr = `${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}${now.getFullYear()}`;
-  const pdfFilename = PDF_FILENAMES[requestType](authorizerKey, dateStr);
+  const pdfFilenameBuilder = PDF_FILENAMES[requestType];
+  if (typeof pdfFilenameBuilder !== "function") {
+    return NextResponse.json({ error: "Invalid request type" }, { status: 400 });
+  }
+  const pdfFilename = pdfFilenameBuilder(authorizerKey, dateStr);
 
   // Build email body.
   const oneYearOut = new Date();
@@ -403,7 +407,11 @@ export async function POST(req: Request) {
     userCount: people.length,
   };
 
-  const emailBody = EMAIL_BODIES[requestType](emailBodyArgs);
+  const emailBodyBuilder = EMAIL_BODIES[requestType];
+  if (typeof emailBodyBuilder !== "function") {
+    return NextResponse.json({ error: "Invalid request type" }, { status: 400 });
+  }
+  const emailBody = emailBodyBuilder(emailBodyArgs);
 
   // Generate spreadsheet for bulk requests.
   let xlsxBase64: string | null = null;

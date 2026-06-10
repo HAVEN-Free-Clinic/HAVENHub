@@ -24,6 +24,9 @@ jobs:
           --health-retries 10
     env:
       DATABASE_URL: postgresql://haven:haven_dev@localhost:5434/havenhub_test
+      # Direct connection for `prisma migrate` (schema's directUrl). The CI Postgres
+      # is not pooled, so the unpooled URL is the same as DATABASE_URL.
+      DATABASE_URL_UNPOOLED: postgresql://haven:haven_dev@localhost:5434/havenhub_test
       TEST_DATABASE_URL: postgresql://haven:haven_dev@localhost:5434/havenhub_test
       AUTH_SECRET: ci-only-secret
     steps:

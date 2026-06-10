@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { gradeQuiz, type GradedQuestion } from "./quiz-grading";
+import { gradeQuiz, type GradedQuestion } from "./grading";
 
 const q = (key: string, correctValue: string | null): GradedQuestion => ({ key, correctValue });
 

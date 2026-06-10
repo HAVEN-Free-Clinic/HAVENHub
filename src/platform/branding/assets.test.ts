@@ -23,6 +23,7 @@ describe("saveBrandingAsset", () => {
       saveBrandingAsset("logo", { name: "x.gif", type: "image/gif", size: 4, bytes: Buffer.from([1, 2, 3, 4]) }, null)
     ).rejects.toBeInstanceOf(BrandingAssetError);
     expect(await prisma.setting.findUnique({ where: { key: "branding.logo" } })).toBeNull();
+    expect(await getObject("branding/logo")).toBeNull(); // putObject not reached
   });
 
   it("rejects an oversize file", async () => {

@@ -71,7 +71,7 @@ beforeEach(async () => {
   try {
     const entries = await fs.readdir(config.UPLOAD_DIR);
     await Promise.all(
-      entries.map((e) => fs.rm(path.join(config.UPLOAD_DIR, e), { force: true }))
+      entries.map((e) => fs.rm(path.join(config.UPLOAD_DIR, e), { force: true, recursive: true }))
     );
   } catch {
     // dir may not exist yet -- fine

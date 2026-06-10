@@ -1,4 +1,5 @@
 import { prisma } from "@/platform/db";
+import { _resetSettingsCache } from "@/platform/settings/service";
 
 /** Truncate all platform tables between tests. Test database only. */
 export async function resetDb() {
@@ -12,4 +13,8 @@ export async function resetDb() {
               "OffboardFlag", "EpicRequest", "YnhhTicket", "DisciplinaryAction", "EmailLog", "EmailCampaignRun", "EmailCampaign", "EmailTemplate",
               "ComplianceReminder", "MailCredential", "Setting" CASCADE`
   );
+  // The settings resolver holds a process-global 30s in-memory cache. We just
+  // truncated "Setting", so any cached override is now stale -- clear it so a
+  // setSetting in one test file cannot leak into another file's getSetting.
+  _resetSettingsCache();
 }

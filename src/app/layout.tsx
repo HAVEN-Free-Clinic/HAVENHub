@@ -10,10 +10,14 @@ import { brandStyleVars } from "@/platform/ui/brand-style";
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
 export async function generateMetadata(): Promise<Metadata> {
-  const name = await getSetting<string>("branding.appName");
+  const [name, favicon] = await Promise.all([
+    getSetting<string>("branding.appName"),
+    getSetting<{ contentType: string; version: number }>("branding.favicon"),
+  ]);
   return {
     title: name,
     description: `The unified platform for ${name}`,
+    icons: { icon: `/api/branding/favicon?v=${favicon.version}` },
   };
 }
 

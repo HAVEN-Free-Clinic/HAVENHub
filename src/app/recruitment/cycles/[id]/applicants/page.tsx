@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import { requirePersonSession } from "@/platform/auth/session";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { listApplicantsForReview } from "@/modules/recruitment/services/review";
+import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
+import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 
 function badge(depts: string[]): string {
   if (depts.length === 0) return "None";
@@ -17,6 +19,13 @@ export default async function ApplicantsPage({ params }: { params: Promise<{ id:
   const apps = await listApplicantsForReview(id, person.personId);
   return (
     <div>
+      <SetBreadcrumb
+        trail={cycleTrail({
+          cycleId: id,
+          cycleTitle: cycle.title,
+          section: { label: "Applicants", slug: "applicants" },
+        })}
+      />
       <h1 className="text-2xl font-semibold tracking-tight">Applicants: {cycle.title}</h1>
       <table className="mt-6 w-full text-sm">
         <thead><tr className="text-left text-slate-500"><th className="py-2">Name</th><th>Email</th><th>Type</th><th>Ranked</th><th>Decision</th></tr></thead>

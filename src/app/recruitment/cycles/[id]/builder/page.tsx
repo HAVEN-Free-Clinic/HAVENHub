@@ -2,6 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { addSectionAction, addFieldAction, deleteFieldAction, deleteSectionAction } from "./actions";
+import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
+import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 
 const FIELD_TYPES = ["SHORT_TEXT","LONG_TEXT","SINGLE_SELECT","MULTI_SELECT","CHECKBOX","EMAIL","PHONE","NUMBER","DATE","FILE","DEPARTMENT_CHOICE"];
 
@@ -14,6 +16,13 @@ export default async function BuilderPage({ params, searchParams }: { params: Pr
 
   return (
     <div className="max-w-3xl space-y-6">
+      <SetBreadcrumb
+        trail={cycleTrail({
+          cycleId: id,
+          cycleTitle: cycle.title,
+          section: { label: "Form builder", slug: "builder" },
+        })}
+      />
       <h1 className="text-2xl font-semibold tracking-tight">Form builder: {cycle.title}</h1>
       <Link href={`/recruitment/cycles/${id}/builder/quiz`} className="text-sm text-blue-600 underline">Training quiz</Link>
       {!editable && <p className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">This cycle is {cycle.status}. Only safe edits (labels, help text) are allowed.</p>}

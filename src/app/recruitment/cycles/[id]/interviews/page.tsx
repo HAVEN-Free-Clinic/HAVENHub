@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import { requirePersonSession } from "@/platform/auth/session";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { listInterviewsForReview } from "@/modules/recruitment/services/interviews";
+import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
+import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 
 function status(iv: { scheduledAt: Date | null; decision: string }): string {
   if (iv.decision !== "PENDING") return iv.decision;
@@ -17,6 +19,13 @@ export default async function InterviewsPage({ params }: { params: Promise<{ id:
   const interviews = await listInterviewsForReview(id, person.personId);
   return (
     <div>
+      <SetBreadcrumb
+        trail={cycleTrail({
+          cycleId: id,
+          cycleTitle: cycle.title,
+          section: { label: "Interviews", slug: "interviews" },
+        })}
+      />
       <h1 className="text-2xl font-semibold tracking-tight">Interviews: {cycle.title}</h1>
       <table className="mt-6 w-full text-sm">
         <thead><tr className="text-left text-slate-500"><th className="py-2">Candidate</th><th>Dept</th><th>Status</th><th>When</th><th>Panel</th><th>Evals</th></tr></thead>

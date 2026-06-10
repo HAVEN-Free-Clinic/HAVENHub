@@ -2,6 +2,8 @@ import { notFound } from "next/navigation";
 import { requirePermission } from "@/platform/auth/session";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { addQuizSectionAction, addQuizQuestionAction, setCorrectAnswerAction } from "../actions";
+import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
+import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 
 export default async function QuizBuilderPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ error?: string }> }) {
   const { id } = await params;
@@ -13,6 +15,14 @@ export default async function QuizBuilderPage({ params, searchParams }: { params
 
   return (
     <div className="max-w-3xl space-y-6">
+      <SetBreadcrumb
+        trail={cycleTrail({
+          cycleId: id,
+          cycleTitle: cycle.title,
+          section: { label: "Form builder", slug: "builder" },
+          leaf: "Training quiz",
+        })}
+      />
       <h1 className="text-2xl font-semibold tracking-tight">Training quiz: {cycle.title}</h1>
       {error && <p role="alert" className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
 

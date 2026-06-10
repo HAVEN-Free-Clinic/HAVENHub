@@ -2,7 +2,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { Application, FieldType } from "@prisma/client";
 import { prisma } from "@/platform/db";
-import { config } from "@/platform/config";
+import { getSetting } from "@/platform/settings/service";
 import { putObject, deleteObject } from "@/platform/storage";
 import { queueEmail } from "@/platform/email/send";
 import { recordAudit } from "@/platform/audit";
@@ -100,12 +100,13 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
   // path-traversal write (the key is used to build the on-disk filename).
   const visibleFields = visibleSections(sectionDefs, ctx).flatMap((s) => s.fields);
   const allowedFileKeys = new Set(visibleFields.filter((f) => f.type === "FILE").map((f) => f.key));
+  const maxMb = await getSetting<number>("uploads.maxMb");
   for (const [key, file] of Object.entries(input.files)) {
     if (!allowedFileKeys.has(key)) {
       throw new SubmissionValidationError("Unexpected file upload.", { [key]: "unknown field" });
     }
     const field = visibleFields.find((f) => f.key === key);
-    const capMb = Math.min(field?.validation?.maxFileMB ?? config.MAX_UPLOAD_MB, config.MAX_UPLOAD_MB);
+    const capMb = Math.min(field?.validation?.maxFileMB ?? maxMb, maxMb);
     if (file.bytes.length > capMb * 1024 * 1024) {
       throw new SubmissionValidationError(`File is too large (max ${capMb} MB).`, { [key]: `max ${capMb} MB` });
     }

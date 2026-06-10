@@ -26,7 +26,7 @@
  */
 
 import { prisma } from "@/platform/db";
-import { config } from "@/platform/config";
+import { getSetting } from "@/platform/settings/service";
 import { complianceStatus, certExpiresAt } from "@/platform/compliance/rules";
 import { queueEmail } from "./send";
 import { renderEmail } from "./templates/renderEmail";
@@ -125,8 +125,8 @@ export async function runComplianceReminders(
 
   // Pre-compute the interval in milliseconds.
   const intervalMs =
-    config.COMPLIANCE_REMINDER_INTERVAL_DAYS * 24 * 60 * 60 * 1000;
-  const threshold = config.COMPLIANCE_ESCALATION_THRESHOLD;
+    (await getSetting<number>("compliance.reminderIntervalDays")) * 24 * 60 * 60 * 1000;
+  const threshold = await getSetting<number>("compliance.escalationThreshold");
 
   // 5 + 6 + 7. Process each candidate.
   for (const person of persons) {

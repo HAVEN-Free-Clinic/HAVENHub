@@ -51,6 +51,36 @@ export const SETTINGS: SettingDef<unknown>[] = [
     envDefault: () => config.RHD_MAX_PROCEDURES,
     secret: false,
   }),
+  define<number>({
+    key: "uploads.maxMb",
+    category: "Operations",
+    label: "Max upload size (MB)",
+    help: "Largest allowed file upload, in megabytes. Airtable caps attachments at 5 MB.",
+    input: { type: "number", min: 1 },
+    schema: z.number().int().positive(),
+    envDefault: () => config.MAX_UPLOAD_MB,
+    secret: false,
+  }),
+  define<number>({
+    key: "compliance.reminderIntervalDays",
+    category: "Operations",
+    label: "Compliance reminder interval (days)",
+    help: "Days between compliance reminder emails.",
+    input: { type: "number", min: 1 },
+    schema: z.number().int().positive(),
+    envDefault: () => config.COMPLIANCE_REMINDER_INTERVAL_DAYS,
+    secret: false,
+  }),
+  define<number>({
+    key: "compliance.escalationThreshold",
+    category: "Operations",
+    label: "Compliance escalation threshold",
+    help: "Number of reminders sent before escalating to the director.",
+    input: { type: "number", min: 1 },
+    schema: z.number().int().positive(),
+    envDefault: () => config.COMPLIANCE_ESCALATION_THRESHOLD,
+    secret: false,
+  }),
 ];
 
 const BY_KEY = new Map(SETTINGS.map((d) => [d.key, d]));

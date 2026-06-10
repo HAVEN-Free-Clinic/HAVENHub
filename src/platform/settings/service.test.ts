@@ -47,13 +47,16 @@ describe("getSetting", () => {
 describe("getCategory", () => {
   it("returns resolved values and an isOverridden flag", async () => {
     const before = await getCategory("Operations");
-    expect(before).toEqual([
-      expect.objectContaining({ key: "rhd.maxProcedures", value: 3, isOverridden: false }),
-    ]);
+    expect(before).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: "rhd.maxProcedures", value: 3, isOverridden: false }),
+      ])
+    );
 
     await setSetting("rhd.maxProcedures", 7, null);
     const after = await getCategory("Operations");
-    expect(after[0]).toMatchObject({ value: 7, isOverridden: true });
+    const rhdEntry = after.find((e) => e.key === "rhd.maxProcedures");
+    expect(rhdEntry).toMatchObject({ value: 7, isOverridden: true });
   });
 });
 
@@ -97,5 +100,19 @@ describe("resetSetting", () => {
     const audit = await prisma.auditLog.findFirst({ where: { action: "setting.reset" } });
     expect(audit).toBeNull();
     expect(await getSetting<number>("rhd.maxProcedures")).toBe(3);
+  });
+});
+
+describe("phase 1 operations scalars", () => {
+  it("resolves uploads.maxMb from env default then DB override", async () => {
+    expect(await getSetting<number>("uploads.maxMb")).toBe(5); // MAX_UPLOAD_MB default
+    await prisma.setting.create({ data: { key: "uploads.maxMb", value: 12 } });
+    _resetSettingsCache();
+    expect(await getSetting<number>("uploads.maxMb")).toBe(12);
+  });
+
+  it("resolves the compliance scalars from env defaults", async () => {
+    expect(await getSetting<number>("compliance.reminderIntervalDays")).toBe(7);
+    expect(await getSetting<number>("compliance.escalationThreshold")).toBe(3);
   });
 });

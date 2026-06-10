@@ -81,6 +81,36 @@ export const SETTINGS: SettingDef<unknown>[] = [
     envDefault: () => config.COMPLIANCE_ESCALATION_THRESHOLD,
     secret: false,
   }),
+  define<string>({
+    key: "email.sender",
+    category: "Email",
+    label: "Email sender address",
+    help: "From-address used when sending via Microsoft Graph. Required before enabling graph email.",
+    input: { type: "text" },
+    schema: z.string(),
+    envDefault: () => config.EMAIL_SENDER ?? "",
+    secret: false,
+  }),
+  define<string>({
+    key: "app.baseUrl",
+    category: "Email",
+    label: "App base URL",
+    help: "Public base URL used in links inside outbound email (e.g. onboarding contract links).",
+    input: { type: "text" },
+    schema: z.string().url(),
+    envDefault: () => config.APP_BASE_URL,
+    secret: false,
+  }),
+  define<string>({
+    key: "teams.clinicGroupId",
+    category: "Integrations",
+    label: "Teams clinic group ID",
+    help: "Microsoft Teams group ID for the clinic. When empty, the home dashboard channel-link card is hidden.",
+    input: { type: "text" },
+    schema: z.string(),
+    envDefault: () => config.TEAMS_CLINIC_GROUP_ID ?? "",
+    secret: false,
+  }),
 ];
 
 const BY_KEY = new Map(SETTINGS.map((d) => [d.key, d]));

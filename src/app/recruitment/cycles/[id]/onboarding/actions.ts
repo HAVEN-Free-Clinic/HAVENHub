@@ -1,8 +1,8 @@
 "use server";
 import { redirect } from "next/navigation";
 import { prisma } from "@/platform/db";
-import { config } from "@/platform/config";
 import { requirePersonSession } from "@/platform/auth/session";
+import { getSetting } from "@/platform/settings/service";
 import { createOrResendContract, ContractError } from "@/modules/recruitment/services/onboarding";
 import { promoteContracts } from "@/modules/recruitment/services/promotion";
 import { RecruitmentAuthError } from "@/modules/recruitment/services/review";
@@ -20,7 +20,7 @@ export async function sendLinksAction(cycleId: string, formData: FormData) {
   if (ids.length === 0) redirect(bounce(cycleId, { err: "Select at least one applicant." }));
   // Scope to this cycle: ignore any acceptance id that does not belong to it.
   const owned = new Set((await prisma.acceptance.findMany({ where: { id: { in: ids }, application: { cycleId } }, select: { id: true } })).map((a) => a.id));
-  const base = config.APP_BASE_URL;
+  const base = await getSetting<string>("app.baseUrl");
   let sent = 0, failed = 0;
   for (const acceptanceId of ids) {
     if (!owned.has(acceptanceId)) { failed += 1; continue; }

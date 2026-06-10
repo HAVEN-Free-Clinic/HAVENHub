@@ -116,3 +116,15 @@ describe("phase 1 operations scalars", () => {
     expect(await getSetting<number>("compliance.escalationThreshold")).toBe(3);
   });
 });
+
+describe("phase 1 email/links/teams scalars", () => {
+  it("resolves app.baseUrl from env default", async () => {
+    expect(await getSetting<string>("app.baseUrl")).toBe("http://localhost:3000");
+  });
+  it("resolves teams.clinicGroupId (empty string default when env unset)", async () => {
+    expect(typeof (await getSetting<string>("teams.clinicGroupId"))).toBe("string");
+  });
+  it("resolves email.sender (string)", async () => {
+    expect(typeof (await getSetting<string>("email.sender"))).toBe("string");
+  });
+});

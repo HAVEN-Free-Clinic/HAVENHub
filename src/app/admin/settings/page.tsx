@@ -11,6 +11,9 @@ import {
   SettingValidationError,
   type ResolvedSetting,
 } from "@/platform/settings/service";
+import { BRANDING_ASSETS, type BrandingAssetName } from "@/platform/branding/asset-types";
+import { saveBrandingAsset, removeBrandingAsset, BrandingAssetError } from "@/platform/branding/assets";
+import { BrandingImageField } from "./branding-image-field";
 
 const PERMISSION = "admin.manage_settings";
 
@@ -69,6 +72,46 @@ export default async function SettingsPage({ searchParams }: PageProps) {
     redirect("/admin/settings?saved=1");
   }
 
+  async function uploadBrandingAction(formData: FormData) {
+    "use server";
+    const session = await requirePermission(PERMISSION);
+    const asset = String(formData.get("__asset"));
+    if (!BRANDING_ASSETS.includes(asset as BrandingAssetName)) {
+      redirect(`/admin/settings?error=${encodeURIComponent("Unknown asset")}`);
+    }
+    const file = formData.get("file");
+    if (!(file instanceof File) || file.size === 0) {
+      redirect(`/admin/settings?error=${encodeURIComponent("Choose an image file to upload")}`);
+    }
+    const bytes = Buffer.from(await file.arrayBuffer());
+    try {
+      await saveBrandingAsset(
+        asset as BrandingAssetName,
+        { name: file.name, type: file.type, size: file.size, bytes },
+        session.personId
+      );
+    } catch (err) {
+      if (err instanceof BrandingAssetError) {
+        redirect(`/admin/settings?error=${encodeURIComponent(err.message)}`);
+      }
+      throw err;
+    }
+    revalidatePath("/admin/settings");
+    redirect("/admin/settings?saved=1");
+  }
+
+  async function removeBrandingAction(formData: FormData) {
+    "use server";
+    const session = await requirePermission(PERMISSION);
+    const asset = String(formData.get("__asset"));
+    if (!BRANDING_ASSETS.includes(asset as BrandingAssetName)) {
+      redirect(`/admin/settings?error=${encodeURIComponent("Unknown asset")}`);
+    }
+    await removeBrandingAsset(asset as BrandingAssetName, session.personId);
+    revalidatePath("/admin/settings");
+    redirect("/admin/settings?saved=1");
+  }
+
   const categories = listCategories();
   const groups = await Promise.all(
     categories.map(async (category) => ({ category, settings: await getCategory(category) }))
@@ -94,64 +137,74 @@ export default async function SettingsPage({ searchParams }: PageProps) {
           <div className="space-y-6">
             {settings.map((s) => (
               <div key={s.key} className="rounded-lg border border-gray-200 p-4">
-                <form action={updateAction} className="space-y-2">
-                  <input type="hidden" name="__key" value={s.key} />
-                  <label htmlFor={s.key} className="block text-sm font-medium">
-                    {s.label}
-                  </label>
-                  <p className="text-xs text-gray-500">{s.help}</p>
-                  {s.input.type === "boolean" ? (
-                    <input
-                      id={s.key}
-                      name={s.key}
-                      type="checkbox"
-                      defaultChecked={Boolean(s.value)}
-                    />
-                  ) : s.input.type === "select" ? (
-                    <select id={s.key} name={s.key} defaultValue={String(s.value)} className="border rounded px-2 py-1">
-                      {s.input.options.map((o) => (
-                        <option key={o.value} value={o.value}>
-                          {o.label}
-                        </option>
-                      ))}
-                    </select>
-                  ) : s.input.type === "textarea" ? (
-                    <textarea id={s.key} name={s.key} defaultValue={String(s.value)} className="border rounded px-2 py-1 w-full" />
-                  ) : s.input.type === "color" ? (
-                    <input
-                      id={s.key}
-                      name={s.key}
-                      type="color"
-                      defaultValue={String(s.value)}
-                      className="h-9 w-16 rounded border"
-                    />
-                  ) : (
-                    <input
-                      id={s.key}
-                      name={s.key}
-                      type={s.input.type === "number" ? "number" : "text"}
-                      defaultValue={String(s.value)}
-                      min={s.input.type === "number" ? s.input.min : undefined}
-                      max={s.input.type === "number" ? s.input.max : undefined}
-                      className="border rounded px-2 py-1"
-                    />
-                  )}
-                  <div className="flex items-center gap-2 pt-1">
-                    <button type="submit" className={buttonClasses("primary", "sm")}>
-                      Save
-                    </button>
+                {s.input.type === "image" ? (
+                  <BrandingImageField
+                    setting={s}
+                    uploadAction={uploadBrandingAction}
+                    removeAction={removeBrandingAction}
+                  />
+                ) : (
+                  <>
+                    <form action={updateAction} className="space-y-2">
+                      <input type="hidden" name="__key" value={s.key} />
+                      <label htmlFor={s.key} className="block text-sm font-medium">
+                        {s.label}
+                      </label>
+                      <p className="text-xs text-gray-500">{s.help}</p>
+                      {s.input.type === "boolean" ? (
+                        <input
+                          id={s.key}
+                          name={s.key}
+                          type="checkbox"
+                          defaultChecked={Boolean(s.value)}
+                        />
+                      ) : s.input.type === "select" ? (
+                        <select id={s.key} name={s.key} defaultValue={String(s.value)} className="border rounded px-2 py-1">
+                          {s.input.options.map((o) => (
+                            <option key={o.value} value={o.value}>
+                              {o.label}
+                            </option>
+                          ))}
+                        </select>
+                      ) : s.input.type === "textarea" ? (
+                        <textarea id={s.key} name={s.key} defaultValue={String(s.value)} className="border rounded px-2 py-1 w-full" />
+                      ) : s.input.type === "color" ? (
+                        <input
+                          id={s.key}
+                          name={s.key}
+                          type="color"
+                          defaultValue={String(s.value)}
+                          className="h-9 w-16 rounded border"
+                        />
+                      ) : (
+                        <input
+                          id={s.key}
+                          name={s.key}
+                          type={s.input.type === "number" ? "number" : "text"}
+                          defaultValue={String(s.value)}
+                          min={s.input.type === "number" ? s.input.min : undefined}
+                          max={s.input.type === "number" ? s.input.max : undefined}
+                          className="border rounded px-2 py-1"
+                        />
+                      )}
+                      <div className="flex items-center gap-2 pt-1">
+                        <button type="submit" className={buttonClasses("primary", "sm")}>
+                          Save
+                        </button>
+                        {s.isOverridden && (
+                          <span className="text-xs text-amber-600">Currently overriding the default</span>
+                        )}
+                      </div>
+                    </form>
                     {s.isOverridden && (
-                      <span className="text-xs text-amber-600">Currently overriding the default</span>
+                      <form action={resetAction} className="pt-2">
+                        <input type="hidden" name="__key" value={s.key} />
+                        <button type="submit" className={buttonClasses("outline", "sm")}>
+                          Reset to default
+                        </button>
+                      </form>
                     )}
-                  </div>
-                </form>
-                {s.isOverridden && (
-                  <form action={resetAction} className="pt-2">
-                    <input type="hidden" name="__key" value={s.key} />
-                    <button type="submit" className={buttonClasses("outline", "sm")}>
-                      Reset to default
-                    </button>
-                  </form>
+                  </>
                 )}
               </div>
             ))}

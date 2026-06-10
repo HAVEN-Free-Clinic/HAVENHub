@@ -5,10 +5,18 @@ import { getCycle } from "@/modules/recruitment/services/cycles";
 import { listInterviewsForReview } from "@/modules/recruitment/services/interviews";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
+import { PageHeader } from "@/platform/ui/page-header";
+import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
+import { Badge } from "@/platform/ui/badge";
 
-function status(iv: { scheduledAt: Date | null; decision: string }): string {
-  if (iv.decision !== "PENDING") return iv.decision;
-  return iv.scheduledAt ? "Scheduled" : "Offered";
+type Tone = "default" | "brand" | "success" | "warning" | "critical";
+
+function status(iv: { scheduledAt: Date | null; decision: string }): { label: string; tone: Tone } {
+  if (iv.decision !== "PENDING") {
+    const tone: Tone = iv.decision === "ACCEPT" ? "success" : iv.decision === "REJECT" ? "critical" : "warning";
+    return { label: iv.decision, tone };
+  }
+  return iv.scheduledAt ? { label: "Scheduled", tone: "brand" } : { label: "Offered", tone: "default" };
 }
 
 export default async function InterviewsPage({ params }: { params: Promise<{ id: string }> }) {
@@ -18,7 +26,7 @@ export default async function InterviewsPage({ params }: { params: Promise<{ id:
   if (!cycle) notFound();
   const interviews = await listInterviewsForReview(id, person.personId);
   return (
-    <div>
+    <div className="space-y-6">
       <SetBreadcrumb
         trail={cycleTrail({
           cycleId: id,
@@ -26,23 +34,52 @@ export default async function InterviewsPage({ params }: { params: Promise<{ id:
           section: { label: "Interviews", slug: "interviews" },
         })}
       />
-      <h1 className="text-2xl font-semibold tracking-tight">Interviews: {cycle.title}</h1>
-      <table className="mt-6 w-full text-sm">
-        <thead><tr className="text-left text-slate-500"><th className="py-2">Candidate</th><th>Dept</th><th>Status</th><th>When</th><th>Panel</th><th>Evals</th></tr></thead>
+      <PageHeader title="Interviews" description={cycle.title} />
+      <Table>
+        <THead>
+          <tr>
+            <TH>Candidate</TH>
+            <TH>Dept</TH>
+            <TH>Status</TH>
+            <TH>When</TH>
+            <TH>Panel</TH>
+            <TH>Evals</TH>
+          </tr>
+        </THead>
         <tbody>
-          {interviews.map((iv) => (
-            <tr key={iv.id} className="border-t">
-              <td className="py-2"><Link className="font-medium" href={`/recruitment/cycles/${id}/interviews/${iv.id}`}>{iv.application.applicant.firstName} {iv.application.applicant.lastName}</Link></td>
-              <td>{iv.departmentCode}</td>
-              <td>{status(iv)}</td>
-              <td>{iv.scheduledAt ? iv.scheduledAt.toLocaleString() : "TBD"}</td>
-              <td>{iv.panelists.length}</td>
-              <td>{iv.evaluations.length}/{iv.panelists.length}</td>
-            </tr>
-          ))}
-          {interviews.length === 0 && <tr><td colSpan={6} className="py-6 text-slate-500">No interviews in your scope.</td></tr>}
+          {interviews.map((iv) => {
+            const s = status(iv);
+            return (
+              <TR key={iv.id}>
+                <TD>
+                  <Link
+                    className="font-medium text-slate-900 hover:text-brand"
+                    href={`/recruitment/cycles/${id}/interviews/${iv.id}`}
+                  >
+                    {iv.application.applicant.firstName} {iv.application.applicant.lastName}
+                  </Link>
+                </TD>
+                <TD className="text-slate-600">{iv.departmentCode}</TD>
+                <TD>
+                  <Badge tone={s.tone}>{s.label}</Badge>
+                </TD>
+                <TD className="text-slate-600">{iv.scheduledAt ? iv.scheduledAt.toLocaleString() : "TBD"}</TD>
+                <TD className="text-slate-600">{iv.panelists.length}</TD>
+                <TD className="text-slate-600">
+                  {iv.evaluations.length}/{iv.panelists.length}
+                </TD>
+              </TR>
+            );
+          })}
+          {interviews.length === 0 && (
+            <TR>
+              <TD colSpan={6} className="py-10 text-center text-slate-400">
+                No interviews in your scope.
+              </TD>
+            </TR>
+          )}
         </tbody>
-      </table>
+      </Table>
     </div>
   );
 }

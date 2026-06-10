@@ -4,6 +4,13 @@ import { getCycle } from "@/modules/recruitment/services/cycles";
 import { addSectionAction, addFieldAction, deleteFieldAction, deleteSectionAction } from "./actions";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
+import { PageHeader } from "@/platform/ui/page-header";
+import { Field, Input, Textarea } from "@/platform/ui/input";
+import { Select } from "@/platform/ui/select";
+import { Checkbox } from "@/platform/ui/checkbox";
+import { Alert } from "@/platform/ui/alert";
+import { SubmitButton } from "@/platform/ui/submit-button";
+import { ConfirmButton } from "@/platform/ui/confirm-button";
 
 const FIELD_TYPES = ["SHORT_TEXT","LONG_TEXT","SINGLE_SELECT","MULTI_SELECT","CHECKBOX","EMAIL","PHONE","NUMBER","DATE","FILE","DEPARTMENT_CHOICE"];
 
@@ -23,40 +30,115 @@ export default async function BuilderPage({ params, searchParams }: { params: Pr
           section: { label: "Form builder", slug: "builder" },
         })}
       />
-      <h1 className="text-2xl font-semibold tracking-tight">Form builder: {cycle.title}</h1>
-      <Link href={`/recruitment/cycles/${id}/builder/quiz`} className="text-sm text-blue-600 underline">Training quiz</Link>
-      {!editable && <p className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">This cycle is {cycle.status}. Only safe edits (labels, help text) are allowed.</p>}
-      {error && <p role="alert" className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+      <PageHeader
+        title="Form builder"
+        description={cycle.title}
+        action={
+          <Link
+            href={`/recruitment/cycles/${id}/builder/quiz`}
+            className="text-sm font-medium text-brand hover:text-brand-hover"
+          >
+            Training quiz →
+          </Link>
+        }
+      />
+      {!editable && (
+        <Alert tone="warning">
+          This cycle is {cycle.status}. Only safe edits (labels, help text) are allowed.
+        </Alert>
+      )}
+      {error && <Alert tone="error">{error}</Alert>}
 
       {cycle.sections.map((section) => (
-        <section key={section.id} className="rounded border p-4">
-          <div className="flex items-center justify-between">
-            <h2 className="font-medium">{section.title} <span className="text-xs text-slate-500">({section.appliesTo}{section.departmentCode ? ` · ${section.departmentCode}` : ""})</span></h2>
-            <form action={deleteSectionAction.bind(null, id, section.id)}><button className="text-xs text-red-600">Delete section</button></form>
+        <section key={section.id} className="rounded-lg border border-slate-200 bg-white p-5">
+          <div className="flex items-center justify-between gap-4">
+            <h2 className="font-medium text-slate-900">
+              {section.title}{" "}
+              <span className="text-xs font-normal text-slate-400">
+                ({section.appliesTo}{section.departmentCode ? ` · ${section.departmentCode}` : ""})
+              </span>
+            </h2>
+            <form action={deleteSectionAction.bind(null, id, section.id)}>
+              <ConfirmButton label="Delete section" size="sm" />
+            </form>
           </div>
-          <ul className="mt-3 space-y-1 text-sm">
+          <ul className="mt-4 divide-y divide-slate-100">
             {section.fields.map((f) => (
-              <li key={f.id} className="flex items-center justify-between border-t py-1">
-                <span>{f.label} <span className="text-xs text-slate-500">· {f.type}{f.required ? " · required" : ""} · {f.key}</span></span>
-                <form action={deleteFieldAction.bind(null, id, f.id)}><button className="text-xs text-red-600">Remove</button></form>
+              <li key={f.id} className="flex items-center justify-between gap-4 py-2 text-sm">
+                <span className="text-slate-700">
+                  {f.label}{" "}
+                  <span className="text-xs text-slate-400">
+                    · {f.type}{f.required ? " · required" : ""} · {f.key}
+                  </span>
+                </span>
+                <form action={deleteFieldAction.bind(null, id, f.id)}>
+                  <ConfirmButton label="Remove" size="sm" />
+                </form>
               </li>
             ))}
+            {section.fields.length === 0 && (
+              <li className="py-2 text-sm text-slate-400">No fields yet.</li>
+            )}
           </ul>
-          <form action={addFieldAction.bind(null, id, section.id)} className="mt-3 flex flex-wrap items-end gap-2 text-sm">
-            <input name="label" placeholder="Field label" required className="rounded border px-2 py-1" />
-            <select name="type" className="rounded border px-2 py-1">{FIELD_TYPES.map((t) => <option key={t}>{t}</option>)}</select>
-            <label className="flex items-center gap-1"><input type="checkbox" name="required" /> required</label>
-            <textarea name="options" placeholder="options (one per line)" className="rounded border px-2 py-1" rows={1} />
-            <button className="rounded bg-slate-900 px-2 py-1 text-white">Add field</button>
+          <form
+            action={addFieldAction.bind(null, id, section.id)}
+            className="mt-4 flex flex-wrap items-end gap-3 border-t border-slate-100 pt-4"
+          >
+            <div className="min-w-[12rem] flex-1">
+              <Field label="Field label">
+                <Input name="label" required />
+              </Field>
+            </div>
+            <div className="w-44">
+              <Field label="Type">
+                <Select name="type">
+                  {FIELD_TYPES.map((t) => (
+                    <option key={t}>{t}</option>
+                  ))}
+                </Select>
+              </Field>
+            </div>
+            <label className="flex items-center gap-2 py-2 text-sm text-slate-600">
+              <Checkbox name="required" /> Required
+            </label>
+            <div className="min-w-[12rem] flex-1">
+              <Field label="Options" hint="One per line.">
+                <Textarea name="options" rows={1} />
+              </Field>
+            </div>
+            <SubmitButton size="sm" pendingLabel="Adding…">
+              Add field
+            </SubmitButton>
           </form>
         </section>
       ))}
 
-      <form action={addSectionAction.bind(null, id)} className="flex flex-wrap items-end gap-2 rounded border border-dashed p-4 text-sm">
-        <input name="title" placeholder="New section title" required className="rounded border px-2 py-1" />
-        <select name="appliesTo" className="rounded border px-2 py-1"><option>BOTH</option><option>NEW</option><option>RENEWAL</option></select>
-        <input name="departmentCode" placeholder="dept code (supplement)" className="rounded border px-2 py-1" />
-        <button className="rounded bg-slate-900 px-2 py-1 text-white">Add section</button>
+      <form
+        action={addSectionAction.bind(null, id)}
+        className="flex flex-wrap items-end gap-3 rounded-lg border border-dashed border-slate-300 bg-slate-50/60 p-5"
+      >
+        <div className="min-w-[12rem] flex-1">
+          <Field label="New section title">
+            <Input name="title" required />
+          </Field>
+        </div>
+        <div className="w-36">
+          <Field label="Applies to">
+            <Select name="appliesTo">
+              <option>BOTH</option>
+              <option>NEW</option>
+              <option>RENEWAL</option>
+            </Select>
+          </Field>
+        </div>
+        <div className="w-44">
+          <Field label="Dept code" hint="Supplement only.">
+            <Input name="departmentCode" />
+          </Field>
+        </div>
+        <SubmitButton size="sm" variant="outline" pendingLabel="Adding…">
+          Add section
+        </SubmitButton>
       </form>
     </div>
   );

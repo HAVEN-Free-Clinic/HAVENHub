@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ComponentProps } from "react";
 import { Button } from "./button";
 
-type ConfirmButtonProps = Omit<ComponentProps<"button">, "type"> & {
+type ConfirmButtonProps = Omit<ComponentProps<typeof Button>, "type" | "variant"> & {
   /** Label shown in the idle state (e.g. "Remove"). */
   label: string;
   /** Label shown in the armed/confirm state. Defaults to "Confirm?". */

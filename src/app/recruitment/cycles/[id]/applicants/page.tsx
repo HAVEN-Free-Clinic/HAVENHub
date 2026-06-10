@@ -5,11 +5,16 @@ import { getCycle } from "@/modules/recruitment/services/cycles";
 import { listApplicantsForReview } from "@/modules/recruitment/services/review";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
+import { PageHeader } from "@/platform/ui/page-header";
+import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
+import { Badge } from "@/platform/ui/badge";
 
-function badge(depts: string[]): string {
-  if (depts.length === 0) return "None";
+function decision(depts: string[]): { label: string; tone: "default" | "success" | "critical" } {
+  if (depts.length === 0) return { label: "None", tone: "default" };
   const distinct = [...new Set(depts)];
-  return distinct.length > 1 ? `Conflict: ${distinct.join(" + ")}` : `Accepted: ${distinct[0]}`;
+  return distinct.length > 1
+    ? { label: `Conflict: ${distinct.join(" + ")}`, tone: "critical" }
+    : { label: `Accepted: ${distinct[0]}`, tone: "success" };
 }
 
 export default async function ApplicantsPage({ params }: { params: Promise<{ id: string }> }) {
@@ -18,7 +23,7 @@ export default async function ApplicantsPage({ params }: { params: Promise<{ id:
   if (!cycle) notFound();
   const apps = await listApplicantsForReview(id, person.personId);
   return (
-    <div>
+    <div className="space-y-6">
       <SetBreadcrumb
         trail={cycleTrail({
           cycleId: id,
@@ -26,22 +31,48 @@ export default async function ApplicantsPage({ params }: { params: Promise<{ id:
           section: { label: "Applicants", slug: "applicants" },
         })}
       />
-      <h1 className="text-2xl font-semibold tracking-tight">Applicants: {cycle.title}</h1>
-      <table className="mt-6 w-full text-sm">
-        <thead><tr className="text-left text-slate-500"><th className="py-2">Name</th><th>Email</th><th>Type</th><th>Ranked</th><th>Decision</th></tr></thead>
+      <PageHeader title="Applicants" description={cycle.title} />
+      <Table>
+        <THead>
+          <tr>
+            <TH>Name</TH>
+            <TH>Email</TH>
+            <TH>Type</TH>
+            <TH>Ranked</TH>
+            <TH>Decision</TH>
+          </tr>
+        </THead>
         <tbody>
-          {apps.map((a) => (
-            <tr key={a.id} className="border-t">
-              <td className="py-2"><Link className="font-medium" href={`/recruitment/cycles/${id}/applicants/${a.id}`}>{a.applicant.firstName} {a.applicant.lastName}</Link></td>
-              <td>{a.applicant.email}</td>
-              <td>{a.applicantType}</td>
-              <td>{a.departmentChoices.join(", ")}</td>
-              <td>{badge(a.acceptances.map((x) => x.departmentCode))}</td>
-            </tr>
-          ))}
-          {apps.length === 0 && <tr><td colSpan={5} className="py-6 text-slate-500">No applicants in your review scope.</td></tr>}
+          {apps.map((a) => {
+            const d = decision(a.acceptances.map((x) => x.departmentCode));
+            return (
+              <TR key={a.id}>
+                <TD>
+                  <Link
+                    className="font-medium text-slate-900 hover:text-brand"
+                    href={`/recruitment/cycles/${id}/applicants/${a.id}`}
+                  >
+                    {a.applicant.firstName} {a.applicant.lastName}
+                  </Link>
+                </TD>
+                <TD className="text-slate-600">{a.applicant.email}</TD>
+                <TD className="text-slate-600">{a.applicantType}</TD>
+                <TD className="text-slate-600">{a.departmentChoices.join(", ")}</TD>
+                <TD>
+                  <Badge tone={d.tone}>{d.label}</Badge>
+                </TD>
+              </TR>
+            );
+          })}
+          {apps.length === 0 && (
+            <TR>
+              <TD colSpan={5} className="py-10 text-center text-slate-400">
+                No applicants in your review scope.
+              </TD>
+            </TR>
+          )}
         </tbody>
-      </table>
+      </Table>
     </div>
   );
 }

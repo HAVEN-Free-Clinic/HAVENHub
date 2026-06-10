@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
+import { config } from "@/platform/config";
 import { SETTINGS, getSettingDef, type SettingInput } from "./registry";
 
 const TTL_MS = 30_000;
@@ -114,6 +115,11 @@ export async function setSetting(
       key,
       parsed.error.issues.map((i) => i.message).join("; ")
     );
+  }
+
+  if (def.validate) {
+    const problem = await def.validate(parsed.data, { config, getSetting });
+    if (problem) throw new SettingValidationError(key, problem);
   }
 
   const before = await getSetting(key);

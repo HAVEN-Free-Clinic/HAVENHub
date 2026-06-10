@@ -1,4 +1,5 @@
 import {
+  beforeEach,
   describe,
   expect,
   it,
@@ -7,10 +8,12 @@ import {
 import {
   LogTransport,
   GraphTransport,
-  emailTransportFromConfig,
+  resolveEmailTransport,
   type EmailMessage,
 } from "./transport";
-import type { AppConfig } from "../config";
+import { prisma } from "@/platform/db";
+import { resetDb } from "@/platform/test/db";
+import { _resetSettingsCache } from "@/platform/settings/service";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -21,41 +24,6 @@ const msg: EmailMessage = {
   subject: "Test subject",
   html: "<p>Hello</p>",
 };
-
-/** Minimal AppConfig stub -- only the fields transport.ts cares about. */
-function makeConfig(
-  overrides: Partial<AppConfig> = {}
-): AppConfig {
-  return {
-    DATABASE_URL: "postgresql://x:y@localhost/db",
-    AUTH_SECRET: "secret",
-    NODE_ENV: "development",
-    AZURE_AD_CLIENT_ID: undefined,
-    AZURE_AD_CLIENT_SECRET: undefined,
-    AZURE_AD_TENANT_ID: undefined,
-    AIRTABLE_PAT: undefined,
-    HAVEN_MGMT_BASE_ID: "appkxTQ19GmaHgW1O",
-    ALL_PEOPLE_TABLE_ID: "tblnHgBpknuqWvx9c",
-    SU26_ROSTER_TABLE_ID: "tbl2VrP1uqwFt7QNQ",
-    AIRTABLE_MIRROR_ENABLED: false,
-    AIRTABLE_MIRROR_BASE_ID: undefined,
-    AIRTABLE_MIRROR_PEOPLE_TABLE_ID: undefined,
-    AIRTABLE_MIRROR_FIELD_MAP: undefined,
-    AIRTABLE_MIRROR_HIPAA_FIELD_ID: undefined,
-    AIRTABLE_MIRROR_STATUS_FIELD_ID: undefined,
-    UPLOAD_DIR: "./uploads",
-    MAX_UPLOAD_MB: 5,
-    EMAIL_TRANSPORT: "log",
-    GRAPH_OAUTH_TENANT_ID: undefined,
-    GRAPH_OAUTH_CLIENT_ID: undefined,
-    GRAPH_OAUTH_CLIENT_SECRET: undefined,
-    GRAPH_OAUTH_REDIRECT_URI: "http://localhost:3000/admin/email/oauth/callback",
-    EMAIL_SENDER: undefined,
-    COMPLIANCE_REMINDER_INTERVAL_DAYS: 7,
-    COMPLIANCE_ESCALATION_THRESHOLD: 3,
-    ...overrides,
-  } as AppConfig;
-}
 
 const fakeGetAccessToken = () => Promise.resolve("test-token");
 
@@ -161,25 +129,29 @@ describe("GraphTransport", () => {
 });
 
 // ---------------------------------------------------------------------------
-// emailTransportFromConfig
+// resolveEmailTransport (DB-backed factory)
 // ---------------------------------------------------------------------------
 
-describe("emailTransportFromConfig", () => {
-  it("returns a LogTransport when EMAIL_TRANSPORT is log", () => {
-    const transport = emailTransportFromConfig(makeConfig({ EMAIL_TRANSPORT: "log" }));
-    expect(transport).toBeInstanceOf(LogTransport);
+describe("resolveEmailTransport", () => {
+  beforeEach(async () => { await resetDb(); _resetSettingsCache(); });
+
+  it("returns a LogTransport when email.transport is log (default)", async () => {
+    const t = await resolveEmailTransport();
+    expect(t.constructor.name).toBe("LogTransport");
   });
 
-  it("returns a GraphTransport when EMAIL_TRANSPORT is graph with EMAIL_SENDER set", () => {
-    const transport = emailTransportFromConfig(
-      makeConfig({
-        EMAIL_TRANSPORT: "graph",
-        GRAPH_OAUTH_TENANT_ID: "t",
-        GRAPH_OAUTH_CLIENT_ID: "c",
-        GRAPH_OAUTH_CLIENT_SECRET: "s",
-        EMAIL_SENDER: "noreply@example.com",
-      })
-    );
-    expect(transport).toBeInstanceOf(GraphTransport);
+  it("returns a LogTransport when email.transport is overridden to log in the DB", async () => {
+    await prisma.setting.create({ data: { key: "email.transport", value: "log" } });
+    _resetSettingsCache();
+    const t = await resolveEmailTransport();
+    expect(t).toBeInstanceOf(LogTransport);
+  });
+
+  it("returns a GraphTransport when email.transport is overridden to graph in the DB", async () => {
+    await prisma.setting.create({ data: { key: "email.transport", value: "graph" } });
+    await prisma.setting.create({ data: { key: "email.sender", value: "noreply@example.com" } });
+    _resetSettingsCache();
+    const t = await resolveEmailTransport();
+    expect(t).toBeInstanceOf(GraphTransport);
   });
 });

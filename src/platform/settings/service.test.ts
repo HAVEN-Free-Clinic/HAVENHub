@@ -9,6 +9,7 @@ import {
   SettingValidationError,
   _resetSettingsCache,
 } from "./service";
+import * as configModule from "@/platform/config";
 
 beforeEach(async () => {
   await resetDb();
@@ -126,5 +127,36 @@ describe("phase 1 email/links/teams scalars", () => {
   });
   it("resolves email.sender (string)", async () => {
     expect(typeof (await getSetting<string>("email.sender"))).toBe("string");
+  });
+});
+
+describe("email.transport guard", () => {
+  it("rejects graph when Graph OAuth env vars are absent", async () => {
+    // Temporarily strip graph credentials from the config so the guard fires.
+    const saved = {
+      GRAPH_OAUTH_TENANT_ID: configModule.config.GRAPH_OAUTH_TENANT_ID,
+      GRAPH_OAUTH_CLIENT_ID: configModule.config.GRAPH_OAUTH_CLIENT_ID,
+      GRAPH_OAUTH_CLIENT_SECRET: configModule.config.GRAPH_OAUTH_CLIENT_SECRET,
+      EMAIL_SENDER: configModule.config.EMAIL_SENDER,
+    };
+    Object.assign(configModule.config, {
+      GRAPH_OAUTH_TENANT_ID: undefined,
+      GRAPH_OAUTH_CLIENT_ID: undefined,
+      GRAPH_OAUTH_CLIENT_SECRET: undefined,
+      EMAIL_SENDER: undefined,
+    });
+    try {
+      await expect(setSetting("email.transport", "graph", null)).rejects.toBeInstanceOf(
+        SettingValidationError
+      );
+      expect(await prisma.setting.findUnique({ where: { key: "email.transport" } })).toBeNull();
+    } finally {
+      Object.assign(configModule.config, saved);
+    }
+  });
+
+  it("allows log without any prerequisites", async () => {
+    await setSetting("email.transport", "log", null);
+    expect(await getSetting<string>("email.transport")).toBe("log");
   });
 });

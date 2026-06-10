@@ -1,5 +1,12 @@
 import { z } from "zod";
-import { config } from "@/platform/config";
+import { config, type AppConfig } from "@/platform/config";
+
+export interface SettingValidateCtx {
+  /** Env config, for checking that required secrets are present. */
+  config: AppConfig;
+  /** Resolve a sibling setting (DB override -> env default). */
+  getSetting: <U>(key: string) => Promise<U>;
+}
 
 export type SettingInput =
   | { type: "number"; min?: number; max?: number }
@@ -25,6 +32,12 @@ export interface SettingDef<T> {
   envDefault: () => T;
   /** Always false -- secrets are never registered. */
   secret: false;
+  /**
+   * Optional cross-field guard, run on WRITE only (after schema parse). Return
+   * an error message to reject the change, or null to allow it. Omit for simple
+   * settings.
+   */
+  validate?: (value: T, ctx: SettingValidateCtx) => Promise<string | null>;
 }
 
 /**
@@ -110,6 +123,30 @@ export const SETTINGS: SettingDef<unknown>[] = [
     schema: z.string(),
     envDefault: () => config.TEAMS_CLINIC_GROUP_ID ?? "",
     secret: false,
+  }),
+  define<"log" | "graph">({
+    key: "email.transport",
+    category: "Email",
+    label: "Email transport",
+    help: "How outbound email is sent. 'log' prints to the server log; 'graph' sends via Microsoft Graph (requires OAuth credentials in the environment).",
+    input: { type: "select", options: [
+      { value: "log", label: "Log (no real email)" },
+      { value: "graph", label: "Microsoft Graph (live email)" },
+    ] },
+    schema: z.enum(["log", "graph"]),
+    envDefault: () => config.EMAIL_TRANSPORT,
+    secret: false,
+    validate: async (value, { config, getSetting }) => {
+      if (value !== "graph") return null;
+      const problems: string[] = (
+        ["GRAPH_OAUTH_TENANT_ID", "GRAPH_OAUTH_CLIENT_ID", "GRAPH_OAUTH_CLIENT_SECRET"] as const
+      ).filter((k) => !config[k]);
+      const sender = await getSetting<string>("email.sender");
+      if (!sender) problems.push("a sender address (set Email > Sender first)");
+      return problems.length
+        ? `Cannot enable graph email until these are configured: ${problems.join(", ")}.`
+        : null;
+    },
   }),
 ];
 

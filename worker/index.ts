@@ -11,7 +11,7 @@ import { reconcilePeople } from "../src/platform/airtable/reconcile";
 import { refreshComplianceMirror } from "../src/platform/compliance/mirror-status";
 import { runComplianceReminders } from "../src/platform/email/reminders";
 import { drainEmailQueue } from "../src/platform/email/send";
-import { emailTransportFromConfig } from "../src/platform/email/transport";
+import { resolveEmailTransport } from "../src/platform/email/transport";
 import { dispatchDueCampaigns } from "../src/platform/email/campaigns/dispatch";
 
 const HEARTBEAT_ID = "mirror-worker";
@@ -64,7 +64,7 @@ async function main() {
   const client = config.AIRTABLE_PAT ? new AirtableClient(config.AIRTABLE_PAT) : null;
   // Build the transport once outside the handler so the token cache is shared
   // across all invocations within a worker lifetime.
-  const emailTransport = emailTransportFromConfig(config);
+  const emailTransport = await resolveEmailTransport();
 
   await boss.work(OUTBOX_QUEUE, async () => {
     if (!client) return;

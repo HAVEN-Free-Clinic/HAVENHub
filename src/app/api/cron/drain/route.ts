@@ -3,9 +3,8 @@
  * Replaces the worker's per-minute EMAIL_QUEUE and OUTBOX_QUEUE schedules.
  */
 import { authorizeCron, airtableClient, mirrorTarget } from "@/platform/cron";
-import { config } from "@/platform/config";
 import { drainEmailQueue } from "@/platform/email/send";
-import { emailTransportFromConfig } from "@/platform/email/transport";
+import { resolveEmailTransport } from "@/platform/email/transport";
 import { drainOutbox } from "@/platform/airtable/mirror";
 
 export const runtime = "nodejs";
@@ -15,7 +14,7 @@ export const maxDuration = 60;
 export async function GET(req: Request): Promise<Response> {
   if (!authorizeCron(req)) return new Response("Unauthorized", { status: 401 });
 
-  const transport = emailTransportFromConfig(config);
+  const transport = await resolveEmailTransport();
   let emails = 0;
   let processed: number;
   do {

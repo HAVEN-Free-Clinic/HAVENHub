@@ -13,8 +13,7 @@ import { refreshComplianceMirror } from "@/platform/compliance/mirror-status";
 import { reconcilePeople } from "@/platform/airtable/reconcile";
 import { drainOutbox } from "@/platform/airtable/mirror";
 import { drainEmailQueue } from "@/platform/email/send";
-import { emailTransportFromConfig } from "@/platform/email/transport";
-import { config } from "@/platform/config";
+import { resolveEmailTransport } from "@/platform/email/transport";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,7 +36,7 @@ export async function GET(req: Request): Promise<Response> {
     corrected = await reconcilePeople(client, mirrorTarget());
   }
 
-  const transport = emailTransportFromConfig(config);
+  const transport = await resolveEmailTransport();
   let emails = 0;
   let processed: number;
   do {

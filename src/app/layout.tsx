@@ -1,13 +1,13 @@
 import "./globals.css";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import { Inter } from "next/font/google";
+import { Hanken_Grotesk } from "next/font/google";
 import { auth } from "@/platform/auth/auth";
 import { InactivityTracker } from "@/platform/auth/inactivity";
 import { getSetting } from "@/platform/settings/service";
 import { brandStyleVars } from "@/platform/ui/brand-style";
 
-const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
+const hanken = Hanken_Grotesk({ subsets: ["latin"], variable: "--font-hanken" });
 
 export async function generateMetadata(): Promise<Metadata> {
   const [name, favicon] = await Promise.all([
@@ -29,7 +29,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
 
   return (
     <html lang="en">
-      <body className={`${inter.variable} min-h-screen bg-slate-50 font-sans text-slate-900 antialiased`}>
+      <body className={`${hanken.variable} min-h-screen bg-canvas font-sans text-slate-900 antialiased`}>
         <style dangerouslySetInnerHTML={{ __html: brandStyleVars(brandColor) }} />
         <InactivityTracker authenticated={!!session?.user} />
         {children}

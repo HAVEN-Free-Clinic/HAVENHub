@@ -11,9 +11,9 @@
  * Every failure path degrades to null so the dashboard simply hides the card.
  */
 
-import { config } from "@/platform/config";
 import { prisma } from "@/platform/db";
 import { getAccessToken } from "@/platform/email/oauth";
+import { getSetting } from "@/platform/settings/service";
 
 /** A Microsoft Graph channel object (subset we use). */
 export interface GraphChannel {
@@ -143,11 +143,12 @@ export async function getCurrentClinicChannelLink(
     fetchImpl = fetch,
     getToken = getAccessToken,
     now = new Date(),
-    groupId = config.TEAMS_CLINIC_GROUP_ID,
+    groupId,
     loadClinicDates = loadActiveTermClinicDates,
   } = deps;
 
-  if (!groupId) return null;
+  const resolvedGroupId = groupId ?? (await getSetting<string>("teams.clinicGroupId"));
+  if (!resolvedGroupId) return null;
 
   let clinicDates: Date[] | null;
   try {
@@ -175,7 +176,7 @@ export async function getCurrentClinicChannelLink(
     // page. If a Team ever exceeds ~200 channels, this would need @odata.nextLink
     // handling to stay reliable.
     const url = `https://graph.microsoft.com/v1.0/teams/${encodeURIComponent(
-      groupId
+      resolvedGroupId
     )}/channels`;
     const res = await fetchImpl(url, {
       headers: { Authorization: `Bearer ${token}` },

@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { requirePermission } from "@/platform/auth/session";
+import { getSetting } from "@/platform/settings/service";
 import { createPerson, PersonConflictError } from "@/modules/admin/services/people";
 import { PersonForm } from "@/modules/admin/components/person-form";
 import { PageHeader } from "@/platform/ui/page-header";
@@ -11,6 +12,7 @@ type PageProps = {
 export default async function NewPersonPage({ searchParams }: PageProps) {
   await requirePermission("admin.manage_people");
   const { error } = await searchParams;
+  const appName = await getSetting<string>("branding.appName");
 
   async function createAction(formData: FormData) {
     "use server";
@@ -41,7 +43,7 @@ export default async function NewPersonPage({ searchParams }: PageProps) {
     <div className="space-y-6">
       <PageHeader
         title="Add person"
-        description="Create a new person in HAVEN Hub. They will not be linked to Airtable until a sync is run."
+        description={`Create a new person in ${appName}. They will not be linked to Airtable until a sync is run.`}
       />
       <PersonForm action={createAction} error={error} />
     </div>

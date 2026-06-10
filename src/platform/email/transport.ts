@@ -1,5 +1,5 @@
-import type { AppConfig } from "@/platform/config";
 import { getAccessToken } from "./oauth";
+import { getSetting } from "@/platform/settings/service";
 
 /** A single outbound email message. */
 export type EmailMessage = {
@@ -88,14 +88,23 @@ export class GraphTransport implements EmailTransport {
 // ---------------------------------------------------------------------------
 
 /**
- * Return the appropriate transport based on the validated app config.
+ * Resolve the email transport from admin settings (DB override -> env default).
  */
-export function emailTransportFromConfig(config: AppConfig): EmailTransport {
-  if (config.EMAIL_TRANSPORT === "graph") {
-    return new GraphTransport({
-      getAccessToken,
-      sender: config.EMAIL_SENDER!,
-    });
+export async function resolveEmailTransport(): Promise<EmailTransport> {
+  const transport = await getSetting<"log" | "graph">("email.transport");
+  if (transport === "graph") {
+    const sender = await getSetting<string>("email.sender");
+    // Defensive: the write guard blocks enabling graph without a sender, but a
+    // later reset of email.sender could leave graph active with no sender. Fall
+    // back to the log transport (with a warning) rather than build a malformed
+    // Graph request that fails opaquely at send time.
+    if (!sender) {
+      console.warn(
+        "[email] transport is graph but no sender is configured; falling back to log transport"
+      );
+      return new LogTransport();
+    }
+    return new GraphTransport({ getAccessToken, sender });
   }
   return new LogTransport();
 }

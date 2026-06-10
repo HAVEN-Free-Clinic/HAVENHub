@@ -9,8 +9,7 @@
  */
 import { config } from "@/platform/config";
 import { AirtableClient } from "@/platform/airtable/client";
-import { parseFieldMap } from "@/platform/airtable/mirror-map";
-import type { MirrorTarget } from "@/platform/airtable/mirror";
+export { mirrorTarget } from "@/platform/airtable/mirror-target";
 
 /**
  * Authorize a cron invocation. Vercel attaches `Authorization: Bearer
@@ -21,18 +20,6 @@ export function authorizeCron(req: Request): boolean {
   const secret = process.env.CRON_SECRET;
   if (!secret) return false;
   return req.headers.get("authorization") === `Bearer ${secret}`;
-}
-
-/** Build the Airtable mirror target from config (mirrors worker/index.ts). */
-export function mirrorTarget(): MirrorTarget {
-  return {
-    enabled: config.AIRTABLE_MIRROR_ENABLED,
-    baseId: config.AIRTABLE_MIRROR_BASE_ID ?? "",
-    peopleTableId: config.AIRTABLE_MIRROR_PEOPLE_TABLE_ID ?? "",
-    fieldMap: parseFieldMap(config.AIRTABLE_MIRROR_FIELD_MAP),
-    hipaaFieldId: config.AIRTABLE_MIRROR_HIPAA_FIELD_ID ?? null,
-    statusFieldId: config.AIRTABLE_MIRROR_STATUS_FIELD_ID ?? null,
-  };
 }
 
 /** The Airtable client, or null when no PAT is configured (mirror disabled). */

@@ -23,7 +23,7 @@ import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { enqueueMirror } from "@/platform/outbox";
 import { updatePersonFields } from "@/platform/people";
-import { config } from "@/platform/config";
+import { getSetting } from "@/platform/settings/service";
 import { putObject } from "@/platform/storage";
 import { extractCompletionDate } from "@/platform/compliance/parser";
 import type { ParsedDate } from "@/platform/compliance/parser";
@@ -236,10 +236,11 @@ export async function saveCertificate(
       `File extension must be .pdf; got "${file.name}"`
     );
   }
-  const maxBytes = config.MAX_UPLOAD_MB * 1024 * 1024;
+  const maxMb = await getSetting<number>("uploads.maxMb");
+  const maxBytes = maxMb * 1024 * 1024;
   if (file.size > maxBytes) {
     throw new CertificateValidationError(
-      `File too large: ${file.size} bytes exceeds the ${config.MAX_UPLOAD_MB} MB limit`
+      `File too large: ${file.size} bytes exceeds the ${maxMb} MB limit`
     );
   }
 

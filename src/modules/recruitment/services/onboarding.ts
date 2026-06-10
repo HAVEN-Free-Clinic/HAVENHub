@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { OnboardingContract } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
-import { config } from "@/platform/config";
+import { getSetting } from "@/platform/settings/service";
 import { putObject, deleteObject } from "@/platform/storage";
 import { queueEmail } from "@/platform/email/send";
 import { recordAudit } from "@/platform/audit";
@@ -151,10 +151,11 @@ export async function submitContract(
   } = {};
   let writtenKey: string | null = null;
   if (input.hipaaFile) {
-    const capBytes = config.MAX_UPLOAD_MB * 1024 * 1024;
+    const maxMb = await getSetting<number>("uploads.maxMb");
+    const capBytes = maxMb * 1024 * 1024;
     if (input.hipaaFile.bytes.length > capBytes) {
       throw new ContractValidationError("File too large.", {
-        hipaaFile: `max ${config.MAX_UPLOAD_MB} MB`,
+        hipaaFile: `max ${maxMb} MB`,
       });
     }
     const ALLOWED_MIME = ["application/pdf", "image/jpeg", "image/png", "image/gif"];

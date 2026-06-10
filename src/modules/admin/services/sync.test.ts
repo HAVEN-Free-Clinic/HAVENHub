@@ -15,6 +15,7 @@ import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import { syncOverview, retryFailed } from "./sync";
 import { config } from "@/platform/config";
+import { _resetSettingsCache } from "@/platform/settings/service";
 
 const ACTOR = "actor-person-id";
 
@@ -66,7 +67,10 @@ async function seedDriftAudit(entityId: string, after: Record<string, unknown>) 
 // ---------------------------------------------------------------------------
 
 describe("syncOverview", () => {
-  beforeEach(resetDb);
+  beforeEach(async () => {
+    await resetDb();
+    _resetSettingsCache();
+  });
 
   it("returns the correct shape with no data", async () => {
     const overview = await syncOverview();
@@ -166,6 +170,15 @@ describe("syncOverview", () => {
     const overview = await syncOverview();
     expect(overview.mirrorEnabled).toBe(config.AIRTABLE_MIRROR_ENABLED);
     expect(overview.targetBaseId).toBe(config.AIRTABLE_MIRROR_BASE_ID ?? null);
+  });
+
+  it("reflects a DB override of airtable.mirrorEnabled over the env default", async () => {
+    await prisma.setting.create({
+      data: { key: "airtable.mirrorEnabled", value: !config.AIRTABLE_MIRROR_ENABLED },
+    });
+    _resetSettingsCache();
+    const overview = await syncOverview();
+    expect(overview.mirrorEnabled).toBe(!config.AIRTABLE_MIRROR_ENABLED);
   });
 });
 

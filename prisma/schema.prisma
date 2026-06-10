@@ -4,7 +4,12 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+  // App runtime uses the pooled connection (PgBouncer). Migrations use a DIRECT
+  // (unpooled) connection: Prisma's migration advisory lock is session-scoped and
+  // times out over the pooler. DATABASE_URL_UNPOOLED is provisioned by Neon's
+  // Vercel integration; locally it can equal DATABASE_URL (no pooler in dev/CI).
+  url       = env("DATABASE_URL")
+  directUrl = env("DATABASE_URL_UNPOOLED")
 }
 
 enum PersonStatus {
@@ -1000,4 +1005,16 @@ model Evaluation {
   evaluator Person    @relation("interviewEvaluator", fields: [evaluatorId], references: [id], onDelete: Cascade)
 
   @@unique([interviewId, evaluatorId])
+}
+
+/// Admin-configurable settings stored as key/value overrides. The key is a
+/// well-known string defined in the code registry; value is stored as JSON to
+/// support any scalar or structured type. updatedById is a loose reference to
+/// the Person who last changed the setting (no FK, so settings survive person
+/// deletion).
+model Setting {
+  key         String   @id
+  value       Json
+  updatedById String?
+  updatedAt   DateTime @updatedAt
 }

@@ -44,18 +44,18 @@ it("requires view_progress", async () => {
 });
 
 // Fix 3: live derivation — Alice passes the quiz so she is genuinely COMPLETE (not just persisted);
-// Bob has a locked module progress row but no passing attempt, so he is NOT_STARTED (no completedAt).
-// Previously the seed only wrote CourseProgress for Alice without module-level evidence; the old assertion
-// happened to pass because the code read the persisted row directly. With live derivation the assertion
-// only holds when Alice truly has a passing quiz attempt — which the corrected seed now provides.
+// Bob has a locked ModuleProgress row (no completedAt, no passing attempt). Under the old rule
+// (completed || quizPassed) he was NOT_STARTED, but a locked row proves real engagement, so the
+// corrected rule (any ModuleProgress row => IN_PROGRESS) makes him IN_PROGRESS.
 it("reports complete vs outstanding learners for a course (live derivation)", async () => {
   const { viewer, course, a, b } = await seed();
   const rows = await getCourseCompletion(course.id, viewer.id);
   const alice = rows.find((r) => r.personId === a.id)!;
   const bob = rows.find((r) => r.personId === b.id)!;
   expect(alice.status).toBe("COMPLETE");
-  // Bob has a ModuleProgress row (locked, no passing attempt) — no completedAt, not passed => NOT_STARTED
-  expect(bob.status).toBe("NOT_STARTED");
+  // Bob has a locked ModuleProgress row — he has engaged with the course, so he is IN_PROGRESS
+  // (changed from NOT_STARTED: a locked learner has clearly started, "not started" + "locked" is contradictory).
+  expect(bob.status).toBe("IN_PROGRESS");
 });
 
 it("resets a locked quiz and opens a fresh window", async () => {

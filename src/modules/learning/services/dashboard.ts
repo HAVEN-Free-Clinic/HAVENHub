@@ -74,11 +74,14 @@ export async function getCourseCompletion(courseId: string, viewerId: string): P
   // Build per-person module progress lookup
   type ModProgressEntry = { completedAt: Date | null; locked: boolean };
   const progressByPersonModule = new Map<string, ModProgressEntry>();
+  // Track which persons have ANY ModuleProgress row for this course (locked/failed rows count).
+  const personsWithAnyProgressRow = new Set<string>();
   for (const row of moduleProgressRows) {
     progressByPersonModule.set(`${row.personId}:${row.moduleId}`, {
       completedAt: row.completedAt,
       locked: row.locked,
     });
+    personsWithAnyProgressRow.add(row.personId);
   }
 
   // De-duplicate by personId so multi-dept memberships don't produce duplicate rows.
@@ -104,11 +107,13 @@ export async function getCourseCompletion(courseId: string, viewerId: string): P
         };
       });
 
-      const hasAnyProgress = states.some((s) => s.completed || s.quizPassed);
+      // IN_PROGRESS when the person has any ModuleProgress row for this course
+      // (locked or failed-only rows count — they represent real engagement).
+      const hasAnyEngagement = personsWithAnyProgressRow.has(pid);
       const complete = isCourseComplete(states);
       const status: CompletionRow["status"] = complete
         ? "COMPLETE"
-        : hasAnyProgress
+        : hasAnyEngagement
         ? "IN_PROGRESS"
         : "NOT_STARTED";
 

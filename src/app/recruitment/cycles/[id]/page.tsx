@@ -4,6 +4,14 @@ import { getCycle } from "@/modules/recruitment/services/cycles";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 import { publishCycleAction, closeCycleAction, toggleRenewalsAction, setTrainingCycleAction, updateQuizSettingsAction } from "../../actions";
+import { PageHeader } from "@/platform/ui/page-header";
+import { Badge } from "@/platform/ui/badge";
+import { Field, Input } from "@/platform/ui/input";
+import { Alert } from "@/platform/ui/alert";
+import { buttonClasses } from "@/platform/ui/button";
+import { SubmitButton } from "@/platform/ui/submit-button";
+
+const statusTone = { DRAFT: "default", OPEN: "success", CLOSED: "warning" } as const;
 
 type PageProps = {
   params: Promise<{ id: string }>;
@@ -16,50 +24,81 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
   const cycle = await getCycle(id);
   if (!cycle) notFound();
   const applyUrl = `/apply/${cycle.publicSlug}`;
+  const navLink = buttonClasses("outline", "sm");
   return (
     <div className="max-w-2xl space-y-6">
       <SetBreadcrumb trail={cycleTrail({ cycleId: id, cycleTitle: cycle.title })} />
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight">{cycle.title}</h1>
-        <span className="rounded bg-slate-100 px-2 py-1 text-xs">{cycle.status}</span>
+      <PageHeader
+        title={cycle.title}
+        action={<Badge tone={statusTone[cycle.status as keyof typeof statusTone] ?? "default"}>{cycle.status}</Badge>}
+      />
+      {error && <Alert tone="error">{error}</Alert>}
+
+      <div className="flex flex-wrap gap-2">
+        <Link href={`/recruitment/cycles/${id}/builder`} className={navLink}>Edit form</Link>
+        <Link href={`/recruitment/cycles/${id}/applicants`} className={navLink}>View applicants</Link>
+        <Link href={`/recruitment/cycles/${id}/decisions`} className={navLink}>Decisions</Link>
+        {cycle.track === "DIRECTOR" && (
+          <Link href={`/recruitment/cycles/${id}/interviews`} className={navLink}>Interviews</Link>
+        )}
+        <Link href={`/recruitment/cycles/${id}/onboarding`} className={navLink}>Onboarding</Link>
       </div>
-      {error && <p role="alert" className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
-      <div className="flex gap-3">
-        <Link href={`/recruitment/cycles/${id}/builder`} className="rounded-md border px-3 py-1.5 text-sm">Edit form</Link>
-        <Link href={`/recruitment/cycles/${id}/applicants`} className="rounded-md border px-3 py-1.5 text-sm">View applicants</Link>
-        <Link href={`/recruitment/cycles/${id}/decisions`} className="rounded-md border px-3 py-1.5 text-sm">Decisions</Link>
-        {cycle.track === "DIRECTOR" && <Link href={`/recruitment/cycles/${id}/interviews`} className="rounded-md border px-3 py-1.5 text-sm">Interviews</Link>}
-        <Link href={`/recruitment/cycles/${id}/onboarding`} className="rounded-md border px-3 py-1.5 text-sm">Onboarding</Link>
+
+      <div className="rounded-lg border border-slate-200 bg-white p-5">
+        <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Public link</p>
+        {cycle.status === "OPEN" ? (
+          <a className="mt-1 inline-block text-sm font-medium text-brand hover:text-brand-hover" href={applyUrl}>
+            {applyUrl}
+          </a>
+        ) : (
+          <p className="mt-1 text-sm text-slate-500">Publish the cycle to activate {applyUrl}</p>
+        )}
       </div>
-      <div className="rounded border p-4 text-sm">
-        <p className="font-medium">Public link</p>
-        {cycle.status === "OPEN"
-          ? <a className="text-blue-700 underline" href={applyUrl}>{applyUrl}</a>
-          : <p className="text-slate-500">Publish the cycle to activate {applyUrl}</p>}
+
+      <div className="flex flex-wrap items-center gap-3">
+        {cycle.status === "DRAFT" && (
+          <form action={publishCycleAction.bind(null, id)}>
+            <SubmitButton size="sm" pendingLabel="Publishing…">Publish</SubmitButton>
+          </form>
+        )}
+        {cycle.status === "OPEN" && (
+          <form action={closeCycleAction.bind(null, id)}>
+            <SubmitButton size="sm" variant="outline" pendingLabel="Closing…">Close</SubmitButton>
+          </form>
+        )}
+        {(cycle.status === "DRAFT" || cycle.status === "OPEN") && (
+          <form action={toggleRenewalsAction.bind(null, id, !cycle.acceptsRenewals)}>
+            <SubmitButton size="sm" variant="ghost">
+              {cycle.acceptsRenewals ? "Disable" : "Enable"} renewal branch
+            </SubmitButton>
+          </form>
+        )}
       </div>
-      {(cycle.status === "DRAFT" || cycle.status === "OPEN") && (
-        <form action={toggleRenewalsAction.bind(null, id, !cycle.acceptsRenewals)}>
-          <button className="text-sm underline">{cycle.acceptsRenewals ? "Disable" : "Enable"} renewal branch</button>
-        </form>
-      )}
-      <div className="flex gap-3">
-        {cycle.status === "DRAFT" && <form action={publishCycleAction.bind(null, id)}><button className="rounded-md bg-slate-900 px-3 py-1.5 text-sm text-white">Publish</button></form>}
-        {cycle.status === "OPEN" && <form action={closeCycleAction.bind(null, id)}><button className="rounded-md border px-3 py-1.5 text-sm">Close</button></form>}
-      </div>
+
       {cycle.track === "VOLUNTEER" && (
-        <div className="rounded border p-4 text-sm space-y-3">
-          <p className="font-medium">Training</p>
-          <div className="flex gap-3">
-            <Link href={`/recruitment/cycles/${id}/builder/quiz`} className="rounded-md border px-3 py-1.5">Edit quiz</Link>
-            <Link href={`/recruitment/cycles/${id}/training`} className="rounded-md border px-3 py-1.5">Training roster</Link>
+        <div className="space-y-4 rounded-lg border border-slate-200 bg-white p-5">
+          <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Training</p>
+          <div className="flex flex-wrap gap-2">
+            <Link href={`/recruitment/cycles/${id}/builder/quiz`} className={navLink}>Edit quiz</Link>
+            <Link href={`/recruitment/cycles/${id}/training`} className={navLink}>Training roster</Link>
           </div>
           <form action={setTrainingCycleAction.bind(null, id, !cycle.isTermTraining)}>
-            <button className="underline">{cycle.isTermTraining ? "Stop using as this term's training" : "Use as this term's training"}</button>
+            <SubmitButton size="sm" variant="ghost">
+              {cycle.isTermTraining ? "Stop using as this term's training" : "Use as this term's training"}
+            </SubmitButton>
           </form>
-          <form action={updateQuizSettingsAction.bind(null, id)} className="flex items-end gap-3">
-            <label className="flex flex-col">Pass %<input name="quizPassPercent" type="number" min={0} max={100} defaultValue={cycle.quizPassPercent} className="w-20 rounded border px-2 py-1" /></label>
-            <label className="flex flex-col">Max attempts<input name="quizMaxAttempts" type="number" min={1} defaultValue={cycle.quizMaxAttempts} className="w-20 rounded border px-2 py-1" /></label>
-            <button className="rounded-md border px-3 py-1.5">Save quiz settings</button>
+          <form action={updateQuizSettingsAction.bind(null, id)} className="flex flex-wrap items-end gap-3">
+            <div className="w-28">
+              <Field label="Pass %">
+                <Input name="quizPassPercent" type="number" min={0} max={100} defaultValue={cycle.quizPassPercent} />
+              </Field>
+            </div>
+            <div className="w-28">
+              <Field label="Max attempts">
+                <Input name="quizMaxAttempts" type="number" min={1} defaultValue={cycle.quizMaxAttempts} />
+              </Field>
+            </div>
+            <SubmitButton size="sm" variant="outline" pendingLabel="Saving…">Save quiz settings</SubmitButton>
           </form>
         </div>
       )}

@@ -73,6 +73,21 @@ export async function addPanelist(interviewId: string, personId: string, isLead:
   }
 }
 
+/**
+ * Active people who may be added to an interview's panel, by name. Excludes
+ * anyone already on the panel so the picker never offers a duplicate (which the
+ * unique constraint would reject anyway). Powers the panelist search dropdown.
+ */
+export async function listPanelistCandidates(interviewId: string): Promise<{ id: string; name: string }[]> {
+  const existing = await prisma.interviewPanelist.findMany({ where: { interviewId }, select: { personId: true } });
+  const exclude = existing.map((p) => p.personId);
+  return prisma.person.findMany({
+    where: { status: "ACTIVE", ...(exclude.length ? { id: { notIn: exclude } } : {}) },
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
+}
+
 export async function removePanelist(panelistId: string, actorId: string): Promise<void> {
   const p = await prisma.interviewPanelist.findUnique({ where: { id: panelistId }, include: { interview: true } });
   if (!p) throw new InterviewError("Panelist not found.");

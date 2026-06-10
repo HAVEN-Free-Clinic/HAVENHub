@@ -94,6 +94,16 @@ export async function resolveEmailTransport(): Promise<EmailTransport> {
   const transport = await getSetting<"log" | "graph">("email.transport");
   if (transport === "graph") {
     const sender = await getSetting<string>("email.sender");
+    // Defensive: the write guard blocks enabling graph without a sender, but a
+    // later reset of email.sender could leave graph active with no sender. Fall
+    // back to the log transport (with a warning) rather than build a malformed
+    // Graph request that fails opaquely at send time.
+    if (!sender) {
+      console.warn(
+        "[email] transport is graph but no sender is configured; falling back to log transport"
+      );
+      return new LogTransport();
+    }
     return new GraphTransport({ getAccessToken, sender });
   }
   return new LogTransport();

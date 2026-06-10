@@ -137,7 +137,7 @@ describe("resolveEmailTransport", () => {
 
   it("returns a LogTransport when email.transport is log (default)", async () => {
     const t = await resolveEmailTransport();
-    expect(t.constructor.name).toBe("LogTransport");
+    expect(t).toBeInstanceOf(LogTransport);
   });
 
   it("returns a LogTransport when email.transport is overridden to log in the DB", async () => {

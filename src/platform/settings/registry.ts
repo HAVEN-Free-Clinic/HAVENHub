@@ -128,7 +128,7 @@ export const SETTINGS: SettingDef<unknown>[] = [
     key: "email.transport",
     category: "Email",
     label: "Email transport",
-    help: "How outbound email is sent. 'log' prints to the server log; 'graph' sends via Microsoft Graph (requires OAuth credentials in the environment).",
+    help: "How outbound email is sent. 'log' prints to the server log; 'graph' sends via Microsoft Graph (requires OAuth credentials in the environment). Cron-based delivery applies a change immediately; restart the worker process for queue-based delivery.",
     input: { type: "select", options: [
       { value: "log", label: "Log (no real email)" },
       { value: "graph", label: "Microsoft Graph (live email)" },

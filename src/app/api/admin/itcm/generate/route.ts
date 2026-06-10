@@ -53,9 +53,9 @@ const SECTION_IX: Record<RequestType, string> = {
   renew_individual:
     "This individual already has an Epic account, but they require extended access to the department YM HAVEN FREE CLINIC. Their account should also have similar functions of the aforementioned Epic ID to mirror within the department YM HAVEN FREE CLINIC.",
   bulk_new:
-    "This individual requires a NEW Epic account, and require access to the department YM HAVEN FREE CLINIC. Their account should have similar functions of the aforementioned Epic ID to mirror within the department YM HAVEN FREE CLINIC. Please see the attached spreadsheet for the multiple user information.",
+    "These individuals require NEW Epic accounts, and require access to the department YM HAVEN FREE CLINIC. Their accounts should have similar functions of the aforementioned Epic ID to mirror within the department YM HAVEN FREE CLINIC. Please see the attached spreadsheet for the multiple user information.",
   bulk_mod:
-    "This individual already has an Epic account, but they require extended access to the department YM HAVEN FREE CLINIC. Their account should also have similar functions of the aforementioned Epic ID to mirror within the department YM HAVEN FREE CLINIC. Please see the attached spreadsheet for the multiple user information.",
+    "These individuals already have Epic accounts, but they require extended access to the department YM HAVEN FREE CLINIC. Their accounts should also have similar functions of the aforementioned Epic ID to mirror within the department YM HAVEN FREE CLINIC. Please see the attached spreadsheet for the multiple user information.",
 };
 
 const EMAIL_BODIES: Record<RequestType, (args: {

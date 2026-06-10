@@ -119,7 +119,7 @@ function fillText(form: ReturnType<PDFDocument["getForm"]>, fieldName: string, v
 async function generatePdf(args: {
   requestType: RequestType;
   authorizerKey: AuthorizerKey;
-  person: { firstName: string; lastName: string; email: string; netId: string; epicId: string } | null;
+  person: { firstName: string; lastName: string; email: string; netId: string; epicId: string; yaleAffiliation: string } | null;
   endDate: string;
   mirrorPerson: { name: string; epicId: string } | null;
   templateBytes: Uint8Array;
@@ -167,7 +167,16 @@ async function generatePdf(args: {
 
   if (!isBulk) {
     checkBox(form, "Check Box21"); // Student (outer)
-    checkBox(form, "Check Box45"); // Med Student
+    // Check the correct student sub-type based on Yale affiliation.
+    const affiliation = (person?.yaleAffiliation ?? "").toLowerCase();
+    if (affiliation.includes("med") || affiliation.includes("medicine")) {
+      checkBox(form, "Check Box45"); // Med Student
+    }
+    // All others (Yale College, GSAS, etc.) leave sub-type unchecked --
+    // the position "Other" text field (Text29) carries the affiliation label.
+    if (!isBulk && person?.yaleAffiliation) {
+      fillText(form, "Text29", person?.yaleAffiliation);
+    }
   }
 
   // Section V — Access type + similar person
@@ -330,6 +339,7 @@ export async function POST(req: Request) {
     email: firstPerson.contactEmail ?? "",
     netId: firstPerson.netId ?? "",
     epicId: firstPerson.epicId ?? "",
+    yaleAffiliation: firstPerson.yaleAffiliation ?? "",
   };
 
   // Generate PDF.

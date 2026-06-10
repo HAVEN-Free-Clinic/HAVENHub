@@ -15,7 +15,7 @@ export function BrandingImageField({
   uploadAction: (formData: FormData) => Promise<void>;
   removeAction: (formData: FormData) => Promise<void>;
 }) {
-  const asset = setting.key.replace("branding.", "");
+  const asset = setting.key.split(".").at(-1) ?? setting.key;
   const value = setting.value as { contentType: string; version: number };
   const hasCustom = value.contentType !== "";
 

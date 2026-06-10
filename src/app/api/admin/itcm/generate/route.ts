@@ -19,7 +19,7 @@
  */
 
 import { NextResponse } from "next/server";
-import { PDFDocument, PDFName, PDFBool } from "pdf-lib";
+import { PDFDocument } from "pdf-lib";
 import * as fs from "fs";
 import * as path from "path";
 import { requirePermission } from "@/platform/auth/session";

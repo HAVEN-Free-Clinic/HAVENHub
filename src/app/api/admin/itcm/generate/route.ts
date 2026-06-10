@@ -20,7 +20,6 @@
 
 import { NextResponse } from "next/server";
 import { PDFDocument, PDFName, PDFBool } from "pdf-lib";
-import * as XLSX from "xlsx";
 import * as fs from "fs";
 import * as path from "path";
 import { requirePermission } from "@/platform/auth/session";
@@ -217,7 +216,7 @@ async function generatePdf(args: {
 // Spreadsheet generator
 // ---------------------------------------------------------------------------
 
-function generateSpreadsheet(args: {
+async function generateSpreadsheet(args: {
   requestType: RequestType;
   people: Array<{
     firstName: string;
@@ -228,10 +227,14 @@ function generateSpreadsheet(args: {
   }>;
   endDate: string;
   mirrorEpicId: string;
-}): Buffer {
+}): Promise<Buffer> {
+  const ExcelJS = (await import("exceljs")).default;
   const { requestType, people, endDate, mirrorEpicId } = args;
   const today = new Date().toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
   const isNew = requestType.includes("new");
+
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet("Epic Request");
 
   const headers = [
     "Last Name", "First Name", "Middle Name", "E-Mail Address",
@@ -241,23 +244,41 @@ function generateSpreadsheet(args: {
     "Previous Student - YNHHS Network ID", "Epic ID", "Epic ID to Mirror",
   ];
 
-  const rows = people.map((p) => [
-    p.lastName, p.firstName, "", p.email, "",
-    "Yale College (Student)", "Yale College (Student)",
-    today, endDate, "No", p.netId, "",
-    isNew ? "" : p.epicId, mirrorEpicId,
-  ]);
+  // Add and style header row.
+  const headerRow = ws.addRow(headers);
+  headerRow.eachCell((cell) => {
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF006B8A" } };
+    cell.font = { bold: true, color: { argb: "FFFFFF00" } };
+    cell.alignment = { wrapText: true };
+  });
 
-  const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+  // Add data rows.
+  for (const p of people) {
+    const row = ws.addRow([
+      p.lastName, p.firstName, "", p.email, "",
+      "Yale College (Student)", "Yale College (Student)",
+      today, endDate, "No", p.netId, "",
+      isNew ? "" : p.epicId, mirrorEpicId,
+    ]);
+    row.eachCell((cell) => {
+      cell.alignment = { wrapText: true };
+    });
+  }
 
-  // Column widths based on content.
-  ws["!cols"] = headers.map((h, i) => ({
-    wch: Math.min(40, Math.max(h.length, ...rows.map((r) => String(r[i] ?? "").length)) + 4),
-  }));
+  // Auto column widths.
+  ws.columns.forEach((col, i) => {
+    const maxLen = Math.max(
+      headers[i]?.length ?? 10,
+      ...people.map((p) => {
+        const vals = [p.lastName, p.firstName, "", p.email, "", "Yale College (Student)", "Yale College (Student)", today, endDate, "No", p.netId, "", isNew ? "" : p.epicId, mirrorEpicId];
+        return String(vals[i] ?? "").length;
+      })
+    );
+    col.width = Math.min(40, maxLen + 4);
+  });
 
-  XLSX.utils.book_append_sheet(wb, ws, "Epic Request");
-  return XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+  const buffer = await wb.xlsx.writeBuffer();
+  return Buffer.from(buffer);
 }
 
 // ---------------------------------------------------------------------------
@@ -386,7 +407,7 @@ export async function POST(req: Request) {
       };
     });
 
-    const xlsxBuffer = generateSpreadsheet({
+    const xlsxBuffer = await generateSpreadsheet({
       requestType,
       people: peopleRows,
       endDate,

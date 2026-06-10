@@ -51,6 +51,7 @@ export type MyCourseRow = {
   status: "IN_PROGRESS" | "COMPLETE";
 };
 
+/** Learner-facing status is derived live from module states; CourseProgress is the persisted projection kept in sync by recomputeCourseProgress after every mutation. */
 export async function getMyCourses(personId: string): Promise<MyCourseRow[]> {
   const ids = await assignedCourseIds(personId);
   if (ids.length === 0) return [];
@@ -174,7 +175,13 @@ export async function getCourseForLearner(personId: string, courseId: string): P
   };
 }
 
-/** Recompute and persist CourseProgress for one person+course inside a tx. */
+/**
+ * Recompute and persist CourseProgress for one person+course inside a tx.
+ * CourseProgress is the persisted projection of learner-facing status; it must
+ * always agree with the live module states after any mutation.  completedAt is
+ * set exactly once (when the course first becomes COMPLETE) and is preserved on
+ * subsequent recomputes; it is cleared only if the course reverts to IN_PROGRESS.
+ */
 async function recomputeCourseProgress(tx: Tx, personId: string, courseId: string): Promise<void> {
   const modules = await tx.courseModule.findMany({ where: { courseId }, select: { id: true, kind: true } });
   const moduleIds = modules.map((m) => m.id);
@@ -188,10 +195,23 @@ async function recomputeCourseProgress(tx: Tx, personId: string, courseId: strin
     return { kind: m.kind, completed: p?.completedAt != null, quizPassed: (p?.attempts.length ?? 0) > 0 };
   });
   const complete = isCourseComplete(states);
+
+  // Fetch the existing row so we can preserve completedAt once it is set.
+  const existing = await tx.courseProgress.findUnique({
+    where: { personId_courseId: { personId, courseId } },
+    select: { completedAt: true },
+  });
+
+  // completedAt is set the first time the course becomes complete, preserved on
+  // later recomputes, and cleared only when the course becomes incomplete again.
+  const completedAt: Date | null = complete
+    ? (existing?.completedAt ?? new Date())
+    : null;
+
   await tx.courseProgress.upsert({
     where: { personId_courseId: { personId, courseId } },
-    create: { personId, courseId, status: complete ? "COMPLETE" : "IN_PROGRESS", completedAt: complete ? new Date() : null },
-    update: { status: complete ? "COMPLETE" : "IN_PROGRESS", completedAt: complete ? new Date() : null },
+    create: { personId, courseId, status: complete ? "COMPLETE" : "IN_PROGRESS", completedAt },
+    update: { status: complete ? "COMPLETE" : "IN_PROGRESS", completedAt },
   });
 }
 
@@ -239,6 +259,8 @@ export async function submitCourseQuiz(
       update: {},
     });
     if (mp.locked) throw new LearningValidationError("This quiz is locked. Ask a manager to reset it.");
+    const alreadyPassed = await tx.courseQuizAttempt.count({ where: { moduleProgressId: mp.id, passed: true } }) > 0;
+    if (alreadyPassed) throw new LearningValidationError("You have already passed this quiz.");
 
     const result = gradeQuiz(graded, answers, passPercent);
     await tx.courseQuizAttempt.create({

@@ -75,3 +75,29 @@ it("locks the quiz after the attempt cap without a pass", async () => {
   expect(mp.locked).toBe(true);
   await expect(submitCourseQuiz(person.id, quiz.id, { q1: "4" })).rejects.toBeInstanceOf(LearningValidationError);
 });
+
+it("completedAt is preserved when course is re-marked after completion", async () => {
+  const { person, course, video, quiz } = await seed();
+  await markModuleComplete(person.id, video.id);
+  await submitCourseQuiz(person.id, quiz.id, { q1: "4" }); // course becomes COMPLETE
+  const first = await prisma.courseProgress.findUniqueOrThrow({
+    where: { personId_courseId: { personId: person.id, courseId: course.id } },
+    select: { completedAt: true },
+  });
+  expect(first.completedAt).not.toBeNull();
+  // Small pause so that a re-stamp would produce a measurably different timestamp.
+  await new Promise((r) => setTimeout(r, 5));
+  await markModuleComplete(person.id, video.id); // re-mark — recompute runs again
+  const second = await prisma.courseProgress.findUniqueOrThrow({
+    where: { personId_courseId: { personId: person.id, courseId: course.id } },
+    select: { completedAt: true },
+  });
+  expect(second.completedAt).toEqual(first.completedAt); // original timestamp must be unchanged
+});
+
+it("submitting an already-passed quiz throws LearningValidationError", async () => {
+  const { person, video, quiz } = await seed();
+  await markModuleComplete(person.id, video.id);
+  await submitCourseQuiz(person.id, quiz.id, { q1: "4" }); // pass once
+  await expect(submitCourseQuiz(person.id, quiz.id, { q1: "4" })).rejects.toBeInstanceOf(LearningValidationError);
+});

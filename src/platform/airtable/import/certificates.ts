@@ -5,11 +5,9 @@
  * it back would create duplicates.
  */
 
-import path from "node:path";
-import fs from "node:fs/promises";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
-import { config } from "@/platform/config";
+import { putObject } from "@/platform/storage";
 import { ALL_PEOPLE_ATTACHMENT_FIELDS as AF } from "@/platform/airtable/fields";
 import type { AirtableReader } from "./importer";
 
@@ -127,7 +125,7 @@ export async function backfillCertificates(
     }
     const ext = mimeToExtension(att.type);
 
-    // Write-after-commit pattern: create DB row first, then write disk.
+    // Write-after-commit pattern: create DB row first, then write storage.
     const cert = await prisma.$transaction(async (tx) => {
       const created = await tx.hipaaCertificate.create({
         data: {
@@ -152,15 +150,12 @@ export async function backfillCertificates(
       return updated;
     });
 
-    // Write bytes to disk (after tx commits).
-    const uploadDir = config.UPLOAD_DIR;
-    const diskPath = path.join(uploadDir, cert.storedName);
-
+    // Persist bytes through the storage layer (Vercel Blob in prod, disk locally),
+    // matching how user uploads and the download route resolve the same key.
     try {
-      await fs.mkdir(uploadDir, { recursive: true });
-      await fs.writeFile(diskPath, bytes);
+      await putObject(cert.storedName, bytes, att.type);
     } catch (err) {
-      // Disk write failed: clean up the DB row so the record is not orphaned.
+      // Storage write failed: clean up the DB row so the record is not orphaned.
       try {
         await prisma.hipaaCertificate.delete({ where: { id: cert.id } });
       } catch (cleanupErr) {

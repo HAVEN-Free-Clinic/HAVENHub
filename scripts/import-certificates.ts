@@ -5,6 +5,36 @@
 import { config } from "@/platform/config";
 import { AirtableClient } from "@/platform/airtable/client";
 import { backfillCertificates } from "@/platform/airtable/import/certificates";
+import { usingBlobStorage } from "@/platform/storage";
+
+/** Local Postgres hosts where on-disk storage is the legitimate companion. */
+const LOCAL_DB_HOSTS = new Set(["localhost", "127.0.0.1", "::1", ""]);
+
+/**
+ * Guard against the footgun that orphaned every imported certificate once:
+ * running against a REMOTE database (e.g. prod Neon) while storage silently
+ * falls back to LOCAL DISK because BLOB_READ_WRITE_TOKEN is unset. The DB rows
+ * land in prod, the bytes land on this laptop, and downloads 404 forever.
+ */
+function assertStorageMatchesDatabase(): void {
+  if (usingBlobStorage) return; // Blob is configured -- bytes go where the rows go.
+  const dbUrl = process.env.DATABASE_URL ?? "";
+  let host = "";
+  try {
+    host = new URL(dbUrl.replace(/^postgres(ql)?:/, "http:")).hostname;
+  } catch {
+    return; // Unparseable/empty URL -- let the DB client surface its own error.
+  }
+  if (!LOCAL_DB_HOSTS.has(host)) {
+    console.error(
+      `Refusing to import: DATABASE_URL points at a remote host (${host}) but ` +
+        `BLOB_READ_WRITE_TOKEN is not set, so file bytes would be written to local ` +
+        `disk instead of Vercel Blob. Pull the blob token (e.g. \`vercel env pull\`) ` +
+        `before applying, or point DATABASE_URL at a local database.`
+    );
+    process.exit(1);
+  }
+}
 
 async function download(url: string): Promise<Buffer> {
   // Airtable attachment URLs are public-expiring signed URLs -- no auth header needed.
@@ -22,9 +52,14 @@ async function main() {
   }
 
   const dryRun = !process.argv.includes("--apply");
+  if (!dryRun) assertStorageMatchesDatabase();
   const client = new AirtableClient(config.AIRTABLE_PAT);
 
-  console.log(dryRun ? "Dry run -- no changes will be written." : "Apply mode -- writing to database and disk.");
+  console.log(
+    dryRun
+      ? "Dry run -- no changes will be written."
+      : `Apply mode -- writing to database and ${usingBlobStorage ? "Vercel Blob" : "local disk"}.`
+  );
   console.log();
 
   const report = await backfillCertificates(client, download, {

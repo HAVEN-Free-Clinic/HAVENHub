@@ -7,6 +7,8 @@ import {
   updateCourse,
   setCourseAssignment,
   addModule,
+  updateModule,
+  deleteModule,
   reorderModules,
   listCourses,
   getCourseForEdit,
@@ -85,4 +87,83 @@ it("sets department assignment", async () => {
   await setCourseAssignment(course.id, { departmentIds: [dept.id], assignToAll: false }, manager.id);
   const edited = await getCourseForEdit(course.id);
   expect(edited!.departments.map((d) => d.departmentId)).toEqual([dept.id]);
+});
+
+// --- new tests for hardened behavior ---
+
+it("updateCourse with omitted isActive does not reactivate a deactivated course", async () => {
+  const { manager } = await seed();
+  const course = await createCourse({ title: "Intro", isActive: true }, manager.id);
+  // Explicitly deactivate
+  await updateCourse(course.id, { title: "Intro", isActive: false }, manager.id);
+  // Now update title only — isActive is omitted
+  const updated = await updateCourse(course.id, { title: "Intro Updated" }, manager.id);
+  expect(updated.isActive).toBe(false);
+});
+
+it("updateCourse on a missing id throws LearningValidationError", async () => {
+  const { manager } = await seed();
+  await expect(
+    updateCourse("nonexistent-id", { title: "Ghost" }, manager.id)
+  ).rejects.toBeInstanceOf(LearningValidationError);
+});
+
+it("updateModule on a missing id throws LearningValidationError", async () => {
+  const { manager } = await seed();
+  await expect(
+    updateModule("nonexistent-id", { title: "Ghost", kind: "VIDEO", url: "https://x" }, manager.id)
+  ).rejects.toBeInstanceOf(LearningValidationError);
+});
+
+it("deleteModule on a missing id throws LearningValidationError", async () => {
+  const { manager } = await seed();
+  await expect(
+    deleteModule("nonexistent-id", manager.id)
+  ).rejects.toBeInstanceOf(LearningValidationError);
+});
+
+it("reorderModules with an id from a different course throws LearningValidationError", async () => {
+  const { manager } = await seed();
+  const courseA = await createCourse({ title: "Course A" }, manager.id);
+  const courseB = await createCourse({ title: "Course B" }, manager.id);
+  const a = await addModule(courseA.id, { title: "A", kind: "VIDEO", url: "https://a" }, manager.id);
+  const b = await addModule(courseB.id, { title: "B", kind: "VIDEO", url: "https://b" }, manager.id);
+  // Pass module from courseB when reordering courseA
+  await expect(
+    reorderModules(courseA.id, [a.id, b.id], manager.id)
+  ).rejects.toBeInstanceOf(LearningValidationError);
+});
+
+it("rejects a non-integer passPercent for QUIZ modules", async () => {
+  const { manager } = await seed();
+  const course = await createCourse({ title: "Intro" }, manager.id);
+  await expect(
+    addModule(
+      course.id,
+      {
+        title: "Quiz",
+        kind: "QUIZ",
+        questions: [{ key: "q1", label: "Q?", options: [{ value: "a", label: "A" }], correctValue: "a" }],
+        passPercent: 75.5,
+      },
+      manager.id
+    )
+  ).rejects.toBeInstanceOf(LearningValidationError);
+});
+
+it("rejects a non-integer maxAttempts for QUIZ modules", async () => {
+  const { manager } = await seed();
+  const course = await createCourse({ title: "Intro" }, manager.id);
+  await expect(
+    addModule(
+      course.id,
+      {
+        title: "Quiz",
+        kind: "QUIZ",
+        questions: [{ key: "q1", label: "Q?", options: [{ value: "a", label: "A" }], correctValue: "a" }],
+        maxAttempts: 2.5,
+      },
+      manager.id
+    )
+  ).rejects.toBeInstanceOf(LearningValidationError);
 });

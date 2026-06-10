@@ -388,11 +388,16 @@ export async function POST(req: Request) {
   // Build date string for filenames.
   const now = new Date();
   const dateStr = `${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}${now.getFullYear()}`;
-  const pdfFilenameBuilder = PDF_FILENAMES[requestType];
-  if (typeof pdfFilenameBuilder !== "function") {
-    return NextResponse.json({ error: "Invalid request type" }, { status: 400 });
+  // Build filename using validated switch to satisfy CodeQL dynamic call check.
+  let pdfFilename: string;
+  switch (requestType) {
+    case "new_individual": pdfFilename = PDF_FILENAMES.new_individual(authorizerKey, dateStr); break;
+    case "mod_individual": pdfFilename = PDF_FILENAMES.mod_individual(authorizerKey, dateStr); break;
+    case "renew_individual": pdfFilename = PDF_FILENAMES.renew_individual(authorizerKey, dateStr); break;
+    case "bulk_new": pdfFilename = PDF_FILENAMES.bulk_new(authorizerKey, dateStr); break;
+    case "bulk_mod": pdfFilename = PDF_FILENAMES.bulk_mod(authorizerKey, dateStr); break;
+    default: return NextResponse.json({ error: "Invalid request type" }, { status: 400 });
   }
-  const pdfFilename = pdfFilenameBuilder(authorizerKey, dateStr);
 
   // Build email body.
   const oneYearOut = new Date();
@@ -407,11 +412,16 @@ export async function POST(req: Request) {
     userCount: people.length,
   };
 
-  const emailBodyBuilder = EMAIL_BODIES[requestType];
-  if (typeof emailBodyBuilder !== "function") {
-    return NextResponse.json({ error: "Invalid request type" }, { status: 400 });
-  }
-  const emailBody = emailBodyBuilder(emailBodyArgs);
+  // Build email body using validated switch to satisfy CodeQL dynamic call check.
+  let emailBody: string;
+  switch (requestType) {
+    case "new_individual": emailBody = EMAIL_BODIES.new_individual(emailBodyArgs); break;
+    case "mod_individual": emailBody = EMAIL_BODIES.mod_individual(emailBodyArgs); break;
+    case "renew_individual": emailBody = EMAIL_BODIES.renew_individual(emailBodyArgs); break;
+    case "bulk_new": emailBody = EMAIL_BODIES.bulk_new(emailBodyArgs); break;
+    case "bulk_mod": emailBody = EMAIL_BODIES.bulk_mod(emailBodyArgs); break;
+    default: return NextResponse.json({ error: "Invalid request type" }, { status: 400 });
+  };
 
   // Generate spreadsheet for bulk requests.
   let xlsxBase64: string | null = null;

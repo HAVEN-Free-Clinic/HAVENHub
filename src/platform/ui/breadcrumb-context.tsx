@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import type { Crumb } from "./breadcrumb-trail";
 
@@ -21,7 +21,11 @@ const Ctx = createContext<BreadcrumbCtx | null>(null);
 
 export function BreadcrumbProvider({ children }: { children: ReactNode }) {
   const [override, setOverride] = useState<Override | null>(null);
-  return <Ctx.Provider value={{ override, setOverride }}>{children}</Ctx.Provider>;
+  // Memoise the context value so its identity only changes when `override` does.
+  // `setOverride` from useState is already referentially stable. Passing a fresh
+  // object literal here would re-render every consumer on each provider render.
+  const value = useMemo(() => ({ override, setOverride }), [override]);
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
 /** Read the active override trail, but only if it targets `currentPath`. */
@@ -37,14 +41,18 @@ export function useBreadcrumbOverride(currentPath: string): Crumb[] | null {
  * is applied after hydration (first paint shows the route-derived fallback).
  */
 export function SetBreadcrumb({ trail }: { trail: Crumb[] }) {
-  const ctx = useContext(Ctx);
+  // Depend on the stable `setOverride` setter, NOT the whole context value.
+  // The provider value object is recreated whenever `override` changes, so
+  // depending on `ctx` here would re-run the effect every time it sets the
+  // override — an infinite setState-in-effect loop ("Maximum update depth").
+  const setOverride = useContext(Ctx)?.setOverride;
   const path = usePathname();
   // Serialize so the effect re-runs when the trail contents change.
   const key = JSON.stringify(trail);
   useEffect(() => {
-    ctx?.setOverride({ path, trail });
+    setOverride?.({ path, trail });
     // `key` stands in for `trail` (a fresh array each render) in the deps.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ctx, path, key]);
+  }, [setOverride, path, key]);
   return null;
 }

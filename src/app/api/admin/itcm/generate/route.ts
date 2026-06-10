@@ -395,7 +395,15 @@ export async function POST(req: Request) {
   oneYearOut.setFullYear(oneYearOut.getFullYear() + 1);
   const oneYearStr = oneYearOut.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
 
-  const emailBody = EMAIL_BODIES[requestType]({
+  const emailBodyBuilder = EMAIL_BODIES[requestType];
+  if (
+    !Object.prototype.hasOwnProperty.call(EMAIL_BODIES, requestType) ||
+    typeof emailBodyBuilder !== "function"
+  ) {
+    return NextResponse.json({ error: "Invalid request type" }, { status: 400 });
+  }
+
+  const emailBody = emailBodyBuilder({
     personName: isBulk ? "Multiple Users" : firstPerson.name,
     epicId: firstPerson.epicId ?? "",
     endDate: isNew ? oneYearStr : endDate,

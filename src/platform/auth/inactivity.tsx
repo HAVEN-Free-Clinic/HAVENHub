@@ -53,7 +53,7 @@ export function InactivityTracker({ authenticated }: { authenticated: boolean })
     <div className="fixed bottom-4 right-4 z-50 max-w-sm rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 shadow-lg">
       <p className="text-sm font-semibold text-amber-800 mb-1">Still there?</p>
       <p className="text-sm text-amber-700 mb-3">
-        You'll be signed out in 5 minutes due to inactivity.
+        You&apos;ll be signed out in 5 minutes due to inactivity.
       </p>
       <button
         onClick={() => setShowWarning(false)}

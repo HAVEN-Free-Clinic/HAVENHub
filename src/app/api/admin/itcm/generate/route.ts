@@ -302,6 +302,18 @@ export async function POST(req: Request) {
 
   const { requestType, authorizerKey, personIds, endDate } = body;
 
+  if (!Object.prototype.hasOwnProperty.call(PDF_FILENAMES, requestType)) {
+    return NextResponse.json({ error: "Invalid request type" }, { status: 400 });
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(EMAIL_BODIES, requestType)) {
+    return NextResponse.json({ error: "Invalid request type" }, { status: 400 });
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(AUTHORIZERS, authorizerKey)) {
+    return NextResponse.json({ error: "Invalid authorizer key" }, { status: 400 });
+  }
+
   if (!personIds?.length) {
     return NextResponse.json({ error: "No people selected" }, { status: 400 });
   }

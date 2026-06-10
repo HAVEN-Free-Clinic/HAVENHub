@@ -4,7 +4,12 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+  // App runtime uses the pooled connection (PgBouncer). Migrations use a DIRECT
+  // (unpooled) connection: Prisma's migration advisory lock is session-scoped and
+  // times out over the pooler. DATABASE_URL_UNPOOLED is provisioned by Neon's
+  // Vercel integration; locally it can equal DATABASE_URL (no pooler in dev/CI).
+  url       = env("DATABASE_URL")
+  directUrl = env("DATABASE_URL_UNPOOLED")
 }
 
 enum PersonStatus {

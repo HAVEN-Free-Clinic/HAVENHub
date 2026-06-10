@@ -403,26 +403,7 @@ export async function POST(req: Request) {
     userCount: people.length,
   };
 
-  let emailBody: string;
-  switch (requestType) {
-    case "NEW_ACCESS":
-      emailBody = EMAIL_BODIES.NEW_ACCESS(emailBodyArgs);
-      break;
-    case "MODIFY_ACCESS":
-      emailBody = EMAIL_BODIES.MODIFY_ACCESS(emailBodyArgs);
-      break;
-    case "REMOVE_ACCESS":
-      emailBody = EMAIL_BODIES.REMOVE_ACCESS(emailBodyArgs);
-      break;
-    case "TRANSFER_ACCESS":
-      emailBody = EMAIL_BODIES.TRANSFER_ACCESS(emailBodyArgs);
-      break;
-    case "BULK_ACCESS":
-      emailBody = EMAIL_BODIES.BULK_ACCESS(emailBodyArgs);
-      break;
-    default:
-      return NextResponse.json({ error: "Invalid request type" }, { status: 400 });
-  }
+  const emailBody = EMAIL_BODIES[requestType](emailBodyArgs);
 
   // Generate spreadsheet for bulk requests.
   let xlsxBase64: string | null = null;

@@ -13,6 +13,7 @@ export type SettingInput =
   | { type: "text" }
   | { type: "textarea" }
   | { type: "boolean" }
+  | { type: "color" }
   | { type: "select"; options: { value: string; label: string }[] };
 
 export interface SettingDef<T> {
@@ -166,6 +167,26 @@ export const SETTINGS: SettingDef<unknown>[] = [
         ? `Cannot enable graph email until these are configured: ${problems.join(", ")}.`
         : null;
     },
+  }),
+  define<string>({
+    key: "branding.appName",
+    category: "Branding",
+    label: "Application name",
+    help: "Shown in the browser tab, on the sign-in screen, and in admin copy.",
+    input: { type: "text" },
+    schema: z.string().min(1),
+    envDefault: () => "HAVEN Hub",
+    secret: false,
+  }),
+  define<string>({
+    key: "branding.brandColor",
+    category: "Branding",
+    label: "Primary brand color",
+    help: "Main brand color. Buttons, links, and accents derive from it; shade variants are computed automatically.",
+    input: { type: "color" },
+    schema: z.string().regex(/^#[0-9a-fA-F]{6}$/, "Must be a 6-digit hex color like #00356b"),
+    envDefault: () => "#00356b",
+    secret: false,
   }),
 ];
 

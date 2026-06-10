@@ -190,3 +190,22 @@ describe("airtable.mirrorEnabled guard", () => {
     expect(await getSetting<boolean>("airtable.mirrorEnabled")).toBe(false);
   });
 });
+
+describe("phase 2a branding settings", () => {
+  it("resolves branding.appName default then DB override", async () => {
+    expect(await getSetting<string>("branding.appName")).toBe("HAVEN Hub");
+    await prisma.setting.create({ data: { key: "branding.appName", value: "Clinic Hub" } });
+    _resetSettingsCache();
+    expect(await getSetting<string>("branding.appName")).toBe("Clinic Hub");
+  });
+
+  it("resolves branding.brandColor default", async () => {
+    expect(await getSetting<string>("branding.brandColor")).toBe("#00356b");
+  });
+
+  it("falls back to the default when a stored brand color is not a hex", async () => {
+    await prisma.setting.create({ data: { key: "branding.brandColor", value: "red" } });
+    _resetSettingsCache();
+    expect(await getSetting<string>("branding.brandColor")).toBe("#00356b");
+  });
+});

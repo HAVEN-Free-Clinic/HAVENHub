@@ -117,6 +117,14 @@ export default async function SettingsPage({ searchParams }: PageProps) {
                     </select>
                   ) : s.input.type === "textarea" ? (
                     <textarea id={s.key} name={s.key} defaultValue={String(s.value)} className="border rounded px-2 py-1 w-full" />
+                  ) : s.input.type === "color" ? (
+                    <input
+                      id={s.key}
+                      name={s.key}
+                      type="color"
+                      defaultValue={String(s.value)}
+                      className="h-9 w-16 rounded border"
+                    />
                   ) : (
                     <input
                       id={s.key}

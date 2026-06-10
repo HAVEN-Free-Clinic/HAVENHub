@@ -21,11 +21,7 @@ export function InactivityTracker({ authenticated }: { authenticated: boolean })
   const resetRef = useRef<() => void>(() => {});
 
   useEffect(() => {
-    if (!authenticated) {
-      // If we de-authenticate while the warning is up, clear it.
-      setShowWarning(false);
-      return;
-    }
+    if (!authenticated) return;
 
     let logoutTimer: ReturnType<typeof setTimeout>;
     let warningTimer: ReturnType<typeof setTimeout>;
@@ -56,7 +52,9 @@ export function InactivityTracker({ authenticated }: { authenticated: boolean })
     };
   }, [authenticated]);
 
-  if (!showWarning) return null;
+  // Derive visibility from the prop so the banner clears immediately if the
+  // user de-authenticates while it is up, without syncing state in the effect.
+  if (!authenticated || !showWarning) return null;
 
   return (
     <div className="fixed bottom-4 right-4 z-50 max-w-sm rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 shadow-lg">

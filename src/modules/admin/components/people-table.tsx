@@ -9,6 +9,7 @@
 import Link from "next/link";
 import type { Person } from "@prisma/client";
 import { Badge } from "@/platform/ui/badge";
+import { Card } from "@/platform/ui/card";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 
 type Row = Person & { _membershipCount?: number };
@@ -16,9 +17,9 @@ type Row = Person & { _membershipCount?: number };
 export function PeopleTable({ rows }: { rows: Row[] }) {
   if (rows.length === 0) {
     return (
-      <div className="rounded-2xl border border-slate-200 bg-white px-6 py-10 text-center text-sm text-slate-500">
+      <Card pad={false} className="px-6 py-10 text-center text-sm text-slate-500">
         No people found.
-      </div>
+      </Card>
     );
   }
 

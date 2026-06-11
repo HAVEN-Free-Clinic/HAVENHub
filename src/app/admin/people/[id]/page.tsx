@@ -101,7 +101,7 @@ export default async function PersonDetailPage({ params, searchParams }: PagePro
 
       {/* Edit form */}
       <section>
-        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-400">
+        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-500">
           Details
         </h2>
         <PersonForm
@@ -115,7 +115,7 @@ export default async function PersonDetailPage({ params, searchParams }: PagePro
       {/* Memberships table */}
       {person.memberships.length > 0 && (
         <section>
-          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-400">
+          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-500">
             Memberships
           </h2>
           <Table>
@@ -155,7 +155,7 @@ export default async function PersonDetailPage({ params, searchParams }: PagePro
 
       {/* Status section */}
       <section>
-        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-400">
+        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-500">
           Status
         </h2>
         {person.status === "ACTIVE" ? (

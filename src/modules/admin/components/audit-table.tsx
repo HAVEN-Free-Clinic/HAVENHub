@@ -1,5 +1,6 @@
 import type { AuditRow } from "@/modules/admin/services/audit";
 import { Badge } from "@/platform/ui/badge";
+import { Card } from "@/platform/ui/card";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 
 function formatUtc(date: Date): string {
@@ -22,9 +23,9 @@ function truncate(s: string | null | undefined, max = 12): string {
 export function AuditTable({ rows }: { rows: AuditRow[] }) {
   if (rows.length === 0) {
     return (
-      <div className="rounded-2xl border border-slate-200 bg-white px-6 py-12 text-center text-sm text-slate-400">
+      <Card pad={false} className="px-6 py-12 text-center text-sm text-slate-500">
         No audit entries found.
-      </div>
+      </Card>
     );
   }
 

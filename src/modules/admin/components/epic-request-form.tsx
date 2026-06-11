@@ -22,6 +22,9 @@ import type { DepartmentWithMembers, MemberLite } from "@/modules/admin/services
 import { Button } from "@/platform/ui/button";
 import { Select } from "@/platform/ui/select";
 import { Input, Field } from "@/platform/ui/input";
+import { Card } from "@/platform/ui/card";
+import { Alert } from "@/platform/ui/alert";
+import { Badge } from "@/platform/ui/badge";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -181,7 +184,7 @@ export function EpicRequestForm({ departments }: Props) {
   return (
     <div className="space-y-8">
       {/* ── Step 1: Configuration ── */}
-      <section className="rounded-xl border border-slate-200 bg-white p-6 space-y-5">
+      <Card pad={false} className="p-6 space-y-5">
         <h2 className="text-base font-semibold text-slate-800">1. Configure request</h2>
 
         <div className="grid gap-4 sm:grid-cols-3">
@@ -246,17 +249,17 @@ export function EpicRequestForm({ departments }: Props) {
           )}
         </div>
 
-        <div className="rounded-lg bg-slate-50 border border-slate-200 px-4 py-3 text-sm text-slate-600">
-          Authorizer: <span className="font-medium text-slate-800">{AUTHORIZERS[authorizer].name}</span>
+        <Alert tone="info">
+          Authorizer: <span className="font-medium">{AUTHORIZERS[authorizer].name}</span>
           {" · "}
           {AUTHORIZERS[authorizer].phone}
           {" · "}
           {AUTHORIZERS[authorizer].email}
-        </div>
-      </section>
+        </Alert>
+      </Card>
 
       {/* ── Step 2: Person selection ── */}
-      <section className="rounded-xl border border-slate-200 bg-white p-6 space-y-5">
+      <Card pad={false} className="p-6 space-y-5">
         <h2 className="text-base font-semibold text-slate-800">
           2. Select {isBulk ? "people" : "person"}
         </h2>
@@ -283,7 +286,7 @@ export function EpicRequestForm({ departments }: Props) {
             {/* Directors */}
             {selectedDept.directors.length > 0 && (
               <div>
-                <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-2">
+                <p className="text-sm font-semibold uppercase tracking-wider text-slate-500 mb-2">
                   Directors
                 </p>
                 <div className="space-y-1">
@@ -302,7 +305,7 @@ export function EpicRequestForm({ departments }: Props) {
             {/* Volunteers */}
             {selectedDept.volunteers.length > 0 && (
               <div>
-                <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-2">
+                <p className="text-sm font-semibold uppercase tracking-wider text-slate-500 mb-2">
                   Volunteers
                 </p>
                 <div className="space-y-1">
@@ -329,17 +332,13 @@ export function EpicRequestForm({ departments }: Props) {
             {selectedPeopleIds.size} {selectedPeopleIds.size === 1 ? "person" : "people"} selected
           </p>
         )}
-      </section>
+      </Card>
 
       {/* ── Step 3: Generate ── */}
-      <section className="rounded-xl border border-slate-200 bg-white p-6 space-y-5">
+      <Card pad={false} className="p-6 space-y-5">
         <h2 className="text-base font-semibold text-slate-800">3. Generate</h2>
 
-        {error && (
-          <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
-            {error}
-          </div>
-        )}
+        {error && <Alert tone="error">{error}</Alert>}
 
         <Button
           variant="primary"
@@ -352,7 +351,7 @@ export function EpicRequestForm({ departments }: Props) {
         {emailDraft && (
           <div className="space-y-3">
             <p className="text-sm font-semibold text-slate-700">Email draft</p>
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-2">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-2">
               <div className="text-xs text-slate-500 font-medium">
                 To: <span className="text-slate-700">helpdesk@ynhh.org</span>
               </div>
@@ -373,7 +372,7 @@ export function EpicRequestForm({ departments }: Props) {
             </Button>
           </div>
         )}
-      </section>
+      </Card>
     </div>
   );
 }
@@ -404,13 +403,9 @@ function PersonRow({
         <span className="text-xs text-slate-400">{person.netId}</span>
       )}
       {person.epicId ? (
-        <span className="text-xs px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
-          Epic: {person.epicId}
-        </span>
+        <Badge tone="success">Epic: {person.epicId}</Badge>
       ) : (
-        <span className="text-xs px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">
-          No Epic ID
-        </span>
+        <Badge tone="warning">No Epic ID</Badge>
       )}
     </label>
   );

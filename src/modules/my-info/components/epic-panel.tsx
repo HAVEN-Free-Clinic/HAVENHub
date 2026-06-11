@@ -10,6 +10,7 @@
  */
 
 import type { EpicRequest } from "@prisma/client";
+import { Card } from "@/platform/ui/card";
 import { Input, Field } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { SubmitButton } from "@/platform/ui/submit-button";
@@ -38,9 +39,9 @@ export function EpicPanel({ epicId, openRequest, action, error, saved }: EpicPan
   const hasEpicId = !!epicId;
 
   return (
-    <div className="rounded-2xl border border-slate-200 p-5 space-y-4">
+    <Card className="space-y-4">
       <div>
-        <h3 className="text-sm font-semibold text-slate-700">Epic Access</h3>
+        <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-500">Epic Access</h3>
         <p className="mt-0.5 text-xs text-slate-400">Managed by the IT team.</p>
       </div>
 
@@ -73,7 +74,7 @@ export function EpicPanel({ epicId, openRequest, action, error, saved }: EpicPan
         </div>
       ) : (
         <div>
-          <h4 className="mb-2 text-xs font-medium text-slate-500">Request Epic Access</h4>
+          <h4 className="mb-2 text-sm font-semibold uppercase tracking-wider text-slate-500">Request Epic Access</h4>
 
           {error && (
             <Alert tone="error" className="mb-3">
@@ -107,6 +108,6 @@ export function EpicPanel({ epicId, openRequest, action, error, saved }: EpicPan
           </form>
         </div>
       )}
-    </div>
+    </Card>
   );
 }

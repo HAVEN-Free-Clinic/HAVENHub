@@ -2,6 +2,9 @@ import { notFound } from "next/navigation";
 import { requirePermission } from "@/platform/auth/session";
 import { prisma } from "@/platform/db";
 import { PageHeader } from "@/platform/ui/page-header";
+import { Button } from "@/platform/ui/button";
+import { Input, Textarea } from "@/platform/ui/input";
+import { Checkbox } from "@/platform/ui/checkbox";
 import { getCourseForEdit } from "@/modules/learning/services/courses";
 import { usingBlobStorage } from "@/platform/storage";
 import { updateCourseAction, setAssignmentAction } from "../actions";
@@ -21,24 +24,24 @@ export default async function EditCoursePage({ params }: { params: Promise<{ cou
       <div className="mt-6 grid max-w-3xl gap-8">
         <form action={updateCourseAction} className="space-y-2">
           <input type="hidden" name="courseId" value={course.id} />
-          <input name="title" defaultValue={course.title} className="w-full rounded border border-slate-300 px-3 py-1.5" />
-          <textarea name="description" defaultValue={course.description ?? ""} placeholder="Description" className="w-full rounded border border-slate-300 px-3 py-1.5" />
-          <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="isActive" defaultChecked={course.isActive} /> Active</label>
-          <button className="rounded bg-slate-800 px-3 py-1.5 text-white" type="submit">Save course</button>
+          <Input name="title" defaultValue={course.title} />
+          <Textarea name="description" defaultValue={course.description ?? ""} placeholder="Description" />
+          <label className="flex items-center gap-2 text-sm"><Checkbox name="isActive" defaultChecked={course.isActive} /> Active</label>
+          <Button type="submit">Save course</Button>
         </form>
 
         <form action={setAssignmentAction} className="space-y-2">
           <input type="hidden" name="courseId" value={course.id} />
           <h2 className="font-medium">Assignment</h2>
-          <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="assignToAll" defaultChecked={course.assignToAll} /> Assign to all departments</label>
+          <label className="flex items-center gap-2 text-sm"><Checkbox name="assignToAll" defaultChecked={course.assignToAll} /> Assign to all departments</label>
           <div className="grid grid-cols-2 gap-1 text-sm">
             {departments.map((d) => (
               <label key={d.id} className="flex items-center gap-2">
-                <input type="checkbox" name="departmentIds" value={d.id} defaultChecked={assignedDeptIds.has(d.id)} /> {d.name}
+                <Checkbox name="departmentIds" value={d.id} defaultChecked={assignedDeptIds.has(d.id)} /> {d.name}
               </label>
             ))}
           </div>
-          <button className="rounded bg-slate-800 px-3 py-1.5 text-white" type="submit">Save assignment</button>
+          <Button type="submit">Save assignment</Button>
         </form>
 
         <div className="space-y-2">

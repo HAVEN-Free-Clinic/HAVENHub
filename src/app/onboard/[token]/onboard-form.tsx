@@ -33,7 +33,7 @@ export function OnboardForm({ token, prefill }: { token: string; prefill: Prefil
   return (
     <form onSubmit={onSubmit} className="mt-6 space-y-6">
       {result && !result.ok && <Alert tone="error">{result.message}</Alert>}
-      <fieldset className="space-y-3"><legend className="text-sm font-semibold uppercase tracking-wide text-slate-400">Your information</legend>
+      <fieldset className="space-y-3 rounded-xl border border-slate-200 bg-white p-4"><legend className="text-sm font-semibold uppercase tracking-wider text-slate-500">Your information</legend>
         {field("First name", "firstName", { defaultValue: prefill.firstName, required: true })}
         {field("Last name", "lastName", { defaultValue: prefill.lastName, required: true })}
         {field("Email", "email", { type: "email", defaultValue: prefill.email, required: true })}
@@ -44,23 +44,23 @@ export function OnboardForm({ token, prefill }: { token: string; prefill: Prefil
         {field("Yale affiliation", "yaleAffiliation")}
         {field("Graduation year", "gradYear")}
       </fieldset>
-      <fieldset className="space-y-3"><legend className="text-sm font-semibold uppercase tracking-wide text-slate-400">Acknowledgements</legend>
+      <fieldset className="space-y-3 rounded-xl border border-slate-200 bg-white p-4"><legend className="text-sm font-semibold uppercase tracking-wider text-slate-500">Acknowledgements</legend>
         {field("Volunteer agreement (type your full name)", "agreementSignature", { required: true })}
         {field("Professionalism policy (type your full name)", "professionalismSignature", { required: true })}
         {field("Training acknowledgement (type your full name)", "trainingSignature", { required: true })}
         {field("Initials", "initials", { required: true })}
       </fieldset>
-      <fieldset className="space-y-3"><legend className="text-sm font-semibold uppercase tracking-wide text-slate-400">EPIC access</legend>
+      <fieldset className="space-y-3 rounded-xl border border-slate-200 bg-white p-4"><legend className="text-sm font-semibold uppercase tracking-wider text-slate-500">EPIC access</legend>
         <label className="block text-sm"><input type="checkbox" name="epicNeeded" /> EPIC access is required for my role</label>
         <label className="block text-sm"><input type="checkbox" name="hasEpic" checked={hasEpic} onChange={(e) => setHasEpic(e.target.checked)} /> I already have an EPIC ID</label>
         {hasEpic && field("Existing EPIC ID", "existingEpicId", { required: true })}
         {field("Access type (if known)", "epicAccessType")}
         <label className="block text-sm"><input type="checkbox" name="worksWithYnhh" /> I currently work with Yale New Haven Hospital</label>
       </fieldset>
-      <fieldset className="space-y-3"><legend className="text-sm font-semibold uppercase tracking-wide text-slate-400">HIPAA</legend>
+      <fieldset className="space-y-3 rounded-xl border border-slate-200 bg-white p-4"><legend className="text-sm font-semibold uppercase tracking-wider text-slate-500">HIPAA</legend>
         {field("HIPAA completion date", "hipaaCompletedAt", { type: "date", required: true })}
         <label className="block text-sm">HIPAA certificate (PDF)<span className="text-critical"> *</span>
-          <input name="hipaaFile" type="file" accept="application/pdf,image/*" className="mt-1 w-full rounded-lg border px-2 py-1" />
+          <Input name="hipaaFile" type="file" accept="application/pdf,image/*" className="mt-1 cursor-pointer" />
           {err("hipaaFile") && <span className="block text-xs text-critical">{err("hipaaFile")}</span>}
         </label>
       </fieldset>

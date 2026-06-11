@@ -17,6 +17,7 @@ import { requireModuleAccess } from "@/platform/auth/session";
 import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
+import { Card } from "@/platform/ui/card";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
@@ -124,7 +125,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
   if (data.departments.length === 0) {
     return (
       <div>
-        <div className="rounded-xl bg-brand px-8 py-6 text-white mb-8">
+        <div className="rounded-2xl bg-brand px-8 py-6 text-white mb-8">
           <p className="text-xs font-semibold uppercase tracking-widest text-white/60 mb-1">Schedule Builder</p>
           <h1 className="text-2xl font-bold">No departments</h1>
           <p className="text-sm text-white/70 mt-1">You do not direct any departments this term.</p>
@@ -643,7 +644,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                       const m = memberByPersonId.get(pid);
                       const name = m?.person.name ?? pid;
                       return (
-                        <div key={pid} className="rounded-xl border-l-4 border-l-brand border border-slate-200 bg-white px-3 py-2 flex items-center justify-between">
+                        <div key={pid} className="rounded-2xl border-l-4 border-l-brand border border-slate-200 bg-white shadow-sm px-3 py-2 flex items-center justify-between">
                           <span className="flex flex-wrap items-center gap-2">
                             <span className="text-sm font-bold text-slate-800">{name}</span>
                             {m?.person && flagBadges(m.person)}
@@ -677,7 +678,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                       const tags = assignment.tags;
                       const personConflicts = conflicts[pid] ?? [];
                       return (
-                        <div key={pid} className="rounded-xl border-l-4 border-l-success border border-slate-200 bg-white px-3 py-2">
+                        <div key={pid} className="rounded-2xl border-l-4 border-l-success border border-slate-200 bg-white shadow-sm px-3 py-2">
                           <div className="flex flex-wrap items-center gap-2 text-sm">
                             <span className="font-medium text-slate-800">{name}</span>
                             {m?.person && flagBadges(m.person)}
@@ -726,7 +727,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                       const m = memberByPersonId.get(pid);
                       const name = m?.person.name ?? pid;
                       return (
-                        <div key={pid} className="rounded-xl border-l-4 border-l-warning border border-slate-200 bg-white px-3 py-2 flex items-center justify-between">
+                        <div key={pid} className="rounded-2xl border-l-4 border-l-warning border border-slate-200 bg-white shadow-sm px-3 py-2 flex items-center justify-between">
                           <span className="flex flex-wrap items-center gap-2">
                             <span className="text-sm font-medium text-slate-700">{name}</span>
                             {m?.person && flagBadges(m.person)}
@@ -755,7 +756,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
               </div>
 
               {!selectedDateKey ? (
-                <div className="rounded-xl border-2 border-dashed border-slate-200 px-6 py-10 text-center text-sm text-slate-400">
+                <div className="rounded-2xl border border-dashed border-slate-200 px-6 py-10 text-center text-sm text-slate-400">
                   Select a date above to start assigning.
                 </div>
               ) : (
@@ -865,7 +866,7 @@ function AvailabilityView({
         const availKeys = new Set(member.availability.dates.map((d) => isoDateKey(d)));
 
         return (
-          <div key={member.membershipId} className="rounded-xl border border-slate-200 bg-white px-4 py-4">
+          <Card key={member.membershipId} pad={false} className="px-4 py-4">
             <div className="flex flex-wrap items-center gap-2 mb-3">
               <span className="text-sm font-bold text-slate-800">{member.person.name}</span>
               <Badge tone="default">{member.kind === "DIRECTOR" ? "Director" : "Volunteer"}</Badge>
@@ -909,7 +910,7 @@ function AvailabilityView({
                 <ConfirmButton label="Acknowledge" confirmLabel="Mark availability as reviewed?" />
               </form>
             )}
-          </div>
+          </Card>
         );
       })}
     </div>

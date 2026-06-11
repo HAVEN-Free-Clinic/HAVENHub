@@ -85,7 +85,7 @@ export default async function OnboardingPage({ params, searchParams }: { params:
       </form>
 
       <form action={promoteAction.bind(null, id)} className="space-y-3 border-t border-slate-200 pt-6">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Promote submitted contracts</h2>
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">Promote submitted contracts</h2>
         {promotable.length === 0 ? (
           <p className="text-sm text-slate-500">No submitted contracts ready to promote.</p>
         ) : (

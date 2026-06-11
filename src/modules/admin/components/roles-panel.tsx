@@ -29,6 +29,7 @@ import {
 } from "@/modules/admin/services/rbac";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
+import { Card } from "@/platform/ui/card";
 import { Input, Field } from "@/platform/ui/input";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
@@ -149,7 +150,7 @@ export async function RolesPanel({ roles, pageHref }: RolesPanelProps): Promise<
       <SectionHeading>Roles</SectionHeading>
 
       {/* Create-role inline form */}
-      <div className="rounded-2xl border border-slate-200 bg-white p-5">
+      <Card>
         <h3 className="mb-4 text-sm font-semibold text-slate-700">Create new role</h3>
         <form action={createRoleAction} className="flex flex-wrap items-end gap-3">
           <Field label="Name">
@@ -173,20 +174,17 @@ export async function RolesPanel({ roles, pageHref }: RolesPanelProps): Promise<
             Create role
           </Button>
         </form>
-      </div>
+      </Card>
 
       {/* One card per role */}
       {roles.length === 0 && (
-        <p className="text-sm text-slate-400">No roles yet. Create one above.</p>
+        <p className="text-sm text-slate-500">No roles yet. Create one above.</p>
       )}
       {roles.map((role) => {
         const grantedSet = new Set(role.grants.map((g) => g.permission));
 
         return (
-          <div
-            key={role.id}
-            className="rounded-2xl border border-slate-200 bg-white p-5 space-y-5"
-          >
+          <Card key={role.id} className="space-y-5">
             {/* Card header */}
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-1">
@@ -220,7 +218,7 @@ export async function RolesPanel({ roles, pageHref }: RolesPanelProps): Promise<
               {/* Module permission groups */}
               {MODULES.filter((m) => m.permissions.length > 0).map((mod) => (
                 <div key={mod.id} className="space-y-2">
-                  <p className="text-xs font-medium uppercase tracking-wider text-slate-400">
+                  <p className="text-xs font-medium uppercase tracking-wider text-slate-500">
                     {mod.title}
                   </p>
                   <div className="flex flex-wrap gap-x-6 gap-y-1.5">
@@ -243,7 +241,7 @@ export async function RolesPanel({ roles, pageHref }: RolesPanelProps): Promise<
 
               {/* Platform group: wildcard */}
               <div className="space-y-2">
-                <p className="text-xs font-medium uppercase tracking-wider text-slate-400">
+                <p className="text-xs font-medium uppercase tracking-wider text-slate-500">
                   Platform
                 </p>
                 <div className="flex flex-wrap gap-x-6 gap-y-1.5">
@@ -265,7 +263,7 @@ export async function RolesPanel({ roles, pageHref }: RolesPanelProps): Promise<
                 </Button>
               </div>
             </form>
-          </div>
+          </Card>
         );
       })}
     </section>

@@ -67,7 +67,7 @@ export function ScormPlayer({ courseId, entryHref, initialCmi }: Props) {
     <iframe
       title="Course content"
       src={`/learning/play/${courseId}/${entryHref}`}
-      className="h-[80vh] w-full rounded border border-slate-200"
+      className="h-[80vh] w-full rounded-xl border border-slate-200"
     />
   );
 }

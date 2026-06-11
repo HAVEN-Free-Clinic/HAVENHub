@@ -6,6 +6,7 @@ import { auth } from "@/platform/auth/auth";
 import { InactivityTracker } from "@/platform/auth/inactivity";
 import { getSetting } from "@/platform/settings/service";
 import { brandStyleVars } from "@/platform/ui/brand-style";
+import { enforceOnboardingGate } from "./onboarding-gate";
 
 const hanken = Hanken_Grotesk({ subsets: ["latin"], variable: "--font-hanken" });
 
@@ -26,6 +27,8 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
     auth(),
     getSetting<string>("branding.brandColor"),
   ]);
+
+  if (session?.personId) await enforceOnboardingGate(session.personId);
 
   return (
     <html lang="en">

@@ -99,6 +99,12 @@ export async function deleteObject(key: string): Promise<void> {
  * replacing a SCORM package so stale files from the previous upload don't linger.
  */
 export async function deletePrefix(prefix: string): Promise<void> {
+  // Allowlist the prefix to our own storage namespace before it reaches any path
+  // or list operation: slash-separated segments of safe chars only. This rejects
+  // "..", absolute paths, and backslashes outright (our prefixes are "scorm/<id>/").
+  if (!/^[A-Za-z0-9_-]+(\/[A-Za-z0-9_-]+)*\/?$/.test(prefix)) {
+    throw new Error(`Refusing unsafe storage prefix: ${prefix}`);
+  }
   if (blobToken) {
     const { list, del } = await import("@vercel/blob");
     let cursor: string | undefined;

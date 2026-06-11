@@ -71,6 +71,28 @@ export async function uploadPackageAction(_prev: UploadState, formData: FormData
 }
 
 /**
+ * Validate that a client-supplied blob URL really points at our Vercel Blob store
+ * and at this course's own upload prefix, then rebuild it from the checked parts.
+ * Without this, fetching the raw client value is a server-side request forgery
+ * vector (an attacker could aim the fetch at internal/metadata endpoints).
+ */
+function safeBlobUrl(rawUrl: string, courseId: string): string {
+  let u: URL;
+  try {
+    u = new URL(rawUrl);
+  } catch {
+    throw new LearningValidationError("Invalid upload reference.");
+  }
+  const hostOk = u.protocol === "https:" && /(^|\.)blob\.vercel-storage\.com$/.test(u.hostname);
+  const pathOk = u.pathname.startsWith(`/scorm-uploads/${courseId}/`) && !u.pathname.includes("..");
+  if (!hostOk || !pathOk) {
+    throw new LearningValidationError("Invalid upload reference.");
+  }
+  // Reconstruct from validated host + path so no unexpected pieces reach fetch().
+  return `https://${u.hostname}${u.pathname}`;
+}
+
+/**
  * Ingest a SCORM package that the browser already uploaded directly to Blob
  * (the path used on Vercel, where the function request body is capped at 4.5 MB).
  * Fetches the zip bytes from the blob URL, ingests, then deletes the temp upload.
@@ -80,8 +102,17 @@ export async function ingestUploadedPackageAction(input: {
   url: string;
 }): Promise<UploadState> {
   const person = await requirePermission("learning.manage_courses");
+
+  let url: string;
   try {
-    const res = await fetch(input.url);
+    url = safeBlobUrl(input.url, input.courseId);
+  } catch (err) {
+    if (err instanceof LearningValidationError) return { error: err.message };
+    throw err;
+  }
+
+  try {
+    const res = await fetch(url);
     if (!res.ok) return { error: "Could not read the uploaded package from storage." };
     const bytes = Buffer.from(await res.arrayBuffer());
     await ingestScormPackage(input.courseId, bytes, person.personId);
@@ -89,10 +120,10 @@ export async function ingestUploadedPackageAction(input: {
     if (err instanceof LearningValidationError) return { error: err.message };
     throw err;
   } finally {
-    // Best-effort cleanup of the transient upload.
+    // Best-effort cleanup of the transient upload (validated URL only).
     try {
       const { del } = await import("@vercel/blob");
-      await del(input.url, { token: process.env.BLOB_READ_WRITE_TOKEN });
+      await del(url, { token: process.env.BLOB_READ_WRITE_TOKEN });
     } catch {
       // already gone / not on Blob -- nothing to clean up
     }

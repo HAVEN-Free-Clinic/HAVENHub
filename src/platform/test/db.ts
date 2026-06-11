@@ -5,7 +5,7 @@ import { _resetSettingsCache } from "@/platform/settings/service";
 export async function resetDb() {
   // CASCADE handles FK ordering. (RESTART IDENTITY would be a no-op: all PKs are cuid text.)
   await prisma.$executeRawUnsafe(
-    `TRUNCATE "CourseQuizAttempt", "ModuleProgress", "CourseProgress", "CourseDepartment", "CourseModule", "Course",
+    `TRUNCATE "CourseProgress", "CourseDepartment", "Course",
               "QuizAttempt", "VolunteerTraining", "Evaluation", "InterviewPanelist", "Interview", "OnboardingContract", "Acceptance", "Application", "Applicant", "FormField", "FormSection", "RecruitmentCycle",
               "ShiftRequest", "ScheduleDay", "RhdClinic", "RhdAttending",
               "ShiftAssignment", "HipaaCertificate", "RoleAssignment", "RoleGrant", "Role", "TermMembership",

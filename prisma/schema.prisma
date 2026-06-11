@@ -110,7 +110,6 @@ model Person {
   volunteerTrainings        VolunteerTraining[]  @relation("volunteerTrainingPerson")
   trainingAttendanceMarked  VolunteerTraining[]  @relation("volunteerTrainingAttendanceRecorder")
   courseProgress            CourseProgress[]
-  moduleProgress            ModuleProgress[]
   /// Shift requests this person raised.
   shiftRequests             ShiftRequest[]       @relation("shiftRequestRequester")
   /// Shift requests targeting this person as the swap partner.
@@ -1022,31 +1021,30 @@ model Setting {
   updatedAt   DateTime @updatedAt
 }
 
-enum CourseModuleKind {
-  VIDEO
-  DOCUMENT
-  QUIZ
-}
-
 enum CourseProgressStatus {
   IN_PROGRESS
   COMPLETE
 }
 
 model Course {
-  id          String             @id @default(cuid())
-  title       String
-  description String?
-  isActive    Boolean            @default(true)
+  id              String             @id @default(cuid())
+  title           String
+  description     String?
+  isActive        Boolean            @default(true)
   /// When true, the course is assigned to every department (org-wide).
-  assignToAll Boolean            @default(false)
+  assignToAll     Boolean            @default(false)
   /// Ordering in the catalog / management list.
-  position    Int                @default(0)
-  createdAt   DateTime           @default(now())
-  updatedAt   DateTime           @updatedAt
-  modules     CourseModule[]
-  departments CourseDepartment[]
-  progress    CourseProgress[]
+  position        Int                @default(0)
+  /// Launch file from imsmanifest.xml (e.g. "index.html"). Null = no package uploaded yet (draft).
+  scormEntryHref  String?
+  /// SCORM version string, e.g. "1.2".
+  scormVersion    String?
+  /// When the current package was ingested.
+  scormUploadedAt DateTime?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  departments     CourseDepartment[]
+  progress        CourseProgress[]
 }
 
 model CourseDepartment {
@@ -1060,68 +1058,23 @@ model CourseDepartment {
   @@index([departmentId])
 }
 
-model CourseModule {
-  id          String           @id @default(cuid())
-  courseId    String
-  position    Int
-  title       String
-  kind        CourseModuleKind
-  /// Instructions shown to the volunteer (optional).
-  description String?
-  /// External link for VIDEO / DOCUMENT modules.
-  url         String?
-  /// QUIZ only: array of { key, label, options:[{value,label}], correctValue }.
-  questions   Json?
-  /// QUIZ only: override; null means use the learning.defaultQuizPassPercent setting.
-  passPercent Int?
-  /// QUIZ only: override; null means use the learning.defaultQuizMaxAttempts setting.
-  maxAttempts Int?
-  course      Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  progress    ModuleProgress[]
-
-  @@unique([courseId, position])
-}
-
 model CourseProgress {
-  id          String               @id @default(cuid())
-  personId    String
-  courseId    String
-  status      CourseProgressStatus @default(IN_PROGRESS)
-  completedAt DateTime?
-  person      Person               @relation(fields: [personId], references: [id], onDelete: Cascade)
-  course      Course               @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  id             String               @id @default(cuid())
+  personId       String
+  courseId       String
+  status         CourseProgressStatus @default(IN_PROGRESS)
+  completedAt    DateTime?
+  /// Raw cmi.core.lesson_status reported by the package.
+  lessonStatus   String?
+  /// cmi.core.score.raw when reported; null otherwise.
+  scoreRaw       Int?
+  /// cmi.suspend_data -- can be large.
+  suspendData    String?              @db.Text
+  /// cmi.core.lesson_location for resume.
+  lessonLocation String?
+  person         Person               @relation(fields: [personId], references: [id], onDelete: Cascade)
+  course         Course               @relation(fields: [courseId], references: [id], onDelete: Cascade)
 
   @@unique([personId, courseId])
   @@index([courseId])
-}
-
-model ModuleProgress {
-  id          String              @id @default(cuid())
-  personId    String
-  moduleId    String
-  completedAt DateTime?
-  /// Quiz attempt lock (cap reached without a pass).
-  locked      Boolean             @default(false)
-  /// Opens a fresh attempt window after a manager reset; attempts before this
-  /// timestamp do not count toward the cap.
-  lockResetAt DateTime?
-  person      Person              @relation(fields: [personId], references: [id], onDelete: Cascade)
-  module      CourseModule        @relation(fields: [moduleId], references: [id], onDelete: Cascade)
-  attempts    CourseQuizAttempt[]
-
-  @@unique([personId, moduleId])
-  @@index([moduleId])
-}
-
-model CourseQuizAttempt {
-  id               String         @id @default(cuid())
-  moduleProgressId String
-  answers          Json
-  score            Int
-  total            Int
-  passed           Boolean
-  takenAt          DateTime       @default(now())
-  moduleProgress   ModuleProgress @relation(fields: [moduleProgressId], references: [id], onDelete: Cascade)
-
-  @@index([moduleProgressId, takenAt])
 }

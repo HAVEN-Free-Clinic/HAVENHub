@@ -26,10 +26,12 @@ export default async function LearningPage() {
                 className={
                   c.status === "COMPLETE"
                     ? "rounded bg-green-50 px-2 py-0.5 text-xs text-green-800"
-                    : "rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-600"
+                    : c.status === "IN_PROGRESS"
+                      ? "rounded bg-blue-50 px-2 py-0.5 text-xs text-blue-700"
+                      : "rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-600"
                 }
               >
-                {c.status === "COMPLETE" ? "Complete" : `${c.done}/${c.total} done`}
+                {c.status === "COMPLETE" ? "Complete" : c.status === "IN_PROGRESS" ? "In progress" : "Not started"}
               </span>
             </div>
             {c.description && <p className="mt-1 text-sm text-slate-500">{c.description}</p>}

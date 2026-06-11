@@ -1,103 +1,85 @@
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
-import { LearningAuthError, LearningValidationError } from "./errors";
-import { getMyCourses, getCourseForLearner, markModuleComplete, submitCourseQuiz } from "./enrollment";
-import type { QuizQuestion } from "./types";
+import { LearningAuthError } from "./errors";
+import { getMyCourses, getCourseForLearner, persistCmi, isCourseAssignedTo } from "./enrollment";
 
-const QUESTIONS: QuizQuestion[] = [
-  { key: "q1", label: "2+2?", options: [{ value: "4", label: "4" }, { value: "5", label: "5" }], correctValue: "4" },
-];
-
+/** A learner assigned to one active, department-scoped course with a package. */
 async function seed() {
-  const term = await prisma.term.create({ data: { code: "SU26", name: "Summer", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
   const dept = await prisma.department.create({ data: { code: "SRHD", name: "SRHD" } });
-  const other = await prisma.department.create({ data: { code: "PHARM", name: "Pharmacy" } });
-  const person = await prisma.person.create({ data: { name: "Vol", status: "ACTIVE" } });
-  await prisma.termMembership.create({ data: { personId: person.id, termId: term.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" } });
-
-  const course = await prisma.course.create({ data: { title: "Intro", isActive: true } });
-  await prisma.courseDepartment.create({ data: { courseId: course.id, departmentId: dept.id } });
-  const video = await prisma.courseModule.create({ data: { courseId: course.id, position: 0, title: "Watch", kind: "VIDEO", url: "https://v" } });
-  const quiz = await prisma.courseModule.create({ data: { courseId: course.id, position: 1, title: "Quiz", kind: "QUIZ", questions: QUESTIONS as object, passPercent: 100, maxAttempts: 2 } });
-
-  // A course assigned to a department the person is NOT in.
-  const hidden = await prisma.course.create({ data: { title: "Hidden", isActive: true } });
-  await prisma.courseDepartment.create({ data: { courseId: hidden.id, departmentId: other.id } });
-
-  return { person, course, video, quiz, hidden };
+  const other = await prisma.department.create({ data: { code: "MED", name: "Medical" } });
+  const learner = await prisma.person.create({ data: { name: "Lee", status: "ACTIVE" } });
+  const term = await prisma.term.create({
+    data: { code: "SU26", name: "T1", status: "ACTIVE", startDate: new Date("2026-01-01"), endDate: new Date("2026-12-31") },
+  });
+  await prisma.termMembership.create({
+    data: { personId: learner.id, termId: term.id, departmentId: dept.id, status: "ACTIVE", kind: "VOLUNTEER" },
+  });
+  const course = await prisma.course.create({
+    data: {
+      title: "Intro",
+      description: "d",
+      scormEntryHref: "index.html",
+      scormVersion: "1.2",
+      departments: { create: [{ departmentId: dept.id }] },
+    },
+  });
+  const unassigned = await prisma.course.create({
+    data: { title: "Other", scormEntryHref: "index.html", departments: { create: [{ departmentId: other.id }] } },
+  });
+  return { learner, dept, course, unassigned };
 }
 
 beforeEach(async () => { await resetDb(); });
 afterEach(async () => { await resetDb(); });
 
-it("lists only assigned courses with progress counts", async () => {
-  const { person, course, hidden } = await seed();
-  const mine = await getMyCourses(person.id);
-  const ids = mine.map((c) => c.id);
-  expect(ids).toContain(course.id);
-  expect(ids).not.toContain(hidden.id);
-  const intro = mine.find((c) => c.id === course.id)!;
-  expect(intro).toMatchObject({ done: 0, total: 2, status: "IN_PROGRESS" });
+it("lists assigned courses as NOT_STARTED before any progress", async () => {
+  const { learner, course } = await seed();
+  const rows = await getMyCourses(learner.id);
+  expect(rows.map((r) => r.id)).toEqual([course.id]);
+  expect(rows[0].status).toBe("NOT_STARTED");
 });
 
-it("blocks reading a course that is not assigned to the learner", async () => {
-  const { person, hidden } = await seed();
-  await expect(getCourseForLearner(person.id, hidden.id)).rejects.toBeInstanceOf(LearningAuthError);
+it("isCourseAssignedTo reflects department assignment", async () => {
+  const { learner, course, unassigned } = await seed();
+  expect(await isCourseAssignedTo(learner.id, course.id)).toBe(true);
+  expect(await isCourseAssignedTo(learner.id, unassigned.id)).toBe(false);
 });
 
-it("marks a video module complete", async () => {
-  const { person, video } = await seed();
-  await markModuleComplete(person.id, video.id);
-  const detail = await getCourseForLearner(person.id, (await prisma.courseModule.findUniqueOrThrow({ where: { id: video.id } })).courseId);
-  expect(detail.modules.find((m) => m.id === video.id)!.completed).toBe(true);
+it("getCourseForLearner refuses an unassigned course", async () => {
+  const { learner, unassigned } = await seed();
+  await expect(getCourseForLearner(learner.id, unassigned.id)).rejects.toBeInstanceOf(LearningAuthError);
 });
 
-it("refuses to mark a quiz module complete via markModuleComplete", async () => {
-  const { person, quiz } = await seed();
-  await expect(markModuleComplete(person.id, quiz.id)).rejects.toBeInstanceOf(LearningValidationError);
-});
-
-it("passing the quiz after completing the video completes the course", async () => {
-  const { person, course, video, quiz } = await seed();
-  await markModuleComplete(person.id, video.id);
-  const res = await submitCourseQuiz(person.id, quiz.id, { q1: "4" });
-  expect(res.passed).toBe(true);
-  const progress = await prisma.courseProgress.findUniqueOrThrow({ where: { personId_courseId: { personId: person.id, courseId: course.id } } });
-  expect(progress.status).toBe("COMPLETE");
-});
-
-it("locks the quiz after the attempt cap without a pass", async () => {
-  const { person, quiz } = await seed();
-  await submitCourseQuiz(person.id, quiz.id, { q1: "5" }); // attempt 1 (cap 2)
-  await submitCourseQuiz(person.id, quiz.id, { q1: "5" }); // attempt 2 -> lock
-  const mp = await prisma.moduleProgress.findUniqueOrThrow({ where: { personId_moduleId: { personId: person.id, moduleId: quiz.id } } });
-  expect(mp.locked).toBe(true);
-  await expect(submitCourseQuiz(person.id, quiz.id, { q1: "4" })).rejects.toBeInstanceOf(LearningValidationError);
-});
-
-it("completedAt is preserved when course is re-marked after completion", async () => {
-  const { person, course, video, quiz } = await seed();
-  await markModuleComplete(person.id, video.id);
-  await submitCourseQuiz(person.id, quiz.id, { q1: "4" }); // course becomes COMPLETE
-  const first = await prisma.courseProgress.findUniqueOrThrow({
-    where: { personId_courseId: { personId: person.id, courseId: course.id } },
-    select: { completedAt: true },
+it("persistCmi records status and stamps completedAt once on completion", async () => {
+  const { learner, course } = await seed();
+  await persistCmi(learner.id, course.id, {
+    lessonStatus: "incomplete", scoreRaw: null, suspendData: "page=1", lessonLocation: "1",
   });
-  expect(first.completedAt).not.toBeNull();
-  // Small pause so that a re-stamp would produce a measurably different timestamp.
-  await new Promise((r) => setTimeout(r, 5));
-  await markModuleComplete(person.id, video.id); // re-mark — recompute runs again
-  const second = await prisma.courseProgress.findUniqueOrThrow({
-    where: { personId_courseId: { personId: person.id, courseId: course.id } },
-    select: { completedAt: true },
+  let row = await getCourseForLearner(learner.id, course.id);
+  expect(row.status).toBe("IN_PROGRESS");
+  expect(row.cmi.suspendData).toBe("page=1");
+
+  await persistCmi(learner.id, course.id, {
+    lessonStatus: "passed", scoreRaw: 90, suspendData: "page=9", lessonLocation: "9",
   });
-  expect(second.completedAt).toEqual(first.completedAt); // original timestamp must be unchanged
+  row = await getCourseForLearner(learner.id, course.id);
+  expect(row.status).toBe("COMPLETE");
+  expect(row.cmi.scoreRaw).toBe(90);
+
+  const first = await prisma.courseProgress.findFirstOrThrow({ where: { personId: learner.id, courseId: course.id } });
+  const firstCompletedAt = first.completedAt;
+
+  await persistCmi(learner.id, course.id, {
+    lessonStatus: "completed", scoreRaw: 95, suspendData: "page=9", lessonLocation: "9",
+  });
+  const again = await prisma.courseProgress.findFirstOrThrow({ where: { personId: learner.id, courseId: course.id } });
+  expect(again.completedAt?.getTime()).toBe(firstCompletedAt?.getTime());
 });
 
-it("submitting an already-passed quiz throws LearningValidationError", async () => {
-  const { person, video, quiz } = await seed();
-  await markModuleComplete(person.id, video.id);
-  await submitCourseQuiz(person.id, quiz.id, { q1: "4" }); // pass once
-  await expect(submitCourseQuiz(person.id, quiz.id, { q1: "4" })).rejects.toBeInstanceOf(LearningValidationError);
+it("persistCmi refuses an unassigned course", async () => {
+  const { learner, unassigned } = await seed();
+  await expect(
+    persistCmi(learner.id, unassigned.id, { lessonStatus: "completed", scoreRaw: null, suspendData: null, lessonLocation: null })
+  ).rejects.toBeInstanceOf(LearningAuthError);
 });

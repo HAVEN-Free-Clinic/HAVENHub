@@ -40,25 +40,25 @@ const COPY: Record<OnboardingTaskKey, { label: string; description: string; href
   profile: {
     label: "Profile & agreements",
     description: "Confirm your contact details so we can reach you about shifts.",
-    href: "/my-info",
+    href: "/get-started/profile",
     ctaLabel: "Complete profile",
   },
   hipaa: {
     label: "HIPAA certificate",
     description: "Upload your current HIPAA certificate so we can verify it is valid through the term.",
-    href: "/my-info",
+    href: "/get-started/hipaa",
     ctaLabel: "Upload certificate",
   },
   training: {
     label: "Volunteer training",
     description: "Finish this term's training to be cleared for shifts.",
-    href: "/training",
+    href: "/get-started/training",
     ctaLabel: "Go to training",
   },
   learning: {
     label: "Learning modules",
     description: "Complete the courses your department assigned to you.",
-    href: "/learning",
+    href: "/get-started/learning",
     ctaLabel: "Open courses",
   },
 };

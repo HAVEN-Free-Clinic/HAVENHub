@@ -84,6 +84,14 @@ const PDF_FILENAMES: Record<RequestType, (initials: string, date: string) => str
   bulk_mod: (i, d) => `${i} ${d} Multiple Users MOD_REACT Service Request Form_V5.5.pdf`,
 };
 
+const REQUEST_TYPE_LABELS: Record<RequestType, string> = {
+  new_individual: "New — Individual",
+  mod_individual: "Modify — Individual",
+  renew_individual: "Renew — Individual",
+  bulk_new: "New — Bulk",
+  bulk_mod: "Modify / Renew — Bulk",
+};
+
 // ---------------------------------------------------------------------------
 // Checkbox helper
 // ---------------------------------------------------------------------------
@@ -450,8 +458,9 @@ export async function POST(req: Request) {
     xlsxFilename = pdfFilename.replace(".pdf", ".xlsx");
   }
 
-  // Record Epic requests in the database for tracking.
-  // kind maps: new_individual/bulk_new → NEW, mod_individual → MODIFY, renew_individual/bulk_mod → RENEW.
+  // Record Epic requests and a YNHH ticket in the database for tracking.
+  // kind maps: new_individual/bulk_new → NEW, mod_individual → MODIFY,
+  // renew_individual/bulk_mod → RENEW.
   const epicKind =
     requestType === "new_individual" || requestType === "bulk_new"
       ? "NEW"
@@ -465,15 +474,26 @@ export async function POST(req: Request) {
   });
 
   if (actor) {
+    // Create one YnhhTicket per PDF submission to group the requests together.
+    // Service request number and close date are filled in manually when YNHH responds.
+    const ticket = await prisma.ynhhTicket.create({
+      data: {
+        submittedById: actor.id,
+        description: `${REQUEST_TYPE_LABELS[requestType]} — ${people.map((p) => p.name).join(", ")}`,
+        status: "OPEN",
+      },
+    });
+
     await prisma.$transaction(
       people.map((p) =>
         prisma.epicRequest.create({
           data: {
             personId: p.id,
             kind: epicKind,
-            status: "PENDING",
+            status: "SUBMITTED",
             mirrorEpicId: mirrorPerson?.epicId ?? null,
             requestedById: actor.id,
+            ticketId: ticket.id,
           },
         })
       )

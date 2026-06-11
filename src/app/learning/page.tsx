@@ -3,6 +3,8 @@ import { requireModuleAccess } from "@/platform/auth/session";
 import { PageHeader } from "@/platform/ui/page-header";
 import { getMyCourses } from "@/modules/learning/services/enrollment";
 
+const LABEL = { COMPLETE: "Complete", IN_PROGRESS: "In progress", NOT_STARTED: "Not started" } as const;
+
 export default async function LearningPage() {
   const person = await requireModuleAccess("learning");
   const courses = await getMyCourses(person.personId);
@@ -26,12 +28,10 @@ export default async function LearningPage() {
                 className={
                   c.status === "COMPLETE"
                     ? "rounded bg-green-50 px-2 py-0.5 text-xs text-green-800"
-                    : c.status === "IN_PROGRESS"
-                      ? "rounded bg-blue-50 px-2 py-0.5 text-xs text-blue-700"
-                      : "rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-600"
+                    : "rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-600"
                 }
               >
-                {c.status === "COMPLETE" ? "Complete" : c.status === "IN_PROGRESS" ? "In progress" : "Not started"}
+                {LABEL[c.status]}
               </span>
             </div>
             {c.description && <p className="mt-1 text-sm text-slate-500">{c.description}</p>}

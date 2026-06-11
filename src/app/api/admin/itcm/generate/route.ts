@@ -450,6 +450,36 @@ export async function POST(req: Request) {
     xlsxFilename = pdfFilename.replace(".pdf", ".xlsx");
   }
 
+  // Record Epic requests in the database for tracking.
+  // kind maps: new_individual/bulk_new → NEW, mod_individual → MODIFY, renew_individual/bulk_mod → RENEW.
+  const epicKind =
+    requestType === "new_individual" || requestType === "bulk_new"
+      ? "NEW"
+      : requestType === "mod_individual"
+      ? "MODIFY"
+      : "RENEW";
+
+  const actor = await prisma.person.findFirst({
+    where: { contactEmail: auth.email },
+    select: { id: true },
+  });
+
+  if (actor) {
+    await prisma.$transaction(
+      people.map((p) =>
+        prisma.epicRequest.create({
+          data: {
+            personId: p.id,
+            kind: epicKind,
+            status: "PENDING",
+            mirrorEpicId: mirrorPerson?.epicId ?? null,
+            requestedById: actor.id,
+          },
+        })
+      )
+    );
+  }
+
   return NextResponse.json({
     pdfBase64: Buffer.from(pdfBytes).toString("base64"),
     pdfFilename,

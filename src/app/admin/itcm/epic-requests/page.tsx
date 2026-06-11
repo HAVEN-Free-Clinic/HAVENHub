@@ -1,46 +1,48 @@
 /**
  * ITCM Epic Requests page.
  *
- * Provides a form-driven workflow for generating YNHH Electronic Service
- * Request PDFs, companion Excel spreadsheets (bulk only), and email drafts
- * for all five request scenarios:
+ * Two-tab layout:
+ *   - Generate: form-driven PDF, spreadsheet, and email draft generator.
+ *   - Tracker: table of all submitted Epic requests with ticket status,
+ *     submitter, business days since submission, and service request number.
  *
- *   1. New individual   — new Epic account for one person
- *   2. Modify individual — extend access for one person (already has Epic ID)
- *   3. Renew individual  — same PDF as modify, different email subject/body
- *   4. Bulk new          — new accounts for many people; generates spreadsheet
- *   5. Bulk mod/renew    — extend access for many people; generates spreadsheet
- *
- * The page is a server component that loads department/member data. The
- * generate button posts to a server action which fills the PDF template,
- * builds the spreadsheet if needed, and returns a JSON payload the client
- * uses to trigger downloads and show the email draft.
- *
- * Mirror person logic: for individual requests, the server action finds
- * another active member in the same department with the same role (director
- * mirrors director, volunteer mirrors volunteer) who already has an Epic ID.
- * For bulk requests the same logic applies using the first selected person's
- * department and role.
+ * The active tab is driven by a ?tab= search param so the URL is shareable
+ * and the browser back button works correctly.
  */
 
 import { requirePermission } from "@/platform/auth/session";
 import { listDepartmentsWithMembers } from "@/modules/admin/services/itcm";
+import { getEpicRequestHistory } from "@/modules/admin/services/itcm";
 import { PageHeader } from "@/platform/ui/page-header";
-import { EpicRequestForm } from "@/modules/admin/components/epic-request-form";
+import { EpicRequestTabs } from "@/modules/admin/components/epic-request-tabs";
 
-export default async function EpicRequestsPage() {
+type PageProps = {
+  searchParams: Promise<{ tab?: string }>;
+};
+
+export default async function EpicRequestsPage({ searchParams }: PageProps) {
   await requirePermission("admin.access");
 
-  // Load all departments with their active-term members for the person selector.
-  const departments = await listDepartmentsWithMembers();
+  const { tab } = await searchParams;
+  const activeTab = tab === "tracker" ? "tracker" : "generate";
+
+  // Load data for both tabs in parallel.
+  const [departments, history] = await Promise.all([
+    listDepartmentsWithMembers(),
+    getEpicRequestHistory(),
+  ]);
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Epic Requests"
-        description="Generate YNHH service request PDFs, spreadsheets, and email drafts for new, modify, and renew Epic access requests."
+        description="Generate YNHH service request PDFs and track submission status."
       />
-      <EpicRequestForm departments={departments} />
+      <EpicRequestTabs
+        activeTab={activeTab}
+        departments={departments}
+        history={history}
+      />
     </div>
   );
 }

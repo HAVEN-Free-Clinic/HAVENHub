@@ -152,3 +152,65 @@ export async function getPeopleByIds(ids: string[]): Promise<Person[]> {
     orderBy: { name: "asc" },
   });
 }
+
+
+// ---------------------------------------------------------------------------
+// getEpicRequestHistory
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns all YNHH tickets with their associated Epic requests and people,
+ * ordered by submission date descending. Used to populate the tracker tab.
+ *
+ * Business days since submission is computed client-side from submittedAt
+ * since it depends on the current date.
+ */
+export type EpicRequestHistoryRow = {
+  ticket: {
+    id: string;
+    serviceRequestNumber: string | null;
+    description: string | null;
+    status: "OPEN" | "CLOSED";
+    submittedAt: Date;
+    closedAt: Date | null;
+    submittedBy: { name: string };
+  };
+  requests: {
+    id: string;
+    kind: "NEW" | "MODIFY" | "RENEW";
+    status: string;
+    person: { name: string; epicId: string | null };
+  }[];
+};
+
+export async function getEpicRequestHistory(): Promise<EpicRequestHistoryRow[]> {
+  const tickets = await prisma.ynhhTicket.findMany({
+    orderBy: { submittedAt: "desc" },
+    include: {
+      submittedBy: { select: { name: true } },
+      requests: {
+        include: {
+          person: { select: { name: true, epicId: true } },
+        },
+      },
+    },
+  });
+
+  return tickets.map((t) => ({
+    ticket: {
+      id: t.id,
+      serviceRequestNumber: t.serviceRequestNumber ?? null,
+      description: t.description ?? null,
+      status: t.status as "OPEN" | "CLOSED",
+      submittedAt: t.submittedAt,
+      closedAt: t.closedAt ?? null,
+      submittedBy: { name: t.submittedBy.name },
+    },
+    requests: t.requests.map((r) => ({
+      id: r.id,
+      kind: r.kind as "NEW" | "MODIFY" | "RENEW",
+      status: r.status,
+      person: { name: r.person.name, epicId: r.person.epicId },
+    })),
+  }));
+}

@@ -121,11 +121,22 @@ export function EpicRequestForm({ departments }: Props) {
       setError("Select at least one person before generating.");
       return;
     }
+    if (!isNew && !endDate) {
+      setError("Set the semester end date before generating a modify/renew request.");
+      return;
+    }
     setError(null);
     setLoading(true);
     setEmailDraft(null);
 
     try {
+      // endDate is held as an ISO YYYY-MM-DD string from the date input; the
+      // server and PDF expect MM/DD/YYYY. Convert by slicing (not via Date) so
+      // the calendar day the admin picked is preserved regardless of timezone.
+      const endDateFormatted = endDate
+        ? `${endDate.slice(5, 7)}/${endDate.slice(8, 10)}/${endDate.slice(0, 4)}`
+        : "";
+
       const res = await fetch("/api/admin/itcm/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -133,7 +144,7 @@ export function EpicRequestForm({ departments }: Props) {
           requestType,
           authorizerKey: authorizer,
           personIds: [...selectedPeopleIds],
-          endDate,
+          endDate: endDateFormatted,
         }),
       });
 
@@ -228,11 +239,9 @@ export function EpicRequestForm({ departments }: Props) {
             <Field label="Semester end date">
               <Input
                 type="date"
-                value={endDate ? new Date(endDate).toISOString().split("T")[0] : ""}
-                onChange={(e) => {
-                  const d = new Date(e.target.value);
-                  setEndDate(d.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" }));
-                }}
+                required
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
               />
             </Field>
           )}

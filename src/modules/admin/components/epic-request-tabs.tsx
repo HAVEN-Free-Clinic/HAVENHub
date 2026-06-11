@@ -15,6 +15,7 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { EpicRequestForm } from "./epic-request-form";
+import { businessDaysSince } from "@/platform/dates";
 import type { DepartmentWithMembers, EpicRequestHistoryRow } from "@/modules/admin/services/itcm";
 
 type Tab = "generate" | "tracker";
@@ -24,29 +25,6 @@ type Props = {
   departments: DepartmentWithMembers[];
   history: EpicRequestHistoryRow[];
 };
-
-// ---------------------------------------------------------------------------
-// Business days helper
-// ---------------------------------------------------------------------------
-
-/**
- * Counts business days (Mon–Fri) between two dates, inclusive of start,
- * exclusive of end. Used to show how long a ticket has been open.
- */
-function businessDaysSince(date: Date): number {
-  const start = new Date(date);
-  const end = new Date();
-  let count = 0;
-  const cur = new Date(start);
-  cur.setHours(0, 0, 0, 0);
-  end.setHours(0, 0, 0, 0);
-  while (cur < end) {
-    const day = cur.getDay();
-    if (day !== 0 && day !== 6) count++;
-    cur.setDate(cur.getDate() + 1);
-  }
-  return count;
-}
 
 // ---------------------------------------------------------------------------
 // Tab nav (client -- uses router for URL updates)

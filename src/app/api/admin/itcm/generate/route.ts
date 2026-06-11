@@ -6,23 +6,24 @@
  * Returns base64-encoded file payloads and a pre-written email body so the
  * client can trigger downloads and show the draft without a second round-trip.
  *
- * The PDF template (BLANK_Service_Request_Form_V5_5.pdf) lives at
- * public/templates/epic-request-template.pdf. It must be committed to the
- * repo; this route reads it at runtime via the filesystem.
+ * The PDF template lives at public/templates/epic-request-template.pdf. It must
+ * be committed to the repo; this route reads it at runtime via the filesystem.
  *
  * Mirror person logic: finds another ACTIVE member in the same department
  * with the same role who already has an epicId. Directors mirror directors,
  * volunteers mirror volunteers.
  *
- * Auth: requirePermission("admin.access") — only platform admins and ITCM
- * directors reach this route.
+ * Auth: signed-in person with the "admin.access" permission — only platform
+ * admins and ITCM directors reach this route.
  */
 
 import { NextResponse } from "next/server";
 import { PDFDocument } from "pdf-lib";
 import * as fs from "fs";
 import * as path from "path";
-import { requirePermission } from "@/platform/auth/session";
+import { auth } from "@/platform/auth/auth";
+import { getActivePerson } from "@/platform/auth/match-person";
+import { can } from "@/platform/rbac/engine";
 import { findMirrorPerson, getPeopleByIds } from "@/modules/admin/services/itcm";
 import { prisma } from "@/platform/db";
 
@@ -106,7 +107,9 @@ function checkBox(form: ReturnType<PDFDocument["getForm"]>, fieldName: string) {
     const field = form.getCheckBox(fieldName);
     field.check();
   } catch {
-    // Field not found or not a checkbox — skip silently.
+    // Field missing or not a checkbox: log so a re-versioned template surfaces
+    // instead of silently shipping an unchecked box.
+    console.warn(`[itcm] PDF checkbox not set: "${fieldName}"`);
   }
 }
 
@@ -115,8 +118,24 @@ function fillText(form: ReturnType<PDFDocument["getForm"]>, fieldName: string, v
     const field = form.getTextField(fieldName);
     field.setText(value);
   } catch {
-    // Field not found — skip silently.
+    // Field missing: log so a re-versioned template surfaces instead of
+    // silently shipping a blank field.
+    console.warn(`[itcm] PDF text field not set: "${fieldName}"`);
   }
+}
+
+/**
+ * Splits a stored full name into first/last for the PDF and spreadsheet name
+ * fields. The Person model has only a single `name`, so this is a heuristic:
+ * the final whitespace-separated token is the last name, everything before it
+ * is the first/middle name. A single-token name (mononym) yields an empty last
+ * name rather than duplicating the first name into both fields.
+ */
+function splitName(full: string): { firstName: string; lastName: string } {
+  const parts = full.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return { firstName: "", lastName: "" };
+  if (parts.length === 1) return { firstName: parts[0], lastName: "" };
+  return { firstName: parts.slice(0, -1).join(" "), lastName: parts[parts.length - 1] };
 }
 
 // ---------------------------------------------------------------------------
@@ -132,7 +151,7 @@ async function generatePdf(args: {
   templateBytes: Uint8Array;
 }): Promise<Uint8Array> {
   const { requestType, authorizerKey, person, endDate, mirrorPerson, templateBytes } = args;
-  const auth = AUTHORIZERS[authorizerKey];
+  const authorizer = AUTHORIZERS[authorizerKey];
   const today = new Date().toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
   const isBulk = requestType.startsWith("bulk");
   const isNew = requestType.includes("new");
@@ -141,11 +160,11 @@ async function generatePdf(args: {
   const form = pdfDoc.getForm();
 
   // Section I — Authorizer
-  fillText(form, "Text1", auth.name);
+  fillText(form, "Text1", authorizer.name);
   fillText(form, "Text2", "HAVEN IT & Communications Director");
-  fillText(form, "Text3", auth.phone);
+  fillText(form, "Text3", authorizer.phone);
   fillText(form, "Text4", today);
-  fillText(form, "Text5", auth.email);
+  fillText(form, "Text5", authorizer.email);
 
   // Section III — Person info
   if (isBulk) {
@@ -294,10 +313,15 @@ async function generateSpreadsheet(args: {
 // ---------------------------------------------------------------------------
 
 export async function POST(req: Request) {
-  // Auth check — only admin.access users can generate Epic request forms.
-  try {
-    await requirePermission("admin.access");
-  } catch {
+  // Auth check — only signed-in admin.access holders can generate Epic forms.
+  // (Same primitives as other API routes; requirePermission is page-only since
+  // it redirects on failure.) The resolved person is also the tracking actor.
+  const session = await auth();
+  if (!session?.personId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const actor = await getActivePerson(session.personId);
+  if (!actor || !(await can(actor.id, "admin.access"))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -326,29 +350,48 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "No people selected" }, { status: 400 });
   }
 
-  // Load people from the database.
-  const people = await getPeopleByIds(personIds);
-  if (people.length === 0) {
-    return NextResponse.json({ error: "Selected people not found" }, { status: 400 });
+  // Modify/renew requests carry an access end date; new requests use a fixed
+  // one-year-out date instead. Require it so a blank date never reaches YNHH.
+  if (!requestType.includes("new") && !endDate?.trim()) {
+    return NextResponse.json(
+      { error: "An end date is required for modify/renew requests" },
+      { status: 400 }
+    );
   }
 
-  // Find the first person's department and role for mirror lookup.
+  // Load people from the database.
+  const people = await getPeopleByIds(personIds);
+  if (people.length !== personIds.length) {
+    return NextResponse.json(
+      { error: "Some selected people no longer exist. Refresh and try again." },
+      { status: 400 }
+    );
+  }
+
+  // Resolve the active term once and reuse it for both membership lookups.
   const activeTerm = await prisma.term.findFirst({
     where: { status: "ACTIVE" },
     orderBy: { startDate: "desc" },
   });
 
+  // Find a department/role to mirror from. Bulk selections are constrained to a
+  // single department by the form, so any selected person's active membership
+  // gives the right department; using the first one that actually has a
+  // membership avoids a blank mirror when the alphabetically-first person lacks one.
   let mirrorPerson: { name: string; epicId: string } | null = null;
   if (activeTerm) {
-    const firstMembership = await prisma.termMembership.findFirst({
-      where: { personId: people[0].id, termId: activeTerm.id, status: "ACTIVE" },
+    const membership = await prisma.termMembership.findFirst({
+      where: {
+        personId: { in: people.map((p) => p.id) },
+        termId: activeTerm.id,
+        status: "ACTIVE",
+      },
     });
-    if (firstMembership) {
-      mirrorPerson = await findMirrorPerson(
-        firstMembership.departmentId,
-        firstMembership.kind,
-        people[0].id
-      );
+    if (membership) {
+      mirrorPerson = await findMirrorPerson(membership.departmentId, membership.kind, {
+        excludePersonIds: people.map((p) => p.id),
+        termId: activeTerm.id,
+      });
     }
   }
 
@@ -359,20 +402,18 @@ export async function POST(req: Request) {
     templateBytes = new Uint8Array(fs.readFileSync(templatePath));
   } catch {
     return NextResponse.json(
-      { error: "PDF template not found. Place BLANK_Service_Request_Form_V5_5.pdf at public/templates/epic-request-template.pdf" },
+      { error: "PDF template not found at public/templates/epic-request-template.pdf" },
       { status: 500 }
     );
   }
 
   const isBulk = requestType.startsWith("bulk");
   const isNew = requestType.includes("new");
-  const auth = AUTHORIZERS[authorizerKey];
+  const authorizer = AUTHORIZERS[authorizerKey];
 
   // Build person shape for individual requests.
   const firstPerson = people[0];
-  const nameParts = firstPerson.name.trim().split(" ");
-  const firstName = nameParts[0] ?? "";
-  const lastName = nameParts.slice(1).join(" ") || firstName;
+  const { firstName, lastName } = splitName(firstPerson.name);
 
   const personArg = isBulk ? null : {
     firstName,
@@ -416,7 +457,7 @@ export async function POST(req: Request) {
     personName: isBulk ? "Multiple Users" : firstPerson.name,
     epicId: firstPerson.epicId ?? "",
     endDate: isNew ? oneYearStr : endDate,
-    authorizerName: auth.name,
+    authorizerName: authorizer.name,
     userCount: people.length,
   };
 
@@ -437,10 +478,10 @@ export async function POST(req: Request) {
 
   if (isBulk) {
     const peopleRows = people.map((p) => {
-      const parts = p.name.trim().split(" ");
+      const { firstName: rowFirst, lastName: rowLast } = splitName(p.name);
       return {
-        firstName: parts[0] ?? "",
-        lastName: parts.slice(1).join(" ") || (parts[0] ?? ""),
+        firstName: rowFirst,
+        lastName: rowLast,
         email: p.contactEmail ?? "",
         netId: p.netId ?? "",
         epicId: p.epicId ?? "",
@@ -468,37 +509,32 @@ export async function POST(req: Request) {
       ? "MODIFY"
       : "RENEW";
 
-  const actor = await prisma.person.findFirst({
-    where: { contactEmail: auth.email },
-    select: { id: true },
+  // Create one YnhhTicket per PDF submission to group the requests together.
+  // Service request number and close date are filled in manually when YNHH responds.
+  // The actor is the signed-in admin who generated the request (resolved above),
+  // so tracking is always recorded — never silently skipped.
+  const ticket = await prisma.ynhhTicket.create({
+    data: {
+      submittedById: actor.id,
+      description: `${REQUEST_TYPE_LABELS[requestType]} — ${people.map((p) => p.name).join(", ")}`,
+      status: "OPEN",
+    },
   });
 
-  if (actor) {
-    // Create one YnhhTicket per PDF submission to group the requests together.
-    // Service request number and close date are filled in manually when YNHH responds.
-    const ticket = await prisma.ynhhTicket.create({
-      data: {
-        submittedById: actor.id,
-        description: `${REQUEST_TYPE_LABELS[requestType]} — ${people.map((p) => p.name).join(", ")}`,
-        status: "OPEN",
-      },
-    });
-
-    await prisma.$transaction(
-      people.map((p) =>
-        prisma.epicRequest.create({
-          data: {
-            personId: p.id,
-            kind: epicKind,
-            status: "SUBMITTED",
-            mirrorEpicId: mirrorPerson?.epicId ?? null,
-            requestedById: actor.id,
-            ticketId: ticket.id,
-          },
-        })
-      )
-    );
-  }
+  await prisma.$transaction(
+    people.map((p) =>
+      prisma.epicRequest.create({
+        data: {
+          personId: p.id,
+          kind: epicKind,
+          status: "SUBMITTED",
+          mirrorEpicId: mirrorPerson?.epicId ?? null,
+          requestedById: actor.id,
+          ticketId: ticket.id,
+        },
+      })
+    )
+  );
 
   return NextResponse.json({
     pdfBase64: Buffer.from(pdfBytes).toString("base64"),

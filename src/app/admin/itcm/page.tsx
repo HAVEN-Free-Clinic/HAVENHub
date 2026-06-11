@@ -1,28 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/platform/db";
 import { PageHeader } from "@/platform/ui/page-header";
-
-// ---------------------------------------------------------------------------
-// Business days helper
-// ---------------------------------------------------------------------------
-
-/**
- * Counts business days (Mon–Fri) between a past date and now. Used to
- * flag tickets that have been open too long without a response from YNHH.
- */
-function businessDaysSince(date: Date): number {
-  const cur = new Date(date);
-  const end = new Date();
-  let count = 0;
-  cur.setHours(0, 0, 0, 0);
-  end.setHours(0, 0, 0, 0);
-  while (cur < end) {
-    const day = cur.getDay();
-    if (day !== 0 && day !== 6) count++;
-    cur.setDate(cur.getDate() + 1);
-  }
-  return count;
-}
+import { businessDaysSince } from "@/platform/dates";
 
 export default async function ItcmPage() {
   const activeTerm = await prisma.term.findFirst({

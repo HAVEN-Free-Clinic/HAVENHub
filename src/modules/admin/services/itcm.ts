@@ -8,7 +8,7 @@
  *   - findMirrorPerson: given a department and role, finds another active
  *     member in that department who already has an epicId set. Used to
  *     auto-populate the "person with similar job functions" fields.
- *   - getPeopleForRequest: returns full person records for a set of ids,
+ *   - getPeopleByIds: returns full person records for a set of ids,
  *     used to build the spreadsheet rows for bulk requests.
  *
  * Permission checks are NOT this service's concern — the page gates via
@@ -111,21 +111,28 @@ export async function listDepartmentsWithMembers(): Promise<DepartmentWithMember
 export async function findMirrorPerson(
   departmentId: string,
   kind: "DIRECTOR" | "VOLUNTEER",
-  excludePersonId?: string
+  options: { excludePersonIds?: string[]; termId?: string } = {}
 ): Promise<{ name: string; epicId: string } | null> {
-  const activeTerm = await prisma.term.findFirst({
-    where: { status: "ACTIVE" },
-    orderBy: { startDate: "desc" },
-  });
-  if (!activeTerm) return null;
+  const { excludePersonIds = [], termId } = options;
+
+  // Reuse a term id the caller already resolved; otherwise look up the active term.
+  let resolvedTermId = termId;
+  if (!resolvedTermId) {
+    const activeTerm = await prisma.term.findFirst({
+      where: { status: "ACTIVE" },
+      orderBy: { startDate: "desc" },
+    });
+    if (!activeTerm) return null;
+    resolvedTermId = activeTerm.id;
+  }
 
   const membership = await prisma.termMembership.findFirst({
     where: {
-      termId: activeTerm.id,
+      termId: resolvedTermId,
       departmentId,
       kind,
       status: "ACTIVE",
-      personId: excludePersonId ? { not: excludePersonId } : undefined,
+      personId: excludePersonIds.length ? { notIn: excludePersonIds } : undefined,
       person: { epicId: { not: null } },
     },
     include: { person: { select: { name: true, epicId: true } } },

@@ -18,7 +18,7 @@
 - `src/modules/onboarding/engine/status.ts` — pure task-state derivation + summary (no DB).
 - `src/modules/onboarding/engine/status.test.ts` — unit tests for the engine.
 - `src/modules/onboarding/services/onboarding.ts` — `getOnboardingStatus(personId)` adapter; aggregates existing services for the active term.
-- `middleware.ts` (repo root) — stamps `x-pathname` header on page requests.
+- `src/proxy.ts` — stamps `x-pathname` header on page requests. (Next 16 renamed `middleware.ts` → `proxy.ts`, export `proxy`, Node runtime; placed under `src/` to match the `src/app` layout. Verified detected as `ƒ Proxy (Middleware)` in the build.)
 - `src/app/get-started/page.tsx` — the blocking split-rail screen (server component).
 - `src/app/get-started/onboarding-checklist.tsx` — presentational checklist + rows.
 

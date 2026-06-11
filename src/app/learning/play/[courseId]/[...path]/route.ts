@@ -27,9 +27,9 @@ export async function GET(_request: Request, context: RouteContext): Promise<Res
     (await isCourseAssignedTo(person.id, courseId)) || (await can(person.id, "learning.manage_courses"));
   if (!allowed) return Response.json({ error: "Not found" }, { status: 404 });
 
-  // Build the relative path; refuse traversal.
+  // Build the relative path; refuse traversal in either the courseId or the path.
   const rel = path.join("/");
-  if (rel.split("/").some((seg) => seg === "..")) {
+  if (courseId.includes("..") || rel.split("/").some((seg) => seg === "..")) {
     return Response.json({ error: "Not found" }, { status: 404 });
   }
 

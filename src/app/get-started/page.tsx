@@ -47,7 +47,14 @@ export default async function GetStartedPage() {
                 {status.completedCount} of {status.totalCount}
               </span>
             </div>
-            <div className="h-[7px] overflow-hidden rounded-full bg-white/20">
+            <div
+              className="h-[7px] overflow-hidden rounded-full bg-white/20"
+              role="progressbar"
+              aria-valuenow={status.completedCount}
+              aria-valuemin={0}
+              aria-valuemax={status.totalCount}
+              aria-label="Onboarding progress"
+            >
               <div
                 className="h-full rounded-full bg-white transition-[width] duration-300"
                 style={{ width: `${pct}%` }}

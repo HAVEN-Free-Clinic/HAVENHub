@@ -138,7 +138,9 @@ export async function persistCmi(personId: string, courseId: string, cmi: CmiSna
     status,
     completedAt,
     lessonStatus: cmi.lessonStatus,
-    scoreRaw: cmi.scoreRaw,
+    // scoreRaw is an Int column; round defensively so a fractional score from any
+    // caller cannot fail the write.
+    scoreRaw: cmi.scoreRaw == null ? null : Math.round(cmi.scoreRaw),
     suspendData: cmi.suspendData,
     lessonLocation: cmi.lessonLocation,
   };

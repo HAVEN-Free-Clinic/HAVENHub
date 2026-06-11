@@ -2,6 +2,7 @@
 import { useLayoutEffect, useRef } from "react";
 import { Scorm12API } from "scorm-again";
 import { persistCmiAction } from "../actions";
+import { parseScore } from "@/modules/learning/engine/status";
 import type { CmiSnapshot } from "@/modules/learning/services/enrollment";
 
 type Props = {
@@ -37,11 +38,15 @@ export function ScormPlayer({ courseId, entryHref, initialCmi }: Props) {
 
     const snapshot = (): CmiSnapshot => ({
       lessonStatus: api.cmi.core.lesson_status || null,
-      scoreRaw: api.cmi.core.score.raw === "" ? null : Number(api.cmi.core.score.raw),
+      // parseScore rounds the SCORM string score to an int (the DB column is Int);
+      // a fractional score like "83.5" would otherwise be rejected on write.
+      scoreRaw: parseScore(api.cmi.core.score.raw),
       suspendData: api.cmi.suspend_data || null,
       lessonLocation: api.cmi.core.lesson_location || null,
     });
-    const save = () => { void persistCmiAction(courseId, snapshot()); };
+    // Fire-and-forget; an admin previewing an unassigned course is not allowed to
+    // persist, so swallow the rejection rather than surface an unhandled rejection.
+    const save = () => { persistCmiAction(courseId, snapshot()).catch(() => {}); };
     api.on("LMSCommit", save);
     api.on("LMSFinish", save);
 

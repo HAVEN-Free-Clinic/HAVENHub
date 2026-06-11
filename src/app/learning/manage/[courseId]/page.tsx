@@ -3,7 +3,8 @@ import { requirePermission } from "@/platform/auth/session";
 import { prisma } from "@/platform/db";
 import { PageHeader } from "@/platform/ui/page-header";
 import { getCourseForEdit } from "@/modules/learning/services/courses";
-import { updateCourseAction, setAssignmentAction, uploadPackageAction } from "../actions";
+import { updateCourseAction, setAssignmentAction } from "../actions";
+import { UploadPackageForm } from "./UploadPackageForm";
 
 export default async function EditCoursePage({ params }: { params: Promise<{ courseId: string }> }) {
   await requirePermission("learning.manage_courses");
@@ -46,12 +47,7 @@ export default async function EditCoursePage({ params }: { params: Promise<{ cou
               ? `Uploaded${course.scormUploadedAt ? ` ${course.scormUploadedAt.toLocaleDateString()}` : ""} · launch: ${course.scormEntryHref} · SCORM ${course.scormVersion ?? "1.2"}`
               : "No package uploaded yet."}
           </p>
-          <form action={uploadPackageAction} encType="multipart/form-data" className="space-y-2 rounded border border-slate-200 p-3">
-            <input type="hidden" name="courseId" value={course.id} />
-            <input type="file" name="package" accept=".zip,application/zip" required className="block text-sm" />
-            <p className="text-xs text-slate-400">Export from eXeLearning as SCORM 1.2, then upload the .zip. Uploading replaces any existing package.</p>
-            <button className="rounded bg-slate-800 px-3 py-1.5 text-white" type="submit">{course.scormEntryHref ? "Replace package" : "Upload package"}</button>
-          </form>
+          <UploadPackageForm courseId={course.id} hasPackage={course.scormEntryHref != null} />
         </div>
       </div>
     </>

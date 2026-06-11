@@ -43,17 +43,29 @@ export async function setAssignmentAction(formData: FormData): Promise<void> {
   revalidatePath(`/learning/manage/${courseId}`);
 }
 
-export async function uploadPackageAction(formData: FormData): Promise<void> {
+/** useActionState result: an error message to show inline, or null on success. */
+export type UploadState = { error: string } | null;
+
+export async function uploadPackageAction(_prev: UploadState, formData: FormData): Promise<UploadState> {
   const person = await requirePermission("learning.manage_courses");
   const courseId = String(formData.get("courseId"));
   const file = formData.get("package");
   if (!(file instanceof File) || file.size === 0) {
-    throw new LearningValidationError("Choose a .zip SCORM package to upload.");
+    return { error: "Choose a .zip SCORM package to upload." };
   }
   if (file.size > MAX_UPLOAD_BYTES) {
-    throw new LearningValidationError("That package is too large (max 75 MB).");
+    return { error: "That package is too large (max 75 MB)." };
   }
-  const bytes = Buffer.from(await file.arrayBuffer());
-  await ingestScormPackage(courseId, bytes, person.personId);
+  try {
+    const bytes = Buffer.from(await file.arrayBuffer());
+    await ingestScormPackage(courseId, bytes, person.personId);
+  } catch (err) {
+    // Surface authoring mistakes (bad zip, no manifest, no launchable resource)
+    // to the manager. Thrown Server Action errors are redacted in production, so
+    // we return the message instead.
+    if (err instanceof LearningValidationError) return { error: err.message };
+    throw err;
+  }
   revalidatePath(`/learning/manage/${courseId}`);
+  return null;
 }

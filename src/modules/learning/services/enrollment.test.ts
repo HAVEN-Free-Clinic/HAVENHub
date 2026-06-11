@@ -77,6 +77,15 @@ it("persistCmi records status and stamps completedAt once on completion", async 
   expect(again.completedAt?.getTime()).toBe(firstCompletedAt?.getTime());
 });
 
+it("persistCmi rounds a fractional score to fit the Int column", async () => {
+  const { learner, course } = await seed();
+  await persistCmi(learner.id, course.id, {
+    lessonStatus: "passed", scoreRaw: 83.5, suspendData: null, lessonLocation: null,
+  });
+  const row = await getCourseForLearner(learner.id, course.id);
+  expect(row.cmi.scoreRaw).toBe(84);
+});
+
 it("persistCmi refuses an unassigned course", async () => {
   const { learner, unassigned } = await seed();
   await expect(

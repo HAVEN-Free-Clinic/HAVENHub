@@ -5,7 +5,7 @@ import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { recordAudit } from "@/platform/audit";
 import { RecruitmentAuthError, reviewScope } from "./review";
-import { gradeQuiz, type GradedQuestion } from "../engine/quiz-grading";
+import { gradeQuiz, type GradedQuestion } from "@/platform/quiz/grading";
 
 export class TrainingStateError extends Error {
   constructor(message: string) { super(message); this.name = "TrainingStateError"; }

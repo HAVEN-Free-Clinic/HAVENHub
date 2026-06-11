@@ -1,6 +1,7 @@
 import {
   CalendarDays,
   ClipboardList,
+  GraduationCap,
   HeartHandshake,
   MessagesSquare,
   Send,
@@ -105,6 +106,20 @@ export const MODULES: ModuleManifest[] = [
     permissions: ["recruitment.access", "recruitment.manage_cycles", "recruitment.review", "recruitment.review_all"],
     status: "active",
     nav: [{ label: "Cycles", href: "/recruitment" }],
+  },
+  {
+    id: "learning",
+    title: "Learning",
+    description: "Self-paced training courses assigned by department",
+    icon: GraduationCap,
+    accessPermission: "learning.access",
+    permissions: ["learning.access", "learning.manage_courses", "learning.view_progress"],
+    status: "active",
+    nav: [
+      { label: "My courses", href: "/learning" },
+      { label: "Manage courses", href: "/learning/manage" },
+      { label: "Completion", href: "/learning/dashboard" },
+    ],
   },
   {
     id: "triage",

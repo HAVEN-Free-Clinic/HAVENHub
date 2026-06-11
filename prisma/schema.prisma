@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider  = "postgresql"
   // App runtime uses the pooled connection (PgBouncer). Migrations use a DIRECT
   // (unpooled) connection: Prisma's migration advisory lock is session-scoped and
   // times out over the pooler. DATABASE_URL_UNPOOLED is provisioned by Neon's
@@ -109,6 +109,7 @@ model Person {
   interviewEvaluations      Evaluation[]         @relation("interviewEvaluator")
   volunteerTrainings        VolunteerTraining[]  @relation("volunteerTrainingPerson")
   trainingAttendanceMarked  VolunteerTraining[]  @relation("volunteerTrainingAttendanceRecorder")
+  courseProgress            CourseProgress[]
   /// Shift requests this person raised.
   shiftRequests             ShiftRequest[]       @relation("shiftRequestRequester")
   /// Shift requests targeting this person as the swap partner.
@@ -147,25 +148,25 @@ model HipaaCertificate {
 }
 
 model Term {
-  id                String             @id @default(cuid())
-  code              String             @unique // "SU26", "FA26"
-  name              String // "Summer 2026"
-  startDate         DateTime
-  endDate           DateTime
-  status            TermStatus         @default(PLANNING)
-  clinicDates       DateTime[]
-  memberships       TermMembership[]
-  roleAssignments   RoleAssignment[]
+  id                 String              @id @default(cuid())
+  code               String              @unique // "SU26", "FA26"
+  name               String // "Summer 2026"
+  startDate          DateTime
+  endDate            DateTime
+  status             TermStatus          @default(PLANNING)
+  clinicDates        DateTime[]
+  memberships        TermMembership[]
+  roleAssignments    RoleAssignment[]
   /// Offboard flags raised for this term.
-  offboardFlags     OffboardFlag[]
-  shiftAssignments  ShiftAssignment[]
-  shiftRequests     ShiftRequest[]
-  scheduleDays      ScheduleDay[]
-  rhdClinics        RhdClinic[]
-  recruitmentCycles RecruitmentCycle[]
+  offboardFlags      OffboardFlag[]
+  shiftAssignments   ShiftAssignment[]
+  shiftRequests      ShiftRequest[]
+  scheduleDays       ScheduleDay[]
+  rhdClinics         RhdClinic[]
+  recruitmentCycles  RecruitmentCycle[]
   volunteerTrainings VolunteerTraining[]
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
 }
 
 model Department {
@@ -182,6 +183,7 @@ model Department {
   shiftAssignments           ShiftAssignment[]
   shiftRequests              ShiftRequest[]
   scheduleDays               ScheduleDay[]
+  courseDepartments          CourseDepartment[]
   /// Capacity panel config: imported then admin-maintained.
   idealHeadcount             Int?
   /// Capacity panel config: imported then admin-maintained.
@@ -762,8 +764,8 @@ model RecruitmentCycle {
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
 
-  term         Term          @relation(fields: [termId], references: [id], onDelete: Restrict)
-  createdBy    Person        @relation("RecruitmentCycleCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  term         Term                @relation(fields: [termId], references: [id], onDelete: Restrict)
+  createdBy    Person              @relation("RecruitmentCycleCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   sections     FormSection[]
   fields       FormField[]
   applicants   Applicant[]
@@ -790,18 +792,18 @@ model FormSection {
 }
 
 model FormField {
-  id         String    @id @default(cuid())
-  sectionId  String
-  cycleId    String
-  key        String
-  label      String
-  helpText   String?
-  type       FieldType
-  required   Boolean   @default(false)
-  options    Json?
-  validation Json?
+  id           String    @id @default(cuid())
+  sectionId    String
+  cycleId      String
+  key          String
+  label        String
+  helpText     String?
+  type         FieldType
+  required     Boolean   @default(false)
+  options      Json?
+  validation   Json?
   correctValue String?
-  order      Int
+  order        Int
 
   section FormSection      @relation(fields: [sectionId], references: [id], onDelete: Cascade)
   cycle   RecruitmentCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
@@ -860,8 +862,8 @@ model Acceptance {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  application Application        @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-  approvedBy  Person             @relation("recruitmentAcceptanceApprover", fields: [approvedById], references: [id], onDelete: Restrict)
+  application Application         @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  approvedBy  Person              @relation("recruitmentAcceptanceApprover", fields: [approvedById], references: [id], onDelete: Restrict)
   contract    OnboardingContract?
 
   @@unique([applicationId, departmentCode])
@@ -912,23 +914,23 @@ model OnboardingContract {
 }
 
 model VolunteerTraining {
-  id                     String           @id @default(cuid())
-  personId               String
-  termId                 String
-  cycleId                String
-  status                 TrainingStatus   @default(PENDING)
-  completedVia           TrainingMethod?
-  completedAt            DateTime?
-  attendanceRecordedById String?
-  attendanceRecordedAt   DateTime?
-  locked                 Boolean          @default(false)
-  lockResetAt            DateTime?
-  subcommitteeInterest   String?
+  id                          String          @id @default(cuid())
+  personId                    String
+  termId                      String
+  cycleId                     String
+  status                      TrainingStatus  @default(PENDING)
+  completedVia                TrainingMethod?
+  completedAt                 DateTime?
+  attendanceRecordedById      String?
+  attendanceRecordedAt        DateTime?
+  locked                      Boolean         @default(false)
+  lockResetAt                 DateTime?
+  subcommitteeInterest        String?
   additionalShiftAvailability String?
-  minShiftsWanted        String?
-  feedback               String?
-  createdAt              DateTime         @default(now())
-  updatedAt              DateTime         @updatedAt
+  minShiftsWanted             String?
+  feedback                    String?
+  createdAt                   DateTime        @default(now())
+  updatedAt                   DateTime        @updatedAt
 
   person               Person           @relation("volunteerTrainingPerson", fields: [personId], references: [id], onDelete: Cascade)
   term                 Term             @relation(fields: [termId], references: [id], onDelete: Cascade)
@@ -970,8 +972,8 @@ model Interview {
   updatedAt      DateTime          @updatedAt
 
   application Application         @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-  decidedBy   Person?            @relation("interviewDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
-  createdBy   Person             @relation("interviewCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  decidedBy   Person?             @relation("interviewDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
+  createdBy   Person              @relation("interviewCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   panelists   InterviewPanelist[]
   evaluations Evaluation[]
 
@@ -1017,4 +1019,62 @@ model Setting {
   value       Json
   updatedById String?
   updatedAt   DateTime @updatedAt
+}
+
+enum CourseProgressStatus {
+  IN_PROGRESS
+  COMPLETE
+}
+
+model Course {
+  id              String             @id @default(cuid())
+  title           String
+  description     String?
+  isActive        Boolean            @default(true)
+  /// When true, the course is assigned to every department (org-wide).
+  assignToAll     Boolean            @default(false)
+  /// Ordering in the catalog / management list.
+  position        Int                @default(0)
+  /// Launch file from imsmanifest.xml (e.g. "index.html"). Null = no package uploaded yet (draft).
+  scormEntryHref  String?
+  /// SCORM version string, e.g. "1.2".
+  scormVersion    String?
+  /// When the current package was ingested.
+  scormUploadedAt DateTime?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  departments     CourseDepartment[]
+  progress        CourseProgress[]
+}
+
+model CourseDepartment {
+  id           String     @id @default(cuid())
+  courseId     String
+  departmentId String
+  course       Course     @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  @@unique([courseId, departmentId])
+  @@index([departmentId])
+}
+
+model CourseProgress {
+  id             String               @id @default(cuid())
+  personId       String
+  courseId       String
+  status         CourseProgressStatus @default(IN_PROGRESS)
+  completedAt    DateTime?
+  /// Raw cmi.core.lesson_status reported by the package.
+  lessonStatus   String?
+  /// cmi.core.score.raw when reported; null otherwise.
+  scoreRaw       Int?
+  /// cmi.suspend_data -- can be large.
+  suspendData    String?              @db.Text
+  /// cmi.core.lesson_location for resume.
+  lessonLocation String?
+  person         Person               @relation(fields: [personId], references: [id], onDelete: Cascade)
+  course         Course               @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([personId, courseId])
+  @@index([courseId])
 }

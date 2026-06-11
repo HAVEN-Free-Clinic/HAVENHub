@@ -3,7 +3,6 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requirePermission } from "@/platform/auth/session";
 import { createCourse, updateCourse, setCourseAssignment } from "@/modules/learning/services/courses";
-import { LearningValidationError } from "@/modules/learning/services/errors";
 
 export async function createCourseAction(formData: FormData): Promise<void> {
   const person = await requirePermission("learning.manage_courses");

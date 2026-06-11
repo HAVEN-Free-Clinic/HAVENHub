@@ -32,7 +32,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
   return (
     <div>
       {/* Hero */}
-      <div className="rounded-xl bg-brand px-8 py-6 text-white mb-8">
+      <div className="rounded-2xl bg-brand px-8 py-6 text-white mb-8">
         <p className="text-xs font-semibold uppercase tracking-widest text-white/60 mb-1">Full Schedule</p>
         <h1 className="text-2xl font-bold mb-1">{selectedDisplay ?? "Select a date"}</h1>
         {selectedDate && departments.length > 0 && (
@@ -75,7 +75,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
 
           {/* Department cards */}
           {departments.length === 0 ? (
-            <div className="rounded-xl border-2 border-dashed border-slate-200 px-6 py-10 text-center text-sm text-slate-400">
+            <div className="rounded-2xl border border-dashed border-slate-200 px-6 py-10 text-center text-sm text-slate-400">
               Nothing scheduled for this date.
             </div>
           ) : (
@@ -83,7 +83,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
               {departments.map(({ department, directors, volunteers, shadows, conflicts }) => (
                 <section
                   key={department.id}
-                  className="rounded-xl bg-white overflow-hidden shadow-sm border border-slate-200"
+                  className="rounded-2xl bg-white overflow-hidden shadow-sm border border-slate-200"
                 >
                   {/* Card header */}
                   <div className="bg-brand px-4 py-3 flex items-center justify-between">

@@ -44,7 +44,7 @@ export default async function DecisionsPage({ params, searchParams }: { params: 
       </div>
 
       <section>
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Conflicts to resolve</h2>
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">Conflicts to resolve</h2>
         {conflicts.length === 0 ? (
           <p className="mt-2 text-sm text-slate-500">No conflicts.</p>
         ) : (

@@ -90,7 +90,7 @@ export default async function LoginPage({
       {/* Right panel */}
       <div className="flex items-center justify-center p-8">
         <div className="w-full max-w-sm">
-          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
             Sign in to {appName}
           </h1>
           <p className="mt-2 text-sm text-slate-600">Use your Yale account to continue.</p>

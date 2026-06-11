@@ -10,6 +10,7 @@
  */
 
 import type { TermMembership, Department, Term } from "@prisma/client";
+import { Card } from "@/platform/ui/card";
 import { Badge } from "@/platform/ui/badge";
 import { Alert } from "@/platform/ui/alert";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
@@ -34,7 +35,7 @@ export function MembershipsCard({
   const hasDirector = memberships.some((m) => m.kind === "DIRECTOR");
 
   return (
-    <div>
+    <Card>
       {withdrawn !== undefined && withdrawn > 0 && (
         <Alert tone="success" className="mb-3">
           Withdrawn from {withdrawn} volunteer assignment{withdrawn !== 1 ? "s" : ""} this term.
@@ -74,6 +75,6 @@ export function MembershipsCard({
           To step down as a director, contact the executive directors.
         </p>
       )}
-    </div>
+    </Card>
   );
 }

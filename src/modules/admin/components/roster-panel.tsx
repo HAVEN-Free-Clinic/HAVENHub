@@ -23,6 +23,7 @@ import { searchPeople } from "@/modules/admin/services/people";
 import { listTerms, TermNotFoundError } from "@/modules/admin/services/terms";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
+import { Card } from "@/platform/ui/card";
 import { Input, Field } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Checkbox } from "@/platform/ui/checkbox";
@@ -52,7 +53,7 @@ type RosterPanelProps = {
 
 function SectionHeading({ children }: { children: ReactNode }) {
   return (
-    <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-400">
+    <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-500">
       {children}
     </h2>
   );
@@ -369,7 +370,7 @@ export async function RosterPanel({
                   {/* Directors list */}
                   {directors.length > 0 && (
                     <div>
-                      <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-400">
+                      <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">
                         Directors
                       </p>
                       <div className="space-y-1.5">
@@ -395,7 +396,7 @@ export async function RosterPanel({
                   {/* Volunteers list */}
                   {volunteers.length > 0 && (
                     <div>
-                      <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-400">
+                      <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">
                         Volunteers
                       </p>
                       <div className="space-y-1.5">
@@ -426,10 +427,10 @@ export async function RosterPanel({
 
       {/* Copy-roster section: PLANNING terms only */}
       {term.status === "PLANNING" && (
-        <div className="rounded-2xl border border-slate-200 bg-white p-5">
+        <Card>
           <h3 className="mb-4 text-sm font-semibold text-slate-700">Copy roster from another term</h3>
           {sourceTerms.length === 0 ? (
-            <p className="text-sm text-slate-400">No other terms available to copy from.</p>
+            <p className="text-sm text-slate-500">No other terms available to copy from.</p>
           ) : (
             <form action={copyRosterAction} className="space-y-4">
               <div className="flex flex-wrap gap-6">
@@ -478,7 +479,7 @@ export async function RosterPanel({
               <ConfirmButton label="Copy roster" confirmLabel="Copy roster from selected term? Confirm?" />
             </form>
           )}
-        </div>
+        </Card>
       )}
     </section>
   );

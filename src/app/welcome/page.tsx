@@ -6,7 +6,7 @@ export default function WelcomePage() {
     <main className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
       <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
         <HavenLogo className="h-10 text-brand" />
-        <h1 className="mt-4 text-xl font-semibold tracking-tight">Welcome to HAVEN Free Clinic</h1>
+        <h1 className="mt-4 text-2xl font-bold tracking-tight">Welcome to HAVEN Free Clinic</h1>
         <p className="mt-3 text-sm leading-relaxed text-slate-600">
           You signed in successfully, but we couldn&apos;t find you in our records.
           If you&apos;re a current member, contact the IT team so we can fix your

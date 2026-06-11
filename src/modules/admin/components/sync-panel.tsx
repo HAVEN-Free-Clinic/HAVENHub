@@ -12,6 +12,7 @@
 import type { AuditLog, Outbox } from "@prisma/client";
 import type { SyncOverview } from "@/modules/admin/services/sync";
 import { Badge } from "@/platform/ui/badge";
+import { Card } from "@/platform/ui/card";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { StatCard } from "@/platform/ui/stat-card";
@@ -68,9 +69,9 @@ function relativeTime(date: Date): string {
 function FailuresTable({ rows }: { rows: Outbox[] }) {
   if (rows.length === 0) {
     return (
-      <div className="rounded-2xl border border-slate-200 bg-white px-6 py-8 text-center text-sm text-slate-400">
+      <Card pad={false} className="px-6 py-8 text-center text-sm text-slate-500">
         No failed outbox rows.
-      </div>
+      </Card>
     );
   }
 
@@ -112,9 +113,9 @@ function FailuresTable({ rows }: { rows: Outbox[] }) {
 function DriftTable({ rows }: { rows: AuditLog[] }) {
   if (rows.length === 0) {
     return (
-      <div className="rounded-2xl border border-slate-200 bg-white px-6 py-8 text-center text-sm text-slate-400">
+      <Card pad={false} className="px-6 py-8 text-center text-sm text-slate-500">
         No drift corrections recorded.
-      </div>
+      </Card>
     );
   }
 

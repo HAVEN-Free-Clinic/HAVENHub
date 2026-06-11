@@ -51,7 +51,7 @@ export default async function BuilderPage({ params, searchParams }: { params: Pr
       {error && <Alert tone="error">{error}</Alert>}
 
       {cycle.sections.map((section) => (
-        <section key={section.id} className="rounded-2xl border border-slate-200 bg-white p-5">
+        <section key={section.id} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between gap-4">
             <h2 className="font-medium text-slate-900">
               {section.title}{" "}
@@ -116,7 +116,7 @@ export default async function BuilderPage({ params, searchParams }: { params: Pr
 
       <form
         action={addSectionAction.bind(null, id)}
-        className="flex flex-wrap items-end gap-3 rounded-xl border border-dashed border-slate-300 bg-slate-50/60 p-5"
+        className="flex flex-wrap items-end gap-3 rounded-2xl border border-dashed border-slate-300 bg-slate-50/60 p-5"
       >
         <div className="min-w-[12rem] flex-1">
           <Field label="New section title">

@@ -132,7 +132,7 @@ export function ReadinessPanel({
 
       {/* Readiness readout */}
       <div className="flex flex-col gap-3 border-t border-slate-100 pt-3">
-        <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+        <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
           Readiness
         </h3>
 

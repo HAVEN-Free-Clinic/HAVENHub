@@ -1,5 +1,8 @@
 import { requirePermission } from "@/platform/auth/session";
 import { PageHeader } from "@/platform/ui/page-header";
+import { Button } from "@/platform/ui/button";
+import { Select } from "@/platform/ui/select";
+import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { listCoursesForDashboard, getCourseCompletion } from "@/modules/learning/services/dashboard";
 import { resetCourseProgressAction } from "./actions";
 
@@ -20,42 +23,50 @@ export default async function LearningDashboardPage({
       <div className="mt-6 max-w-3xl space-y-4">
         <form method="get" className="flex items-center gap-2 text-sm">
           <label htmlFor="course">Course</label>
-          <select id="course" name="course" defaultValue={selected} className="rounded border border-slate-300 px-3 py-1.5">
+          <Select id="course" name="course" defaultValue={selected} className="w-auto">
             {courses.map((c) => (
               <option key={c.id} value={c.id}>{c.title}</option>
             ))}
-          </select>
-          <button className="rounded bg-slate-800 px-3 py-1 text-white" type="submit">View</button>
+          </Select>
+          <Button type="submit" size="sm">View</Button>
         </form>
 
-        <table className="w-full text-left text-sm">
-          <thead className="border-b border-slate-200 text-slate-500">
-            <tr><th className="py-2">Name</th><th>Dept</th><th>Status</th><th>Score</th><th></th></tr>
-          </thead>
+        <Table>
+          <THead>
+            <TR className="border-t-0">
+              <TH>Name</TH>
+              <TH>Dept</TH>
+              <TH>Status</TH>
+              <TH>Score</TH>
+              <TH />
+            </TR>
+          </THead>
           <tbody>
             {rows.map((r) => (
-              <tr key={r.personId} className="border-b border-slate-100">
-                <td className="py-2">{r.name}</td>
-                <td>{r.departmentCode}</td>
-                <td>{r.status === "COMPLETE" ? "Complete" : r.status === "IN_PROGRESS" ? "In progress" : "Not started"}</td>
-                <td>{r.scoreRaw != null ? `${r.scoreRaw}%` : ""}</td>
-                <td className="text-right text-xs text-slate-400">
+              <TR key={r.personId}>
+                <TD>{r.name}</TD>
+                <TD>{r.departmentCode}</TD>
+                <TD>{r.status === "COMPLETE" ? "Complete" : r.status === "IN_PROGRESS" ? "In progress" : "Not started"}</TD>
+                <TD>{r.scoreRaw != null ? `${r.scoreRaw}%` : ""}</TD>
+                <TD className="text-right text-xs text-slate-400">
                   {r.completedAt ? r.completedAt.toLocaleDateString() : ""}
                   {r.status !== "NOT_STARTED" && selected && (
                     <form action={resetCourseProgressAction} className="inline ml-2">
                       <input type="hidden" name="personId" value={r.personId} />
                       <input type="hidden" name="courseId" value={selected} />
-                      <button type="submit" className="rounded bg-slate-200 px-2 py-0.5 text-slate-700 text-xs hover:bg-slate-300">
-                        Reset
-                      </button>
+                      <Button type="submit" variant="outline" size="sm">Reset</Button>
                     </form>
                   )}
-                </td>
-              </tr>
+                </TD>
+              </TR>
             ))}
-            {rows.length === 0 && <tr><td colSpan={5} className="py-3 text-slate-500">No learners for this course.</td></tr>}
+            {rows.length === 0 && (
+              <TR>
+                <TD colSpan={5} className="text-slate-500">No learners for this course.</TD>
+              </TR>
+            )}
           </tbody>
-        </table>
+        </Table>
       </div>
     </>
   );

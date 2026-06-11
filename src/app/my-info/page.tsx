@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireModuleAccess } from "@/platform/auth/session";
 import { AppShell } from "@/platform/ui/app-shell";
@@ -18,6 +17,7 @@ import { MyInfoForm } from "@/modules/my-info/components/my-info-form";
 import { MembershipsCard } from "@/modules/my-info/components/memberships-card";
 import { HipaaPanel } from "@/modules/my-info/components/hipaa-panel";
 import { EpicPanel } from "@/modules/my-info/components/epic-panel";
+import { ClearanceCard } from "@/modules/my-info/components/clearance-card";
 import { complianceStatus, overallClearance } from "@/platform/compliance/rules";
 import { resolveTrainingState } from "@/modules/recruitment/services/training";
 import {
@@ -226,25 +226,15 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
 
         {/* Clearance */}
         <section>
-          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-400">
+          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-500">
             Clearance
           </h2>
-          <div className="rounded-2xl border p-4 text-sm space-y-1">
-            <p>
-              HIPAA certificate: <span className="font-medium">{status}</span>
-            </p>
-            <p>
-              Training: <span className="font-medium">{trainingState}</span>
-            </p>
-            <p>
-              Overall: <span className="font-medium">{clearance}</span>
-            </p>
-            {trainingState !== "COMPLETE" && (
-              <Link href="/training" className="text-brand underline">
-                Complete your training
-              </Link>
-            )}
-          </div>
+          <ClearanceCard
+            clearance={clearance}
+            certStatus={status}
+            trainingState={trainingState}
+            termName={activeTerm?.name ?? null}
+          />
         </section>
 
         {/* Epic access */}

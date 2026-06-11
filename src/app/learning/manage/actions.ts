@@ -2,10 +2,8 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requirePermission } from "@/platform/auth/session";
-import { createCourse, updateCourse, setCourseAssignment, addModule } from "@/modules/learning/services/courses";
+import { createCourse, updateCourse, setCourseAssignment } from "@/modules/learning/services/courses";
 import { LearningValidationError } from "@/modules/learning/services/errors";
-import type { QuizQuestion } from "@/modules/learning/services/types";
-import type { CourseModuleKind } from "@prisma/client";
 
 export async function createCourseAction(formData: FormData): Promise<void> {
   const person = await requirePermission("learning.manage_courses");
@@ -39,30 +37,3 @@ export async function setAssignmentAction(formData: FormData): Promise<void> {
   revalidatePath(`/learning/manage/${courseId}`);
 }
 
-export async function addModuleAction(formData: FormData): Promise<void> {
-  const person = await requirePermission("learning.manage_courses");
-  const courseId = String(formData.get("courseId"));
-  const kind = String(formData.get("kind")) as CourseModuleKind;
-  let questions: QuizQuestion[] | undefined;
-  if (kind === "QUIZ") {
-    try {
-      questions = JSON.parse(String(formData.get("questions") ?? "[]")) as QuizQuestion[];
-    } catch {
-      throw new LearningValidationError("Questions must be valid JSON.");
-    }
-  }
-  await addModule(
-    courseId,
-    {
-      title: String(formData.get("title") ?? ""),
-      kind,
-      description: String(formData.get("description") ?? ""),
-      url: String(formData.get("url") ?? ""),
-      questions,
-      passPercent: formData.get("passPercent") ? Number(formData.get("passPercent")) : null,
-      maxAttempts: formData.get("maxAttempts") ? Number(formData.get("maxAttempts")) : null,
-    },
-    person.personId
-  );
-  revalidatePath(`/learning/manage/${courseId}`);
-}

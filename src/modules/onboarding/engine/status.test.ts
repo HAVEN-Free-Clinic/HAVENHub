@@ -77,4 +77,7 @@ describe("summarize", () => {
       completedCount: 2, totalCount: 4, onboarded: false,
     });
   });
+  it("treats an empty task list as onboarded (the dormant, no-active-term case)", () => {
+    expect(summarize([])).toEqual({ completedCount: 0, totalCount: 0, onboarded: true });
+  });
 });

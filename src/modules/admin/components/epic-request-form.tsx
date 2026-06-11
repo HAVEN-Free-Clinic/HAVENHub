@@ -73,7 +73,7 @@ export function EpicRequestForm({ departments }: Props) {
   // Step 1: configuration
   const [authorizer, setAuthorizer] = useState<AuthorizerKey>("CC");
   const [requestType, setRequestType] = useState<RequestType>("new_individual");
-  const [endDate, setEndDate] = useState("10/15/2026");
+  const [endDate, setEndDate] = useState("");
 
   // Step 2: person selection
   const [selectedDeptId, setSelectedDeptId] = useState<string>("");
@@ -215,9 +215,12 @@ export function EpicRequestForm({ departments }: Props) {
           {!isNew && (
             <Field label="Semester end date">
               <Input
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                placeholder="MM/DD/YYYY"
+                type="date"
+                value={endDate ? new Date(endDate).toISOString().split("T")[0] : ""}
+                onChange={(e) => {
+                  const d = new Date(e.target.value);
+                  setEndDate(d.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" }));
+                }}
               />
             </Field>
           )}

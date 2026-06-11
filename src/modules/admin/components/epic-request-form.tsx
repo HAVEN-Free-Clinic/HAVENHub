@@ -41,13 +41,6 @@ type RequestType =
   | "bulk_new"
   | "bulk_mod";
 
-const REQUEST_TYPE_LABELS: Record<RequestType, string> = {
-  new_individual: "New — Individual",
-  mod_individual: "Modify — Individual",
-  renew_individual: "Renew — Individual",
-  bulk_new: "New — Bulk (multiple people)",
-  bulk_mod: "Modify / Renew — Bulk (multiple people)",
-};
 
 const EMAIL_SUBJECTS: Record<RequestType, (initials: string, date: string) => string> = {
   new_individual: (i, d) => `[HAVEN] New Epic Account Request ${i} ${d}`,

@@ -12,3 +12,9 @@ uploads/
 
 # Claude Code session data, worktrees, agent tooling
 .claude/
+
+# Brainstorming visual companion
+.superpowers/
+
+# Design system reference bundle (local-only; not app source)
+HAVEN Free Clinic Design System/

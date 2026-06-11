@@ -229,7 +229,7 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
           <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-400">
             Clearance
           </h2>
-          <div className="rounded border p-4 text-sm space-y-1">
+          <div className="rounded-2xl border p-4 text-sm space-y-1">
             <p>
               HIPAA certificate: <span className="font-medium">{status}</span>
             </p>
@@ -240,7 +240,7 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
               Overall: <span className="font-medium">{clearance}</span>
             </p>
             {trainingState !== "COMPLETE" && (
-              <Link href="/training" className="text-blue-700 underline">
+              <Link href="/training" className="text-brand underline">
                 Complete your training
               </Link>
             )}

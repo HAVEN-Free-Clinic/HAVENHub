@@ -96,7 +96,7 @@ function GridFilledButton({
         type="submit"
         disabled={pending}
         aria-label={`Confirm remove. ${ariaLabel ?? label}`}
-        className="flex h-9 w-full min-w-[40px] touch-manipulation items-center justify-center rounded border border-red-300 bg-red-50 text-red-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+        className="flex h-9 w-full min-w-[40px] touch-manipulation items-center justify-center rounded-lg border border-critical/30 bg-red-50 text-critical transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
         title="Click again to remove"
       >
         <span className="text-xs font-semibold leading-none">
@@ -115,7 +115,7 @@ function GridFilledButton({
         arm();
       }}
       aria-label={ariaLabel ?? label}
-      className="flex h-9 w-full min-w-[40px] touch-manipulation flex-col items-center justify-center rounded border border-slate-300 bg-slate-100 text-slate-700 hover:bg-red-50 hover:border-red-300 hover:text-red-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+      className="flex h-9 w-full min-w-[40px] touch-manipulation flex-col items-center justify-center rounded-lg border border-slate-300 bg-slate-100 text-slate-700 hover:bg-red-50 hover:border-critical/30 hover:text-critical transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
       title={ariaLabel ?? label}
     >
       {pending ? (
@@ -163,7 +163,7 @@ function SubmitButton({
         type="submit"
         disabled={pending}
         aria-label={ariaLabel ?? label}
-        className="flex h-9 w-full min-w-[40px] touch-manipulation items-center justify-center rounded border border-dashed border-slate-300 text-slate-300 hover:border-brand hover:text-brand transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+        className="flex h-9 w-full min-w-[40px] touch-manipulation items-center justify-center rounded-lg border border-dashed border-slate-300 text-slate-300 hover:border-brand hover:text-brand transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
       >
         {pending ? "..." : "+"}
       </button>

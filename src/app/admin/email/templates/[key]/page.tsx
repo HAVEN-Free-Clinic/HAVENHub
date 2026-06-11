@@ -9,6 +9,7 @@ import {
 } from "@/modules/admin/services/email-templates";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Button } from "@/platform/ui/button";
+import { Alert } from "@/platform/ui/alert";
 import { TemplateEditor } from "./preview";
 
 type Props = {
@@ -57,14 +58,7 @@ export default async function EditTemplatePage({ params, searchParams }: Props) 
         description={t.hasOverride ? "Customized" : "Using default"}
       />
 
-      {error ? (
-        <p
-          role="alert"
-          className="rounded-md border border-critical/20 bg-red-50 px-3 py-2 text-sm text-critical"
-        >
-          {error}
-        </p>
-      ) : null}
+      {error ? <Alert tone="error">{error}</Alert> : null}
 
       <form action={saveAction}>
         <TemplateEditor

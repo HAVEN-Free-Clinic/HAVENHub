@@ -56,14 +56,14 @@ export function MyInfoForm({ action, person, error, saved }: MyInfoFormProps) {
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="flex flex-col gap-1">
           <span className="text-xs font-medium text-slate-500">Name</span>
-          <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+          <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
             {person.name || <span className="italic text-slate-400">Not set</span>}
           </p>
         </div>
 
         <div className="flex flex-col gap-1">
           <span className="text-xs font-medium text-slate-500">NetID</span>
-          <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+          <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
             {person.netId || <span className="italic text-slate-400">Not set</span>}
           </p>
           <p className="text-xs text-slate-400">
@@ -73,7 +73,7 @@ export function MyInfoForm({ action, person, error, saved }: MyInfoFormProps) {
 
         <div className="flex flex-col gap-1">
           <span className="text-xs font-medium text-slate-500">Epic ID</span>
-          <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+          <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
             {person.epicId || <span className="italic text-slate-400">Not set</span>}
           </p>
           <p className="text-xs text-slate-400">

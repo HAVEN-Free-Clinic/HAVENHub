@@ -44,7 +44,7 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
         <Link href={`/recruitment/cycles/${id}/onboarding`} className={navLink}>Onboarding</Link>
       </div>
 
-      <div className="rounded-lg border border-slate-200 bg-white p-5">
+      <div className="rounded-2xl border border-slate-200 bg-white p-5">
         <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Public link</p>
         {cycle.status === "OPEN" ? (
           <a className="mt-1 inline-block text-sm font-medium text-brand hover:text-brand-hover" href={applyUrl}>
@@ -76,7 +76,7 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
       </div>
 
       {cycle.track === "VOLUNTEER" && (
-        <div className="space-y-4 rounded-lg border border-slate-200 bg-white p-5">
+        <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5">
           <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Training</p>
           <div className="flex flex-wrap gap-2">
             <Link href={`/recruitment/cycles/${id}/builder/quiz`} className={navLink}>Edit quiz</Link>

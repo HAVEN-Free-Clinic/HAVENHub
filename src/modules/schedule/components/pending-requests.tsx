@@ -39,7 +39,7 @@ export function PendingRequests({
 
   if (rows.length === 0) {
     return (
-      <section className="rounded-lg border border-slate-200 bg-white px-4 py-3">
+      <section className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
         <h2 className="text-sm font-semibold text-slate-700 mb-2">Pending Requests</h2>
         <p className="text-sm text-slate-400">No requests.</p>
       </section>
@@ -47,7 +47,7 @@ export function PendingRequests({
   }
 
   return (
-    <section className="rounded-lg border border-slate-200 bg-white px-4 py-3 flex flex-col gap-3">
+    <section className="rounded-2xl border border-slate-200 bg-white px-4 py-3 flex flex-col gap-3">
       <h2 className="text-sm font-semibold text-slate-700">
         Pending Requests
         {pendingRows.length > 0 && (
@@ -75,7 +75,7 @@ export function PendingRequests({
         return (
           <div
             key={request.id}
-            className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 flex flex-col gap-2"
+            className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 flex flex-col gap-2"
           >
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div className="flex flex-col gap-0.5">

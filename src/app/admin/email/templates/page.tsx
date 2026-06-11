@@ -17,7 +17,7 @@ export default async function EmailTemplatesPage() {
       {rows.length === 0 ? (
         <p className="text-sm text-slate-400">No templates registered.</p>
       ) : (
-        <ul className="divide-y rounded-lg border border-slate-200 bg-white">
+        <ul className="divide-y rounded-2xl border border-slate-200 bg-white">
           {rows.map((r) => (
             <li key={r.key} className="flex items-center justify-between px-5 py-3">
               <span>

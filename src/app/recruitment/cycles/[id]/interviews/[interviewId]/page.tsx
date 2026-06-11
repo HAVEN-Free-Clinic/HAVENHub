@@ -58,7 +58,7 @@ export default async function InterviewDetail({ params, searchParams }: { params
 
       {canManage && (
         <>
-          <section className="rounded-lg border border-slate-200 bg-white p-5">
+          <section className="rounded-2xl border border-slate-200 bg-white p-5">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Schedule</h2>
             <form action={scheduleAction.bind(null, id, interviewId)} className="mt-3 space-y-3">
               <Field label="Time">
@@ -80,7 +80,7 @@ export default async function InterviewDetail({ params, searchParams }: { params
             </form>
           </section>
 
-          <section className="rounded-lg border border-slate-200 bg-white p-5">
+          <section className="rounded-2xl border border-slate-200 bg-white p-5">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Panel</h2>
             {iv.panelists.length > 0 ? (
               <ul className="mt-3 divide-y divide-slate-100">
@@ -105,7 +105,7 @@ export default async function InterviewDetail({ params, searchParams }: { params
         </>
       )}
 
-      <section className="rounded-lg border border-slate-200 bg-white p-5">
+      <section className="rounded-2xl border border-slate-200 bg-white p-5">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Evaluations ({summary.total})</h2>
         <p className="mt-1 text-xs text-slate-400">
           Strong yes {summary.strongYes} · Yes {summary.yes} · Maybe {summary.maybe} · No {summary.no}
@@ -125,7 +125,7 @@ export default async function InterviewDetail({ params, searchParams }: { params
       </section>
 
       {canManage && (
-        <section className="rounded-lg border border-slate-200 bg-white p-5">
+        <section className="rounded-2xl border border-slate-200 bg-white p-5">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Decision</h2>
           <form action={decideAction.bind(null, id, interviewId)} className="mt-3 flex flex-wrap items-end gap-3">
             <div className="w-40">
@@ -149,7 +149,7 @@ export default async function InterviewDetail({ params, searchParams }: { params
       )}
 
       {isPanelist && (
-        <section className="rounded-lg border border-slate-200 bg-white p-5">
+        <section className="rounded-2xl border border-slate-200 bg-white p-5">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Your evaluation</h2>
           <form action={submitEvaluationAction.bind(null, id, interviewId)} className="mt-3 flex flex-wrap items-end gap-3">
             <div className="w-44">

@@ -49,7 +49,7 @@ export function StatCard({ label, value, href, tone = "default", children }: Sta
     </>
   );
 
-  const base = "block rounded-lg border border-slate-200 bg-white p-5";
+  const base = "block rounded-2xl border border-slate-200 bg-white p-5 shadow-sm";
 
   if (href) {
     return (
@@ -57,7 +57,7 @@ export function StatCard({ label, value, href, tone = "default", children }: Sta
         href={href}
         className={cx(
           base,
-          "transition hover:border-brand/40 hover:shadow-sm",
+          "transition hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-md",
           "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand",
         )}
       >

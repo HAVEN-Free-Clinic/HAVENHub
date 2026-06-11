@@ -21,6 +21,7 @@ import { prisma } from "@/platform/db";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Button } from "@/platform/ui/button";
 import { Input } from "@/platform/ui/input";
+import { Alert } from "@/platform/ui/alert";
 import { TemplateEditor } from "../../templates/[key]/preview";
 import { AudienceBuilder } from "./audience-builder";
 import { CronPresets } from "./cron-presets";
@@ -248,33 +249,20 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
       />
 
       {/* Flash banners — saved / sent / scheduled / cancelled only */}
-      {errorMessage && (
-        <p
-          role="alert"
-          className="rounded-md border border-critical/20 bg-red-50 px-3 py-2 text-sm text-critical"
-        >
-          {errorMessage}
-        </p>
-      )}
+      {errorMessage && <Alert tone="error">{errorMessage}</Alert>}
       {sp.saved === "1" && !errorMessage && (
-        <p className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-success">
-          Campaign saved.
-        </p>
+        <Alert tone="success">Campaign saved.</Alert>
       )}
       {sp.sent && !errorMessage && (
-        <p className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-success">
+        <Alert tone="success">
           Campaign sent to {sp.sent} {sp.sent === "1" ? "recipient" : "recipients"}.
-        </p>
+        </Alert>
       )}
       {sp.scheduled === "1" && !errorMessage && (
-        <p className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-success">
-          Campaign scheduled.
-        </p>
+        <Alert tone="success">Campaign scheduled.</Alert>
       )}
       {sp.cancelled === "1" && !errorMessage && (
-        <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-          Schedule cancelled.
-        </p>
+        <Alert tone="info">Schedule cancelled.</Alert>
       )}
 
       {/* Main save form — editable only while a draft */}
@@ -329,7 +317,7 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
       {/* Read-only summary for any non-draft campaign (sent / scheduled / recurring / cancelled) */}
       {!isDraft && (
         <div className="space-y-4">
-          <div className="rounded-lg border border-slate-200 bg-white p-5 space-y-2">
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-2">
             <p className="text-sm font-medium text-slate-700">Subject</p>
             <p className="text-sm text-slate-600">{campaign.subject || <em className="text-slate-400">No subject</em>}</p>
           </div>
@@ -379,36 +367,34 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
 
           {/* Inline audience preview result */}
           {sp.preview === "1" && !errorMessage && (
-            <div className="rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+            <Alert tone="info">
               <strong>Audience preview:</strong> {sp.count ?? "0"} recipient
               {sp.count !== "1" ? "s" : ""}
               {Number(sp.excluded ?? "0") > 0
                 ? `, ${sp.excluded} excluded (no email address on file)`
                 : ""}
               .
-            </div>
+            </Alert>
           )}
 
           {/* Inline test-send confirmation */}
           {sp.tested === "1" && !errorMessage && (
-            <p className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-success">
-              Test email sent to your address.
-            </p>
+            <Alert tone="success">Test email sent to your address.</Alert>
           )}
         </div>
       )}
 
       {/* Schedule status banner (SCHEDULED or ACTIVE) */}
       {(isScheduled || isActive) && (
-        <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 space-y-3">
+        <div className="rounded-xl border border-brand/20 bg-brand-faint p-4 space-y-3">
           {isScheduled && campaign.scheduledAt && (
-            <p className="text-sm text-blue-800">
+            <p className="text-sm text-brand">
               <strong>Scheduled to send on</strong>{" "}
               {campaign.scheduledAt.toLocaleString()}
             </p>
           )}
           {isActive && (
-            <p className="text-sm text-blue-800">
+            <p className="text-sm text-brand">
               <strong>Recurring:</strong> {campaign.cronExpr}
               {campaign.nextRunAt && (
                 <> &mdash; next run {campaign.nextRunAt.toLocaleString()}</>

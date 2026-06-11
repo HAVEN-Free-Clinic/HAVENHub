@@ -1,4 +1,5 @@
 import { requireModuleAccess } from "@/platform/auth/session";
+import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
@@ -21,6 +22,7 @@ import {
 } from "@/modules/schedule/services/requests";
 import { isoDateKey } from "@/modules/schedule/engine/map";
 import { displayDate } from "@/modules/schedule/engine/display";
+import { CheckCircle2, Clock } from "lucide-react";
 
 function fmtDate(d: Date | null | undefined): string {
   if (!d) return "-";
@@ -151,19 +153,21 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
       </div>
 
       {errorMessage && (
-        <div role="alert" className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <Alert tone="error" className="mb-6">
           {errorMessage}
-        </div>
+        </Alert>
       )}
       {saved && (
-        <div className="mb-6 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 font-medium">
-          ✓ Availability saved successfully.
-        </div>
+        <Alert tone="success" className="mb-6 flex items-center gap-2 font-medium">
+          <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden />
+          Availability saved successfully.
+        </Alert>
       )}
       {requested && (
-        <div className="mb-6 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 font-medium">
-          ✓ Change request submitted. Your director will review it.
-        </div>
+        <Alert tone="success" className="mb-6 flex items-center gap-2 font-medium">
+          <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden />
+          Change request submitted. Your director will review it.
+        </Alert>
       )}
 
       {!term ? (
@@ -177,7 +181,7 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
             <section>
               <div className="flex items-center gap-3 mb-5">
                 <h2 className="text-lg font-bold text-slate-800">My Shifts</h2>
-                <span className="rounded-full text-white text-xs font-semibold px-2.5 py-0.5" style={{backgroundColor: "#1e3a5f"}}>{shifts.length} total</span>
+                <span className="rounded-full bg-slate-800 text-white text-xs font-semibold px-2.5 py-0.5">{shifts.length} total</span>
               </div>
 
               {shifts.length === 0 ? (
@@ -196,8 +200,8 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                       shift.role === "DIRECTOR"
                         ? "border-l-4 border-l-brand"
                         : shift.role === "SHADOW"
-                        ? "border-l-4 border-l-amber-400"
-                        : "border-l-4 border-l-emerald-400";
+                        ? "border-l-4 border-l-warning"
+                        : "border-l-4 border-l-success";
 
                     return (
                       <div key={cardKey} className={`rounded-xl border border-slate-200 bg-white px-5 py-4 ${leftBorder}`}>
@@ -215,9 +219,10 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
 
                         <div className="mt-2">
                           {pendingReq ? (
-                            <div className="flex flex-wrap items-center gap-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2">
-                              <p className="text-sm text-amber-800 flex-1">
-                                ⏳ Change requested:{" "}
+                            <div className="flex flex-wrap items-center gap-3 rounded-xl bg-amber-50 border border-warning/30 px-3 py-2">
+                              <p className="text-sm text-warning flex-1 flex items-center gap-1.5">
+                                <Clock className="h-4 w-4 shrink-0" aria-hidden />
+                                Change requested:{" "}
                                 {pendingReq.targetId
                                   ? `swap with ${pendingReq.target?.name ?? "unknown"} (${pendingReq.targetDate ? displayDate(isoDateKey(pendingReq.targetDate)) : "?"})`
                                   : "drop"}{" "}
@@ -301,7 +306,7 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
               ) : (
                 <>
                   {legacyNote && (
-                    <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                    <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
                       <p className="mb-1 text-xs font-medium text-slate-500">Note from the old scheduler:</p>
                       <p className="text-sm text-slate-600">{legacyNote}</p>
                     </div>
@@ -339,9 +344,9 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                         </div>
                       ))}
                     </div>
-                    <button type="submit" className="mt-6 rounded-lg bg-brand px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-hover transition-colors">
+                    <Button type="submit" className="mt-6">
                       Save availability
-                    </button>
+                    </Button>
                   </form>
                 </>
               )}

@@ -8,8 +8,8 @@ import { isModuleActive, type NavModule } from "@/platform/modules/access";
 
 function linkClasses(active: boolean): string {
   return active
-    ? "rounded-md px-2.5 py-1.5 text-sm font-medium text-brand bg-brand-faint"
-    : "rounded-md px-2.5 py-1.5 text-sm font-medium text-slate-500 hover:text-slate-900 hover:bg-slate-50 transition-colors";
+    ? "rounded-lg px-2.5 py-1.5 text-sm font-medium text-brand bg-brand-faint"
+    : "rounded-lg px-2.5 py-1.5 text-sm font-medium text-slate-500 hover:text-slate-900 hover:bg-slate-50 transition-colors";
 }
 
 export function GlobalNav({ items }: { items: NavModule[] }) {
@@ -60,7 +60,7 @@ export function GlobalNav({ items }: { items: NavModule[] }) {
           aria-expanded={open}
           aria-controls="global-nav-mobile"
           onClick={() => setOpen((v) => !v)}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-md text-slate-600 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
         >
           {open ? <X aria-hidden className="h-5 w-5" /> : <Menu aria-hidden className="h-5 w-5" />}
         </button>

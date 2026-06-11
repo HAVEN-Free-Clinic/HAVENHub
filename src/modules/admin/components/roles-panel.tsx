@@ -149,7 +149,7 @@ export async function RolesPanel({ roles, pageHref }: RolesPanelProps): Promise<
       <SectionHeading>Roles</SectionHeading>
 
       {/* Create-role inline form */}
-      <div className="rounded-lg border border-slate-200 bg-white p-5">
+      <div className="rounded-2xl border border-slate-200 bg-white p-5">
         <h3 className="mb-4 text-sm font-semibold text-slate-700">Create new role</h3>
         <form action={createRoleAction} className="flex flex-wrap items-end gap-3">
           <Field label="Name">
@@ -185,7 +185,7 @@ export async function RolesPanel({ roles, pageHref }: RolesPanelProps): Promise<
         return (
           <div
             key={role.id}
-            className="rounded-lg border border-slate-200 bg-white p-5 space-y-5"
+            className="rounded-2xl border border-slate-200 bg-white p-5 space-y-5"
           >
             {/* Card header */}
             <div className="flex items-start justify-between gap-4">

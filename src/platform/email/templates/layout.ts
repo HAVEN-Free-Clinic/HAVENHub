@@ -21,7 +21,7 @@ const DEFAULT_LAYOUT = `<!DOCTYPE html>
 <title>{{ subject }}</title>
 <style>
   body { margin: 0; padding: 0; background-color: #f1f5f9; }
-  .email-content { color: #1e293b; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 16px; line-height: 1.6; }
+  .email-content { color: #1e293b; font-family: 'Hanken Grotesk', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 16px; line-height: 1.6; }
   .email-content h1 { font-size: 22px; line-height: 1.3; margin: 0 0 14px; color: #0f172a; }
   .email-content h2 { font-size: 18px; line-height: 1.3; margin: 22px 0 10px; color: #0f172a; }
   .email-content h3 { font-size: 16px; line-height: 1.3; margin: 18px 0 8px; color: #0f172a; }
@@ -41,7 +41,7 @@ const DEFAULT_LAYOUT = `<!DOCTYPE html>
       <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width: 600px; max-width: 100%; background-color: #ffffff; border-radius: 8px; overflow: hidden; border: 1px solid #e2e8f0;">
         <tr>
           <td style="background-color: #00356b; padding: 20px 32px;">
-            <span style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 18px; font-weight: 700; color: #ffffff; letter-spacing: 0.3px;">HAVEN Free Clinic</span>
+            <span style="font-family: 'Hanken Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 18px; font-weight: 700; color: #ffffff; letter-spacing: 0.3px;">HAVEN Free Clinic</span>
           </td>
         </tr>
         <tr>
@@ -51,7 +51,7 @@ const DEFAULT_LAYOUT = `<!DOCTYPE html>
         </tr>
         <tr>
           <td style="padding: 20px 32px; background-color: #f8fafc; border-top: 1px solid #e2e8f0;">
-            <p style="margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 12px; line-height: 1.5; color: #64748b;">
+            <p style="margin: 0; font-family: 'Hanken Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 12px; line-height: 1.5; color: #64748b;">
               HAVEN Free Clinic &middot; Yale School of Medicine<br>
               This is an automated message from the HAVEN Hub platform.
             </p>

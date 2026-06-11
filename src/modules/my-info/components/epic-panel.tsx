@@ -38,7 +38,7 @@ export function EpicPanel({ epicId, openRequest, action, error, saved }: EpicPan
   const hasEpicId = !!epicId;
 
   return (
-    <div className="rounded-lg border border-slate-200 p-5 space-y-4">
+    <div className="rounded-2xl border border-slate-200 p-5 space-y-4">
       <div>
         <h3 className="text-sm font-semibold text-slate-700">Epic Access</h3>
         <p className="mt-0.5 text-xs text-slate-400">Managed by the IT team.</p>
@@ -58,7 +58,7 @@ export function EpicPanel({ epicId, openRequest, action, error, saved }: EpicPan
 
       {/* Open request status or request form */}
       {openRequest ? (
-        <div className="rounded-md border border-slate-200 bg-slate-50 px-4 py-3">
+        <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
           <div className="flex items-center gap-2">
             <Badge tone="warning">
               {openRequest.kind} {openRequest.status === "SUBMITTED" ? "submitted to YNHH" : "request pending"}

@@ -70,7 +70,7 @@ function MemberChip({
   removeAction: (formData: FormData) => Promise<void>;
 }) {
   return (
-    <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-1.5">
+    <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5">
       <span className="text-sm font-medium text-slate-800">{person.name}</span>
       {kind === "DIRECTOR" ? (
         <Badge tone="brand">Director</Badge>
@@ -296,7 +296,7 @@ export async function RosterPanel({
 
       {/* Search results panel */}
       {addq && addq.trim() && (
-        <div className="rounded-lg border border-slate-200 bg-white">
+        <div className="rounded-2xl border border-slate-200 bg-white">
           <div className="border-b border-slate-100 px-4 py-3">
             <p className="text-sm font-medium text-slate-700">
               {searchResults.length === 0
@@ -356,7 +356,7 @@ export async function RosterPanel({
           return (
             <div
               key={dept.id}
-              className="rounded-lg border border-slate-200 bg-slate-50 p-5"
+              className="rounded-2xl border border-slate-200 bg-slate-50 p-5"
             >
               <h3 className="mb-4 text-sm font-semibold text-slate-700">
                 {dept.code} -- {dept.name}
@@ -426,7 +426,7 @@ export async function RosterPanel({
 
       {/* Copy-roster section: PLANNING terms only */}
       {term.status === "PLANNING" && (
-        <div className="rounded-lg border border-slate-200 bg-white p-5">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5">
           <h3 className="mb-4 text-sm font-semibold text-slate-700">Copy roster from another term</h3>
           {sourceTerms.length === 0 ? (
             <p className="text-sm text-slate-400">No other terms available to copy from.</p>

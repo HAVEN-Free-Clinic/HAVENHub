@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requirePermission } from "@/platform/auth/session";
 import { listCampaigns } from "@/platform/email/campaigns/service";
 import { PageHeader } from "@/platform/ui/page-header";
+import { buttonClasses } from "@/platform/ui/button";
 
 function fmtDate(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -20,7 +21,7 @@ export default async function EmailCampaignsPage() {
         action={
           <Link
             href="/admin/email/campaigns/new"
-            className="inline-flex items-center justify-center rounded-md bg-brand px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-brand-hover"
+            className={buttonClasses("primary", "sm")}
           >
             New campaign
           </Link>
@@ -34,13 +35,13 @@ export default async function EmailCampaignsPage() {
           </p>
           <Link
             href="/admin/email/campaigns/new"
-            className="inline-flex items-center justify-center rounded-md bg-brand px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-brand-hover"
+            className={buttonClasses("primary", "sm")}
           >
             New campaign
           </Link>
         </div>
       ) : (
-        <ul className="divide-y rounded-lg border border-slate-200 bg-white">
+        <ul className="divide-y rounded-2xl border border-slate-200 bg-white">
           {campaigns.map((c) => (
             <li key={c.id} className="flex items-center justify-between px-5 py-3">
               <span>

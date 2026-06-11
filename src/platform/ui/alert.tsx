@@ -30,7 +30,7 @@ export function Alert({ tone = "info", className, role, ...rest }: AlertProps) {
       role={role ?? (tone === "error" ? "alert" : "status")}
       {...rest}
       className={cx(
-        "rounded-md border px-3 py-2 text-sm",
+        "rounded-xl border px-3 py-2 text-sm",
         toneClasses[tone],
         className,
       )}

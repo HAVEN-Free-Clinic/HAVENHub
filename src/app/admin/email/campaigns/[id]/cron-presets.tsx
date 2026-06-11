@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Input } from "@/platform/ui/input";
 
 const PRESETS = [
   { label: "Weekly (Mon 09:00)", value: "0 9 * * 1" },
@@ -19,13 +20,13 @@ export function CronPresets() {
             key={p.value}
             type="button"
             onClick={() => setCronExpr(p.value)}
-            className="rounded border border-dashed border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:border-slate-400 hover:text-slate-800"
+            className="rounded-lg border border-dashed border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:border-slate-400 hover:text-slate-800"
           >
             {p.label}
           </button>
         ))}
       </div>
-      <input
+      <Input
         id="cronExpr"
         name="cronExpr"
         type="text"
@@ -33,7 +34,7 @@ export function CronPresets() {
         onChange={(e) => setCronExpr(e.target.value)}
         placeholder="0 13 * * 1"
         required
-        className="mt-0.5 w-48 rounded border border-slate-300 px-2 py-1.5 text-sm font-mono"
+        className="mt-0.5 w-48 font-mono"
       />
     </div>
   );

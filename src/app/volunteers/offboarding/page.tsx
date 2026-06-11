@@ -130,7 +130,7 @@ export default async function OffboardingPage({ searchParams }: PageProps) {
           {departments.map(({ department, members }) => (
             <section key={department.id}>
               <h2 className="mb-3 text-base font-semibold">
-                {department.code} &middot; {department.name}
+                {department.code} · {department.name}
               </h2>
 
               <Table>

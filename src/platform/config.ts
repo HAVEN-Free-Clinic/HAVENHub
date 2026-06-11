@@ -61,6 +61,15 @@ const schema = z
     // recruitment onboarding contract link). Deploy-time value; never derived
     // from the request Host header, which is attacker-controllable.
     APP_BASE_URL: z.string().default("http://localhost:3000"),
+    // GitBook docs visitor authentication (custom JWT backend). When both are set,
+    // /api/gitbook/auth signs an HS256 JWT with GITBOOK_JWT_KEY for the signed-in
+    // person and redirects the visitor back into the published docs site. Optional:
+    // when either is unset the endpoint responds 503 and the docs stay closed.
+    //   GITBOOK_JWT_KEY  -- the per-site signing key from GitBook (Audience > Custom).
+    //   GITBOOK_SITE_URL -- the published site base URL the visitor is returned to
+    //                       (e.g. https://haven-free-clinic.gitbook.io/docs).
+    GITBOOK_JWT_KEY: z.string().optional(),
+    GITBOOK_SITE_URL: z.string().optional(),
     // The Microsoft Teams clinic Team's groupId. When set (and the Mailer OAuth is
     // connected with the Channel.ReadBasic.All scope), the home dashboard shows a
     // link to the current clinic week's channel. Optional: when unset, the card is

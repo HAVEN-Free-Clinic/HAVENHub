@@ -13,7 +13,7 @@
  * generate route (returns a base64-encoded PDF and optional XLSX). The email
  * draft is assembled client-side from the same data since it needs no binary.
  *
- * The semester end date is configurable via a date input so ITCM can set it
+ * The access end date is configurable via a date input so ITCM can set it
  * once per term without touching code.
  */
 
@@ -122,7 +122,7 @@ export function EpicRequestForm({ departments }: Props) {
       return;
     }
     if (!isNew && !endDate) {
-      setError("Set the semester end date before generating a modify/renew request.");
+      setError("Set the access end date before generating a modify/renew request.");
       return;
     }
     setError(null);
@@ -204,9 +204,8 @@ export function EpicRequestForm({ departments }: Props) {
             <Select
               value={requestType.startsWith("bulk") ? requestType.replace("bulk_", "") : requestType.replace("_individual", "")}
               onChange={(e) => {
-                const bulk = e.target.value === "bulk";
-                const base = requestType.replace("_individual", "").replace("bulk_", "");
-                const raw = bulk ? `bulk_${base}` : `${base}_individual`;
+                const base = e.target.value as "new" | "mod" | "renew";
+                const raw = isBulk ? `bulk_${base}` : `${base}_individual`;
                 const safe = raw === "bulk_renew" ? "bulk_mod" : raw;
                 setRequestType(safe as RequestType);
                 setSelectedPeopleIds(new Set());
@@ -236,7 +235,7 @@ export function EpicRequestForm({ departments }: Props) {
           </Field>
 
           {!isNew && (
-            <Field label="Semester end date">
+            <Field label="Access end date">
               <Input
                 type="date"
                 required

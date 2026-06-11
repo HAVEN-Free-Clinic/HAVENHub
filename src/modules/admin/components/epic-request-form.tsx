@@ -198,17 +198,36 @@ export function EpicRequestForm({ departments }: Props) {
 
           <Field label="Request type">
             <Select
-              value={requestType}
+              value={requestType.startsWith("bulk") ? requestType.replace("bulk_", "") : requestType.replace("_individual", "")}
               onChange={(e) => {
-                setRequestType(e.target.value as RequestType);
+                const bulk = e.target.value === "bulk";
+                const base = requestType.replace("_individual", "").replace("bulk_", "");
+                const raw = bulk ? `bulk_${base}` : `${base}_individual`;
+                const safe = raw === "bulk_renew" ? "bulk_mod" : raw;
+                setRequestType(safe as RequestType);
                 setSelectedPeopleIds(new Set());
               }}
             >
-              {(Object.entries(REQUEST_TYPE_LABELS) as [RequestType, string][]).map(([key, label]) => (
-                <option key={key} value={key}>
-                  {label}
-                </option>
-              ))}
+              <option value="new">New</option>
+              <option value="mod">Modify</option>
+              {!isBulk && <option value="renew">Renew</option>}
+            </Select>
+          </Field>
+
+          <Field label="Scope">
+            <Select
+              value={isBulk ? "bulk" : "individual"}
+              onChange={(e) => {
+                const bulk = e.target.value === "bulk";
+                const base = requestType.replace("_individual", "").replace("bulk_", "");
+                const raw = bulk ? `bulk_${base}` : `${base}_individual`;
+                const safe = raw === "bulk_renew" ? "bulk_mod" : raw;
+                setRequestType(safe as RequestType);
+                setSelectedPeopleIds(new Set());
+              }}
+            >
+              <option value="individual">Individual</option>
+              <option value="bulk">Bulk</option>
             </Select>
           </Field>
 

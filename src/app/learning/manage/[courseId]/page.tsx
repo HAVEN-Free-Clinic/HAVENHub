@@ -3,7 +3,7 @@ import { requirePermission } from "@/platform/auth/session";
 import { prisma } from "@/platform/db";
 import { PageHeader } from "@/platform/ui/page-header";
 import { getCourseForEdit } from "@/modules/learning/services/courses";
-import { updateCourseAction, setAssignmentAction, addModuleAction } from "../actions";
+import { updateCourseAction, setAssignmentAction, uploadPackageAction } from "../actions";
 
 export default async function EditCoursePage({ params }: { params: Promise<{ courseId: string }> }) {
   await requirePermission("learning.manage_courses");
@@ -40,27 +40,17 @@ export default async function EditCoursePage({ params }: { params: Promise<{ cou
         </form>
 
         <div className="space-y-2">
-          <h2 className="font-medium">Modules</h2>
-          <ol className="list-decimal space-y-1 pl-5 text-sm">
-            {course.modules.map((m) => (
-              <li key={m.id}>{m.title} <span className="text-slate-400">({m.kind})</span></li>
-            ))}
-          </ol>
-          <form action={addModuleAction} className="space-y-2 rounded border border-slate-200 p-3">
+          <h2 className="font-medium">SCORM package</h2>
+          <p className="text-sm text-slate-500">
+            {course.scormEntryHref
+              ? `Uploaded${course.scormUploadedAt ? ` ${course.scormUploadedAt.toLocaleDateString()}` : ""} · launch: ${course.scormEntryHref} · SCORM ${course.scormVersion ?? "1.2"}`
+              : "No package uploaded yet."}
+          </p>
+          <form action={uploadPackageAction} encType="multipart/form-data" className="space-y-2 rounded border border-slate-200 p-3">
             <input type="hidden" name="courseId" value={course.id} />
-            <input name="title" placeholder="Module title" required className="w-full rounded border border-slate-300 px-3 py-1.5" />
-            <select name="kind" className="w-full rounded border border-slate-300 px-3 py-1.5">
-              <option value="VIDEO">Video</option>
-              <option value="DOCUMENT">Document</option>
-              <option value="QUIZ">Quiz</option>
-            </select>
-            <input name="url" placeholder="Link (video/document)" className="w-full rounded border border-slate-300 px-3 py-1.5" />
-            <textarea name="questions" placeholder='Quiz questions JSON: [{"key":"q1","label":"...","options":[{"value":"a","label":"A"}],"correctValue":"a"}]' className="w-full rounded border border-slate-300 px-3 py-1.5 font-mono text-xs" />
-            <div className="flex gap-2">
-              <input name="passPercent" type="number" placeholder="Pass %" className="w-24 rounded border border-slate-300 px-3 py-1.5" />
-              <input name="maxAttempts" type="number" placeholder="Attempts" className="w-24 rounded border border-slate-300 px-3 py-1.5" />
-            </div>
-            <button className="rounded bg-slate-800 px-3 py-1.5 text-white" type="submit">Add module</button>
+            <input type="file" name="package" accept=".zip,application/zip" required className="block text-sm" />
+            <p className="text-xs text-slate-400">Export from eXeLearning as SCORM 1.2, then upload the .zip. Uploading replaces any existing package.</p>
+            <button className="rounded bg-slate-800 px-3 py-1.5 text-white" type="submit">{course.scormEntryHref ? "Replace package" : "Upload package"}</button>
           </form>
         </div>
       </div>

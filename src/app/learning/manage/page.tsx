@@ -10,7 +10,7 @@ export default async function ManageCoursesPage() {
 
   return (
     <>
-      <PageHeader title="Manage courses" description="Create and edit training courses." />
+      <PageHeader title="Manage courses" description="Create courses and upload their SCORM packages." />
       <div className="mt-6 max-w-2xl space-y-6">
         <form action={createCourseAction} className="flex gap-2">
           <input name="title" placeholder="New course title" required className="flex-1 rounded border border-slate-300 px-3 py-1.5" />
@@ -22,7 +22,7 @@ export default async function ManageCoursesPage() {
               <Link href={`/learning/manage/${c.id}`} className="flex items-center justify-between rounded border border-slate-200 px-4 py-2 hover:border-slate-400">
                 <span>{c.title}</span>
                 <span className="text-xs text-slate-500">
-                  {c.moduleCount} module(s){c.isActive ? "" : " · inactive"}{c.assignToAll ? " · all depts" : ""}
+                  {c.hasPackage ? "package uploaded" : "no package"}{c.isActive ? "" : " · inactive"}{c.assignToAll ? " · all depts" : ""}
                 </span>
               </Link>
             </li>

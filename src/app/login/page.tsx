@@ -16,11 +16,28 @@ const DEFAULT_ERROR = "Sign-in failed. Please try again, or contact the IT team.
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; callbackUrl?: string }>;
 }) {
+  const { error, callbackUrl } = await searchParams;
+  // Only honor a same-origin, slash-rooted destination (e.g. the GitBook docs
+  // auth endpoint) so the callback can never become an open redirect. Parsing
+  // against APP_BASE_URL with the WHATWG URL API rejects absolute URLs and the
+  // protocol-relative / backslash tricks ("//evil.com", "/\evil.com") that a
+  // naive string check misses. Anything else falls back to the home page.
+  let safeCallbackUrl = "/";
+  if (callbackUrl) {
+    try {
+      const base = new URL(config.APP_BASE_URL);
+      const target = new URL(callbackUrl, base);
+      if (target.origin === base.origin && /^\/[^/\\]/.test(target.pathname)) {
+        safeCallbackUrl = target.pathname + target.search;
+      }
+    } catch {
+      // Malformed callbackUrl: keep the "/" default.
+    }
+  }
   const session = await auth();
-  if (session?.personId) redirect("/");
-  const { error } = await searchParams;
+  if (session?.personId) redirect(safeCallbackUrl);
   const appName = await getSetting<string>("branding.appName");
   const errorMessage = error ? (ERROR_MESSAGES[error] ?? DEFAULT_ERROR) : null;
 
@@ -93,10 +110,12 @@ export default async function LoginPage({
               action={async () => {
                 "use server";
                 try {
-                  await signIn("microsoft-entra-id", { redirectTo: "/" });
+                  await signIn("microsoft-entra-id", { redirectTo: safeCallbackUrl });
                 } catch (error) {
                   if (error instanceof AuthError) {
-                    redirect(`/login?error=${error.type}`);
+                    redirect(
+                      `/login?error=${error.type}&callbackUrl=${encodeURIComponent(safeCallbackUrl)}`
+                    );
                   }
                   throw error;
                 }
@@ -129,12 +148,14 @@ export default async function LoginPage({
                 try {
                   await signIn("credentials", {
                     email: formData.get("email"),
-                    redirectTo: "/",
+                    redirectTo: safeCallbackUrl,
                   });
                 } catch (error) {
                   // signIn throws NEXT_REDIRECT on success, so only translate auth failures.
                   if (error instanceof AuthError) {
-                    redirect(`/login?error=${error.type}`);
+                    redirect(
+                      `/login?error=${error.type}&callbackUrl=${encodeURIComponent(safeCallbackUrl)}`
+                    );
                   }
                   throw error;
                 }

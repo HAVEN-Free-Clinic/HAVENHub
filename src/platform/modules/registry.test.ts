@@ -25,10 +25,11 @@ describe("module registry", () => {
     }
   });
 
-  it("registers the eight modules from the spec", () => {
+  it("registers all known modules", () => {
     expect(MODULES.map((m) => m.id).sort()).toEqual(
       [
         "admin",
+        "learning",
         "my-info",
         "patient-trackers",
         "recruitment",

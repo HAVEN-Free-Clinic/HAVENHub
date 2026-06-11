@@ -26,7 +26,11 @@ export const usingBlobStorage = Boolean(blobToken);
 function localPath(key: string): string {
   const root = path.resolve(config.UPLOAD_DIR);
   const resolved = path.resolve(root, key);
-  if (resolved !== root && !resolved.startsWith(root + path.sep)) {
+  // The resolved path must stay inside `root`. Compute the path relative to the
+  // root: anything that escapes produces a leading ".." segment or an absolute
+  // path (a different drive on Windows), both of which we reject.
+  const relative = path.relative(root, resolved);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
     throw new Error(`Refusing to access path outside the upload dir: ${key}`);
   }
   return resolved;

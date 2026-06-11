@@ -14,6 +14,7 @@
 
 import { requirePermission } from "@/platform/auth/session";
 import { prisma } from "@/platform/db";
+import { businessDaysSince } from "@/platform/dates";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
@@ -92,35 +93,6 @@ function fmtDate(d: Date | null | undefined): string {
     day: "numeric",
     timeZone: "UTC",
   });
-}
-
-/**
- * Count Mon-Fri business days elapsed between start and now (whole days,
- * both endpoints treated as calendar dates in UTC).
- */
-function businessDaysSince(start: Date, now: Date): number {
-  // Normalize both to midnight UTC
-  const startDay = Date.UTC(
-    start.getUTCFullYear(),
-    start.getUTCMonth(),
-    start.getUTCDate()
-  );
-  const endDay = Date.UTC(
-    now.getUTCFullYear(),
-    now.getUTCMonth(),
-    now.getUTCDate()
-  );
-
-  if (endDay <= startDay) return 0;
-
-  let count = 0;
-  let cursor = startDay + 86400_000; // start from next day
-  while (cursor <= endDay) {
-    const dow = new Date(cursor).getUTCDay(); // 0=Sun, 6=Sat
-    if (dow !== 0 && dow !== 6) count++;
-    cursor += 86400_000;
-  }
-  return count;
 }
 
 // ---------------------------------------------------------------------------

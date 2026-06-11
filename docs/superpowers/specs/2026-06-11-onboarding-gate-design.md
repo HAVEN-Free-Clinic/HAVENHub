@@ -243,9 +243,39 @@ page load
 - `src/modules/onboarding/services/onboarding.ts`
 - `src/modules/onboarding/engine/status.ts`
 - `src/modules/onboarding/engine/status.test.ts`
+- `src/platform/auth/onboarding-allowlist.ts` (+ `.test.ts`)
 - `src/app/get-started/page.tsx`
 - `src/app/get-started/onboarding-checklist.tsx` (presentational)
-- `middleware.ts`
+- `src/proxy.ts`
 
 **Modified**
 - `src/platform/auth/session.ts` (add onboarding enforcement to `requirePersonSession`)
+
+## Implementation notes (decisions made during build)
+
+1. **Next 16 proxy, not middleware.** Next 16 renamed `middleware.ts` → `proxy.ts`
+   (export `proxy`, Node runtime). It lives at `src/proxy.ts` to match the `src/app`
+   layout. Verified detected as `ƒ Proxy (Middleware)` in the build.
+
+2. **Enforcement lives in `requirePersonSession`, not a layout.** A root-layout gate is
+   bypassable: Next.js does not re-render layouts on soft (client `<Link>`) navigations,
+   so a gated volunteer could click the `AppShell` nav into another module page ungated.
+   `requirePersonSession` is the page-level chokepoint that *does* re-run on every soft
+   navigation (page Server Components always re-render; layouts do not), so the gate is
+   airtight there. The proxy alternative was rejected: it would run the full status
+   query on every link prefetch.
+
+3. **One documented `platform → module` exception.** Putting the gate in
+   `requirePersonSession` (platform) means importing `getOnboardingStatus` (a module
+   service). This is the single sanctioned breach of the platform→module ESLint boundary,
+   marked with an inline `eslint-disable` and a justifying comment. The aggregator must
+   stay in the module layer because it reads data owned by my-info/recruitment/learning.
+
+4. **Allowlist extracted + unit-tested.** `ONBOARDING_ALLOWLIST` / `isAllowlistedPath`
+   live in a pure `src/platform/auth/onboarding-allowlist.ts` (no Next/DB imports) with
+   exact-or-prefix matching, covered by `onboarding-allowlist.test.ts` (incl. the
+   `/my-information` ≠ `/my-info` sibling case).
+
+5. **No `Card` primitive dependency.** `card.tsx` is not in `main` (it is on an unmerged
+   branch), so task rows use raw Tailwind matching the home/training pages
+   (`rounded-2xl border bg-white shadow-sm`).

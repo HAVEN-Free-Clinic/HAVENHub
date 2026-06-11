@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 import { Scorm12API } from "scorm-again";
 import { persistCmiAction } from "../actions";
 import type { CmiSnapshot } from "@/modules/learning/services/enrollment";
@@ -21,8 +21,11 @@ type Props = {
 export function ScormPlayer({ courseId, entryHref, initialCmi }: Props) {
   const apiRef = useRef<InstanceType<typeof Scorm12API> | null>(null);
 
-  // Install API synchronously after DOM commit but before paint, so the iframe
-  // finds window.API on its very first access.
+  // Install the API AND wire commit/finish persistence in one layout effect, so
+  // window.API and its listeners are both present synchronously after DOM commit
+  // (before paint) — i.e. before the iframe loads and the package first accesses
+  // the API or fires any (auto)commit. Splitting these across effects would leave
+  // a paint-frame window where an early commit could be dropped.
   useLayoutEffect(() => {
     const api = new Scorm12API({ autocommit: true, autocommitSeconds: 30, logLevel: 4 });
 
@@ -31,24 +34,6 @@ export function ScormPlayer({ courseId, entryHref, initialCmi }: Props) {
     if (initialCmi.lessonLocation) api.cmi.core.lesson_location = initialCmi.lessonLocation;
     if (initialCmi.scoreRaw != null) api.cmi.core.score.raw = String(initialCmi.scoreRaw);
     if (initialCmi.suspendData) api.cmi.suspend_data = initialCmi.suspendData;
-
-    (window as unknown as { API: typeof api }).API = api;
-    apiRef.current = api;
-
-    return () => {
-      delete (window as unknown as { API?: typeof api }).API;
-      apiRef.current = null;
-    };
-    // initialCmi is stable for the life of this page — values come from a
-    // server-rendered snapshot and do not change during the session.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Wire up commit/finish persistence in a separate effect so the save
-  // callbacks are registered after the API is installed.
-  useEffect(() => {
-    const api = apiRef.current;
-    if (!api) return;
 
     const snapshot = (): CmiSnapshot => ({
       lessonStatus: api.cmi.core.lesson_status || null,
@@ -60,10 +45,16 @@ export function ScormPlayer({ courseId, entryHref, initialCmi }: Props) {
     api.on("LMSCommit", save);
     api.on("LMSFinish", save);
 
+    (window as unknown as { API: typeof api }).API = api;
+    apiRef.current = api;
+
     return () => {
       save();
+      delete (window as unknown as { API?: typeof api }).API;
+      apiRef.current = null;
     };
-    // courseId is stable for the life of this page.
+    // courseId/initialCmi are stable for the life of this page — they come from a
+    // server-rendered snapshot and do not change during the session.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

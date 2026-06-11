@@ -5,6 +5,7 @@ import { requirePermission } from "@/platform/auth/session";
 import { createCourse, updateCourse, setCourseAssignment } from "@/modules/learning/services/courses";
 import { ingestScormPackage } from "@/modules/learning/services/packages";
 import { LearningValidationError } from "@/modules/learning/services/errors";
+import { getObject, deleteObject } from "@/platform/storage";
 
 /** Upper bound on the COMPRESSED upload size. Bounds the memory a malicious or
  *  accidental over-large zip can consume before the uncompressed-size check in
@@ -71,62 +72,49 @@ export async function uploadPackageAction(_prev: UploadState, formData: FormData
 }
 
 /**
- * Validate that a client-supplied blob URL really points at our Vercel Blob store
- * and at this course's own upload prefix, then rebuild it from the checked parts.
- * Without this, fetching the raw client value is a server-side request forgery
- * vector (an attacker could aim the fetch at internal/metadata endpoints).
+ * Validate that a client-supplied blob pathname stays within this course's own
+ * upload prefix. The browser controls this string, so we never read or delete a
+ * pathname outside scorm-uploads/<courseId>/ (prevents reading/deleting other
+ * tenants' blobs). Returns the safe pathname.
  */
-function safeBlobUrl(rawUrl: string, courseId: string): string {
-  let u: URL;
-  try {
-    u = new URL(rawUrl);
-  } catch {
+function safeUploadPathname(pathname: string, courseId: string): string {
+  const norm = pathname.replace(/^\/+/, "");
+  if (!norm.startsWith(`scorm-uploads/${courseId}/`) || norm.split("/").some((s) => s === "..")) {
     throw new LearningValidationError("Invalid upload reference.");
   }
-  const hostOk = u.protocol === "https:" && /(^|\.)blob\.vercel-storage\.com$/.test(u.hostname);
-  const pathOk = u.pathname.startsWith(`/scorm-uploads/${courseId}/`) && !u.pathname.includes("..");
-  if (!hostOk || !pathOk) {
-    throw new LearningValidationError("Invalid upload reference.");
-  }
-  // Reconstruct from validated host + path so no unexpected pieces reach fetch().
-  return `https://${u.hostname}${u.pathname}`;
+  return norm;
 }
 
 /**
- * Ingest a SCORM package that the browser already uploaded directly to Blob
- * (the path used on Vercel, where the function request body is capped at 4.5 MB).
- * Fetches the zip bytes from the blob URL, ingests, then deletes the temp upload.
+ * Ingest a SCORM package the browser already uploaded directly to Blob (the path
+ * used on Vercel, where the function request body is capped at 4.5 MB). The blob
+ * is PRIVATE; we read its bytes through the storage abstraction by pathname (no
+ * fetch of a client URL), ingest, then delete the transient upload.
  */
 export async function ingestUploadedPackageAction(input: {
   courseId: string;
-  url: string;
+  pathname: string;
 }): Promise<UploadState> {
   const person = await requirePermission("learning.manage_courses");
 
-  let url: string;
+  let key: string;
   try {
-    url = safeBlobUrl(input.url, input.courseId);
+    key = safeUploadPathname(input.pathname, input.courseId);
   } catch (err) {
     if (err instanceof LearningValidationError) return { error: err.message };
     throw err;
   }
 
   try {
-    const res = await fetch(url);
-    if (!res.ok) return { error: "Could not read the uploaded package from storage." };
-    const bytes = Buffer.from(await res.arrayBuffer());
+    const bytes = await getObject(key);
+    if (!bytes) return { error: "Could not read the uploaded package from storage." };
     await ingestScormPackage(input.courseId, bytes, person.personId);
   } catch (err) {
     if (err instanceof LearningValidationError) return { error: err.message };
     throw err;
   } finally {
-    // Best-effort cleanup of the transient upload (validated URL only).
-    try {
-      const { del } = await import("@vercel/blob");
-      await del(url, { token: process.env.BLOB_READ_WRITE_TOKEN });
-    } catch {
-      // already gone / not on Blob -- nothing to clean up
-    }
+    // Best-effort cleanup of the transient upload (validated key only).
+    await deleteObject(key).catch(() => undefined);
   }
   revalidatePath(`/learning/manage/${input.courseId}`);
   return null;

@@ -49,13 +49,13 @@ function BlobUploadForm({ courseId, hasPackage }: FormProps) {
     try {
       setPhase("Uploading… 0%");
       const result = await upload(`scorm-uploads/${courseId}/${file.name}`, file, {
-        access: "public",
+        access: "private",
         contentType: "application/zip",
         handleUploadUrl: "/api/learning/blob-upload",
         onUploadProgress: (p) => setPhase(`Uploading… ${Math.round(p.percentage)}%`),
       });
       setPhase("Processing…");
-      const res = await ingestUploadedPackageAction({ courseId, url: result.url });
+      const res = await ingestUploadedPackageAction({ courseId, pathname: result.pathname });
       if (res?.error) {
         setError(res.error);
         return;

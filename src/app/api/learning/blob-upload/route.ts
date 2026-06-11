@@ -38,9 +38,10 @@ export async function POST(request: Request): Promise<Response> {
           addRandomSuffix: true,
         };
       },
-      // No onUploadCompleted: ingest is triggered explicitly by the client after
-      // upload() resolves, which also works in local dev where Vercel could not
-      // reach the dev server with a callback.
+      // Blob calls this server-to-server after the upload finishes. We ingest from
+      // the client (after upload() resolves) so the flow also works in local dev,
+      // so this is just a no-op acknowledgement to complete the handshake cleanly.
+      onUploadCompleted: async () => {},
     });
     return Response.json(json);
   } catch (err) {

@@ -47,12 +47,12 @@ function BlobUploadForm({ courseId, hasPackage }: FormProps) {
     }
     setBusy(true);
     try {
-      setPhase("Uploading…");
+      setPhase("Uploading… 0%");
       const result = await upload(`scorm-uploads/${courseId}/${file.name}`, file, {
         access: "public",
         contentType: "application/zip",
-        multipart: true,
         handleUploadUrl: "/api/learning/blob-upload",
+        onUploadProgress: (p) => setPhase(`Uploading… ${Math.round(p.percentage)}%`),
       });
       setPhase("Processing…");
       const res = await ingestUploadedPackageAction({ courseId, url: result.url });
@@ -62,7 +62,8 @@ function BlobUploadForm({ courseId, hasPackage }: FormProps) {
       }
       router.refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Upload failed.");
+      console.error("[learning] SCORM upload failed:", err);
+      setError(err instanceof Error ? err.message : "Upload failed. See the browser console for details.");
     } finally {
       setBusy(false);
       setPhase("");

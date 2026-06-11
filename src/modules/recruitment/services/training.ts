@@ -16,6 +16,16 @@ export class QuizLockedError extends Error {
 
 export type QuizResultPublic = { score: number; total: number; percent: number; passed: boolean };
 
+/** What submitQuiz returns: the score plus everything the page needs to render
+ *  in-place review (which option was correct), the live attempt count, and
+ *  whether this attempt tripped the lockout. */
+export type QuizSubmission = QuizResultPublic & {
+  attemptsUsed: number;
+  locked: boolean;
+  /** Graded question key -> correct option value, for correct/wrong highlighting. */
+  correctByKey: Record<string, string>;
+};
+
 /** The term's designated training cycle, or null. */
 export async function getTrainingCycleForTerm(termId: string): Promise<RecruitmentCycle | null> {
   return prisma.recruitmentCycle.findFirst({ where: { termId, isTermTraining: true } });
@@ -142,6 +152,7 @@ export type MyTraining = {
   state: TrainingState;
   locked: boolean;
   completedVia: TrainingMethod | null;
+  completedAt: Date | null;
   attemptsUsed: number;
   maxAttempts: number;
   passPercent: number;
@@ -171,7 +182,7 @@ export async function getMyTraining(personId: string): Promise<MyTraining> {
   return {
     term: { id: term.id, name: term.name },
     cycle: cycle ? { id: cycle.id, title: cycle.title } : null,
-    state, locked: row?.locked ?? false, completedVia: row?.completedVia ?? null,
+    state, locked: row?.locked ?? false, completedVia: row?.completedVia ?? null, completedAt: row?.completedAt ?? null,
     attemptsUsed, maxAttempts: cycle?.quizMaxAttempts ?? 0, passPercent: cycle?.quizPassPercent ?? 0,
     questions,
     intake: {
@@ -189,7 +200,7 @@ export async function getMyTraining(personId: string): Promise<MyTraining> {
 export async function submitQuiz(
   personId: string,
   input: { answers: Record<string, unknown>; intake: TrainingIntake }
-): Promise<QuizResultPublic> {
+): Promise<QuizSubmission> {
   const term = await activeTermOrThrow();
   const cycle = await getTrainingCycleForTerm(term.id);
   if (!cycle) throw new TrainingStateError("This term has no designated training cycle.");
@@ -222,15 +233,20 @@ export async function submitQuiz(
     const result = gradeQuiz(questions, input.answers, cycle.quizPassPercent);
     await tx.quizAttempt.create({ data: { trainingId: row.id, answers: input.answers as object, score: result.score, total: result.total, passed: result.passed } });
 
+    // Attempts used in the current window (after any reset), incl. this one.
+    const attemptsUsed = await tx.quizAttempt.count({ where: { trainingId: row.id, ...(row.lockResetAt ? { takenAt: { gte: row.lockResetAt } } : {}) } });
+    let locked = false;
     if (result.passed) {
       await completeTraining(tx, { personId, termId: term.id, cycleId: cycle.id, via: "QUIZ" });
-    } else {
-      const windowAttempts = await tx.quizAttempt.count({ where: { trainingId: row.id, ...(row.lockResetAt ? { takenAt: { gte: row.lockResetAt } } : {}) } });
-      if (windowAttempts >= cycle.quizMaxAttempts) {
-        await tx.volunteerTraining.update({ where: { id: row.id }, data: { locked: true } });
-      }
+    } else if (attemptsUsed >= cycle.quizMaxAttempts) {
+      await tx.volunteerTraining.update({ where: { id: row.id }, data: { locked: true } });
+      locked = true;
     }
-    return { score: result.score, total: result.total, percent: result.percent, passed: result.passed };
+
+    const correctByKey = Object.fromEntries(
+      questions.filter((q) => q.correctValue !== null).map((q) => [q.key, q.correctValue as string])
+    );
+    return { score: result.score, total: result.total, percent: result.percent, passed: result.passed, attemptsUsed, locked, correctByKey };
   });
 }
 

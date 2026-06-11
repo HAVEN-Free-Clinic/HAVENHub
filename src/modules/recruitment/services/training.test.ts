@@ -105,10 +105,16 @@ it("quiz path: failing accrues attempts then locks; passing completes and saves 
 
   const r1 = await submitQuiz(vol.id, { answers: { q1: "a", q2: "x" }, intake: { feedback: "hi" } });
   expect(r1.passed).toBe(false);
+  // Review payload powers the in-place correct/wrong highlighting on the page.
+  expect(r1.attemptsUsed).toBe(1);
+  expect(r1.locked).toBe(false);
+  expect(r1.correctByKey).toEqual({ q1: "a", q2: "y" });
   expect(await resolveTrainingState(vol.id, term.id)).toBe("PENDING");
 
   const r2 = await submitQuiz(vol.id, { answers: { q1: "a", q2: "x" }, intake: {} });
   expect(r2.passed).toBe(false);
+  expect(r2.attemptsUsed).toBe(2);
+  expect(r2.locked).toBe(true);
   const locked = await prisma.volunteerTraining.findUniqueOrThrow({ where: { personId_termId: { personId: vol.id, termId: term.id } } });
   expect(locked.locked).toBe(true);
 

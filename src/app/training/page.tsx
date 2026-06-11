@@ -1,79 +1,326 @@
+import Link from "next/link";
+import {
+  Award,
+  Lock,
+  Clock,
+  AlertTriangle,
+  PlayCircle,
+  FileText,
+  CalendarDays,
+  CheckCircle2,
+  Check,
+  MessagesSquare,
+} from "lucide-react";
+import type { TrainingMethod } from "@prisma/client";
 import { requirePersonSession } from "@/platform/auth/session";
 import { AppShell } from "@/platform/ui/app-shell";
-import { PageHeader } from "@/platform/ui/page-header";
-import { getMyTraining } from "@/modules/recruitment/services/training";
-import { submitQuizAction } from "./actions";
+import { getAccessibleModules } from "@/platform/modules/access";
+import { getMyTraining, type MyTraining } from "@/modules/recruitment/services/training";
+import { TrainingQuiz } from "./training-quiz";
 
-export default async function TrainingPage({
-  searchParams,
+/** "live session" / "quiz" for human-readable copy. */
+function viaLabel(via: TrainingMethod | null): string {
+  if (via === "ATTENDANCE") return "live session";
+  if (via === "QUIZ") return "quiz";
+  return "";
+}
+
+function fmtDate(d: Date): string {
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+}
+
+// ---------------------------------------------------------------------------
+// Clearance hero — the one thing that matters: am I cleared for the term?
+// ---------------------------------------------------------------------------
+
+function ClearanceHero({ my }: { my: MyTraining }) {
+  const term = my.term.name;
+
+  if (my.state === "COMPLETE") {
+    return (
+      <div className="mb-6 flex items-center gap-[18px] rounded-2xl border border-green-300 bg-green-50 px-[22px] py-5 shadow-sm">
+        <span className="grid h-[52px] w-[52px] shrink-0 place-items-center rounded-[13px] bg-success text-white">
+          <Award aria-hidden className="h-[26px] w-[26px]" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-bold uppercase tracking-wider text-success">Cleared for the term</p>
+          <p className="mt-0.5 text-[19px] font-bold tracking-tight text-slate-800">You&apos;re all set for {term}</p>
+          <p className="mt-1 text-[13.5px] leading-snug text-slate-600">
+            Training complete{my.completedVia ? ` via ${viaLabel(my.completedVia)}` : ""}. You meet the training
+            requirement and can be scheduled for shifts.
+          </p>
+        </div>
+        {my.completedAt && (
+          <span className="shrink-0 whitespace-nowrap rounded-full border border-slate-200 bg-white/70 px-3 py-1.5 text-[12.5px] font-semibold text-slate-600">
+            Completed {fmtDate(my.completedAt)}
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  if (my.locked) {
+    return (
+      <div className="mb-6 flex items-center gap-[18px] rounded-2xl border border-red-300 bg-red-50 px-[22px] py-5 shadow-sm">
+        <span className="grid h-[52px] w-[52px] shrink-0 place-items-center rounded-[13px] border border-red-300 bg-white text-critical">
+          <Lock aria-hidden className="h-6 w-6" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-bold uppercase tracking-wider text-critical">Quiz locked</p>
+          <p className="mt-0.5 text-[19px] font-bold tracking-tight text-slate-800">
+            You&apos;ve used all {my.maxAttempts} quiz attempts
+          </p>
+          <p className="mt-1 text-[13.5px] leading-snug text-slate-600">
+            Your makeup quiz is locked. Contact your recruitment director to reset it, or attend a live session to
+            complete training.
+          </p>
+        </div>
+        <span className="shrink-0 whitespace-nowrap rounded-full border border-slate-200 bg-white/70 px-3 py-1.5 text-[12.5px] font-semibold text-slate-600">
+          Action needed
+        </span>
+      </div>
+    );
+  }
+
+  if (!my.cycle) {
+    return (
+      <div className="mb-6 flex items-center gap-[18px] rounded-2xl border border-slate-200 bg-white px-[22px] py-5 shadow-sm">
+        <span className="grid h-[52px] w-[52px] shrink-0 place-items-center rounded-[13px] bg-slate-100 text-slate-500">
+          <Clock aria-hidden className="h-6 w-6" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Not open yet</p>
+          <p className="mt-0.5 text-[19px] font-bold tracking-tight text-slate-800">Training opens soon</p>
+          <p className="mt-1 text-[13.5px] leading-snug text-slate-600">
+            Volunteer training for {term} isn&apos;t open yet. You&apos;ll get an email when it&apos;s ready — check back
+            here to complete it.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-6 flex items-center gap-[18px] rounded-2xl border border-amber-300 bg-amber-50 px-[22px] py-5 shadow-sm">
+      <span className="grid h-[52px] w-[52px] shrink-0 place-items-center rounded-[13px] border border-amber-300 bg-white text-warning">
+        <AlertTriangle aria-hidden className="h-6 w-6" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-xs font-bold uppercase tracking-wider text-warning">Not yet cleared</p>
+        <p className="mt-0.5 text-[19px] font-bold tracking-tight text-slate-800">
+          Complete training to be cleared for {term}
+        </p>
+        <p className="mt-1 text-[13.5px] leading-snug text-slate-600">
+          Finish one of the two paths below. Most volunteers attend the live session — the makeup quiz is here if you
+          miss it.
+        </p>
+      </div>
+      <span className="shrink-0 whitespace-nowrap rounded-full border border-slate-200 bg-white/70 px-3 py-1.5 text-[12.5px] font-semibold text-slate-600">
+        Due before your first shift
+      </span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Two completion paths
+// ---------------------------------------------------------------------------
+
+function PathCards({ my }: { my: MyTraining }) {
+  return (
+    <>
+      <SectionHead>Two ways to complete</SectionHead>
+      <div className="mb-2 grid grid-cols-1 gap-3.5 sm:grid-cols-2">
+        <div className="relative rounded-2xl border border-brand/40 bg-white p-[18px] ring-1 ring-inset ring-brand/20">
+          <span className="absolute right-3.5 top-3.5 rounded-full bg-brand-faint px-2 py-0.5 text-[10.5px] font-bold uppercase tracking-wide text-brand">
+            Recommended
+          </span>
+          <div className="mb-3 flex items-center gap-3">
+            <span className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-[10px] bg-brand-faint text-brand">
+              <PlayCircle aria-hidden className="h-5 w-5" />
+            </span>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Path 1</p>
+              <p className="mt-px text-[15px] font-bold leading-tight text-slate-800">Attend the live session</p>
+            </div>
+          </div>
+          <p className="text-[13px] leading-relaxed text-slate-600">
+            Join the in-person orientation. Your director marks your attendance and you&apos;re cleared automatically —
+            no quiz needed.
+          </p>
+          <p className="mt-3 flex items-center gap-2 border-t border-slate-200 pt-3 text-[12.5px] font-semibold text-slate-800">
+            <CalendarDays aria-hidden className="h-[15px] w-[15px] shrink-0 text-brand" /> Recorded by your director at the
+            session
+          </p>
+        </div>
+
+        <div className="relative rounded-2xl border border-slate-200 bg-white p-[18px]">
+          <div className="mb-3 flex items-center gap-3">
+            <span className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-[10px] bg-brand-faint text-brand">
+              <FileText aria-hidden className="h-5 w-5" />
+            </span>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Path 2</p>
+              <p className="mt-px text-[15px] font-bold leading-tight text-slate-800">Take the makeup quiz</p>
+            </div>
+          </div>
+          <p className="text-[13px] leading-relaxed text-slate-600">
+            Missed the session? Review the handbook and pass the short quiz below to clear the requirement on your own
+            time.
+          </p>
+          <p className="mt-3 flex items-center gap-2 border-t border-slate-200 pt-3 text-[12.5px] font-semibold text-slate-800">
+            <CheckCircle2 aria-hidden className="h-[15px] w-[15px] shrink-0 text-brand" /> Need {my.passPercent}% to pass ·{" "}
+            {my.maxAttempts} attempts
+          </p>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Complete / locked detail panels
+// ---------------------------------------------------------------------------
+
+function CompleteDetail({ accessibleSchedule }: { accessibleSchedule: boolean }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-[22px] shadow-sm">
+      <h3 className="mb-3.5 text-xs font-bold uppercase tracking-wider text-slate-500">What this unlocks</h3>
+      <DetailRow tone="success" title="Eligible for shift scheduling" sub="You can now be assigned to clinic shifts" />
+      <DetailRow tone="success" title="Training requirement met" sub="Shows as cleared on your volunteer compliance" />
+      <div className="mt-[18px] flex flex-wrap gap-2.5">
+        {accessibleSchedule && (
+          <Link
+            href="/schedule"
+            className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2.5 text-[13.5px] font-semibold text-white shadow-sm transition hover:bg-brand-hover"
+          >
+            <CalendarDays aria-hidden className="h-4 w-4" /> View the schedule
+          </Link>
+        )}
+        <BackToHub />
+      </div>
+    </div>
+  );
+}
+
+function LockedDetail() {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-[22px] shadow-sm">
+      <h3 className="mb-3.5 text-xs font-bold uppercase tracking-wider text-slate-500">Next steps</h3>
+      <DetailRow
+        tone="brand"
+        icon={<MessagesSquare aria-hidden className="h-4 w-4" />}
+        title="Contact your recruitment director"
+        sub="They can reset your quiz attempts"
+      />
+      <DetailRow
+        tone="brand"
+        icon={<PlayCircle aria-hidden className="h-4 w-4" />}
+        title="Or attend the live session"
+        sub="Your director records attendance — clears training instantly"
+      />
+      <div className="mt-[18px]">
+        <BackToHub />
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Small shared bits
+// ---------------------------------------------------------------------------
+
+function SectionHead({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="mb-3.5 mt-7 flex items-baseline justify-between">
+      <h2 className="text-base font-bold tracking-tight text-slate-900">{children}</h2>
+    </div>
+  );
+}
+
+function DetailRow({
+  tone,
+  title,
+  sub,
+  icon,
 }: {
-  searchParams: Promise<{ passed?: string; score?: string; err?: string }>;
+  tone: "success" | "brand";
+  title: string;
+  sub: string;
+  icon?: React.ReactNode;
 }) {
+  const toneClass = tone === "success" ? "bg-green-50 text-success" : "bg-brand-faint text-brand";
+  return (
+    <div className="flex items-center gap-3 border-t border-slate-100 py-2.5 first:border-t-0 first:pt-0">
+      <span className={`grid h-[30px] w-[30px] shrink-0 place-items-center rounded-lg ${toneClass}`}>
+        {icon ?? <Check aria-hidden className="h-4 w-4" />}
+      </span>
+      <div className="min-w-0">
+        <p className="text-[13.5px] font-semibold text-slate-800">{title}</p>
+        <p className="mt-px text-[12.5px] text-slate-500">{sub}</p>
+      </div>
+    </div>
+  );
+}
+
+function BackToHub() {
+  return (
+    <Link
+      href="/"
+      className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-[13.5px] font-semibold text-slate-800 transition hover:border-slate-400 hover:bg-slate-50"
+    >
+      Back to hub
+    </Link>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
+
+export default async function TrainingPage() {
   const person = await requirePersonSession();
-  const sp = await searchParams;
   const my = await getMyTraining(person.personId);
+  const pending = my.cycle && my.state !== "COMPLETE" && !my.locked;
+  const canSchedule =
+    my.state === "COMPLETE" &&
+    (await getAccessibleModules(person.personId)).some((m) => m.id === "schedule");
 
   return (
     <AppShell userName={person.name} termLabel={my.term.name} personId={person.personId}>
-      <PageHeader
-        title="Volunteer Training"
-        description="Complete training to be cleared for the term."
-      />
-      <div className="mt-6 max-w-2xl space-y-4 text-sm">
-        {sp.err && (
-          <p role="alert" className="rounded border border-red-300 bg-red-50 px-3 py-2 text-red-700">
-            {sp.err}
-          </p>
-        )}
-        {sp.passed && (
-          <p className="rounded border border-green-300 bg-green-50 px-3 py-2 text-green-800">
-            You passed. Training is complete.
-          </p>
-        )}
-        {sp.score && !sp.passed && (
-          <p className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-amber-800">
-            You scored {sp.score}%. Try again.
-          </p>
-        )}
+      <div className="max-w-[760px]">
+        <header className="mb-[22px]">
+          <h1 className="text-[26px] font-bold tracking-tight text-slate-900">Volunteer Training</h1>
+          <p className="mt-1.5 text-[14.5px] text-slate-600">Complete training to be cleared for {my.term.name}.</p>
+        </header>
 
-        {!my.cycle && <p className="text-slate-500">Training is not open yet for this term.</p>}
+        <ClearanceHero my={my} />
 
-        {my.cycle && my.state === "COMPLETE" && (
-          <p className="rounded border border-green-300 bg-green-50 px-3 py-2 text-green-800">
-            Training complete{my.completedVia ? ` (via ${my.completedVia.toLowerCase()})` : ""}. You are cleared on the training requirement.
-          </p>
-        )}
-
-        {my.cycle && my.state !== "COMPLETE" && my.locked && (
-          <p className="rounded border border-red-300 bg-red-50 px-3 py-2 text-red-700">
-            Your quiz is locked after {my.maxAttempts} attempts. Contact your director to reset it.
-          </p>
-        )}
-
-        {my.cycle && my.state !== "COMPLETE" && !my.locked && (
-          <form action={submitQuizAction} className="space-y-5">
-            <p className="text-slate-500">
-              If you attended the live session, your director will mark your attendance. Otherwise, complete this makeup quiz (need {my.passPercent}%, {my.maxAttempts - my.attemptsUsed} attempt(s) left).
-            </p>
-            {my.questions.map((q) => (
-              <fieldset key={q.key} className="space-y-1">
-                <legend className="font-medium">{q.label}</legend>
-                {q.options.map((o) => (
-                  <label key={o.value} className="flex items-center gap-2">
-                    <input type="radio" name={`q:${q.key}`} value={o.value} required /> {o.label}
-                  </label>
-                ))}
-              </fieldset>
-            ))}
-            <div className="space-y-2 border-t pt-4">
-              <p className="font-medium">A few quick questions</p>
-              <input name="subcommitteeInterest" placeholder="Subcommittee interest" className="w-full rounded border px-2 py-1" />
-              <input name="minShiftsWanted" placeholder="Minimum shifts wanted" className="w-full rounded border px-2 py-1" />
-              <input name="additionalShiftAvailability" placeholder="Additional shift availability" className="w-full rounded border px-2 py-1" />
-              <textarea name="feedback" placeholder="Feedback or questions" className="w-full rounded border px-2 py-1" />
+        {pending && (
+          <>
+            <PathCards my={my} />
+            <SectionHead>Makeup quiz</SectionHead>
+            <TrainingQuiz
+              questions={my.questions}
+              passPercent={my.passPercent}
+              maxAttempts={my.maxAttempts}
+              attemptsUsed={my.attemptsUsed}
+              intake={my.intake}
+            />
+            <div className="mt-[18px] flex justify-end">
+              <BackToHub />
             </div>
-            <button className="rounded-md bg-slate-900 px-3 py-1.5 text-white">Submit quiz</button>
-          </form>
+          </>
+        )}
+
+        {my.state === "COMPLETE" && <CompleteDetail accessibleSchedule={canSchedule} />}
+
+        {my.locked && my.state !== "COMPLETE" && <LockedDetail />}
+
+        {!my.cycle && my.state !== "COMPLETE" && (
+          <div className="flex justify-start">
+            <BackToHub />
+          </div>
         )}
       </div>
     </AppShell>

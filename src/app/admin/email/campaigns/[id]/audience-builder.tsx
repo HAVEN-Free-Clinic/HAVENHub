@@ -91,18 +91,18 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
       {/* Match mode */}
       <div className="flex items-center gap-3">
         <span className="text-sm text-slate-700">Match</span>
-        <div className="inline-flex overflow-hidden rounded border border-slate-200 text-xs">
+        <div className="inline-flex overflow-hidden rounded-lg border border-slate-200 text-xs">
           <button
             type="button"
             onClick={() => setMatch("ALL")}
-            className={`px-3 py-1.5 ${match === "ALL" ? "bg-slate-800 text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}
+            className={`px-3 py-1.5 ${match === "ALL" ? "bg-brand text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}
           >
             ALL conditions
           </button>
           <button
             type="button"
             onClick={() => setMatch("ANY")}
-            className={`px-3 py-1.5 ${match === "ANY" ? "bg-slate-800 text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}
+            className={`px-3 py-1.5 ${match === "ANY" ? "bg-brand text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}
           >
             ANY condition
           </button>
@@ -125,13 +125,13 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
           return (
             <div
               key={idx}
-              className="flex flex-wrap items-start gap-3 rounded-md border border-slate-200 bg-slate-50 p-3"
+              className="flex flex-wrap items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3"
             >
               {/* Field selector */}
               <select
                 value={cond.field}
                 onChange={(e) => changeField(idx, e.target.value)}
-                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15"
+                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15"
               >
                 {fields.map((f) => (
                   <option key={f.key} value={f.key}>
@@ -145,7 +145,7 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
                 <select
                   value={typeof cond.value === "string" ? cond.value : ""}
                   onChange={(e) => changeEnumValue(idx, e.target.value)}
-                  className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15"
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15"
                 >
                   {options.map((o) => (
                     <option key={o.value} value={o.value}>
@@ -163,7 +163,7 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
                         type="checkbox"
                         checked={selectedValues.includes(o.value)}
                         onChange={() => toggleMultiValue(idx, o.value)}
-                        className="rounded"
+                        className="rounded-lg"
                       />
                       {o.label}
                     </label>
@@ -178,7 +178,7 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
                 <select
                   value={cond.op}
                   onChange={(e) => changeBooleanOp(idx, e.target.value as "isTrue" | "isFalse")}
-                  className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15"
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15"
                 >
                   <option value="isTrue">Yes</option>
                   <option value="isFalse">No</option>
@@ -200,7 +200,7 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
       <button
         type="button"
         onClick={addCondition}
-        className="rounded border border-dashed border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:border-slate-400 hover:text-slate-800"
+        className="rounded-lg border border-dashed border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:border-slate-400 hover:text-slate-800"
       >
         + Add condition
       </button>

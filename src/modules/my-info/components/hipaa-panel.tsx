@@ -111,7 +111,7 @@ export function HipaaPanel({
             </div>
             {/* Date entry form for certs without a parsed date */}
             {needsDateEntry && (
-              <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-3">
+              <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
                 <p className="mb-2 text-sm text-slate-600">
                   We could not read a completion date from your certificate. Enter the date printed on it.
                 </p>

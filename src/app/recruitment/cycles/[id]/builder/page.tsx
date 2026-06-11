@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { ArrowRight } from "lucide-react";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { addSectionAction, addFieldAction, deleteFieldAction, deleteSectionAction } from "./actions";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
@@ -36,9 +37,9 @@ export default async function BuilderPage({ params, searchParams }: { params: Pr
         action={
           <Link
             href={`/recruitment/cycles/${id}/builder/quiz`}
-            className="text-sm font-medium text-brand hover:text-brand-hover"
+            className="inline-flex items-center gap-1 text-sm font-medium text-brand hover:text-brand-hover"
           >
-            Training quiz →
+            Training quiz <ArrowRight className="h-4 w-4" aria-hidden />
           </Link>
         }
       />
@@ -50,7 +51,7 @@ export default async function BuilderPage({ params, searchParams }: { params: Pr
       {error && <Alert tone="error">{error}</Alert>}
 
       {cycle.sections.map((section) => (
-        <section key={section.id} className="rounded-lg border border-slate-200 bg-white p-5">
+        <section key={section.id} className="rounded-2xl border border-slate-200 bg-white p-5">
           <div className="flex items-center justify-between gap-4">
             <h2 className="font-medium text-slate-900">
               {section.title}{" "}
@@ -115,7 +116,7 @@ export default async function BuilderPage({ params, searchParams }: { params: Pr
 
       <form
         action={addSectionAction.bind(null, id)}
-        className="flex flex-wrap items-end gap-3 rounded-lg border border-dashed border-slate-300 bg-slate-50/60 p-5"
+        className="flex flex-wrap items-end gap-3 rounded-xl border border-dashed border-slate-300 bg-slate-50/60 p-5"
       >
         <div className="min-w-[12rem] flex-1">
           <Field label="New section title">

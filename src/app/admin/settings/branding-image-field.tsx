@@ -22,7 +22,7 @@ export function BrandingImageField({
   return (
     <div className="space-y-2">
       <label className="block text-sm font-medium">{setting.label}</label>
-      <p className="text-xs text-gray-500">{setting.help}</p>
+      <p className="text-xs text-slate-500">{setting.help}</p>
       {/* eslint-disable-next-line @next/next/no-img-element -- dynamic same-origin asset route, not a static import */}
       <img
         src={`/api/branding/${asset}?v=${value.version}`}

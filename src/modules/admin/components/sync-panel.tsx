@@ -15,6 +15,7 @@ import { Badge } from "@/platform/ui/badge";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { StatCard } from "@/platform/ui/stat-card";
+import { Alert } from "@/platform/ui/alert";
 import { ALL_PEOPLE_FIELDS } from "@/platform/airtable/fields";
 
 // ---------------------------------------------------------------------------
@@ -67,7 +68,7 @@ function relativeTime(date: Date): string {
 function FailuresTable({ rows }: { rows: Outbox[] }) {
   if (rows.length === 0) {
     return (
-      <div className="rounded-lg border border-slate-200 bg-white px-6 py-8 text-center text-sm text-slate-400">
+      <div className="rounded-2xl border border-slate-200 bg-white px-6 py-8 text-center text-sm text-slate-400">
         No failed outbox rows.
       </div>
     );
@@ -111,7 +112,7 @@ function FailuresTable({ rows }: { rows: Outbox[] }) {
 function DriftTable({ rows }: { rows: AuditLog[] }) {
   if (rows.length === 0) {
     return (
-      <div className="rounded-lg border border-slate-200 bg-white px-6 py-8 text-center text-sm text-slate-400">
+      <div className="rounded-2xl border border-slate-200 bg-white px-6 py-8 text-center text-sm text-slate-400">
         No drift corrections recorded.
       </div>
     );
@@ -174,13 +175,10 @@ export function SyncPanel({ overview, requeued, retryAction }: SyncPanelProps) {
     <div className="space-y-8">
       {/* Mirror-disabled banner */}
       {!mirrorEnabled && (
-        <div
-          role="status"
-          className="rounded-lg border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800"
-        >
+        <Alert tone="warning">
           Mirror is disabled. Outbox rows will accumulate until the FA26 cutover
           enables it.
-        </div>
+        </Alert>
       )}
 
       {/* Status cards */}

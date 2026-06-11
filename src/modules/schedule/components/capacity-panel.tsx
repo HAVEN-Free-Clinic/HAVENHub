@@ -71,7 +71,7 @@ export function CapacityPanel({
   const roles = rolesForDept(deptCode);
 
   return (
-    <section className="rounded-lg border border-slate-200 bg-white px-4 py-3 flex flex-col gap-3">
+    <section className="rounded-2xl border border-slate-200 bg-white px-4 py-3 flex flex-col gap-3">
       <h2 className="text-sm font-semibold text-slate-700">Capacity</h2>
 
       {/* Headcount */}

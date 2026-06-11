@@ -7,7 +7,7 @@ function cx(...parts: (string | undefined | false | null)[]): string {
 /** Scrollable container card wrapping the table element. */
 export function Table({ className, ...rest }: ComponentProps<"table">) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white overflow-x-auto">
+    <div className="rounded-2xl border border-slate-200 bg-white overflow-x-auto shadow-sm">
       <table
         {...rest}
         className={cx("w-full text-sm", className)}

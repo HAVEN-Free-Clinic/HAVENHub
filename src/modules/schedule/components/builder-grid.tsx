@@ -282,7 +282,7 @@ export function BuilderGrid({
   }
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-slate-200">
+    <div className="overflow-x-auto rounded-2xl border border-slate-200">
       <table className="border-collapse text-sm" aria-label="Schedule grid">
         <thead>
           <tr className="bg-slate-50">

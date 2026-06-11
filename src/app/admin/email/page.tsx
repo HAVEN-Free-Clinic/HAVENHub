@@ -228,7 +228,7 @@ export default async function EmailPage({ searchParams }: PageProps) {
       )}
 
       {/* Mailer connection panel */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-5">
         <div>
           <p className="text-sm font-medium text-slate-700">Mailer connection</p>
           {mailConn.connected ? (

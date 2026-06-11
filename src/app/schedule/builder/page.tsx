@@ -14,6 +14,7 @@
  */
 
 import { requireModuleAccess } from "@/platform/auth/session";
+import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
@@ -49,6 +50,7 @@ import { PendingRequests } from "@/modules/schedule/components/pending-requests"
 import { displayDate } from "@/modules/schedule/engine/display";
 import { rolesForDept } from "@/modules/schedule/engine/capacity";
 import { isoDateKey } from "@/platform/dates";
+import { AlertTriangle } from "lucide-react";
 
 // ---------------------------------------------------------------------------
 // Page props
@@ -424,12 +426,11 @@ export default async function BuilderPage({ searchParams }: PageProps) {
 
   function assignCard(member: (typeof unassignedMembers)[number], available: boolean) {
     const isDirectorKind = member.kind === "DIRECTOR";
-    const warn = available ? "" : " ⚠";
     return (
       <div
         key={member.person.id}
-        className={`rounded-lg border px-3 py-3 ${
-          available ? "border-emerald-200 bg-emerald-50/30" : "border-slate-200 bg-slate-50 opacity-75"
+        className={`rounded-2xl border px-3 py-3 ${
+          available ? "border-success/30 bg-green-50" : "border-slate-200 bg-slate-50 opacity-75"
         }`}
       >
         <div className="flex flex-wrap items-center gap-2 mb-2">
@@ -450,7 +451,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                 personId: member.person.id,
                 role: "DIRECTOR",
               }}
-              label={`Assign as director${warn}`}
+              label="Assign as director"
               variant="assign"
             />
           )}
@@ -462,7 +463,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
               personId: member.person.id,
               role: "VOLUNTEER",
             }}
-            label={`Assign as volunteer${warn}`}
+            label="Assign as volunteer"
             variant="assign"
           />
           <BuilderCell
@@ -473,7 +474,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
               personId: member.person.id,
               role: "SHADOW",
             }}
-            label={`Assign as shadow${warn}`}
+            label="Assign as shadow"
             variant="assign"
           />
         </div>
@@ -484,7 +485,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
   return (
     <div>
       {/* Hero */}
-      <div className="rounded-xl bg-brand px-8 py-6 text-white mb-6">
+      <div className="rounded-2xl bg-brand px-8 py-6 text-white mb-6">
         <p className="text-xs font-semibold uppercase tracking-widest text-white/60 mb-1">Schedule Builder</p>
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -527,9 +528,9 @@ export default async function BuilderPage({ searchParams }: PageProps) {
 
       {/* Error banner */}
       {errorMessage && (
-        <div role="alert" className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <Alert tone="error" className="mb-6">
           {errorMessage}
-        </div>
+        </Alert>
       )}
 
       {/* Date strip -- hidden in the Grid view, which already shows every date as a column */}
@@ -614,8 +615,11 @@ export default async function BuilderPage({ searchParams }: PageProps) {
 
               {/* HIPAA banner */}
               {data.banner.length > 0 && (
-                <div role="status" className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                  <p className="font-semibold mb-1">⚠ HIPAA issues on this date</p>
+                <div role="status" className="mb-4 rounded-xl border border-warning/30 bg-amber-50 px-4 py-3 text-sm text-warning">
+                  <p className="font-semibold mb-1 flex items-center gap-1.5">
+                    <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden />
+                    HIPAA issues on this date
+                  </p>
                   <ul className="list-disc list-inside space-y-0.5">
                     {data.banner.flatMap((b) =>
                       b.nonCompliant.map((v) => (
@@ -639,7 +643,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                       const m = memberByPersonId.get(pid);
                       const name = m?.person.name ?? pid;
                       return (
-                        <div key={pid} className="rounded-lg border-l-4 border-l-brand border border-slate-200 bg-white px-3 py-2 flex items-center justify-between">
+                        <div key={pid} className="rounded-xl border-l-4 border-l-brand border border-slate-200 bg-white px-3 py-2 flex items-center justify-between">
                           <span className="flex flex-wrap items-center gap-2">
                             <span className="text-sm font-bold text-slate-800">{name}</span>
                             {m?.person && flagBadges(m.person)}
@@ -660,7 +664,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
               {/* Volunteers */}
               <div className="mb-5">
                 <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-2">
-                  Volunteers <span className="text-emerald-600">({assignedVolunteers.length})</span>
+                  Volunteers <span className="text-success">({assignedVolunteers.length})</span>
                 </p>
                 {assignedVolunteers.length === 0 ? (
                   <p className="text-sm text-slate-300 italic">None assigned</p>
@@ -673,7 +677,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                       const tags = assignment.tags;
                       const personConflicts = conflicts[pid] ?? [];
                       return (
-                        <div key={pid} className="rounded-lg border-l-4 border-l-emerald-400 border border-slate-200 bg-white px-3 py-2">
+                        <div key={pid} className="rounded-xl border-l-4 border-l-success border border-slate-200 bg-white px-3 py-2">
                           <div className="flex flex-wrap items-center gap-2 text-sm">
                             <span className="font-medium text-slate-800">{name}</span>
                             {m?.person && flagBadges(m.person)}
@@ -712,7 +716,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
               {/* Shadows */}
               <div>
                 <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-2">
-                  Shadows <span className="text-amber-500">({assignedShadows.length})</span>
+                  Shadows <span className="text-warning">({assignedShadows.length})</span>
                 </p>
                 {assignedShadows.length === 0 ? (
                   <p className="text-sm text-slate-300 italic">None assigned</p>
@@ -722,7 +726,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                       const m = memberByPersonId.get(pid);
                       const name = m?.person.name ?? pid;
                       return (
-                        <div key={pid} className="rounded-lg border-l-4 border-l-amber-400 border border-slate-200 bg-white px-3 py-2 flex items-center justify-between">
+                        <div key={pid} className="rounded-xl border-l-4 border-l-warning border border-slate-200 bg-white px-3 py-2 flex items-center justify-between">
                           <span className="flex flex-wrap items-center gap-2">
                             <span className="text-sm font-medium text-slate-700">{name}</span>
                             {m?.person && flagBadges(m.person)}
@@ -745,7 +749,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
             <section>
               <div className="flex items-center gap-2 mb-4">
                 <h2 className="text-base font-bold text-slate-800">Available to assign</h2>
-                <span className="rounded-full bg-emerald-100 text-emerald-700 text-xs font-semibold px-2.5 py-0.5">
+                <span className="rounded-full bg-green-50 text-success text-xs font-semibold px-2.5 py-0.5">
                   {availableCount} available
                 </span>
               </div>
@@ -757,7 +761,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
               ) : (
                 <div className="flex flex-col gap-5">
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-widest text-emerald-600 mb-2">
+                    <p className="text-xs font-semibold uppercase tracking-widest text-success mb-2">
                       Available &middot; said yes ({availableMembers.length})
                     </p>
                     {availableMembers.length === 0 ? (

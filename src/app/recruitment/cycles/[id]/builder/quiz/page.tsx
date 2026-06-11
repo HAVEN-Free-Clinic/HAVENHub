@@ -31,7 +31,7 @@ export default async function QuizBuilderPage({ params, searchParams }: { params
       {error && <Alert tone="error">{error}</Alert>}
 
       {quizSections.map((section) => (
-        <section key={section.id} className="rounded-lg border border-slate-200 bg-white p-5">
+        <section key={section.id} className="rounded-2xl border border-slate-200 bg-white p-5">
           <h2 className="font-medium text-slate-900">{section.title}</h2>
           <ul className="mt-4 space-y-4">
             {section.fields.map((f) => {
@@ -95,7 +95,7 @@ export default async function QuizBuilderPage({ params, searchParams }: { params
         </section>
       ))}
 
-      <form action={addQuizSectionAction.bind(null, id)} className="flex flex-wrap items-end gap-3 rounded-lg border border-dashed border-slate-300 bg-slate-50/60 p-5">
+      <form action={addQuizSectionAction.bind(null, id)} className="flex flex-wrap items-end gap-3 rounded-xl border border-dashed border-slate-300 bg-slate-50/60 p-5">
         <div className="min-w-[14rem] flex-1">
           <Field label="Quiz section title">
             <Input name="title" />

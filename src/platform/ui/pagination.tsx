@@ -16,9 +16,9 @@ export function Pagination({
   const hasNext = page < pageCount;
 
   const linkBase =
-    "inline-flex items-center rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors";
+    "inline-flex items-center rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors";
   const disabledBase =
-    "inline-flex items-center rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-300 cursor-default";
+    "inline-flex items-center rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-300 cursor-default";
 
   return (
     <div className="flex items-center justify-between gap-4 py-3">

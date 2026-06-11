@@ -48,7 +48,7 @@ export default async function DecisionsPage({ params, searchParams }: { params: 
         {conflicts.length === 0 ? (
           <p className="mt-2 text-sm text-slate-500">No conflicts.</p>
         ) : (
-          <ul className="mt-3 divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
+          <ul className="mt-3 divide-y divide-slate-100 rounded-2xl border border-slate-200 bg-white">
             {conflicts.map((c) => (
               <li key={c.applicationId} className="px-4 py-2.5 text-sm text-slate-700">
                 <Link

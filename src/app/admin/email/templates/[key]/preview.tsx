@@ -7,6 +7,7 @@ import Link from "@tiptap/extension-link";
 import Placeholder from "@tiptap/extension-placeholder";
 import { renderTemplate } from "@/platform/email/render/render";
 import type { VariableDef } from "@/platform/email/templates/types";
+import { Input } from "@/platform/ui/input";
 
 type Mode = "rich" | "source";
 
@@ -90,28 +91,28 @@ export function TemplateEditor(props: {
       {/* Editor column */}
       <div>
         <label className="block text-sm font-medium text-slate-700">Subject</label>
-        <input
+        <Input
           name="subject"
           value={subject}
           onChange={(e) => setSubject(e.target.value)}
           placeholder="e.g. Welcome to HAVEN!"
-          className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15"
+          className="mt-1"
         />
 
         <div className="mt-4 flex items-center justify-between">
           <label className="text-sm font-medium text-slate-700">Message body</label>
-          <div className="inline-flex overflow-hidden rounded border border-slate-200 text-xs">
+          <div className="inline-flex overflow-hidden rounded-lg border border-slate-200 text-xs">
             <button
               type="button"
               onClick={() => switchMode("rich")}
-              className={`px-2 py-1 ${mode === "rich" ? "bg-slate-800 text-white" : "bg-white text-slate-600"}`}
+              className={`px-2 py-1 ${mode === "rich" ? "bg-brand text-white" : "bg-white text-slate-600"}`}
             >
               Formatted
             </button>
             <button
               type="button"
               onClick={() => switchMode("source")}
-              className={`px-2 py-1 ${mode === "source" ? "bg-slate-800 text-white" : "bg-white text-slate-600"}`}
+              className={`px-2 py-1 ${mode === "source" ? "bg-brand text-white" : "bg-white text-slate-600"}`}
             >
               HTML
             </button>
@@ -119,7 +120,7 @@ export function TemplateEditor(props: {
         </div>
 
         {mode === "rich" ? (
-          <div className="mt-1 rounded border border-slate-200">
+          <div className="mt-1 rounded-xl border border-slate-200">
             <Toolbar editor={editor} />
             <EditorContent editor={editor} />
           </div>
@@ -130,7 +131,7 @@ export function TemplateEditor(props: {
             onChange={(e) => setBody(e.target.value)}
             rows={16}
             placeholder="<p>Your message…</p>"
-            className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-xs outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15"
+            className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-xs outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15"
           />
         )}
 
@@ -147,7 +148,7 @@ export function TemplateEditor(props: {
                   type="button"
                   title={v.label}
                   onClick={() => insertToken(`{{ ${v.name} }}`)}
-                  className="rounded border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-xs text-slate-700 hover:bg-slate-100"
+                  className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-xs text-slate-700 hover:bg-slate-100"
                 >
                   {`{{ ${v.name} }}`}
                 </button>
@@ -156,7 +157,7 @@ export function TemplateEditor(props: {
                 type="button"
                 title="Conditional block — shows the inner content only when the variable has a value"
                 onClick={() => insertToken("{{#if VARIABLE}}\n\n{{/if}}")}
-                className="rounded border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-xs text-slate-700 hover:bg-slate-100"
+                className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-xs text-slate-700 hover:bg-slate-100"
               >
                 {`{{#if}}…{{/if}}`}
               </button>
@@ -171,14 +172,14 @@ export function TemplateEditor(props: {
       {/* Preview column */}
       <div>
         <div className="text-sm font-medium text-slate-700">Preview (with sample data)</div>
-        <div className="mt-1 rounded border border-slate-200 bg-slate-50 px-3 py-1 text-sm">
+        <div className="mt-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1 text-sm">
           <span className="text-slate-400">Subject:&nbsp;</span>
           <strong>{previewSubject}</strong>
         </div>
         <iframe
           title="preview"
           sandbox="allow-same-origin"
-          className="mt-2 h-[34rem] w-full rounded border border-slate-200 bg-white"
+          className="mt-2 h-[34rem] w-full rounded-xl border border-slate-200 bg-white"
           srcDoc={previewDoc}
         />
       </div>
@@ -190,7 +191,7 @@ function Toolbar({ editor }: { editor: Editor | null }) {
   if (!editor) return <div className="h-9 border-b border-slate-200" />;
 
   const btn = (active: boolean) =>
-    `rounded px-2 py-1 text-sm ${active ? "bg-slate-800 text-white" : "text-slate-600 hover:bg-slate-100"}`;
+    `rounded-lg px-2 py-1 text-sm ${active ? "bg-brand text-white" : "text-slate-600 hover:bg-slate-100"}`;
 
   function setLink() {
     const prev = editor!.getAttributes("link").href as string | undefined;

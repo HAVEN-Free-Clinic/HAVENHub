@@ -237,7 +237,7 @@ export async function AssignmentForm({
       )}
 
       {/* Create person assignment */}
-      <div className="rounded-lg border border-slate-200 bg-white p-5 space-y-4">
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4">
         <h3 className="text-sm font-semibold text-slate-700">Assign role to person</h3>
 
         {/* Person search box */}
@@ -266,7 +266,7 @@ export async function AssignmentForm({
 
         {/* Person search results */}
         {assignq && assignq.trim() && (
-          <div className="rounded-lg border border-slate-200">
+          <div className="rounded-2xl border border-slate-200">
             <div className="border-b border-slate-100 px-4 py-3">
               <p className="text-sm font-medium text-slate-700">
                 {personResults.length === 0
@@ -321,7 +321,7 @@ export async function AssignmentForm({
       </div>
 
       {/* Create department assignment */}
-      <div className="rounded-lg border border-slate-200 bg-white p-5 space-y-4">
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4">
         <h3 className="text-sm font-semibold text-slate-700">Assign role to department</h3>
         <form action={assignDepartmentAction} className="flex flex-wrap items-end gap-3">
           <Field label="Department">

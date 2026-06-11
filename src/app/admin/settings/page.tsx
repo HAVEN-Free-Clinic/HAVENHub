@@ -3,6 +3,9 @@ import { redirect } from "next/navigation";
 import { requirePermission } from "@/platform/auth/session";
 import { PageHeader } from "@/platform/ui/page-header";
 import { buttonClasses } from "@/platform/ui/button";
+import { Alert } from "@/platform/ui/alert";
+import { Select } from "@/platform/ui/select";
+import { Input, Textarea } from "@/platform/ui/input";
 import { listCategories } from "@/platform/settings/registry";
 import {
   getCategory,
@@ -124,19 +127,15 @@ export default async function SettingsPage({ searchParams }: PageProps) {
         description="Configure app behavior without redeploying. Changes are audited."
       />
 
-      {error && (
-        <p className="rounded-md bg-red-50 px-4 py-2 text-sm text-red-700">{error}</p>
-      )}
-      {saved && !error && (
-        <p className="rounded-md bg-green-50 px-4 py-2 text-sm text-green-700">Saved.</p>
-      )}
+      {error && <Alert tone="error">{error}</Alert>}
+      {saved && !error && <Alert tone="success">Saved.</Alert>}
 
       {groups.map(({ category, settings }) => (
         <section key={category} className="space-y-4">
           <h2 className="text-lg font-semibold">{category}</h2>
           <div className="space-y-6">
             {settings.map((s) => (
-              <div key={s.key} className="rounded-lg border border-gray-200 p-4">
+              <div key={s.key} className="rounded-2xl border border-slate-200 p-4">
                 {s.input.type === "image" ? (
                   <BrandingImageField
                     setting={s}
@@ -150,7 +149,7 @@ export default async function SettingsPage({ searchParams }: PageProps) {
                       <label htmlFor={s.key} className="block text-sm font-medium">
                         {s.label}
                       </label>
-                      <p className="text-xs text-gray-500">{s.help}</p>
+                      <p className="text-xs text-slate-500">{s.help}</p>
                       {s.input.type === "boolean" ? (
                         <input
                           id={s.key}
@@ -159,32 +158,31 @@ export default async function SettingsPage({ searchParams }: PageProps) {
                           defaultChecked={Boolean(s.value)}
                         />
                       ) : s.input.type === "select" ? (
-                        <select id={s.key} name={s.key} defaultValue={String(s.value)} className="border rounded px-2 py-1">
+                        <Select id={s.key} name={s.key} defaultValue={String(s.value)}>
                           {s.input.options.map((o) => (
                             <option key={o.value} value={o.value}>
                               {o.label}
                             </option>
                           ))}
-                        </select>
+                        </Select>
                       ) : s.input.type === "textarea" ? (
-                        <textarea id={s.key} name={s.key} defaultValue={String(s.value)} className="border rounded px-2 py-1 w-full" />
+                        <Textarea id={s.key} name={s.key} defaultValue={String(s.value)} />
                       ) : s.input.type === "color" ? (
-                        <input
+                        <Input
                           id={s.key}
                           name={s.key}
                           type="color"
                           defaultValue={String(s.value)}
-                          className="h-9 w-16 rounded border"
+                          className="h-9 w-16 p-1"
                         />
                       ) : (
-                        <input
+                        <Input
                           id={s.key}
                           name={s.key}
                           type={s.input.type === "number" ? "number" : "text"}
                           defaultValue={String(s.value)}
                           min={s.input.type === "number" ? s.input.min : undefined}
                           max={s.input.type === "number" ? s.input.max : undefined}
-                          className="border rounded px-2 py-1"
                         />
                       )}
                       <div className="flex items-center gap-2 pt-1">
@@ -192,7 +190,7 @@ export default async function SettingsPage({ searchParams }: PageProps) {
                           Save
                         </button>
                         {s.isOverridden && (
-                          <span className="text-xs text-amber-600">Currently overriding the default</span>
+                          <span className="text-xs text-warning">Currently overriding the default</span>
                         )}
                       </div>
                     </form>

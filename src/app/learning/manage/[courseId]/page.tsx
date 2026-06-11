@@ -3,6 +3,7 @@ import { requirePermission } from "@/platform/auth/session";
 import { prisma } from "@/platform/db";
 import { PageHeader } from "@/platform/ui/page-header";
 import { getCourseForEdit } from "@/modules/learning/services/courses";
+import { usingBlobStorage } from "@/platform/storage";
 import { updateCourseAction, setAssignmentAction } from "../actions";
 import { UploadPackageForm } from "./UploadPackageForm";
 
@@ -47,7 +48,7 @@ export default async function EditCoursePage({ params }: { params: Promise<{ cou
               ? `Uploaded${course.scormUploadedAt ? ` ${course.scormUploadedAt.toLocaleDateString()}` : ""} · launch: ${course.scormEntryHref} · SCORM ${course.scormVersion ?? "1.2"}`
               : "No package uploaded yet."}
           </p>
-          <UploadPackageForm courseId={course.id} hasPackage={course.scormEntryHref != null} />
+          <UploadPackageForm courseId={course.id} hasPackage={course.scormEntryHref != null} usingBlob={usingBlobStorage} />
         </div>
       </div>
     </>

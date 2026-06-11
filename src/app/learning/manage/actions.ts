@@ -69,3 +69,34 @@ export async function uploadPackageAction(_prev: UploadState, formData: FormData
   revalidatePath(`/learning/manage/${courseId}`);
   return null;
 }
+
+/**
+ * Ingest a SCORM package that the browser already uploaded directly to Blob
+ * (the path used on Vercel, where the function request body is capped at 4.5 MB).
+ * Fetches the zip bytes from the blob URL, ingests, then deletes the temp upload.
+ */
+export async function ingestUploadedPackageAction(input: {
+  courseId: string;
+  url: string;
+}): Promise<UploadState> {
+  const person = await requirePermission("learning.manage_courses");
+  try {
+    const res = await fetch(input.url);
+    if (!res.ok) return { error: "Could not read the uploaded package from storage." };
+    const bytes = Buffer.from(await res.arrayBuffer());
+    await ingestScormPackage(input.courseId, bytes, person.personId);
+  } catch (err) {
+    if (err instanceof LearningValidationError) return { error: err.message };
+    throw err;
+  } finally {
+    // Best-effort cleanup of the transient upload.
+    try {
+      const { del } = await import("@vercel/blob");
+      await del(input.url, { token: process.env.BLOB_READ_WRITE_TOKEN });
+    } catch {
+      // already gone / not on Blob -- nothing to clean up
+    }
+  }
+  revalidatePath(`/learning/manage/${input.courseId}`);
+  return null;
+}

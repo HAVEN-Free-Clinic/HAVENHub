@@ -93,3 +93,25 @@ export async function deleteObject(key: string): Promise<void> {
   }
   await fs.rm(localPath(key), { force: true }).catch(() => undefined);
 }
+
+/**
+ * Delete every object stored under `prefix` (e.g. "scorm/<courseId>/"). Used when
+ * replacing a SCORM package so stale files from the previous upload don't linger.
+ */
+export async function deletePrefix(prefix: string): Promise<void> {
+  if (blobToken) {
+    const { list, del } = await import("@vercel/blob");
+    let cursor: string | undefined;
+    do {
+      const page = await list({ prefix, cursor, token: blobToken });
+      if (page.blobs.length > 0) {
+        await del(page.blobs.map((b) => b.url), { token: blobToken });
+      }
+      cursor = page.hasMore ? page.cursor : undefined;
+    } while (cursor);
+    return;
+  }
+  // Local disk: prefix maps to a directory under UPLOAD_DIR.
+  const dir = localPath(prefix.replace(/\/$/, ""));
+  await fs.rm(dir, { recursive: true, force: true }).catch(() => undefined);
+}

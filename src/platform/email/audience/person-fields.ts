@@ -1,28 +1,21 @@
 import type { Prisma } from "@prisma/client";
-import type { AudienceCondition } from "./types";
+import type { AudienceCondition, ConditionOp } from "./types";
 
-export type PersonFieldKind = "enum" | "multiEnum" | "boolean";
-export type PersonFieldDef = {
-  key: string;
-  label: string;
-  kind: PersonFieldKind;
-  options?: { value: string; label: string }[];
-};
+export type PersonFieldKind = "text" | "enum" | "multiEnum" | "boolean";
 
 export type AudienceCtx = { activeTermId: string | null };
 
-const COMPLIANCE_VALUES = ["COMPLIANT", "EXPIRING_SOON", "EXPIRED", "UNKNOWN_DATE", "NO_CERTIFICATE"];
+export type PersonFieldDef = {
+  key: string;
+  label: string;
+  group: string;
+  kind: PersonFieldKind;
+  operators: ConditionOp[];
+  options?: { value: string; label: string }[];
+  compile: (cond: AudienceCondition, ctx: AudienceCtx) => Prisma.PersonWhereInput;
+};
 
-export const PERSON_FIELDS: PersonFieldDef[] = [
-  { key: "status", label: "Account status", kind: "enum", options: [
-    { value: "ACTIVE", label: "Active" }, { value: "OFFBOARDED", label: "Offboarded" } ] },
-  { key: "role", label: "Role (this term)", kind: "enum", options: [
-    { value: "DIRECTOR", label: "Director" }, { value: "VOLUNTEER", label: "Volunteer" } ] },
-  { key: "department", label: "Department (this term)", kind: "multiEnum" },
-  { key: "complianceStatus", label: "HIPAA compliance status", kind: "multiEnum",
-    options: COMPLIANCE_VALUES.map((v) => ({ value: v, label: v })) },
-  { key: "hasEpicId", label: "Has an Epic ID", kind: "boolean" },
-];
+const COMPLIANCE_VALUES = ["COMPLIANT", "EXPIRING_SOON", "EXPIRED", "UNKNOWN_DATE", "NO_CERTIFICATE"];
 
 function asArray(value: AudienceCondition["value"]): string[] {
   if (Array.isArray(value)) return value;
@@ -30,19 +23,68 @@ function asArray(value: AudienceCondition["value"]): string[] {
   return [];
 }
 
+export const PERSON_FIELDS: PersonFieldDef[] = [
+  {
+    key: "status",
+    label: "Account status",
+    group: "Status & roles",
+    kind: "enum",
+    operators: ["eq"],
+    options: [
+      { value: "ACTIVE", label: "Active" },
+      { value: "OFFBOARDED", label: "Offboarded" },
+    ],
+    compile: (cond) => ({ status: cond.value as "ACTIVE" | "OFFBOARDED" }),
+  },
+  {
+    key: "role",
+    label: "Role (this term)",
+    group: "Status & roles",
+    kind: "enum",
+    operators: ["eq"],
+    options: [
+      { value: "DIRECTOR", label: "Director" },
+      { value: "VOLUNTEER", label: "Volunteer" },
+    ],
+    compile: (cond, ctx) => ({
+      memberships: {
+        some: { termId: ctx.activeTermId ?? "", status: "ACTIVE", kind: cond.value as "DIRECTOR" | "VOLUNTEER" },
+      },
+    }),
+  },
+  {
+    key: "department",
+    label: "Department (this term)",
+    group: "Status & roles",
+    kind: "multiEnum",
+    operators: ["in"],
+    compile: (cond, ctx) => ({
+      memberships: {
+        some: { termId: ctx.activeTermId ?? "", status: "ACTIVE", department: { code: { in: asArray(cond.value) } } },
+      },
+    }),
+  },
+  {
+    key: "complianceStatus",
+    label: "HIPAA compliance status",
+    group: "Status & roles",
+    kind: "multiEnum",
+    operators: ["in"],
+    options: COMPLIANCE_VALUES.map((v) => ({ value: v, label: v })),
+    compile: (cond) => ({ complianceReminder: { lastStatus: { in: asArray(cond.value) } } }),
+  },
+  {
+    key: "hasEpicId",
+    label: "Has an Epic ID",
+    group: "Attributes",
+    kind: "boolean",
+    operators: ["isTrue", "isFalse"],
+    compile: (cond) => (cond.op === "isFalse" ? { epicId: null } : { epicId: { not: null } }),
+  },
+];
+
 export function personFieldWhere(cond: AudienceCondition, ctx: AudienceCtx): Prisma.PersonWhereInput {
-  switch (cond.field) {
-    case "status":
-      return { status: cond.value as "ACTIVE" | "OFFBOARDED" };
-    case "role":
-      return { memberships: { some: { termId: ctx.activeTermId ?? "", status: "ACTIVE", kind: cond.value as "DIRECTOR" | "VOLUNTEER" } } };
-    case "department":
-      return { memberships: { some: { termId: ctx.activeTermId ?? "", status: "ACTIVE", department: { code: { in: asArray(cond.value) } } } } };
-    case "complianceStatus":
-      return { complianceReminder: { lastStatus: { in: asArray(cond.value) } } };
-    case "hasEpicId":
-      return cond.op === "isFalse" ? { epicId: null } : { epicId: { not: null } };
-    default:
-      throw new Error(`Unknown audience field: ${cond.field}`);
-  }
+  const field = PERSON_FIELDS.find((f) => f.key === cond.field);
+  if (!field) throw new Error(`Unknown audience field: ${cond.field}`);
+  return field.compile(cond, ctx);
 }

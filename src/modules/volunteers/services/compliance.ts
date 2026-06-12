@@ -512,6 +512,12 @@ export async function setCompletionDateAsManager(
   const cert = await prisma.hipaaCertificate.findUnique({ where: { id: certId } });
   if (!cert) throw new CertificateNotFoundError(certId);
 
+  // Set-once. This guard runs before the transaction, so two managers racing on
+  // the same dateless cert could both pass it; the second write simply overwrites
+  // the first and both writes are visible in the audit log. Compliance-manager
+  // concurrency on one cert is vanishingly rare, so we accept that over taking a
+  // row lock here. Do not "fix" this by moving it into the transaction without
+  // considering the audit/UX implications.
   if (cert.completionDate !== null) {
     throw new CompletionDateError("completion date is already set");
   }
@@ -520,7 +526,12 @@ export async function setCompletionDateAsManager(
   const completionDate = parseCompletionDate(dateIso);
   const now = new Date();
 
-  const before = { completionDate: null, extraction: cert.extraction };
+  const before = {
+    completionDate: null,
+    extraction: cert.extraction,
+    verifiedById: cert.verifiedById ?? null,
+    verifiedAt: cert.verifiedAt ?? null,
+  };
 
   await prisma.$transaction(async (tx) => {
     await tx.hipaaCertificate.update({

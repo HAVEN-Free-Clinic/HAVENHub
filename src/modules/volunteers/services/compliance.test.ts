@@ -965,4 +965,16 @@ describe("setCompletionDateAsManager", () => {
       setCompletionDateAsManager(actor.id, cert.id, `${nextYear}-01-01`)
     ).rejects.toBeInstanceOf(CompletionDateError);
   });
+
+  it("rejects a date older than 5 years", async () => {
+    const actor = await createPerson("Manager", "mgr001");
+    await grantPermission(actor.id, "volunteers.manage_compliance");
+    const owner = await createPerson("Volunteer", "vol001");
+    const cert = await createCert(owner.id, null);
+    const tooOld = new Date().getUTCFullYear() - 6;
+
+    await expect(
+      setCompletionDateAsManager(actor.id, cert.id, `${tooOld}-01-01`)
+    ).rejects.toBeInstanceOf(CompletionDateError);
+  });
 });

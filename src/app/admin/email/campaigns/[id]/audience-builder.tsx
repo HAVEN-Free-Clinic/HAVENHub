@@ -83,7 +83,10 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
       prev.map((c, i) => {
         if (i !== idx) return c;
         if (VALUELESS_OPS.has(op)) return { ...c, op, value: undefined };
-        return { ...c, op, value: typeof c.value === "string" ? c.value : "" };
+        // "is any of" stores a multi-line paste; that format is incompatible with
+        // the single-value operators, so clear it when switching away from "in".
+        const carry = c.op !== "in" && typeof c.value === "string";
+        return { ...c, op, value: carry ? c.value : "" };
       }),
     );
   }

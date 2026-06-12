@@ -1,5 +1,10 @@
 /**
- * Per-minute email tick (Pro-plan cron, see vercel.json).
+ * Per-minute email tick. Triggered by an EXTERNAL scheduler (cron-job.org)
+ * hitting this path every minute with `Authorization: Bearer $CRON_SECRET`, not
+ * by Vercel Cron -- Vercel only executes crons on a fully-active paid plan, so
+ * we drive it externally to stay plan-independent. There must be exactly ONE
+ * scheduler pointed here (see note below); `crons` is intentionally absent from
+ * vercel.json so Vercel does not also fire it.
  *
  * This is the SOLE drainer of the outbound email queue, restoring the
  * background worker's per-minute EMAIL_QUEUE + CAMPAIGN_DISPATCH cadence on
@@ -16,7 +21,8 @@
  * ~60s, and a scheduled campaign fires within ~60s of its time. To avoid the
  * double-send that two concurrent drains would cause (drainEmailQueue assumes a
  * single drainer -- no SELECT FOR UPDATE SKIP LOCKED), the daily nightly and
- * reminders crons no longer drain email; this route owns delivery.
+ * reminders crons no longer drain email, and only one external scheduler may
+ * call this route; this route owns delivery.
  */
 import { authorizeCron } from "@/platform/cron";
 import { dispatchDueCampaigns } from "@/platform/email/campaigns/dispatch";

@@ -484,26 +484,33 @@ export async function verifyCertificate(
 // ---------------------------------------------------------------------------
 
 /**
- * Set a HIPAA certificate's completion date as a compliance manager.
+ * Set a HIPAA certificate's completion date as a compliance manager or admin.
  *
- * Only holders of `volunteers.manage_compliance` may call this (a master-key
- * check, NOT canViewCertificate: department directors do not get date entry).
- * Entry is set-once: a cert that already has a completionDate is rejected.
+ * Holders of `volunteers.manage_compliance` may call this for dateless certs
+ * only (a master-key check, NOT canViewCertificate: department directors do not
+ * get date entry). Entry is set-once for compliance managers: a cert that
+ * already has a completionDate is rejected. Holders of `admin.access` may also
+ * call this, and may overwrite an existing date to correct a wrong entry.
  *
- * Setting the date also verifies the cert (the manager read the PDF to get the
+ * Setting the date also verifies the cert (the actor read the PDF to get the
  * date), so completionDate, extraction=MANUAL, and the verified stamp are
  * written in one transaction alongside the Person mirror enqueue. Audits
- * "compliance.set_date" with before/after.
+ * "compliance.set_date" with before/after. The before snapshot captures the
+ * real prior state (including any existing completionDate) so overwrites are
+ * fully traceable.
  *
- * Throws ComplianceForbiddenError (not a manager), CertificateNotFoundError
- * (no such cert), or CompletionDateError (already set, or invalid date).
+ * Throws ComplianceForbiddenError (neither manager nor admin),
+ * CertificateNotFoundError (no such cert), or CompletionDateError (already set
+ * for non-admin, or invalid date).
  */
 export async function setCompletionDateAsManager(
   actorPersonId: string,
   certId: string,
   dateIso: string
 ): Promise<void> {
-  if (!(await can(actorPersonId, "volunteers.manage_compliance"))) {
+  const isAdmin = await can(actorPersonId, "admin.access");
+  const isManager = await can(actorPersonId, "volunteers.manage_compliance");
+  if (!isManager && !isAdmin) {
     throw new ComplianceForbiddenError(
       "Only compliance managers can set certificate completion dates."
     );
@@ -512,13 +519,13 @@ export async function setCompletionDateAsManager(
   const cert = await prisma.hipaaCertificate.findUnique({ where: { id: certId } });
   if (!cert) throw new CertificateNotFoundError(certId);
 
-  // Set-once. This guard runs before the transaction, so two managers racing on
-  // the same dateless cert could both pass it; the second write simply overwrites
-  // the first and both writes are visible in the audit log. Compliance-manager
-  // concurrency on one cert is vanishingly rare, so we accept that over taking a
-  // row lock here. Do not "fix" this by moving it into the transaction without
-  // considering the audit/UX implications.
-  if (cert.completionDate !== null) {
+  // Set-once for compliance managers: a cert that already has a date is rejected.
+  // Superadmins (admin.access) may overwrite to correct a wrong date. As before,
+  // this guard runs before the transaction, so two concurrent writers could race;
+  // the later write wins and both are visible in the audit log. That is acceptable
+  // given how rare concurrent edits on one cert are. Do not move this into the
+  // transaction without weighing the audit/UX implications.
+  if (cert.completionDate !== null && !isAdmin) {
     throw new CompletionDateError("completion date is already set");
   }
 
@@ -527,7 +534,7 @@ export async function setCompletionDateAsManager(
   const now = new Date();
 
   const before = {
-    completionDate: null,
+    completionDate: cert.completionDate ?? null,
     extraction: cert.extraction,
     verifiedById: cert.verifiedById ?? null,
     verifiedAt: cert.verifiedAt ?? null,

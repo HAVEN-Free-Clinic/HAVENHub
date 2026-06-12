@@ -977,4 +977,67 @@ describe("setCompletionDateAsManager", () => {
       setCompletionDateAsManager(actor.id, cert.id, `${tooOld}-01-01`)
     ).rejects.toBeInstanceOf(CompletionDateError);
   });
+
+  it("lets an admin overwrite an already-set date", async () => {
+    const actor = await createPerson("Admin", "adm001");
+    await grantPermission(actor.id, "admin.access");
+    const owner = await createPerson("Volunteer", "vol001");
+    const cert = await createCert(owner.id, noon(2024, 1, 1));
+
+    await setCompletionDateAsManager(actor.id, cert.id, "2025-06-01");
+
+    const updated = await prisma.hipaaCertificate.findUniqueOrThrow({ where: { id: cert.id } });
+    expect(updated.completionDate?.toISOString()).toBe(
+      new Date(Date.UTC(2025, 5, 1, 12, 0, 0, 0)).toISOString()
+    );
+    expect(updated.extraction).toBe("MANUAL");
+    expect(updated.verifiedById).toBe(actor.id);
+  });
+
+  it("records the prior date in the audit before-state on admin overwrite", async () => {
+    const actor = await createPerson("Admin", "adm001");
+    await grantPermission(actor.id, "admin.access");
+    const owner = await createPerson("Volunteer", "vol001");
+    const cert = await createCert(owner.id, noon(2024, 1, 1));
+
+    await setCompletionDateAsManager(actor.id, cert.id, "2025-06-01");
+
+    const log = await prisma.auditLog.findFirst({
+      where: { action: "compliance.set_date", entityId: cert.id },
+    });
+    const beforeData = log?.before as Record<string, unknown>;
+    expect(beforeData.completionDate).not.toBeNull();
+    // prior date was 2024-01-01 noon UTC
+    expect(new Date(beforeData.completionDate as string).toISOString()).toBe(
+      new Date(Date.UTC(2024, 0, 1, 12, 0, 0, 0)).toISOString()
+    );
+  });
+
+  it("lets an admin set a dateless cert even without manage_compliance", async () => {
+    const actor = await createPerson("Admin", "adm001");
+    await grantPermission(actor.id, "admin.access");
+    const owner = await createPerson("Volunteer", "vol001");
+    const cert = await createCert(owner.id, null);
+
+    await setCompletionDateAsManager(actor.id, cert.id, "2025-06-01");
+
+    const updated = await prisma.hipaaCertificate.findUniqueOrThrow({ where: { id: cert.id } });
+    expect(updated.completionDate).not.toBeNull();
+  });
+
+  it("still rejects overwrite for a manager who is not an admin", async () => {
+    const actor = await createPerson("Manager", "mgr001");
+    await grantPermission(actor.id, "volunteers.manage_compliance");
+    const owner = await createPerson("Volunteer", "vol001");
+    const cert = await createCert(owner.id, noon(2024, 1, 1));
+
+    await expect(
+      setCompletionDateAsManager(actor.id, cert.id, "2025-06-01")
+    ).rejects.toBeInstanceOf(CompletionDateError);
+
+    const unchanged = await prisma.hipaaCertificate.findUniqueOrThrow({ where: { id: cert.id } });
+    expect(unchanged.completionDate?.toISOString()).toBe(
+      new Date(Date.UTC(2024, 0, 1, 12, 0, 0, 0)).toISOString()
+    );
+  });
 });

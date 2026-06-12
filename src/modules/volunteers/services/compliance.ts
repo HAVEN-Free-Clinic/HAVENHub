@@ -13,6 +13,9 @@ import { complianceStatus, overallClearance } from "@/platform/compliance/rules"
 import type { ComplianceStatus, TrainingState, OverallClearance } from "@/platform/compliance/rules";
 import { canViewCertificate } from "@/platform/compliance/access";
 import { manageableDepartmentIds } from "@/platform/departments";
+import { can } from "@/platform/rbac/engine";
+import { enqueueMirror } from "@/platform/outbox";
+import { parseCompletionDate, CompletionDateError } from "@/platform/compliance/completion-date";
 
 export type { ComplianceStatus };
 
@@ -475,3 +478,76 @@ export async function verifyCertificate(
     after: { certId, ownerPersonId: cert.personId },
   });
 }
+
+// ---------------------------------------------------------------------------
+// setCompletionDateAsManager
+// ---------------------------------------------------------------------------
+
+/**
+ * Set a HIPAA certificate's completion date as a compliance manager.
+ *
+ * Only holders of `volunteers.manage_compliance` may call this (a master-key
+ * check, NOT canViewCertificate: department directors do not get date entry).
+ * Entry is set-once: a cert that already has a completionDate is rejected.
+ *
+ * Setting the date also verifies the cert (the manager read the PDF to get the
+ * date), so completionDate, extraction=MANUAL, and the verified stamp are
+ * written in one transaction alongside the Person mirror enqueue. Audits
+ * "compliance.set_date" with before/after.
+ *
+ * Throws ComplianceForbiddenError (not a manager), CertificateNotFoundError
+ * (no such cert), or CompletionDateError (already set, or invalid date).
+ */
+export async function setCompletionDateAsManager(
+  actorPersonId: string,
+  certId: string,
+  dateIso: string
+): Promise<void> {
+  if (!(await can(actorPersonId, "volunteers.manage_compliance"))) {
+    throw new ComplianceForbiddenError(
+      "Only compliance managers can set certificate completion dates."
+    );
+  }
+
+  const cert = await prisma.hipaaCertificate.findUnique({ where: { id: certId } });
+  if (!cert) throw new CertificateNotFoundError(certId);
+
+  if (cert.completionDate !== null) {
+    throw new CompletionDateError("completion date is already set");
+  }
+
+  // Validates format/future/5-year and normalizes to noon UTC. Throws CompletionDateError.
+  const completionDate = parseCompletionDate(dateIso);
+  const now = new Date();
+
+  const before = { completionDate: null, extraction: cert.extraction };
+
+  await prisma.$transaction(async (tx) => {
+    await tx.hipaaCertificate.update({
+      where: { id: cert.id },
+      data: {
+        completionDate,
+        extraction: "MANUAL",
+        verifiedById: actorPersonId,
+        verifiedAt: now,
+      },
+    });
+
+    await enqueueMirror(tx, {
+      entityType: "Person",
+      entityId: cert.personId,
+      changedFields: ["hipaaStatus"],
+    });
+  });
+
+  await recordAudit({
+    actorPersonId,
+    action: "compliance.set_date",
+    entityType: "HipaaCertificate",
+    entityId: cert.id,
+    before,
+    after: { completionDate, extraction: "MANUAL", verifiedById: actorPersonId, verifiedAt: now },
+  });
+}
+
+export { CompletionDateError };

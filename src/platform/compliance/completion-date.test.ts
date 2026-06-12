@@ -3,10 +3,15 @@ import { parseCompletionDate, CompletionDateError } from "./completion-date";
 
 describe("parseCompletionDate", () => {
   it("parses a valid date to noon UTC", () => {
-    const d = parseCompletionDate("2025-06-01");
-    expect(d.getUTCFullYear()).toBe(2025);
-    expect(d.getUTCMonth()).toBe(5); // June = 5
-    expect(d.getUTCDate()).toBe(1);
+    const target = new Date();
+    target.setUTCFullYear(target.getUTCFullYear() - 2);
+    const yyyy = target.getUTCFullYear();
+    const mm = String(target.getUTCMonth() + 1).padStart(2, "0");
+    const dd = String(target.getUTCDate()).padStart(2, "0");
+    const d = parseCompletionDate(`${yyyy}-${mm}-${dd}`);
+    expect(d.getUTCFullYear()).toBe(yyyy);
+    expect(d.getUTCMonth()).toBe(target.getUTCMonth());
+    expect(d.getUTCDate()).toBe(target.getUTCDate());
     expect(d.getUTCHours()).toBe(12);
   });
 
@@ -36,5 +41,13 @@ describe("parseCompletionDate", () => {
       expect(err).toBeInstanceOf(CompletionDateError);
       expect(typeof (err as CompletionDateError).reason).toBe("string");
     }
+  });
+
+  it("accepts today's date", () => {
+    const now = new Date();
+    const yyyy = now.getUTCFullYear();
+    const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
+    const dd = String(now.getUTCDate()).padStart(2, "0");
+    expect(() => parseCompletionDate(`${yyyy}-${mm}-${dd}`)).not.toThrow();
   });
 });

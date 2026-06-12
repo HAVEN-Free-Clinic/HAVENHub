@@ -35,7 +35,15 @@ export function parseCompletionDate(dateIso: string): Date {
   }
 
   const now = new Date();
-  if (completionDate.getTime() > now.getTime()) {
+  // Ceiling is end-of-day UTC so entering today's date is always allowed,
+  // regardless of the caller's time zone (completionDate is normalized to noon UTC).
+  const endOfTodayUtc = Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate(),
+    23, 59, 59, 999
+  );
+  if (completionDate.getTime() > endOfTodayUtc) {
     throw new CompletionDateError("completion date cannot be in the future");
   }
 

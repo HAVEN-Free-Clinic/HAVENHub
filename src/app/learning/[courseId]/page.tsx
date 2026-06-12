@@ -30,8 +30,8 @@ export default async function LearningCoursePage({
             You have completed this course.
           </p>
         )}
-        {course.entryHref ? (
-          <ScormPlayer courseId={course.id} entryHref={course.entryHref} initialCmi={course.cmi} />
+        {course.scos.length > 0 ? (
+          <ScormPlayer courseId={course.id} scos={course.scos} />
         ) : (
           <p className="text-sm text-slate-500">This course has no content uploaded yet. Check back soon.</p>
         )}

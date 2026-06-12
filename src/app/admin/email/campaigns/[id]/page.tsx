@@ -13,7 +13,7 @@ import {
   CampaignConfirmationError,
 } from "@/platform/email/campaigns/service";
 import { loadLayoutSource } from "@/platform/email/templates/renderEmail";
-import { PERSON_FIELDS } from "@/platform/email/audience/person-fields";
+import { PERSON_FIELD_VIEWS } from "@/platform/email/audience/person-fields";
 import { PERSON_VARIABLES } from "@/platform/email/audience/variables";
 import { isAudience } from "@/platform/email/audience/types";
 import type { Audience } from "@/platform/email/audience/types";
@@ -301,7 +301,7 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
           <div className="border-t border-slate-200 pt-6 space-y-4">
             <h2 className="text-base font-semibold text-slate-800">2. Audience</h2>
             <AudienceBuilder
-              fields={PERSON_FIELDS}
+              fields={PERSON_FIELD_VIEWS}
               departments={departments}
               initial={parsedAudience}
             />

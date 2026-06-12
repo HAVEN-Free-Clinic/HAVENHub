@@ -1,5 +1,14 @@
 export type AudienceRecordType = "PERSON"; // extensible: future "APPLICANT"
-export type ConditionOp = "eq" | "in" | "isTrue" | "isFalse";
+export type ConditionOp =
+  | "eq"
+  | "in"
+  | "contains"
+  | "startsWith"
+  | "endsWith"
+  | "isEmpty"
+  | "isNotEmpty"
+  | "isTrue"
+  | "isFalse";
 
 export type AudienceCondition = {
   field: string;

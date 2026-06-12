@@ -1,17 +1,30 @@
 "use client";
 
 import { useState } from "react";
-import type { PersonFieldDef } from "@/platform/email/audience/person-fields";
-import type { Audience, AudienceCondition } from "@/platform/email/audience/types";
+import type { PersonFieldView } from "@/platform/email/audience/person-fields";
+import type { Audience, AudienceCondition, ConditionOp } from "@/platform/email/audience/types";
 
 type Props = {
-  fields: PersonFieldDef[];
+  fields: PersonFieldView[];
   departments: { code: string; name: string }[];
   initial: Audience;
 };
 
+const TEXT_OP_LABELS: Record<string, string> = {
+  contains: "contains",
+  eq: "is exactly",
+  startsWith: "starts with",
+  endsWith: "ends with",
+  in: "is any of",
+  isEmpty: "is empty",
+  isNotEmpty: "is not empty",
+};
+
+// Operators where no value control is shown.
+const VALUELESS_OPS = new Set<ConditionOp>(["isEmpty", "isNotEmpty", "isTrue", "isFalse"]);
+
 function getFieldOptions(
-  field: PersonFieldDef,
+  field: PersonFieldView,
   departments: { code: string; name: string }[],
 ): { value: string; label: string }[] {
   if (field.key === "department") {
@@ -20,22 +33,31 @@ function getFieldOptions(
   return field.options ?? [];
 }
 
+function defaultConditionFor(def: PersonFieldView): AudienceCondition {
+  if (def.kind === "boolean") return { field: def.key, op: "isTrue" };
+  if (def.kind === "multiEnum") return { field: def.key, op: "in", value: [] };
+  if (def.kind === "text") return { field: def.key, op: "contains", value: "" };
+  return { field: def.key, op: "eq", value: def.options?.[0]?.value ?? "" };
+}
+
 export function AudienceBuilder({ fields, departments, initial }: Props) {
   const [match, setMatch] = useState<"ALL" | "ANY">(initial.match);
   const [conditions, setConditions] = useState<AudienceCondition[]>(initial.conditions);
 
   const audience: Audience = { recordType: "PERSON", match, conditions };
 
+  // Group fields for the selector while preserving order.
+  const groups: { name: string; fields: PersonFieldView[] }[] = [];
+  for (const f of fields) {
+    const existing = groups.find((g) => g.name === f.group);
+    if (existing) existing.fields.push(f);
+    else groups.push({ name: f.group, fields: [f] });
+  }
+
   function addCondition() {
     const first = fields[0];
     if (!first) return;
-    const newCond: AudienceCondition =
-      first.kind === "boolean"
-        ? { field: first.key, op: "isTrue" }
-        : first.kind === "multiEnum"
-          ? { field: first.key, op: "in", value: [] }
-          : { field: first.key, op: "eq", value: first.options?.[0]?.value ?? "" };
-    setConditions((prev) => [...prev, newCond]);
+    setConditions((prev) => [...prev, defaultConditionFor(first)]);
   }
 
   function removeCondition(idx: number) {
@@ -45,27 +67,32 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
   function changeField(idx: number, newFieldKey: string) {
     const def = fields.find((f) => f.key === newFieldKey);
     if (!def) return;
-    let newCond: AudienceCondition;
-    if (def.kind === "boolean") {
-      newCond = { field: def.key, op: "isTrue" };
-    } else if (def.kind === "multiEnum") {
-      newCond = { field: def.key, op: "in", value: [] };
-    } else {
-      newCond = { field: def.key, op: "eq", value: def.options?.[0]?.value ?? "" };
-    }
-    setConditions((prev) => prev.map((c, i) => (i === idx ? newCond : c)));
+    setConditions((prev) => prev.map((c, i) => (i === idx ? defaultConditionFor(def) : c)));
   }
 
   function changeEnumValue(idx: number, value: string) {
-    setConditions((prev) =>
-      prev.map((c, i) => (i === idx ? { ...c, op: "eq" as const, value } : c)),
-    );
+    setConditions((prev) => prev.map((c, i) => (i === idx ? { ...c, op: "eq" as const, value } : c)));
   }
 
   function changeBooleanOp(idx: number, op: "isTrue" | "isFalse") {
+    setConditions((prev) => prev.map((c, i) => (i === idx ? { ...c, op, value: undefined } : c)));
+  }
+
+  function changeTextOp(idx: number, op: ConditionOp) {
     setConditions((prev) =>
-      prev.map((c, i) => (i === idx ? { ...c, op, value: undefined } : c)),
+      prev.map((c, i) => {
+        if (i !== idx) return c;
+        if (VALUELESS_OPS.has(op)) return { ...c, op, value: undefined };
+        // "is any of" stores a multi-line paste; that format is incompatible with
+        // the single-value operators, so clear it when switching away from "in".
+        const carry = c.op !== "in" && typeof c.value === "string";
+        return { ...c, op, value: carry ? c.value : "" };
+      }),
     );
+  }
+
+  function changeTextValue(idx: number, value: string) {
+    setConditions((prev) => prev.map((c, i) => (i === idx ? { ...c, value } : c)));
   }
 
   function toggleMultiValue(idx: number, val: string) {
@@ -84,7 +111,7 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
       <div>
         <label className="block text-sm font-medium text-slate-700">Audience</label>
         <p className="mt-0.5 text-xs text-slate-500">
-          Choose who receives this campaign. Add at least one condition &mdash; an empty audience matches nobody (a safeguard against an accidental send-all).
+          Choose who receives this campaign. Add at least one condition; an empty audience matches nobody (a safeguard against an accidental send-all).
         </p>
       </div>
 
@@ -112,7 +139,7 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
       {/* Condition rows */}
       {conditions.length === 0 && (
         <p className="text-sm text-slate-400 italic">
-          No conditions yet &mdash; this audience matches nobody. Add a condition to choose recipients.
+          No conditions yet; this audience matches nobody. Add a condition to choose recipients.
         </p>
       )}
 
@@ -121,26 +148,66 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
           const def = fields.find((f) => f.key === cond.field) ?? fields[0];
           const options = def ? getFieldOptions(def, departments) : [];
           const selectedValues = Array.isArray(cond.value) ? cond.value : [];
+          const textValue = typeof cond.value === "string" ? cond.value : "";
 
           return (
             <div
               key={idx}
               className="flex flex-wrap items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3"
             >
-              {/* Field selector */}
+              {/* Field selector, grouped */}
               <select
                 value={cond.field}
                 onChange={(e) => changeField(idx, e.target.value)}
                 className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15"
               >
-                {fields.map((f) => (
-                  <option key={f.key} value={f.key}>
-                    {f.label}
-                  </option>
+                {groups.map((g) => (
+                  <optgroup key={g.name} label={g.name}>
+                    {g.fields.map((f) => (
+                      <option key={f.key} value={f.key}>
+                        {f.label}
+                      </option>
+                    ))}
+                  </optgroup>
                 ))}
               </select>
 
-              {/* Value control based on kind */}
+              {/* Text fields: operator dropdown + adaptive value control */}
+              {def?.kind === "text" && (
+                <>
+                  <select
+                    value={cond.op}
+                    onChange={(e) => changeTextOp(idx, e.target.value as ConditionOp)}
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15"
+                  >
+                    {def.operators.map((op) => (
+                      <option key={op} value={op}>
+                        {TEXT_OP_LABELS[op] ?? op}
+                      </option>
+                    ))}
+                  </select>
+
+                  {cond.op === "in" ? (
+                    <textarea
+                      value={textValue}
+                      onChange={(e) => changeTextValue(idx, e.target.value)}
+                      rows={2}
+                      placeholder="Paste values, one per line or comma-separated"
+                      className="min-w-[16rem] flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15"
+                    />
+                  ) : !VALUELESS_OPS.has(cond.op) ? (
+                    <input
+                      type="text"
+                      value={textValue}
+                      onChange={(e) => changeTextValue(idx, e.target.value)}
+                      placeholder="Enter a value"
+                      className="min-w-[12rem] flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15"
+                    />
+                  ) : null}
+                </>
+              )}
+
+              {/* Enum value */}
               {def?.kind === "enum" && (
                 <select
                   value={typeof cond.value === "string" ? cond.value : ""}
@@ -155,6 +222,7 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
                 </select>
               )}
 
+              {/* MultiEnum checkboxes */}
               {def?.kind === "multiEnum" && (
                 <div className="flex flex-wrap gap-x-4 gap-y-1">
                   {options.map((o) => (
@@ -174,6 +242,7 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
                 </div>
               )}
 
+              {/* Boolean yes/no */}
               {def?.kind === "boolean" && (
                 <select
                   value={cond.op}

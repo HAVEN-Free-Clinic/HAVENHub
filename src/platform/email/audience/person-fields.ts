@@ -151,6 +151,44 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
     operators: ["isTrue", "isFalse"],
     compile: (cond) => (cond.op === "isFalse" ? { epicId: null } : { epicId: { not: null } }),
   },
+  {
+    key: "spanishSpeaking",
+    label: "Spanish-speaking",
+    group: "Attributes",
+    kind: "boolean",
+    operators: ["isTrue", "isFalse"],
+    compile: (cond) => ({ spanishSpeaking: cond.op === "isTrue" }),
+  },
+  {
+    key: "licensedRN",
+    label: "Licensed RN",
+    group: "Attributes",
+    kind: "boolean",
+    operators: ["isTrue", "isFalse"],
+    compile: (cond) => ({ licensedRN: cond.op === "isTrue" }),
+  },
+  {
+    key: "hasOpenEpicRequest",
+    label: "Has an open EPIC request",
+    group: "Records",
+    kind: "boolean",
+    operators: ["isTrue", "isFalse"],
+    compile: (cond) =>
+      cond.op === "isFalse"
+        ? { epicRequests: { none: { status: "PENDING" } } }
+        : { epicRequests: { some: { status: "PENDING" } } },
+  },
+  {
+    key: "hasDisciplinaryAction",
+    label: "Has a disciplinary action",
+    group: "Records",
+    kind: "boolean",
+    operators: ["isTrue", "isFalse"],
+    compile: (cond) =>
+      cond.op === "isFalse"
+        ? { disciplinaryActions: { none: {} } }
+        : { disciplinaryActions: { some: {} } },
+  },
 ];
 
 export function personFieldWhere(cond: AudienceCondition, ctx: AudienceCtx): Prisma.PersonWhereInput {

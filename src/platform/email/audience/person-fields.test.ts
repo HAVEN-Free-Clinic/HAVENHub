@@ -9,6 +9,7 @@ describe("person fields", () => {
     expect(keys).toEqual([
       "name", "netId", "contactEmail", "epicId", "phone", "yaleAffiliation", "gradYear",
       "status", "role", "department", "complianceStatus", "hasEpicId",
+      "spanishSpeaking", "licensedRN", "hasOpenEpicRequest", "hasDisciplinaryAction",
     ]);
   });
 
@@ -92,6 +93,32 @@ describe("text operators", () => {
 
   it("safety: an empty 'is any of' list matches nobody", () => {
     expect(personFieldWhere({ field: "netId", op: "in", value: "  , \n " }, ctx)).toEqual({ id: { in: [] } });
+  });
+});
+
+describe("booleans and relations", () => {
+  it("spanishSpeaking / licensedRN -> direct boolean", () => {
+    expect(personFieldWhere({ field: "spanishSpeaking", op: "isTrue" }, ctx)).toEqual({ spanishSpeaking: true });
+    expect(personFieldWhere({ field: "spanishSpeaking", op: "isFalse" }, ctx)).toEqual({ spanishSpeaking: false });
+    expect(personFieldWhere({ field: "licensedRN", op: "isTrue" }, ctx)).toEqual({ licensedRN: true });
+  });
+
+  it("hasOpenEpicRequest -> some/none PENDING epic request", () => {
+    expect(personFieldWhere({ field: "hasOpenEpicRequest", op: "isTrue" }, ctx)).toEqual({
+      epicRequests: { some: { status: "PENDING" } },
+    });
+    expect(personFieldWhere({ field: "hasOpenEpicRequest", op: "isFalse" }, ctx)).toEqual({
+      epicRequests: { none: { status: "PENDING" } },
+    });
+  });
+
+  it("hasDisciplinaryAction -> some/none disciplinary action", () => {
+    expect(personFieldWhere({ field: "hasDisciplinaryAction", op: "isTrue" }, ctx)).toEqual({
+      disciplinaryActions: { some: {} },
+    });
+    expect(personFieldWhere({ field: "hasDisciplinaryAction", op: "isFalse" }, ctx)).toEqual({
+      disciplinaryActions: { none: {} },
+    });
   });
 });
 

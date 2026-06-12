@@ -1,19 +1,17 @@
 /**
- * Daily maintenance (Hobby-plan friendly: one daily run).
+ * Daily maintenance: recompute compliance statuses (enqueues mirror changes) ->
+ * drain the mirror outbox -> reconcile People against Airtable.
  *
- * Order: recompute compliance statuses (enqueues mirror changes) -> drain the
- * mirror outbox -> reconcile People against Airtable -> drain the email queue.
- * This folds the worker's per-minute OUTBOX/EMAIL drains and the nightly
- * compliance refresh + reconcile into a single daily job, because Hobby plans
- * only allow daily cron frequency. On Pro, split these back out and raise the
- * cadence (see git history / the standalone /api/cron/drain route).
+ * Email delivery is NOT done here. The per-minute /api/cron/email route is the
+ * sole drainer of the outbound email queue; draining here too would run
+ * concurrently with that route at 06:00 UTC and double-send (drainEmailQueue
+ * assumes a single drainer). Any compliance changes that enqueue email elsewhere
+ * are delivered by the per-minute tick within ~60s.
  */
 import { authorizeCron, airtableClient, mirrorTarget } from "@/platform/cron";
 import { refreshComplianceMirror } from "@/platform/compliance/mirror-status";
 import { reconcilePeople } from "@/platform/airtable/reconcile";
 import { drainOutbox } from "@/platform/airtable/mirror";
-import { drainEmailQueue } from "@/platform/email/send";
-import { resolveEmailTransport } from "@/platform/email/transport";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,13 +34,5 @@ export async function GET(req: Request): Promise<Response> {
     corrected = await reconcilePeople(client, await mirrorTarget());
   }
 
-  const transport = await resolveEmailTransport();
-  let emails = 0;
-  let processed: number;
-  do {
-    processed = await drainEmailQueue(transport);
-    emails += processed;
-  } while (processed > 0);
-
-  return Response.json({ ok: true, enqueued, outbox, corrected, emails });
+  return Response.json({ ok: true, enqueued, outbox, corrected });
 }

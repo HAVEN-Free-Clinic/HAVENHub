@@ -64,13 +64,17 @@ export function CertificateViewer({
     });
   }
 
-  const today = new Date().toISOString().split("T")[0];
+  // Local-time YYYY-MM-DD so the date input's max matches the user's "today".
+  const today = new Date().toLocaleDateString("en-CA");
 
   return (
     <>
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          setError(null);
+          setOpen(true);
+        }}
         className={buttonClasses("outline", "sm", "gap-1.5")}
       >
         <Eye className="h-4 w-4" />

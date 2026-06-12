@@ -47,8 +47,13 @@ function textCompile(column: string, cond: AudienceCondition): Prisma.PersonWher
         AND: [{ [column]: { not: null } }, { [column]: { not: "" } }],
       } as Prisma.PersonWhereInput;
     case "in": {
+      // "is any of": case-insensitive match against a pasted list. Prisma ignores
+      // mode:"insensitive" on `in` for Postgres, so expand to an OR of equals.
       const list = parseTextList(cond.value);
-      return list.length === 0 ? MATCH_NOBODY : ({ [column]: { in: list } } as Prisma.PersonWhereInput);
+      if (list.length === 0) return MATCH_NOBODY;
+      return {
+        OR: list.map((v) => ({ [column]: { equals: v, mode: "insensitive" } })),
+      } as Prisma.PersonWhereInput;
     }
     case "contains":
     case "startsWith":

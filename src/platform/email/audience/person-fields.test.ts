@@ -66,9 +66,13 @@ describe("text operators", () => {
     });
   });
 
-  it("in (is any of) -> parses a comma/newline list, exact match", () => {
+  it("in (is any of) -> case-insensitive OR of equals from a comma/newline list", () => {
     expect(personFieldWhere({ field: "netId", op: "in", value: "abc123, def456\nghi789" }, ctx)).toEqual({
-      netId: { in: ["abc123", "def456", "ghi789"] },
+      OR: [
+        { netId: { equals: "abc123", mode: "insensitive" } },
+        { netId: { equals: "def456", mode: "insensitive" } },
+        { netId: { equals: "ghi789", mode: "insensitive" } },
+      ],
     });
   });
 

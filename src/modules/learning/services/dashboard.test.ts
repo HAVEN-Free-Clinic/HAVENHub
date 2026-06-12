@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import { getCourseCompletion, resetCourseProgress } from "./dashboard";
+import { persistScoCmi } from "./enrollment";
 
 async function seed() {
   const viewer = await prisma.person.create({ data: { name: "Viewer", status: "ACTIVE" } });
@@ -55,4 +56,27 @@ it("resetCourseProgress clears a learner's row", async () => {
   await resetCourseProgress(learner.id, course.id, viewer.id);
   const rows = await getCourseCompletion(course.id, viewer.id);
   expect(rows[0].status).toBe("NOT_STARTED");
+});
+
+it("resetCourseProgress also clears per-SCO progress so retakes start fresh", async () => {
+  const { viewer, learner, course } = await seed();
+  await persistScoCmi(learner.id, course.id, "sco-0", {
+    lessonStatus: "completed", scoreRaw: null, suspendData: null, lessonLocation: null,
+  });
+  expect(await prisma.scoProgress.count({ where: { personId: learner.id, courseId: course.id } })).toBe(1);
+
+  await resetCourseProgress(learner.id, course.id, viewer.id);
+
+  expect(await prisma.scoProgress.count({ where: { personId: learner.id, courseId: course.id } })).toBe(0);
+  const rows = await getCourseCompletion(course.id, viewer.id);
+  expect(rows[0].status).toBe("NOT_STARTED");
+});
+
+it("getCourseCompletion shows the score rolled up from per-SCO progress", async () => {
+  const { viewer, learner, course } = await seed();
+  await persistScoCmi(learner.id, course.id, "sco-0", {
+    lessonStatus: "passed", scoreRaw: 88, suspendData: null, lessonLocation: null,
+  });
+  const rows = await getCourseCompletion(course.id, viewer.id);
+  expect(rows[0]).toMatchObject({ status: "COMPLETE", scoreRaw: 88 });
 });

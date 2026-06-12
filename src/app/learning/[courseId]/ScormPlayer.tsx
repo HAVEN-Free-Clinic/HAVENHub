@@ -27,6 +27,7 @@ export function ScormPlayer({ courseId, scos }: Props) {
   const apiRef = useRef<InstanceType<typeof Scorm12API> | null>(null);
   const pendingSaveRef = useRef<Promise<void>>(Promise.resolve());
   const switchingRef = useRef(false);
+  const saveActiveRef = useRef<() => Promise<void>>(() => Promise.resolve());
 
   // Build a fresh API for one SCO: seed saved state, wire commit/finish
   // persistence (tagged with this SCO's id), and install it as window.API.
@@ -53,15 +54,16 @@ export function ScormPlayer({ courseId, scos }: Props) {
 
     (window as unknown as { API: typeof api }).API = api;
     apiRef.current = api;
+    saveActiveRef.current = save;
     return save;
   }
 
   // Initial mount: install the first SCO's API before paint, so the iframe (which
   // renders with the first SCO's src) finds window.API on load. Unmount: persist + remove.
   useLayoutEffect(() => {
-    const save = installApi(scos[0]);
+    installApi(scos[0]);
     return () => {
-      save();
+      saveActiveRef.current();
       delete (window as unknown as { API?: unknown }).API;
       apiRef.current = null;
     };
@@ -96,6 +98,8 @@ export function ScormPlayer({ courseId, scos }: Props) {
           <ol className="space-y-1">
             {scos.map((s, i) => {
               const isActive = i === activeIndex;
+              // Reflects the SCO status from the initial server render; updates on
+              // next page load, not live after an in-page switch (by design).
               const done = deriveStatus(s.cmi.lessonStatus).completed;
               return (
                 <li key={s.id}>

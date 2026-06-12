@@ -12,12 +12,12 @@
  */
 
 import type { HipaaCertificate } from "@prisma/client";
-import Link from "next/link";
 import { Card } from "@/platform/ui/card";
 import { Input, Field } from "@/platform/ui/input";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
+import { CertificateViewer } from "@/modules/my-info/components/certificate-viewer";
 import { certExpiresAt } from "@/platform/compliance/rules";
 import type { ComplianceStatus } from "@/platform/compliance/rules";
 
@@ -90,17 +90,14 @@ export function HipaaPanel({
         <h3 className="mb-2 text-sm font-semibold uppercase tracking-wider text-slate-500">Current Certificate</h3>
         {latest ? (
           <div className="space-y-2">
-            <p className="text-sm text-slate-600">
-              {latest.source === "IMPORT"
-                ? "On file (imported from previous records)"
-                : `Uploaded ${formatDate(latest.uploadedAt)}`}{" "}
-              <Link
-                href={`/my-info/certificate/${latest.id}`}
-                className="text-brand hover:underline"
-              >
-                Download
-              </Link>
-            </p>
+            <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
+              <span>
+                {latest.source === "IMPORT"
+                  ? "On file (imported from previous records)"
+                  : `Uploaded ${formatDate(latest.uploadedAt)}`}
+              </span>
+              <CertificateViewer certId={latest.id} fileName={latest.fileName} />
+            </div>
             {/* Compliance status badge */}
             <div className="flex items-center gap-2">
               <StatusBadge status={status} cert={latest} />
@@ -188,12 +185,7 @@ export function HipaaPanel({
                     : formatDate(cert.uploadedAt)}
                 </span>
                 <span className="text-slate-400">{formatSize(cert.size)}</span>
-                <Link
-                  href={`/my-info/certificate/${cert.id}`}
-                  className="text-brand hover:underline"
-                >
-                  Download
-                </Link>
+                <CertificateViewer certId={cert.id} fileName={cert.fileName} />
               </li>
             ))}
           </ul>

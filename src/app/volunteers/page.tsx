@@ -5,6 +5,7 @@ import { Badge } from "@/platform/ui/badge";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Alert } from "@/platform/ui/alert";
+import { CertificateViewer } from "@/modules/my-info/components/certificate-viewer";
 import {
   departmentCompliance,
   verifyCertificate,
@@ -242,14 +243,11 @@ export default async function VolunteersPage({ searchParams }: PageProps) {
                         <TD>
                           <div className="flex items-center gap-2">
                             {m.cert && (
-                              <a
-                                href={`/my-info/certificate/${m.cert.id}`}
-                                className="text-xs text-brand underline underline-offset-2 hover:opacity-75"
-                                target="_blank"
-                                rel="noreferrer"
-                              >
-                                Download
-                              </a>
+                              <CertificateViewer
+                                certId={m.cert.id}
+                                fileName={m.cert.fileName}
+                                ownerName={m.person.name}
+                              />
                             )}
                             {m.cert && (
                               <form action={verifyAction}>

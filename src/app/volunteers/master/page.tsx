@@ -24,6 +24,7 @@ import { Select } from "@/platform/ui/select";
 import { Button, buttonClasses } from "@/platform/ui/button";
 import { StatCard } from "@/platform/ui/stat-card";
 import { masterCompliance } from "@/modules/volunteers/services/compliance";
+import { CertificateViewer } from "@/modules/my-info/components/certificate-viewer";
 import type { ComplianceStatus } from "@/platform/compliance/rules";
 import { certExpiresAt } from "@/platform/compliance/rules";
 import Link from "next/link";
@@ -318,14 +319,11 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
                       </TD>
                       <TD>
                         {row.cert && (
-                          <a
-                            href={`/my-info/certificate/${row.cert.id}`}
-                            className="text-xs text-brand underline underline-offset-2 hover:opacity-75"
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            Download
-                          </a>
+                          <CertificateViewer
+                            certId={row.cert.id}
+                            fileName={row.cert.fileName}
+                            ownerName={row.person.name}
+                          />
                         )}
                       </TD>
                     </TR>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PERSON_FIELDS, personFieldWhere, parseTextList } from "./person-fields";
+import { PERSON_FIELDS, PERSON_FIELD_VIEWS, personFieldWhere, parseTextList } from "./person-fields";
 
 const ctx = { activeTermId: "term1" };
 
@@ -132,5 +132,21 @@ describe("parseTextList", () => {
   });
   it("returns [] for undefined", () => {
     expect(parseTextList(undefined)).toEqual([]);
+  });
+});
+
+describe("PERSON_FIELD_VIEWS (RSC-serializable)", () => {
+  it("mirrors PERSON_FIELDS by key, in order", () => {
+    expect(PERSON_FIELD_VIEWS.map((v) => v.key)).toEqual(PERSON_FIELDS.map((f) => f.key));
+  });
+
+  it("contains no functions so it can cross the server/client boundary", () => {
+    for (const view of PERSON_FIELD_VIEWS) {
+      expect("compile" in view).toBe(false);
+      for (const value of Object.values(view)) {
+        expect(typeof value).not.toBe("function");
+      }
+    }
+    expect(() => JSON.stringify(PERSON_FIELD_VIEWS)).not.toThrow();
   });
 });

@@ -147,9 +147,12 @@ export function ScormPlayer({ courseId, scos }: Props) {
                         {done ? "✓" : i + 1}
                       </span>
                       <span className="truncate">{s.title}</span>
-                      {st?.scoreRaw != null && (
+                      {/* Only show a score once it is actually meaningful. A 0 usually means
+                          no score was reported (e.g. eXe's Padlock game never commits one), so
+                          showing "0%" reads like a real grade of zero. */}
+                      {st?.scoreRaw ? (
                         <span className="ml-auto shrink-0 text-xs tabular-nums text-slate-500">{st.scoreRaw}%</span>
-                      )}
+                      ) : null}
                     </button>
                   </li>
                 );

@@ -38,6 +38,7 @@
     "postcss": "^8.5.10"
   },
   "dependencies": {
+    "@bprogress/next": "^3.2.12",
     "@prisma/client": "^6.19.2",
     "@tiptap/extension-link": "^3.26.0",
     "@tiptap/extension-placeholder": "^3.26.0",

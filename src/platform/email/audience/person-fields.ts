@@ -17,6 +17,64 @@ export type PersonFieldDef = {
 
 const COMPLIANCE_VALUES = ["COMPLIANT", "EXPIRING_SOON", "EXPIRED", "UNKNOWN_DATE", "NO_CERTIFICATE"];
 
+const MATCH_NOBODY: Prisma.PersonWhereInput = { id: { in: [] } };
+
+const TEXT_OPERATORS: ConditionOp[] = [
+  "contains",
+  "eq",
+  "startsWith",
+  "endsWith",
+  "in",
+  "isEmpty",
+  "isNotEmpty",
+];
+
+export function parseTextList(value: AudienceCondition["value"]): string[] {
+  const parts = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(/[\n,]/)
+      : [];
+  return parts.map((s) => s.trim()).filter((s) => s.length > 0);
+}
+
+function textCompile(column: string, cond: AudienceCondition): Prisma.PersonWhereInput {
+  switch (cond.op) {
+    case "isEmpty":
+      return { OR: [{ [column]: null }, { [column]: "" }] } as Prisma.PersonWhereInput;
+    case "isNotEmpty":
+      return {
+        AND: [{ [column]: { not: null } }, { [column]: { not: "" } }],
+      } as Prisma.PersonWhereInput;
+    case "in": {
+      const list = parseTextList(cond.value);
+      return list.length === 0 ? MATCH_NOBODY : ({ [column]: { in: list } } as Prisma.PersonWhereInput);
+    }
+    case "contains":
+    case "startsWith":
+    case "endsWith":
+    case "eq": {
+      const raw = typeof cond.value === "string" ? cond.value.trim() : "";
+      if (raw === "") return MATCH_NOBODY;
+      const prismaOp = cond.op === "eq" ? "equals" : cond.op;
+      return { [column]: { [prismaOp]: raw, mode: "insensitive" } } as Prisma.PersonWhereInput;
+    }
+    default:
+      throw new Error(`Unsupported text operator: ${cond.op}`);
+  }
+}
+
+function textField(key: string, label: string, column: string): PersonFieldDef {
+  return {
+    key,
+    label,
+    group: "Identity",
+    kind: "text",
+    operators: TEXT_OPERATORS,
+    compile: (cond) => textCompile(column, cond),
+  };
+}
+
 function asArray(value: AudienceCondition["value"]): string[] {
   if (Array.isArray(value)) return value;
   if (typeof value === "string" && value.length > 0) return [value];
@@ -24,6 +82,13 @@ function asArray(value: AudienceCondition["value"]): string[] {
 }
 
 export const PERSON_FIELDS: PersonFieldDef[] = [
+  textField("name", "Full name", "name"),
+  textField("netId", "NetID", "netId"),
+  textField("contactEmail", "Email", "contactEmail"),
+  textField("epicId", "Epic ID", "epicId"),
+  textField("phone", "Phone", "phone"),
+  textField("yaleAffiliation", "Yale affiliation", "yaleAffiliation"),
+  textField("gradYear", "Grad year", "gradYear"),
   {
     key: "status",
     label: "Account status",

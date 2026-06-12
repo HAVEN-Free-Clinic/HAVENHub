@@ -512,7 +512,7 @@ export async function setCompletionDateAsManager(
   const isManager = await can(actorPersonId, "volunteers.manage_compliance");
   if (!isManager && !isAdmin) {
     throw new ComplianceForbiddenError(
-      "Only compliance managers can set certificate completion dates."
+      "Only compliance managers or admins can set certificate completion dates."
     );
   }
 

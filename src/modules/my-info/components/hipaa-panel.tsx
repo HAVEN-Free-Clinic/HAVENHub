@@ -49,7 +49,7 @@ function StatusBadge({ status, cert }: { status: ComplianceStatus; cert: HipaaCe
     return null; // handled below
   }
   if (status === "UNKNOWN_DATE") {
-    return <Badge tone="default">Completion date needed</Badge>;
+    return <Badge tone="default">Completion date pending</Badge>;
   }
   if (!cert?.completionDate) return null;
   const expiresAt = certExpiresAt(cert.completionDate);
@@ -100,7 +100,7 @@ export function HipaaPanel({
               )}
             </div>
             {/* Read-only notice when the completion date could not be parsed */}
-            {latest !== null && latest.completionDate === null && (
+            {latest.completionDate === null && (
               <p className="mt-2 text-sm text-slate-500">
                 A compliance manager will confirm the completion date.
               </p>

@@ -247,6 +247,7 @@ export default async function VolunteersPage({ searchParams }: PageProps) {
                                 certId={m.cert.id}
                                 fileName={m.cert.fileName}
                                 ownerName={m.person.name}
+                                canEditDate={false}
                               />
                             )}
                             {m.cert && (

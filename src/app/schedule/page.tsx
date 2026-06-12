@@ -2,6 +2,7 @@ import { requireModuleAccess } from "@/platform/auth/session";
 import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
+import { Card } from "@/platform/ui/card";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
@@ -139,7 +140,7 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
   return (
     <div>
       {/* Hero banner */}
-      <div className="rounded-xl bg-brand px-8 py-6 text-white mb-8">
+      <div className="rounded-2xl bg-brand px-8 py-6 text-white mb-8">
         <p className="text-xs font-semibold uppercase tracking-widest text-white/60 mb-1">{term?.name ?? "Active Term"}</p>
         <h1 className="text-2xl font-bold mb-1">My Schedule</h1>
         {shifts.length > 0 ? (
@@ -185,7 +186,7 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
               </div>
 
               {shifts.length === 0 ? (
-                <div className="rounded-xl border-2 border-dashed border-slate-200 px-6 py-10 text-center text-sm text-slate-400">
+                <div className="rounded-2xl border border-dashed border-slate-200 px-6 py-10 text-center text-sm text-slate-400">
                   No shifts assigned yet. Check back after the schedule is published.
                 </div>
               ) : (
@@ -204,7 +205,7 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                         : "border-l-4 border-l-success";
 
                     return (
-                      <div key={cardKey} className={`rounded-xl border border-slate-200 bg-white px-5 py-4 ${leftBorder}`}>
+                      <div key={cardKey} className={`rounded-2xl border border-slate-200 bg-white shadow-sm px-5 py-4 ${leftBorder}`}>
                         <div className="flex flex-wrap items-center gap-2 mb-2">
                           <span className="text-base font-bold text-slate-800 tabular-nums">{fmtDate(shift.clinicDate)}</span>
                           <span className="text-xs font-bold uppercase tracking-widest text-slate-400">{shift.department.code}</span>
@@ -355,7 +356,7 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
 
           {/* Right column: quick info sidebar */}
           <div className="flex flex-col gap-4">
-            <div className="rounded-xl border border-slate-200 bg-white px-5 py-4">
+            <Card pad={false} className="px-5 py-4">
               <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-3">This Term</p>
               <div className="flex flex-col gap-3">
                 <div className="flex items-center justify-between">
@@ -381,7 +382,7 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                   <span className="text-sm font-bold text-slate-800">{pendingRequests.size}</span>
                 </div>
               </div>
-            </div>
+            </Card>
 
 
           </div>

@@ -175,7 +175,7 @@ export default async function TermDetailPage({ params, searchParams }: PageProps
 
       {/* Lifecycle section */}
       <section>
-        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-400">
+        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-500">
           Lifecycle
         </h2>
         {term.status === "ACTIVE" ? (
@@ -196,7 +196,7 @@ export default async function TermDetailPage({ params, searchParams }: PageProps
 
       {/* Clinic dates section */}
       <section>
-        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-400">
+        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-500">
           Clinic dates
         </h2>
         <p className="mb-4 text-sm text-slate-500">

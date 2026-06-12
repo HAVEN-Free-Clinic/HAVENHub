@@ -75,7 +75,7 @@ export function PendingRequests({
         return (
           <div
             key={request.id}
-            className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 flex flex-col gap-2"
+            className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 flex flex-col gap-2"
           >
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div className="flex flex-col gap-0.5">
@@ -117,7 +117,7 @@ export function PendingRequests({
       {/* Decided rows (collapsed muted list) */}
       {decidedRows.length > 0 && (
         <div className="border-t border-slate-100 pt-2 flex flex-col gap-1">
-          <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">
+          <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
             Recent decisions
           </h3>
           {decidedRows.map(({ request, requesterName, decidedByName }) => (

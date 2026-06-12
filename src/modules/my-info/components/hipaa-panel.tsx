@@ -13,6 +13,7 @@
 
 import type { HipaaCertificate } from "@prisma/client";
 import Link from "next/link";
+import { Card } from "@/platform/ui/card";
 import { Input, Field } from "@/platform/ui/input";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { Alert } from "@/platform/ui/alert";
@@ -83,10 +84,10 @@ export function HipaaPanel({
   const needsDateEntry = latest !== null && latest.completionDate === null;
 
   return (
-    <div className="space-y-6">
+    <Card className="space-y-6">
       {/* Latest certificate */}
       <div>
-        <h3 className="mb-2 text-sm font-medium text-slate-700">Current Certificate</h3>
+        <h3 className="mb-2 text-sm font-semibold uppercase tracking-wider text-slate-500">Current Certificate</h3>
         {latest ? (
           <div className="space-y-2">
             <p className="text-sm text-slate-600">
@@ -146,7 +147,7 @@ export function HipaaPanel({
 
       {/* Upload form */}
       <div>
-        <h3 className="mb-2 text-sm font-medium text-slate-700">Upload New Certificate</h3>
+        <h3 className="mb-2 text-sm font-semibold uppercase tracking-wider text-slate-500">Upload New Certificate</h3>
         {error && (
           <Alert tone="error" className="mb-3">
             {error}
@@ -177,7 +178,7 @@ export function HipaaPanel({
       {/* History */}
       {history.length > 0 && (
         <div>
-          <h3 className="mb-2 text-sm font-medium text-slate-700">History</h3>
+          <h3 className="mb-2 text-sm font-semibold uppercase tracking-wider text-slate-500">History</h3>
           <ul className="space-y-1.5">
             {history.map((cert) => (
               <li key={cert.id} className="flex items-center gap-3 text-sm text-slate-600">
@@ -198,6 +199,6 @@ export function HipaaPanel({
           </ul>
         </div>
       )}
-    </div>
+    </Card>
   );
 }

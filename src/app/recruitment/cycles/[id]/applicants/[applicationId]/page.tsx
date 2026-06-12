@@ -61,8 +61,8 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
       />
 
       {sections.map((section) => (
-        <section key={section.id} className="rounded-2xl border border-slate-200 bg-white p-5">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">{section.title}</h2>
+        <section key={section.id} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">{section.title}</h2>
           <dl className="mt-3 grid gap-3 sm:grid-cols-2">
             {section.fields.map((f) => {
               const val = answers[f.key];
@@ -81,8 +81,8 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
       ))}
 
       {app.cycle.track === "VOLUNTEER" ? (
-        <section className="rounded-2xl border border-slate-200 bg-white p-5">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Decision</h2>
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">Decision</h2>
           {error && <Alert tone="error" className="mt-3">{error}</Alert>}
           {acceptances.length > 0 ? (
             <ul className="mt-3 divide-y divide-slate-100">
@@ -126,8 +126,8 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
           )}
         </section>
       ) : (
-        <section className="rounded-2xl border border-slate-200 bg-white p-5">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Interview</h2>
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">Interview</h2>
           {error && <Alert tone="error" className="mt-3">{error}</Alert>}
           {existingInterviews.length > 0 && (
             <ul className="mt-3 space-y-1 text-sm">

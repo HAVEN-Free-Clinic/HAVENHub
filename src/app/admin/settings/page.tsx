@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import { requirePermission } from "@/platform/auth/session";
 import { PageHeader } from "@/platform/ui/page-header";
 import { buttonClasses } from "@/platform/ui/button";
+import { Card } from "@/platform/ui/card";
+import { Checkbox } from "@/platform/ui/checkbox";
 import { Alert } from "@/platform/ui/alert";
 import { Select } from "@/platform/ui/select";
 import { Input, Textarea } from "@/platform/ui/input";
@@ -135,7 +137,7 @@ export default async function SettingsPage({ searchParams }: PageProps) {
           <h2 className="text-lg font-semibold">{category}</h2>
           <div className="space-y-6">
             {settings.map((s) => (
-              <div key={s.key} className="rounded-2xl border border-slate-200 p-4">
+              <Card key={s.key} pad={false} className="p-4">
                 {s.input.type === "image" ? (
                   <BrandingImageField
                     setting={s}
@@ -151,10 +153,9 @@ export default async function SettingsPage({ searchParams }: PageProps) {
                       </label>
                       <p className="text-xs text-slate-500">{s.help}</p>
                       {s.input.type === "boolean" ? (
-                        <input
+                        <Checkbox
                           id={s.key}
                           name={s.key}
-                          type="checkbox"
                           defaultChecked={Boolean(s.value)}
                         />
                       ) : s.input.type === "select" ? (
@@ -204,7 +205,7 @@ export default async function SettingsPage({ searchParams }: PageProps) {
                     )}
                   </>
                 )}
-              </div>
+              </Card>
             ))}
           </div>
         </section>

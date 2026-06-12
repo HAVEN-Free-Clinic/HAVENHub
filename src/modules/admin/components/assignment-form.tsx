@@ -27,6 +27,7 @@ import {
 import { searchPeople } from "@/modules/admin/services/people";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
+import { Card } from "@/platform/ui/card";
 import { Input, Field } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
@@ -237,7 +238,7 @@ export async function AssignmentForm({
       )}
 
       {/* Create person assignment */}
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4">
+      <Card className="space-y-4">
         <h3 className="text-sm font-semibold text-slate-700">Assign role to person</h3>
 
         {/* Person search box */}
@@ -318,10 +319,10 @@ export async function AssignmentForm({
             )}
           </div>
         )}
-      </div>
+      </Card>
 
       {/* Create department assignment */}
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4">
+      <Card className="space-y-4">
         <h3 className="text-sm font-semibold text-slate-700">Assign role to department</h3>
         <form action={assignDepartmentAction} className="flex flex-wrap items-end gap-3">
           <Field label="Department">
@@ -356,7 +357,7 @@ export async function AssignmentForm({
             Assign department
           </Button>
         </form>
-      </div>
+      </Card>
     </section>
   );
 }

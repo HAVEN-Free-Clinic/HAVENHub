@@ -347,6 +347,7 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
                             ownerName={row.person.name}
                             completionDate={row.cert.completionDate}
                             canEditDate
+                            canEditExistingDate={isAdmin}
                             onSetDate={setDateAction.bind(null, row.cert.id)}
                           />
                         )}

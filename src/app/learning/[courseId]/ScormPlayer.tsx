@@ -1,73 +1,148 @@
 "use client";
-import { useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { Scorm12API } from "scorm-again";
 import { persistCmiAction } from "../actions";
-import { parseScore } from "@/modules/learning/engine/status";
-import type { CmiSnapshot } from "@/modules/learning/services/enrollment";
+import { deriveStatus, parseScore } from "@/modules/learning/engine/status";
+import type { LearnerSco } from "@/modules/learning/services/enrollment";
 
 type Props = {
   courseId: string;
-  entryHref: string;
-  initialCmi: CmiSnapshot;
+  scos: LearnerSco[];
 };
 
 /**
- * Hosts a SCORM 1.2 runtime as window.API and renders the package in an iframe.
- * The package (served same-origin from /learning/play/...) walks up to window.parent
- * to find API. On every commit/finish we read the CMI and persist it server-side.
+ * Hosts a SCORM 1.2 runtime as window.API and renders one SCO at a time in an
+ * iframe, with a table of contents for multi-SCO packages.
  *
- * window.API is installed via useLayoutEffect so it is guaranteed to be present
- * before the browser paints and the iframe begins loading its content.
+ * SCO switching (goTo) does an in-page handoff rather than a remount/reload: we
+ * point the iframe at about:blank first, so the outgoing SCO unloads and fires
+ * LMSFinish against the still-current window.API (eXeLearning stamps completion in
+ * its unloadPage). Because only the iframe navigates -- not the parent -- the
+ * persistence fetch issued from this component survives. We then install the next
+ * SCO's API and point the iframe at it.
  */
-export function ScormPlayer({ courseId, entryHref, initialCmi }: Props) {
+export function ScormPlayer({ courseId, scos }: Props) {
+  const [activeIndex, setActiveIndex] = useState(0);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const apiRef = useRef<InstanceType<typeof Scorm12API> | null>(null);
+  const pendingSaveRef = useRef<Promise<void>>(Promise.resolve());
+  const switchingRef = useRef(false);
 
-  // Install the API AND wire commit/finish persistence in one layout effect, so
-  // window.API and its listeners are both present synchronously after DOM commit
-  // (before paint) — i.e. before the iframe loads and the package first accesses
-  // the API or fires any (auto)commit. Splitting these across effects would leave
-  // a paint-frame window where an early commit could be dropped.
-  useLayoutEffect(() => {
+  // Build a fresh API for one SCO: seed saved state, wire commit/finish
+  // persistence (tagged with this SCO's id), and install it as window.API.
+  function installApi(sco: LearnerSco) {
     const api = new Scorm12API({ autocommit: true, autocommitSeconds: 30, logLevel: 4 });
+    if (sco.cmi.lessonStatus) api.cmi.core.lesson_status = sco.cmi.lessonStatus;
+    if (sco.cmi.lessonLocation) api.cmi.core.lesson_location = sco.cmi.lessonLocation;
+    if (sco.cmi.scoreRaw != null) api.cmi.core.score.raw = String(sco.cmi.scoreRaw);
+    if (sco.cmi.suspendData) api.cmi.suspend_data = sco.cmi.suspendData;
 
-    // Seed saved progress so the package can resume.
-    if (initialCmi.lessonStatus) api.cmi.core.lesson_status = initialCmi.lessonStatus;
-    if (initialCmi.lessonLocation) api.cmi.core.lesson_location = initialCmi.lessonLocation;
-    if (initialCmi.scoreRaw != null) api.cmi.core.score.raw = String(initialCmi.scoreRaw);
-    if (initialCmi.suspendData) api.cmi.suspend_data = initialCmi.suspendData;
-
-    const snapshot = (): CmiSnapshot => ({
+    const snapshot = () => ({
       lessonStatus: api.cmi.core.lesson_status || null,
-      // parseScore rounds the SCORM string score to an int (the DB column is Int);
-      // a fractional score like "83.5" would otherwise be rejected on write.
       scoreRaw: parseScore(api.cmi.core.score.raw),
       suspendData: api.cmi.suspend_data || null,
       lessonLocation: api.cmi.core.lesson_location || null,
     });
-    // Fire-and-forget; an admin previewing an unassigned course is not allowed to
-    // persist, so swallow the rejection rather than surface an unhandled rejection.
-    const save = () => { persistCmiAction(courseId, snapshot()).catch(() => {}); };
+    const save = () => {
+      const p = persistCmiAction(courseId, sco.id, snapshot()).catch(() => {});
+      pendingSaveRef.current = p;
+      return p;
+    };
     api.on("LMSCommit", save);
     api.on("LMSFinish", save);
 
     (window as unknown as { API: typeof api }).API = api;
     apiRef.current = api;
+    return save;
+  }
 
+  // Initial mount: install the first SCO's API before paint, so the iframe (which
+  // renders with the first SCO's src) finds window.API on load. Unmount: persist + remove.
+  useLayoutEffect(() => {
+    const save = installApi(scos[0]);
     return () => {
       save();
-      delete (window as unknown as { API?: typeof api }).API;
+      delete (window as unknown as { API?: unknown }).API;
       apiRef.current = null;
     };
-    // courseId/initialCmi are stable for the life of this page — they come from a
-    // server-rendered snapshot and do not change during the session.
+    // scos is a stable server-rendered snapshot for the life of this page.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  async function goTo(index: number) {
+    if (index === activeIndex || switchingRef.current) return;
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    switchingRef.current = true;
+    try {
+      await blankIframe(iframe); // outgoing SCO unloads -> LMSFinish on current API
+      await pendingSaveRef.current; // let that completion write land
+      delete (window as unknown as { API?: unknown }).API;
+      apiRef.current = null;
+      installApi(scos[index]); // window.API now points at the next SCO
+      iframe.src = `/learning/play/${courseId}/${scos[index].href}`;
+      setActiveIndex(index);
+    } finally {
+      switchingRef.current = false;
+    }
+  }
+
+  const single = scos.length <= 1;
+
   return (
-    <iframe
-      title="Course content"
-      src={`/learning/play/${courseId}/${entryHref}`}
-      className="h-[80vh] w-full rounded border border-slate-200"
-    />
+    <div className="flex flex-col gap-4 md:flex-row">
+      {!single && (
+        <nav aria-label="Course pages" className="md:w-56 md:shrink-0">
+          <ol className="space-y-1">
+            {scos.map((s, i) => {
+              const isActive = i === activeIndex;
+              const done = deriveStatus(s.cmi.lessonStatus).completed;
+              return (
+                <li key={s.id}>
+                  <button
+                    type="button"
+                    onClick={() => goTo(i)}
+                    aria-current={isActive ? "page" : undefined}
+                    className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition ${
+                      isActive
+                        ? "bg-teal-50 font-medium text-teal-800"
+                        : "text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    <span
+                      aria-hidden
+                      className={`grid h-5 w-5 shrink-0 place-items-center rounded-full border text-[11px] ${
+                        done ? "border-teal-600 bg-teal-600 text-white" : "border-slate-300 text-slate-400"
+                      }`}
+                    >
+                      {done ? "✓" : i + 1}
+                    </span>
+                    <span className="truncate">{s.title}</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
+        </nav>
+      )}
+      <iframe
+        ref={iframeRef}
+        title="Course content"
+        src={`/learning/play/${courseId}/${scos[0].href}`}
+        className="h-[80vh] w-full rounded-xl border border-slate-200"
+      />
+    </div>
   );
+}
+
+/** Point an iframe at about:blank and resolve once that blank document has loaded. */
+function blankIframe(iframe: HTMLIFrameElement): Promise<void> {
+  return new Promise((resolve) => {
+    const onLoad = () => {
+      iframe.removeEventListener("load", onLoad);
+      resolve();
+    };
+    iframe.addEventListener("load", onLoad);
+    iframe.src = "about:blank";
+  });
 }

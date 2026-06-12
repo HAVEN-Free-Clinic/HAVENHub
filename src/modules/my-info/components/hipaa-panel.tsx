@@ -2,7 +2,8 @@
  * HipaaPanel: HIPAA certificate upload, compliance status, and history.
  *
  * - Shows the computed compliance status badge for the latest certificate.
- * - When the latest cert has no completionDate, shows a date-entry form.
+ * - When the latest cert has no completionDate, shows a read-only notice
+ *   that a compliance manager will confirm the date (no self-service entry).
  * - Provides a file input (accept="application/pdf") + Upload button.
  * - Shows full history with date, size, and download link.
  *
@@ -38,11 +39,8 @@ function formatSize(bytes: number): string {
 type HipaaPanelProps = {
   certificates: HipaaCertificate[];
   uploadAction: (formData: FormData) => Promise<void>;
-  dateAction: (formData: FormData) => Promise<void>;
   error?: string;
   certSaved?: boolean;
-  dateError?: string;
-  dateSaved?: boolean;
   status: ComplianceStatus;
 };
 
@@ -70,18 +68,12 @@ function StatusBadge({ status, cert }: { status: ComplianceStatus; cert: HipaaCe
 export function HipaaPanel({
   certificates,
   uploadAction,
-  dateAction,
   error,
   certSaved,
-  dateError,
-  dateSaved,
   status,
 }: HipaaPanelProps) {
   const latest = certificates[0] ?? null;
   const history = certificates.slice(1);
-
-  // Show the date-entry form when the newest cert exists but has no completionDate
-  const needsDateEntry = latest !== null && latest.completionDate === null;
 
   return (
     <Card className="space-y-6">
@@ -107,34 +99,11 @@ export function HipaaPanel({
                 </span>
               )}
             </div>
-            {/* Date entry form for certs without a parsed date */}
-            {needsDateEntry && (
-              <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
-                <p className="mb-2 text-sm text-slate-600">
-                  We could not read a completion date from your certificate. Enter the date printed on it.
-                </p>
-                {dateError && (
-                  <Alert tone="error" className="mb-2">
-                    {dateError}
-                  </Alert>
-                )}
-                {dateSaved && (
-                  <Alert tone="success" className="mb-2">
-                    Date saved.
-                  </Alert>
-                )}
-                <form action={dateAction} className="flex items-end gap-3">
-                  <input type="hidden" name="certId" value={latest.id} />
-                  <div className="flex-1">
-                    <Field label="Completion date">
-                      <Input type="date" name="completionDate" required max={new Date().toISOString().split("T")[0]} />
-                    </Field>
-                  </div>
-                  <SubmitButton variant="outline" size="sm" pendingLabel="Saving…">
-                    Save date
-                  </SubmitButton>
-                </form>
-              </div>
+            {/* Read-only notice when the completion date could not be parsed */}
+            {latest !== null && latest.completionDate === null && (
+              <p className="mt-2 text-sm text-slate-500">
+                A compliance manager will confirm the completion date.
+              </p>
             )}
           </div>
         ) : (

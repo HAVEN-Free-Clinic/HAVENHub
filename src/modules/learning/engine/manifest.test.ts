@@ -80,4 +80,9 @@ describe("parseManifest", () => {
     expect(parsed.scos[0].href).toBe("index.html");
     expect(parsed.entryHref).toBe("index.html");
   });
+
+  it("coerces a numeric SCO title to a string", () => {
+    const xml = MANIFEST.replace("<title>Lesson</title>", "<title>1</title>");
+    expect(parseManifest(xml).scos[0].title).toBe("1");
+  });
 });

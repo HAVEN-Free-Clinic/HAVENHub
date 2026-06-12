@@ -4,7 +4,7 @@ import { prisma } from "@/platform/db";
 import { getObject } from "@/platform/storage";
 import { LearningAuthError, LearningValidationError } from "./errors";
 import { ingestScormPackage } from "./packages";
-import { makeScormZip } from "./test-fixtures";
+import { makeScormZip, makeMultiScoZip } from "./test-fixtures";
 
 async function seed() {
   const manager = await prisma.person.create({ data: { name: "Mgr", status: "ACTIVE" } });
@@ -36,6 +36,19 @@ it("stores package files and sets the course entry href + version", async () => 
 
   expect(await getObject(`scorm/${course.id}/index.html`)).not.toBeNull();
   expect(await getObject(`scorm/${course.id}/assets/app.js`)).not.toBeNull();
+});
+
+it("stores the ordered SCO list on the course", async () => {
+  const { manager, course } = await seed();
+  await ingestScormPackage(course.id, makeMultiScoZip(), manager.id);
+
+  const updated = await prisma.course.findUniqueOrThrow({ where: { id: course.id } });
+  expect(updated.scormEntryHref).toBe("index.html");
+  expect(updated.scormScos).toEqual([
+    { id: "ITEM-A", title: "hb", href: "index.html" },
+    { id: "ITEM-B", title: "ytf", href: "html/ytf.html" },
+  ]);
+  expect(await getObject(`scorm/${course.id}/html/ytf.html`)).not.toBeNull();
 });
 
 it("rejects a zip with no imsmanifest.xml", async () => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
@@ -20,6 +20,12 @@ type ModalProps = {
 export function Modal({ open, onClose, title, children, footer }: ModalProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const previouslyFocused = useRef<HTMLElement | null>(null);
+  const titleId = useId();
+
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -35,7 +41,7 @@ export function Modal({ open, onClose, title, children, footer }: ModalProps) {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
         e.stopPropagation();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (e.key !== "Tab") return;
@@ -47,7 +53,7 @@ export function Modal({ open, onClose, title, children, footer }: ModalProps) {
       const first = focusables[0];
       const last = focusables[focusables.length - 1];
       const active = document.activeElement;
-      if (e.shiftKey && active === first) {
+      if (e.shiftKey && (active === first || active === panelRef.current)) {
         e.preventDefault();
         last.focus();
       } else if (!e.shiftKey && active === last) {
@@ -62,7 +68,7 @@ export function Modal({ open, onClose, title, children, footer }: ModalProps) {
       document.body.style.overflow = prevOverflow;
       previouslyFocused.current?.focus();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 
@@ -77,11 +83,12 @@ export function Modal({ open, onClose, title, children, footer }: ModalProps) {
         ref={panelRef}
         role="dialog"
         aria-modal="true"
+        aria-labelledby={title ? titleId : undefined}
         tabIndex={-1}
         className="flex max-h-[90vh] w-full max-w-4xl flex-col rounded-2xl border border-slate-200 bg-white shadow-xl outline-none"
       >
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
-          <div className="min-w-0 truncate text-sm font-semibold text-slate-700">{title}</div>
+          <h2 id={titleId} className="min-w-0 truncate text-sm font-semibold text-slate-700">{title}</h2>
           <button
             type="button"
             onClick={onClose}

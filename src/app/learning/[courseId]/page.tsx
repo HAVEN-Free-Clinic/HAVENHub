@@ -1,7 +1,6 @@
 import { notFound } from "next/navigation";
 import { requireModuleAccess } from "@/platform/auth/session";
 import { PageHeader } from "@/platform/ui/page-header";
-import { Alert } from "@/platform/ui/alert";
 import { getCourseForLearner } from "@/modules/learning/services/enrollment";
 import { LearningAuthError } from "@/modules/learning/services/errors";
 import { ScormPlayer } from "./ScormPlayer";
@@ -40,9 +39,6 @@ export default async function LearningCoursePage({
       )}
       <PageHeader title={course.title} description={course.description ?? undefined} />
       <div className="mt-6 space-y-4">
-        {course.status === "COMPLETE" && (
-          <Alert tone="success">You have completed this course.</Alert>
-        )}
         {course.scos.length > 0 ? (
           <ScormPlayer courseId={course.id} scos={course.scos} />
         ) : (

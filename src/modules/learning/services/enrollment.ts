@@ -209,16 +209,14 @@ export async function persistScoCmi(
   const statusById = new Map(rows.map((r) => [r.scoId, r.lessonStatus]));
   const roll = rollupStatus(scos.map((s) => statusById.get(s.id) ?? null));
 
-  // Roll up a representative course score: the rounded average of the SCO scores
-  // that reported one, or null when none did. For a single-SCO course this is just
-  // that SCO's score (so the admin dashboard keeps showing it).
+  // Roll up the course score as the HIGHEST score among the SCOs that reported one
+  // (eXeLearning/Moodle convention: the learner's best quiz score), or null when none
+  // did. For a single-SCO course this is just that SCO's score.
   const scoreById = new Map(rows.map((r) => [r.scoId, r.scoreRaw]));
   const scoScores = scos
     .map((s) => scoreById.get(s.id))
     .filter((v): v is number => v != null);
-  const rolledScore = scoScores.length
-    ? Math.round(scoScores.reduce((a, b) => a + b, 0) / scoScores.length)
-    : null;
+  const rolledScore = scoScores.length ? Math.max(...scoScores) : null;
 
   const existingCourse = await prisma.courseProgress.findUnique({
     where: { personId_courseId: { personId, courseId } },

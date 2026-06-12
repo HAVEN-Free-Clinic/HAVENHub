@@ -138,7 +138,7 @@ it("supports a legacy single-SCO course (scormScos null) via sco-0", async () =>
   expect(after.status).toBe("COMPLETE");
 });
 
-it("rolls up the average SCO score onto CourseProgress", async () => {
+it("rolls up the highest SCO score onto CourseProgress", async () => {
   const { learner, course } = await seed();
   await persistScoCmi(learner.id, course.id, "ITEM-A", {
     lessonStatus: "passed", scoreRaw: 90, suspendData: null, lessonLocation: null,
@@ -147,7 +147,7 @@ it("rolls up the average SCO score onto CourseProgress", async () => {
     lessonStatus: "passed", scoreRaw: 80, suspendData: null, lessonLocation: null,
   });
   const cp = await prisma.courseProgress.findFirstOrThrow({ where: { personId: learner.id, courseId: course.id } });
-  expect(cp.scoreRaw).toBe(85);
+  expect(cp.scoreRaw).toBe(90);
 });
 
 it("persistScoCmi refuses an unassigned course", async () => {

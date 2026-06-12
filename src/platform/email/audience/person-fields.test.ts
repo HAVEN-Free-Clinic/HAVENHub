@@ -101,6 +101,7 @@ describe("booleans and relations", () => {
     expect(personFieldWhere({ field: "spanishSpeaking", op: "isTrue" }, ctx)).toEqual({ spanishSpeaking: true });
     expect(personFieldWhere({ field: "spanishSpeaking", op: "isFalse" }, ctx)).toEqual({ spanishSpeaking: false });
     expect(personFieldWhere({ field: "licensedRN", op: "isTrue" }, ctx)).toEqual({ licensedRN: true });
+    expect(personFieldWhere({ field: "licensedRN", op: "isFalse" }, ctx)).toEqual({ licensedRN: false });
   });
 
   it("hasOpenEpicRequest -> some/none PENDING epic request", () => {

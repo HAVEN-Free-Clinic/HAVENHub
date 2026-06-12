@@ -1,11 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import type { PersonFieldDef } from "@/platform/email/audience/person-fields";
+import type { PersonFieldView } from "@/platform/email/audience/person-fields";
 import type { Audience, AudienceCondition, ConditionOp } from "@/platform/email/audience/types";
 
 type Props = {
-  fields: PersonFieldDef[];
+  fields: PersonFieldView[];
   departments: { code: string; name: string }[];
   initial: Audience;
 };
@@ -24,7 +24,7 @@ const TEXT_OP_LABELS: Record<string, string> = {
 const VALUELESS_OPS = new Set<ConditionOp>(["isEmpty", "isNotEmpty", "isTrue", "isFalse"]);
 
 function getFieldOptions(
-  field: PersonFieldDef,
+  field: PersonFieldView,
   departments: { code: string; name: string }[],
 ): { value: string; label: string }[] {
   if (field.key === "department") {
@@ -33,7 +33,7 @@ function getFieldOptions(
   return field.options ?? [];
 }
 
-function defaultConditionFor(def: PersonFieldDef): AudienceCondition {
+function defaultConditionFor(def: PersonFieldView): AudienceCondition {
   if (def.kind === "boolean") return { field: def.key, op: "isTrue" };
   if (def.kind === "multiEnum") return { field: def.key, op: "in", value: [] };
   if (def.kind === "text") return { field: def.key, op: "contains", value: "" };
@@ -47,7 +47,7 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
   const audience: Audience = { recordType: "PERSON", match, conditions };
 
   // Group fields for the selector while preserving order.
-  const groups: { name: string; fields: PersonFieldDef[] }[] = [];
+  const groups: { name: string; fields: PersonFieldView[] }[] = [];
   for (const f of fields) {
     const existing = groups.find((g) => g.name === f.group);
     if (existing) existing.fields.push(f);

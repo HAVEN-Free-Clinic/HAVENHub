@@ -15,6 +15,13 @@ export type PersonFieldDef = {
   compile: (cond: AudienceCondition, ctx: AudienceCtx) => Prisma.PersonWhereInput;
 };
 
+/**
+ * The serializable shape of a field, minus the `compile` function. Server
+ * components must pass this (not PersonFieldDef) to client components, since
+ * functions cannot cross the RSC boundary.
+ */
+export type PersonFieldView = Omit<PersonFieldDef, "compile">;
+
 const COMPLIANCE_VALUES = ["COMPLIANT", "EXPIRING_SOON", "EXPIRED", "UNKNOWN_DATE", "NO_CERTIFICATE"];
 
 const MATCH_NOBODY: Prisma.PersonWhereInput = { id: { in: [] } };
@@ -196,3 +203,16 @@ export function personFieldWhere(cond: AudienceCondition, ctx: AudienceCtx): Pri
   if (!field) throw new Error(`Unknown audience field: ${cond.field}`);
   return field.compile(cond, ctx);
 }
+
+/**
+ * Serializable field metadata for client components. Strips the `compile`
+ * function so the registry can cross the server -> client boundary.
+ */
+export const PERSON_FIELD_VIEWS: PersonFieldView[] = PERSON_FIELDS.map((f) => ({
+  key: f.key,
+  label: f.label,
+  group: f.group,
+  kind: f.kind,
+  operators: f.operators,
+  options: f.options,
+}));

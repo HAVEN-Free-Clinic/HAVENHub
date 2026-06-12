@@ -26,14 +26,10 @@ export function SubmitButton({
   const { pending } = useFormStatus();
   return (
     <Button {...rest} type="submit" disabled={pending || disabled} aria-busy={pending}>
-      {pending ? (
-        <span className="inline-flex items-center gap-2">
-          <Spinner size="sm" />
-          {pendingLabel ?? "Saving…"}
-        </span>
-      ) : (
-        children
-      )}
+      <span className="inline-flex items-center gap-2">
+        {pending && <Spinner size="sm" />}
+        {pending ? (pendingLabel ?? "Saving…") : children}
+      </span>
     </Button>
   );
 }

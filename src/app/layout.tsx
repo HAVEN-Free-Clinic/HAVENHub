@@ -6,6 +6,7 @@ import { auth } from "@/platform/auth/auth";
 import { InactivityTracker } from "@/platform/auth/inactivity";
 import { getSetting } from "@/platform/settings/service";
 import { brandStyleVars } from "@/platform/ui/brand-style";
+import { TopProgressBar } from "@/platform/ui/top-progress-bar";
 
 const hanken = Hanken_Grotesk({ subsets: ["latin"], variable: "--font-hanken" });
 
@@ -31,6 +32,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
     <html lang="en">
       <body className={`${hanken.variable} min-h-screen bg-canvas font-sans text-slate-900 antialiased`}>
         <style dangerouslySetInnerHTML={{ __html: brandStyleVars(brandColor) }} />
+        <TopProgressBar />
         <InactivityTracker authenticated={!!session?.user} />
         {children}
       </body>

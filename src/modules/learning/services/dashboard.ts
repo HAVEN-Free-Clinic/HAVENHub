@@ -78,6 +78,7 @@ export async function resetCourseProgress(personId: string, courseId: string, ac
     throw new LearningAuthError("You do not have permission to reset progress.");
   }
   await prisma.courseProgress.deleteMany({ where: { personId, courseId } });
+  await prisma.scoProgress.deleteMany({ where: { personId, courseId } });
   await recordAudit({
     actorPersonId: actorId,
     action: "learning.progress_reset",

@@ -110,6 +110,7 @@ model Person {
   volunteerTrainings        VolunteerTraining[]  @relation("volunteerTrainingPerson")
   trainingAttendanceMarked  VolunteerTraining[]  @relation("volunteerTrainingAttendanceRecorder")
   courseProgress            CourseProgress[]
+  scoProgress               ScoProgress[]
   /// Shift requests this person raised.
   shiftRequests             ShiftRequest[]       @relation("shiftRequestRequester")
   /// Shift requests targeting this person as the swap partner.
@@ -1041,10 +1042,13 @@ model Course {
   scormVersion    String?
   /// When the current package was ingested.
   scormUploadedAt DateTime?
+  /// Ordered SCO list from imsmanifest.xml: [{ id, title, href }]. Null = legacy single-SCO package.
+  scormScos       Json?
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
   departments     CourseDepartment[]
   progress        CourseProgress[]
+  scoProgress     ScoProgress[]
 }
 
 model CourseDepartment {
@@ -1076,5 +1080,27 @@ model CourseProgress {
   course         Course               @relation(fields: [courseId], references: [id], onDelete: Cascade)
 
   @@unique([personId, courseId])
+  @@index([courseId])
+}
+
+model ScoProgress {
+  id             String    @id @default(cuid())
+  personId       String
+  courseId       String
+  /// Manifest <item> identifier (matches Course.scormScos[].id).
+  scoId          String
+  completedAt    DateTime?
+  /// Raw cmi.core.lesson_status reported by this SCO.
+  lessonStatus   String?
+  /// cmi.core.score.raw when reported; null otherwise.
+  scoreRaw       Int?
+  /// cmi.suspend_data for this SCO -- can be large.
+  suspendData    String?   @db.Text
+  /// cmi.core.lesson_location for resume.
+  lessonLocation String?
+  person         Person    @relation(fields: [personId], references: [id], onDelete: Cascade)
+  course         Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([personId, courseId, scoId])
   @@index([courseId])
 }

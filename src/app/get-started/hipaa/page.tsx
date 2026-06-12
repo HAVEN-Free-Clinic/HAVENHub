@@ -4,7 +4,6 @@ import {
   getMyInfo,
   listMyCertificates,
   saveCertificate,
-  setCertificateCompletionDate,
   parseCertificateUpload,
   CertificateValidationError,
 } from "@/modules/my-info/services/my-info";
@@ -16,7 +15,7 @@ import { OnboardingStepShell } from "../onboarding-step-shell";
 export default async function OnboardingHipaaPage({
   searchParams,
 }: {
-  searchParams: Promise<{ certError?: string; certSaved?: string; dateError?: string; dateSaved?: string }>;
+  searchParams: Promise<{ certError?: string; certSaved?: string }>;
 }) {
   const person = await requirePersonSession();
   const status = await getOnboardingStatus(person.personId);
@@ -48,22 +47,6 @@ export default async function OnboardingHipaaPage({
     redirect("/get-started/hipaa?certSaved=1");
   }
 
-  async function dateAction(formData: FormData) {
-    "use server";
-    const s = await requirePersonSession();
-    const dateIso = (formData.get("completionDate") as string | null) ?? "";
-    const certId = (formData.get("certId") as string | null) ?? "";
-    try {
-      await setCertificateCompletionDate(s.personId, certId, dateIso);
-    } catch (err) {
-      if (err instanceof CertificateValidationError) {
-        redirect(`/get-started/hipaa?dateError=${encodeURIComponent(err.reason)}`);
-      }
-      throw err;
-    }
-    redirect("/get-started/hipaa?dateSaved=1");
-  }
-
   return (
     <OnboardingStepShell
       title="HIPAA certificate"
@@ -74,12 +57,9 @@ export default async function OnboardingHipaaPage({
       <HipaaPanel
         certificates={certificates}
         uploadAction={uploadAction}
-        dateAction={dateAction}
         status={certStatus}
         error={sp.certError}
         certSaved={sp.certSaved === "1"}
-        dateError={sp.dateError}
-        dateSaved={sp.dateSaved === "1"}
       />
     </OnboardingStepShell>
   );

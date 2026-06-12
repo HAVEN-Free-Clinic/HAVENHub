@@ -8,7 +8,6 @@ import {
   updateMyInfo,
   withdrawFromTerm,
   saveCertificate,
-  setCertificateCompletionDate,
   parseCertificateUpload,
   CertificateValidationError,
 } from "@/modules/my-info/services/my-info";
@@ -35,8 +34,6 @@ type PageProps = {
     withdrawn?: string;
     certSaved?: string;
     certError?: string;
-    dateError?: string;
-    dateSaved?: string;
     epicError?: string;
     epicSaved?: string;
   }>;
@@ -109,22 +106,6 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
       throw err;
     }
     redirect("/my-info?certSaved=1");
-  }
-
-  async function dateAction(formData: FormData) {
-    "use server";
-    const session = await requireModuleAccess("my-info");
-    const dateIso = (formData.get("completionDate") as string | null) ?? "";
-    const certId = (formData.get("certId") as string | null) ?? "";
-    try {
-      await setCertificateCompletionDate(session.personId, certId, dateIso);
-    } catch (err) {
-      if (err instanceof CertificateValidationError) {
-        redirect(`/my-info?dateError=${encodeURIComponent(err.reason)}`);
-      }
-      throw err;
-    }
-    redirect("/my-info?dateSaved=1");
   }
 
   async function epicRequestAction(formData: FormData) {
@@ -215,11 +196,8 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
           <HipaaPanel
             certificates={certificates}
             uploadAction={uploadAction}
-            dateAction={dateAction}
             error={sp.certError ? decodeURIComponent(sp.certError) : undefined}
             certSaved={sp.certSaved === "1"}
-            dateError={sp.dateError ? decodeURIComponent(sp.dateError) : undefined}
-            dateSaved={sp.dateSaved === "1"}
             status={status}
           />
         </section>

@@ -61,7 +61,8 @@ test("Jack's HIPAA panel shows a real compliance status now that the backfill ha
   // The UNKNOWN_DATE / "Completion date needed" badge must no longer appear.
   await expect(page.getByText("Completion date needed")).not.toBeVisible();
 
-  // The manual date-entry fallback form must not render because a date was parsed.
+  // Self-service date entry has been removed entirely (admin-only now), so the
+  // old "could not read a completion date" fallback form never renders.
   await expect(
     page.getByText("We could not read a completion date from your certificate")
   ).not.toBeVisible();

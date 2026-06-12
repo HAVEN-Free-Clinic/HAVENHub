@@ -10,7 +10,10 @@ import {
   departmentCompliance,
   verifyCertificate,
   ComplianceForbiddenError,
+  setCompletionDateAsManager,
+  CertificateNotFoundError,
 } from "@/modules/volunteers/services/compliance";
+import { CompletionDateError } from "@/platform/compliance/completion-date";
 import type { ComplianceStatus } from "@/platform/compliance/rules";
 import { certExpiresAt } from "@/platform/compliance/rules";
 import { revalidatePath } from "next/cache";
@@ -103,6 +106,23 @@ export default async function VolunteersPage({ searchParams }: PageProps) {
       throw err;
     }
     revalidatePath("/volunteers");
+  }
+
+  const isAdmin = await can(viewer.personId, "admin.access");
+
+  async function setDateAction(certId: string, dateIso: string): Promise<{ error?: string }> {
+    "use server";
+    const actor = await requirePermission("volunteers.view");
+    try {
+      await setCompletionDateAsManager(actor.personId, certId, dateIso);
+    } catch (err) {
+      if (err instanceof CompletionDateError) return { error: err.reason };
+      if (err instanceof ComplianceForbiddenError) return { error: err.message };
+      if (err instanceof CertificateNotFoundError) return { error: "Certificate not found." };
+      throw err;
+    }
+    revalidatePath("/volunteers");
+    return {};
   }
 
   // Empty state: viewer has no director memberships
@@ -247,7 +267,10 @@ export default async function VolunteersPage({ searchParams }: PageProps) {
                                 certId={m.cert.id}
                                 fileName={m.cert.fileName}
                                 ownerName={m.person.name}
-                                canEditDate={false}
+                                completionDate={m.cert.completionDate}
+                                canEditDate={isAdmin}
+                                canEditExistingDate={isAdmin}
+                                onSetDate={setDateAction.bind(null, m.cert.id)}
                               />
                             )}
                             {m.cert && (

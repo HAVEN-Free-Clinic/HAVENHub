@@ -16,6 +16,8 @@ type CertificateViewerProps = {
   completionDate?: Date | null;
   /** True only when the viewer holds volunteers.manage_compliance. Gates date entry. */
   canEditDate?: boolean;
+  /** True only for superadmins. Allows overwriting a date that is already set. */
+  canEditExistingDate?: boolean;
   /** Bound server action: (dateIso) => result. Required for entry to render. */
   onSetDate?: (dateIso: string) => Promise<{ error?: string }>;
 };
@@ -36,9 +38,11 @@ export function CertificateViewer({
   ownerName,
   completionDate,
   canEditDate,
+  canEditExistingDate,
   onSetDate,
 }: CertificateViewerProps) {
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
@@ -47,7 +51,15 @@ export function CertificateViewer({
   const downloadHref = `/my-info/certificate/${certId}`;
   const title = ownerName ? `${ownerName}: ${fileName}` : fileName;
 
-  const showDateEntry = Boolean(canEditDate && onSetDate && !completionDate);
+  const hasDate = Boolean(completionDate);
+  const canSetNew = Boolean(canEditDate && onSetDate && !hasDate);
+  const canOverwrite = Boolean(canEditExistingDate && onSetDate && hasDate);
+  const showForm = canSetNew || (canOverwrite && editing);
+  const isOverwrite = canOverwrite && editing;
+
+  const currentDateValue = completionDate
+    ? completionDate.toISOString().split("T")[0]
+    : undefined;
 
   function handleSubmit(formData: FormData) {
     if (!onSetDate) return;
@@ -59,6 +71,7 @@ export function CertificateViewer({
         setError(result.error);
         return;
       }
+      setEditing(false);
       setOpen(false);
       router.refresh();
     });
@@ -73,6 +86,7 @@ export function CertificateViewer({
         type="button"
         onClick={() => {
           setError(null);
+          setEditing(false);
           setOpen(true);
         }}
         className={buttonClasses("outline", "sm", "gap-1.5")}
@@ -88,19 +102,48 @@ export function CertificateViewer({
           title={title}
           footer={
             <div className="flex w-full items-end justify-between gap-3">
-              {showDateEntry ? (
+              {showForm ? (
                 <form action={handleSubmit} className="flex items-end gap-2">
                   <Field label="Completion date">
-                    <Input type="date" name="completionDate" required max={today} />
+                    <Input
+                      type="date"
+                      name="completionDate"
+                      required
+                      max={today}
+                      defaultValue={isOverwrite ? currentDateValue : undefined}
+                    />
                   </Field>
                   <button
                     type="submit"
                     disabled={isPending}
                     className={buttonClasses("primary", "sm")}
                   >
-                    {isPending ? "Saving..." : "Save and verify"}
+                    {isPending ? "Saving..." : isOverwrite ? "Update and verify" : "Save and verify"}
                   </button>
+                  {isOverwrite && (
+                    <button
+                      type="button"
+                      className={buttonClasses("ghost", "sm")}
+                      onClick={() => {
+                        setEditing(false);
+                        setError(null);
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  )}
                 </form>
+              ) : canOverwrite ? (
+                <button
+                  type="button"
+                  className={buttonClasses("outline", "sm")}
+                  onClick={() => {
+                    setError(null);
+                    setEditing(true);
+                  }}
+                >
+                  Edit date
+                </button>
               ) : (
                 <span />
               )}

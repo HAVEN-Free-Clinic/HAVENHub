@@ -140,8 +140,10 @@ For a text column `col`:
 - `startsWith` -> `{ [col]: { startsWith: value, mode: "insensitive" } }`
 - `endsWith` -> `{ [col]: { endsWith: value, mode: "insensitive" } }`
 - `in` (is any of) -> parse the value (split on commas and newlines, trim, drop
-  blanks) into a list; `{ [col]: { in: list } }`. Exact match is correct for
-  identifier lists (NetIDs, emails, Epic IDs).
+  blanks) into a list, then match case-insensitively. Because Prisma ignores
+  `mode: "insensitive"` on `in` for Postgres, expand to
+  `{ OR: list.map((v) => ({ [col]: { equals: v, mode: "insensitive" } })) }`.
+  Case-insensitive is the right default for pasted email and NetID lists.
 - `isEmpty` -> `{ OR: [{ [col]: null }, { [col]: "" }] }`
 - `isNotEmpty` -> `{ AND: [{ [col]: { not: null } }, { [col]: { not: "" } }] }`
 

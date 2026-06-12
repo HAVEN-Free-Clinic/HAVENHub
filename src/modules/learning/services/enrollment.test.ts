@@ -117,6 +117,27 @@ it("getMyCourses reports COMPLETE only after the rollup completes", async () => 
   expect((await getMyCourses(learner.id))[0].status).toBe("COMPLETE");
 });
 
+it("supports a legacy single-SCO course (scormScos null) via sco-0", async () => {
+  const { learner, dept } = await seed();
+  const legacy = await prisma.course.create({
+    data: {
+      title: "Legacy",
+      scormEntryHref: "index.html",
+      scormVersion: "1.2",
+      departments: { create: [{ departmentId: dept.id }] },
+    },
+  });
+  const before = await getCourseForLearner(learner.id, legacy.id);
+  expect(before.scos.map((s) => s.id)).toEqual(["sco-0"]);
+  expect(before.status).toBe("NOT_STARTED");
+
+  await persistScoCmi(learner.id, legacy.id, "sco-0", {
+    lessonStatus: "completed", scoreRaw: null, suspendData: null, lessonLocation: null,
+  });
+  const after = await getCourseForLearner(learner.id, legacy.id);
+  expect(after.status).toBe("COMPLETE");
+});
+
 it("persistScoCmi refuses an unassigned course", async () => {
   const { learner, unassigned } = await seed();
   await expect(

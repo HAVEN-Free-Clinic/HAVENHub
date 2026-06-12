@@ -44,12 +44,21 @@ export async function isCourseAssignedTo(personId: string, courseId: string): Pr
 }
 
 /**
- * The course's SCO list. Uses the stored manifest list; for a legacy package
- * (scormScos null) synthesizes a single SCO ("sco-0") from scormEntryHref so old
- * courses keep working without re-ingest.
+ * The course's SCO list. Uses the stored manifest list (keeping only well-formed
+ * entries); for a legacy package (scormScos null) synthesizes a single SCO
+ * ("sco-0") from scormEntryHref so old courses keep working without re-ingest.
  */
 function courseScos(course: { scormScos: unknown; scormEntryHref: string | null; title: string }): ScoEntry[] {
-  if (Array.isArray(course.scormScos)) return course.scormScos as ScoEntry[];
+  if (Array.isArray(course.scormScos)) {
+    return course.scormScos.filter(
+      (s): s is ScoEntry =>
+        !!s &&
+        typeof s === "object" &&
+        typeof (s as ScoEntry).id === "string" &&
+        typeof (s as ScoEntry).title === "string" &&
+        typeof (s as ScoEntry).href === "string"
+    );
+  }
   if (course.scormEntryHref) return [{ id: "sco-0", title: course.title, href: course.scormEntryHref }];
   return [];
 }
@@ -104,7 +113,10 @@ export async function getCourseForLearner(personId: string, courseId: string): P
   if (!(await isCourseAssignedTo(personId, courseId))) {
     throw new LearningAuthError("This course is not assigned to you.");
   }
-  const course = await prisma.course.findUniqueOrThrow({ where: { id: courseId } });
+  const course = await prisma.course.findUniqueOrThrow({
+    where: { id: courseId },
+    select: { id: true, title: true, description: true, scormScos: true, scormEntryHref: true },
+  });
   const scos = courseScos(course);
 
   const scoRows = await prisma.scoProgress.findMany({ where: { personId, courseId } });

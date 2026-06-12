@@ -23,7 +23,14 @@ import { Field, Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Button, buttonClasses } from "@/platform/ui/button";
 import { StatCard } from "@/platform/ui/stat-card";
-import { masterCompliance } from "@/modules/volunteers/services/compliance";
+import {
+  masterCompliance,
+  setCompletionDateAsManager,
+  ComplianceForbiddenError,
+  CertificateNotFoundError,
+} from "@/modules/volunteers/services/compliance";
+import { CompletionDateError } from "@/platform/compliance/completion-date";
+import { revalidatePath } from "next/cache";
 import { CertificateViewer } from "@/modules/my-info/components/certificate-viewer";
 import type { ComplianceStatus } from "@/platform/compliance/rules";
 import { certExpiresAt } from "@/platform/compliance/rules";
@@ -130,6 +137,21 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
 
   // Check if viewer has admin access to link person names to admin pages
   const isAdmin = await can(viewer.personId, "admin.access");
+
+  async function setDateAction(certId: string, dateIso: string): Promise<{ error?: string }> {
+    "use server";
+    const actor = await requirePermission("volunteers.manage_compliance");
+    try {
+      await setCompletionDateAsManager(actor.personId, certId, dateIso);
+    } catch (err) {
+      if (err instanceof CompletionDateError) return { error: err.reason };
+      if (err instanceof ComplianceForbiddenError) return { error: err.message };
+      if (err instanceof CertificateNotFoundError) return { error: "Certificate not found." };
+      throw err;
+    }
+    revalidatePath("/volunteers/master");
+    return {};
+  }
 
   // Build filter-preserving hrefs for pagination
   function buildHref(targetPage: number): string {
@@ -323,6 +345,9 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
                             certId={row.cert.id}
                             fileName={row.cert.fileName}
                             ownerName={row.person.name}
+                            completionDate={row.cert.completionDate}
+                            canEditDate
+                            onSetDate={setDateAction.bind(null, row.cert.id)}
                           />
                         )}
                       </TD>

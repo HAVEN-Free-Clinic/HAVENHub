@@ -3,6 +3,7 @@ import { getActivePerson } from "@/platform/auth/match-person";
 import { prisma } from "@/platform/db";
 import { getObject } from "@/platform/storage";
 import { canViewCertificate } from "@/platform/compliance/access";
+import { certificateContentDisposition } from "./content-disposition";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -20,7 +21,7 @@ type RouteContext = {
  *   - storedName comes only from the DB row (never from user input).
  */
 export async function GET(
-  _request: Request,
+  request: Request,
   context: RouteContext
 ): Promise<Response> {
   // --- Auth: require a signed-in, active person ---
@@ -60,18 +61,15 @@ export async function GET(
   const fileBytes = new Uint8Array(buf);
   const fileByteLength = buf.byteLength;
 
-  // Strip control characters and double-quotes from the original file name for
-  // use in the ASCII filename parameter (RFC 5987 / RFC 6266 safety).
-  const safeFileName = cert.fileName.replace(/[\x00-\x1f\x7f"]/g, "").trim() || "certificate.pdf";
-  // Append the RFC 5987 encoded filename* parameter so browsers that support it
-  // receive the full original Unicode name alongside the sanitized ASCII fallback.
-  const encodedFileName = encodeURIComponent(cert.fileName);
+  // `?inline=1` previews the file in-page (used by the in-app viewer); the default
+  // remains a download so existing links are unaffected.
+  const inline = new URL(request.url).searchParams.get("inline") === "1";
 
   return new Response(fileBytes, {
     status: 200,
     headers: {
       "Content-Type": cert.mimeType,
-      "Content-Disposition": `attachment; filename="${safeFileName}"; filename*=UTF-8''${encodedFileName}`,
+      "Content-Disposition": certificateContentDisposition(cert.fileName, inline),
       "Content-Length": String(fileByteLength),
     },
   });

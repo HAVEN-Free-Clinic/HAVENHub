@@ -10,6 +10,21 @@ type RouteContext = {
 };
 
 /**
+ * Mime types we are willing to render inline (preview). Everything else is forced
+ * to download even when `?inline=1` is requested, because the stored mimeType can
+ * come from imported attachments (see src/platform/airtable/import/certificates.ts)
+ * and an inline `text/html` or `image/svg+xml` would be a stored-XSS vector.
+ * SVG is intentionally excluded — it can carry script.
+ */
+const INLINE_SAFE_MIME_TYPES = new Set([
+  "application/pdf",
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+]);
+
+/**
  * GET /my-info/certificate/[id]
  *
  * Owner-only download. Route handlers cannot call redirect(), so auth failures
@@ -62,15 +77,22 @@ export async function GET(
   const fileByteLength = buf.byteLength;
 
   // `?inline=1` previews the file in-page (used by the in-app viewer); the default
-  // remains a download so existing links are unaffected.
+  // remains a download so existing links are unaffected. Inline rendering is
+  // additionally gated to a safe mime allowlist so a maliciously-typed stored file
+  // (e.g. text/html, image/svg+xml) can never execute script in our origin.
   const inline = new URL(request.url).searchParams.get("inline") === "1";
+  const renderInline = inline && INLINE_SAFE_MIME_TYPES.has(cert.mimeType);
 
   return new Response(fileBytes, {
     status: 200,
     headers: {
       "Content-Type": cert.mimeType,
-      "Content-Disposition": certificateContentDisposition(cert.fileName, inline),
+      "Content-Disposition": certificateContentDisposition(cert.fileName, renderInline),
       "Content-Length": String(fileByteLength),
+      // Defense-in-depth: never sniff a different type than declared, and deny the
+      // served document any ability to load or execute sub-resources.
+      "X-Content-Type-Options": "nosniff",
+      "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",
     },
   });
 }

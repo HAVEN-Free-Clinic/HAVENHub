@@ -8,6 +8,8 @@ import { GlobalNav } from "./global-nav";
 import { Breadcrumbs } from "./breadcrumbs";
 import { BreadcrumbProvider } from "./breadcrumb-context";
 import type { BreadcrumbModule } from "./breadcrumb-trail";
+import { ThemeToggle } from "./theme-toggle";
+import type { ThemePreference } from "./theme";
 
 /** First letters of the first and last name parts, e.g. "Maya Chen" -> "MC". */
 function toInitials(name: string | null): string {
@@ -23,11 +25,13 @@ export async function AppShell({
   userName,
   termLabel,
   personId,
+  themePreference,
   children,
 }: {
   userName: string | null;
   termLabel?: string | null;
   personId: string;
+  themePreference: ThemePreference;
   children: ReactNode;
 }) {
   const navModules = await getAccessibleModules(personId);
@@ -61,6 +65,7 @@ export async function AppShell({
           </div>
 
           <div className="flex items-center gap-3">
+            <ThemeToggle initial={themePreference} />
             <div className="hidden items-center gap-2.5 sm:flex">
               <span
                 aria-hidden

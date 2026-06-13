@@ -22,6 +22,8 @@ import { MODULES } from "@/platform/modules/registry";
 import { canAccessModule } from "@/platform/modules/access";
 import type { ModuleManifest } from "@/platform/modules/types";
 import { AppShell } from "@/platform/ui/app-shell";
+import { getSetting } from "@/platform/settings/service";
+import { resolvePreference } from "@/platform/ui/theme";
 import { TimeGreeting } from "@/platform/ui/time-greeting";
 import { getCurrentClinicChannelLink } from "@/platform/teams/channel-link";
 import { mySchedule } from "@/modules/schedule/services/schedule";
@@ -169,11 +171,13 @@ export default async function HubPage() {
   // One permission fetch per render; tiles filter in memory (never can() in a loop).
   const permissions = await getEffectivePermissions(person.personId);
 
-  const [schedule, certificates, clinicChannel] = await Promise.all([
+  const [schedule, certificates, clinicChannel, themeDefault] = await Promise.all([
     mySchedule(person.personId),
     listMyCertificates(person.personId),
     getCurrentClinicChannelLink(),
+    getSetting<string>("ui.defaultTheme"),
   ]);
+  const themePreference = resolvePreference(person.themePreference, themeDefault);
   const { term, shifts } = schedule;
   const trainingState = term ? await resolveTrainingState(person.personId, term.id) : "PENDING";
 
@@ -271,7 +275,7 @@ export default async function HubPage() {
   const quick = quickAll.filter((q) => q.show).slice(0, 4);
 
   return (
-    <AppShell userName={person.name} termLabel={term?.name ?? null} personId={person.personId}>
+    <AppShell userName={person.name} termLabel={term?.name ?? null} personId={person.personId} themePreference={themePreference}>
       <div className="grid items-start gap-6 lg:grid-cols-[1fr_340px]">
         {/* Main column */}
         <div className="min-w-0">

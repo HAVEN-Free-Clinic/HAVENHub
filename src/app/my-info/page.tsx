@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 import { requireModuleAccess } from "@/platform/auth/session";
 import { AppShell } from "@/platform/ui/app-shell";
+import { getSetting } from "@/platform/settings/service";
+import { resolvePreference } from "@/platform/ui/theme";
 import { PageHeader } from "@/platform/ui/page-header";
 import {
   getMyInfo,
@@ -45,11 +47,13 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
 
   // Fetch all data in parallel where possible.
   // getMyInfo already loads the active term; reuse it to avoid a second query.
-  const [myInfo, certificates, epicPanel] = await Promise.all([
+  const [myInfo, certificates, epicPanel, themeDefault] = await Promise.all([
     getMyInfo(person.personId),
     listMyCertificates(person.personId),
     myEpicPanel(person.personId),
+    getSetting<string>("ui.defaultTheme"),
   ]);
+  const themePreference = resolvePreference(person.themePreference, themeDefault);
   const { activeTerm } = myInfo;
 
   // Server actions
@@ -156,7 +160,7 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
   const withdrawn = sp.withdrawn !== undefined ? parseInt(sp.withdrawn, 10) : undefined;
 
   return (
-    <AppShell userName={person.name} termLabel={activeTerm?.name ?? null} personId={person.personId}>
+    <AppShell userName={person.name} termLabel={activeTerm?.name ?? null} personId={person.personId} themePreference={themePreference}>
       <PageHeader
         title="My Info"
         description="Keep your contact details current."

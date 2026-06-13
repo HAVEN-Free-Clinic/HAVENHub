@@ -15,6 +15,21 @@
   /* Calm cool-neutral canvas the hub shell sits on (vs. flat white). */
   --color-canvas: #eef1f5;
 
+  /* Semantic neutral roles. Light values equal today's slate/white hex so the
+     existing UI is visually unchanged; the .dark block below overrides them. */
+  --color-surface: #ffffff;          /* was bg-white (neutral surfaces) */
+  --color-muted: #f8fafc;            /* slate-50  */
+  --color-muted-strong: #f1f5f9;     /* slate-100 */
+  --color-foreground: #0f172a;       /* slate-900 */
+  --color-foreground-soft: #334155;  /* slate-700 */
+  --color-muted-foreground: #64748b; /* slate-500 */
+  --color-subtle-foreground: #94a3b8;/* slate-400 */
+  --color-border: #e2e8f0;           /* slate-200 */
+  --color-border-strong: #cbd5e1;    /* slate-300 */
+  --color-border-subtle: #f1f5f9;    /* slate-100 */
+  /* Brand used as text/icon color. Light = brand; lifted in dark for legibility. */
+  --color-brand-fg: var(--color-brand);
+
   --font-sans: var(--font-hanken), ui-sans-serif, system-ui, sans-serif;
 }
 
@@ -35,3 +50,32 @@
   --mod-recruit:    oklch(0.50 0.08 300);
   --mod-recruit-bg: oklch(0.96 0.024 300);
 }
+
+/*
+ * Dark theme. Activated by the `dark` class on <html> (set server-side for an
+ * explicit light/dark preference, or by the inline no-flash script for system).
+ * Values are tuned for WCAG AA body-text contrast on the surface/canvas pair.
+ */
+html.dark {
+  --color-canvas: #020617;            /* slate-950 page base */
+  --color-surface: #0f172a;           /* slate-900 raised surface */
+  --color-muted: #1e293b;             /* slate-800 */
+  --color-muted-strong: #334155;      /* slate-700 */
+  --color-foreground: #f1f5f9;        /* slate-100 */
+  --color-foreground-soft: #cbd5e1;   /* slate-300 */
+  --color-muted-foreground: #94a3b8;  /* slate-400 */
+  --color-subtle-foreground: #64748b; /* slate-500 */
+  --color-border: #334155;            /* slate-700 */
+  --color-border-strong: #475569;     /* slate-600 */
+  --color-border-subtle: #1e293b;     /* slate-800 */
+
+  /* Brand tints become dark-tinted surfaces; brand text is lifted to read on dark.
+     color-mix keeps these tracking the admin-chosen brand hue. */
+  --color-brand-fg: color-mix(in srgb, var(--color-brand) 55%, white);
+  --color-brand-faint: color-mix(in srgb, var(--color-brand) 22%, #0b1220);
+  --color-brand-light: color-mix(in srgb, var(--color-brand) 30%, #0b1220);
+}
+
+/* Tell the UA which native scheme to use (form controls, scrollbars). */
+html:not(.dark) { color-scheme: light; }
+html.dark { color-scheme: dark; }

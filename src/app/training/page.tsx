@@ -14,8 +14,6 @@ import {
 import type { TrainingMethod } from "@prisma/client";
 import { requirePersonSession } from "@/platform/auth/session";
 import { AppShell } from "@/platform/ui/app-shell";
-import { getSetting } from "@/platform/settings/service";
-import { resolvePreference } from "@/platform/ui/theme";
 import { getAccessibleModules } from "@/platform/modules/access";
 import { getMyTraining, type MyTraining } from "@/modules/recruitment/services/training";
 import { TrainingQuiz } from "./training-quiz";
@@ -282,18 +280,14 @@ function BackToHub() {
 
 export default async function TrainingPage() {
   const person = await requirePersonSession();
-  const [my, themeDefault] = await Promise.all([
-    getMyTraining(person.personId),
-    getSetting<string>("ui.defaultTheme"),
-  ]);
-  const themePreference = resolvePreference(person.themePreference, themeDefault);
+  const my = await getMyTraining(person.personId);
   const pending = my.cycle && my.state !== "COMPLETE" && !my.locked;
   const canSchedule =
     my.state === "COMPLETE" &&
     (await getAccessibleModules(person.personId)).some((m) => m.id === "schedule");
 
   return (
-    <AppShell userName={person.name} termLabel={my.term.name} personId={person.personId} themePreference={themePreference}>
+    <AppShell userName={person.name} termLabel={my.term.name} personId={person.personId} personThemePreference={person.themePreference}>
       <div className="max-w-[760px]">
         <header className="mb-[22px]">
           <h1 className="text-[26px] font-bold tracking-tight text-slate-900">Volunteer Training</h1>

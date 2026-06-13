@@ -13,7 +13,6 @@ import { ThemeListener } from "@/platform/ui/theme-listener";
 import {
   resolvePreference,
   buildNoFlashScript,
-  THEME_ATTR,
   THEME_COOKIE,
   type ThemePreference,
 } from "@/platform/ui/theme";
@@ -40,6 +39,9 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   ]);
 
   // Person preference wins; cookie is a fast hint when there is no session.
+  // This lightweight findUnique is deliberate: it runs before the page's own
+  // requirePersonSession so the <html> class (no-flash dark mode) is set before
+  // any page content renders.
   let personPref: string | null = null;
   if (session?.personId) {
     const person = await prisma.person.findUnique({
@@ -57,7 +59,8 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   const htmlClass = pref === "dark" ? "dark" : "";
 
   return (
-    <html lang="en" className={htmlClass} suppressHydrationWarning {...{ [THEME_ATTR]: pref }}>
+    // data-theme-pref must match THEME_ATTR in theme.ts
+    <html lang="en" className={htmlClass} suppressHydrationWarning data-theme-pref={pref}>
       <head>
         <script dangerouslySetInnerHTML={{ __html: buildNoFlashScript() }} />
       </head>

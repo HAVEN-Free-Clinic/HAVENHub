@@ -3,13 +3,14 @@ import Link from "next/link";
 import { signOut } from "@/platform/auth/auth";
 import { MODULES } from "@/platform/modules/registry";
 import { getAccessibleModules } from "@/platform/modules/access";
+import { getSetting } from "@/platform/settings/service";
 import { HavenLogo } from "./haven-logo";
 import { GlobalNav } from "./global-nav";
 import { Breadcrumbs } from "./breadcrumbs";
 import { BreadcrumbProvider } from "./breadcrumb-context";
 import type { BreadcrumbModule } from "./breadcrumb-trail";
 import { ThemeToggle } from "./theme-toggle";
-import type { ThemePreference } from "./theme";
+import { resolvePreference } from "./theme";
 
 /** First letters of the first and last name parts, e.g. "Maya Chen" -> "MC". */
 function toInitials(name: string | null): string {
@@ -25,16 +26,21 @@ export async function AppShell({
   userName,
   termLabel,
   personId,
-  themePreference,
+  personThemePreference,
   children,
 }: {
   userName: string | null;
   termLabel?: string | null;
   personId: string;
-  themePreference: ThemePreference;
+  /** Raw person preference from the session (string | null). AppShell resolves this against the admin default. */
+  personThemePreference: string | null;
   children: ReactNode;
 }) {
-  const navModules = await getAccessibleModules(personId);
+  const [navModules, themeDefault] = await Promise.all([
+    getAccessibleModules(personId),
+    getSetting<string>("ui.defaultTheme"),
+  ]);
+  const resolvedTheme = resolvePreference(personThemePreference, themeDefault);
   const breadcrumbModules: BreadcrumbModule[] = MODULES.map((m) => ({
     id: m.id,
     title: m.title,
@@ -65,7 +71,7 @@ export async function AppShell({
           </div>
 
           <div className="flex items-center gap-3">
-            <ThemeToggle initial={themePreference} />
+            <ThemeToggle initial={resolvedTheme} />
             <div className="hidden items-center gap-2.5 sm:flex">
               <span
                 aria-hidden

@@ -24,12 +24,19 @@ describe("setThemePreference", () => {
     await setThemePreference("dark");
     expect(update).toHaveBeenCalledWith({ where: { id: "p1" }, data: { themePreference: "dark" } });
     expect(cookieSet).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "theme-pref", value: "dark" }),
+      expect.objectContaining({ name: "theme-pref", value: "dark", path: "/", sameSite: "lax" }),
     );
   });
 
   it("rejects an invalid preference without touching the DB", async () => {
     await expect(setThemePreference("rainbow" as never)).rejects.toThrow();
+    expect(update).not.toHaveBeenCalled();
+    expect(cookieSet).not.toHaveBeenCalled();
+  });
+
+  it("does not touch the DB when auth fails", async () => {
+    requirePersonSession.mockRejectedValue(new Error("Unauthenticated"));
+    await expect(setThemePreference("dark")).rejects.toThrow();
     expect(update).not.toHaveBeenCalled();
   });
 });

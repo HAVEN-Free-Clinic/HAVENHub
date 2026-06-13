@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { Sun, Moon, Monitor } from "lucide-react";
-import { THEME_ATTR, THEME_COOKIE, type ThemePreference } from "./theme";
+import { THEME_ATTR, THEME_COOKIE, effectiveClass, type ThemePreference } from "./theme";
 import { setThemePreference } from "./theme-actions";
 
 const NEXT: Record<ThemePreference, ThemePreference> = {
@@ -17,9 +17,9 @@ const LABEL = { light: "Light", dark: "Dark", system: "System" } as const;
 function applyToDocument(pref: ThemePreference) {
   const root = document.documentElement;
   root.setAttribute(THEME_ATTR, pref);
+  // Live OS-scheme changes while in "system" mode are handled separately by ThemeListener.
   const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-  const dark = pref === "dark" || (pref === "system" && prefersDark);
-  root.classList.toggle("dark", dark);
+  root.classList.toggle("dark", effectiveClass(pref, prefersDark) === "dark");
   document.cookie = `${THEME_COOKIE}=${pref};path=/;max-age=${60 * 60 * 24 * 365};samesite=lax`;
 }
 
@@ -41,7 +41,7 @@ export function ThemeToggle({ initial }: { initial: ThemePreference }) {
     <button
       type="button"
       onClick={cycle}
-      aria-label={`Theme: ${LABEL[pref]}. Click to change.`}
+      aria-label={`Current theme: ${LABEL[pref]}. Activate to switch to ${LABEL[NEXT[pref]]}.`}
       title={`Theme: ${LABEL[pref]}`}
       className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
     >

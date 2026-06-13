@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   THEME_VALUES,
   THEME_COOKIE,
+  THEME_ATTR,
   isThemePreference,
   resolvePreference,
   effectiveClass,
@@ -20,6 +21,7 @@ describe("isThemePreference", () => {
     expect(isThemePreference("system")).toBe(true);
     expect(isThemePreference("blue")).toBe(false);
     expect(isThemePreference(null)).toBe(false);
+    expect(isThemePreference(undefined)).toBe(false);
   });
 });
 
@@ -54,7 +56,7 @@ describe("effectiveClass", () => {
 describe("buildNoFlashScript", () => {
   it("references the data attribute and toggles the dark class for system", () => {
     const js = buildNoFlashScript();
-    expect(js).toContain("data-theme-pref");
+    expect(js).toContain(THEME_ATTR);
     expect(js).toContain("prefers-color-scheme: dark");
     expect(js).toContain("classList.toggle('dark'");
   });

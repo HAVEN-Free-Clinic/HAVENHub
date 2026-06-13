@@ -2,10 +2,10 @@
 export const THEME_VALUES = ["light", "dark", "system"] as const;
 export type ThemePreference = (typeof THEME_VALUES)[number];
 
-/** Cookie that mirrors the user's preference so the server can render no-flash. */
+/** Cookie mirroring the user's preference. The server reads it to populate {@link THEME_ATTR} for the no-flash render. */
 export const THEME_COOKIE = "theme-pref";
 
-/** The `<html>` attribute carrying the resolved preference for the inline script. */
+/** `<html>` attribute holding the resolved preference; the no-flash script and client components read it. Populated server-side from {@link THEME_COOKIE} / the DB. */
 export const THEME_ATTR = "data-theme-pref";
 
 export function isThemePreference(value: unknown): value is ThemePreference {
@@ -22,7 +22,7 @@ export function resolvePreference(
   return "system";
 }
 
-/** The class to put on <html>: "dark" or "" (light). System resolves via the OS flag. */
+/** The class to put on <html>: "dark", or "" for light. Tailwind dark mode keys off the presence/absence of the `dark` class, so light is the empty string rather than "light". System resolves via the OS flag. */
 export function effectiveClass(pref: ThemePreference, prefersDark: boolean): "dark" | "" {
   if (pref === "dark") return "dark";
   if (pref === "light") return "";

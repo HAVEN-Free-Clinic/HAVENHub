@@ -134,7 +134,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     );
   }
 
-  const { selectedDepartment, clinicDates, selectedDateKey, members, assignmentsByDate, conflicts } = data;
+  const { selectedDepartment, clinicDates, selectedDateKey, currentClinicDateKey, members, assignmentsByDate, conflicts } = data;
   const dept = selectedDepartment!;
 
   const requestRows = await listDepartmentRequests(session.personId, dept.id);
@@ -594,7 +594,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
               members={members}
               clinicDates={clinicDates}
               assignmentsByDate={assignmentsByDate}
-              selectedDateKey={selectedDateKey}
+              highlightDateKey={currentClinicDateKey}
               deptId={dept.id}
               deptCode={dept.code}
               mode={gmode}

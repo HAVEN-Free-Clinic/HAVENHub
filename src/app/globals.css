@@ -115,10 +115,12 @@ html.dark { color-scheme: dark; }
   }
 
   .glass-bar {
-    border-bottom: 1px solid rgba(255, 255, 255, 0.55);
+    /* Floating pill: full hairline border + a lift shadow so it reads as a
+       detached island, not a pinned edge-to-edge bar. */
+    border: 1px solid rgba(255, 255, 255, 0.6);
     box-shadow:
       0 1px 0 rgba(255, 255, 255, 0.9) inset,
-      0 6px 20px rgba(15, 23, 42, 0.1);
+      0 10px 30px rgba(15, 23, 42, 0.16);
   }
 
   .glass-panel {
@@ -150,10 +152,10 @@ html.dark { color-scheme: dark; }
     );
   }
   html.dark .glass-bar {
-    border-bottom-color: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.12);
     box-shadow:
       0 1px 0 rgba(255, 255, 255, 0.06) inset,
-      0 6px 20px rgba(0, 0, 0, 0.4);
+      0 10px 30px rgba(0, 0, 0, 0.5);
   }
   html.dark .glass-panel {
     background: linear-gradient(

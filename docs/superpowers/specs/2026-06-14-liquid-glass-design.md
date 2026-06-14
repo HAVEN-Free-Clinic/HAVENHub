@@ -58,15 +58,16 @@ From Apple's [Adopting Liquid Glass](https://developer.apple.com/documentation/t
 Two component classes, defined in `src/app/globals.css` under
 `@layer components`:
 
-### `.glass-bar` — sticky horizontal bars (header, module nav, breadcrumbs)
+### `.glass-bar` — the floating nav pill (header only)
 
-- Translucent gradient background (light: white at ~0.5–0.62 alpha).
+- Translucent gradient background (light: white at ~0.45–0.62 alpha).
 - `backdrop-filter: blur(18px) saturate(190%)` (+ `-webkit-` prefix).
-- Hairline border (`rgba(255,255,255,.7)` light).
-- Inset top **specular highlight** (`box-shadow: 0 1px 0 rgba(255,255,255,.95) inset`)
-  + a thin inset edge line + a soft drop shadow.
-- Faint diagonal edge sheen via `::before` (static gradient, `pointer-events:none`).
-- Emphasis on the bottom edge since the bar is pinned.
+- **Full** hairline border (`rgba(255,255,255,.6)` light) — it's a detached island,
+  not a pinned edge-to-edge bar.
+- Inset top **specular highlight** + a soft **lift** drop shadow
+  (`0 10px 30px rgba(15,23,42,.16)`) so it reads as floating.
+- Faint diagonal edge sheen via `::before` (static gradient, `pointer-events:none`,
+  `z-index:-1` so it sits behind content).
 
 ### `.glass-panel` — floating overlays (modal panel, combobox popover)
 
@@ -84,7 +85,7 @@ highlight is subtler. Same blur.
 
 | Surface | File | Change |
 |---|---|---|
-| Top app bar | `src/platform/ui/app-shell.tsx` | Replace `bg-surface/85 backdrop-blur-md backdrop-saturate-150` with `.glass-bar`. Brand accent line above it stays. |
+| Top app bar | `src/platform/ui/app-shell.tsx` | Becomes a **centered floating glass pill**: a transparent `sticky top-0 px-4 pt-3` wrapper holds a `max-w-6xl` `.glass-bar rounded-full` island (nav left, account controls right). Replaces the old `bg-surface/85 backdrop-blur-md` recipe; the edge-to-edge brand accent line is removed (the floating pill is the brand moment). |
 | Modal + scrim | `src/platform/ui/modal.tsx` | Panel → `.glass-panel` (opaque-leaning, per Apple); backdrop scrim gains `backdrop-blur-sm` while keeping the fixed dark tint. |
 | Combobox popover | `src/platform/ui/combobox.tsx` | Floating `<ul>` menu → `.glass-panel`. |
 

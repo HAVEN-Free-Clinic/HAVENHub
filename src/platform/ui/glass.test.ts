@@ -26,11 +26,14 @@ describe("liquid glass material", () => {
     expect(css).toMatch(/html\.dark\s+\.glass-(bar|panel)/);
   });
 
-  it("applies .glass-bar to the sticky app-shell header", () => {
+  it("renders the app-shell header as a floating glass pill", () => {
     const shell = read("src/platform/ui/app-shell.tsx");
-    expect(shell).toMatch(/<header[^>]*className="[^"]*\bglass-bar\b/);
+    expect(shell).toContain("glass-bar");
+    expect(shell).toContain("rounded-full"); // pill shape on the floating bar
     // The old ad-hoc frosted recipe should be gone.
     expect(shell).not.toContain("bg-surface/85");
+    // The old edge-to-edge brand accent line is removed in the floating design.
+    expect(shell).not.toContain("h-0.5 bg-brand");
   });
 
   it("uses .glass-panel for the modal and blurs its scrim", () => {

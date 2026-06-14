@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   THEME_VALUES,
-  THEME_COOKIE,
   THEME_ATTR,
   isThemePreference,
   resolvePreference,

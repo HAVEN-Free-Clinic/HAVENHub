@@ -29,7 +29,8 @@ type Props = {
   members: BuilderMember[];
   clinicDates: Date[];
   assignmentsByDate: AssignmentsByDate;
-  selectedDateKey: string | null;
+  /** Clinic date to highlight as the "current week" wayfinding cue. */
+  highlightDateKey: string | null;
   deptId: string;
   deptCode: string;
   mode: "assign" | "shadow";
@@ -110,7 +111,7 @@ type GridCellProps = {
   deptId: string;
   deptCode: string;
   mode: "assign" | "shadow";
-  isSelectedDate: boolean;
+  isHighlightDate: boolean;
   assignAction: (fd: FormData) => Promise<void>;
   unassignAction: (fd: FormData) => Promise<void>;
 };
@@ -122,7 +123,7 @@ function GridCell({
   deptId,
   deptCode,
   mode,
-  isSelectedDate,
+  isHighlightDate,
   assignAction,
   unassignAction,
 }: GridCellProps) {
@@ -132,7 +133,7 @@ function GridCell({
 
   // Muted background when member is not resolved-available on this date.
   const availBg = isAvailable ? "" : "bg-slate-50";
-  const selectedHighlight = isSelectedDate ? "ring-1 ring-inset ring-brand/40" : "";
+  const selectedHighlight = isHighlightDate ? "ring-1 ring-inset ring-brand/40" : "";
 
   const memberName = member.person.name;
   const displayD = displayDate(dateKey);
@@ -263,7 +264,7 @@ export function BuilderGrid({
   members,
   clinicDates,
   assignmentsByDate,
-  selectedDateKey,
+  highlightDateKey,
   deptId,
   deptCode,
   mode,
@@ -295,13 +296,13 @@ export function BuilderGrid({
             </th>
             {clinicDates.map((d) => {
               const dk = isoDateKey(d);
-              const isSelected = dk === selectedDateKey;
+              const isHighlight = dk === highlightDateKey;
               return (
                 <th
                   key={dk}
                   scope="col"
                   className={`border border-slate-200 px-2 py-2 text-center text-xs font-medium whitespace-nowrap min-w-[52px] ${
-                    isSelected
+                    isHighlight
                       ? "bg-brand text-white"
                       : "text-slate-500"
                   }`}
@@ -342,7 +343,7 @@ export function BuilderGrid({
                       deptId={deptId}
                       deptCode={deptCode}
                       mode={mode}
-                      isSelectedDate={dk === selectedDateKey}
+                      isHighlightDate={dk === highlightDateKey}
                       assignAction={assignAction}
                       unassignAction={unassignAction}
                     />

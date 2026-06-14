@@ -13,7 +13,7 @@ import { isGateClearedCached, markGateCleared } from "./onboarding-gate-cache";
 // sanctioned platform->module import: getOnboardingStatus aggregates data owned
 // by the my-info, recruitment, and learning modules and has no platform home.
 // eslint-disable-next-line no-restricted-imports, import/no-restricted-paths
-import { getOnboardingStatus } from "@/modules/onboarding/services/onboarding";
+import { getOnboardingStatus, EXEMPT_PERMISSION } from "@/modules/onboarding/services/onboarding";
 
 export type PersonSession = {
   personId: string;
@@ -31,11 +31,20 @@ async function enforceOnboarding(personId: string): Promise<void> {
   const path = (await headers()).get("x-pathname");
   if (!path || isAllowlistedPath(path)) return;
 
-  // Fast path: a recently-cleared person skips the ~6 onboarding queries.
+  // Fast path: a recently-cleared person skips the ~9-query onboarding status.
   if (isGateClearedCached(personId)) return;
 
+  // Exempt users (IT / super-admin) bypass the gate. Check this first: it reads
+  // the per-request-cached permission set (already needed by the page and nav),
+  // so it is near-free and lets exempt users skip getOnboardingStatus entirely
+  // -- which otherwise fetches training, courses, and certificates regardless.
+  if (await can(personId, EXEMPT_PERMISSION)) {
+    markGateCleared(personId);
+    return;
+  }
+
   const status = await getOnboardingStatus(personId);
-  if (status.exempt || !status.hasActiveTerm || status.onboarded) {
+  if (!status.hasActiveTerm || status.onboarded) {
     markGateCleared(personId); // cache only the cleared decision
     return;
   }

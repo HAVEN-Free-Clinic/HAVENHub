@@ -25,10 +25,17 @@ describe("onboarding gate cache", () => {
     expect(isGateClearedCached("p2")).toBe(false);
   });
 
+  it("keeps the clearance just under the TTL", () => {
+    vi.useFakeTimers();
+    markGateCleared("p1");
+    vi.advanceTimersByTime(5 * 60_000 - 1);
+    expect(isGateClearedCached("p1")).toBe(true);
+  });
+
   it("expires the clearance after the TTL", () => {
     vi.useFakeTimers();
     markGateCleared("p1");
-    vi.advanceTimersByTime(60_001);
+    vi.advanceTimersByTime(5 * 60_000 + 1);
     expect(isGateClearedCached("p1")).toBe(false);
   });
 

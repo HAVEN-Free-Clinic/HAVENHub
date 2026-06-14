@@ -1,6 +1,6 @@
 /**
  * Process-local cache of the onboarding gate's CLEARED decision. The gate
- * (enforceOnboarding) runs ~6 DB queries via getOnboardingStatus on every
+ * (enforceOnboarding) runs ~9 DB queries via getOnboardingStatus on every
  * non-allowlisted page render; for the common case of an already-onboarded
  * person navigating the app, caching the cleared result for a short window
  * removes that cost. Only POSITIVE (cleared) decisions are cached: a blocking
@@ -9,7 +9,7 @@
  * clearance lapses (e.g. cert expiry) may pass the gate for up to TTL_MS. The
  * separate, uncached getActivePerson() offboarding check is unaffected.
  */
-const TTL_MS = 60_000;
+const TTL_MS = 5 * 60_000;
 const clearedUntil = new Map<string, number>();
 
 /** True when this person was cleared within the TTL window. */

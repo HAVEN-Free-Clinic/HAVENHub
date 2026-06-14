@@ -435,7 +435,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
         }`}
       >
         <div className="flex flex-wrap items-center gap-2 mb-2">
-          <span className="text-sm font-semibold text-foreground">{member.person.name}</span>
+          <span className={`text-sm font-semibold ${available ? "text-slate-800" : "text-foreground"}`}>{member.person.name}</span>
           <Badge tone={isDirectorKind ? "brand" : "default"}>
             {isDirectorKind ? "Director" : "Volunteer"}
           </Badge>

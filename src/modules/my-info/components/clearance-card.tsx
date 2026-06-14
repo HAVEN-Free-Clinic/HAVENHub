@@ -93,10 +93,10 @@ export function ClearanceCard({
           </span>
           <div className="min-w-0">
             <p className="text-xs font-bold uppercase tracking-wider text-success">Cleared</p>
-            <p className="mt-0.5 text-[17px] font-bold tracking-tight text-foreground">
+            <p className="mt-0.5 text-[17px] font-bold tracking-tight text-slate-800">
               You&apos;re cleared to volunteer{forTerm}
             </p>
-            <p className="mt-0.5 text-[13px] leading-snug text-foreground-soft">
+            <p className="mt-0.5 text-[13px] leading-snug text-slate-700">
               Your HIPAA certificate and training are on file, so you can be scheduled for shifts.
             </p>
           </div>
@@ -108,10 +108,10 @@ export function ClearanceCard({
           </span>
           <div className="min-w-0">
             <p className="text-xs font-bold uppercase tracking-wider text-warning">Not yet cleared</p>
-            <p className="mt-0.5 text-[17px] font-bold tracking-tight text-foreground">
+            <p className="mt-0.5 text-[17px] font-bold tracking-tight text-slate-800">
               A few steps left{forTerm}
             </p>
-            <p className="mt-0.5 text-[13px] leading-snug text-foreground-soft">
+            <p className="mt-0.5 text-[13px] leading-snug text-slate-700">
               Finish the unchecked items below to be cleared for shifts.
             </p>
           </div>

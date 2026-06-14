@@ -17,9 +17,9 @@ type CardProps = ComponentProps<"div"> & {
 };
 
 /**
- * The atomic surface container: white, 1px slate-200 hairline, 16px radius, soft
- * shadow. This is the canonical card — prefer it over hand-rolling
- * `rounded-2xl border bg-white` so the radius/shadow/border stay consistent app-wide.
+ * The atomic surface container: 1px slate-200 hairline, 16px radius, soft
+ * shadow. This is the canonical card - prefer it over hand-rolling
+ * `rounded-2xl border bg-surface` so the radius/shadow/border stay consistent app-wide.
  */
 export function Card({ interactive = false, pad = true, className, ...rest }: CardProps) {
   return (

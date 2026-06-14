@@ -191,7 +191,7 @@ export function GlobalNav({ items }: { items: NavModule[] }) {
               <div
                 role="menu"
                 aria-label="More modules"
-                className="absolute right-0 top-full z-20 mt-1 flex min-w-44 flex-col gap-1 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg"
+                className="absolute right-0 top-full z-20 mt-1 flex min-w-44 flex-col gap-1 rounded-xl border border-border bg-surface p-1.5 shadow-lg"
               >
                 {overflow.map((m) => {
                   const active = isModuleActive(pathname, m.href);

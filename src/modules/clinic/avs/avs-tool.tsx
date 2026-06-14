@@ -88,8 +88,8 @@ export function AvsTool() {
 
       <Card className="space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-brand">Patient information</h2>
-          <label className="flex items-center gap-2 text-xs font-medium text-slate-500">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-brand-fg">Patient information</h2>
+          <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
             Summary language
             <Select
               value={data.preferredLang}
@@ -124,7 +124,7 @@ export function AvsTool() {
       </Card>
 
       <Card className="space-y-4">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-brand">Visit details</h2>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-brand-fg">Visit details</h2>
         <Field label="Reason for visit *">
           <Input
             required
@@ -148,7 +148,7 @@ export function AvsTool() {
       </Card>
 
       <Card className="space-y-4">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-brand">Medications</h2>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-brand-fg">Medications</h2>
         {data.medications.map((m, i) => (
           <div key={i} className="grid grid-cols-[1fr_1fr_1fr_auto] items-end gap-2">
             <Field label="Medication">
@@ -180,7 +180,7 @@ export function AvsTool() {
       </Card>
 
       <Card className="space-y-4">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-brand">Next steps</h2>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-brand-fg">Next steps</h2>
         <div className="grid grid-cols-2 gap-4">
           <Field label="Follow-up">
             <Select value={data.followUpTimeframe} onChange={setField("followUpTimeframe")}>
@@ -203,7 +203,7 @@ export function AvsTool() {
           onToggle={(value) => dispatch({ type: "toggle", key: "labs", value })}
         />
         <div className="space-y-2">
-          <span className="text-xs font-medium text-slate-500">Action items</span>
+          <span className="text-xs font-medium text-muted-foreground">Action items</span>
           {data.actionItems.map((item, i) => (
             <div key={i} className="flex items-center gap-2">
               <Input
@@ -225,7 +225,7 @@ export function AvsTool() {
       </Card>
 
       <Card className="space-y-4">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-brand">Resources</h2>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-brand-fg">Resources</h2>
         <ChipGroup
           label="Community resources"
           list={COMMUNITY_RESOURCES}
@@ -269,7 +269,7 @@ function ChipGroup({
 }) {
   return (
     <div className="space-y-1.5">
-      <span className="text-xs font-medium text-slate-500">{label}</span>
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
       <div className="flex flex-wrap gap-2">
         {list.map((o) => {
           const on = selected.includes(o.key);
@@ -281,8 +281,8 @@ function ChipGroup({
               aria-pressed={on}
               className={
                 on
-                  ? "rounded-lg border border-brand bg-brand/10 px-3 py-1.5 text-sm font-medium text-brand"
-                  : "rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-500 hover:border-brand/40"
+                  ? "rounded-lg border border-brand bg-brand/10 px-3 py-1.5 text-sm font-medium text-brand-fg"
+                  : "rounded-lg border border-border bg-surface px-3 py-1.5 text-sm text-muted-foreground hover:border-brand/40"
               }
             >
               {o.en}

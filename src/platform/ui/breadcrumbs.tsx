@@ -16,9 +16,9 @@ export function Breadcrumbs({ modules }: { modules: BreadcrumbModule[] }) {
   if (crumbs.length <= 1) return null;
 
   return (
-    <div className="border-b border-slate-200 bg-white">
+    <div className="border-b border-border bg-surface">
       <nav aria-label="Breadcrumb" className="mx-auto max-w-6xl px-6 py-2">
-        <ol className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
+        <ol className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
           {crumbs.map((crumb, i) => {
             const isLast = i === crumbs.length - 1;
             return (
@@ -26,20 +26,20 @@ export function Breadcrumbs({ modules }: { modules: BreadcrumbModule[] }) {
                 {crumb.href && !isLast ? (
                   <Link
                     href={crumb.href}
-                    className="rounded-sm transition-colors hover:text-brand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                    className="rounded-sm transition-colors hover:text-brand-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
                   >
                     {crumb.label}
                   </Link>
                 ) : (
                   <span
                     aria-current={isLast ? "page" : undefined}
-                    className={isLast ? "font-medium text-slate-700" : undefined}
+                    className={isLast ? "font-medium text-foreground-soft" : undefined}
                   >
                     {crumb.label}
                   </span>
                 )}
                 {!isLast && (
-                  <span aria-hidden className="text-slate-300">
+                  <span aria-hidden className="text-subtle-foreground">
                     &rsaquo;
                   </span>
                 )}

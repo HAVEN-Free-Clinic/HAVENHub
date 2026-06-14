@@ -8,8 +8,8 @@ import { isModuleActive, type NavModule } from "@/platform/modules/access";
 
 function linkClasses(active: boolean): string {
   return active
-    ? "rounded-lg px-2.5 py-1.5 text-sm font-medium text-brand bg-brand-faint"
-    : "rounded-lg px-2.5 py-1.5 text-sm font-medium text-slate-500 hover:text-slate-900 hover:bg-slate-50 transition-colors";
+    ? "rounded-lg px-2.5 py-1.5 text-sm font-medium text-brand-fg bg-brand-faint"
+    : "rounded-lg px-2.5 py-1.5 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors";
 }
 
 export function GlobalNav({ items }: { items: NavModule[] }) {
@@ -60,7 +60,7 @@ export function GlobalNav({ items }: { items: NavModule[] }) {
           aria-expanded={open}
           aria-controls="global-nav-mobile"
           onClick={() => setOpen((v) => !v)}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-foreground-soft hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
         >
           {open ? <X aria-hidden className="h-5 w-5" /> : <Menu aria-hidden className="h-5 w-5" />}
         </button>
@@ -68,7 +68,7 @@ export function GlobalNav({ items }: { items: NavModule[] }) {
           <nav
             id="global-nav-mobile"
             aria-label="Modules (menu)"
-            className="absolute left-0 right-0 top-14 z-20 border-b border-slate-200 bg-white shadow-sm"
+            className="absolute left-0 right-0 top-14 z-20 border-b border-border bg-surface shadow-sm"
           >
             <div className="mx-auto flex max-w-6xl flex-col gap-1 px-6 py-3">
               {items.map((m) => {

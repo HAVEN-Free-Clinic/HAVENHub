@@ -79,3 +79,109 @@ html.dark {
 /* Tell the UA which native scheme to use (form controls, scrollbars). */
 html:not(.dark) { color-scheme: light; }
 html.dark { color-scheme: dark; }
+
+/*
+ * Liquid Glass — the floating navigation / control material (Apple-style).
+ * Applied only to the topmost nav bar and floating overlays (modals, popovers),
+ * never to content. `.glass-bar` = pinned horizontal bars (bottom-edge emphasis);
+ * `.glass-panel` = floating overlays (full border, leans opaque per Apple's
+ * "expanded sheets become more opaque"). Dark + accessibility overrides follow.
+ */
+@layer components {
+  .glass-bar,
+  .glass-panel {
+    position: relative;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.45));
+    -webkit-backdrop-filter: blur(18px) saturate(190%);
+    backdrop-filter: blur(18px) saturate(190%);
+  }
+
+  /* Specular edge sheen. Sits behind real children (pointer-events: none). */
+  .glass-bar::before,
+  .glass-panel::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    background: linear-gradient(
+      105deg,
+      rgba(255, 255, 255, 0.5) 0%,
+      rgba(255, 255, 255, 0) 22%,
+      rgba(255, 255, 255, 0) 72%,
+      rgba(255, 255, 255, 0.28) 100%
+    );
+  }
+
+  .glass-bar {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.55);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.9) inset,
+      0 6px 20px rgba(15, 23, 42, 0.1);
+  }
+
+  .glass-panel {
+    /* Apple: expanded sheets lean opaque to keep focus. Higher alpha floor. */
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.82));
+    border: 1px solid rgba(255, 255, 255, 0.7);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.95) inset,
+      0 12px 34px rgba(15, 23, 42, 0.18);
+  }
+
+  /* Dark mode: tint derived from the surface token so it tracks the theme. */
+  html.dark .glass-bar,
+  html.dark .glass-panel {
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--color-surface) 65%, transparent),
+      color-mix(in srgb, var(--color-surface) 55%, transparent)
+    );
+  }
+  html.dark .glass-bar::before,
+  html.dark .glass-panel::before {
+    background: linear-gradient(
+      105deg,
+      rgba(255, 255, 255, 0.12) 0%,
+      rgba(255, 255, 255, 0) 30%,
+      rgba(255, 255, 255, 0) 80%,
+      rgba(255, 255, 255, 0.08) 100%
+    );
+  }
+  html.dark .glass-bar {
+    border-bottom-color: rgba(255, 255, 255, 0.1);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.06) inset,
+      0 6px 20px rgba(0, 0, 0, 0.4);
+  }
+  html.dark .glass-panel {
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--color-surface) 92%, transparent),
+      color-mix(in srgb, var(--color-surface) 86%, transparent)
+    );
+    border-color: rgba(255, 255, 255, 0.12);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.08) inset,
+      0 12px 34px rgba(0, 0, 0, 0.5);
+  }
+
+  /*
+   * Accessibility: drop translucency entirely and fall back to a solid surface
+   * when the user reduces transparency, raises contrast, or uses forced colors.
+   */
+  @media (prefers-reduced-transparency: reduce),
+    (prefers-contrast: more),
+    (forced-colors: active) {
+    .glass-bar,
+    .glass-panel {
+      background: var(--color-surface);
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+    }
+    .glass-bar::before,
+    .glass-panel::before {
+      display: none;
+    }
+  }
+}

@@ -50,11 +50,11 @@ export async function AppShell({
 
   return (
     <div className="min-h-screen flex flex-col bg-canvas">
-      {/* Brand accent line */}
-      <div className="h-0.5 bg-brand" />
-
-      <header className="sticky top-0 z-30 border-b border-border bg-surface/85 backdrop-blur-md backdrop-saturate-150">
-        <div className="mx-auto flex max-w-6xl items-center gap-4 px-6 h-14">
+      {/* Floating glass nav: a transparent sticky wrapper holds a centered pill
+          that detaches from the top/sides so canvas shows around it and page
+          content blurs beneath it on scroll. */}
+      <header className="sticky top-0 z-30 px-4 pt-3">
+        <div className="glass-bar mx-auto flex max-w-6xl items-center gap-4 rounded-full h-14 px-6">
           <div className="flex items-center gap-2">
             <Link href="/" aria-label="Go to hub home" className="flex items-center hover:opacity-80 transition-opacity">
               <HavenLogo className="h-8 text-brand-fg" />

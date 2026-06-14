@@ -53,7 +53,7 @@ export async function AppShell({
       {/* Brand accent line */}
       <div className="h-0.5 bg-brand" />
 
-      <header className="sticky top-0 z-30 border-b border-border bg-surface/85 backdrop-blur-md backdrop-saturate-150">
+      <header className="glass-bar sticky top-0 z-30">
         <div className="mx-auto flex max-w-6xl items-center gap-4 px-6 h-14">
           <div className="flex items-center gap-2">
             <Link href="/" aria-label="Go to hub home" className="flex items-center hover:opacity-80 transition-opacity">

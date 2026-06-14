@@ -25,4 +25,11 @@ describe("liquid glass material", () => {
   it("adapts the material for dark mode", () => {
     expect(css).toMatch(/html\.dark\s+\.glass-(bar|panel)/);
   });
+
+  it("applies .glass-bar to the sticky app-shell header", () => {
+    const shell = read("src/platform/ui/app-shell.tsx");
+    expect(shell).toMatch(/<header[^>]*className="[^"]*\bglass-bar\b/);
+    // The old ad-hoc frosted recipe should be gone.
+    expect(shell).not.toContain("bg-surface/85");
+  });
 });

@@ -46,7 +46,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
       </div>
 
       {!term ? (
-        <p className="text-sm text-slate-400">No active term.</p>
+        <p className="text-sm text-subtle-foreground">No active term.</p>
       ) : (
         <>
           {/* Date strip */}
@@ -63,7 +63,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
                     className={
                       isSelected
                         ? "rounded-full px-3 py-1 text-sm font-medium bg-brand text-white"
-                        : "rounded-full px-3 py-1 text-sm font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors"
+                        : "rounded-full px-3 py-1 text-sm font-medium bg-muted-strong text-foreground-soft hover:bg-muted-strong transition-colors"
                     }
                   >
                     {displayDate(key)}
@@ -75,7 +75,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
 
           {/* Department cards */}
           {departments.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-slate-200 px-6 py-10 text-center text-sm text-slate-400">
+            <div className="rounded-2xl border border-dashed border-border px-6 py-10 text-center text-sm text-subtle-foreground">
               Nothing scheduled for this date.
             </div>
           ) : (
@@ -83,7 +83,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
               {departments.map(({ department, directors, volunteers, shadows, conflicts }) => (
                 <section
                   key={department.id}
-                  className="rounded-2xl bg-white overflow-hidden shadow-sm border border-slate-200"
+                  className="rounded-2xl bg-surface overflow-hidden shadow-sm border border-border"
                 >
                   {/* Card header */}
                   <div className="bg-brand px-4 py-3 flex items-center justify-between">
@@ -103,11 +103,11 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
                     {/* Directors */}
                     {directors.length > 0 && (
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-widest text-brand/40 mb-1.5">Directors</p>
+                        <p className="text-xs font-semibold uppercase tracking-widest text-brand-fg/40 mb-1.5">Directors</p>
                         <ul className="flex flex-col gap-1">
                           {directors.map((p) => (
                             <li key={p.id} className="flex flex-wrap items-center gap-1.5">
-                              <span className="text-sm font-bold text-slate-800">{p.name}</span>
+                              <span className="text-sm font-bold text-foreground">{p.name}</span>
                               {(conflicts.get(p.id) ?? []).length > 0 && (
                                 <Badge tone="warning" title={(conflicts.get(p.id) ?? []).join(", ")}>
                                   Also in {(conflicts.get(p.id) ?? []).join(", ")}
@@ -122,11 +122,11 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
                     {/* Volunteers */}
                     {volunteers.length > 0 && (
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-widest text-brand/40 mb-1.5">Volunteers</p>
+                        <p className="text-xs font-semibold uppercase tracking-widest text-brand-fg/40 mb-1.5">Volunteers</p>
                         <ul className="flex flex-col gap-1">
                           {volunteers.map((v) => (
                             <li key={v.id} className="flex flex-wrap items-center gap-1.5">
-                              <span className="text-sm text-slate-700">{v.name}</span>
+                              <span className="text-sm text-foreground-soft">{v.name}</span>
                               {v.tags.triage && <Badge tone="default">Triage</Badge>}
                               {v.tags.walkin && <Badge tone="default">Walk-in</Badge>}
                               {v.tags.cc && <Badge tone="default">CC</Badge>}
@@ -145,11 +145,11 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
                     {/* Shadows */}
                     {shadows.length > 0 && (
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-widest text-brand/40 mb-1.5">Shadows</p>
+                        <p className="text-xs font-semibold uppercase tracking-widest text-brand-fg/40 mb-1.5">Shadows</p>
                         <ul className="flex flex-col gap-1">
                           {shadows.map((p) => (
                             <li key={p.id} className="flex flex-wrap items-center gap-1.5">
-                              <span className="text-sm text-slate-400 italic">{p.name}</span>
+                              <span className="text-sm text-subtle-foreground italic">{p.name}</span>
                               {(conflicts.get(p.id) ?? []).length > 0 && (
                                 <Badge tone="warning" title={(conflicts.get(p.id) ?? []).join(", ")}>
                                   Also in {(conflicts.get(p.id) ?? []).join(", ")}
@@ -162,7 +162,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
                     )}
 
                     {directors.length === 0 && volunteers.length === 0 && shadows.length === 0 && (
-                      <p className="text-sm text-slate-300 italic">Nothing scheduled</p>
+                      <p className="text-sm text-subtle-foreground italic">Nothing scheduled</p>
                     )}
                   </div>
                 </section>

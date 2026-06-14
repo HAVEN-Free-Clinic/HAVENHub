@@ -135,10 +135,10 @@ export default async function VolunteersPage({ searchParams }: PageProps) {
           title="Compliance"
           description="Department HIPAA compliance tracking"
         />
-        <div className="mt-12 flex flex-col items-center justify-center gap-3 text-center text-sm text-slate-500">
+        <div className="mt-12 flex flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground">
           <p>You are not listed as a director of any department this term.</p>
           {isManager && (
-            <p className="text-slate-400 text-xs">
+            <p className="text-subtle-foreground text-xs">
               As a compliance manager you will have access to the master view once it is available.
             </p>
           )}
@@ -229,7 +229,7 @@ export default async function VolunteersPage({ searchParams }: PageProps) {
                               {m.trainingState === "COMPLETE" ? "Complete" : "Pending"}
                             </Badge>
                           ) : (
-                            <span className="text-slate-400">-</span>
+                            <span className="text-subtle-foreground">-</span>
                           )}
                         </TD>
                         <TD>
@@ -242,16 +242,16 @@ export default async function VolunteersPage({ searchParams }: PageProps) {
                               {m.overallClearance === "CLEARED" ? "Cleared" : "Not Cleared"}
                             </Badge>
                           ) : (
-                            <span className="text-slate-400">-</span>
+                            <span className="text-subtle-foreground">-</span>
                           )}
                         </TD>
-                        <TD className="text-slate-600 tabular-nums">
+                        <TD className="text-foreground-soft tabular-nums">
                           {fmtDate(m.cert?.completionDate)}
                         </TD>
-                        <TD className="text-slate-600 tabular-nums">
+                        <TD className="text-foreground-soft tabular-nums">
                           {fmtDate(expiresAt)}
                         </TD>
-                        <TD className="text-slate-600 text-xs">
+                        <TD className="text-foreground-soft text-xs">
                           {m.cert?.verifiedAt ? (
                             <span>
                               {m.verifiedByName} {fmtDate(m.cert.verifiedAt)}

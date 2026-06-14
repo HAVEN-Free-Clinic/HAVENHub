@@ -172,7 +172,7 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
       )}
 
       {!term ? (
-        <p className="text-sm text-slate-400">No active term.</p>
+        <p className="text-sm text-subtle-foreground">No active term.</p>
       ) : (
         <div className="grid grid-cols-1 gap-10 lg:grid-cols-[1fr_320px]">
 
@@ -181,12 +181,12 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
             {/* My shifts */}
             <section>
               <div className="flex items-center gap-3 mb-5">
-                <h2 className="text-lg font-bold text-slate-800">My Shifts</h2>
-                <span className="rounded-full bg-slate-800 text-white text-xs font-semibold px-2.5 py-0.5">{shifts.length} total</span>
+                <h2 className="text-lg font-bold text-foreground">My Shifts</h2>
+                <span className="rounded-full bg-foreground text-surface text-xs font-semibold px-2.5 py-0.5">{shifts.length} total</span>
               </div>
 
               {shifts.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-slate-200 px-6 py-10 text-center text-sm text-slate-400">
+                <div className="rounded-2xl border border-dashed border-border px-6 py-10 text-center text-sm text-subtle-foreground">
                   No shifts assigned yet. Check back after the schedule is published.
                 </div>
               ) : (
@@ -205,10 +205,10 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                         : "border-l-4 border-l-success";
 
                     return (
-                      <div key={cardKey} className={`rounded-2xl border border-slate-200 bg-white shadow-sm px-5 py-4 ${leftBorder}`}>
+                      <div key={cardKey} className={`rounded-2xl border border-border bg-surface shadow-sm px-5 py-4 ${leftBorder}`}>
                         <div className="flex flex-wrap items-center gap-2 mb-2">
-                          <span className="text-base font-bold text-slate-800 tabular-nums">{fmtDate(shift.clinicDate)}</span>
-                          <span className="text-xs font-bold uppercase tracking-widest text-slate-400">{shift.department.code}</span>
+                          <span className="text-base font-bold text-foreground tabular-nums">{fmtDate(shift.clinicDate)}</span>
+                          <span className="text-xs font-bold uppercase tracking-widest text-subtle-foreground">{shift.department.code}</span>
                           <Badge tone={roleBadgeTone[shift.role] ?? "default"}>
                             {shift.role === "DIRECTOR" ? "Director" : shift.role === "VOLUNTEER" ? "Volunteer" : "Shadow"}
                           </Badge>
@@ -236,12 +236,12 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                             </div>
                           ) : (
                             <details className="group">
-                              <summary className="cursor-pointer text-xs font-medium text-slate-400 hover:text-slate-600 list-none [&::-webkit-details-marker]:hidden">
+                              <summary className="cursor-pointer text-xs font-medium text-subtle-foreground hover:text-foreground-soft list-none [&::-webkit-details-marker]:hidden">
                                 <span className="underline underline-offset-2">Request a change</span>
                               </summary>
-                              <div className="mt-3 flex flex-col gap-4 pl-1 border-t border-slate-100 pt-3">
+                              <div className="mt-3 flex flex-col gap-4 pl-1 border-t border-border-subtle pt-3">
                                 <div>
-                                  <p className="text-xs font-medium text-slate-500 mb-2">Request a drop</p>
+                                  <p className="text-xs font-medium text-muted-foreground mb-2">Request a drop</p>
                                   <form action={createRequestAction} className="flex flex-wrap items-end gap-3">
                                     <input type="hidden" name="dateKey" value={dateKey} />
                                     <input type="hidden" name="departmentId" value={shift.department.id} />
@@ -254,7 +254,7 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                                 </div>
                                 {swapPartners.length > 0 && (
                                   <div>
-                                    <p className="text-xs font-medium text-slate-500 mb-2">Request a swap</p>
+                                    <p className="text-xs font-medium text-muted-foreground mb-2">Request a swap</p>
                                     <form action={createRequestAction} className="flex flex-wrap items-end gap-3">
                                       <input type="hidden" name="dateKey" value={dateKey} />
                                       <input type="hidden" name="departmentId" value={shift.department.id} />
@@ -274,7 +274,7 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                                   </div>
                                 )}
                                 {swapPartners.length === 0 && (
-                                  <p className="text-sm text-slate-400">No eligible swap partners for this shift.</p>
+                                  <p className="text-sm text-subtle-foreground">No eligible swap partners for this shift.</p>
                                 )}
                               </div>
                             </details>
@@ -290,9 +290,9 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
             {/* My availability */}
             <section className="mt-10">
               <div className="flex items-center gap-3 mb-2">
-                <h2 className="text-lg font-bold text-slate-800">My Availability</h2>
+                <h2 className="text-lg font-bold text-foreground">My Availability</h2>
               </div>
-              <p className="text-sm text-slate-400 mb-5">
+              <p className="text-sm text-subtle-foreground mb-5">
                 {availability === null
                   ? ""
                   : availability.tier === "DIRECTOR"
@@ -303,13 +303,13 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
               </p>
 
               {availability === null ? (
-                <p className="text-sm text-slate-400">You are not on the active term roster, so availability does not apply.</p>
+                <p className="text-sm text-subtle-foreground">You are not on the active term roster, so availability does not apply.</p>
               ) : (
                 <>
                   {legacyNote && (
-                    <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-                      <p className="mb-1 text-xs font-medium text-slate-500">Note from the old scheduler:</p>
-                      <p className="text-sm text-slate-600">{legacyNote}</p>
+                    <div className="mb-4 rounded-xl border border-border bg-muted px-3 py-2">
+                      <p className="mb-1 text-xs font-medium text-muted-foreground">Note from the old scheduler:</p>
+                      <p className="text-sm text-foreground-soft">{legacyNote}</p>
                     </div>
                   )}
                   <form action={saveAvailabilityAction}>
@@ -323,19 +323,19 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                         }, {} as Record<string, Date[]>)
                       ).map(([month, dates]) => (
                         <div key={month}>
-                          <p className="text-xs font-semibold uppercase tracking-wide text-brand mb-2">{month}</p>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-brand-fg mb-2">{month}</p>
                           <div className="flex flex-wrap gap-2">
                             {dates.map((d) => {
                               const key = isoDateKey(d);
                               const checked = availability.dates.some((ad) => isoDateKey(ad) === key);
                               return (
-                                <label key={key} className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs cursor-pointer transition-colors whitespace-nowrap ${checked ? "border-brand bg-brand/5 text-brand font-semibold" : "border-slate-200 bg-brand/5 text-brand hover:border-brand/40"}`}>
+                                <label key={key} className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs cursor-pointer transition-colors whitespace-nowrap ${checked ? "border-brand bg-brand/5 text-brand-fg font-semibold" : "border-border bg-brand/5 text-brand-fg hover:border-brand/40"}`}>
                                   <input
                                     type="checkbox"
                                     name="dates"
                                     value={key}
                                     defaultChecked={checked}
-                                    className="h-4 w-4 rounded border-slate-200 text-brand focus:ring-brand focus:ring-1 accent-brand"
+                                    className="h-4 w-4 rounded border-border text-brand focus:ring-brand focus:ring-1 accent-brand"
                                   />
                                   {displayDate(key)}
                                 </label>
@@ -357,29 +357,29 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
           {/* Right column: quick info sidebar */}
           <div className="flex flex-col gap-4">
             <Card pad={false} className="px-5 py-4">
-              <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-3">This Term</p>
+              <p className="text-xs font-semibold uppercase tracking-widest text-subtle-foreground mb-3">This Term</p>
               <div className="flex flex-col gap-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-slate-600">Total shifts</span>
-                  <span className="text-sm font-bold text-slate-800">{shifts.length}</span>
+                  <span className="text-sm text-foreground-soft">Total shifts</span>
+                  <span className="text-sm font-bold text-foreground">{shifts.length}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-slate-600">Role</span>
-                  <span className="text-sm font-bold text-slate-800">
+                  <span className="text-sm text-foreground-soft">Role</span>
+                  <span className="text-sm font-bold text-foreground">
                     {shifts.length > 0
                       ? shifts[0].role.charAt(0) + shifts[0].role.slice(1).toLowerCase()
                       : "—"}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-slate-600">Department</span>
-                  <span className="text-sm font-bold text-slate-800">
+                  <span className="text-sm text-foreground-soft">Department</span>
+                  <span className="text-sm font-bold text-foreground">
                     {shifts.length > 0 ? shifts[0].department.code : "—"}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-slate-600">Pending requests</span>
-                  <span className="text-sm font-bold text-slate-800">{pendingRequests.size}</span>
+                  <span className="text-sm text-foreground-soft">Pending requests</span>
+                  <span className="text-sm font-bold text-foreground">{pendingRequests.size}</span>
                 </div>
               </div>
             </Card>

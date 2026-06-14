@@ -258,7 +258,7 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
 
       {/* Results */}
       <div className="mt-4">
-        <p className="mb-3 text-sm text-slate-500">
+        <p className="mb-3 text-sm text-muted-foreground">
           {result.total === 0
             ? "No members found."
             : `${result.total} member${result.total === 1 ? "" : "s"}`}
@@ -292,7 +292,7 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
                         {isAdmin ? (
                           <Link
                             href={`/admin/people/${row.person.id}`}
-                            className="text-brand underline underline-offset-2 hover:opacity-75"
+                            className="text-brand-fg underline underline-offset-2 hover:opacity-75"
                           >
                             {row.person.name}
                           </Link>
@@ -300,7 +300,7 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
                           row.person.name
                         )}
                       </TD>
-                      <TD className="text-slate-600 text-sm">
+                      <TD className="text-foreground-soft text-sm">
                         {row.departments.join(", ")}
                       </TD>
                       <TD>
@@ -324,13 +324,13 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
                           {row.overallClearance === "CLEARED" ? "Cleared" : "Not Cleared"}
                         </Badge>
                       </TD>
-                      <TD className="text-slate-600 tabular-nums">
+                      <TD className="text-foreground-soft tabular-nums">
                         {fmtDate(row.cert?.completionDate)}
                       </TD>
-                      <TD className="text-slate-600 tabular-nums">
+                      <TD className="text-foreground-soft tabular-nums">
                         {fmtDate(expiresAt)}
                       </TD>
-                      <TD className="text-slate-600 text-xs">
+                      <TD className="text-foreground-soft text-xs">
                         {row.cert?.verifiedAt ? (
                           <span>
                             {row.verifiedByName} {fmtDate(row.cert.verifiedAt)}

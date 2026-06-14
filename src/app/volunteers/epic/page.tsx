@@ -458,7 +458,7 @@ export default async function EpicQueuePage({ searchParams }: PageProps) {
         <h2 className="mb-2 text-base font-semibold">
           {STATUS_LABEL[statusFilter]} Requests
           {total > 0 && (
-            <span className="ml-2 text-sm font-normal text-slate-500">({total})</span>
+            <span className="ml-2 text-sm font-normal text-muted-foreground">({total})</span>
           )}
         </h2>
 
@@ -481,7 +481,7 @@ export default async function EpicQueuePage({ searchParams }: PageProps) {
         )}
 
         {rows.length === 0 ? (
-          <div className="mt-12 flex flex-col items-center justify-center gap-3 text-center text-sm text-slate-500">
+          <div className="mt-12 flex flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground">
             <p>No {STATUS_LABEL[statusFilter].toLowerCase()} requests.</p>
           </div>
         ) : (
@@ -533,10 +533,10 @@ export default async function EpicQueuePage({ searchParams }: PageProps) {
                         <div className="flex flex-col gap-0.5 text-sm">
                           <span className="font-medium">{row.person.name ?? "-"}</span>
                           {row.person.netId && (
-                            <span className="text-slate-500 text-xs">{row.person.netId}</span>
+                            <span className="text-muted-foreground text-xs">{row.person.netId}</span>
                           )}
                           {row.person.contactEmail && (
-                            <span className="text-slate-400 text-xs">{row.person.contactEmail}</span>
+                            <span className="text-subtle-foreground text-xs">{row.person.contactEmail}</span>
                           )}
                         </div>
                       </TD>
@@ -573,18 +573,18 @@ export default async function EpicQueuePage({ searchParams }: PageProps) {
                         </TD>
                       ) : (
                         <>
-                          <TD className="text-slate-600 text-sm">{row.jobTitle ?? "-"}</TD>
-                          <TD className="text-slate-600 text-sm font-mono text-xs">
+                          <TD className="text-foreground-soft text-sm">{row.jobTitle ?? "-"}</TD>
+                          <TD className="text-foreground-soft text-sm font-mono text-xs">
                             {row.mirrorEpicId ?? "-"}
                           </TD>
                         </>
                       )}
-                      <TD className="text-slate-600 text-sm">
+                      <TD className="text-foreground-soft text-sm">
                         {row.ticket
                           ? row.ticket.serviceRequestNumber ?? row.ticket.id.slice(0, 8)
                           : "-"}
                       </TD>
-                      <TD className="text-slate-600 tabular-nums text-sm">
+                      <TD className="text-foreground-soft tabular-nums text-sm">
                         {fmtDate(row.createdAt)}
                       </TD>
                       <TD>
@@ -649,17 +649,17 @@ export default async function EpicQueuePage({ searchParams }: PageProps) {
                               {/* Last-send info */}
                               <div className="flex flex-wrap gap-x-3 gap-y-0.5">
                                 {lastOnboarding && (
-                                  <span className="text-[11px] text-slate-400">
+                                  <span className="text-[11px] text-subtle-foreground">
                                     onboarding {lastOnboarding.status.toLowerCase()} {fmtDate(lastOnboarding.createdAt)}
                                   </span>
                                 )}
                                 {lastActivation && (
-                                  <span className="text-[11px] text-slate-400">
+                                  <span className="text-[11px] text-subtle-foreground">
                                     activation {lastActivation.status.toLowerCase()} {fmtDate(lastActivation.createdAt)}
                                   </span>
                                 )}
                                 {lastPwReset && (
-                                  <span className="text-[11px] text-slate-400">
+                                  <span className="text-[11px] text-subtle-foreground">
                                     pw-reset {lastPwReset.status.toLowerCase()} {fmtDate(lastPwReset.createdAt)}
                                   </span>
                                 )}
@@ -667,7 +667,7 @@ export default async function EpicQueuePage({ searchParams }: PageProps) {
                             </div>
                           </div>
                         ) : (
-                          <span className="text-xs text-slate-400">-</span>
+                          <span className="text-xs text-subtle-foreground">-</span>
                         )}
                       </TD>
                     </TR>
@@ -688,7 +688,7 @@ export default async function EpicQueuePage({ searchParams }: PageProps) {
         <h2 className="mb-3 text-base font-semibold">YNHH Tickets</h2>
 
         {tickets.length === 0 ? (
-          <div className="mt-12 flex flex-col items-center justify-center gap-3 text-center text-sm text-slate-500">
+          <div className="mt-12 flex flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground">
             <p>No tickets yet.</p>
           </div>
         ) : (
@@ -727,21 +727,21 @@ export default async function EpicQueuePage({ searchParams }: PageProps) {
                       </form>
                     </TD>
                     <TD
-                      className="text-slate-600 text-sm max-w-xs truncate"
+                      className="text-foreground-soft text-sm max-w-xs truncate"
                       title={ticket.description ?? undefined}
                     >
                       {ticket.description ?? "-"}
                     </TD>
                     <TD>
-                      <div className="flex flex-col gap-0.5 text-xs text-slate-500">
+                      <div className="flex flex-col gap-0.5 text-xs text-muted-foreground">
                         <span>{ticket.submittedBy.name ?? "-"}</span>
                         <span className="tabular-nums">{fmtDate(ticket.submittedAt)}</span>
                       </div>
                     </TD>
-                    <TD className="tabular-nums text-sm text-slate-600">
+                    <TD className="tabular-nums text-sm text-foreground-soft">
                       {ageDays !== null ? ageDays : "-"}
                     </TD>
-                    <TD className="tabular-nums text-sm text-slate-600">
+                    <TD className="tabular-nums text-sm text-foreground-soft">
                       {ticket._count.requests}
                     </TD>
                     <TD>

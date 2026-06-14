@@ -19,7 +19,7 @@ export default async function AttendingsListPage() {
         </Link>
       </div>
       {attendings.length === 0 ? (
-        <div className="rounded-2xl border border-slate-200 bg-white px-6 py-10 text-center text-sm text-slate-500">
+        <div className="rounded-2xl border border-border bg-surface px-6 py-10 text-center text-sm text-muted-foreground">
           No attendings yet.
         </div>
       ) : (
@@ -38,15 +38,15 @@ export default async function AttendingsListPage() {
             {attendings.map((a) => (
               <TR key={a.id}>
                 <TD>
-                  <span className="font-medium text-slate-800">{a.scheduleName}</span>
-                  <span className="block text-xs text-slate-400">{a.fullName}</span>
+                  <span className="font-medium text-foreground">{a.scheduleName}</span>
+                  <span className="block text-xs text-subtle-foreground">{a.fullName}</span>
                 </TD>
                 {CAPABILITY_KEYS.map((k) => (
-                  <TD key={k} className="text-slate-500 text-xs">{a[k] as string}</TD>
+                  <TD key={k} className="text-muted-foreground text-xs">{a[k] as string}</TD>
                 ))}
                 <TD>{a.isActive ? <Badge tone="success">Active</Badge> : <Badge tone="default">Inactive</Badge>}</TD>
                 <TD>
-                  <Link href={`/schedule/attendings/${a.id}`} className="text-brand hover:underline text-sm">Edit</Link>
+                  <Link href={`/schedule/attendings/${a.id}`} className="text-brand-fg hover:underline text-sm">Edit</Link>
                 </TD>
               </TR>
             ))}

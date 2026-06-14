@@ -366,11 +366,11 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
 
           {/* Checkboxes */}
           <div className="flex items-center gap-4">
-            <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+            <label className="flex items-center gap-2 text-sm text-foreground-soft cursor-pointer">
               <Checkbox name="confidential" />
               Confidential
             </label>
-            <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+            <label className="flex items-center gap-2 text-sm text-foreground-soft cursor-pointer">
               <Checkbox name="patientInvolved" />
               Patient involved
             </label>
@@ -442,16 +442,16 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
       {/* Records table */}
       <section className="mt-6">
         {accessForbidden ? (
-          <div className="mt-12 flex flex-col items-center justify-center gap-3 text-center text-sm text-slate-500">
+          <div className="mt-12 flex flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground">
             <p>You do not have access to disciplinary records.</p>
           </div>
         ) : rows.length === 0 ? (
-          <div className="mt-12 flex flex-col items-center justify-center gap-3 text-center text-sm text-slate-500">
+          <div className="mt-12 flex flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground">
             <p>No disciplinary actions found.</p>
           </div>
         ) : (
           <>
-            <p className="mb-3 text-sm text-slate-500">
+            <p className="mb-3 text-sm text-muted-foreground">
               {total} action{total === 1 ? "" : "s"}
             </p>
 
@@ -471,19 +471,19 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
               <tbody>
                 {rows.map(({ action, personName, issuedByName, strikes }) => (
                   <TR key={action.id}>
-                    <TD className="tabular-nums text-sm text-slate-600 whitespace-nowrap">
+                    <TD className="tabular-nums text-sm text-foreground-soft whitespace-nowrap">
                       {fmtDate(action.occurredAt)}
                     </TD>
                     <TD className="font-medium">{personName}</TD>
                     <TD>
                       <Badge tone="default">{action.category}</Badge>
                     </TD>
-                    <TD className="max-w-xs text-sm text-slate-700">
+                    <TD className="max-w-xs text-sm text-foreground-soft">
                       <span title={action.description} aria-label={action.description} className="line-clamp-2">
                         {action.description}
                       </span>
                     </TD>
-                    <TD className="text-sm text-slate-600">{issuedByName}</TD>
+                    <TD className="text-sm text-foreground-soft">{issuedByName}</TD>
                     <TD>
                       <div className="flex items-center gap-1.5 flex-wrap">
                         {action.confidential && (
@@ -494,7 +494,7 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
                         )}
                       </div>
                     </TD>
-                    <TD className="tabular-nums text-sm font-medium text-slate-700">
+                    <TD className="tabular-nums text-sm font-medium text-foreground-soft">
                       {strikes}
                     </TD>
                     {canManageAll && (

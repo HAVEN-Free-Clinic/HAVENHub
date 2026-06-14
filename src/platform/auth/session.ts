@@ -5,6 +5,7 @@ import { getActivePerson } from "./match-person";
 import { can } from "@/platform/rbac/engine";
 import { getModule } from "@/platform/modules/registry";
 import { isAllowlistedPath } from "./onboarding-allowlist";
+import { isGateClearedCached, markGateCleared } from "./onboarding-gate-cache";
 // The onboarding gate must run on every page render, including soft (client)
 // navigations -- which re-render the page Server Component but NOT the root
 // layout, so a layout-level gate is bypassable via in-app nav. requirePersonSession
@@ -30,8 +31,14 @@ async function enforceOnboarding(personId: string): Promise<void> {
   const path = (await headers()).get("x-pathname");
   if (!path || isAllowlistedPath(path)) return;
 
+  // Fast path: a recently-cleared person skips the ~6 onboarding queries.
+  if (isGateClearedCached(personId)) return;
+
   const status = await getOnboardingStatus(personId);
-  if (status.exempt || !status.hasActiveTerm || status.onboarded) return;
+  if (status.exempt || !status.hasActiveTerm || status.onboarded) {
+    markGateCleared(personId); // cache only the cleared decision
+    return;
+  }
 
   redirect("/get-started");
 }

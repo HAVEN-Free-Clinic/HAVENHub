@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { requirePersonSession } from "@/platform/auth/session";
-import { prisma } from "@/platform/db";
+import { getActiveTerm } from "@/platform/terms/active-term";
 import { AppShell } from "@/platform/ui/app-shell";
 
 /**
@@ -12,10 +12,7 @@ import { AppShell } from "@/platform/ui/app-shell";
  */
 export default async function AppGroupLayout({ children }: { children: ReactNode }) {
   const person = await requirePersonSession();
-  const activeTerm = await prisma.term.findFirst({
-    where: { status: "ACTIVE" },
-    orderBy: { startDate: "desc" },
-  });
+  const activeTerm = await getActiveTerm();
   return (
     <AppShell
       userName={person.name}

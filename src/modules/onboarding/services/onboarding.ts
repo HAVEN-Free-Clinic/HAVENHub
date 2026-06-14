@@ -1,6 +1,7 @@
 import { cache } from "react";
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
+import { getActiveTerm } from "@/platform/terms/active-term";
 import { complianceStatus } from "@/platform/compliance/rules";
 import { listMyCertificates } from "@/modules/my-info/services/my-info";
 import { getMyTraining } from "@/modules/recruitment/services/training";
@@ -77,10 +78,7 @@ export const getOnboardingStatus = cache(async function getOnboardingStatus(
 ): Promise<OnboardingStatus> {
   const exempt = await can(personId, EXEMPT_PERMISSION);
 
-  const term = await prisma.term.findFirst({
-    where: { status: "ACTIVE" },
-    orderBy: { startDate: "desc" },
-  });
+  const term = await getActiveTerm();
   if (!term) {
     return { hasActiveTerm: false, exempt, tasks: [], completedCount: 0, totalCount: 0, onboarded: true };
   }

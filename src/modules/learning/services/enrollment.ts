@@ -1,4 +1,5 @@
 import { prisma } from "@/platform/db";
+import { getActiveTerm } from "@/platform/terms/active-term";
 import { coursesForMember, type AssignableCourse } from "../engine/assignment";
 import { deriveStatus, rollupStatus } from "../engine/status";
 import type { ScoEntry } from "../engine/manifest";
@@ -6,7 +7,7 @@ import { LearningAuthError } from "./errors";
 
 /** Active term used for assignment (newest ACTIVE term). */
 async function activeTermId(): Promise<string | null> {
-  const term = await prisma.term.findFirst({ where: { status: "ACTIVE" }, orderBy: { startDate: "desc" } });
+  const term = await getActiveTerm();
   return term?.id ?? null;
 }
 

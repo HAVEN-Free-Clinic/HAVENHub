@@ -1,6 +1,7 @@
 import { cache } from "react";
 import type { MembershipKind } from "@prisma/client";
 import { prisma } from "@/platform/db";
+import { getActiveTerm } from "@/platform/terms/active-term";
 
 const MEMBERSHIP_KIND_ROLE: Record<MembershipKind, string> = {
   DIRECTOR: "Director",
@@ -16,7 +17,7 @@ const MEMBERSHIP_KIND_ROLE: Record<MembershipKind, string> = {
  */
 export const getEffectivePermissions = cache(
   async (personId: string): Promise<Set<string>> => {
-    const activeTerm = await prisma.term.findFirst({ where: { status: "ACTIVE" }, orderBy: { startDate: "desc" } });
+    const activeTerm = await getActiveTerm();
 
     const memberships = activeTerm
       ? await prisma.termMembership.findMany({

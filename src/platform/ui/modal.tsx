@@ -74,7 +74,7 @@ export function Modal({ open, onClose, title, children, footer }: ModalProps) {
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4" /* fixed dark scrim — must not theme-flip */
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4" /* fixed dark scrim: must not theme-flip */
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}

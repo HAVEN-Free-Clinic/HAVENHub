@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import { Suspense, type CSSProperties } from "react";
 import Link from "next/link";
 import {
   CalendarDays,
@@ -11,8 +11,6 @@ import {
   Repeat,
   Check,
   Clock,
-  MessagesSquare,
-  ExternalLink,
   ChevronRight,
   type LucideIcon,
 } from "lucide-react";
@@ -22,7 +20,7 @@ import { MODULES } from "@/platform/modules/registry";
 import { canAccessModule } from "@/platform/modules/access";
 import type { ModuleManifest } from "@/platform/modules/types";
 import { TimeGreeting } from "@/platform/ui/time-greeting";
-import { getCurrentClinicChannelLink } from "@/platform/teams/channel-link";
+import { ClinicChannelCard } from "./clinic-channel-card";
 import { mySchedule } from "@/modules/schedule/services/schedule";
 import { listMyCertificates } from "@/modules/my-info/services/my-info";
 import { resolveTrainingState } from "@/modules/recruitment/services/training";
@@ -168,10 +166,9 @@ export default async function HubPage() {
   // One permission fetch per render; tiles filter in memory (never can() in a loop).
   const permissions = await getEffectivePermissions(person.personId);
 
-  const [schedule, certificates, clinicChannel] = await Promise.all([
+  const [schedule, certificates] = await Promise.all([
     mySchedule(person.personId),
     listMyCertificates(person.personId),
-    getCurrentClinicChannelLink(),
   ]);
   const { term, shifts } = schedule;
   const trainingState = term ? await resolveTrainingState(person.personId, term.id) : "PENDING";
@@ -416,28 +413,11 @@ export default async function HubPage() {
 
         {/* Side rail (real data only) */}
         <aside className="flex flex-col gap-4 lg:sticky lg:top-20">
-          {clinicChannel ? (
-            <a
-              href={clinicChannel.webUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-3 rounded-2xl border border-brand/20 bg-brand-faint p-4 transition hover:-translate-y-0.5 hover:shadow-md"
-            >
-              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-brand/15 bg-white text-brand">
-                <MessagesSquare aria-hidden className="h-5 w-5" />
-              </span>
-              <span className="min-w-0">
-                <span className="block text-[11px] font-bold uppercase tracking-wider text-brand">
-                  This week&apos;s clinic
-                </span>
-                <span className="mt-0.5 block truncate text-sm font-medium text-slate-700">
-                  {clinicChannel.displayName}
-                </span>
-                <span className="sr-only"> (opens in a new tab)</span>
-              </span>
-              <ExternalLink aria-hidden className="ml-auto h-4 w-4 shrink-0 text-brand" />
-            </a>
-          ) : null}
+          {/* Streams in independently: the clinic channel link hits Microsoft
+              Graph (seconds), so it must not block the rest of the dashboard. */}
+          <Suspense fallback={null}>
+            <ClinicChannelCard />
+          </Suspense>
 
           <div className="rounded-2xl border border-slate-200 bg-white p-5">
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Your status</h3>

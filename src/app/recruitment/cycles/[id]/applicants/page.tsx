@@ -49,15 +49,15 @@ export default async function ApplicantsPage({ params }: { params: Promise<{ id:
               <TR key={a.id}>
                 <TD>
                   <Link
-                    className="font-medium text-slate-900 hover:text-brand"
+                    className="font-medium text-foreground hover:text-brand-fg"
                     href={`/recruitment/cycles/${id}/applicants/${a.id}`}
                   >
                     {a.applicant.firstName} {a.applicant.lastName}
                   </Link>
                 </TD>
-                <TD className="text-slate-600">{a.applicant.email}</TD>
-                <TD className="text-slate-600">{a.applicantType}</TD>
-                <TD className="text-slate-600">{a.departmentChoices.join(", ")}</TD>
+                <TD className="text-foreground-soft">{a.applicant.email}</TD>
+                <TD className="text-foreground-soft">{a.applicantType}</TD>
+                <TD className="text-foreground-soft">{a.departmentChoices.join(", ")}</TD>
                 <TD>
                   <Badge tone={d.tone}>{d.label}</Badge>
                 </TD>
@@ -66,7 +66,7 @@ export default async function ApplicantsPage({ params }: { params: Promise<{ id:
           })}
           {apps.length === 0 && (
             <TR>
-              <TD colSpan={5} className="py-10 text-center text-slate-400">
+              <TD colSpan={5} className="py-10 text-center text-subtle-foreground">
                 No applicants in your review scope.
               </TD>
             </TR>

@@ -53,19 +53,19 @@ export default async function InterviewsPage({ params }: { params: Promise<{ id:
               <TR key={iv.id}>
                 <TD>
                   <Link
-                    className="font-medium text-slate-900 hover:text-brand"
+                    className="font-medium text-foreground hover:text-brand-fg"
                     href={`/recruitment/cycles/${id}/interviews/${iv.id}`}
                   >
                     {iv.application.applicant.firstName} {iv.application.applicant.lastName}
                   </Link>
                 </TD>
-                <TD className="text-slate-600">{iv.departmentCode}</TD>
+                <TD className="text-foreground-soft">{iv.departmentCode}</TD>
                 <TD>
                   <Badge tone={s.tone}>{s.label}</Badge>
                 </TD>
-                <TD className="text-slate-600">{iv.scheduledAt ? iv.scheduledAt.toLocaleString() : "TBD"}</TD>
-                <TD className="text-slate-600">{iv.panelists.length}</TD>
-                <TD className="text-slate-600">
+                <TD className="text-foreground-soft">{iv.scheduledAt ? iv.scheduledAt.toLocaleString() : "TBD"}</TD>
+                <TD className="text-foreground-soft">{iv.panelists.length}</TD>
+                <TD className="text-foreground-soft">
                   {iv.evaluations.length}/{iv.panelists.length}
                 </TD>
               </TR>
@@ -73,7 +73,7 @@ export default async function InterviewsPage({ params }: { params: Promise<{ id:
           })}
           {interviews.length === 0 && (
             <TR>
-              <TD colSpan={6} className="py-10 text-center text-slate-400">
+              <TD colSpan={6} className="py-10 text-center text-subtle-foreground">
                 No interviews in your scope.
               </TD>
             </TR>

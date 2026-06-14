@@ -61,8 +61,8 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
       />
 
       {sections.map((section) => (
-        <section key={section.id} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">{section.title}</h2>
+        <section key={section.id} className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">{section.title}</h2>
           <dl className="mt-3 grid gap-3 sm:grid-cols-2">
             {section.fields.map((f) => {
               const val = answers[f.key];
@@ -71,8 +71,8 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
                 : Array.isArray(val) ? val.join(", ") : val === undefined || val === "" ? "(none)" : String(val);
               return (
                 <div key={f.id}>
-                  <dt className="text-xs text-slate-400">{f.label}</dt>
-                  <dd className="mt-0.5 text-sm text-slate-800">{display}</dd>
+                  <dt className="text-xs text-subtle-foreground">{f.label}</dt>
+                  <dd className="mt-0.5 text-sm text-foreground">{display}</dd>
                 </div>
               );
             })}
@@ -81,15 +81,15 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
       ))}
 
       {app.cycle.track === "VOLUNTEER" ? (
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">Decision</h2>
+        <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Decision</h2>
           {error && <Alert tone="error" className="mt-3">{error}</Alert>}
           {acceptances.length > 0 ? (
-            <ul className="mt-3 divide-y divide-slate-100">
+            <ul className="mt-3 divide-y divide-border-subtle">
               {acceptances.map((a) => (
                 <li key={a.id} className="flex items-center justify-between gap-4 py-2 text-sm">
-                  <span className="text-slate-700">
-                    Accepted into <strong className="text-slate-900">{a.departmentCode}</strong>
+                  <span className="text-foreground-soft">
+                    Accepted into <strong className="text-foreground">{a.departmentCode}</strong>
                     {a.notes ? `: ${a.notes}` : ""}
                     {a.emailedAt && <Badge tone="success" className="ml-2">notified</Badge>}
                   </span>
@@ -100,12 +100,12 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
               ))}
             </ul>
           ) : (
-            <p className="mt-3 text-sm text-slate-500">No acceptances yet.</p>
+            <p className="mt-3 text-sm text-muted-foreground">No acceptances yet.</p>
           )}
           {choices.length > 0 && (
             <form
               action={acceptApplicantAction.bind(null, id, applicationId)}
-              className="mt-4 flex flex-wrap items-end gap-3 border-t border-slate-100 pt-4"
+              className="mt-4 flex flex-wrap items-end gap-3 border-t border-border-subtle pt-4"
             >
               <div className="w-40">
                 <Field label="Department">
@@ -126,15 +126,15 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
           )}
         </section>
       ) : (
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">Interview</h2>
+        <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Interview</h2>
           {error && <Alert tone="error" className="mt-3">{error}</Alert>}
           {existingInterviews.length > 0 && (
             <ul className="mt-3 space-y-1 text-sm">
               {existingInterviews.map((iv) => (
                 <li key={iv.id}>
                   <Link
-                    className="font-medium text-brand hover:text-brand-hover"
+                    className="font-medium text-brand-fg hover:text-brand-hover"
                     href={`/recruitment/cycles/${id}/interviews/${iv.id}`}
                   >
                     Interview for {iv.departmentCode}
@@ -146,7 +146,7 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
           {scheduleChoices.length > 0 ? (
             <form
               action={scheduleInterviewAction.bind(null, id, applicationId)}
-              className="mt-4 flex flex-wrap items-end gap-3 border-t border-slate-100 pt-4"
+              className="mt-4 flex flex-wrap items-end gap-3 border-t border-border-subtle pt-4"
             >
               <div className="w-40">
                 <Field label="Department">
@@ -160,7 +160,7 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
               <SubmitButton size="sm" pendingLabel="Scheduling…">Schedule interview</SubmitButton>
             </form>
           ) : existingInterviews.length === 0 ? (
-            <p className="mt-3 text-sm text-slate-500">No eligible department to interview for in your scope.</p>
+            <p className="mt-3 text-sm text-muted-foreground">No eligible department to interview for in your scope.</p>
           ) : null}
         </section>
       )}

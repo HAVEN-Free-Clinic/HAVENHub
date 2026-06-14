@@ -36,11 +36,11 @@ export default async function RecruitmentPage() {
           {cycles.map((c) => (
             <TR key={c.id}>
               <TD>
-                <Link href={`/recruitment/cycles/${c.id}`} className="font-medium text-slate-900 hover:text-brand">
+                <Link href={`/recruitment/cycles/${c.id}`} className="font-medium text-foreground hover:text-brand-fg">
                   {c.title}
                 </Link>
               </TD>
-              <TD className="text-slate-600">{c.track}</TD>
+              <TD className="text-foreground-soft">{c.track}</TD>
               <TD>
                 <Badge tone={statusTone[c.status as keyof typeof statusTone] ?? "default"}>{c.status}</Badge>
               </TD>
@@ -48,7 +48,7 @@ export default async function RecruitmentPage() {
           ))}
           {cycles.length === 0 && (
             <TR>
-              <TD colSpan={3} className="py-10 text-center text-slate-400">
+              <TD colSpan={3} className="py-10 text-center text-subtle-foreground">
                 No cycles yet. Create one to get started.
               </TD>
             </TR>

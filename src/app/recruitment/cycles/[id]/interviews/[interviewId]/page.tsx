@@ -58,8 +58,8 @@ export default async function InterviewDetail({ params, searchParams }: { params
 
       {canManage && (
         <>
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">Schedule</h2>
+          <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Schedule</h2>
             <form action={scheduleAction.bind(null, id, interviewId)} className="mt-3 space-y-3">
               <Field label="Time">
                 <Input type="datetime-local" name="scheduledAt" defaultValue={scheduledValue} />
@@ -72,21 +72,21 @@ export default async function InterviewDetail({ params, searchParams }: { params
               </Field>
               <SubmitButton size="sm" pendingLabel="Saving…">Save</SubmitButton>
             </form>
-            <form action={sendInviteAction.bind(null, id, interviewId)} className="mt-4 flex items-center gap-3 border-t border-slate-100 pt-4">
+            <form action={sendInviteAction.bind(null, id, interviewId)} className="mt-4 flex items-center gap-3 border-t border-border-subtle pt-4">
               <SubmitButton size="sm" variant="outline" pendingLabel="Sending…">
                 {iv.invitedAt ? "Resend invite" : "Send invite"}
               </SubmitButton>
-              {iv.invitedAt && <span className="text-xs text-slate-400">sent {iv.invitedAt.toLocaleString()}</span>}
+              {iv.invitedAt && <span className="text-xs text-subtle-foreground">sent {iv.invitedAt.toLocaleString()}</span>}
             </form>
           </section>
 
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">Panel</h2>
+          <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Panel</h2>
             {iv.panelists.length > 0 ? (
-              <ul className="mt-3 divide-y divide-slate-100">
+              <ul className="mt-3 divide-y divide-border-subtle">
                 {iv.panelists.map((p) => (
                   <li key={p.id} className="flex items-center justify-between gap-4 py-2 text-sm">
-                    <span className="text-slate-700">
+                    <span className="text-foreground-soft">
                       {p.person.name}
                       {p.isLead && <Badge tone="brand" className="ml-2">lead</Badge>}
                     </span>
@@ -97,36 +97,36 @@ export default async function InterviewDetail({ params, searchParams }: { params
                 ))}
               </ul>
             ) : (
-              <p className="mt-3 text-sm text-slate-500">No panelists yet.</p>
+              <p className="mt-3 text-sm text-muted-foreground">No panelists yet.</p>
             )}
             <AddPanelistForm action={addPanelistAction.bind(null, id, interviewId)} candidates={candidates} />
-            <p className="mt-2 text-xs text-slate-400">Panel members can submit an evaluation from their My interviews page.</p>
+            <p className="mt-2 text-xs text-subtle-foreground">Panel members can submit an evaluation from their My interviews page.</p>
           </section>
         </>
       )}
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">Evaluations ({summary.total})</h2>
-        <p className="mt-1 text-xs text-slate-400">
+      <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Evaluations ({summary.total})</h2>
+        <p className="mt-1 text-xs text-subtle-foreground">
           Strong yes {summary.strongYes} · Yes {summary.yes} · Maybe {summary.maybe} · No {summary.no}
         </p>
         {iv.evaluations.length > 0 ? (
-          <ul className="mt-3 divide-y divide-slate-100">
+          <ul className="mt-3 divide-y divide-border-subtle">
             {iv.evaluations.map((e) => (
-              <li key={e.id} className="py-2 text-sm text-slate-700">
-                <strong className="text-slate-900">{e.evaluator.name}</strong>: {e.recommendation.replace("_", " ")}
+              <li key={e.id} className="py-2 text-sm text-foreground-soft">
+                <strong className="text-foreground">{e.evaluator.name}</strong>: {e.recommendation.replace("_", " ")}
                 {e.comments ? ` (${e.comments})` : ""}
               </li>
             ))}
           </ul>
         ) : (
-          <p className="mt-3 text-sm text-slate-500">No evaluations yet.</p>
+          <p className="mt-3 text-sm text-muted-foreground">No evaluations yet.</p>
         )}
       </section>
 
       {canManage && (
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">Decision</h2>
+        <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Decision</h2>
           <form action={decideAction.bind(null, id, interviewId)} className="mt-3 flex flex-wrap items-end gap-3">
             <div className="w-40">
               <Field label="Outcome">
@@ -144,13 +144,13 @@ export default async function InterviewDetail({ params, searchParams }: { params
             </div>
             <SubmitButton size="sm" pendingLabel="Recording…">Record decision</SubmitButton>
           </form>
-          <p className="mt-2 text-xs text-slate-400">Accept creates an acceptance, released from the Decisions page.</p>
+          <p className="mt-2 text-xs text-subtle-foreground">Accept creates an acceptance, released from the Decisions page.</p>
         </section>
       )}
 
       {isPanelist && (
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">Your evaluation</h2>
+        <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Your evaluation</h2>
           <form action={submitEvaluationAction.bind(null, id, interviewId)} className="mt-3 flex flex-wrap items-end gap-3">
             <div className="w-44">
               <Field label="Recommendation">

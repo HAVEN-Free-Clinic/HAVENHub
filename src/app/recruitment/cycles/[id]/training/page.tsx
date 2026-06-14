@@ -57,14 +57,14 @@ export default async function TrainingRosterPage({ params, searchParams }: { par
         <tbody>
           {rows.map((r) => (
             <TR key={`${r.personId}-${r.departmentCode}`}>
-              <TD className="font-medium text-slate-900">{r.name}</TD>
-              <TD className="text-slate-600">{r.departmentCode}</TD>
-              <TD className="text-slate-600">{r.certStatus}</TD>
-              <TD className="text-slate-600">
+              <TD className="font-medium text-foreground">{r.name}</TD>
+              <TD className="text-foreground-soft">{r.departmentCode}</TD>
+              <TD className="text-foreground-soft">{r.certStatus}</TD>
+              <TD className="text-foreground-soft">
                 {r.trainingState}
                 {r.locked ? " (locked)" : ""}
               </TD>
-              <TD className="text-slate-600">{r.overallClearance}</TD>
+              <TD className="text-foreground-soft">{r.overallClearance}</TD>
               <TD>
                 <div className="flex items-center justify-end gap-2">
                   {r.trainingState !== "COMPLETE" && (
@@ -85,7 +85,7 @@ export default async function TrainingRosterPage({ params, searchParams }: { par
           ))}
           {rows.length === 0 && (
             <TR>
-              <TD colSpan={6} className="py-10 text-center text-slate-400">
+              <TD colSpan={6} className="py-10 text-center text-subtle-foreground">
                 No active volunteers in scope.
               </TD>
             </TR>

@@ -59,20 +59,20 @@ export default async function OnboardingPage({ params, searchParams }: { params:
               return (
                 <TR key={r.id}>
                   <TD>{!r.contract && <Checkbox name="acceptanceId" value={r.id} />}</TD>
-                  <TD className="font-medium text-slate-900">
+                  <TD className="font-medium text-foreground">
                     {r.application.applicant.firstName} {r.application.applicant.lastName}
                   </TD>
-                  <TD className="text-slate-600">{r.departmentCode}</TD>
+                  <TD className="text-foreground-soft">{r.departmentCode}</TD>
                   <TD>
                     <Badge tone={s.tone}>{s.label}</Badge>
-                    {r.contract?.promotedPersonId && <span className="ml-2 text-xs text-slate-400">on roster</span>}
+                    {r.contract?.promotedPersonId && <span className="ml-2 text-xs text-subtle-foreground">on roster</span>}
                   </TD>
                 </TR>
               );
             })}
             {rows.length === 0 && (
               <TR>
-                <TD colSpan={4} className="py-10 text-center text-slate-400">
+                <TD colSpan={4} className="py-10 text-center text-subtle-foreground">
                   No accepted applicants yet.
                 </TD>
               </TR>
@@ -84,15 +84,15 @@ export default async function OnboardingPage({ params, searchParams }: { params:
         </SubmitButton>
       </form>
 
-      <form action={promoteAction.bind(null, id)} className="space-y-3 border-t border-slate-200 pt-6">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">Promote submitted contracts</h2>
+      <form action={promoteAction.bind(null, id)} className="space-y-3 border-t border-border pt-6">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Promote submitted contracts</h2>
         {promotable.length === 0 ? (
-          <p className="text-sm text-slate-500">No submitted contracts ready to promote.</p>
+          <p className="text-sm text-muted-foreground">No submitted contracts ready to promote.</p>
         ) : (
           <ul className="space-y-2">
             {promotable.map((r) => (
               <li key={r.id}>
-                <label className="flex items-center gap-2 text-sm text-slate-700">
+                <label className="flex items-center gap-2 text-sm text-foreground-soft">
                   <Checkbox name="contractId" value={r.contract!.id} />
                   {r.application.applicant.firstName} {r.application.applicant.lastName} ({r.departmentCode})
                 </label>

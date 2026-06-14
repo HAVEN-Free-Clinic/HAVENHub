@@ -21,7 +21,6 @@ import { getEffectivePermissions } from "@/platform/rbac/engine";
 import { MODULES } from "@/platform/modules/registry";
 import { canAccessModule } from "@/platform/modules/access";
 import type { ModuleManifest } from "@/platform/modules/types";
-import { AppShell } from "@/platform/ui/app-shell";
 import { TimeGreeting } from "@/platform/ui/time-greeting";
 import { getCurrentClinicChannelLink } from "@/platform/teams/channel-link";
 import { mySchedule } from "@/modules/schedule/services/schedule";
@@ -271,7 +270,7 @@ export default async function HubPage() {
   const quick = quickAll.filter((q) => q.show).slice(0, 4);
 
   return (
-    <AppShell userName={person.name} termLabel={term?.name ?? null} personId={person.personId}>
+    <>
       <div className="grid items-start gap-6 lg:grid-cols-[1fr_340px]">
         {/* Main column */}
         <div className="min-w-0">
@@ -471,6 +470,6 @@ export default async function HubPage() {
           </div>
         </aside>
       </div>
-    </AppShell>
+    </>
   );
 }

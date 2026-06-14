@@ -32,4 +32,10 @@ describe("liquid glass material", () => {
     // The old ad-hoc frosted recipe should be gone.
     expect(shell).not.toContain("bg-surface/85");
   });
+
+  it("uses .glass-panel for the modal and blurs its scrim", () => {
+    const modal = read("src/platform/ui/modal.tsx");
+    expect(modal).toContain("glass-panel");
+    expect(modal).toContain("backdrop-blur-sm");
+  });
 });

@@ -74,7 +74,7 @@ export function Modal({ open, onClose, title, children, footer }: ModalProps) {
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4" /* fixed dark scrim: must not theme-flip */
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4" /* fixed dark scrim: must not theme-flip */
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -85,7 +85,7 @@ export function Modal({ open, onClose, title, children, footer }: ModalProps) {
         aria-modal="true"
         aria-labelledby={title ? titleId : undefined}
         tabIndex={-1}
-        className="flex max-h-[90vh] w-full max-w-4xl flex-col rounded-2xl border border-border bg-surface shadow-xl outline-none"
+        className="flex max-h-[90vh] w-full max-w-4xl flex-col rounded-2xl glass-panel outline-none"
       >
         <div className="flex items-center justify-between border-b border-border px-5 py-3">
           <h2 id={titleId} className="min-w-0 truncate text-sm font-semibold text-foreground-soft">{title}</h2>

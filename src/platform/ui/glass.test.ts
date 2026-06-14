@@ -42,4 +42,9 @@ describe("liquid glass material", () => {
   it("uses .glass-panel for the combobox popover", () => {
     expect(read("src/platform/ui/combobox.tsx")).toContain("glass-panel");
   });
+
+  it("does NOT glass the breadcrumbs or module tabs (Apple: no layering glass)", () => {
+    expect(read("src/platform/ui/breadcrumbs.tsx")).not.toMatch(/glass-(bar|panel)/);
+    expect(read("src/platform/ui/module-nav.tsx")).not.toMatch(/glass-(bar|panel)/);
+  });
 });

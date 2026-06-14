@@ -55,7 +55,7 @@ type RolesPanelProps = {
 
 function SectionHeading({ children }: { children: ReactNode }) {
   return (
-    <h2 className="mb-4 text-base font-semibold tracking-tight text-slate-800">
+    <h2 className="mb-4 text-base font-semibold tracking-tight text-foreground">
       {children}
     </h2>
   );
@@ -151,7 +151,7 @@ export async function RolesPanel({ roles, pageHref }: RolesPanelProps): Promise<
 
       {/* Create-role inline form */}
       <Card>
-        <h3 className="mb-4 text-sm font-semibold text-slate-700">Create new role</h3>
+        <h3 className="mb-4 text-sm font-semibold text-foreground-soft">Create new role</h3>
         <form action={createRoleAction} className="flex flex-wrap items-end gap-3">
           <Field label="Name">
             <Input
@@ -178,7 +178,7 @@ export async function RolesPanel({ roles, pageHref }: RolesPanelProps): Promise<
 
       {/* One card per role */}
       {roles.length === 0 && (
-        <p className="text-sm text-slate-500">No roles yet. Create one above.</p>
+        <p className="text-sm text-muted-foreground">No roles yet. Create one above.</p>
       )}
       {roles.map((role) => {
         const grantedSet = new Set(role.grants.map((g) => g.permission));
@@ -189,15 +189,15 @@ export async function RolesPanel({ roles, pageHref }: RolesPanelProps): Promise<
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-semibold text-slate-800">{role.name}</h3>
+                  <h3 className="text-sm font-semibold text-foreground">{role.name}</h3>
                   {role.isSystem && (
                     <Badge tone="brand">System</Badge>
                   )}
                 </div>
                 {role.description && (
-                  <p className="text-xs text-slate-500">{role.description}</p>
+                  <p className="text-xs text-muted-foreground">{role.description}</p>
                 )}
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-subtle-foreground">
                   {role._count.assignments} assignment(s)
                 </p>
               </div>
@@ -218,14 +218,14 @@ export async function RolesPanel({ roles, pageHref }: RolesPanelProps): Promise<
               {/* Module permission groups */}
               {MODULES.filter((m) => m.permissions.length > 0).map((mod) => (
                 <div key={mod.id} className="space-y-2">
-                  <p className="text-xs font-medium uppercase tracking-wider text-slate-500">
+                  <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                     {mod.title}
                   </p>
                   <div className="flex flex-wrap gap-x-6 gap-y-1.5">
                     {mod.permissions.map((perm) => (
                       <label
                         key={perm}
-                        className="flex items-center gap-2 text-sm text-slate-700"
+                        className="flex items-center gap-2 text-sm text-foreground-soft"
                       >
                         <Checkbox
                           name="permissions"
@@ -241,18 +241,18 @@ export async function RolesPanel({ roles, pageHref }: RolesPanelProps): Promise<
 
               {/* Platform group: wildcard */}
               <div className="space-y-2">
-                <p className="text-xs font-medium uppercase tracking-wider text-slate-500">
+                <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                   Platform
                 </p>
                 <div className="flex flex-wrap gap-x-6 gap-y-1.5">
-                  <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <label className="flex items-center gap-2 text-sm text-foreground-soft">
                     <Checkbox
                       name="permissions"
                       value="*"
                       defaultChecked={grantedSet.has("*")}
                     />
                     <span className="font-mono text-xs">*</span>
-                    <span className="text-xs text-slate-400">(superadmin: all permissions)</span>
+                    <span className="text-xs text-subtle-foreground">(superadmin: all permissions)</span>
                   </label>
                 </div>
               </div>

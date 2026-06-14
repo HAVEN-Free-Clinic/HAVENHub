@@ -90,7 +90,7 @@ export function TemplateEditor(props: {
       <EditorStyles />
       {/* Editor column */}
       <div>
-        <label className="block text-sm font-medium text-slate-700">Subject</label>
+        <label className="block text-sm font-medium text-foreground-soft">Subject</label>
         <Input
           name="subject"
           value={subject}
@@ -100,19 +100,19 @@ export function TemplateEditor(props: {
         />
 
         <div className="mt-4 flex items-center justify-between">
-          <label className="text-sm font-medium text-slate-700">Message body</label>
-          <div className="inline-flex overflow-hidden rounded-lg border border-slate-200 text-xs">
+          <label className="text-sm font-medium text-foreground-soft">Message body</label>
+          <div className="inline-flex overflow-hidden rounded-lg border border-border text-xs">
             <button
               type="button"
               onClick={() => switchMode("rich")}
-              className={`px-2 py-1 ${mode === "rich" ? "bg-brand text-white" : "bg-white text-slate-600"}`}
+              className={`px-2 py-1 ${mode === "rich" ? "bg-brand text-white" : "bg-surface text-foreground-soft"}`}
             >
               Formatted
             </button>
             <button
               type="button"
               onClick={() => switchMode("source")}
-              className={`px-2 py-1 ${mode === "source" ? "bg-brand text-white" : "bg-white text-slate-600"}`}
+              className={`px-2 py-1 ${mode === "source" ? "bg-brand text-white" : "bg-surface text-foreground-soft"}`}
             >
               HTML
             </button>
@@ -120,7 +120,7 @@ export function TemplateEditor(props: {
         </div>
 
         {mode === "rich" ? (
-          <div className="mt-1 rounded-xl border border-slate-200">
+          <div className="mt-1 rounded-xl border border-border">
             <Toolbar editor={editor} />
             <EditorContent editor={editor} />
           </div>
@@ -131,7 +131,7 @@ export function TemplateEditor(props: {
             onChange={(e) => setBody(e.target.value)}
             rows={16}
             placeholder="<p>Your message…</p>"
-            className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-xs outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15"
+            className="mt-1 w-full rounded-lg border border-border-strong bg-surface px-3 py-2 font-mono text-xs outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15"
           />
         )}
 
@@ -140,7 +140,7 @@ export function TemplateEditor(props: {
 
         {props.variables.length > 0 && (
           <div className="mt-3">
-            <div className="text-xs font-medium text-slate-500">Insert a variable:</div>
+            <div className="text-xs font-medium text-muted-foreground">Insert a variable:</div>
             <div className="mt-1 flex flex-wrap gap-1">
               {props.variables.map((v) => (
                 <button
@@ -148,7 +148,7 @@ export function TemplateEditor(props: {
                   type="button"
                   title={v.label}
                   onClick={() => insertToken(`{{ ${v.name} }}`)}
-                  className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-xs text-slate-700 hover:bg-slate-100"
+                  className="rounded-lg border border-border bg-muted px-2 py-1 font-mono text-xs text-foreground-soft hover:bg-muted-strong"
                 >
                   {`{{ ${v.name} }}`}
                 </button>
@@ -157,12 +157,12 @@ export function TemplateEditor(props: {
                 type="button"
                 title="Conditional block — shows the inner content only when the variable has a value"
                 onClick={() => insertToken("{{#if VARIABLE}}\n\n{{/if}}")}
-                className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-xs text-slate-700 hover:bg-slate-100"
+                className="rounded-lg border border-border bg-muted px-2 py-1 font-mono text-xs text-foreground-soft hover:bg-muted-strong"
               >
                 {`{{#if}}…{{/if}}`}
               </button>
             </div>
-            <p className="mt-1 text-xs text-slate-400">
+            <p className="mt-1 text-xs text-subtle-foreground">
               Conditionals only work in HTML mode. Switch to HTML to edit them precisely.
             </p>
           </div>
@@ -171,15 +171,15 @@ export function TemplateEditor(props: {
 
       {/* Preview column */}
       <div>
-        <div className="text-sm font-medium text-slate-700">Preview (with sample data)</div>
-        <div className="mt-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1 text-sm">
-          <span className="text-slate-400">Subject:&nbsp;</span>
+        <div className="text-sm font-medium text-foreground-soft">Preview (with sample data)</div>
+        <div className="mt-1 rounded-xl border border-border bg-muted px-3 py-1 text-sm">
+          <span className="text-subtle-foreground">Subject:&nbsp;</span>
           <strong>{previewSubject}</strong>
         </div>
         <iframe
           title="preview"
           sandbox="allow-same-origin"
-          className="mt-2 h-[34rem] w-full rounded-xl border border-slate-200 bg-white"
+          className="mt-2 h-[34rem] w-full rounded-xl border border-border bg-surface"
           srcDoc={previewDoc}
         />
       </div>
@@ -188,10 +188,10 @@ export function TemplateEditor(props: {
 }
 
 function Toolbar({ editor }: { editor: Editor | null }) {
-  if (!editor) return <div className="h-9 border-b border-slate-200" />;
+  if (!editor) return <div className="h-9 border-b border-border" />;
 
   const btn = (active: boolean) =>
-    `rounded-lg px-2 py-1 text-sm ${active ? "bg-brand text-white" : "text-slate-600 hover:bg-slate-100"}`;
+    `rounded-lg px-2 py-1 text-sm ${active ? "bg-brand text-white" : "text-foreground-soft hover:bg-muted-strong"}`;
 
   function setLink() {
     const prev = editor!.getAttributes("link").href as string | undefined;
@@ -205,21 +205,21 @@ function Toolbar({ editor }: { editor: Editor | null }) {
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-1 border-b border-slate-200 p-1">
+    <div className="flex flex-wrap items-center gap-1 border-b border-border p-1">
       <button type="button" className={btn(editor.isActive("bold"))} onClick={() => editor.chain().focus().toggleBold().run()}>
         <strong>B</strong>
       </button>
       <button type="button" className={btn(editor.isActive("italic"))} onClick={() => editor.chain().focus().toggleItalic().run()}>
         <em>I</em>
       </button>
-      <span className="mx-1 h-5 w-px bg-slate-200" />
+      <span className="mx-1 h-5 w-px bg-border" />
       <button type="button" className={btn(editor.isActive("heading", { level: 2 }))} onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}>
         H2
       </button>
       <button type="button" className={btn(editor.isActive("heading", { level: 3 }))} onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}>
         H3
       </button>
-      <span className="mx-1 h-5 w-px bg-slate-200" />
+      <span className="mx-1 h-5 w-px bg-border" />
       <button type="button" className={btn(editor.isActive("bulletList"))} onClick={() => editor.chain().focus().toggleBulletList().run()}>
         • List
       </button>
@@ -229,11 +229,11 @@ function Toolbar({ editor }: { editor: Editor | null }) {
       <button type="button" className={btn(editor.isActive("blockquote"))} onClick={() => editor.chain().focus().toggleBlockquote().run()}>
         &ldquo; Quote
       </button>
-      <span className="mx-1 h-5 w-px bg-slate-200" />
+      <span className="mx-1 h-5 w-px bg-border" />
       <button type="button" className={btn(editor.isActive("link"))} onClick={setLink}>
         Link
       </button>
-      <span className="mx-1 h-5 w-px bg-slate-200" />
+      <span className="mx-1 h-5 w-px bg-border" />
       <button type="button" className={btn(false)} onClick={() => editor.chain().focus().undo().run()}>
         Undo
       </button>

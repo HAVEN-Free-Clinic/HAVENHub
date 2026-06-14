@@ -22,12 +22,12 @@ export function BrandingImageField({
   return (
     <div className="space-y-2">
       <label className="block text-sm font-medium">{setting.label}</label>
-      <p className="text-xs text-slate-500">{setting.help}</p>
+      <p className="text-xs text-muted-foreground">{setting.help}</p>
       {/* eslint-disable-next-line @next/next/no-img-element -- dynamic same-origin asset route, not a static import */}
       <img
         src={`/api/branding/${asset}?v=${value.version}`}
         alt={`${setting.label} preview`}
-        className="h-12 max-w-[200px] rounded border bg-slate-100 object-contain p-1"
+        className="h-12 max-w-[200px] rounded border bg-muted-strong object-contain p-1"
       />
       <form action={uploadAction} encType="multipart/form-data" className="flex items-center gap-2">
         <input type="hidden" name="__asset" value={asset} />

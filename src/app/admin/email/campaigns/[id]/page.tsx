@@ -270,11 +270,11 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
         <form action={saveAction} className="space-y-8">
           {/* Section 1: Compose */}
           <div className="space-y-6">
-            <h2 className="text-base font-semibold text-slate-800">1. Compose</h2>
+            <h2 className="text-base font-semibold text-foreground">1. Compose</h2>
 
             {/* Campaign name */}
             <div>
-              <label className="block text-sm font-medium text-slate-700" htmlFor="campaign-name">
+              <label className="block text-sm font-medium text-foreground-soft" htmlFor="campaign-name">
                 Campaign name
               </label>
               <Input
@@ -298,8 +298,8 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
           </div>
 
           {/* Section 2: Audience */}
-          <div className="border-t border-slate-200 pt-6 space-y-4">
-            <h2 className="text-base font-semibold text-slate-800">2. Audience</h2>
+          <div className="border-t border-border pt-6 space-y-4">
+            <h2 className="text-base font-semibold text-foreground">2. Audience</h2>
             <AudienceBuilder
               fields={PERSON_FIELD_VIEWS}
               departments={departments}
@@ -308,7 +308,7 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
           </div>
 
           {/* Sticky save footer */}
-          <div className="sticky bottom-0 -mx-1 border-t border-slate-200 bg-white py-3">
+          <div className="sticky bottom-0 -mx-1 border-t border-border bg-surface py-3">
             <SubmitButton pendingLabel="Saving...">Save</SubmitButton>
           </div>
         </form>
@@ -317,17 +317,17 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
       {/* Read-only summary for any non-draft campaign (sent / scheduled / recurring / cancelled) */}
       {!isDraft && (
         <div className="space-y-4">
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-2">
-            <p className="text-sm font-medium text-slate-700">Subject</p>
-            <p className="text-sm text-slate-600">{campaign.subject || <em className="text-slate-400">No subject</em>}</p>
+          <div className="rounded-2xl border border-border bg-surface p-5 space-y-2">
+            <p className="text-sm font-medium text-foreground-soft">Subject</p>
+            <p className="text-sm text-foreground-soft">{campaign.subject || <em className="text-subtle-foreground">No subject</em>}</p>
           </div>
         </div>
       )}
 
       {/* Section 3: Review & send — drafts only */}
       {isDraft && (
-        <div id="review" className="space-y-4 border-t border-slate-200 pt-6">
-          <h2 className="text-base font-semibold text-slate-800">3. Review &amp; send</h2>
+        <div id="review" className="space-y-4 border-t border-border pt-6">
+          <h2 className="text-base font-semibold text-foreground">3. Review &amp; send</h2>
 
           <div className="flex flex-wrap gap-3">
             {/* Preview audience */}
@@ -347,7 +347,7 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
             {/* Live send */}
             <form action={sendAction} className="flex items-center gap-2">
               <div>
-                <label className="block text-xs text-slate-500" htmlFor="confirmCount">
+                <label className="block text-xs text-muted-foreground" htmlFor="confirmCount">
                   Confirm count (required for &gt;25 recipients)
                 </label>
                 <Input
@@ -388,13 +388,13 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
       {(isScheduled || isActive) && (
         <div className="rounded-xl border border-brand/20 bg-brand-faint p-4 space-y-3">
           {isScheduled && campaign.scheduledAt && (
-            <p className="text-sm text-brand">
+            <p className="text-sm text-brand-fg">
               <strong>Scheduled to send on</strong>{" "}
               {campaign.scheduledAt.toLocaleString()}
             </p>
           )}
           {isActive && (
-            <p className="text-sm text-brand">
+            <p className="text-sm text-brand-fg">
               <strong>Recurring:</strong> {campaign.cronExpr}
               {campaign.nextRunAt && (
                 <> &mdash; next run {campaign.nextRunAt.toLocaleString()}</>
@@ -411,15 +411,15 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
 
       {/* Timing section — DRAFT only */}
       {isDraft && (
-        <div className="space-y-5 border-t border-slate-200 pt-6">
-          <h2 className="text-base font-semibold text-slate-800">Timing</h2>
+        <div className="space-y-5 border-t border-border pt-6">
+          <h2 className="text-base font-semibold text-foreground">Timing</h2>
 
           {/* Schedule for later */}
           <div className="space-y-2">
-            <p className="text-sm font-medium text-slate-700">Schedule for later</p>
+            <p className="text-sm font-medium text-foreground-soft">Schedule for later</p>
             <form action={scheduleLaterAction} className="flex flex-wrap items-end gap-3">
               <div>
-                <label className="block text-xs text-slate-500" htmlFor="scheduledAt">
+                <label className="block text-xs text-muted-foreground" htmlFor="scheduledAt">
                   Send at
                 </label>
                 <Input
@@ -436,17 +436,17 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
 
           {/* Recurring */}
           <div className="space-y-2">
-            <p className="text-sm font-medium text-slate-700">Recurring</p>
+            <p className="text-sm font-medium text-foreground-soft">Recurring</p>
             <form action={scheduleRecurringAction} className="flex flex-wrap items-end gap-3">
               <div>
-                <label className="block text-xs text-slate-500" htmlFor="cronExpr">
+                <label className="block text-xs text-muted-foreground" htmlFor="cronExpr">
                   Cron expression
                 </label>
                 <CronPresets />
               </div>
               <Button type="submit">Start recurring</Button>
             </form>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-muted-foreground">
               Cron format: minute hour day month weekday, in UTC. Example:{" "}
               <code className="font-mono">0 13 * * 1</code> = Mondays at 13:00 UTC.
             </p>
@@ -456,20 +456,20 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
 
       {/* Sent runs list */}
       {campaign.runs.length > 0 && (
-        <div className="space-y-3 border-t border-slate-200 pt-6">
-          <h2 className="text-base font-semibold text-slate-800">Sent runs</h2>
+        <div className="space-y-3 border-t border-border pt-6">
+          <h2 className="text-base font-semibold text-foreground">Sent runs</h2>
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-xs font-medium text-slate-500 border-b border-slate-200">
+              <tr className="text-left text-xs font-medium text-muted-foreground border-b border-border">
                 <th className="pb-2 pr-6">Sent at</th>
                 <th className="pb-2">Recipients</th>
               </tr>
             </thead>
             <tbody>
               {campaign.runs.map((run) => (
-                <tr key={run.id} className="border-b border-slate-100 last:border-0">
-                  <td className="py-2 pr-6 text-slate-700">{run.runAt.toLocaleString()}</td>
-                  <td className="py-2 text-slate-700">{run.recipientCount}</td>
+                <tr key={run.id} className="border-b border-border-subtle last:border-0">
+                  <td className="py-2 pr-6 text-foreground-soft">{run.runAt.toLocaleString()}</td>
+                  <td className="py-2 text-foreground-soft">{run.recipientCount}</td>
                 </tr>
               ))}
             </tbody>

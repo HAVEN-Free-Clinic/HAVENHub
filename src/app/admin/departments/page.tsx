@@ -55,7 +55,7 @@ export default async function DepartmentsListPage() {
           ))}
           {departments.length === 0 && (
             <TR>
-              <TD colSpan={6} className="py-10 text-center text-sm text-slate-400">
+              <TD colSpan={6} className="py-10 text-center text-sm text-subtle-foreground">
                 No departments yet.
               </TD>
             </TR>

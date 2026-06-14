@@ -56,7 +56,7 @@ export function ClinicDatesEditor({
       {/* List of dates with per-date remove buttons */}
       <div className="space-y-1">
         {clinicDates.length === 0 && (
-          <p className="text-sm text-slate-400">No clinic dates set.</p>
+          <p className="text-sm text-subtle-foreground">No clinic dates set.</p>
         )}
         {clinicDates.map((d, idx) => {
           // Remaining dates after removing this one.
@@ -100,7 +100,7 @@ export function ClinicDatesEditor({
             label="Regenerate Saturdays"
             confirmLabel={`Replace with ${saturdayIsos.length} Saturday(s)?`}
           />
-          <span className="text-xs text-slate-400">
+          <span className="text-xs text-subtle-foreground">
             Replaces all dates with the {saturdayIsos.length} Saturday(s) between the term start and end.
           </span>
         </div>

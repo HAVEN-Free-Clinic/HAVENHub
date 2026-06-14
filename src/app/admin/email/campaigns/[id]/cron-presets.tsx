@@ -20,7 +20,7 @@ export function CronPresets() {
             key={p.value}
             type="button"
             onClick={() => setCronExpr(p.value)}
-            className="rounded-lg border border-dashed border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:border-slate-400 hover:text-slate-800"
+            className="rounded-lg border border-dashed border-border-strong px-3 py-1.5 text-sm text-foreground-soft hover:border-border-strong hover:text-foreground"
           >
             {p.label}
           </button>

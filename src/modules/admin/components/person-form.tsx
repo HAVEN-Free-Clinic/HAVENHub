@@ -105,14 +105,14 @@ export function PersonForm({ action, person, error, saved, children }: PersonFor
       </div>
 
       <div className="flex flex-wrap gap-6">
-        <label className="flex items-center gap-2 text-sm text-slate-700">
+        <label className="flex items-center gap-2 text-sm text-foreground-soft">
           <Checkbox
             name="spanishSpeaking"
             defaultChecked={person?.spanishSpeaking ?? false}
           />
           Spanish-speaking
         </label>
-        <label className="flex items-center gap-2 text-sm text-slate-700">
+        <label className="flex items-center gap-2 text-sm text-foreground-soft">
           <Checkbox
             name="licensedRN"
             defaultChecked={person?.licensedRN ?? false}

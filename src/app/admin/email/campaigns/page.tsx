@@ -30,7 +30,7 @@ export default async function EmailCampaignsPage() {
 
       {campaigns.length === 0 ? (
         <div className="space-y-3">
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-muted-foreground">
             Campaigns let you send a one-off or recurring email to a filtered group of people.
           </p>
           <Link
@@ -41,7 +41,7 @@ export default async function EmailCampaignsPage() {
           </Link>
         </div>
       ) : (
-        <ul className="divide-y rounded-2xl border border-slate-200 bg-white">
+        <ul className="divide-y rounded-2xl border border-border bg-surface">
           {campaigns.map((c) => (
             <li key={c.id} className="flex items-center justify-between px-5 py-3">
               <span>
@@ -51,9 +51,9 @@ export default async function EmailCampaignsPage() {
                 >
                   {c.name}
                 </Link>
-                <span className="ml-2 text-xs text-slate-400">{fmtDate(c.createdAt)}</span>
+                <span className="ml-2 text-xs text-subtle-foreground">{fmtDate(c.createdAt)}</span>
               </span>
-              <span className="text-xs text-slate-500">{c.status}</span>
+              <span className="text-xs text-muted-foreground">{c.status}</span>
             </li>
           ))}
         </ul>

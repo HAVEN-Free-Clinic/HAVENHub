@@ -9,7 +9,7 @@ type Tone = "default" | "brand" | "success" | "warning" | "critical";
 
 const valueTone: Record<Tone, string> = {
   default: "text-foreground",
-  brand: "text-brand",
+  brand: "text-brand-fg",
   success: "text-success",
   warning: "text-warning",
   critical: "text-critical",

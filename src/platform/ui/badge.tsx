@@ -4,7 +4,7 @@ type Tone = "default" | "brand" | "success" | "warning" | "critical";
 
 const toneClasses: Record<Tone, string> = {
   default:  "bg-muted-strong text-foreground-soft",
-  brand:    "bg-brand-faint text-brand",
+  brand:    "bg-brand-faint text-brand-fg",
   success:  "bg-green-50 text-success",
   warning:  "bg-amber-50 text-warning",
   critical: "bg-red-50 text-critical",

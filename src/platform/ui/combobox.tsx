@@ -125,7 +125,7 @@ export function Combobox({
               aria-selected={o.value === value}
               className={cx(
                 "cursor-pointer px-3 py-2 text-sm",
-                i === active ? "bg-brand-faint text-brand" : "text-foreground-soft hover:bg-muted",
+                i === active ? "bg-brand-faint text-brand-fg" : "text-foreground-soft hover:bg-muted",
               )}
               onMouseEnter={() => setActive(i)}
               // onMouseDown (not onClick) so selection fires before the input blur closes the list.

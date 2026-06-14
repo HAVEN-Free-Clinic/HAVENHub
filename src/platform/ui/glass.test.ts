@@ -38,4 +38,8 @@ describe("liquid glass material", () => {
     expect(modal).toContain("glass-panel");
     expect(modal).toContain("backdrop-blur-sm");
   });
+
+  it("uses .glass-panel for the combobox popover", () => {
+    expect(read("src/platform/ui/combobox.tsx")).toContain("glass-panel");
+  });
 });

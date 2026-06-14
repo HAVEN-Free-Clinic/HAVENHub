@@ -8,7 +8,7 @@ function cx(...parts: (string | undefined | false | null)[]): string {
 type Tone = "default" | "brand" | "success" | "warning" | "critical";
 
 const valueTone: Record<Tone, string> = {
-  default: "text-slate-900",
+  default: "text-foreground",
   brand: "text-brand",
   success: "text-success",
   warning: "text-warning",
@@ -39,7 +39,7 @@ export function StatCard({ label, value, href, tone = "default", children }: Sta
       )}
       <p
         className={cx(
-          "text-xs uppercase tracking-wider text-slate-400",
+          "text-xs uppercase tracking-wider text-subtle-foreground",
           value !== undefined && "mt-1",
         )}
       >
@@ -49,7 +49,7 @@ export function StatCard({ label, value, href, tone = "default", children }: Sta
     </>
   );
 
-  const base = "block rounded-2xl border border-slate-200 bg-white p-5 shadow-sm";
+  const base = "block rounded-2xl border border-border bg-surface p-5 shadow-sm";
 
   if (href) {
     return (

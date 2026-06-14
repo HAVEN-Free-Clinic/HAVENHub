@@ -19,7 +19,7 @@ export function PageLoading({ label = "Loading" }: PageLoadingProps) {
       className="flex min-h-[40vh] flex-col items-center justify-center gap-3 text-brand"
     >
       <Spinner size="lg" />
-      <p className="text-sm font-medium text-slate-500">{label}</p>
+      <p className="text-sm font-medium text-muted-foreground">{label}</p>
     </div>
   );
 }

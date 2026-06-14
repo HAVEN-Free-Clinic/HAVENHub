@@ -3,7 +3,7 @@ import type { ComponentProps } from "react";
 type Tone = "default" | "brand" | "success" | "warning" | "critical";
 
 const toneClasses: Record<Tone, string> = {
-  default:  "bg-slate-100 text-slate-600",
+  default:  "bg-muted-strong text-foreground-soft",
   brand:    "bg-brand-faint text-brand",
   success:  "bg-green-50 text-success",
   warning:  "bg-amber-50 text-warning",

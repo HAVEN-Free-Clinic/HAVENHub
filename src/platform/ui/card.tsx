@@ -4,10 +4,10 @@ function cx(...parts: (string | undefined | false | null)[]): string {
   return parts.filter(Boolean).join(" ");
 }
 
-const base = "rounded-2xl border border-slate-200 bg-white shadow-sm";
+const base = "rounded-2xl border border-border bg-surface shadow-sm";
 const interactiveClasses =
   "transition-[transform,box-shadow,border-color] duration-150 " +
-  "hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md";
+  "hover:-translate-y-0.5 hover:border-border-strong hover:shadow-md";
 
 type CardProps = ComponentProps<"div"> & {
   /** Adds the hover-lift used on clickable tiles (translateY + stronger shadow/border). */

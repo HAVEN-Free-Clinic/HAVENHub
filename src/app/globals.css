@@ -96,7 +96,7 @@ html.dark { color-scheme: dark; }
     backdrop-filter: blur(18px) saturate(190%);
   }
 
-  /* Specular edge sheen. Sits behind real children (pointer-events: none). */
+  /* Specular edge sheen. z-index:-1 sits it above the glass background but below content (backdrop-filter makes the element a stacking context). pointer-events:none so it never blocks clicks. */
   .glass-bar::before,
   .glass-panel::before {
     content: "";
@@ -104,6 +104,7 @@ html.dark { color-scheme: dark; }
     inset: 0;
     border-radius: inherit;
     pointer-events: none;
+    z-index: -1;
     background: linear-gradient(
       105deg,
       rgba(255, 255, 255, 0.5) 0%,

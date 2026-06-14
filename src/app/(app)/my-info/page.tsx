@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 import { requireModuleAccess } from "@/platform/auth/session";
-import { AppShell } from "@/platform/ui/app-shell";
 import { PageHeader } from "@/platform/ui/page-header";
 import {
   getMyInfo,
@@ -156,7 +155,7 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
   const withdrawn = sp.withdrawn !== undefined ? parseInt(sp.withdrawn, 10) : undefined;
 
   return (
-    <AppShell userName={person.name} termLabel={activeTerm?.name ?? null} personId={person.personId}>
+    <>
       <PageHeader
         title="My Info"
         description="Keep your contact details current."
@@ -229,6 +228,6 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
           />
         </section>
       </div>
-    </AppShell>
+    </>
   );
 }

@@ -13,7 +13,6 @@ import {
 } from "lucide-react";
 import type { TrainingMethod } from "@prisma/client";
 import { requirePersonSession } from "@/platform/auth/session";
-import { AppShell } from "@/platform/ui/app-shell";
 import { getAccessibleModules } from "@/platform/modules/access";
 import { getMyTraining, type MyTraining } from "@/modules/recruitment/services/training";
 import { TrainingQuiz } from "./training-quiz";
@@ -287,7 +286,7 @@ export default async function TrainingPage() {
     (await getAccessibleModules(person.personId)).some((m) => m.id === "schedule");
 
   return (
-    <AppShell userName={person.name} termLabel={my.term.name} personId={person.personId}>
+    <>
       <div className="max-w-[760px]">
         <header className="mb-[22px]">
           <h1 className="text-[26px] font-bold tracking-tight text-slate-900">Volunteer Training</h1>
@@ -323,6 +322,6 @@ export default async function TrainingPage() {
           </div>
         )}
       </div>
-    </AppShell>
+    </>
   );
 }

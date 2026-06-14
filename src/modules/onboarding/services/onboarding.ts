@@ -1,5 +1,7 @@
+import { cache } from "react";
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
+import { getActiveTerm } from "@/platform/terms/active-term";
 import { complianceStatus } from "@/platform/compliance/rules";
 import { listMyCertificates } from "@/modules/my-info/services/my-info";
 import { getMyTraining } from "@/modules/recruitment/services/training";
@@ -71,13 +73,12 @@ function task(key: OnboardingTaskKey, state: OnboardingTaskState): OnboardingTas
  * Compute a person's onboarding clearance for the active term. Returns a dormant
  * (onboarded:true) status when there is no active term, so the gate never blocks.
  */
-export async function getOnboardingStatus(personId: string): Promise<OnboardingStatus> {
+export const getOnboardingStatus = cache(async function getOnboardingStatus(
+  personId: string
+): Promise<OnboardingStatus> {
   const exempt = await can(personId, EXEMPT_PERMISSION);
 
-  const term = await prisma.term.findFirst({
-    where: { status: "ACTIVE" },
-    orderBy: { startDate: "desc" },
-  });
+  const term = await getActiveTerm();
   if (!term) {
     return { hasActiveTerm: false, exempt, tasks: [], completedCount: 0, totalCount: 0, onboarded: true };
   }
@@ -98,4 +99,4 @@ export async function getOnboardingStatus(personId: string): Promise<OnboardingS
 
   const { completedCount, totalCount, onboarded } = summarize(tasks.map((t) => t.state));
   return { hasActiveTerm: true, exempt, tasks, completedCount, totalCount, onboarded };
-}
+});

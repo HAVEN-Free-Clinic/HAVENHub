@@ -3,7 +3,7 @@ import { requirePersonSession } from "@/platform/auth/session";
 import { Alert } from "@/platform/ui/alert";
 import { getMyTraining } from "@/modules/recruitment/services/training";
 import { getOnboardingStatus } from "@/modules/onboarding/services/onboarding";
-import { TrainingQuiz } from "@/app/training/training-quiz";
+import { TrainingQuiz } from "@/app/(app)/training/training-quiz";
 import { OnboardingStepShell } from "../onboarding-step-shell";
 
 export default async function OnboardingTrainingPage() {

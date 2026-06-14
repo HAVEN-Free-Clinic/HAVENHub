@@ -3,6 +3,7 @@ import { complianceStatus, overallClearance } from "@/platform/compliance/rules"
 import type { TrainingState, OverallClearance } from "@/platform/compliance/rules";
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
+import { getActiveTerm } from "@/platform/terms/active-term";
 import { recordAudit } from "@/platform/audit";
 import { RecruitmentAuthError, reviewScope } from "./review";
 import { gradeQuiz, type GradedQuestion } from "@/platform/quiz/grading";
@@ -131,7 +132,7 @@ export type TrainingIntake = {
 
 /** Active term used for self-serve training (mirrors compliance: newest ACTIVE term). */
 async function activeTermOrThrow() {
-  const term = await prisma.term.findFirst({ where: { status: "ACTIVE" }, orderBy: { startDate: "desc" } });
+  const term = await getActiveTerm();
   if (!term) throw new TrainingStateError("No active term.");
   return term;
 }

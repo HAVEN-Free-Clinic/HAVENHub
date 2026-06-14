@@ -1,3 +1,4 @@
+import { cache } from "react";
 import type { Person } from "@prisma/client";
 import { prisma } from "@/platform/db";
 
@@ -75,12 +76,17 @@ export async function resolvePersonForLogin(
  * Per-request person lookup for session validation: a person who has been
  * OFFBOARDED (or deleted) after sign-in must lose access immediately, not
  * when their JWT expires (spec §5 "revocations take effect immediately").
+ * Memoized per request via React cache() so the multiple guards a single render
+ * runs (shared layout + module layout + page) hit the DB once; the cache is
+ * per-request, so a status change still takes effect on the next navigation.
  */
-export async function getActivePerson(personId: string): Promise<Person | null> {
-  const person = await prisma.person.findUnique({ where: { id: personId } });
-  if (!person || person.status !== "ACTIVE") return null;
-  return person;
-}
+export const getActivePerson = cache(
+  async (personId: string): Promise<Person | null> => {
+    const person = await prisma.person.findUnique({ where: { id: personId } });
+    if (!person || person.status !== "ACTIVE") return null;
+    return person;
+  }
+);
 
 async function link(person: Person, entraObjectId?: string | null): Promise<Person> {
   if (!entraObjectId || person.entraObjectId === entraObjectId) return person;

@@ -502,8 +502,8 @@ export default async function BuilderPage({ searchParams }: PageProps) {
               <>
                 {/* View toggle */}
                 <div className="flex items-center rounded-lg bg-white/10 overflow-hidden">
-                  <a href={href({ view: "saturday" })} className={`px-3 py-1.5 text-xs font-medium transition-colors ${view === "saturday" ? "bg-white text-brand-fg" : "text-white/70 hover:text-white"}`}>Day view</a>
-                  <a href={href({ view: "grid" })} className={`px-3 py-1.5 text-xs font-medium transition-colors border-l border-white/20 ${view === "grid" ? "bg-white text-brand-fg" : "text-white/70 hover:text-white"}`}>Grid view</a>
+                  <a href={href({ view: "saturday" })} className={`px-3 py-1.5 text-xs font-medium transition-colors ${view === "saturday" ? "bg-white text-brand" : "text-white/70 hover:text-white"}`}>Day view</a>
+                  <a href={href({ view: "grid" })} className={`px-3 py-1.5 text-xs font-medium transition-colors border-l border-white/20 ${view === "grid" ? "bg-white text-brand" : "text-white/70 hover:text-white"}`}>Grid view</a>
                 </div>
                 <a href={href({ mode: "availability" })} className="px-3 py-1.5 rounded-lg bg-white/10 text-xs font-medium text-white/80 hover:text-white transition-colors">
                   Edit availability

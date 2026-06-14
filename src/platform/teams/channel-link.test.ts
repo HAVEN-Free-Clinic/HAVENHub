@@ -218,4 +218,27 @@ describe("getCurrentClinicChannelLink", () => {
     await getCurrentClinicChannelLink(deps);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
+
+  it("keeps a found link cached for the week (well past the old 30-min TTL)", async () => {
+    const fetchImpl = okChannelsFetch();
+    const base = { fetchImpl, getToken: async () => "tok", groupId, loadClinicDates: async () => clinicDates };
+    await getCurrentClinicChannelLink({ ...base, now });
+    // Two hours later, same clinic week: still served from cache, no Graph call.
+    await getCurrentClinicChannelLink({ ...base, now: new Date(now.getTime() + 2 * 60 * 60 * 1000) });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries a null result after the short miss window", async () => {
+    const fetchImpl = vi.fn(async () =>
+      new Response(JSON.stringify({ value: [{ id: "1", displayName: "General", webUrl: "u" }] }), { status: 200 })
+    );
+    const base = { fetchImpl, getToken: async () => "tok", groupId, loadClinicDates: async () => clinicDates };
+    expect(await getCurrentClinicChannelLink({ ...base, now })).toBeNull();
+    // Within the miss window: cached, not retried.
+    await getCurrentClinicChannelLink({ ...base, now: new Date(now.getTime() + 60 * 1000) });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    // After the miss window: retried.
+    await getCurrentClinicChannelLink({ ...base, now: new Date(now.getTime() + 6 * 60 * 1000) });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
 });

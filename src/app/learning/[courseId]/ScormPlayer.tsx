@@ -135,13 +135,13 @@ export function ScormPlayer({ courseId, scos }: Props) {
                       className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition ${
                         isActive
                           ? "bg-teal-50 font-medium text-teal-800"
-                          : "text-slate-600 hover:bg-slate-50"
+                          : "text-foreground-soft hover:bg-muted"
                       }`}
                     >
                       <span
                         aria-hidden
                         className={`grid h-5 w-5 shrink-0 place-items-center rounded-full border text-[11px] ${
-                          done ? "border-teal-600 bg-teal-600 text-white" : "border-slate-300 text-slate-400"
+                          done ? "border-teal-600 bg-teal-600 text-white" : "border-border-strong text-subtle-foreground"
                         }`}
                       >
                         {done ? "✓" : i + 1}
@@ -151,7 +151,7 @@ export function ScormPlayer({ courseId, scos }: Props) {
                           no score was reported (e.g. eXe's Padlock game never commits one), so
                           showing "0%" reads like a real grade of zero. */}
                       {st?.scoreRaw ? (
-                        <span className="ml-auto shrink-0 text-xs tabular-nums text-slate-500">{st.scoreRaw}%</span>
+                        <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">{st.scoreRaw}%</span>
                       ) : null}
                     </button>
                   </li>
@@ -164,7 +164,7 @@ export function ScormPlayer({ courseId, scos }: Props) {
           ref={iframeRef}
           title="Course content"
           src={`/learning/play/${courseId}/${scos[0].href}`}
-          className="h-[80vh] w-full rounded-xl border border-slate-200"
+          className="h-[80vh] w-full rounded-xl border border-border"
         />
       </div>
     </div>

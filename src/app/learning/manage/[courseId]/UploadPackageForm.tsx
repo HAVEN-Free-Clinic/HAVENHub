@@ -77,7 +77,7 @@ function BlobUploadForm({ courseId, hasPackage }: FormProps) {
     <Card pad={false} className="p-3">
       <form onSubmit={onSubmit} className="space-y-2">
         <input ref={fileRef} type="file" name="package" accept=".zip,application/zip" required className="block text-sm" />
-        <p className="text-xs text-slate-400">{HINT}</p>
+        <p className="text-xs text-subtle-foreground">{HINT}</p>
         {error && <Alert tone="error">{error}</Alert>}
         <Button type="submit" disabled={busy}>
           {busy ? phase || "Working…" : hasPackage ? "Replace package" : "Upload package"}
@@ -96,7 +96,7 @@ function ServerActionUploadForm({ courseId, hasPackage }: FormProps) {
       <form action={action} encType="multipart/form-data" className="space-y-2">
         <input type="hidden" name="courseId" value={courseId} />
         <input type="file" name="package" accept=".zip,application/zip" required className="block text-sm" />
-        <p className="text-xs text-slate-400">{HINT}</p>
+        <p className="text-xs text-subtle-foreground">{HINT}</p>
         {state?.error && <Alert tone="error">{state.error}</Alert>}
         <Button type="submit" disabled={pending}>
           {pending ? "Uploading…" : hasPackage ? "Replace package" : "Upload package"}

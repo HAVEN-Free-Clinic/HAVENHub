@@ -25,7 +25,7 @@ export default async function ManageCoursesPage() {
               <Link href={`/learning/manage/${c.id}`} className="block">
                 <Card interactive pad={false} className="flex items-center justify-between px-4 py-3">
                   <span>{c.title}</span>
-                  <span className="text-xs text-slate-500">
+                  <span className="text-xs text-muted-foreground">
                     {c.hasPackage ? "package uploaded" : "no package"}{c.isActive ? "" : " · inactive"}{c.assignToAll ? " · all depts" : ""}
                   </span>
                 </Card>

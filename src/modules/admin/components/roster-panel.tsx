@@ -53,7 +53,7 @@ type RosterPanelProps = {
 
 function SectionHeading({ children }: { children: ReactNode }) {
   return (
-    <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-500">
+    <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
       {children}
     </h2>
   );
@@ -71,8 +71,8 @@ function MemberChip({
   removeAction: (formData: FormData) => Promise<void>;
 }) {
   return (
-    <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5">
-      <span className="text-sm font-medium text-slate-800">{person.name}</span>
+    <div className="flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-1.5">
+      <span className="text-sm font-medium text-foreground">{person.name}</span>
       {kind === "DIRECTOR" ? (
         <Badge tone="brand">Director</Badge>
       ) : (
@@ -288,7 +288,7 @@ export async function RosterPanel({
         {addq && (
           <a
             href={termDetailHref}
-            className="text-sm text-slate-500 hover:text-slate-900 self-end pb-2"
+            className="text-sm text-muted-foreground hover:text-foreground self-end pb-2"
           >
             Clear
           </a>
@@ -297,25 +297,25 @@ export async function RosterPanel({
 
       {/* Search results panel */}
       {addq && addq.trim() && (
-        <div className="rounded-2xl border border-slate-200 bg-white">
-          <div className="border-b border-slate-100 px-4 py-3">
-            <p className="text-sm font-medium text-slate-700">
+        <div className="rounded-2xl border border-border bg-surface">
+          <div className="border-b border-border-subtle px-4 py-3">
+            <p className="text-sm font-medium text-foreground-soft">
               {searchResults.length === 0
                 ? `No results for "${addq}"`
                 : `${searchResults.length} result(s) for "${addq}" -- select department and role, then Add`}
             </p>
           </div>
           {searchResults.length > 0 && (
-            <div className="divide-y divide-slate-100">
+            <div className="divide-y divide-border-subtle">
               {searchResults.map((person) => (
                 <div
                   key={person.id}
                   className="flex flex-wrap items-center gap-3 px-4 py-3"
                 >
                   <div className="min-w-[12rem]">
-                    <p className="text-sm font-medium text-slate-800">{person.name}</p>
+                    <p className="text-sm font-medium text-foreground">{person.name}</p>
                     {person.netId && (
-                      <p className="text-xs text-slate-400">{person.netId}</p>
+                      <p className="text-xs text-subtle-foreground">{person.netId}</p>
                     )}
                   </div>
                   <form action={addAction} className="flex flex-wrap items-center gap-2">
@@ -357,20 +357,20 @@ export async function RosterPanel({
           return (
             <div
               key={dept.id}
-              className="rounded-2xl border border-slate-200 bg-slate-50 p-5"
+              className="rounded-2xl border border-border bg-muted p-5"
             >
-              <h3 className="mb-4 text-sm font-semibold text-slate-700">
+              <h3 className="mb-4 text-sm font-semibold text-foreground-soft">
                 {dept.code} -- {dept.name}
               </h3>
 
               {isEmpty ? (
-                <p className="text-sm text-slate-400">No members yet.</p>
+                <p className="text-sm text-subtle-foreground">No members yet.</p>
               ) : (
                 <div className="space-y-4">
                   {/* Directors list */}
                   {directors.length > 0 && (
                     <div>
-                      <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">
+                      <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
                         Directors
                       </p>
                       <div className="space-y-1.5">
@@ -396,7 +396,7 @@ export async function RosterPanel({
                   {/* Volunteers list */}
                   {volunteers.length > 0 && (
                     <div>
-                      <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">
+                      <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
                         Volunteers
                       </p>
                       <div className="space-y-1.5">
@@ -428,9 +428,9 @@ export async function RosterPanel({
       {/* Copy-roster section: PLANNING terms only */}
       {term.status === "PLANNING" && (
         <Card>
-          <h3 className="mb-4 text-sm font-semibold text-slate-700">Copy roster from another term</h3>
+          <h3 className="mb-4 text-sm font-semibold text-foreground-soft">Copy roster from another term</h3>
           {sourceTerms.length === 0 ? (
-            <p className="text-sm text-slate-500">No other terms available to copy from.</p>
+            <p className="text-sm text-muted-foreground">No other terms available to copy from.</p>
           ) : (
             <form action={copyRosterAction} className="space-y-4">
               <div className="flex flex-wrap gap-6">
@@ -444,13 +444,13 @@ export async function RosterPanel({
                   </Select>
                 </Field>
                 <div className="flex flex-col gap-1">
-                  <p className="text-xs font-medium text-slate-500">Kinds to copy</p>
+                  <p className="text-xs font-medium text-muted-foreground">Kinds to copy</p>
                   <div className="flex gap-4 pt-1">
-                    <label className="flex items-center gap-2 text-sm text-slate-700">
+                    <label className="flex items-center gap-2 text-sm text-foreground-soft">
                       <Checkbox name="kinds" value="DIRECTOR" defaultChecked />
                       Directors
                     </label>
-                    <label className="flex items-center gap-2 text-sm text-slate-700">
+                    <label className="flex items-center gap-2 text-sm text-foreground-soft">
                       <Checkbox name="kinds" value="VOLUNTEER" defaultChecked />
                       Volunteers
                     </label>
@@ -460,20 +460,20 @@ export async function RosterPanel({
 
               {/* Departments fieldset */}
               <fieldset className="space-y-2">
-                <legend className="text-xs font-medium text-slate-500">Departments</legend>
-                <label className="flex items-center gap-2 text-sm text-slate-700">
+                <legend className="text-xs font-medium text-muted-foreground">Departments</legend>
+                <label className="flex items-center gap-2 text-sm text-foreground-soft">
                   <Checkbox name="allDepartments" />
                   All departments
                 </label>
                 <div className="grid grid-cols-3 gap-x-4 gap-y-1 sm:grid-cols-4">
                   {allActiveDepts.map((dept) => (
-                    <label key={dept.id} className="flex items-center gap-1.5 text-sm text-slate-700">
+                    <label key={dept.id} className="flex items-center gap-1.5 text-sm text-foreground-soft">
                       <Checkbox name="departmentIds" value={dept.id} />
                       {dept.code}
                     </label>
                   ))}
                 </div>
-                <p className="text-xs text-slate-400">Check All departments, or pick specific ones.</p>
+                <p className="text-xs text-subtle-foreground">Check All departments, or pick specific ones.</p>
               </fieldset>
 
               <ConfirmButton label="Copy roster" confirmLabel="Copy roster from selected term? Confirm?" />

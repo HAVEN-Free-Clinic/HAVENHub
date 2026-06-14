@@ -71,12 +71,12 @@ export function CapacityPanel({
   const roles = rolesForDept(deptCode);
 
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white px-4 py-3 flex flex-col gap-3">
-      <h2 className="text-sm font-semibold text-slate-700">Capacity</h2>
+    <section className="rounded-2xl border border-border bg-surface px-4 py-3 flex flex-col gap-3">
+      <h2 className="text-sm font-semibold text-foreground-soft">Capacity</h2>
 
       {/* Headcount */}
       <div className="flex flex-wrap items-center gap-2 text-sm">
-        <span className="text-slate-600">
+        <span className="text-foreground-soft">
           {metrics.headcount} / {metrics.idealHeadcount ?? "-"} on shift
         </span>
         <Badge tone={headcountTone(metrics.headcountStatus)}>
@@ -102,7 +102,7 @@ export function CapacityPanel({
       )}
 
       {/* Shadow and Spanish counts */}
-      <div className="flex flex-col gap-1 text-sm text-slate-600">
+      <div className="flex flex-col gap-1 text-sm text-foreground-soft">
         <span>Shadows: {metrics.shadowCount}</span>
         <span>Spanish speakers: {metrics.spanishCount}</span>
       </div>
@@ -129,7 +129,7 @@ export function CapacityPanel({
 
       {/* Max patient capacity */}
       {metrics.maxPatientCapacity != null && (
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-muted-foreground">
           Max capacity: {metrics.maxPatientCapacity} patients
         </p>
       )}

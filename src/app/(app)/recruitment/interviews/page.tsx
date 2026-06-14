@@ -28,14 +28,14 @@ export default async function MyInterviewsPage() {
             <TR key={iv.id}>
               <TD>
                 <Link
-                  className="font-medium text-slate-900 hover:text-brand"
+                  className="font-medium text-foreground hover:text-brand-fg"
                   href={`/recruitment/cycles/${iv.application.cycle.id}/interviews/${iv.id}`}
                 >
                   {iv.application.applicant.firstName} {iv.application.applicant.lastName}
                 </Link>
               </TD>
-              <TD className="text-slate-600">{iv.departmentCode}</TD>
-              <TD className="text-slate-600">{iv.scheduledAt ? iv.scheduledAt.toLocaleString() : "TBD"}</TD>
+              <TD className="text-foreground-soft">{iv.departmentCode}</TD>
+              <TD className="text-foreground-soft">{iv.scheduledAt ? iv.scheduledAt.toLocaleString() : "TBD"}</TD>
               <TD>
                 {iv.evaluations.length > 0 ? (
                   <Badge tone="brand">{iv.evaluations[0].recommendation.replace("_", " ")}</Badge>
@@ -47,7 +47,7 @@ export default async function MyInterviewsPage() {
           ))}
           {interviews.length === 0 && (
             <TR>
-              <TD colSpan={4} className="py-10 text-center text-slate-400">
+              <TD colSpan={4} className="py-10 text-center text-subtle-foreground">
                 No interview assignments.
               </TD>
             </TR>

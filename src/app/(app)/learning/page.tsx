@@ -16,7 +16,7 @@ export default async function LearningPage() {
       <PageHeader title="Learning" description="Complete the training courses assigned to your department." />
       <div className="mt-6 max-w-2xl space-y-3">
         {courses.length === 0 && (
-          <p className="text-sm text-slate-500">You have no assigned courses right now.</p>
+          <p className="text-sm text-muted-foreground">You have no assigned courses right now.</p>
         )}
         {courses.map((c) => (
           <Link key={c.id} href={`/learning/${c.id}`} className="block">
@@ -25,7 +25,7 @@ export default async function LearningPage() {
                 <span className="font-medium">{c.title}</span>
                 <Badge tone={c.status === "COMPLETE" ? "success" : "default"}>{LABEL[c.status]}</Badge>
               </div>
-              {c.description && <p className="mt-1 text-sm text-slate-500">{c.description}</p>}
+              {c.description && <p className="mt-1 text-sm text-muted-foreground">{c.description}</p>}
             </Card>
           </Link>
         ))}

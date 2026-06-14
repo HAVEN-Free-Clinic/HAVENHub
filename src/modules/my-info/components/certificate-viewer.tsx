@@ -169,7 +169,7 @@ export function CertificateViewer({
           <iframe
             src={inlineHref}
             title={`Certificate preview: ${fileName}`}
-            className="h-[75vh] w-full rounded-lg border border-slate-200"
+            className="h-[75vh] w-full rounded-lg border border-border"
           />
         </Modal>
       )}

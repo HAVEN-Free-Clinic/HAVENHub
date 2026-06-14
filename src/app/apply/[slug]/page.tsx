@@ -15,7 +15,7 @@ export default async function ApplyPage({ params }: { params: Promise<{ slug: st
     return (
       <main className="mx-auto max-w-2xl px-6 py-16 text-center">
         <h1 className="text-xl font-bold">Applications are closed</h1>
-        <p className="mt-2 text-slate-500">This recruitment form is not currently accepting submissions.</p>
+        <p className="mt-2 text-muted-foreground">This recruitment form is not currently accepting submissions.</p>
       </main>
     );
   }

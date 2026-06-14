@@ -175,12 +175,12 @@ export default async function TermDetailPage({ params, searchParams }: PageProps
 
       {/* Lifecycle section */}
       <section>
-        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-500">
+        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
           Lifecycle
         </h2>
         {term.status === "ACTIVE" ? (
           <form action={archiveAction}>
-            <p className="mb-3 text-sm text-slate-500">
+            <p className="mb-3 text-sm text-muted-foreground">
               Archiving this term will leave no active term. The engine handles the
               no-active-term state gracefully.
             </p>
@@ -188,7 +188,7 @@ export default async function TermDetailPage({ params, searchParams }: PageProps
           </form>
         ) : (
           <form action={activateAction}>
-            <p className="mb-3 text-sm text-slate-500">{activateLabel}</p>
+            <p className="mb-3 text-sm text-muted-foreground">{activateLabel}</p>
             <ConfirmButton label="Activate" confirmLabel={activateConfirmLabel} />
           </form>
         )}
@@ -196,10 +196,10 @@ export default async function TermDetailPage({ params, searchParams }: PageProps
 
       {/* Clinic dates section */}
       <section>
-        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-500">
+        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
           Clinic dates
         </h2>
-        <p className="mb-4 text-sm text-slate-500">
+        <p className="mb-4 text-sm text-muted-foreground">
           {term.clinicDates.length} date(s) scheduled. All dates are stored and rendered in UTC.
         </p>
         <ClinicDatesEditor

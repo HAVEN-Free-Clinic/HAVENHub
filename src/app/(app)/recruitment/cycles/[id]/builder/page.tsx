@@ -37,7 +37,7 @@ export default async function BuilderPage({ params, searchParams }: { params: Pr
         action={
           <Link
             href={`/recruitment/cycles/${id}/builder/quiz`}
-            className="inline-flex items-center gap-1 text-sm font-medium text-brand hover:text-brand-hover"
+            className="inline-flex items-center gap-1 text-sm font-medium text-brand-fg hover:text-brand-hover"
           >
             Training quiz <ArrowRight className="h-4 w-4" aria-hidden />
           </Link>
@@ -51,11 +51,11 @@ export default async function BuilderPage({ params, searchParams }: { params: Pr
       {error && <Alert tone="error">{error}</Alert>}
 
       {cycle.sections.map((section) => (
-        <section key={section.id} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <section key={section.id} className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
           <div className="flex items-center justify-between gap-4">
-            <h2 className="font-medium text-slate-900">
+            <h2 className="font-medium text-foreground">
               {section.title}{" "}
-              <span className="text-xs font-normal text-slate-400">
+              <span className="text-xs font-normal text-subtle-foreground">
                 ({section.appliesTo}{section.departmentCode ? ` · ${section.departmentCode}` : ""})
               </span>
             </h2>
@@ -63,12 +63,12 @@ export default async function BuilderPage({ params, searchParams }: { params: Pr
               <ConfirmButton label="Delete section" size="sm" />
             </form>
           </div>
-          <ul className="mt-4 divide-y divide-slate-100">
+          <ul className="mt-4 divide-y divide-border-subtle">
             {section.fields.map((f) => (
               <li key={f.id} className="flex items-center justify-between gap-4 py-2 text-sm">
-                <span className="text-slate-700">
+                <span className="text-foreground-soft">
                   {f.label}{" "}
-                  <span className="text-xs text-slate-400">
+                  <span className="text-xs text-subtle-foreground">
                     · {f.type}{f.required ? " · required" : ""} · {f.key}
                   </span>
                 </span>
@@ -78,12 +78,12 @@ export default async function BuilderPage({ params, searchParams }: { params: Pr
               </li>
             ))}
             {section.fields.length === 0 && (
-              <li className="py-2 text-sm text-slate-400">No fields yet.</li>
+              <li className="py-2 text-sm text-subtle-foreground">No fields yet.</li>
             )}
           </ul>
           <form
             action={addFieldAction.bind(null, id, section.id)}
-            className="mt-4 flex flex-wrap items-end gap-3 border-t border-slate-100 pt-4"
+            className="mt-4 flex flex-wrap items-end gap-3 border-t border-border-subtle pt-4"
           >
             <div className="min-w-[12rem] flex-1">
               <Field label="Field label">
@@ -99,7 +99,7 @@ export default async function BuilderPage({ params, searchParams }: { params: Pr
                 </Select>
               </Field>
             </div>
-            <label className="flex items-center gap-2 py-2 text-sm text-slate-600">
+            <label className="flex items-center gap-2 py-2 text-sm text-foreground-soft">
               <Checkbox name="required" /> Required
             </label>
             <div className="min-w-[12rem] flex-1">
@@ -116,7 +116,7 @@ export default async function BuilderPage({ params, searchParams }: { params: Pr
 
       <form
         action={addSectionAction.bind(null, id)}
-        className="flex flex-wrap items-end gap-3 rounded-2xl border border-dashed border-slate-300 bg-slate-50/60 p-5"
+        className="flex flex-wrap items-end gap-3 rounded-2xl border border-dashed border-border-strong bg-muted/60 p-5"
       >
         <div className="min-w-[12rem] flex-1">
           <Field label="New section title">

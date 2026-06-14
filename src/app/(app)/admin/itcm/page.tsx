@@ -30,20 +30,20 @@ export default async function ItcmPage() {
         description={`IT & Communications tools for ${activeTerm?.name ?? "the active term"}.`}
       />
 
-      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-        <div className="px-10 pt-10 pb-8 border-b border-slate-200">
+      <div className="rounded-2xl border border-border bg-surface shadow-sm overflow-hidden">
+        <div className="px-10 pt-10 pb-8 border-b border-border">
           <div className="flex items-start gap-6">
             <div className="w-16 h-16 rounded-xl flex items-center justify-center shrink-0 bg-brand-faint">
-              <FileText className="h-8 w-8 text-brand" aria-hidden />
+              <FileText className="h-8 w-8 text-brand-fg" aria-hidden />
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-3 flex-wrap mb-2">
-                <h2 className="text-xl font-semibold text-slate-800">YNHH Epic requests</h2>
+                <h2 className="text-xl font-semibold text-foreground">YNHH Epic requests</h2>
                 {pendingCount > 0 && (
                   <Badge tone="warning">{pendingCount} pending</Badge>
                 )}
               </div>
-              <p className="text-base text-slate-500 leading-relaxed max-w-xl">
+              <p className="text-base text-muted-foreground leading-relaxed max-w-xl">
                 Generate service request PDFs, Excel spreadsheets, and email drafts for new, modify, and renew Epic access requests. Track open tickets and time since submission.
               </p>
             </div>

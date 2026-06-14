@@ -41,32 +41,32 @@ export function EpicPanel({ epicId, openRequest, action, error, saved }: EpicPan
   return (
     <Card className="space-y-4">
       <div>
-        <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-500">Epic Access</h3>
-        <p className="mt-0.5 text-xs text-slate-400">Managed by the IT team.</p>
+        <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Epic Access</h3>
+        <p className="mt-0.5 text-xs text-subtle-foreground">Managed by the IT team.</p>
       </div>
 
       {saved && <Alert tone="success">Epic request submitted.</Alert>}
 
       {/* Current Epic ID row */}
       <div className="flex items-center gap-3">
-        <span className="text-xs font-medium text-slate-500 w-20 shrink-0">Epic ID</span>
+        <span className="text-xs font-medium text-muted-foreground w-20 shrink-0">Epic ID</span>
         {epicId ? (
-          <span className="text-sm font-mono text-slate-700">{epicId}</span>
+          <span className="text-sm font-mono text-foreground-soft">{epicId}</span>
         ) : (
-          <span className="text-sm text-slate-400">None on file</span>
+          <span className="text-sm text-subtle-foreground">None on file</span>
         )}
       </div>
 
       {/* Open request status or request form */}
       {openRequest ? (
-        <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+        <div className="rounded-xl border border-border bg-muted px-4 py-3">
           <div className="flex items-center gap-2">
             <Badge tone="warning">
               {openRequest.kind} {openRequest.status === "SUBMITTED" ? "submitted to YNHH" : "request pending"}
             </Badge>
-            <span className="text-xs text-slate-500">since {formatDate(openRequest.createdAt)}</span>
+            <span className="text-xs text-muted-foreground">since {formatDate(openRequest.createdAt)}</span>
           </div>
-          <p className="mt-1.5 text-xs text-slate-400">
+          <p className="mt-1.5 text-xs text-subtle-foreground">
             {openRequest.status === "SUBMITTED"
               ? "Your request has been submitted to YNHH IT. You will be contacted when it is processed."
               : "Your request is being reviewed by the IT team."}
@@ -74,7 +74,7 @@ export function EpicPanel({ epicId, openRequest, action, error, saved }: EpicPan
         </div>
       ) : (
         <div>
-          <h4 className="mb-2 text-sm font-semibold uppercase tracking-wider text-slate-500">Request Epic Access</h4>
+          <h4 className="mb-2 text-sm font-semibold uppercase tracking-wider text-muted-foreground">Request Epic Access</h4>
 
           {error && (
             <Alert tone="error" className="mb-3">
@@ -87,7 +87,7 @@ export function EpicPanel({ epicId, openRequest, action, error, saved }: EpicPan
             {!hasEpicId ? (
               <>
                 <input type="hidden" name="kind" value="NEW" />
-                <p className="text-sm text-slate-600">Request a new Epic account.</p>
+                <p className="text-sm text-foreground-soft">Request a new Epic account.</p>
               </>
             ) : (
               <Field label="Request type">

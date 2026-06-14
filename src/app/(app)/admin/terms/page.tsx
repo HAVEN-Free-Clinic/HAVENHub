@@ -50,7 +50,7 @@ export default async function TermsListPage() {
               <TD>
                 <Link
                   href={`/admin/terms/${term.id}`}
-                  className="font-medium text-brand hover:underline"
+                  className="font-medium text-brand-fg hover:underline"
                 >
                   {term.code}
                 </Link>
@@ -73,7 +73,7 @@ export default async function TermsListPage() {
           ))}
           {terms.length === 0 && (
             <TR>
-              <TD colSpan={7} className="py-10 text-center text-sm text-slate-400">
+              <TD colSpan={7} className="py-10 text-center text-sm text-subtle-foreground">
                 No terms yet.
               </TD>
             </TR>

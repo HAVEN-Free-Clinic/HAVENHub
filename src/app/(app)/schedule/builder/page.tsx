@@ -431,11 +431,11 @@ export default async function BuilderPage({ searchParams }: PageProps) {
       <div
         key={member.person.id}
         className={`rounded-2xl border px-3 py-3 ${
-          available ? "border-success/30 bg-green-50" : "border-slate-200 bg-slate-50 opacity-75"
+          available ? "border-success/30 bg-green-50" : "border-border bg-muted opacity-75"
         }`}
       >
         <div className="flex flex-wrap items-center gap-2 mb-2">
-          <span className="text-sm font-semibold text-slate-800">{member.person.name}</span>
+          <span className={`text-sm font-semibold ${available ? "text-slate-800" : "text-foreground"}`}>{member.person.name}</span>
           <Badge tone={isDirectorKind ? "brand" : "default"}>
             {isDirectorKind ? "Director" : "Volunteer"}
           </Badge>
@@ -516,12 +516,12 @@ export default async function BuilderPage({ searchParams }: PageProps) {
               {view !== "saturday" && <input type="hidden" name="view" value={view} />}
               {mode !== "assign" && <input type="hidden" name="mode" value={mode} />}
               {gmode !== "assign" && <input type="hidden" name="gmode" value={gmode} />}
-              <Select name="dept" aria-label="Department" defaultValue={dept.id} className="text-sm text-slate-800 bg-white">
+              <Select name="dept" aria-label="Department" defaultValue={dept.id} className="text-sm text-foreground bg-surface">
                 {data.departments.map((d) => (
                   <option key={d.id} value={d.id}>{d.code} - {d.name}</option>
                 ))}
               </Select>
-              <Button type="submit" variant="outline" size="sm" className="text-slate-800 border-slate-300 bg-white">Go</Button>
+              <Button type="submit" variant="outline" size="sm" className="text-foreground border-border-strong bg-surface">Go</Button>
             </form>
           </div>
         </div>
@@ -548,7 +548,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                 className={
                   isSelected
                     ? "rounded-full px-3 py-1 text-sm font-medium bg-brand text-white"
-                    : "rounded-full px-3 py-1 text-sm font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors"
+                    : "rounded-full px-3 py-1 text-sm font-medium bg-muted-strong text-foreground-soft hover:bg-muted-strong transition-colors"
                 }
               >
                 {displayDate(key)}
@@ -572,19 +572,19 @@ export default async function BuilderPage({ searchParams }: PageProps) {
         ) : view === "grid" ? (
           <>
             <div className="mb-4 flex items-center gap-3">
-              <span className="text-sm font-semibold text-slate-600">Assigning as:</span>
-              <div className="flex items-center rounded-lg border border-slate-200 overflow-hidden">
+              <span className="text-sm font-semibold text-foreground-soft">Assigning as:</span>
+              <div className="flex items-center rounded-lg border border-border overflow-hidden">
                 <a
                   href={href({ gmode: "assign" })}
                   aria-current={gmode === "assign" ? "true" : undefined}
-                  className={`px-3 py-1.5 text-xs font-medium transition-colors ${gmode === "assign" ? "bg-brand text-white" : "text-slate-500 hover:text-slate-700"}`}
+                  className={`px-3 py-1.5 text-xs font-medium transition-colors ${gmode === "assign" ? "bg-brand text-white" : "text-muted-foreground hover:text-foreground-soft"}`}
                 >
                   Volunteer
                 </a>
                 <a
                   href={href({ gmode: "shadow" })}
                   aria-current={gmode === "shadow" ? "true" : undefined}
-                  className={`px-3 py-1.5 text-xs font-medium transition-colors border-l ${gmode === "shadow" ? "border-slate-200 bg-amber-400 text-white" : "border-transparent text-slate-500 hover:text-slate-700"}`}
+                  className={`px-3 py-1.5 text-xs font-medium transition-colors border-l ${gmode === "shadow" ? "border-border bg-amber-400 text-white" : "border-transparent text-muted-foreground hover:text-foreground-soft"}`}
                 >
                   Shadow
                 </a>
@@ -608,7 +608,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
             {/* Column 1: Assigned */}
             <section>
               <div className="flex items-center gap-2 mb-4">
-                <h2 className="text-base font-bold text-slate-800">Assigned</h2>
+                <h2 className="text-base font-bold text-foreground">Assigned</h2>
                 <span className="rounded-full bg-brand text-white text-xs font-semibold px-2.5 py-0.5">
                   {assignedDirectors.length + assignedVolunteers.length + assignedShadows.length}
                 </span>
@@ -633,20 +633,20 @@ export default async function BuilderPage({ searchParams }: PageProps) {
 
               {/* Directors */}
               <div className="mb-5">
-                <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-2">
-                  Directors <span className="text-brand">({assignedDirectors.length})</span>
+                <p className="text-xs font-semibold uppercase tracking-widest text-subtle-foreground mb-2">
+                  Directors <span className="text-brand-fg">({assignedDirectors.length})</span>
                 </p>
                 {assignedDirectors.length === 0 ? (
-                  <p className="text-sm text-slate-300 italic">None assigned</p>
+                  <p className="text-sm text-subtle-foreground italic">None assigned</p>
                 ) : (
                   <div className="flex flex-col gap-2">
                     {assignedDirectors.map((pid) => {
                       const m = memberByPersonId.get(pid);
                       const name = m?.person.name ?? pid;
                       return (
-                        <div key={pid} className="rounded-2xl border-l-4 border-l-brand border border-slate-200 bg-white shadow-sm px-3 py-2 flex items-center justify-between">
+                        <div key={pid} className="rounded-2xl border-l-4 border-l-brand border border-border bg-surface shadow-sm px-3 py-2 flex items-center justify-between">
                           <span className="flex flex-wrap items-center gap-2">
-                            <span className="text-sm font-bold text-slate-800">{name}</span>
+                            <span className="text-sm font-bold text-foreground">{name}</span>
                             {m?.person && flagBadges(m.person)}
                           </span>
                           <form action={unassignAction} className="flex items-center gap-2">
@@ -664,11 +664,11 @@ export default async function BuilderPage({ searchParams }: PageProps) {
 
               {/* Volunteers */}
               <div className="mb-5">
-                <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-2">
+                <p className="text-xs font-semibold uppercase tracking-widest text-subtle-foreground mb-2">
                   Volunteers <span className="text-success">({assignedVolunteers.length})</span>
                 </p>
                 {assignedVolunteers.length === 0 ? (
-                  <p className="text-sm text-slate-300 italic">None assigned</p>
+                  <p className="text-sm text-subtle-foreground italic">None assigned</p>
                 ) : (
                   <div className="flex flex-col gap-2">
                     {assignedVolunteers.map((pid) => {
@@ -678,9 +678,9 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                       const tags = assignment.tags;
                       const personConflicts = conflicts[pid] ?? [];
                       return (
-                        <div key={pid} className="rounded-2xl border-l-4 border-l-success border border-slate-200 bg-white shadow-sm px-3 py-2">
+                        <div key={pid} className="rounded-2xl border-l-4 border-l-success border border-border bg-surface shadow-sm px-3 py-2">
                           <div className="flex flex-wrap items-center gap-2 text-sm">
-                            <span className="font-medium text-slate-800">{name}</span>
+                            <span className="font-medium text-foreground">{name}</span>
                             {m?.person && flagBadges(m.person)}
                             {personConflicts.length > 0 && (
                               <Badge tone="warning" title={personConflicts.join(", ")}>
@@ -716,20 +716,20 @@ export default async function BuilderPage({ searchParams }: PageProps) {
 
               {/* Shadows */}
               <div>
-                <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-2">
+                <p className="text-xs font-semibold uppercase tracking-widest text-subtle-foreground mb-2">
                   Shadows <span className="text-warning">({assignedShadows.length})</span>
                 </p>
                 {assignedShadows.length === 0 ? (
-                  <p className="text-sm text-slate-300 italic">None assigned</p>
+                  <p className="text-sm text-subtle-foreground italic">None assigned</p>
                 ) : (
                   <div className="flex flex-col gap-2">
                     {assignedShadows.map((pid) => {
                       const m = memberByPersonId.get(pid);
                       const name = m?.person.name ?? pid;
                       return (
-                        <div key={pid} className="rounded-2xl border-l-4 border-l-warning border border-slate-200 bg-white shadow-sm px-3 py-2 flex items-center justify-between">
+                        <div key={pid} className="rounded-2xl border-l-4 border-l-warning border border-border bg-surface shadow-sm px-3 py-2 flex items-center justify-between">
                           <span className="flex flex-wrap items-center gap-2">
-                            <span className="text-sm font-medium text-slate-700">{name}</span>
+                            <span className="text-sm font-medium text-foreground-soft">{name}</span>
                             {m?.person && flagBadges(m.person)}
                           </span>
                           <form action={unassignAction} className="flex items-center gap-2">
@@ -749,14 +749,14 @@ export default async function BuilderPage({ searchParams }: PageProps) {
             {/* Column 2: Available to assign */}
             <section>
               <div className="flex items-center gap-2 mb-4">
-                <h2 className="text-base font-bold text-slate-800">Available to assign</h2>
+                <h2 className="text-base font-bold text-foreground">Available to assign</h2>
                 <span className="rounded-full bg-green-50 text-success text-xs font-semibold px-2.5 py-0.5">
                   {availableCount} available
                 </span>
               </div>
 
               {!selectedDateKey ? (
-                <div className="rounded-2xl border border-dashed border-slate-200 px-6 py-10 text-center text-sm text-slate-400">
+                <div className="rounded-2xl border border-dashed border-border px-6 py-10 text-center text-sm text-subtle-foreground">
                   Select a date above to start assigning.
                 </div>
               ) : (
@@ -766,7 +766,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                       Available &middot; said yes ({availableMembers.length})
                     </p>
                     {availableMembers.length === 0 ? (
-                      <p className="text-sm text-slate-400 italic">No one is marked available for this date.</p>
+                      <p className="text-sm text-subtle-foreground italic">No one is marked available for this date.</p>
                     ) : (
                       <div className="flex flex-col gap-2">
                         {availableMembers.map((m) => assignCard(m, true))}
@@ -775,11 +775,11 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                   </div>
 
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-2">
+                    <p className="text-xs font-semibold uppercase tracking-widest text-subtle-foreground mb-2">
                       Not available ({notAvailableMembers.length})
                     </p>
                     {notAvailableMembers.length === 0 ? (
-                      <p className="text-sm text-slate-300 italic">Everyone else is already assigned.</p>
+                      <p className="text-sm text-subtle-foreground italic">Everyone else is already assigned.</p>
                     ) : (
                       <div className="flex flex-col gap-2">
                         {notAvailableMembers.map((m) => assignCard(m, false))}
@@ -846,7 +846,7 @@ function AvailabilityView({
   return (
     <div className="flex flex-col gap-4">
       {members.length === 0 && (
-        <p className="text-sm text-slate-400">No members in this department.</p>
+        <p className="text-sm text-subtle-foreground">No members in this department.</p>
       )}
       {members.map((member) => {
         const tierLabel =
@@ -868,13 +868,13 @@ function AvailabilityView({
         return (
           <Card key={member.membershipId} pad={false} className="px-4 py-4">
             <div className="flex flex-wrap items-center gap-2 mb-3">
-              <span className="text-sm font-bold text-slate-800">{member.person.name}</span>
+              <span className="text-sm font-bold text-foreground">{member.person.name}</span>
               <Badge tone="default">{member.kind === "DIRECTOR" ? "Director" : "Volunteer"}</Badge>
               <Badge tone={tierTone}>{tierLabel}</Badge>
               {member.acknowledgePending && <Badge tone="warning">Availability updated</Badge>}
             </div>
             {member.legacyNote && (
-              <p className="mb-3 text-xs text-slate-400 italic">{member.legacyNote}</p>
+              <p className="mb-3 text-xs text-subtle-foreground italic">{member.legacyNote}</p>
             )}
             <form action={saveOverrideAction} className="mb-2">
               <input type="hidden" name="membershipId" value={member.membershipId} />
@@ -883,7 +883,7 @@ function AvailabilityView({
                   const key = isoDateKey(d);
                   const checked = availKeys.has(key);
                   return (
-                    <label key={key} className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs cursor-pointer transition-colors whitespace-nowrap ${checked ? "border-brand bg-brand/5 text-brand font-semibold" : "border-slate-200 text-slate-500 hover:border-slate-300"}`}>
+                    <label key={key} className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs cursor-pointer transition-colors whitespace-nowrap ${checked ? "border-brand bg-brand/5 text-brand-fg font-semibold" : "border-border text-muted-foreground hover:border-border-strong"}`}>
                       <input
                         type="checkbox"
                         name="dates"

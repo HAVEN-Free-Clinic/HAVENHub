@@ -122,7 +122,7 @@ export default async function OffboardingPage({ searchParams }: PageProps) {
 
       {/* Director section: one card per manageable department */}
       {departments.length === 0 ? (
-        <div className="mt-12 flex flex-col items-center justify-center gap-3 text-center text-sm text-slate-500">
+        <div className="mt-12 flex flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground">
           <p>No departments to review.</p>
         </div>
       ) : (
@@ -159,7 +159,7 @@ export default async function OffboardingPage({ searchParams }: PageProps) {
                           <Badge tone="default">Active</Badge>
                         )}
                       </TD>
-                      <TD className="text-slate-500 text-sm">
+                      <TD className="text-muted-foreground text-sm">
                         {m.flag?.note ?? "-"}
                       </TD>
                       <TD>
@@ -213,7 +213,7 @@ export default async function OffboardingPage({ searchParams }: PageProps) {
             <tbody>
               {flagged.length === 0 ? (
                 <TR>
-                  <TD colSpan={6} className="text-center text-slate-400 text-sm py-6">
+                  <TD colSpan={6} className="text-center text-subtle-foreground text-sm py-6">
                     No one is flagged.
                   </TD>
                 </TR>
@@ -221,14 +221,14 @@ export default async function OffboardingPage({ searchParams }: PageProps) {
                 flagged.map(({ flag, person, flaggedByName, departmentNames }) => (
                   <TR key={flag.id}>
                     <TD className="font-medium">{person.name}</TD>
-                    <TD className="text-slate-600 text-sm">
+                    <TD className="text-foreground-soft text-sm">
                       {departmentNames.join(", ") || "-"}
                     </TD>
-                    <TD className="text-slate-600 text-sm">{flaggedByName ?? "-"}</TD>
-                    <TD className="text-slate-600 tabular-nums text-sm">
+                    <TD className="text-foreground-soft text-sm">{flaggedByName ?? "-"}</TD>
+                    <TD className="text-foreground-soft tabular-nums text-sm">
                       {fmtDate(flag.createdAt)}
                     </TD>
-                    <TD className="text-slate-500 text-sm">{flag.note ?? "-"}</TD>
+                    <TD className="text-muted-foreground text-sm">{flag.note ?? "-"}</TD>
                     <TD>
                       <div className="flex items-center gap-2">
                         <form action={unflagAction}>

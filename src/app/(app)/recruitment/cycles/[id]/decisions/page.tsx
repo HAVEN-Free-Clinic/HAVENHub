@@ -44,15 +44,15 @@ export default async function DecisionsPage({ params, searchParams }: { params: 
       </div>
 
       <section>
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">Conflicts to resolve</h2>
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Conflicts to resolve</h2>
         {conflicts.length === 0 ? (
-          <p className="mt-2 text-sm text-slate-500">No conflicts.</p>
+          <p className="mt-2 text-sm text-muted-foreground">No conflicts.</p>
         ) : (
-          <ul className="mt-3 divide-y divide-slate-100 rounded-2xl border border-slate-200 bg-white">
+          <ul className="mt-3 divide-y divide-border-subtle rounded-2xl border border-border bg-surface">
             {conflicts.map((c) => (
-              <li key={c.applicationId} className="px-4 py-2.5 text-sm text-slate-700">
+              <li key={c.applicationId} className="px-4 py-2.5 text-sm text-foreground-soft">
                 <Link
-                  className="font-medium text-brand hover:text-brand-hover"
+                  className="font-medium text-brand-fg hover:text-brand-hover"
                   href={`/recruitment/cycles/${id}/applicants/${c.applicationId}`}
                 >
                   {c.applicantName}
@@ -66,7 +66,7 @@ export default async function DecisionsPage({ params, searchParams }: { params: 
 
       <form action={releaseDecisionsAction.bind(null, id)} className="space-y-2">
         <SubmitButton pendingLabel="Releasing…">Release decisions</SubmitButton>
-        <p className="text-xs text-slate-400">
+        <p className="text-xs text-subtle-foreground">
           Emails every accepted, non-conflicted applicant who hasn&apos;t been notified yet.
         </p>
       </form>

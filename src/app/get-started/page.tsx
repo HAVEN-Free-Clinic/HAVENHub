@@ -69,12 +69,12 @@ export default async function GetStartedPage() {
 
       {/* Right panel */}
       <section className="overflow-auto p-8 md:p-10">
-        <p className="mb-4 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400">
+        <p className="mb-4 text-[11px] font-bold uppercase tracking-[0.12em] text-subtle-foreground">
           What&apos;s left
         </p>
         <OnboardingChecklist tasks={status.tasks} />
         <form
-          className="mt-6 text-[13px] text-slate-500"
+          className="mt-6 text-[13px] text-muted-foreground"
           action={async () => {
             "use server";
             await signOut({ redirectTo: "/login" });
@@ -83,7 +83,7 @@ export default async function GetStartedPage() {
           Wrong account?{" "}
           <button
             type="submit"
-            className="font-semibold text-brand underline-offset-2 hover:underline"
+            className="font-semibold text-brand-fg underline-offset-2 hover:underline"
           >
             Sign out
           </button>

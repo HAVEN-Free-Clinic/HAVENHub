@@ -48,7 +48,7 @@ export default async function LearningDashboardPage({
                 <TD>{r.departmentCode}</TD>
                 <TD>{r.status === "COMPLETE" ? "Complete" : r.status === "IN_PROGRESS" ? "In progress" : "Not started"}</TD>
                 <TD>{r.scoreRaw != null ? `${r.scoreRaw}%` : ""}</TD>
-                <TD className="text-right text-xs text-slate-400">
+                <TD className="text-right text-xs text-subtle-foreground">
                   {r.completedAt ? r.completedAt.toLocaleDateString() : ""}
                   {r.status !== "NOT_STARTED" && selected && (
                     <form action={resetCourseProgressAction} className="inline ml-2">
@@ -62,7 +62,7 @@ export default async function LearningDashboardPage({
             ))}
             {rows.length === 0 && (
               <TR>
-                <TD colSpan={5} className="text-slate-500">No learners for this course.</TD>
+                <TD colSpan={5} className="text-muted-foreground">No learners for this course.</TD>
               </TR>
             )}
           </tbody>

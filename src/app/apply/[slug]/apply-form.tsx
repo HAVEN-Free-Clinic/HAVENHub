@@ -47,7 +47,7 @@ export function ApplyForm({ def }: { def: Def }) {
       {result && !result.ok && <Alert tone="error">{result.message}</Alert>}
 
       {def.acceptsRenewals && (
-        <fieldset className="rounded-xl border border-slate-200 bg-white p-4">
+        <fieldset className="rounded-xl border border-border bg-surface p-4">
           <legend className="text-sm font-medium">Are you new or renewing?</legend>
           <label className="mr-4 text-sm"><input type="radio" name="__type_ui" checked={applicantType === "NEW"} onChange={() => setApplicantType("NEW")} /> New applicant</label>
           <label className="text-sm"><input type="radio" name="__type_ui" checked={applicantType === "RENEWAL"} onChange={() => setApplicantType("RENEWAL")} /> Renewing in my current department</label>
@@ -62,8 +62,8 @@ export function ApplyForm({ def }: { def: Def }) {
 
       {visible.map((section) => (
         <fieldset key={section.id} className="space-y-3">
-          <legend className="text-sm font-semibold uppercase tracking-wider text-slate-500">{section.title}</legend>
-          {section.description && <p className="text-sm text-slate-500">{section.description}</p>}
+          <legend className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">{section.title}</legend>
+          {section.description && <p className="text-sm text-muted-foreground">{section.description}</p>}
           {section.fields.map((f) => (
             <Field key={f.key} f={f} departments={def.departments} fieldError={result && !result.ok ? result.fieldErrors?.[f.key] : undefined}
               onDeptChoice={f.type === "DEPARTMENT_CHOICE" ? setDeptChoice : undefined} />
@@ -78,7 +78,7 @@ export function ApplyForm({ def }: { def: Def }) {
 
 function Field({ f, departments, fieldError, onDeptChoice }: { f: FieldDef; departments: string[]; fieldError?: string; onDeptChoice?: (v: string) => void }) {
   const label = <span className="block text-sm font-medium">{f.label}{f.required && <span className="text-critical"> *</span>}</span>;
-  const help = f.helpText ? <span className="block text-xs text-slate-500">{f.helpText}</span> : null;
+  const help = f.helpText ? <span className="block text-xs text-muted-foreground">{f.helpText}</span> : null;
   const err = fieldError ? <span className="block text-xs text-critical">{fieldError}</span> : null;
   let control: React.ReactNode;
   switch (f.type) {

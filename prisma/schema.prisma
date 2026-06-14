@@ -67,6 +67,10 @@ model Person {
   phone                     String?
   epicId                    String?
   yaleAffiliation           String?
+  /// UI appearance preference: null = use the app default (ui.defaultTheme).
+  /// One of "light" | "dark" | "system". Stored as a string (not an enum) to
+  /// match the settings registry's string select and avoid a Prisma enum migration.
+  themePreference           String?
   gradYear                  String?
   status                    PersonStatus         @default(ACTIVE)
   airtableRecordId          String?              @unique

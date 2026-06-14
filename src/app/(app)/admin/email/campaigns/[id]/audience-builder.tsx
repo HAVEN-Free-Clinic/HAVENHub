@@ -109,27 +109,27 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
   return (
     <div className="space-y-4">
       <div>
-        <label className="block text-sm font-medium text-slate-700">Audience</label>
-        <p className="mt-0.5 text-xs text-slate-500">
+        <label className="block text-sm font-medium text-foreground-soft">Audience</label>
+        <p className="mt-0.5 text-xs text-muted-foreground">
           Choose who receives this campaign. Add at least one condition; an empty audience matches nobody (a safeguard against an accidental send-all).
         </p>
       </div>
 
       {/* Match mode */}
       <div className="flex items-center gap-3">
-        <span className="text-sm text-slate-700">Match</span>
-        <div className="inline-flex overflow-hidden rounded-lg border border-slate-200 text-xs">
+        <span className="text-sm text-foreground-soft">Match</span>
+        <div className="inline-flex overflow-hidden rounded-lg border border-border text-xs">
           <button
             type="button"
             onClick={() => setMatch("ALL")}
-            className={`px-3 py-1.5 ${match === "ALL" ? "bg-brand text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}
+            className={`px-3 py-1.5 ${match === "ALL" ? "bg-brand text-white" : "bg-surface text-foreground-soft hover:bg-muted"}`}
           >
             ALL conditions
           </button>
           <button
             type="button"
             onClick={() => setMatch("ANY")}
-            className={`px-3 py-1.5 ${match === "ANY" ? "bg-brand text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}
+            className={`px-3 py-1.5 ${match === "ANY" ? "bg-brand text-white" : "bg-surface text-foreground-soft hover:bg-muted"}`}
           >
             ANY condition
           </button>
@@ -138,7 +138,7 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
 
       {/* Condition rows */}
       {conditions.length === 0 && (
-        <p className="text-sm text-slate-400 italic">
+        <p className="text-sm text-subtle-foreground italic">
           No conditions yet; this audience matches nobody. Add a condition to choose recipients.
         </p>
       )}
@@ -153,13 +153,13 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
           return (
             <div
               key={idx}
-              className="flex flex-wrap items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3"
+              className="flex flex-wrap items-start gap-3 rounded-xl border border-border bg-muted p-3"
             >
               {/* Field selector, grouped */}
               <select
                 value={cond.field}
                 onChange={(e) => changeField(idx, e.target.value)}
-                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15"
+                className="rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15"
               >
                 {groups.map((g) => (
                   <optgroup key={g.name} label={g.name}>
@@ -178,7 +178,7 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
                   <select
                     value={cond.op}
                     onChange={(e) => changeTextOp(idx, e.target.value as ConditionOp)}
-                    className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15"
+                    className="rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15"
                   >
                     {def.operators.map((op) => (
                       <option key={op} value={op}>
@@ -193,7 +193,7 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
                       onChange={(e) => changeTextValue(idx, e.target.value)}
                       rows={2}
                       placeholder="Paste values, one per line or comma-separated"
-                      className="min-w-[16rem] flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15"
+                      className="min-w-[16rem] flex-1 rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15"
                     />
                   ) : !VALUELESS_OPS.has(cond.op) ? (
                     <input
@@ -201,7 +201,7 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
                       value={textValue}
                       onChange={(e) => changeTextValue(idx, e.target.value)}
                       placeholder="Enter a value"
-                      className="min-w-[12rem] flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15"
+                      className="min-w-[12rem] flex-1 rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15"
                     />
                   ) : null}
                 </>
@@ -212,7 +212,7 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
                 <select
                   value={typeof cond.value === "string" ? cond.value : ""}
                   onChange={(e) => changeEnumValue(idx, e.target.value)}
-                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15"
+                  className="rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15"
                 >
                   {options.map((o) => (
                     <option key={o.value} value={o.value}>
@@ -237,7 +237,7 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
                     </label>
                   ))}
                   {options.length === 0 && (
-                    <span className="text-xs text-slate-400 italic">No options available</span>
+                    <span className="text-xs text-subtle-foreground italic">No options available</span>
                   )}
                 </div>
               )}
@@ -247,7 +247,7 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
                 <select
                   value={cond.op}
                   onChange={(e) => changeBooleanOp(idx, e.target.value as "isTrue" | "isFalse")}
-                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15"
+                  className="rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15"
                 >
                   <option value="isTrue">Yes</option>
                   <option value="isFalse">No</option>
@@ -257,7 +257,7 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
               <button
                 type="button"
                 onClick={() => removeCondition(idx)}
-                className="ml-auto text-xs text-slate-400 hover:text-critical"
+                className="ml-auto text-xs text-subtle-foreground hover:text-critical"
               >
                 Remove
               </button>
@@ -269,7 +269,7 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
       <button
         type="button"
         onClick={addCondition}
-        className="rounded-lg border border-dashed border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:border-slate-400 hover:text-slate-800"
+        className="rounded-lg border border-dashed border-border-strong px-3 py-1.5 text-sm text-foreground-soft hover:border-border-strong hover:text-foreground"
       >
         + Add condition
       </button>

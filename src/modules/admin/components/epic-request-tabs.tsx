@@ -45,15 +45,15 @@ function TabNav({ activeTab }: { activeTab: Tab }) {
   const labels: Record<Tab, string> = { generate: "Generate", tracker: "Tracker" };
 
   return (
-    <div className="flex gap-4 border-b border-slate-200 mb-8">
+    <div className="flex gap-4 border-b border-border mb-8">
       {(["generate", "tracker"] as Tab[]).map((tab) => (
         <button
           key={tab}
           onClick={() => goTo(tab)}
           className={`pb-3 text-sm font-semibold border-b-2 transition-colors ${
             activeTab === tab
-              ? "border-brand text-brand"
-              : "border-transparent text-slate-500 hover:text-slate-600"
+              ? "border-brand text-brand-fg"
+              : "border-transparent text-muted-foreground hover:text-foreground-soft"
           }`}
         >
           {labels[tab]}
@@ -70,7 +70,7 @@ function TabNav({ activeTab }: { activeTab: Tab }) {
 function TrackerTable({ history }: { history: EpicRequestHistoryRow[] }) {
   if (history.length === 0) {
     return (
-      <p className="text-sm text-slate-500">
+      <p className="text-sm text-muted-foreground">
         No Epic requests submitted yet. Generate a PDF to get started.
       </p>
     );
@@ -84,10 +84,10 @@ function TrackerTable({ history }: { history: EpicRequestHistoryRow[] }) {
           <Card key={ticket.id} className="space-y-3">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="space-y-1">
-                <p className="text-sm font-semibold text-slate-800">
+                <p className="text-sm font-semibold text-foreground">
                   {ticket.description ?? "Epic request"}
                 </p>
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-muted-foreground">
                   Submitted {new Date(ticket.submittedAt).toLocaleDateString()} by {ticket.submittedBy.name}
                   {days !== null && (
                     <span className={`ml-2 font-medium ${days > 5 ? "text-red-600" : "text-amber-600"}`}>
@@ -96,8 +96,8 @@ function TrackerTable({ history }: { history: EpicRequestHistoryRow[] }) {
                   )}
                 </p>
                 {ticket.serviceRequestNumber && (
-                  <p className="text-xs text-slate-500">
-                    Service request: <span className="font-medium text-slate-700">{ticket.serviceRequestNumber}</span>
+                  <p className="text-xs text-muted-foreground">
+                    Service request: <span className="font-medium text-foreground-soft">{ticket.serviceRequestNumber}</span>
                   </p>
                 )}
               </div>
@@ -110,11 +110,11 @@ function TrackerTable({ history }: { history: EpicRequestHistoryRow[] }) {
 
             <div className="space-y-1">
               {requests.map((r) => (
-                <div key={r.id} className="flex items-center gap-2 text-xs text-slate-600">
+                <div key={r.id} className="flex items-center gap-2 text-xs text-foreground-soft">
                   <Badge>{r.kind}</Badge>
                   <span>{r.person.name}</span>
                   {r.person.epicId && (
-                    <span className="text-slate-400">{r.person.epicId}</span>
+                    <span className="text-subtle-foreground">{r.person.epicId}</span>
                   )}
                 </div>
               ))}

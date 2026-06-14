@@ -44,14 +44,14 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
         <Link href={`/recruitment/cycles/${id}/onboarding`} className={navLink}>Onboarding</Link>
       </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Public link</p>
+      <div className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+        <p className="text-xs font-medium uppercase tracking-wider text-subtle-foreground">Public link</p>
         {cycle.status === "OPEN" ? (
-          <a className="mt-1 inline-block text-sm font-medium text-brand hover:text-brand-hover" href={applyUrl}>
+          <a className="mt-1 inline-block text-sm font-medium text-brand-fg hover:text-brand-hover" href={applyUrl}>
             {applyUrl}
           </a>
         ) : (
-          <p className="mt-1 text-sm text-slate-500">Publish the cycle to activate {applyUrl}</p>
+          <p className="mt-1 text-sm text-muted-foreground">Publish the cycle to activate {applyUrl}</p>
         )}
       </div>
 
@@ -76,8 +76,8 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
       </div>
 
       {cycle.track === "VOLUNTEER" && (
-        <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Training</p>
+        <div className="space-y-4 rounded-2xl border border-border bg-surface p-5 shadow-sm">
+          <p className="text-xs font-medium uppercase tracking-wider text-subtle-foreground">Training</p>
           <div className="flex flex-wrap gap-2">
             <Link href={`/recruitment/cycles/${id}/builder/quiz`} className={navLink}>Edit quiz</Link>
             <Link href={`/recruitment/cycles/${id}/training`} className={navLink}>Training roster</Link>

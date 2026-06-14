@@ -210,6 +210,20 @@ export const SETTINGS: SettingDef<unknown>[] = [
     envDefault: () => ({ contentType: "", version: 0 }),
     secret: false,
   }),
+  define<"light" | "dark" | "system">({
+    key: "ui.defaultTheme",
+    category: "Branding",
+    label: "Default appearance",
+    help: "The theme used for users who have not chosen one, and for signed-out pages. Users can override this for themselves.",
+    input: { type: "select", options: [
+      { value: "light", label: "Light" },
+      { value: "dark", label: "Dark" },
+      { value: "system", label: "System (follow device)" },
+    ] },
+    schema: z.enum(["light", "dark", "system"]),
+    envDefault: () => "system",
+    secret: false,
+  }),
 ];
 
 const BY_KEY = new Map(SETTINGS.map((d) => [d.key, d]));

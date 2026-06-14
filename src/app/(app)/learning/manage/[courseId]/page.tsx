@@ -46,7 +46,7 @@ export default async function EditCoursePage({ params }: { params: Promise<{ cou
 
         <div className="space-y-2">
           <h2 className="font-medium">SCORM package</h2>
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-muted-foreground">
             {course.scormEntryHref
               ? `Uploaded${course.scormUploadedAt ? ` ${course.scormUploadedAt.toLocaleDateString()}` : ""} · launch: ${course.scormEntryHref} · SCORM ${course.scormVersion ?? "1.2"}`
               : "No package uploaded yet."}

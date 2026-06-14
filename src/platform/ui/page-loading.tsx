@@ -16,10 +16,10 @@ export function PageLoading({ label = "Loading" }: PageLoadingProps) {
     <div
       role="status"
       aria-label={label}
-      className="flex min-h-[40vh] flex-col items-center justify-center gap-3 text-brand"
+      className="flex min-h-[40vh] flex-col items-center justify-center gap-3 text-brand-fg"
     >
       <Spinner size="lg" />
-      <p className="text-sm font-medium text-slate-500">{label}</p>
+      <p className="text-sm font-medium text-muted-foreground">{label}</p>
     </div>
   );
 }

@@ -25,7 +25,7 @@ export default async function NewCampaignPage() {
 
       <form action={createAction} className="max-w-sm space-y-4">
         <div>
-          <label className="block text-sm font-medium text-slate-700" htmlFor="name">
+          <label className="block text-sm font-medium text-foreground-soft" htmlFor="name">
             Campaign name
           </label>
           <Input

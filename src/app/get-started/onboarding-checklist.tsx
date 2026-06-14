@@ -41,7 +41,7 @@ function TaskRow({ task }: { task: OnboardingTask }) {
   return (
     <li
       className={`flex items-center gap-4 rounded-2xl border p-4 shadow-sm ${
-        done ? "border-green-200 bg-green-50/60" : "border-slate-200 bg-white"
+        done ? "border-green-200 bg-green-50/60" : "border-border bg-surface"
       }`}
     >
       <span
@@ -52,10 +52,10 @@ function TaskRow({ task }: { task: OnboardingTask }) {
       </span>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[15px] font-bold tracking-tight text-slate-800">{task.label}</span>
+          <span className={`text-[15px] font-bold tracking-tight ${done ? "text-slate-800" : "text-foreground"}`}>{task.label}</span>
           <StatusPill state={task.state} />
         </div>
-        <p className="mt-0.5 text-[13px] leading-snug text-slate-600">{task.description}</p>
+        <p className={`mt-0.5 text-[13px] leading-snug ${done ? "text-slate-700" : "text-foreground-soft"}`}>{task.description}</p>
       </div>
       {done ? (
         <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-success text-white">

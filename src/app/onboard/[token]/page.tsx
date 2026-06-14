@@ -8,7 +8,7 @@ export default async function OnboardPage({ params }: { params: Promise<{ token:
     return (
       <main className="mx-auto max-w-2xl px-6 py-16 text-center">
         <h1 className="text-xl font-bold">This onboarding form is not available</h1>
-        <p className="mt-2 text-slate-500">The link may be invalid or already completed.</p>
+        <p className="mt-2 text-muted-foreground">The link may be invalid or already completed.</p>
       </main>
     );
   }

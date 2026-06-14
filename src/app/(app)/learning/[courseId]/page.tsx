@@ -31,7 +31,7 @@ export default async function LearningCoursePage({
       {from === "onboarding" && (
         <Link
           href="/get-started/learning"
-          className="mb-4 inline-flex items-center gap-2 text-[13px] font-semibold text-brand transition-colors hover:underline"
+          className="mb-4 inline-flex items-center gap-2 text-[13px] font-semibold text-brand-fg transition-colors hover:underline"
         >
           <ArrowLeft aria-hidden className="h-4 w-4" />
           Back to onboarding
@@ -42,7 +42,7 @@ export default async function LearningCoursePage({
         {course.scos.length > 0 ? (
           <ScormPlayer courseId={course.id} scos={course.scos} />
         ) : (
-          <p className="text-sm text-slate-500">This course has no content uploaded yet. Check back soon.</p>
+          <p className="text-sm text-muted-foreground">This course has no content uploaded yet. Check back soon.</p>
         )}
       </div>
     </>

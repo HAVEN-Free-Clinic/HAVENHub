@@ -101,7 +101,7 @@ export default async function PersonDetailPage({ params, searchParams }: PagePro
 
       {/* Edit form */}
       <section>
-        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-500">
+        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
           Details
         </h2>
         <PersonForm
@@ -115,7 +115,7 @@ export default async function PersonDetailPage({ params, searchParams }: PagePro
       {/* Memberships table */}
       {person.memberships.length > 0 && (
         <section>
-          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-500">
+          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
             Memberships
           </h2>
           <Table>
@@ -155,12 +155,12 @@ export default async function PersonDetailPage({ params, searchParams }: PagePro
 
       {/* Status section */}
       <section>
-        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-500">
+        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
           Status
         </h2>
         {person.status === "ACTIVE" ? (
           <form action={offboardAction}>
-            <p className="mb-3 text-sm text-slate-500">
+            <p className="mb-3 text-sm text-muted-foreground">
               Offboarding removes this person from active access. Their data and
               membership history are preserved. Status is not mirrored to Airtable
               (the volunteer offboarding flow belongs to the Volunteers module).
@@ -169,7 +169,7 @@ export default async function PersonDetailPage({ params, searchParams }: PagePro
           </form>
         ) : (
           <form action={reactivateAction}>
-            <p className="mb-3 text-sm text-slate-500">
+            <p className="mb-3 text-sm text-muted-foreground">
               Reactivating this person restores their ACTIVE status.
             </p>
             <ConfirmButton label="Reactivate" confirmLabel="Confirm reactivation?" />

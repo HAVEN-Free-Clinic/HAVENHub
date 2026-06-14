@@ -17,7 +17,7 @@ type Row = Person & { _membershipCount?: number };
 export function PeopleTable({ rows }: { rows: Row[] }) {
   if (rows.length === 0) {
     return (
-      <Card pad={false} className="px-6 py-10 text-center text-sm text-slate-500">
+      <Card pad={false} className="px-6 py-10 text-center text-sm text-muted-foreground">
         No people found.
       </Card>
     );
@@ -41,18 +41,18 @@ export function PeopleTable({ rows }: { rows: Row[] }) {
             <TD>
               <Link
                 href={`/admin/people/${person.id}`}
-                className="font-medium text-brand hover:underline"
+                className="font-medium text-brand-fg hover:underline"
               >
                 {person.name}
               </Link>
             </TD>
-            <TD className="text-slate-500">
-              {person.netId ?? <span className="text-slate-300">-</span>}
+            <TD className="text-muted-foreground">
+              {person.netId ?? <span className="text-subtle-foreground">-</span>}
             </TD>
-            <TD className="text-slate-500">
-              {person.contactEmail ?? <span className="text-slate-300">-</span>}
+            <TD className="text-muted-foreground">
+              {person.contactEmail ?? <span className="text-subtle-foreground">-</span>}
             </TD>
-            <TD className="text-slate-500 tabular-nums">
+            <TD className="text-muted-foreground tabular-nums">
               {person._membershipCount ?? 0}
             </TD>
             <TD>

@@ -151,7 +151,7 @@ export default async function SettingsPage({ searchParams }: PageProps) {
                       <label htmlFor={s.key} className="block text-sm font-medium">
                         {s.label}
                       </label>
-                      <p className="text-xs text-slate-500">{s.help}</p>
+                      <p className="text-xs text-muted-foreground">{s.help}</p>
                       {s.input.type === "boolean" ? (
                         <Checkbox
                           id={s.key}

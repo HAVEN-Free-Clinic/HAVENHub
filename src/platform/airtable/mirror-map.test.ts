@@ -14,6 +14,7 @@ function nullPerson(): Person {
     phone: null,
     epicId: null,
     yaleAffiliation: null,
+    themePreference: null,
     gradYear: null,
     status: "ACTIVE",
     airtableRecordId: null,

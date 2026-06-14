@@ -10,7 +10,7 @@ const toneClasses: Record<Tone, string> = {
   error: "border-critical/20 bg-red-50 text-critical",
   success: "border-success/20 bg-green-50 text-success",
   warning: "border-warning/30 bg-amber-50 text-warning",
-  info: "border-brand/20 bg-brand-faint text-brand",
+  info: "border-brand/20 bg-brand-faint text-brand-fg",
 };
 
 type AlertProps = ComponentProps<"p"> & {

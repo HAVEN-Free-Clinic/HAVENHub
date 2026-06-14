@@ -15,7 +15,7 @@ export function Skeleton({ className }: SkeletonProps) {
   return (
     <div
       aria-hidden={true}
-      className={cx("animate-pulse rounded-md bg-slate-200/80 motion-reduce:animate-none", className)}
+      className={cx("animate-pulse rounded-md bg-muted-strong/80 motion-reduce:animate-none", className)}
     />
   );
 }

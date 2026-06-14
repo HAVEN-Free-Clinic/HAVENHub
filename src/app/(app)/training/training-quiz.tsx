@@ -104,26 +104,26 @@ export function TrainingQuiz({
       )}
 
       {/* Quiz card */}
-      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex items-center justify-between gap-4 border-b border-slate-200 px-[22px] py-[18px]">
+      <div className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
+        <div className="flex items-center justify-between gap-4 border-b border-border px-[22px] py-[18px]">
           <div className="flex items-center gap-3">
-            <span className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-[10px] bg-brand-faint text-brand">
+            <span className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-[10px] bg-brand-faint text-brand-fg">
               <FileText aria-hidden className="h-[19px] w-[19px]" />
             </span>
             <div>
-              <p className="text-[15px] font-bold text-slate-800">Makeup quiz</p>
-              <p className="mt-px text-[12.5px] text-slate-500">
+              <p className="text-[15px] font-bold text-foreground">Makeup quiz</p>
+              <p className="mt-px text-[12.5px] text-muted-foreground">
                 Pass at {passPercent}% · {attemptsLeft} attempt{attemptsLeft === 1 ? "" : "s"} left
               </p>
             </div>
           </div>
-          <p className="shrink-0 text-[12.5px] font-semibold text-slate-600">
+          <p className="shrink-0 text-[12.5px] font-semibold text-foreground-soft">
             {answeredCount} of {questions.length} answered
           </p>
         </div>
 
         {/* Progress */}
-        <div className="h-[3px] bg-slate-100">
+        <div className="h-[3px] bg-muted-strong">
           <div
             className="h-full bg-brand transition-[width] duration-300 ease-out"
             style={{ width: `${(answeredCount / questions.length) * 100}%` }}
@@ -134,10 +134,10 @@ export function TrainingQuiz({
           {questions.map((q, i) => (
             <fieldset
               key={q.key}
-              className="border-b border-slate-200 py-[18px] last:border-b-0"
+              className="border-b border-border py-[18px] last:border-b-0"
             >
-              <legend className="text-[11.5px] font-bold tracking-wide text-slate-500">Question {i + 1}</legend>
-              <p className="mb-3 mt-1.5 text-[15px] font-semibold leading-snug text-slate-800">{q.label}</p>
+              <legend className="text-[11.5px] font-bold tracking-wide text-muted-foreground">Question {i + 1}</legend>
+              <p className="mb-3 mt-1.5 text-[15px] font-semibold leading-snug text-foreground">{q.label}</p>
               <div className="flex flex-col gap-2.5">
                 {q.options.map((o) => {
                   const sel = answers[q.key] === o.value;
@@ -160,7 +160,7 @@ export function TrainingQuiz({
                       <span className={dotClass({ sel, isCorrect })}>
                         <span className={dotFillClass({ sel, isCorrect })} />
                       </span>
-                      <span className={`min-w-0 flex-1 text-sm leading-snug ${sel ? "font-semibold text-slate-900" : "text-slate-800"}`}>
+                      <span className={`min-w-0 flex-1 text-sm leading-snug ${sel ? "font-semibold text-foreground" : "text-foreground"}`}>
                         {o.label}
                       </span>
                       {isCorrect && <span className="ml-auto text-xs font-bold text-success">Correct</span>}
@@ -173,8 +173,8 @@ export function TrainingQuiz({
           ))}
         </div>
 
-        <div className="flex items-center justify-between gap-4 border-t border-slate-200 bg-slate-50 px-[22px] py-[18px]">
-          <span className="text-[12.5px] text-slate-500">
+        <div className="flex items-center justify-between gap-4 border-t border-border bg-muted px-[22px] py-[18px]">
+          <span className="text-[12.5px] text-muted-foreground">
             {pending
               ? "Grading your answers…"
               : reviewing
@@ -204,14 +204,14 @@ export function TrainingQuiz({
       </div>
 
       {/* Intake */}
-      <div className="mt-[22px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex items-center gap-3 border-b border-slate-200 px-[22px] py-[18px]">
-          <span className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-[10px] bg-brand-faint text-brand">
+      <div className="mt-[22px] overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
+        <div className="flex items-center gap-3 border-b border-border px-[22px] py-[18px]">
+          <span className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-[10px] bg-brand-faint text-brand-fg">
             <ClipboardList aria-hidden className="h-[19px] w-[19px]" />
           </span>
           <div>
-            <p className="text-[15px] font-bold text-slate-800">A few quick questions</p>
-            <p className="mt-px text-[12.5px] text-slate-500">Helps us place you on shifts and subcommittees</p>
+            <p className="text-[15px] font-bold text-foreground">A few quick questions</p>
+            <p className="mt-px text-[12.5px] text-muted-foreground">Helps us place you on shifts and subcommittees</p>
           </div>
         </div>
         <div className="grid grid-cols-1 gap-3.5 p-[22px] sm:grid-cols-2">
@@ -259,7 +259,7 @@ export function TrainingQuiz({
 // ---------------------------------------------------------------------------
 
 const fieldInputClass =
-  "w-full rounded-[10px] border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 transition focus:border-brand focus:outline-none focus:ring-[3px] focus:ring-brand-faint";
+  "w-full rounded-[10px] border border-border-strong bg-surface px-3 py-2.5 text-sm text-foreground transition focus:border-brand focus:outline-none focus:ring-[3px] focus:ring-brand-faint";
 
 function Field({
   label,
@@ -274,9 +274,9 @@ function Field({
 }) {
   return (
     <div className={full ? "sm:col-span-2" : undefined}>
-      <label className="mb-1.5 block text-[12.5px] font-semibold text-slate-600">
+      <label className="mb-1.5 block text-[12.5px] font-semibold text-foreground-soft">
         {label}
-        {optional && <span className="font-normal text-slate-400"> (optional)</span>}
+        {optional && <span className="font-normal text-subtle-foreground"> (optional)</span>}
       </label>
       {children}
     </div>
@@ -297,16 +297,16 @@ function optionClass({
   const base = "flex items-center gap-3 rounded-xl border px-3.5 py-3 transition";
   if (isCorrect) return `${base} pointer-events-none border-success bg-green-50`;
   if (isWrong) return `${base} pointer-events-none border-critical bg-red-50`;
-  if (reviewing) return `${base} pointer-events-none border-slate-300 bg-white opacity-90`;
+  if (reviewing) return `${base} pointer-events-none border-border-strong bg-surface opacity-90`;
   if (sel) return `${base} cursor-pointer border-brand bg-brand-faint ring-1 ring-inset ring-brand`;
-  return `${base} cursor-pointer border-slate-300 bg-white hover:border-brand hover:bg-brand-faint`;
+  return `${base} cursor-pointer border-border-strong bg-surface hover:border-brand hover:bg-brand-faint`;
 }
 
 function dotClass({ sel, isCorrect }: { sel: boolean; isCorrect: boolean }): string {
   const base = "grid h-[19px] w-[19px] shrink-0 place-items-center rounded-full border-2";
   if (isCorrect) return `${base} border-success`;
   if (sel) return `${base} border-brand`;
-  return `${base} border-slate-300`;
+  return `${base} border-border-strong`;
 }
 
 function dotFillClass({ sel, isCorrect }: { sel: boolean; isCorrect: boolean }): string {

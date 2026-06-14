@@ -164,7 +164,7 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
       <div className="mt-8 space-y-10">
         {/* Profile form */}
         <section>
-          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-500">
+          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
             Profile
           </h2>
           <MyInfoForm
@@ -177,7 +177,7 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
 
         {/* Memberships */}
         <section>
-          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-500">
+          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
             Memberships
           </h2>
           <MembershipsCard
@@ -189,7 +189,7 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
 
         {/* HIPAA certificate */}
         <section>
-          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-500">
+          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
             HIPAA Certificate
           </h2>
           <HipaaPanel
@@ -203,7 +203,7 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
 
         {/* Clearance */}
         <section>
-          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-500">
+          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
             Clearance
           </h2>
           <ClearanceCard
@@ -216,7 +216,7 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
 
         {/* Epic access */}
         <section>
-          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-500">
+          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
             Epic Access
           </h2>
           <EpicPanel

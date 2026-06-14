@@ -30,7 +30,7 @@ export function AddPanelistForm({
           onValueChange={setPicked}
         />
       </div>
-      <label className="flex items-center gap-2 py-2 text-sm text-slate-600">
+      <label className="flex items-center gap-2 py-2 text-sm text-foreground-soft">
         <Checkbox name="isLead" /> Lead
       </label>
       <SubmitButton size="sm" pendingLabel="Adding…" disabled={!picked}>

@@ -15,9 +15,9 @@ export default async function EmailTemplatesPage() {
       />
 
       {rows.length === 0 ? (
-        <p className="text-sm text-slate-400">No templates registered.</p>
+        <p className="text-sm text-subtle-foreground">No templates registered.</p>
       ) : (
-        <ul className="divide-y rounded-2xl border border-slate-200 bg-white">
+        <ul className="divide-y rounded-2xl border border-border bg-surface">
           {rows.map((r) => (
             <li key={r.key} className="flex items-center justify-between px-5 py-3">
               <span>
@@ -27,9 +27,9 @@ export default async function EmailTemplatesPage() {
                 >
                   {r.name}
                 </Link>
-                <span className="ml-2 text-xs text-slate-400">{r.category}</span>
+                <span className="ml-2 text-xs text-subtle-foreground">{r.category}</span>
               </span>
-              <span className="text-xs text-slate-500">
+              <span className="text-xs text-muted-foreground">
                 {r.hasOverride ? "Customized" : "Default"}
               </span>
             </li>

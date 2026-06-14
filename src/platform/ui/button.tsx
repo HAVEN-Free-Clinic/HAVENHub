@@ -7,11 +7,11 @@ const variantClasses: Record<Variant, string> = {
   primary:
     "bg-brand text-white hover:bg-brand-hover",
   outline:
-    "border border-slate-300 text-slate-700 hover:bg-slate-50",
+    "border border-border-strong text-foreground-soft hover:bg-muted",
   danger:
     "bg-critical text-white hover:bg-red-700",
   ghost:
-    "text-slate-500 hover:text-slate-900",
+    "text-muted-foreground hover:text-foreground",
 };
 
 const sizeClasses: Record<Size, string> = {

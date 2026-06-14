@@ -29,3 +29,28 @@ describe("settings registry", () => {
     expect(() => getSettingDef("nope.missing")).toThrowError(/Unregistered/);
   });
 });
+
+describe("ui.defaultTheme setting", () => {
+  const def = SETTINGS.find((s) => s.key === "ui.defaultTheme");
+
+  it("is registered as a select", () => {
+    expect(def).toBeDefined();
+    expect(def!.input).toEqual({
+      type: "select",
+      options: [
+        { value: "light", label: "Light" },
+        { value: "dark", label: "Dark" },
+        { value: "system", label: "System (follow device)" },
+      ],
+    });
+  });
+
+  it("defaults to system", () => {
+    expect(def!.envDefault()).toBe("system");
+  });
+
+  it("rejects values outside light/dark/system", () => {
+    expect(def!.schema.safeParse("system").success).toBe(true);
+    expect(def!.schema.safeParse("blue").success).toBe(false);
+  });
+});

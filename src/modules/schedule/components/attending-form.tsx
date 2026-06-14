@@ -46,7 +46,7 @@ export function AttendingForm({ action, attending, error }: AttendingFormProps) 
       </Field>
 
       {attending !== undefined && (
-        <label className="flex items-center gap-2 text-sm text-slate-700">
+        <label className="flex items-center gap-2 text-sm text-foreground-soft">
           <input type="checkbox" name="isActive" defaultChecked={attending.isActive} className="h-4 w-4 rounded accent-brand" />
           Active
         </label>

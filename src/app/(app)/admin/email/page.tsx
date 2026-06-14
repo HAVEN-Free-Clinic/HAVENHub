@@ -228,15 +228,15 @@ export default async function EmailPage({ searchParams }: PageProps) {
       )}
 
       {/* Mailer connection panel */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-surface p-5">
         <div>
-          <p className="text-sm font-medium text-slate-700">Mailer connection</p>
+          <p className="text-sm font-medium text-foreground-soft">Mailer connection</p>
           {mailConn.connected ? (
-            <p className="mt-1 text-sm text-slate-500">
+            <p className="mt-1 text-sm text-muted-foreground">
               Connected as {mailConn.account ?? "unknown"} since {fmtDateTime(mailConn.connectedAt)}
             </p>
           ) : (
-            <p className="mt-1 text-sm text-slate-500">
+            <p className="mt-1 text-sm text-muted-foreground">
               Not connected. Connect a mailbox to send email via Microsoft Graph.
             </p>
           )}
@@ -304,10 +304,10 @@ export default async function EmailPage({ searchParams }: PageProps) {
 
       {/* Table */}
       {rows.length === 0 ? (
-        <p className="text-sm text-slate-400">No emails found.</p>
+        <p className="text-sm text-subtle-foreground">No emails found.</p>
       ) : (
         <>
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-muted-foreground">
             {total.toLocaleString()} {total === 1 ? "email" : "emails"}
           </p>
 
@@ -328,14 +328,14 @@ export default async function EmailPage({ searchParams }: PageProps) {
               {rows.map((row) => (
                 <TR key={row.id}>
                   <TD className="font-medium text-sm">{row.toEmail}</TD>
-                  <TD className="text-sm text-slate-600">{row.template}</TD>
+                  <TD className="text-sm text-foreground-soft">{row.template}</TD>
                   <TD>
                     <Badge tone={statusTone(row.status)}>{row.status}</Badge>
                   </TD>
-                  <TD className="tabular-nums text-sm text-slate-600">
+                  <TD className="tabular-nums text-sm text-foreground-soft">
                     {row.attempts}
                   </TD>
-                  <TD className="text-sm text-slate-500 max-w-xs">
+                  <TD className="text-sm text-muted-foreground max-w-xs">
                     {row.lastError ? (
                       <span
                         title={row.lastError}
@@ -346,13 +346,13 @@ export default async function EmailPage({ searchParams }: PageProps) {
                           : row.lastError}
                       </span>
                     ) : (
-                      <span className="text-slate-300">-</span>
+                      <span className="text-subtle-foreground">-</span>
                     )}
                   </TD>
-                  <TD className="tabular-nums text-sm text-slate-600 whitespace-nowrap">
+                  <TD className="tabular-nums text-sm text-foreground-soft whitespace-nowrap">
                     {fmtDateTime(row.createdAt)}
                   </TD>
-                  <TD className="tabular-nums text-sm text-slate-600 whitespace-nowrap">
+                  <TD className="tabular-nums text-sm text-foreground-soft whitespace-nowrap">
                     {fmtDateTime(row.sentAt)}
                   </TD>
                   <TD>

@@ -30,10 +30,10 @@ export default async function OnboardingLearningPage() {
           <Link key={c.id} href={`/learning/${c.id}?from=onboarding`} className="block">
             <Card interactive>
               <div className="flex items-center justify-between gap-3">
-                <span className="font-medium text-slate-800">{c.title}</span>
+                <span className="font-medium text-foreground">{c.title}</span>
                 <Badge tone={c.status === "COMPLETE" ? "success" : "default"}>{LABEL[c.status]}</Badge>
               </div>
-              {c.description && <p className="mt-1 text-sm text-slate-500">{c.description}</p>}
+              {c.description && <p className="mt-1 text-sm text-muted-foreground">{c.description}</p>}
             </Card>
           </Link>
         ))}

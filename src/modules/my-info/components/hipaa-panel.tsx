@@ -79,10 +79,10 @@ export function HipaaPanel({
     <Card className="space-y-6">
       {/* Latest certificate */}
       <div>
-        <h3 className="mb-2 text-sm font-semibold uppercase tracking-wider text-slate-500">Current Certificate</h3>
+        <h3 className="mb-2 text-sm font-semibold uppercase tracking-wider text-muted-foreground">Current Certificate</h3>
         {latest ? (
           <div className="space-y-2">
-            <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
+            <div className="flex flex-wrap items-center gap-2 text-sm text-foreground-soft">
               <span>
                 {latest.source === "IMPORT"
                   ? "On file (imported from previous records)"
@@ -94,26 +94,26 @@ export function HipaaPanel({
             <div className="flex items-center gap-2">
               <StatusBadge status={status} cert={latest} />
               {latest.completionDate && (
-                <span className="text-xs text-slate-400">
+                <span className="text-xs text-subtle-foreground">
                   Detected completion date: {formatDate(latest.completionDate)}
                 </span>
               )}
             </div>
             {/* Read-only notice when the completion date could not be parsed */}
             {latest.completionDate === null && (
-              <p className="mt-2 text-sm text-slate-500">
+              <p className="mt-2 text-sm text-muted-foreground">
                 A compliance manager will confirm the completion date.
               </p>
             )}
           </div>
         ) : (
-          <p className="text-sm text-slate-400">No certificate on file.</p>
+          <p className="text-sm text-subtle-foreground">No certificate on file.</p>
         )}
       </div>
 
       {/* Upload form */}
       <div>
-        <h3 className="mb-2 text-sm font-semibold uppercase tracking-wider text-slate-500">Upload New Certificate</h3>
+        <h3 className="mb-2 text-sm font-semibold uppercase tracking-wider text-muted-foreground">Upload New Certificate</h3>
         {error && (
           <Alert tone="error" className="mb-3">
             {error}
@@ -144,16 +144,16 @@ export function HipaaPanel({
       {/* History */}
       {history.length > 0 && (
         <div>
-          <h3 className="mb-2 text-sm font-semibold uppercase tracking-wider text-slate-500">History</h3>
+          <h3 className="mb-2 text-sm font-semibold uppercase tracking-wider text-muted-foreground">History</h3>
           <ul className="space-y-1.5">
             {history.map((cert) => (
-              <li key={cert.id} className="flex items-center gap-3 text-sm text-slate-600">
+              <li key={cert.id} className="flex items-center gap-3 text-sm text-foreground-soft">
                 <span>
                   {cert.source === "IMPORT"
                     ? "On file (imported from previous records)"
                     : formatDate(cert.uploadedAt)}
                 </span>
-                <span className="text-slate-400">{formatSize(cert.size)}</span>
+                <span className="text-subtle-foreground">{formatSize(cert.size)}</span>
                 <CertificateViewer certId={cert.id} fileName={cert.fileName} />
               </li>
             ))}

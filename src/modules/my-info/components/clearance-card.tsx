@@ -29,7 +29,7 @@ const rowIconClasses: Record<Tone, string> = {
   success: "text-success",
   warning: "text-warning",
   critical: "text-critical",
-  default: "text-slate-400",
+  default: "text-subtle-foreground",
 };
 
 function RowIcon({ tone, met }: { tone: Tone; met: boolean }) {
@@ -84,7 +84,7 @@ export function ClearanceCard({
   const forTerm = termName ? ` for ${termName}` : "";
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+    <div className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
       {/* Status banner */}
       {cleared ? (
         <div className="flex items-center gap-4 border-b border-green-200 bg-green-50 px-5 py-4">
@@ -93,10 +93,10 @@ export function ClearanceCard({
           </span>
           <div className="min-w-0">
             <p className="text-xs font-bold uppercase tracking-wider text-success">Cleared</p>
-            <p className="mt-0.5 text-[17px] font-bold tracking-tight text-slate-800">
+            <p className="mt-0.5 text-[17px] font-bold tracking-tight text-foreground">
               You&apos;re cleared to volunteer{forTerm}
             </p>
-            <p className="mt-0.5 text-[13px] leading-snug text-slate-600">
+            <p className="mt-0.5 text-[13px] leading-snug text-foreground-soft">
               Your HIPAA certificate and training are on file, so you can be scheduled for shifts.
             </p>
           </div>
@@ -108,10 +108,10 @@ export function ClearanceCard({
           </span>
           <div className="min-w-0">
             <p className="text-xs font-bold uppercase tracking-wider text-warning">Not yet cleared</p>
-            <p className="mt-0.5 text-[17px] font-bold tracking-tight text-slate-800">
+            <p className="mt-0.5 text-[17px] font-bold tracking-tight text-foreground">
               A few steps left{forTerm}
             </p>
-            <p className="mt-0.5 text-[13px] leading-snug text-slate-600">
+            <p className="mt-0.5 text-[13px] leading-snug text-foreground-soft">
               Finish the unchecked items below to be cleared for shifts.
             </p>
           </div>
@@ -119,11 +119,11 @@ export function ClearanceCard({
       )}
 
       {/* Requirements checklist */}
-      <ul className="divide-y divide-slate-100">
+      <ul className="divide-y divide-border-subtle">
         {requirements.map((req) => (
           <li key={req.label} className="flex items-center gap-3 px-5 py-3.5">
             <RowIcon tone={req.tone} met={req.met} />
-            <span className="min-w-0 flex-1 text-sm font-medium text-slate-800">{req.label}</span>
+            <span className="min-w-0 flex-1 text-sm font-medium text-foreground">{req.label}</span>
             <Badge tone={req.tone}>{req.statusLabel}</Badge>
           </li>
         ))}
@@ -131,10 +131,10 @@ export function ClearanceCard({
 
       {/* Next-step CTA */}
       {!training.met && (
-        <div className="border-t border-slate-100 px-5 py-3.5">
+        <div className="border-t border-border-subtle px-5 py-3.5">
           <Link
             href="/training"
-            className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand hover:text-brand-hover"
+            className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand-fg hover:text-brand-hover"
           >
             Complete your training
             <ArrowRight aria-hidden className="h-4 w-4" />

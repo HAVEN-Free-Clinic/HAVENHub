@@ -102,7 +102,13 @@ export interface ChannelLinkDeps {
   loadClinicDates?: () => Promise<Date[] | null>;
 }
 
-const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+// A found channel link is stable for the whole clinic week: the channel does not
+// change until the week rolls over on Sunday, at which point the `dateStr` key
+// changes and invalidates the entry anyway. So cache a hit for a week (the key,
+// not the clock, is what expires it). A null result -- channel not created yet,
+// or a transient Graph/token failure -- is retried soon instead.
+const HIT_TTL_MS = 7 * 24 * 60 * 60 * 1000; // a clinic week (dateStr rolls over sooner)
+const MISS_TTL_MS = 5 * 60 * 1000; // retry a missing/failed lookup within 5 min
 
 interface CacheEntry {
   dateStr: string;
@@ -198,6 +204,6 @@ export async function getCurrentClinicChannelLink(
     value = null;
   }
 
-  cache = { dateStr, value, expiresAt: now.getTime() + CACHE_TTL_MS };
+  cache = { dateStr, value, expiresAt: now.getTime() + (value ? HIT_TTL_MS : MISS_TTL_MS) };
   return value;
 }

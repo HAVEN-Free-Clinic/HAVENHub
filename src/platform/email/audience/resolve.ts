@@ -1,4 +1,5 @@
 import { prisma } from "@/platform/db";
+import { getActiveTerm } from "@/platform/terms/active-term";
 import type { Audience } from "./types";
 import { compilePersonWhere } from "./compile";
 import { personVariables } from "./variables";
@@ -14,7 +15,7 @@ export type Recipient = {
 export type ResolvedAudience = { recipients: Recipient[]; excludedNoEmail: number };
 
 export async function resolveAudience(audience: Audience): Promise<ResolvedAudience> {
-  const activeTerm = await prisma.term.findFirst({ where: { status: "ACTIVE" }, orderBy: { startDate: "desc" } });
+  const activeTerm = await getActiveTerm();
   const where = compilePersonWhere(audience, { activeTermId: activeTerm?.id ?? null });
   const people = await prisma.person.findMany({
     where,

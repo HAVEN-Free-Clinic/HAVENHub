@@ -18,6 +18,7 @@
  *   - audits every mutation
  */
 
+import { cache } from "react";
 import type { HipaaCertificate } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
@@ -113,12 +114,20 @@ export async function getMyInfo(personId: string) {
   return { person, activeTerm, memberships };
 }
 
-export async function listMyCertificates(personId: string): Promise<HipaaCertificate[]> {
-  return prisma.hipaaCertificate.findMany({
-    where: { personId },
-    orderBy: { uploadedAt: "desc" },
-  });
-}
+/**
+ * The person's certificates, newest first. Memoized per request via cache():
+ * a homepage render reads this from both the onboarding gate and the dashboard,
+ * so without memoization the same query runs twice. Per-request only -- a fresh
+ * upload is reflected on the next navigation.
+ */
+export const listMyCertificates = cache(
+  async (personId: string): Promise<HipaaCertificate[]> => {
+    return prisma.hipaaCertificate.findMany({
+      where: { personId },
+      orderBy: { uploadedAt: "desc" },
+    });
+  }
+);
 
 export async function getOwnedCertificate(
   personId: string,

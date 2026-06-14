@@ -13,7 +13,6 @@ import {
 } from "lucide-react";
 import type { TrainingMethod } from "@prisma/client";
 import { requirePersonSession } from "@/platform/auth/session";
-import { AppShell } from "@/platform/ui/app-shell";
 import { getAccessibleModules } from "@/platform/modules/access";
 import { getMyTraining, type MyTraining } from "@/modules/recruitment/services/training";
 import { TrainingQuiz } from "./training-quiz";
@@ -84,14 +83,14 @@ function ClearanceHero({ my }: { my: MyTraining }) {
 
   if (!my.cycle) {
     return (
-      <div className="mb-6 flex items-center gap-[18px] rounded-2xl border border-border bg-surface px-[22px] py-5 shadow-sm">
-        <span className="grid h-[52px] w-[52px] shrink-0 place-items-center rounded-[13px] bg-muted-strong text-muted-foreground">
+      <div className="mb-6 flex items-center gap-[18px] rounded-2xl border border-slate-200 bg-white px-[22px] py-5 shadow-sm">
+        <span className="grid h-[52px] w-[52px] shrink-0 place-items-center rounded-[13px] bg-slate-100 text-slate-500">
           <Clock aria-hidden className="h-6 w-6" />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Not open yet</p>
-          <p className="mt-0.5 text-[19px] font-bold tracking-tight text-foreground">Training opens soon</p>
-          <p className="mt-1 text-[13.5px] leading-snug text-foreground-soft">
+          <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Not open yet</p>
+          <p className="mt-0.5 text-[19px] font-bold tracking-tight text-slate-800">Training opens soon</p>
+          <p className="mt-1 text-[13.5px] leading-snug text-slate-600">
             Volunteer training for {term} isn&apos;t open yet. You&apos;ll get an email when it&apos;s ready — check back
             here to complete it.
           </p>
@@ -131,45 +130,45 @@ function PathCards({ my }: { my: MyTraining }) {
     <>
       <SectionHead>Two ways to complete</SectionHead>
       <div className="mb-2 grid grid-cols-1 gap-3.5 sm:grid-cols-2">
-        <div className="relative rounded-2xl border border-brand/40 bg-surface p-[18px] ring-1 ring-inset ring-brand/20">
-          <span className="absolute right-3.5 top-3.5 rounded-full bg-brand-faint px-2 py-0.5 text-[10.5px] font-bold uppercase tracking-wide text-brand-fg">
+        <div className="relative rounded-2xl border border-brand/40 bg-white p-[18px] ring-1 ring-inset ring-brand/20">
+          <span className="absolute right-3.5 top-3.5 rounded-full bg-brand-faint px-2 py-0.5 text-[10.5px] font-bold uppercase tracking-wide text-brand">
             Recommended
           </span>
           <div className="mb-3 flex items-center gap-3">
-            <span className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-[10px] bg-brand-faint text-brand-fg">
+            <span className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-[10px] bg-brand-faint text-brand">
               <PlayCircle aria-hidden className="h-5 w-5" />
             </span>
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Path 1</p>
-              <p className="mt-px text-[15px] font-bold leading-tight text-foreground">Attend the live session</p>
+              <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Path 1</p>
+              <p className="mt-px text-[15px] font-bold leading-tight text-slate-800">Attend the live session</p>
             </div>
           </div>
-          <p className="text-[13px] leading-relaxed text-foreground-soft">
+          <p className="text-[13px] leading-relaxed text-slate-600">
             Join the in-person orientation. Your director marks your attendance and you&apos;re cleared automatically —
             no quiz needed.
           </p>
-          <p className="mt-3 flex items-center gap-2 border-t border-border pt-3 text-[12.5px] font-semibold text-foreground">
-            <CalendarDays aria-hidden className="h-[15px] w-[15px] shrink-0 text-brand-fg" /> Recorded by your director at the
+          <p className="mt-3 flex items-center gap-2 border-t border-slate-200 pt-3 text-[12.5px] font-semibold text-slate-800">
+            <CalendarDays aria-hidden className="h-[15px] w-[15px] shrink-0 text-brand" /> Recorded by your director at the
             session
           </p>
         </div>
 
-        <div className="relative rounded-2xl border border-border bg-surface p-[18px]">
+        <div className="relative rounded-2xl border border-slate-200 bg-white p-[18px]">
           <div className="mb-3 flex items-center gap-3">
-            <span className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-[10px] bg-brand-faint text-brand-fg">
+            <span className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-[10px] bg-brand-faint text-brand">
               <FileText aria-hidden className="h-5 w-5" />
             </span>
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Path 2</p>
-              <p className="mt-px text-[15px] font-bold leading-tight text-foreground">Take the makeup quiz</p>
+              <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Path 2</p>
+              <p className="mt-px text-[15px] font-bold leading-tight text-slate-800">Take the makeup quiz</p>
             </div>
           </div>
-          <p className="text-[13px] leading-relaxed text-foreground-soft">
+          <p className="text-[13px] leading-relaxed text-slate-600">
             Missed the session? Review the handbook and pass the short quiz below to clear the requirement on your own
             time.
           </p>
-          <p className="mt-3 flex items-center gap-2 border-t border-border pt-3 text-[12.5px] font-semibold text-foreground">
-            <CheckCircle2 aria-hidden className="h-[15px] w-[15px] shrink-0 text-brand-fg" /> Need {my.passPercent}% to pass ·{" "}
+          <p className="mt-3 flex items-center gap-2 border-t border-slate-200 pt-3 text-[12.5px] font-semibold text-slate-800">
+            <CheckCircle2 aria-hidden className="h-[15px] w-[15px] shrink-0 text-brand" /> Need {my.passPercent}% to pass ·{" "}
             {my.maxAttempts} attempts
           </p>
         </div>
@@ -184,8 +183,8 @@ function PathCards({ my }: { my: MyTraining }) {
 
 function CompleteDetail({ accessibleSchedule }: { accessibleSchedule: boolean }) {
   return (
-    <div className="rounded-2xl border border-border bg-surface p-[22px] shadow-sm">
-      <h3 className="mb-3.5 text-xs font-bold uppercase tracking-wider text-muted-foreground">What this unlocks</h3>
+    <div className="rounded-2xl border border-slate-200 bg-white p-[22px] shadow-sm">
+      <h3 className="mb-3.5 text-xs font-bold uppercase tracking-wider text-slate-500">What this unlocks</h3>
       <DetailRow tone="success" title="Eligible for shift scheduling" sub="You can now be assigned to clinic shifts" />
       <DetailRow tone="success" title="Training requirement met" sub="Shows as cleared on your volunteer compliance" />
       <div className="mt-[18px] flex flex-wrap gap-2.5">
@@ -205,8 +204,8 @@ function CompleteDetail({ accessibleSchedule }: { accessibleSchedule: boolean })
 
 function LockedDetail() {
   return (
-    <div className="rounded-2xl border border-border bg-surface p-[22px] shadow-sm">
-      <h3 className="mb-3.5 text-xs font-bold uppercase tracking-wider text-muted-foreground">Next steps</h3>
+    <div className="rounded-2xl border border-slate-200 bg-white p-[22px] shadow-sm">
+      <h3 className="mb-3.5 text-xs font-bold uppercase tracking-wider text-slate-500">Next steps</h3>
       <DetailRow
         tone="brand"
         icon={<MessagesSquare aria-hidden className="h-4 w-4" />}
@@ -233,7 +232,7 @@ function LockedDetail() {
 function SectionHead({ children }: { children: React.ReactNode }) {
   return (
     <div className="mb-3.5 mt-7 flex items-baseline justify-between">
-      <h2 className="text-base font-bold tracking-tight text-foreground">{children}</h2>
+      <h2 className="text-base font-bold tracking-tight text-slate-900">{children}</h2>
     </div>
   );
 }
@@ -249,15 +248,15 @@ function DetailRow({
   sub: string;
   icon?: React.ReactNode;
 }) {
-  const toneClass = tone === "success" ? "bg-green-50 text-success" : "bg-brand-faint text-brand-fg";
+  const toneClass = tone === "success" ? "bg-green-50 text-success" : "bg-brand-faint text-brand";
   return (
-    <div className="flex items-center gap-3 border-t border-border-subtle py-2.5 first:border-t-0 first:pt-0">
+    <div className="flex items-center gap-3 border-t border-slate-100 py-2.5 first:border-t-0 first:pt-0">
       <span className={`grid h-[30px] w-[30px] shrink-0 place-items-center rounded-lg ${toneClass}`}>
         {icon ?? <Check aria-hidden className="h-4 w-4" />}
       </span>
       <div className="min-w-0">
-        <p className="text-[13.5px] font-semibold text-foreground">{title}</p>
-        <p className="mt-px text-[12.5px] text-muted-foreground">{sub}</p>
+        <p className="text-[13.5px] font-semibold text-slate-800">{title}</p>
+        <p className="mt-px text-[12.5px] text-slate-500">{sub}</p>
       </div>
     </div>
   );
@@ -267,7 +266,7 @@ function BackToHub() {
   return (
     <Link
       href="/"
-      className="inline-flex items-center gap-2 rounded-lg border border-border-strong bg-surface px-4 py-2.5 text-[13.5px] font-semibold text-foreground transition hover:border-border-strong hover:bg-muted"
+      className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-[13.5px] font-semibold text-slate-800 transition hover:border-slate-400 hover:bg-slate-50"
     >
       Back to hub
     </Link>
@@ -287,11 +286,11 @@ export default async function TrainingPage() {
     (await getAccessibleModules(person.personId)).some((m) => m.id === "schedule");
 
   return (
-    <AppShell userName={person.name} termLabel={my.term.name} personId={person.personId} personThemePreference={person.themePreference}>
+    <>
       <div className="max-w-[760px]">
         <header className="mb-[22px]">
-          <h1 className="text-[26px] font-bold tracking-tight text-foreground">Volunteer Training</h1>
-          <p className="mt-1.5 text-[14.5px] text-foreground-soft">Complete training to be cleared for {my.term.name}.</p>
+          <h1 className="text-[26px] font-bold tracking-tight text-slate-900">Volunteer Training</h1>
+          <p className="mt-1.5 text-[14.5px] text-slate-600">Complete training to be cleared for {my.term.name}.</p>
         </header>
 
         <ClearanceHero my={my} />
@@ -323,6 +322,6 @@ export default async function TrainingPage() {
           </div>
         )}
       </div>
-    </AppShell>
+    </>
   );
 }

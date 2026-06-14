@@ -29,6 +29,7 @@ describe("module registry", () => {
     expect(MODULES.map((m) => m.id).sort()).toEqual(
       [
         "admin",
+        "clinic",
         "learning",
         "my-info",
         "patient-trackers",

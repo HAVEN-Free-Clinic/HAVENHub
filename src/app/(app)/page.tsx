@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import { Suspense, type CSSProperties } from "react";
 import Link from "next/link";
 import {
   CalendarDays,
@@ -11,8 +11,6 @@ import {
   Repeat,
   Check,
   Clock,
-  MessagesSquare,
-  ExternalLink,
   ChevronRight,
   type LucideIcon,
 } from "lucide-react";
@@ -21,9 +19,8 @@ import { getEffectivePermissions } from "@/platform/rbac/engine";
 import { MODULES } from "@/platform/modules/registry";
 import { canAccessModule } from "@/platform/modules/access";
 import type { ModuleManifest } from "@/platform/modules/types";
-import { AppShell } from "@/platform/ui/app-shell";
 import { TimeGreeting } from "@/platform/ui/time-greeting";
-import { getCurrentClinicChannelLink } from "@/platform/teams/channel-link";
+import { ClinicChannelCard } from "./clinic-channel-card";
 import { mySchedule } from "@/modules/schedule/services/schedule";
 import { listMyCertificates } from "@/modules/my-info/services/my-info";
 import { resolveTrainingState } from "@/modules/recruitment/services/training";
@@ -108,18 +105,18 @@ function ModuleTile({ m }: { m: ModuleManifest }) {
 
   if (m.status !== "active") {
     return (
-      <div className="relative flex items-start gap-4 overflow-hidden rounded-2xl border border-border bg-muted p-[18px]">
-        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-muted-strong/70 text-muted-foreground">
+      <div className="relative flex items-start gap-4 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 p-[18px]">
+        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-slate-200/70 text-slate-400">
           <Icon aria-hidden className="h-[22px] w-[22px]" />
         </span>
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-2">
-            <span className="text-[15px] font-bold text-muted-foreground">{m.title}</span>
-            <span className="rounded-full border border-border bg-surface px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-subtle-foreground">
+            <span className="text-[15px] font-bold text-slate-500">{m.title}</span>
+            <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-400">
               Soon
             </span>
           </span>
-          <span className="mt-1 block text-[13px] leading-relaxed text-subtle-foreground">{m.description}</span>
+          <span className="mt-1 block text-[13px] leading-relaxed text-slate-400">{m.description}</span>
         </span>
       </div>
     );
@@ -130,7 +127,7 @@ function ModuleTile({ m }: { m: ModuleManifest }) {
       href={`/${m.id}`}
       aria-label={`Open ${m.title}`}
       style={hueStyle(m.id)}
-      className="group relative flex items-start gap-4 overflow-hidden rounded-2xl border border-border bg-surface p-[18px] transition hover:-translate-y-0.5 hover:border-border-strong hover:shadow-md"
+      className="group relative flex items-start gap-4 overflow-hidden rounded-2xl border border-slate-200 bg-white p-[18px] transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"
     >
       <span aria-hidden className="absolute inset-y-0 left-0 w-1" style={{ background: "var(--mh)" }} />
       <span
@@ -140,12 +137,12 @@ function ModuleTile({ m }: { m: ModuleManifest }) {
         <Icon aria-hidden className="h-[22px] w-[22px]" />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block text-[15px] font-bold text-foreground">{m.title}</span>
-        <span className="mt-1 block text-[13px] leading-relaxed text-muted-foreground">{m.description}</span>
+        <span className="block text-[15px] font-bold text-slate-800">{m.title}</span>
+        <span className="mt-1 block text-[13px] leading-relaxed text-slate-500">{m.description}</span>
       </span>
       <ArrowRight
         aria-hidden
-        className="mt-0.5 h-[18px] w-[18px] shrink-0 self-center text-subtle-foreground transition group-hover:translate-x-0.5 group-hover:text-muted-foreground"
+        className="mt-0.5 h-[18px] w-[18px] shrink-0 self-center text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-slate-400"
       />
     </Link>
   );
@@ -169,10 +166,9 @@ export default async function HubPage() {
   // One permission fetch per render; tiles filter in memory (never can() in a loop).
   const permissions = await getEffectivePermissions(person.personId);
 
-  const [schedule, certificates, clinicChannel] = await Promise.all([
+  const [schedule, certificates] = await Promise.all([
     mySchedule(person.personId),
     listMyCertificates(person.personId),
-    getCurrentClinicChannelLink(),
   ]);
   const { term, shifts } = schedule;
   const trainingState = term ? await resolveTrainingState(person.personId, term.id) : "PENDING";
@@ -271,23 +267,23 @@ export default async function HubPage() {
   const quick = quickAll.filter((q) => q.show).slice(0, 4);
 
   return (
-    <AppShell userName={person.name} termLabel={term?.name ?? null} personId={person.personId} personThemePreference={person.themePreference}>
+    <>
       <div className="grid items-start gap-6 lg:grid-cols-[1fr_340px]">
         {/* Main column */}
         <div className="min-w-0">
           {/* Greeting */}
           <div className="mb-6">
-            <p className="text-[11px] font-bold uppercase tracking-[0.09em] text-muted-foreground">{eyebrow}</p>
-            <h1 className="mt-2 text-3xl font-bold leading-tight tracking-tight text-foreground">
+            <p className="text-[11px] font-bold uppercase tracking-[0.09em] text-slate-500">{eyebrow}</p>
+            <h1 className="mt-2 text-3xl font-bold leading-tight tracking-tight text-slate-900">
               <TimeGreeting initial={timeGreeting()} />
               {firstName ? (
                 <>
-                  , <span className="text-brand-fg">{firstName}</span>
+                  , <span className="text-brand">{firstName}</span>
                 </>
               ) : null}
               .
             </h1>
-            <p className="mt-2 text-[15px] text-foreground-soft">Here&apos;s what&apos;s happening at the clinic this week.</p>
+            <p className="mt-2 text-[15px] text-slate-600">Here&apos;s what&apos;s happening at the clinic this week.</p>
           </div>
 
           {/* Next shift hero (real data) or calm empty state */}
@@ -342,12 +338,12 @@ export default async function HubPage() {
               </div>
             </div>
           ) : (
-            <div className="rounded-2xl border border-border bg-surface p-6">
-              <span className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-subtle-foreground">
+            <div className="rounded-2xl border border-slate-200 bg-white p-6">
+              <span className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-400">
                 <CalendarDays aria-hidden className="h-3.5 w-3.5" /> Your schedule
               </span>
-              <p className="mt-2.5 text-lg font-semibold text-foreground">No upcoming shifts</p>
-              <p className="mt-1 text-sm text-muted-foreground">
+              <p className="mt-2.5 text-lg font-semibold text-slate-800">No upcoming shifts</p>
+              <p className="mt-1 text-sm text-slate-500">
                 {term
                   ? `You have no shifts scheduled for the rest of ${term.name}.`
                   : "There's no active term right now."}
@@ -375,7 +371,7 @@ export default async function HubPage() {
                     key={q.id}
                     href={q.href}
                     style={hueStyle(q.id)}
-                    className="flex items-center gap-3 rounded-xl border border-border bg-surface p-3.5 transition hover:-translate-y-0.5 hover:border-border-strong hover:shadow-md"
+                    className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-3.5 transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"
                   >
                     <span
                       className="grid h-9 w-9 shrink-0 place-items-center rounded-lg"
@@ -384,8 +380,8 @@ export default async function HubPage() {
                       <Icon aria-hidden className="h-[18px] w-[18px]" />
                     </span>
                     <span className="min-w-0">
-                      <span className="block truncate text-sm font-semibold text-foreground">{q.label}</span>
-                      <span className="block truncate text-xs text-muted-foreground">{q.sub}</span>
+                      <span className="block truncate text-sm font-semibold text-slate-800">{q.label}</span>
+                      <span className="block truncate text-xs text-slate-500">{q.sub}</span>
                     </span>
                   </Link>
                 );
@@ -395,7 +391,7 @@ export default async function HubPage() {
 
           {/* Modules */}
           <div className="mt-9 mb-3 flex items-baseline justify-between">
-            <h2 className="text-base font-bold tracking-tight text-foreground">Modules</h2>
+            <h2 className="text-base font-bold tracking-tight text-slate-900">Modules</h2>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             {activeModules.map((m) => (
@@ -405,7 +401,7 @@ export default async function HubPage() {
 
           {soonModules.length > 0 && (
             <>
-              <h2 className="mt-8 mb-3 text-base font-bold tracking-tight text-muted-foreground">On the roadmap</h2>
+              <h2 className="mt-8 mb-3 text-base font-bold tracking-tight text-slate-500">On the roadmap</h2>
               <div className="grid gap-3 sm:grid-cols-2">
                 {soonModules.map((m) => (
                   <ModuleTile key={m.id} m={m} />
@@ -417,37 +413,20 @@ export default async function HubPage() {
 
         {/* Side rail (real data only) */}
         <aside className="flex flex-col gap-4 lg:sticky lg:top-20">
-          {clinicChannel ? (
-            <a
-              href={clinicChannel.webUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-3 rounded-2xl border border-brand/20 bg-brand-faint p-4 transition hover:-translate-y-0.5 hover:shadow-md"
-            >
-              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-brand/15 bg-surface text-brand-fg">
-                <MessagesSquare aria-hidden className="h-5 w-5" />
-              </span>
-              <span className="min-w-0">
-                <span className="block text-[11px] font-bold uppercase tracking-wider text-brand-fg">
-                  This week&apos;s clinic
-                </span>
-                <span className="mt-0.5 block truncate text-sm font-medium text-foreground-soft">
-                  {clinicChannel.displayName}
-                </span>
-                <span className="sr-only"> (opens in a new tab)</span>
-              </span>
-              <ExternalLink aria-hidden className="ml-auto h-4 w-4 shrink-0 text-brand-fg" />
-            </a>
-          ) : null}
+          {/* Streams in independently: the clinic channel link hits Microsoft
+              Graph (seconds), so it must not block the rest of the dashboard. */}
+          <Suspense fallback={null}>
+            <ClinicChannelCard />
+          </Suspense>
 
-          <div className="rounded-2xl border border-border bg-surface p-5">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-subtle-foreground">Your status</h3>
+          <div className="rounded-2xl border border-slate-200 bg-white p-5">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Your status</h3>
             <div className="mt-2">
               {statusLines.map((line) => (
                 <Link
                   key={line.title}
                   href={line.href}
-                  className="flex items-center gap-3 border-t border-border-subtle py-2.5 first:border-t-0 first:pt-1"
+                  className="flex items-center gap-3 border-t border-slate-100 py-2.5 first:border-t-0 first:pt-1"
                 >
                   <span
                     className={`grid h-7 w-7 shrink-0 place-items-center rounded-lg ${
@@ -461,16 +440,16 @@ export default async function HubPage() {
                     )}
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-semibold text-foreground">{line.title}</span>
-                    <span className="block text-xs text-muted-foreground">{line.sub}</span>
+                    <span className="block text-sm font-semibold text-slate-800">{line.title}</span>
+                    <span className="block text-xs text-slate-500">{line.sub}</span>
                   </span>
-                  <ChevronRight aria-hidden className="h-4 w-4 shrink-0 text-subtle-foreground" />
+                  <ChevronRight aria-hidden className="h-4 w-4 shrink-0 text-slate-300" />
                 </Link>
               ))}
             </div>
           </div>
         </aside>
       </div>
-    </AppShell>
+    </>
   );
 }

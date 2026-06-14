@@ -14,6 +14,7 @@ import type { Department, Term, ShiftRole, ShiftRequest } from "@prisma/client";
 import type { ResolvedAvailability } from "../engine/availability";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
+import { getActiveTerm } from "@/platform/terms/active-term";
 import { resolveAvailability } from "../engine/availability";
 import { isoDateKey, toScheduleEntries } from "../engine/map";
 import { computeConflicts } from "../engine/conflicts";
@@ -58,16 +59,6 @@ export type FullScheduleDepartment = {
   conflicts: Map<string, string[]>;
 };
 
-// ---------------------------------------------------------------------------
-// Internal: active term helper (mirrors offboarding.ts pattern)
-// ---------------------------------------------------------------------------
-
-async function getActiveTerm() {
-  return prisma.term.findFirst({
-    where: { status: "ACTIVE" },
-    orderBy: { startDate: "desc" },
-  });
-}
 
 // ---------------------------------------------------------------------------
 // mySchedule

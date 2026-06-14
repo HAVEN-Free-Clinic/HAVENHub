@@ -855,6 +855,26 @@ describe("builderView", () => {
     expect(view.selectedDateKey).toBe(isoDateKey(dates[2]));
   });
 
+  it("currentClinicDateKey tracks the current week's clinic Saturday independent of the selected date", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const dept = await createDepartment("PCAR");
+    const director = await createPerson("Director");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+
+    // now falls between dates[1] and dates[2]; current clinic Saturday is dates[2].
+    const now = new Date(dates[1].getTime() + 24 * 60 * 60 * 1000);
+
+    // Selecting a different (later) date must not move the grid highlight: the
+    // selected date follows the param while currentClinicDateKey stays on dates[2].
+    const view = await builderView(director.id, {
+      dateKey: isoDateKey(dates[4]),
+      now,
+    });
+    expect(view.selectedDateKey).toBe(isoDateKey(dates[4]));
+    expect(view.currentClinicDateKey).toBe(isoDateKey(dates[2]));
+  });
+
   it("falls back to last date when all dates are past", async () => {
     const dates = sixSaturdays();
     const term = await createTerm(dates);

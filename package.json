@@ -40,6 +40,7 @@
   "dependencies": {
     "@bprogress/next": "^3.2.12",
     "@prisma/client": "^6.19.2",
+    "@react-pdf/renderer": "^4.5.1",
     "@tiptap/extension-link": "^3.26.0",
     "@tiptap/extension-placeholder": "^3.26.0",
     "@tiptap/pm": "^3.26.0",

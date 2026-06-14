@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 import { requireModuleAccess } from "@/platform/auth/session";
-import { AppShell } from "@/platform/ui/app-shell";
 import { PageHeader } from "@/platform/ui/page-header";
 import {
   getMyInfo,
@@ -156,7 +155,7 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
   const withdrawn = sp.withdrawn !== undefined ? parseInt(sp.withdrawn, 10) : undefined;
 
   return (
-    <AppShell userName={person.name} termLabel={activeTerm?.name ?? null} personId={person.personId} personThemePreference={person.themePreference}>
+    <>
       <PageHeader
         title="My Info"
         description="Keep your contact details current."
@@ -165,7 +164,7 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
       <div className="mt-8 space-y-10">
         {/* Profile form */}
         <section>
-          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-500">
             Profile
           </h2>
           <MyInfoForm
@@ -178,7 +177,7 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
 
         {/* Memberships */}
         <section>
-          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-500">
             Memberships
           </h2>
           <MembershipsCard
@@ -190,7 +189,7 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
 
         {/* HIPAA certificate */}
         <section>
-          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-500">
             HIPAA Certificate
           </h2>
           <HipaaPanel
@@ -204,7 +203,7 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
 
         {/* Clearance */}
         <section>
-          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-500">
             Clearance
           </h2>
           <ClearanceCard
@@ -217,7 +216,7 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
 
         {/* Epic access */}
         <section>
-          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-500">
             Epic Access
           </h2>
           <EpicPanel
@@ -229,6 +228,6 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
           />
         </section>
       </div>
-    </AppShell>
+    </>
   );
 }

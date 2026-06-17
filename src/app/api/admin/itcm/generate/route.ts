@@ -18,7 +18,7 @@
  */
 
 import { NextResponse } from "next/server";
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, PDFName, PDFBool, StandardFonts } from "pdf-lib";
 import * as fs from "fs";
 import * as path from "path";
 import { auth } from "@/platform/auth/auth";
@@ -26,6 +26,8 @@ import { getActivePerson } from "@/platform/auth/match-person";
 import { can } from "@/platform/rbac/engine";
 import { findMirrorPerson, getPeopleByIds } from "@/modules/admin/services/itcm";
 import { prisma } from "@/platform/db";
+
+
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -151,7 +153,7 @@ async function generatePdf(args: {
   templateBytes: Uint8Array;
 }): Promise<Uint8Array> {
   const { requestType, authorizerKey, person, endDate, mirrorPerson, templateBytes } = args;
-  const authorizer = AUTHORIZERS[authorizerKey];
+  const auth = AUTHORIZERS[authorizerKey];
   const today = new Date().toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
   const isBulk = requestType.startsWith("bulk");
   const isNew = requestType.includes("new");
@@ -159,12 +161,17 @@ async function generatePdf(args: {
   const pdfDoc = await PDFDocument.load(templateBytes);
   const form = pdfDoc.getForm();
 
+  const helv = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  form.updateFieldAppearances(helv);
+  form.acroForm.dict.set(PDFName.of("NeedAppearances"), PDFBool.True);
+
+
   // Section I — Authorizer
-  fillText(form, "Text1", authorizer.name);
+  fillText(form, "Text1", auth.name);
   fillText(form, "Text2", "HAVEN IT & Communications Director");
-  fillText(form, "Text3", authorizer.phone);
+  fillText(form, "Text3", auth.phone);
   fillText(form, "Text4", today);
-  fillText(form, "Text5", authorizer.email);
+  fillText(form, "Text5", auth.email);
 
   // Section III — Person info
   if (isBulk) {
@@ -188,32 +195,29 @@ async function generatePdf(args: {
 
   // Section IV — Affiliation + position
   fillText(form, "Text28", "YM HAVEN FREE CLINIC");
-  checkBox(form, "Check Box1");   // Electronic signature
-  checkBox(form, "Check Box40");  // Community Connect Practice
+  checkBox(form, "Check Box1");
+  checkBox(form, "Check Box40");
 
   if (!isBulk) {
-    checkBox(form, "Check Box21"); // Student (outer)
-    // Check the correct student sub-type based on Yale affiliation.
+    checkBox(form, "Check Box21");
     const affiliation = (person?.yaleAffiliation ?? "").toLowerCase();
     if (affiliation.includes("med") || affiliation.includes("medicine")) {
-      checkBox(form, "Check Box45"); // Med Student
+      checkBox(form, "Check Box45");
     }
-    // All others (Yale College, GSAS, etc.) leave sub-type unchecked --
-    // the position "Other" text field (Text29) carries the affiliation label.
-    if (!isBulk && person?.yaleAffiliation) {
+    if (person?.yaleAffiliation) {
       fillText(form, "Text29", person?.yaleAffiliation);
     }
   }
 
   // Section V — Access type + similar person
   if (isNew) {
-    checkBox(form, "Check Box49"); // New Hire
+    checkBox(form, "Check Box49");
     fillText(form, "Text75", today);
   } else {
-    checkBox(form, "Check Box51"); // Modify Access
-    checkBox(form, "Check Box53"); // Transfer? No
-    checkBox(form, "Check Box54"); // Current access needed? Yes
-    checkBox(form, "Check Box56"); // Additional access required? Yes
+    checkBox(form, "Check Box51");
+    checkBox(form, "Check Box53");
+    checkBox(form, "Check Box54");
+    checkBox(form, "Check Box56");
     fillText(form, "Text76", endDate);
   }
 
@@ -223,10 +227,10 @@ async function generatePdf(args: {
   }
 
   // Section VI — System access
-  checkBox(form, "Check Box64");   // Epic
-  checkBox(form, "Remote Access"); // Remote Access
+  checkBox(form, "Check Box64");
+  checkBox(form, "Remote Access");
 
-  // Section IX — Additional information (font size reduced for wrapping)
+  // Section IX
   try {
     const field = form.getTextField("Text113");
     field.setText(SECTION_IX[requestType]);
@@ -235,6 +239,13 @@ async function generatePdf(args: {
     // skip
   }
 
+  // Force every field to regenerate its appearance stream, since stale or
+  // missing streams on the original template can cause updateFieldAppearances
+  // to silently skip fields whose value pdf-lib doesn't think changed.
+  for (const field of form.getFields()) {
+    form.markFieldAsDirty(field.ref);
+  }
+  form.updateFieldAppearances(helv);
 
   return pdfDoc.save();
 }
@@ -544,3 +555,13 @@ export async function POST(req: Request) {
     emailBody,
   });
 }
+
+
+
+
+
+
+
+
+
+

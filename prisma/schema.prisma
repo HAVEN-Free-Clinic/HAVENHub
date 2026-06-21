@@ -145,6 +145,7 @@ model Person {
   shiftAssignments          ShiftAssignment[]
   referralsAsDirector  Referral[] @relation("referralAssignedDirector")
   referralsAsNavigator Referral[] @relation("referralPatientNavigator")
+  fcEventsEntered      FCEvent[]  @relation("fcEventEnteredBy")
   recruitmentCyclesCreated  RecruitmentCycle[]   @relation("RecruitmentCycleCreatedBy")
   recruitmentAcceptances    Acceptance[]         @relation("recruitmentAcceptanceApprover")
   contractsPromoted         OnboardingContract[] @relation("contractPromotedBy")
@@ -355,6 +356,7 @@ model Patient {
   fcStatus     FCStatus?
   fcExpiryDate DateTime?
   referrals    Referral[]
+  fcEvents     FCEvent[]
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
@@ -392,7 +394,24 @@ model Referral {
   @@index([referringDepartmentId])
 }
 
+/// One row per FC status change, sourced from the weekly Epic CSV import or
+/// manual entry. effectiveAt defaults to the import file's last-modified
+/// timestamp (not today), since Epic exports lag by several days.
+model FCEvent {
+  id          String   @id @default(cuid())
+  patientId   String
+  status      FCStatus
+  effectiveAt DateTime
+  source      String
+  enteredById String?
+  notes       String?
+  createdAt   DateTime @default(now())
 
+  patient   Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  enteredBy Person? @relation("fcEventEnteredBy", fields: [enteredById], references: [id], onDelete: SetNull)
+
+  @@index([patientId, effectiveAt])
+}
 
 enum OutboxStatus {
   PENDING

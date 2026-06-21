@@ -338,6 +338,26 @@ model AuditLog {
   @@index([actorPersonId])
 }
 
+
+/// Patients are never Hub users: no netId, no Entra login, no compliance
+/// tracking. Kept fully separate from Person.
+model Patient {
+  id           String     @id @default(cuid())
+  mrn          String     @unique
+  name         String
+  dateOfBirth  DateTime?
+  language     String?
+  fcStatus     FCStatus?
+  fcExpiryDate DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([mrn])
+}
+
+
+
+
 enum OutboxStatus {
   PENDING
   SENT

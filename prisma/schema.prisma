@@ -145,6 +145,7 @@ model Person {
   referralsAsNavigator Referral[] @relation("referralPatientNavigator")
   fcEventsEntered      FCEvent[]            @relation("fcEventEnteredBy")
   referralTransitions  ReferralTransition[] @relation("referralTransitionChangedBy")
+  referralNotesWritten ReferralNote[]       @relation("referralNoteAuthor")
   recruitmentCyclesCreated  RecruitmentCycle[]   @relation("RecruitmentCycleCreatedBy")
   recruitmentAcceptances    Acceptance[]         @relation("recruitmentAcceptanceApprover")
   contractsPromoted         OnboardingContract[] @relation("contractPromotedBy")
@@ -388,6 +389,7 @@ model Referral {
   assignedDirector    Person?     @relation("referralAssignedDirector", fields: [assignedDirectorId], references: [id], onDelete: SetNull)
   patientNavigator    Person?     @relation("referralPatientNavigator", fields: [patientNavigatorId], references: [id], onDelete: SetNull)
   transitions         ReferralTransition[]
+  notes               ReferralNote[]
 
   @@index([state])
   @@index([patientId])
@@ -425,6 +427,22 @@ model ReferralTransition {
 
   referral  Referral @relation(fields: [referralId], references: [id], onDelete: Cascade)
   changedBy Person?  @relation("referralTransitionChangedBy", fields: [changedById], references: [id], onDelete: SetNull)
+
+  @@index([referralId, createdAt])
+}
+
+
+/// Director/MDIC notes per referral. Replaces the free-text "Director Note"
+/// columns from the spreadsheet (EDUC Director Note, MDIC Director Note).
+model ReferralNote {
+  id         String   @id @default(cuid())
+  referralId String
+  authorId   String?
+  body       String
+  createdAt  DateTime @default(now())
+
+  referral Referral @relation(fields: [referralId], references: [id], onDelete: Cascade)
+  author   Person?  @relation("referralNoteAuthor", fields: [authorId], references: [id], onDelete: SetNull)
 
   @@index([referralId, createdAt])
 }

@@ -58,6 +58,44 @@ enum CertificateExtraction {
   NONE
 }
 
+
+
+
+enum ReferralType {
+  EDUCATION // SCTM / JCTM
+  MDIC      // Free Care / HUSKY
+}
+
+enum ReferralPurpose {
+  NEW_FC
+  RENEW_FC
+  HUSKY
+  EDUCATION_SESSION
+}
+
+enum ReferralUrgency {
+  ROUTINE
+  URGENT
+  STAT
+}
+
+enum ReferralState {
+  ENTERED
+  AWAITING_FC
+  SCHEDULED
+  COMPLETED
+  CANCELLED_BY_PROVIDER
+  CANCELLED_OR_NO_SHOW
+  CLOSED_DECLINED
+}
+
+enum FCStatus {
+  APPROVED
+  DENIED
+  DISCOUNTED_CARE
+  STILL_PENDING
+}
+
 model Person {
   id                        String               @id @default(cuid())
   netId                     String?              @unique

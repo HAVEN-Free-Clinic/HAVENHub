@@ -61,3 +61,56 @@ export async function recordFCEvent(input: {
     return event;
   });
 }
+
+
+
+
+
+import type { ReferralState } from "@prisma/client";
+
+export async function transitionReferralState(input: {
+  referralId: string;
+  toState: ReferralState;
+  reason?: string;
+  changedById?: string;
+}) {
+  return prisma.$transaction(async (tx) => {
+    const referral = await tx.referral.findUniqueOrThrow({
+      where: { id: input.referralId },
+      include: { patient: true },
+    });
+
+    if (input.toState === "SCHEDULED") {
+      const fcOk =
+        referral.patient.fcStatus === "APPROVED" ||
+        referral.patient.fcStatus === "DISCOUNTED_CARE";
+      const urgentOverride = referral.urgency !== "ROUTINE";
+
+      if (!fcOk && !urgentOverride) {
+        throw new Error(
+          "Cannot schedule: free care is not approved and referral is not urgent"
+        );
+      }
+    }
+
+    const updated = await tx.referral.update({
+      where: { id: input.referralId, version: referral.version },
+      data: {
+        state: input.toState,
+        version: { increment: 1 },
+      },
+    });
+
+    await tx.referralTransition.create({
+      data: {
+        referralId: input.referralId,
+        fromState: referral.state,
+        toState: input.toState,
+        reason: input.reason,
+        changedById: input.changedById,
+      },
+    });
+
+    return updated;
+  });
+}

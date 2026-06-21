@@ -143,7 +143,8 @@ model Person {
   shiftAssignments          ShiftAssignment[]
   referralsAsDirector  Referral[] @relation("referralAssignedDirector")
   referralsAsNavigator Referral[] @relation("referralPatientNavigator")
-  fcEventsEntered      FCEvent[]  @relation("fcEventEnteredBy")
+  fcEventsEntered      FCEvent[]            @relation("fcEventEnteredBy")
+  referralTransitions  ReferralTransition[] @relation("referralTransitionChangedBy")
   recruitmentCyclesCreated  RecruitmentCycle[]   @relation("RecruitmentCycleCreatedBy")
   recruitmentAcceptances    Acceptance[]         @relation("recruitmentAcceptanceApprover")
   contractsPromoted         OnboardingContract[] @relation("contractPromotedBy")
@@ -386,6 +387,7 @@ model Referral {
   referringDepartment Department? @relation("referralReferringDepartment", fields: [referringDepartmentId], references: [id], onDelete: SetNull)
   assignedDirector    Person?     @relation("referralAssignedDirector", fields: [assignedDirectorId], references: [id], onDelete: SetNull)
   patientNavigator    Person?     @relation("referralPatientNavigator", fields: [patientNavigatorId], references: [id], onDelete: SetNull)
+  transitions         ReferralTransition[]
 
   @@index([state])
   @@index([patientId])
@@ -409,6 +411,22 @@ model FCEvent {
   enteredBy Person? @relation("fcEventEnteredBy", fields: [enteredById], references: [id], onDelete: SetNull)
 
   @@index([patientId, effectiveAt])
+}
+
+/// Append-only audit trail of state changes. Never updated or deleted.
+model ReferralTransition {
+  id          String         @id @default(cuid())
+  referralId  String
+  fromState   ReferralState?
+  toState     ReferralState
+  reason      String?
+  changedById String?
+  createdAt   DateTime       @default(now())
+
+  referral  Referral @relation(fields: [referralId], references: [id], onDelete: Cascade)
+  changedBy Person?  @relation("referralTransitionChangedBy", fields: [changedById], references: [id], onDelete: SetNull)
+
+  @@index([referralId, createdAt])
 }
 
 enum OutboxStatus {

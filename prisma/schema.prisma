@@ -143,6 +143,8 @@ model Person {
   teamsMessages             TeamsMessage[]       @relation("teamsMessagePerson")
   notifications             Notification[]       @relation("personNotifications")
   shiftAssignments          ShiftAssignment[]
+  referralsAsDirector  Referral[] @relation("referralAssignedDirector")
+  referralsAsNavigator Referral[] @relation("referralPatientNavigator")
   recruitmentCyclesCreated  RecruitmentCycle[]   @relation("RecruitmentCycleCreatedBy")
   recruitmentAcceptances    Acceptance[]         @relation("recruitmentAcceptanceApprover")
   contractsPromoted         OnboardingContract[] @relation("contractPromotedBy")
@@ -233,6 +235,7 @@ model Department {
   idealHeadcount             Int?
   /// Capacity panel config: imported then admin-maintained.
   patientCapacityPerProvider Int?
+  referralsReceived          Referral[]             @relation("referralReferringDepartment")
   createdAt                  DateTime               @default(now())
   updatedAt                  DateTime               @updatedAt
 }
@@ -351,12 +354,43 @@ model Patient {
   language     String?
   fcStatus     FCStatus?
   fcExpiryDate DateTime?
+  referrals    Referral[]
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
   @@index([mrn])
 }
 
+
+/// Core referral case. One row per referral; a patient may have multiple
+/// concurrent referrals (e.g. one EDUCATION, one MDIC) sharing the same
+/// Patient.fcStatus.
+model Referral {
+  id                    String          @id @default(cuid())
+  patientId             String
+  referralType          ReferralType
+  purpose               ReferralPurpose
+  urgency               ReferralUrgency @default(ROUTINE)
+  state                 ReferralState   @default(ENTERED)
+  referringDepartmentId String?
+  assignedDirectorId    String?
+  specialty             String?
+  reasonForReferral     String?
+  appointmentDate       DateTime?
+  patientNavigatorId    String?
+  version               Int             @default(1)
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  patient             Patient     @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  referringDepartment Department? @relation("referralReferringDepartment", fields: [referringDepartmentId], references: [id], onDelete: SetNull)
+  assignedDirector    Person?     @relation("referralAssignedDirector", fields: [assignedDirectorId], references: [id], onDelete: SetNull)
+  patientNavigator    Person?     @relation("referralPatientNavigator", fields: [patientNavigatorId], references: [id], onDelete: SetNull)
+
+  @@index([state])
+  @@index([patientId])
+  @@index([referringDepartmentId])
+}
 
 
 

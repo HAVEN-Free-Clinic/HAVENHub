@@ -29,3 +29,35 @@ export async function createReferral(input: {
     },
   });
 }
+
+
+
+
+export async function recordFCEvent(input: {
+  patientId: string;
+  status: "APPROVED" | "DENIED" | "DISCOUNTED_CARE" | "STILL_PENDING";
+  effectiveAt: Date;
+  source: string;
+  enteredById?: string;
+  notes?: string;
+}) {
+  return prisma.$transaction(async (tx) => {
+    const event = await tx.fCEvent.create({
+      data: {
+        patientId: input.patientId,
+        status: input.status,
+        effectiveAt: input.effectiveAt,
+        source: input.source,
+        enteredById: input.enteredById,
+        notes: input.notes,
+      },
+    });
+
+    await tx.patient.update({
+      where: { id: input.patientId },
+      data: { fcStatus: input.status },
+    });
+
+    return event;
+  });
+}

@@ -1,5 +1,5 @@
 import { prisma } from "@/platform/db";
-import type { ReferralType, ReferralPurpose, ReferralUrgency } from "@prisma/client";
+import type { ReferralType, ReferralPurpose, ReferralUrgency, ReferralState } from "@prisma/client";
 
 export async function createReferral(input: {
   patientId: string;
@@ -29,8 +29,6 @@ export async function createReferral(input: {
     },
   });
 }
-
-
 
 
 export async function recordFCEvent(input: {
@@ -63,10 +61,6 @@ export async function recordFCEvent(input: {
 }
 
 
-
-
-
-import type { ReferralState } from "@prisma/client";
 
 export async function transitionReferralState(input: {
   referralId: string;
@@ -112,5 +106,51 @@ export async function transitionReferralState(input: {
     });
 
     return updated;
+  });
+}
+
+
+export async function addReferralNote(input: {
+  referralId: string;
+  body: string;
+  authorId?: string;
+}) {
+  return prisma.referralNote.create({
+    data: {
+      referralId: input.referralId,
+      body: input.body,
+      authorId: input.authorId,
+    },
+  });
+}
+
+
+export async function getReferralWithHistory(referralId: string) {
+  return prisma.referral.findUniqueOrThrow({
+    where: { id: referralId },
+    include: {
+      patient: { include: { fcEvents: { orderBy: { effectiveAt: "desc" } } } },
+      referringDepartment: true,
+      assignedDirector: true,
+      patientNavigator: true,
+      transitions: { orderBy: { createdAt: "asc" } },
+      notes: { orderBy: { createdAt: "desc" }, include: { author: true } },
+    },
+  });
+}
+
+export async function listReferralsByState(state: ReferralState) {
+  return prisma.referral.findMany({
+    where: { state },
+    include: { patient: true, referringDepartment: true, assignedDirector: true },
+    orderBy: { updatedAt: "desc" },
+  });
+}
+
+export async function listReferralsByDepartment(departmentId: string) {
+  return prisma.referral.findMany({
+    where: { referringDepartmentId: departmentId },
+    include: { patient: true, assignedDirector: true },
+    orderBy: { updatedAt: "desc" },
   });
 }

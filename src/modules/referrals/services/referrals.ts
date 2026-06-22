@@ -47,14 +47,19 @@ export async function createReferralSite(input: {
   notes?: string;
   flag?: "SUCCESS" | "WARN" | "INFO";
   flagText?: string;
+  providers?: { name: string; specialty: string }[];
 }) {
+  const { providers, ...siteFields } = input;
+
   return prisma.referralSite.create({
     data: {
-      ...input,
-      languages: input.languages ?? [],
-      referralSteps: input.referralSteps ?? [],
+      ...siteFields,
+      languages: siteFields.languages ?? [],
+      referralSteps: siteFields.referralSteps ?? [],
       lastReviewedAt: new Date(),
+      providers: providers?.length ? { create: providers } : undefined,
     },
+    include: { providers: true },
   });
 }
 

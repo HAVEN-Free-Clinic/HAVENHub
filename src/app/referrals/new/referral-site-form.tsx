@@ -43,16 +43,16 @@ type InitialValues = {
   name: string;
   category: string;
   specialty: string;
-  system: string;
+  system: string | null;
   acceptsUninsured: boolean;
   freeCareEligible: boolean;
   slidingScale: boolean;
   waitWeeks: number | null;
   waitNote: string | null;
-  phone: string;
+  phone: string | null;
   address: string;
   languages: string[];
-  schedulingContact: string;
+  schedulingContact: string | null;
   fax: string | null;
   referralSteps: string[];
   notes: string | null;
@@ -115,7 +115,7 @@ export function ReferralSiteForm({
         </Field>
 
         <Field label="System">
-          <select name="system" required defaultValue={initialValues?.system} className="rounded-lg border border-border-strong px-3 py-2 text-sm w-full">
+          <select name="system" required defaultValue={initialValues?.system ?? ""} className="rounded-lg border border-border-strong px-3 py-2 text-sm w-full">
             {SYSTEMS.map((s) => (
               <option key={s.value} value={s.value}>
                 {s.label}
@@ -125,7 +125,7 @@ export function ReferralSiteForm({
         </Field>
 
         <Field label="Phone">
-          <Input name="phone" required defaultValue={initialValues?.phone} placeholder="(203) 777-7411" />
+          <Input name="phone" required defaultValue={initialValues?.phone ?? ""} placeholder="(203) 777-7411" />
         </Field>
 
         <Field label="Fax" hint="Optional">
@@ -137,7 +137,7 @@ export function ReferralSiteForm({
         </Field>
 
         <Field label="Scheduling contact">
-          <Input name="schedulingContact" required defaultValue={initialValues?.schedulingContact} placeholder="Main line → ask for patient registration" />
+          <Input name="schedulingContact" required defaultValue={initialValues?.schedulingContact ?? ""} placeholder="Main line → ask for patient registration" />
         </Field>
 
         <Field label="Languages" hint="Comma-separated">

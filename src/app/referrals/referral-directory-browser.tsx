@@ -10,7 +10,7 @@ type Site = {
   name: string;
   specialty: string;
   category: string;
-  system: string;
+  system: string | null;
   acceptsUninsured: boolean;
   freeCareEligible: boolean;
   waitWeeks: number | null;

@@ -318,6 +318,23 @@ enum ProviderCategory {
   ENT
   DENTAL
   SOCIAL_SERVICES
+  INTERNAL_MEDICINE
+  SURGERY
+  PEDIATRICS
+  ANESTHESIOLOGY
+  EMERGENCY_MEDICINE
+  PSYCHIATRY
+  MEDICINE
+  UROLOGY
+  NEUROSURGERY
+  PODIATRY
+  THERAPEUTIC_RADIOLOGY
+  RADIOLOGY
+  RADIATION_ONCOLOGY
+  CHILD_PSYCHIATRY
+  REHAB_MEDICINE
+  PATHOLOGY
+  ORAL_MAXILLOFACIAL_SURGERY
 }
 
 enum ProviderSystem {
@@ -334,32 +351,38 @@ enum ProviderFlag {
   INFO
 }
 
+enum VerificationStatus {
+  UNVERIFIED
+  CONFIRMED
+}
+
 /// A referral site/specialist in the directory, modeled on iRefer. No patient
 /// data lives here or anywhere in this module -- this is reference data only.
 model ReferralSite {
-  id                String           @id @default(cuid())
-  name              String
-  category          ProviderCategory
-  specialty         String
-  system            ProviderSystem
-  acceptsUninsured  Boolean          @default(false)
-  freeCareEligible  Boolean          @default(false)
-  slidingScale      Boolean          @default(false)
-  waitWeeks         Int?
-  waitNote          String?
-  phone             String
-  address           String
-  languages         String[]
-  schedulingContact String
-  fax               String?
-  referralSteps     String[]
-  notes             String?
-  flag              ProviderFlag?
-  flagText          String?
-  lastReviewedAt    DateTime?
-  providers         ProviderContact[]
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
+  id                  String              @id @default(cuid())
+  verificationStatus  VerificationStatus  @default(UNVERIFIED)
+  name                String
+  category            ProviderCategory
+  specialty           String
+  system              ProviderSystem?
+  acceptsUninsured    Boolean             @default(false)
+  freeCareEligible    Boolean             @default(false)
+  slidingScale        Boolean             @default(false)
+  waitWeeks           Int?
+  waitNote            String?
+  phone               String?
+  address             String
+  languages           String[]
+  schedulingContact   String?
+  fax                 String?
+  referralSteps       String[]
+  notes               String?
+  flag                ProviderFlag?
+  flagText            String?
+  lastReviewedAt       DateTime?
+  providers           ProviderContact[]
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
 
   @@index([category])
 }

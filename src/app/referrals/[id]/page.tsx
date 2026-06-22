@@ -4,6 +4,7 @@ import { ArrowLeft, Phone, MapPin, Languages, Clock, AlertTriangle, CheckCircle2
 import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
 import { getReferralSite } from "@/modules/referrals/services/referrals";
+import { ReferralChecklistModal } from "./referral-checklist-modal";
 
 const FLAG_STYLES = {
   SUCCESS: { Icon: CheckCircle2, classes: "bg-green-50 text-success" },
@@ -40,13 +41,24 @@ export default async function ReferralSitePage({
         title={site.name}
         description={site.specialty}
         action={
-          <Link
-            href="/referrals"
-            className="inline-flex items-center gap-2 rounded-lg border border-border bg-surface px-4 py-2.5 text-sm font-semibold text-foreground transition hover:bg-muted"
-          >
-            <ArrowLeft className="h-4 w-4" aria-hidden />
-            Back to directory
-          </Link>
+          <div className="flex items-center gap-2.5">
+            <ReferralChecklistModal
+              site={{ name: site.name, specialty: site.specialty, system: site.system, phone: site.phone, address: site.address }}
+            />
+            <Link
+              href={`/referrals/${id}/edit`}
+              className="inline-flex items-center gap-2 rounded-lg border border-border bg-surface px-4 py-2.5 text-sm font-semibold text-foreground transition hover:bg-muted"
+            >
+              Edit
+            </Link>
+            <Link
+              href="/referrals"
+              className="inline-flex items-center gap-2 rounded-lg border border-border bg-surface px-4 py-2.5 text-sm font-semibold text-foreground transition hover:bg-muted"
+            >
+              <ArrowLeft className="h-4 w-4" aria-hidden />
+              Back to directory
+            </Link>
+          </div>
         }
       />
 

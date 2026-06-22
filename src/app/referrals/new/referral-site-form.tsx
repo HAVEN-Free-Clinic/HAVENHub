@@ -39,15 +39,43 @@ const FLAGS = [
 
 type ProviderRow = { id: string; name: string; specialty: string };
 
+type InitialValues = {
+  name: string;
+  category: string;
+  specialty: string;
+  system: string;
+  acceptsUninsured: boolean;
+  freeCareEligible: boolean;
+  slidingScale: boolean;
+  waitWeeks: number | null;
+  waitNote: string | null;
+  phone: string;
+  address: string;
+  languages: string[];
+  schedulingContact: string;
+  fax: string | null;
+  referralSteps: string[];
+  notes: string | null;
+  flag: string | null;
+  flagText: string | null;
+  providers: { name: string; specialty: string }[];
+};
+
 export function ReferralSiteForm({
   action,
+  initialValues,
+  submitLabel = "Add provider",
 }: {
   action: (formData: FormData) => Promise<void>;
+  initialValues?: InitialValues;
+  submitLabel?: string;
 }) {
   const [submitting, setSubmitting] = useState(false);
-  const [providerRows, setProviderRows] = useState<ProviderRow[]>([
-    { id: crypto.randomUUID(), name: "", specialty: "" },
-  ]);
+  const [providerRows, setProviderRows] = useState<ProviderRow[]>(
+    initialValues?.providers.length
+      ? initialValues.providers.map((p) => ({ id: crypto.randomUUID(), ...p }))
+      : [{ id: crypto.randomUUID(), name: "", specialty: "" }]
+  );
 
   function addRow() {
     setProviderRows((rows) => [...rows, { id: crypto.randomUUID(), name: "", specialty: "" }]);
@@ -69,15 +97,15 @@ export function ReferralSiteForm({
     >
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Provider / site name">
-          <Input name="name" required placeholder="Fair Haven Community Health" />
+          <Input name="name" required defaultValue={initialValues?.name} placeholder="Fair Haven Community Health" />
         </Field>
 
         <Field label="Specialty">
-          <Input name="specialty" required placeholder="Primary care · Dental · Behavioral health" />
+          <Input name="specialty" required defaultValue={initialValues?.specialty} placeholder="Primary care · Dental · Behavioral health" />
         </Field>
 
         <Field label="Category">
-          <select name="category" required className="rounded-lg border border-border-strong px-3 py-2 text-sm w-full">
+          <select name="category" required defaultValue={initialValues?.category} className="rounded-lg border border-border-strong px-3 py-2 text-sm w-full">
             {CATEGORIES.map((c) => (
               <option key={c.value} value={c.value}>
                 {c.label}
@@ -87,7 +115,7 @@ export function ReferralSiteForm({
         </Field>
 
         <Field label="System">
-          <select name="system" required className="rounded-lg border border-border-strong px-3 py-2 text-sm w-full">
+          <select name="system" required defaultValue={initialValues?.system} className="rounded-lg border border-border-strong px-3 py-2 text-sm w-full">
             {SYSTEMS.map((s) => (
               <option key={s.value} value={s.value}>
                 {s.label}
@@ -97,47 +125,76 @@ export function ReferralSiteForm({
         </Field>
 
         <Field label="Phone">
-          <Input name="phone" required placeholder="(203) 777-7411" />
+          <Input name="phone" required defaultValue={initialValues?.phone} placeholder="(203) 777-7411" />
         </Field>
 
         <Field label="Fax" hint="Optional">
-          <Input name="fax" placeholder="(203) 777-7412" />
+          <Input name="fax" defaultValue={initialValues?.fax ?? ""} placeholder="(203) 777-7412" />
         </Field>
 
         <Field label="Address">
-          <Input name="address" required placeholder="374 Grand Ave, New Haven CT 06513" />
+          <Input name="address" required defaultValue={initialValues?.address} placeholder="374 Grand Ave, New Haven CT 06513" />
         </Field>
 
         <Field label="Scheduling contact">
-          <Input name="schedulingContact" required placeholder="Main line → ask for patient registration" />
+          <Input name="schedulingContact" required defaultValue={initialValues?.schedulingContact} placeholder="Main line → ask for patient registration" />
         </Field>
 
         <Field label="Languages" hint="Comma-separated">
-          <Input name="languages" placeholder="English, Spanish, Haitian Creole" />
+          <Input name="languages" defaultValue={initialValues?.languages.join(", ") ?? ""} placeholder="English, Spanish, Haitian Creole" />
         </Field>
 
         <Field label="Typical wait (weeks)" hint="Leave blank if unknown">
-          <Input name="waitWeeks" type="number" min={0} placeholder="2" />
+          <Input name="waitWeeks" type="number" min={0} defaultValue={initialValues?.waitWeeks ?? ""} placeholder="2" />
         </Field>
       </div>
 
       <Field label="Wait note" hint="Optional context on timing">
-        <Input name="waitNote" placeholder="Same-week urgent slots often available" />
+        <Input name="waitNote" defaultValue={initialValues?.waitNote ?? ""} placeholder="Same-week urgent slots often available" />
       </Field>
 
       <div className="flex flex-wrap gap-6">
         <label className="flex items-center gap-2 text-sm text-foreground-soft">
-          <input type="checkbox" name="acceptsUninsured" className="h-4 w-4 rounded accent-brand" />
+          <input type="checkbox" name="acceptsUninsured" defaultChecked={initialValues?.acceptsUninsured} className="h-4 w-4 rounded accent-brand" />
           Accepts uninsured
         </label>
         <label className="flex items-center gap-2 text-sm text-foreground-soft">
-          <input type="checkbox" name="freeCareEligible" className="h-4 w-4 rounded accent-brand" />
+          <input type="checkbox" name="freeCareEligible" defaultChecked={initialValues?.freeCareEligible} className="h-4 w-4 rounded accent-brand" />
           Free Care eligible
         </label>
         <label className="flex items-center gap-2 text-sm text-foreground-soft">
-          <input type="checkbox" name="slidingScale" className="h-4 w-4 rounded accent-brand" />
+          <input type="checkbox" name="slidingScale" defaultChecked={initialValues?.slidingScale} className="h-4 w-4 rounded accent-brand" />
           Sliding scale
         </label>
+      </div>
+
+      <Field label="Referral steps" hint="One step per line">
+        <Textarea
+          name="referralSteps"
+          rows={4}
+          defaultValue={initialValues?.referralSteps.join("\n") ?? ""}
+          placeholder={"Patient calls directly or HAVEN coordinator makes warm handoff call\nNo formal referral needed — walk-in welcome"}
+        />
+      </Field>
+
+      <Field label="Volunteer note" hint="Optional context for whoever makes the referral">
+        <Textarea name="notes" rows={3} defaultValue={initialValues?.notes ?? ""} placeholder="Our primary graduation partner..." />
+      </Field>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Flag" hint="Optional callout shown on the provider's page">
+          <select name="flag" defaultValue={initialValues?.flag ?? ""} className="rounded-lg border border-border-strong px-3 py-2 text-sm w-full">
+            {FLAGS.map((f) => (
+              <option key={f.value} value={f.value}>
+                {f.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+
+        <Field label="Flag text" hint="Required if a flag is selected">
+          <Input name="flagText" defaultValue={initialValues?.flagText ?? ""} placeholder="Graduation partner — warm handoff preferred" />
+        </Field>
       </div>
 
       <Field label="Referral steps" hint="One step per line">
@@ -213,7 +270,7 @@ export function ReferralSiteForm({
 
       <div className="pt-2">
         <Button type="submit" disabled={submitting}>
-          {submitting ? "Saving..." : "Add provider"}
+          {submitting ? "Saving..." : submitLabel}
         </Button>
       </div>
     </form>

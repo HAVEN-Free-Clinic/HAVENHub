@@ -69,6 +69,7 @@ export async function updateReferralSite(
     name: string;
     category: ProviderCategory;
     specialty: string;
+    system: "YNHH" | "COMMUNITY_HC" | "COMMUNITY_NONPROFIT" | "STATE_RESOURCE_HUB" | "NONPROFIT_LEGAL_AID";
     acceptsUninsured: boolean;
     freeCareEligible: boolean;
     slidingScale: boolean;
@@ -83,10 +84,24 @@ export async function updateReferralSite(
     notes: string;
     flag: "SUCCESS" | "WARN" | "INFO";
     flagText: string;
+    providers: { name: string; specialty: string }[];
   }>
 ) {
-  return prisma.referralSite.update({
-    where: { id },
-    data: { ...input, lastReviewedAt: new Date() },
+  const { providers, ...siteFields } = input;
+
+  return prisma.$transaction(async (tx) => {
+    if (providers) {
+      await tx.providerContact.deleteMany({ where: { referralSiteId: id } });
+    }
+
+    return tx.referralSite.update({
+      where: { id },
+      data: {
+        ...siteFields,
+        lastReviewedAt: new Date(),
+        providers: providers ? { create: providers } : undefined,
+      },
+      include: { providers: true },
+    });
   });
 }

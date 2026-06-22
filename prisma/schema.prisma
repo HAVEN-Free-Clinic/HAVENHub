@@ -59,43 +59,6 @@ enum CertificateExtraction {
 }
 
 
-
-
-enum ReferralType {
-  EDUCATION // SCTM / JCTM
-  MDIC      // Free Care / HUSKY
-}
-
-enum ReferralPurpose {
-  NEW_FC
-  RENEW_FC
-  HUSKY
-  EDUCATION_SESSION
-}
-
-enum ReferralUrgency {
-  ROUTINE
-  URGENT
-  STAT
-}
-
-enum ReferralState {
-  ENTERED
-  AWAITING_FC
-  SCHEDULED
-  COMPLETED
-  CANCELLED_BY_PROVIDER
-  CANCELLED_OR_NO_SHOW
-  CLOSED_DECLINED
-}
-
-enum FCStatus {
-  APPROVED
-  DENIED
-  DISCOUNTED_CARE
-  STILL_PENDING
-}
-
 model Person {
   id                        String               @id @default(cuid())
   netId                     String?              @unique
@@ -143,11 +106,6 @@ model Person {
   teamsMessages             TeamsMessage[]       @relation("teamsMessagePerson")
   notifications             Notification[]       @relation("personNotifications")
   shiftAssignments          ShiftAssignment[]
-  referralsAsDirector  Referral[] @relation("referralAssignedDirector")
-  referralsAsNavigator Referral[] @relation("referralPatientNavigator")
-  fcEventsEntered      FCEvent[]            @relation("fcEventEnteredBy")
-  referralTransitions  ReferralTransition[] @relation("referralTransitionChangedBy")
-  referralNotesWritten ReferralNote[]       @relation("referralNoteAuthor")
   recruitmentCyclesCreated  RecruitmentCycle[]   @relation("RecruitmentCycleCreatedBy")
   recruitmentAcceptances    Acceptance[]         @relation("recruitmentAcceptanceApprover")
   contractsPromoted         OnboardingContract[] @relation("contractPromotedBy")
@@ -238,7 +196,6 @@ model Department {
   idealHeadcount             Int?
   /// Capacity panel config: imported then admin-maintained.
   patientCapacityPerProvider Int?
-  referralsReceived          Referral[]             @relation("referralReferringDepartment")
   createdAt                  DateTime               @default(now())
   updatedAt                  DateTime               @updatedAt
 }
@@ -347,107 +304,7 @@ model AuditLog {
 }
 
 
-/// Patients are never Hub users: no netId, no Entra login, no compliance
-/// tracking. Kept fully separate from Person.
-model Patient {
-  id           String     @id @default(cuid())
-  mrn          String     @unique
-  name         String
-  dateOfBirth  DateTime?
-  language     String?
-  fcStatus     FCStatus?
-  fcExpiryDate DateTime?
-  referrals    Referral[]
-  fcEvents     FCEvent[]
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
 
-  @@index([mrn])
-}
-
-
-/// Core referral case. One row per referral; a patient may have multiple
-/// concurrent referrals (e.g. one EDUCATION, one MDIC) sharing the same
-/// Patient.fcStatus.
-model Referral {
-  id                    String          @id @default(cuid())
-  patientId             String
-  referralType          ReferralType
-  purpose               ReferralPurpose
-  urgency               ReferralUrgency @default(ROUTINE)
-  state                 ReferralState   @default(ENTERED)
-  referringDepartmentId String?
-  assignedDirectorId    String?
-  specialty             String?
-  reasonForReferral     String?
-  appointmentDate       DateTime?
-  patientNavigatorId    String?
-  version               Int             @default(1)
-  createdAt             DateTime        @default(now())
-  updatedAt             DateTime        @updatedAt
-
-  patient             Patient     @relation(fields: [patientId], references: [id], onDelete: Restrict)
-  referringDepartment Department? @relation("referralReferringDepartment", fields: [referringDepartmentId], references: [id], onDelete: SetNull)
-  assignedDirector    Person?     @relation("referralAssignedDirector", fields: [assignedDirectorId], references: [id], onDelete: SetNull)
-  patientNavigator    Person?     @relation("referralPatientNavigator", fields: [patientNavigatorId], references: [id], onDelete: SetNull)
-  transitions         ReferralTransition[]
-  notes               ReferralNote[]
-
-  @@index([state])
-  @@index([patientId])
-  @@index([referringDepartmentId])
-}
-
-/// One row per FC status change, sourced from the weekly Epic CSV import or
-/// manual entry. effectiveAt defaults to the import file's last-modified
-/// timestamp (not today), since Epic exports lag by several days.
-model FCEvent {
-  id          String   @id @default(cuid())
-  patientId   String
-  status      FCStatus
-  effectiveAt DateTime
-  source      String
-  enteredById String?
-  notes       String?
-  createdAt   DateTime @default(now())
-
-  patient   Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
-  enteredBy Person? @relation("fcEventEnteredBy", fields: [enteredById], references: [id], onDelete: SetNull)
-
-  @@index([patientId, effectiveAt])
-}
-
-/// Append-only audit trail of state changes. Never updated or deleted.
-model ReferralTransition {
-  id          String         @id @default(cuid())
-  referralId  String
-  fromState   ReferralState?
-  toState     ReferralState
-  reason      String?
-  changedById String?
-  createdAt   DateTime       @default(now())
-
-  referral  Referral @relation(fields: [referralId], references: [id], onDelete: Cascade)
-  changedBy Person?  @relation("referralTransitionChangedBy", fields: [changedById], references: [id], onDelete: SetNull)
-
-  @@index([referralId, createdAt])
-}
-
-
-/// Director/MDIC notes per referral. Replaces the free-text "Director Note"
-/// columns from the spreadsheet (EDUC Director Note, MDIC Director Note).
-model ReferralNote {
-  id         String   @id @default(cuid())
-  referralId String
-  authorId   String?
-  body       String
-  createdAt  DateTime @default(now())
-
-  referral Referral @relation(fields: [referralId], references: [id], onDelete: Cascade)
-  author   Person?  @relation("referralNoteAuthor", fields: [authorId], references: [id], onDelete: SetNull)
-
-  @@index([referralId, createdAt])
-}
 
 enum OutboxStatus {
   PENDING

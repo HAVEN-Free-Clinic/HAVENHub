@@ -8,8 +8,8 @@ type ChecklistSection = { title: string; items: string[] };
 
 function buildSections(site: {
   name: string;
-  system: string;
-  phone: string;
+  system: string | null;
+  phone: string | null;
   address: string;
 }): ChecklistSection[] {
   const isYNHH = site.system === "YNHH";
@@ -33,7 +33,7 @@ function buildSections(site: {
             "Attach recent relevant labs or imaging reports",
           ]
         : [
-            `Call ${site.phone} or have patient call directly`,
+            `Call ${site.phone ?? "the office"} or have patient call directly`,
             "Mention HAVEN referral when scheduling",
             "Confirm sliding scale / payment arrangement",
             "Note any language or interpretation needs",
@@ -64,7 +64,7 @@ function buildSections(site: {
 export function ReferralChecklistModal({
   site,
 }: {
-  site: { name: string; specialty: string; system: string; phone: string; address: string };
+  site: { name: string; specialty: string; system: string | null; phone: string | null; address: string };
 }) {
   const [open, setOpen] = useState(false);
   const [checked, setChecked] = useState<Record<string, boolean>>({});

@@ -58,12 +58,6 @@ export default async function ReferralSitePage({
             >
               Edit
             </Link>
-            <Link
-              href={`/referrals/${id}/edit`}
-              className="inline-flex items-center gap-2 rounded-lg border border-border bg-surface px-4 py-2.5 text-sm font-semibold text-foreground transition hover:bg-muted"
-            >
-              Edit
-            </Link>
             <DeleteSiteButton action={deleteSiteAction} />
             <Link
               href="/referrals"
@@ -77,7 +71,7 @@ export default async function ReferralSitePage({
       />
 
       <div className="flex flex-wrap items-center gap-2">
-        <Badge tone="default">{site.system.replace(/_/g, " ")}</Badge>
+        {site.system && <Badge tone="default">{site.system.replace(/_/g, " ")}</Badge>}
         {site.acceptsUninsured && <Badge tone="success">Accepts uninsured</Badge>}
         {site.freeCareEligible && <Badge tone="brand">Free Care</Badge>}
         {site.slidingScale && <Badge tone="warning">Sliding scale</Badge>}
@@ -122,8 +116,8 @@ export default async function ReferralSitePage({
               <p className="text-xs font-semibold uppercase tracking-wider text-subtle-foreground">Scheduling contact</p>
               <p className="mt-1 flex items-center gap-2 text-sm text-foreground">
                 <Phone className="h-4 w-4 text-subtle-foreground" aria-hidden />
-                {site.phone} · {site.schedulingContact}
-              </p>
+                {site.phone ?? "Phone not on file"} · {site.schedulingContact ?? "Scheduling contact not on file"}
+            </p>
               {site.fax && <p className="mt-1 text-xs text-muted-foreground">Fax: {site.fax}</p>}
             </div>
           </div>

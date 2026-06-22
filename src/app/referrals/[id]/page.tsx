@@ -1,10 +1,11 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { ArrowLeft, Phone, MapPin, Languages, Clock, AlertTriangle, CheckCircle2, Info } from "lucide-react";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
-import { getReferralSite } from "@/modules/referrals/services/referrals";
+import { getReferralSite, deleteReferralSite } from "@/modules/referrals/services/referrals";
 import { ReferralChecklistModal } from "./referral-checklist-modal";
+import { DeleteSiteButton } from "./delete-site-button";
 
 const FLAG_STYLES = {
   SUCCESS: { Icon: CheckCircle2, classes: "bg-green-50 text-success" },
@@ -24,6 +25,12 @@ export default async function ReferralSitePage({
     site = await getReferralSite(id);
   } catch {
     notFound();
+  }
+
+  async function deleteSiteAction() {
+    "use server";
+    await deleteReferralSite(id);
+    redirect("/referrals");
   }
 
   const waitDisplay =
@@ -51,6 +58,13 @@ export default async function ReferralSitePage({
             >
               Edit
             </Link>
+            <Link
+              href={`/referrals/${id}/edit`}
+              className="inline-flex items-center gap-2 rounded-lg border border-border bg-surface px-4 py-2.5 text-sm font-semibold text-foreground transition hover:bg-muted"
+            >
+              Edit
+            </Link>
+            <DeleteSiteButton action={deleteSiteAction} />
             <Link
               href="/referrals"
               className="inline-flex items-center gap-2 rounded-lg border border-border bg-surface px-4 py-2.5 text-sm font-semibold text-foreground transition hover:bg-muted"

@@ -301,7 +301,78 @@ model AuditLog {
   @@index([actorPersonId])
 }
 
+enum ProviderCategory {
+  COMMUNITY_HEALTH
+  CARDIOLOGY
+  ENDOCRINOLOGY
+  GASTROENTEROLOGY
+  BEHAVIORAL_HEALTH
+  OBGYN
+  ORTHOPEDICS
+  DERMATOLOGY
+  PULMONOLOGY
+  NEUROLOGY
+  OPHTHALMOLOGY
+  ENT
+  DENTAL
+  SOCIAL_SERVICES
+}
 
+enum ProviderSystem {
+  YNHH
+  COMMUNITY_HC
+  COMMUNITY_NONPROFIT
+  STATE_RESOURCE_HUB
+  NONPROFIT_LEGAL_AID
+}
+
+enum ProviderFlag {
+  SUCCESS
+  WARN
+  INFO
+}
+
+/// A referral site/specialist in the directory, modeled on iRefer. No patient
+/// data lives here or anywhere in this module -- this is reference data only.
+model ReferralSite {
+  id                String           @id @default(cuid())
+  name              String
+  category          ProviderCategory
+  specialty         String
+  system            ProviderSystem
+  acceptsUninsured  Boolean          @default(false)
+  freeCareEligible  Boolean          @default(false)
+  slidingScale      Boolean          @default(false)
+  waitWeeks         Int?
+  waitNote          String?
+  phone             String
+  address           String
+  languages         String[]
+  schedulingContact String
+  fax               String?
+  referralSteps     String[]
+  notes             String?
+  flag              ProviderFlag?
+  flagText          String?
+  lastReviewedAt    DateTime?
+  providers         ProviderContact[]
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  @@index([category])
+}
+
+/// A named provider/staff member at a ReferralSite location.
+model ProviderContact {
+  id             String       @id @default(cuid())
+  referralSiteId String
+  name           String
+  specialty      String
+
+  referralSite ReferralSite @relation(fields: [referralSiteId], references: [id], onDelete: Cascade)
+
+  @@index([referralSiteId])
+}
 
 
 enum OutboxStatus {

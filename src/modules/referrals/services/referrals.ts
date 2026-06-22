@@ -21,6 +21,10 @@ export async function listReferralSites(filters?: {
   });
 }
 
+export async function deleteReferralSite(id: string) {
+  return prisma.referralSite.delete({ where: { id } });
+}
+
 export async function getReferralSite(id: string) {
   return prisma.referralSite.findUniqueOrThrow({
     where: { id },

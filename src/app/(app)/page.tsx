@@ -129,7 +129,6 @@ function ModuleTile({ m }: { m: ModuleManifest }) {
       style={hueStyle(m.id)}
       className="group relative flex items-start gap-4 overflow-hidden rounded-2xl border border-border bg-surface p-[18px] transition hover:-translate-y-0.5 hover:border-border-strong hover:shadow-md"
     >
-      <span aria-hidden className="absolute inset-y-0 left-0 w-1" style={{ background: "var(--mh)" }} />
       <span
         className="grid h-11 w-11 shrink-0 place-items-center rounded-xl"
         style={{ color: "var(--mh)", background: "var(--mhbg)" }}

@@ -104,12 +104,54 @@ function statusPills(site: Site): { short: string; full: string; confirmed: bool
   }
 
   if (!site.acceptsUninsured) {
-    pills.push({ short: "Uninsured?", full: "Whether they accept uninsured patients is unconfirmed", confirmed: false });
+    pills.push({ short: "Uninsured", full: "Uninsured coverage unconfirmed", confirmed: false });
   } else {
-    pills.push({ short: "Uninsured OK", full: "Confirmed: this provider accepts uninsured patients", confirmed: true });
+    pills.push({ short: "Uninsured", full: "Confirmed: this provider accepts uninsured patients", confirmed: true });
   }
 
   return pills;
+}
+
+function SiteRow({ site }: { site: Site }) {
+  return (
+    <li>
+      <div className="flex items-start justify-between gap-4 px-6 py-4 transition hover:bg-muted">
+        <Link href={`/referrals/${site.id}`} className="flex items-start gap-3 min-w-0 flex-1">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-faint text-brand-fg">
+            <Building2 className="h-[18px] w-[18px]" aria-hidden />
+          </span>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-foreground">{site.name}</p>
+            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+              <span
+                className="text-[11px] font-medium px-2 py-0.5 rounded-full"
+                style={{ background: clusterFor(site.category).bg, color: clusterFor(site.category).color }}
+              >
+                {CATEGORY_LABELS[site.category] ?? site.category}
+              </span>
+              {statusPills(site).map((p) => (
+                <span
+                  key={p.short}
+                  title={p.full}
+                  className={`text-[11px] px-2 py-0.5 rounded-full cursor-help ${
+                    p.confirmed ? "bg-green-50 text-success" : "bg-muted-strong text-muted-foreground"
+                  }`}
+                >
+                  {p.short}
+                </span>
+              ))}
+            </div>
+          </div>
+        </Link>
+        <Link
+          href={`/referrals/${site.id}/edit`}
+          className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-muted"
+        >
+          Edit
+        </Link>
+      </div>
+    </li>
+  );
 }
 
 type SortKey = "name" | "wait" | "category";
@@ -170,45 +212,22 @@ export function ReferralDirectoryBrowser({ sites }: { sites: Site[] }) {
           </div>
 
           <p className="text-xs font-semibold uppercase tracking-wider text-subtle-foreground mb-2">Category</p>
-          <div className="mb-4">
-            <button
-              onClick={() => setActiveCategory("all")}
-              className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-sm text-left transition mb-2 ${
-                activeCategory === "all" ? "bg-brand text-white font-medium" : "text-muted-foreground hover:bg-muted"
-              }`}
-            >
-              <span className="flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-current" />
-                All providers
-              </span>
-              <span className={`text-xs rounded-full px-1.5 ${activeCategory === "all" ? "bg-white/20" : "bg-muted-strong text-muted-foreground"}`}>
-                {categoryCounts.all}
-              </span>
-            </button>
-
+          <select
+            value={activeCategory}
+            onChange={(e) => setActiveCategory(e.target.value)}
+            className="w-full rounded-lg border border-border-strong px-3 py-2 text-sm mb-4"
+          >
+            <option value="all">All providers ({categoryCounts.all})</option>
             {CATEGORY_CLUSTERS.map((cluster) => (
-              <div key={cluster.label} className="mb-3">
-                <p className="text-[11px] font-medium text-muted-foreground mb-1 px-2.5">{cluster.label}</p>
-                <div className="flex flex-col gap-0.5">
-                  {cluster.categories.map((cat) => (
-                    <button
-                      key={cat}
-                      onClick={() => setActiveCategory(cat)}
-                      className={`flex items-center justify-between rounded-lg px-2.5 py-1.5 text-sm text-left transition ${
-                        activeCategory === cat ? "bg-muted font-medium text-foreground" : "text-muted-foreground hover:bg-muted"
-                      }`}
-                    >
-                      <span className="flex items-center gap-2">
-                        <span className="h-2 w-2 rounded-full" style={{ background: cluster.color }} />
-                        {CATEGORY_LABELS[cat]}
-                      </span>
-                      <span className="text-xs text-muted-foreground">{categoryCounts[cat] ?? 0}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <optgroup key={cluster.label} label={cluster.label}>
+                {cluster.categories.map((cat) => (
+                  <option key={cat} value={cat}>
+                    {CATEGORY_LABELS[cat]} ({categoryCounts[cat] ?? 0})
+                  </option>
+                ))}
+              </optgroup>
             ))}
-          </div>
+          </select>
 
           <p className="text-xs font-semibold uppercase tracking-wider text-subtle-foreground mb-2">Sort by</p>
           <select
@@ -249,49 +268,36 @@ export function ReferralDirectoryBrowser({ sites }: { sites: Site[] }) {
             <Search className="mx-auto h-8 w-8 text-subtle-foreground mb-3" aria-hidden />
             <p className="text-sm text-muted-foreground">No providers match — try clearing filters or adjusting your search.</p>
           </div>
-        ) : (
+        ) : activeCategory !== "all" ? (
           <div className="rounded-2xl border border-border bg-surface shadow-sm overflow-hidden">
             <ul className="divide-y divide-border-subtle">
               {filtered.map((site) => (
-                <li key={site.id}>
-                  <div className="flex items-start justify-between gap-4 px-6 py-4 transition hover:bg-muted">
-                    <Link href={`/referrals/${site.id}`} className="flex items-start gap-3 min-w-0 flex-1">
-                      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-faint text-brand-fg">
-                        <Building2 className="h-[18px] w-[18px]" aria-hidden />
-                      </span>
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold text-foreground">{site.name}</p>
-                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                          <span
-                            className="text-[11px] font-medium px-2 py-0.5 rounded-full"
-                            style={{ background: clusterFor(site.category).bg, color: clusterFor(site.category).color }}
-                          >
-                            {CATEGORY_LABELS[site.category] ?? site.category}
-                          </span>
-                          {statusPills(site).map((p) => (
-                            <span
-                              key={p.short}
-                              title={p.full}
-                              className={`text-[11px] px-2 py-0.5 rounded-full cursor-help ${
-                                p.confirmed ? "bg-green-50 text-success" : "bg-muted-strong text-muted-foreground"
-                              }`}
-                            >
-                              {p.short}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    </Link>
-                    <Link
-                      href={`/referrals/${site.id}/edit`}
-                      className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-muted"
-                    >
-                      Edit
-                    </Link>
-                  </div>
-                </li>
+                <SiteRow key={site.id} site={site} />
               ))}
             </ul>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {CATEGORY_CLUSTERS.map((cluster) => {
+              const clusterSites = filtered.filter((s) => cluster.categories.includes(s.category));
+              if (clusterSites.length === 0) return null;
+              return (
+                <div key={cluster.label}>
+                  <div className="flex items-center gap-2 mb-2 px-1">
+                    <span className="h-2.5 w-2.5 rounded-full" style={{ background: cluster.color }} />
+                    <h3 className="text-sm font-semibold text-foreground">{cluster.label}</h3>
+                    <span className="text-xs text-muted-foreground">({clusterSites.length})</span>
+                  </div>
+                  <div className="rounded-2xl border border-border bg-surface shadow-sm overflow-hidden">
+                    <ul className="divide-y divide-border-subtle">
+                      {clusterSites.map((site) => (
+                        <SiteRow key={site.id} site={site} />
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

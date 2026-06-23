@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Building2, Search } from "lucide-react";
-import { Badge } from "@/platform/ui/badge";
 
 type Site = {
   id: string;
@@ -33,7 +32,85 @@ const CATEGORY_LABELS: Record<string, string> = {
   ENT: "ENT",
   DENTAL: "Dental",
   SOCIAL_SERVICES: "Social services",
+  INTERNAL_MEDICINE: "Internal medicine",
+  SURGERY: "Surgery",
+  PEDIATRICS: "Pediatrics",
+  ANESTHESIOLOGY: "Anesthesiology",
+  EMERGENCY_MEDICINE: "Emergency medicine",
+  PSYCHIATRY: "Psychiatry",
+  MEDICINE: "Medicine",
+  UROLOGY: "Urology",
+  NEUROSURGERY: "Neurosurgery",
+  PODIATRY: "Podiatry",
+  THERAPEUTIC_RADIOLOGY: "Therapeutic radiology",
+  RADIOLOGY: "Radiology",
+  RADIATION_ONCOLOGY: "Radiation oncology",
+  CHILD_PSYCHIATRY: "Child psychiatry",
+  REHAB_MEDICINE: "Rehab medicine",
+  PATHOLOGY: "Pathology",
+  ORAL_MAXILLOFACIAL_SURGERY: "Oral & maxillofacial surgery",
 };
+
+const CATEGORY_CLUSTERS: { label: string; color: string; bg: string; categories: string[] }[] = [
+  {
+    label: "Primary & community",
+    color: "#04342C",
+    bg: "#E1F5EE",
+    categories: ["COMMUNITY_HEALTH", "INTERNAL_MEDICINE", "MEDICINE", "PEDIATRICS"],
+  },
+  {
+    label: "Specialty medical",
+    color: "#042C53",
+    bg: "#E6F1FB",
+    categories: [
+      "CARDIOLOGY", "ENDOCRINOLOGY", "GASTROENTEROLOGY", "OBGYN", "ORTHOPEDICS",
+      "DERMATOLOGY", "PULMONOLOGY", "NEUROLOGY", "OPHTHALMOLOGY", "ENT",
+      "UROLOGY", "NEUROSURGERY", "PODIATRY", "RADIOLOGY", "RADIATION_ONCOLOGY",
+      "THERAPEUTIC_RADIOLOGY", "PATHOLOGY", "REHAB_MEDICINE", "SURGERY",
+      "ANESTHESIOLOGY", "EMERGENCY_MEDICINE",
+    ],
+  },
+  {
+    label: "Behavioral & social",
+    color: "#4B1528",
+    bg: "#FBEAF0",
+    categories: ["BEHAVIORAL_HEALTH", "PSYCHIATRY", "CHILD_PSYCHIATRY", "SOCIAL_SERVICES"],
+  },
+  {
+    label: "Dental",
+    color: "#4A1B0C",
+    bg: "#FAECE7",
+    categories: ["DENTAL", "ORAL_MAXILLOFACIAL_SURGERY"],
+  },
+];
+
+function clusterFor(category: string) {
+  return CATEGORY_CLUSTERS.find((c) => c.categories.includes(category)) ?? CATEGORY_CLUSTERS[1];
+}
+
+function statusPills(site: Site): { short: string; full: string; confirmed: boolean }[] {
+  const pills: { short: string; full: string; confirmed: boolean }[] = [];
+
+  if (site.waitWeeks == null) {
+    pills.push({ short: "Wait time", full: "Wait time for appointment unconfirmed", confirmed: false });
+  } else {
+    pills.push({ short: `~${site.waitWeeks} wk wait`, full: `Confirmed wait time: about ${site.waitWeeks} weeks`, confirmed: true });
+  }
+
+  if (!site.freeCareEligible) {
+    pills.push({ short: "Free Care", full: "Free Care coverage unconfirmed", confirmed: false });
+  } else {
+    pills.push({ short: "Free Care", full: "Confirmed: Free Care covers visits here", confirmed: true });
+  }
+
+  if (!site.acceptsUninsured) {
+    pills.push({ short: "Uninsured?", full: "Whether they accept uninsured patients is unconfirmed", confirmed: false });
+  } else {
+    pills.push({ short: "Uninsured OK", full: "Confirmed: this provider accepts uninsured patients", confirmed: true });
+  }
+
+  return pills;
+}
 
 type SortKey = "name" | "wait" | "category";
 
@@ -60,7 +137,7 @@ export function ReferralDirectoryBrowser({ sites }: { sites: Site[] }) {
       if (onlyFast && (s.waitWeeks == null || s.waitWeeks >= 4)) return false;
       if (onlySpanish && !s.languages.some((l) => l.toLowerCase().includes("spanish"))) return false;
       if (query) {
-        const haystack = `${s.name} ${s.specialty} ${s.system} ${s.languages.join(" ")} ${s.notes ?? ""}`.toLowerCase();
+        const haystack = `${s.name} ${s.specialty} ${s.system ?? ""} ${s.languages.join(" ")} ${s.notes ?? ""}`.toLowerCase();
         if (!haystack.includes(query.toLowerCase())) return false;
       }
       return true;
@@ -76,8 +153,6 @@ export function ReferralDirectoryBrowser({ sites }: { sites: Site[] }) {
 
     return list;
   }, [sites, activeCategory, sort, onlyUninsured, onlyFreeCare, onlyFast, onlySpanish, query]);
-
-  const categories = ["all", ...Object.keys(CATEGORY_LABELS)];
 
   return (
     <div className="grid gap-6 lg:grid-cols-[260px_1fr] items-start">
@@ -95,26 +170,43 @@ export function ReferralDirectoryBrowser({ sites }: { sites: Site[] }) {
           </div>
 
           <p className="text-xs font-semibold uppercase tracking-wider text-subtle-foreground mb-2">Category</p>
-          <div className="flex flex-col gap-1 mb-4">
-            {categories.map((cat) => (
-              <button
-                key={cat}
-                onClick={() => setActiveCategory(cat)}
-                className={`flex items-center justify-between rounded-lg px-2.5 py-1.5 text-sm text-left transition ${
-                  activeCategory === cat
-                    ? "bg-navy text-white font-medium"
-                    : "text-muted-foreground hover:bg-muted"
-                }`}
-              >
-                <span>{cat === "all" ? "All providers" : CATEGORY_LABELS[cat]}</span>
-                <span
-                  className={`text-xs rounded-full px-1.5 ${
-                    activeCategory === cat ? "bg-white/20" : "bg-muted-strong text-muted-foreground"
-                  }`}
-                >
-                  {categoryCounts[cat] ?? 0}
-                </span>
-              </button>
+          <div className="mb-4">
+            <button
+              onClick={() => setActiveCategory("all")}
+              className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-sm text-left transition mb-2 ${
+                activeCategory === "all" ? "bg-brand text-white font-medium" : "text-muted-foreground hover:bg-muted"
+              }`}
+            >
+              <span className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-current" />
+                All providers
+              </span>
+              <span className={`text-xs rounded-full px-1.5 ${activeCategory === "all" ? "bg-white/20" : "bg-muted-strong text-muted-foreground"}`}>
+                {categoryCounts.all}
+              </span>
+            </button>
+
+            {CATEGORY_CLUSTERS.map((cluster) => (
+              <div key={cluster.label} className="mb-3">
+                <p className="text-[11px] font-medium text-muted-foreground mb-1 px-2.5">{cluster.label}</p>
+                <div className="flex flex-col gap-0.5">
+                  {cluster.categories.map((cat) => (
+                    <button
+                      key={cat}
+                      onClick={() => setActiveCategory(cat)}
+                      className={`flex items-center justify-between rounded-lg px-2.5 py-1.5 text-sm text-left transition ${
+                        activeCategory === cat ? "bg-muted font-medium text-foreground" : "text-muted-foreground hover:bg-muted"
+                      }`}
+                    >
+                      <span className="flex items-center gap-2">
+                        <span className="h-2 w-2 rounded-full" style={{ background: cluster.color }} />
+                        {CATEGORY_LABELS[cat]}
+                      </span>
+                      <span className="text-xs text-muted-foreground">{categoryCounts[cat] ?? 0}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
 
@@ -162,29 +254,41 @@ export function ReferralDirectoryBrowser({ sites }: { sites: Site[] }) {
             <ul className="divide-y divide-border-subtle">
               {filtered.map((site) => (
                 <li key={site.id}>
-                  <Link
-                    href={`/referrals/${site.id}`}
-                    className="flex items-start justify-between gap-4 px-6 py-4 transition hover:bg-muted"
-                  >
-                    <div className="flex items-start gap-3 min-w-0">
+                  <div className="flex items-start justify-between gap-4 px-6 py-4 transition hover:bg-muted">
+                    <Link href={`/referrals/${site.id}`} className="flex items-start gap-3 min-w-0 flex-1">
                       <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-faint text-brand-fg">
                         <Building2 className="h-[18px] w-[18px]" aria-hidden />
                       </span>
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-foreground">{site.name}</p>
-                        <p className="text-xs text-muted-foreground">{site.specialty}</p>
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                          <span
+                            className="text-[11px] font-medium px-2 py-0.5 rounded-full"
+                            style={{ background: clusterFor(site.category).bg, color: clusterFor(site.category).color }}
+                          >
+                            {CATEGORY_LABELS[site.category] ?? site.category}
+                          </span>
+                          {statusPills(site).map((p) => (
+                            <span
+                              key={p.short}
+                              title={p.full}
+                              className={`text-[11px] px-2 py-0.5 rounded-full cursor-help ${
+                                p.confirmed ? "bg-green-50 text-success" : "bg-muted-strong text-muted-foreground"
+                              }`}
+                            >
+                              {p.short}
+                            </span>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      {site.acceptsUninsured && <Badge tone="success">Uninsured OK</Badge>}
-                      {site.freeCareEligible && <Badge tone="brand">Free Care</Badge>}
-                      {site.waitWeeks != null && (
-                        <Badge tone={site.waitWeeks <= 2 ? "success" : site.waitWeeks <= 6 ? "warning" : "critical"}>
-                          ~{site.waitWeeks} wk wait
-                        </Badge>
-                      )}
-                    </div>
-                  </Link>
+                    </Link>
+                    <Link
+                      href={`/referrals/${site.id}/edit`}
+                      className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-muted"
+                    >
+                      Edit
+                    </Link>
+                  </div>
                 </li>
               ))}
             </ul>

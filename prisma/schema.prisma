@@ -102,6 +102,7 @@ model Person {
   emailTemplatesUpdated     EmailTemplate[]      @relation("emailTemplateUpdatedBy")
   campaignsCreated          EmailCampaign[]      @relation("campaignCreatedBy")
   complianceReminder        ComplianceReminder?
+  teamsMessages             TeamsMessage[]       @relation("teamsMessagePerson")
   shiftAssignments          ShiftAssignment[]
   recruitmentCyclesCreated  RecruitmentCycle[]   @relation("RecruitmentCycleCreatedBy")
   recruitmentAcceptances    Acceptance[]         @relation("recruitmentAcceptanceApprover")
@@ -328,6 +329,14 @@ enum EmailStatus {
   QUEUED
   SENT
   FAILED
+}
+
+enum TeamsMessageStatus {
+  QUEUED
+  SENT
+  FAILED
+  /// Teams delivery was abandoned and the message was re-queued as email instead.
+  FALLBACK
 }
 
 enum RecruitmentTrack {
@@ -636,6 +645,37 @@ model MailCredential {
   scope        String?
   connectedAt  DateTime @default(now())
   updatedAt    DateTime @updatedAt
+}
+
+/// Outbound Teams 1:1 chat message queue (mirrors EmailLog). Drained by the
+/// email cron alongside the email queue. Carries the email fallback payload so a
+/// permanently-failed Teams send degrades to email without re-involving the caller.
+model TeamsMessage {
+  id              String             @id @default(cuid())
+  /// Recipient person. Teams messages are always person-addressed.
+  personId        String
+  /// Notification type key from the notification registry (e.g. "compliance-reminder").
+  type            String
+  title           String
+  summary         String
+  link            String?
+  /// Rendered HTML body posted to the Teams chat.
+  bodyHtml        String
+  /// Cached 1:1 chat id once resolved, so a retry does not re-create the chat.
+  chatId          String?
+  /// Email fallback payload, queued if Teams delivery fails permanently.
+  fallbackSubject String
+  fallbackHtml    String
+  status          TeamsMessageStatus @default(QUEUED)
+  attempts        Int                @default(0)
+  lastError       String?
+  sentAt          DateTime?
+  createdAt       DateTime           @default(now())
+  /// Cascade: Teams messages do not outlive the person they address.
+  person          Person             @relation("teamsMessagePerson", fields: [personId], references: [id], onDelete: Cascade)
+
+  @@index([personId])
+  @@index([status, createdAt])
 }
 
 /// One row per person per clinic shift. Med-team tags apply to VOLUNTEER rows;

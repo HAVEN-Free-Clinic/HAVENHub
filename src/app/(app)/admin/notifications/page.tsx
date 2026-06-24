@@ -1,25 +1,24 @@
 /**
- * /admin/email -- Email monitoring dashboard.
+ * /admin/notifications -- Teams message monitoring dashboard.
  *
- * Shows a paginated list of EmailLog rows with status/template/recipient
+ * Shows a paginated list of TeamsMessage rows with status/type/recipient
  * filters, global health-count cards, and a per-row Retry action for FAILED
- * emails. Gates on admin.manage_sync.
+ * and FALLBACK messages. Gates on admin.manage_sync.
  */
 
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { cookies } from "next/headers";
 import { requirePermission } from "@/platform/auth/session";
 import {
-  listEmails,
-  retryEmail,
-  EMAIL_PAGE_SIZE,
-  EmailNotFoundError,
-  EmailStateError,
-} from "@/modules/admin/services/email";
-import { buildAuthorizeUrl, mailConnectionStatus, teamsScopesGranted } from "@/platform/email/oauth";
-import type { EmailStatus } from "@prisma/client";
+  listTeamsMessages,
+  retryTeamsMessage,
+  TEAMS_PAGE_SIZE,
+  TeamsMessageNotFoundError,
+  TeamsMessageStateError,
+} from "@/modules/admin/services/teams-messages";
+import { NOTIFICATION_TYPES } from "@/platform/notifications/registry";
+import type { TeamsMessageStatus } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
@@ -36,15 +35,9 @@ import { StatCard } from "@/platform/ui/stat-card";
 // Constants
 // ---------------------------------------------------------------------------
 
-const VALID_STATUSES: EmailStatus[] = ["QUEUED", "SENT", "FAILED"];
+const VALID_STATUSES: TeamsMessageStatus[] = ["QUEUED", "SENT", "FAILED", "FALLBACK"];
 
-const KNOWN_TEMPLATES = [
-  "epic-onboarding",
-  "epic-activation",
-  "epic-password-reset",
-  "compliance-reminder",
-  "compliance-escalation",
-] as const;
+const NOTIFICATION_TYPE_LABELS = new Map(NOTIFICATION_TYPES.map((t) => [t.key, t.label]));
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -63,7 +56,7 @@ function fmtDateTime(d: Date | null): string {
 
 type BadgeTone = "default" | "success" | "critical";
 
-function statusTone(status: EmailStatus): BadgeTone {
+function statusTone(status: TeamsMessageStatus): BadgeTone {
   if (status === "SENT") return "success";
   if (status === "FAILED") return "critical";
   return "default";
@@ -76,13 +69,12 @@ function statusTone(status: EmailStatus): BadgeTone {
 type PageProps = {
   searchParams: Promise<{
     status?: string;
-    template?: string;
+    type?: string;
     q?: string;
     page?: string;
     error?: string;
     message?: string;
     retried?: string;
-    connected?: string;
   }>;
 };
 
@@ -90,23 +82,22 @@ type PageProps = {
 // Page
 // ---------------------------------------------------------------------------
 
-export default async function EmailPage({ searchParams }: PageProps) {
+export default async function NotificationsPage({ searchParams }: PageProps) {
   await requirePermission("admin.manage_sync");
   const sp = await searchParams;
 
   // Validate status param; drop if unrecognized.
-  const statusParam = sp.status?.toUpperCase() as EmailStatus | undefined;
+  const statusParam = sp.status?.toUpperCase() as TeamsMessageStatus | undefined;
   const validatedStatus =
     statusParam && VALID_STATUSES.includes(statusParam)
       ? statusParam
       : undefined;
 
-  // Validate template param; drop if unrecognized.
-  const templateParam = sp.template;
-  const validatedTemplate =
-    templateParam &&
-    KNOWN_TEMPLATES.includes(templateParam as (typeof KNOWN_TEMPLATES)[number])
-      ? templateParam
+  // Validate type param; drop if unrecognized.
+  const typeParam = sp.type;
+  const validatedType =
+    typeParam && NOTIFICATION_TYPES.some((t) => t.key === typeParam)
+      ? typeParam
       : undefined;
 
   const q = sp.q?.trim() || undefined;
@@ -120,30 +111,30 @@ export default async function EmailPage({ searchParams }: PageProps) {
     : null;
 
   const retriedSuccess = sp.retried === "1";
-  const connectedSuccess = sp.connected === "1";
 
-  const [{ rows, total, counts }, mailConn, mailCred] = await Promise.all([
-    listEmails({
+  const [{ rows, total }, counts] = await Promise.all([
+    listTeamsMessages({
       status: validatedStatus,
-      template: validatedTemplate,
+      type: validatedType,
       q,
       page,
     }),
-    mailConnectionStatus(),
-    prisma.mailCredential.findUnique({ where: { id: "mailer" } }),
+    Promise.all([
+      prisma.teamsMessage.count({ where: { status: "QUEUED" } }),
+      prisma.teamsMessage.count({ where: { status: "FAILED" } }),
+      prisma.teamsMessage.count({ where: { status: "FALLBACK" } }),
+    ]).then(([queued, failed, fallback]) => ({ queued, failed, fallback })),
   ]);
 
-  const needsTeamsReconnect = mailCred != null && !teamsScopesGranted(mailCred.scope);
-
-  const pageCount = Math.max(1, Math.ceil(total / EMAIL_PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(total / TEAMS_PAGE_SIZE));
 
   function hrefFor(p: number): string {
     const params = new URLSearchParams();
     if (validatedStatus) params.set("status", validatedStatus);
-    if (validatedTemplate) params.set("template", validatedTemplate);
+    if (validatedType) params.set("type", validatedType);
     if (q) params.set("q", q);
     params.set("page", String(p));
-    return `/admin/email?${params.toString()}`;
+    return `/admin/notifications?${params.toString()}`;
   }
 
   // ---------------------------------------------------------------------------
@@ -152,47 +143,25 @@ export default async function EmailPage({ searchParams }: PageProps) {
 
   async function retryAction(formData: FormData) {
     "use server";
-    const actor = await requirePermission("admin.manage_sync");
+    await requirePermission("admin.manage_sync");
     const id = (formData.get("id") as string | null) ?? "";
 
     try {
-      await retryEmail(actor.personId, id);
+      await retryTeamsMessage(id);
     } catch (err) {
-      if (err instanceof EmailNotFoundError || err instanceof EmailStateError) {
+      if (
+        err instanceof TeamsMessageNotFoundError ||
+        err instanceof TeamsMessageStateError
+      ) {
         redirect(
-          `/admin/email?error=validation&message=${encodeURIComponent(err.message)}`
+          `/admin/notifications?error=validation&message=${encodeURIComponent(err.message)}`
         );
       }
       throw err;
     }
 
-    revalidatePath("/admin/email");
-    redirect("/admin/email?retried=1");
-  }
-
-  async function connectMailerAction() {
-    "use server";
-    await requirePermission("admin.manage_sync");
-    // Build the authorize URL first (it throws when the OAuth app is not
-    // configured) so an unconfigured mailer never sets a stray state cookie.
-    // The redirect itself happens outside the try so its NEXT_REDIRECT is not
-    // caught here.
-    const state = crypto.randomUUID();
-    let target: string;
-    try {
-      target = buildAuthorizeUrl({ state });
-    } catch {
-      redirect(
-        `/admin/email?error=validation&message=${encodeURIComponent("Mailer OAuth is not configured.")}`
-      );
-    }
-    (await cookies()).set("mailer_oauth_state", state, {
-      httpOnly: true,
-      sameSite: "lax",
-      maxAge: 600,
-      path: "/",
-    });
-    redirect(target);
+    revalidatePath("/admin/notifications");
+    redirect("/admin/notifications?retried=1");
   }
 
   // ---------------------------------------------------------------------------
@@ -202,59 +171,26 @@ export default async function EmailPage({ searchParams }: PageProps) {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Email"
-        description="Monitor outgoing email logs. Retry failed messages to re-queue them for the next drain pass."
-        action={
-          <div className="flex gap-4">
-            <Link
-              href="/admin/email/campaigns"
-              className="text-sm font-medium underline underline-offset-2"
-            >
-              Campaigns
-            </Link>
-            <Link
-              href="/admin/email/templates"
-              className="text-sm font-medium underline underline-offset-2"
-            >
-              Manage templates
-            </Link>
-          </div>
-        }
+        title="Notifications"
+        description="Monitor outgoing Teams messages. Retry failed messages to re-queue them for the next delivery pass."
       />
+
+      {/* Intro line */}
+      <p className="text-sm text-muted-foreground">
+        Choose Email, Teams, or Both per notification type in{" "}
+        <Link
+          href="/admin/settings"
+          className="font-medium underline underline-offset-2"
+        >
+          Settings &gt; Notifications
+        </Link>
+        .
+      </p>
 
       {/* Banners */}
       {errorMessage && <Alert tone="error">{errorMessage}</Alert>}
       {retriedSuccess && !errorMessage && (
-        <Alert tone="success">Email re-queued.</Alert>
-      )}
-      {connectedSuccess && !errorMessage && (
-        <Alert tone="success">Mailbox connected.</Alert>
-      )}
-
-      {/* Mailer connection panel */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-surface p-5">
-        <div>
-          <p className="text-sm font-medium text-foreground-soft">Mailer connection</p>
-          {mailConn.connected ? (
-            <p className="mt-1 text-sm text-muted-foreground">
-              Connected as {mailConn.account ?? "unknown"} since {fmtDateTime(mailConn.connectedAt)}
-            </p>
-          ) : (
-            <p className="mt-1 text-sm text-muted-foreground">
-              Not connected. Connect a mailbox to send email via Microsoft Graph.
-            </p>
-          )}
-        </div>
-        <form action={connectMailerAction}>
-          <Button type="submit" variant="outline">
-            {mailConn.connected ? "Reconnect" : "Connect mailbox"}
-          </Button>
-        </form>
-      </div>
-      {needsTeamsReconnect && (
-        <Alert tone="warning">
-          Teams direct messages need an additional permission. Reconnect the mailbox to grant it.
-        </Alert>
+        <Alert tone="success">Teams message re-queued.</Alert>
       )}
 
       {/* Health stat cards */}
@@ -265,7 +201,11 @@ export default async function EmailPage({ searchParams }: PageProps) {
           value={counts.failed}
           tone={counts.failed > 0 ? "critical" : "default"}
         />
-        <StatCard label="Sent today" value={counts.sentToday} />
+        <StatCard
+          label="Fallback"
+          value={counts.fallback}
+          tone={counts.fallback > 0 ? "critical" : "default"}
+        />
       </div>
 
       {/* Filter bar (GET form) */}
@@ -286,14 +226,14 @@ export default async function EmailPage({ searchParams }: PageProps) {
         </div>
         <div className="w-52">
           <Select
-            name="template"
-            defaultValue={validatedTemplate ?? ""}
-            aria-label="Filter by template"
+            name="type"
+            defaultValue={validatedType ?? ""}
+            aria-label="Filter by type"
           >
-            <option value="">All templates</option>
-            {KNOWN_TEMPLATES.map((t) => (
-              <option key={t} value={t}>
-                {t}
+            <option value="">All types</option>
+            {NOTIFICATION_TYPES.map((t) => (
+              <option key={t.key} value={t.key}>
+                {t.label}
               </option>
             ))}
           </Select>
@@ -302,8 +242,8 @@ export default async function EmailPage({ searchParams }: PageProps) {
           <Input
             name="q"
             defaultValue={q ?? ""}
-            placeholder="Recipient email..."
-            aria-label="Search by recipient email"
+            placeholder="Recipient name..."
+            aria-label="Search by recipient name"
           />
         </div>
         <Button type="submit" variant="outline" size="sm">
@@ -313,18 +253,18 @@ export default async function EmailPage({ searchParams }: PageProps) {
 
       {/* Table */}
       {rows.length === 0 ? (
-        <p className="text-sm text-subtle-foreground">No emails found.</p>
+        <p className="text-sm text-subtle-foreground">No Teams messages found.</p>
       ) : (
         <>
           <p className="text-sm text-muted-foreground">
-            {total.toLocaleString()} {total === 1 ? "email" : "emails"}
+            {total.toLocaleString()} {total === 1 ? "message" : "messages"}
           </p>
 
           <Table>
             <THead>
               <TR>
                 <TH>Recipient</TH>
-                <TH>Template</TH>
+                <TH>Type</TH>
                 <TH>Status</TH>
                 <TH>Attempts</TH>
                 <TH>Last error</TH>
@@ -336,8 +276,8 @@ export default async function EmailPage({ searchParams }: PageProps) {
             <tbody>
               {rows.map((row) => (
                 <TR key={row.id}>
-                  <TD className="font-medium text-sm">{row.toEmail}</TD>
-                  <TD className="text-sm text-foreground-soft">{row.template}</TD>
+                  <TD className="font-medium text-sm">{row.person.name}</TD>
+                  <TD className="text-sm text-foreground-soft">{NOTIFICATION_TYPE_LABELS.get(row.type) ?? row.type}</TD>
                   <TD>
                     <Badge tone={statusTone(row.status)}>{row.status}</Badge>
                   </TD>
@@ -365,12 +305,12 @@ export default async function EmailPage({ searchParams }: PageProps) {
                     {fmtDateTime(row.sentAt)}
                   </TD>
                   <TD>
-                    {row.status === "FAILED" && (
+                    {(row.status === "FAILED" || row.status === "FALLBACK") && (
                       <form action={retryAction}>
                         <input type="hidden" name="id" value={row.id} />
                         <ConfirmButton
                           label="Retry"
-                          confirmLabel="Re-queue this email?"
+                          confirmLabel="Re-queue this Teams message?"
                         />
                       </form>
                     )}

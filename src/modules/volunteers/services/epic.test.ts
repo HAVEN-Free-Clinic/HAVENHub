@@ -60,7 +60,8 @@
  *   - COMPLETED request rejected -> EpicStateError.
  */
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as channel from "@/platform/notifications/channel";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import {
@@ -930,6 +931,25 @@ describe("sendEpicEmail", () => {
     await expect(sendEpicEmail(actor.id, "cld_nonexistent", "epic-onboarding")).rejects.toBeInstanceOf(
       EpicNotFoundError
     );
+  });
+
+  it("queues a Teams message when the EPIC type routes to teams", async () => {
+    vi.spyOn(channel, "resolveChannel").mockResolvedValue("teams");
+    const actor = await createPerson("Manager", { netId: "mgr001", contactEmail: "mgr@yale.edu" });
+    await grantPermission(actor.id, "volunteers.manage_epic");
+    const target = await createPerson("Alice", { netId: "aaa001", contactEmail: "alice@yale.edu" });
+    await prisma.person.update({ where: { id: target.id }, data: { entraObjectId: "e-epic" } });
+
+    const request = await prisma.epicRequest.create({
+      data: { personId: target.id, kind: "NEW", status: "PENDING", requestedById: target.id },
+    });
+
+    await sendEpicEmail(actor.id, request.id, "epic-onboarding");
+
+    const teams = await prisma.teamsMessage.findFirst({ where: { type: "epic-onboarding" } });
+    expect(teams).not.toBeNull();
+
+    vi.restoreAllMocks();
   });
 });
 

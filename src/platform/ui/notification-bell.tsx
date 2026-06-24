@@ -46,6 +46,10 @@ export function NotificationBell() {
 
   // Initial load + light poll.
   useEffect(() => {
+    // refresh() only sets state AFTER an awaited fetch (async data load on
+    // mount), so this is not a synchronous setState-in-effect. The React
+    // Compiler rule false-positives on the memoized async callback here.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void refresh();
     const t = setInterval(() => void refresh(), 60_000);
     return () => clearInterval(t);

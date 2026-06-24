@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { X, Check, ClipboardCheck } from "lucide-react";
-import { Button } from "@/platform/ui/button";
 
 type ChecklistSection = { title: string; items: string[] };
 

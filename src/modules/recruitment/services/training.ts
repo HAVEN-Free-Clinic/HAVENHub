@@ -171,6 +171,8 @@ async function quizQuestions(cycleId: string): Promise<GradedQuestion[]> {
 }
 
 export type MyTraining = {
+  track: TrainingTrack;
+  trackLabel: string;
   term: { id: string; name: string };
   cycle: { id: string; title: string } | null;
   state: TrainingState;
@@ -184,38 +186,49 @@ export type MyTraining = {
   intake: TrainingIntake;
 };
 
-/** Everything the volunteer's /training page needs. */
-export async function getMyTraining(personId: string): Promise<MyTraining> {
+const TRACK_LABEL: Record<TrainingTrack, string> = {
+  VOLUNTEER: "Volunteer training",
+  DIRECTOR: "Director training",
+};
+
+/** The training(s) the signed-in member must complete this term, one per required track. */
+export async function getMyTraining(personId: string): Promise<MyTraining[]> {
   const term = await activeTermOrThrow();
-  const cycle = await getTrainingCycleForTerm(term.id, "VOLUNTEER");
-  const row = await prisma.training.findUnique({ where: { personId_termId_track: { personId, termId: term.id, track: "VOLUNTEER" } } });
-  const state: TrainingState = row?.status === "COMPLETE" ? "COMPLETE" : "PENDING";
+  const tracks = await requiredTrainingTracks(personId, term.id);
+  const out: MyTraining[] = [];
+  for (const track of tracks) {
+    const cycle = await getTrainingCycleForTerm(term.id, track);
+    const row = await prisma.training.findUnique({ where: { personId_termId_track: { personId, termId: term.id, track } } });
+    const state: TrainingState = row?.status === "COMPLETE" ? "COMPLETE" : "PENDING";
 
-  let questions: MyTraining["questions"] = [];
-  if (cycle) {
-    const fields = await prisma.formField.findMany({
-      where: { cycleId: cycle.id, type: "SINGLE_SELECT", section: { purpose: "QUIZ" } },
-      orderBy: [{ section: { order: "asc" } }, { order: "asc" }],
-      select: { key: true, label: true, options: true },
+    let questions: MyTraining["questions"] = [];
+    if (cycle) {
+      const fields = await prisma.formField.findMany({
+        where: { cycleId: cycle.id, type: "SINGLE_SELECT", section: { purpose: "QUIZ" } },
+        orderBy: [{ section: { order: "asc" } }, { order: "asc" }],
+        select: { key: true, label: true, options: true },
+      });
+      questions = fields.map((f) => ({ key: f.key, label: f.label, options: (f.options as { value: string; label: string }[] | null) ?? [] }));
+    }
+
+    const attemptsUsed = row ? await prisma.quizAttempt.count({ where: { trainingId: row.id, ...(row.lockResetAt ? { takenAt: { gte: row.lockResetAt } } : {}) } }) : 0;
+
+    out.push({
+      track, trackLabel: TRACK_LABEL[track],
+      term: { id: term.id, name: term.name },
+      cycle: cycle ? { id: cycle.id, title: cycle.title } : null,
+      state, locked: row?.locked ?? false, completedVia: row?.completedVia ?? null, completedAt: row?.completedAt ?? null,
+      attemptsUsed, maxAttempts: cycle?.quizMaxAttempts ?? 0, passPercent: cycle?.quizPassPercent ?? 0,
+      questions,
+      intake: {
+        subcommitteeInterest: row?.subcommitteeInterest ?? null,
+        additionalShiftAvailability: row?.additionalShiftAvailability ?? null,
+        minShiftsWanted: row?.minShiftsWanted ?? null,
+        feedback: row?.feedback ?? null,
+      },
     });
-    questions = fields.map((f) => ({ key: f.key, label: f.label, options: (f.options as { value: string; label: string }[] | null) ?? [] }));
   }
-
-  const attemptsUsed = row ? await prisma.quizAttempt.count({ where: { trainingId: row.id, ...(row.lockResetAt ? { takenAt: { gte: row.lockResetAt } } : {}) } }) : 0;
-
-  return {
-    term: { id: term.id, name: term.name },
-    cycle: cycle ? { id: cycle.id, title: cycle.title } : null,
-    state, locked: row?.locked ?? false, completedVia: row?.completedVia ?? null, completedAt: row?.completedAt ?? null,
-    attemptsUsed, maxAttempts: cycle?.quizMaxAttempts ?? 0, passPercent: cycle?.quizPassPercent ?? 0,
-    questions,
-    intake: {
-      subcommitteeInterest: row?.subcommitteeInterest ?? null,
-      additionalShiftAvailability: row?.additionalShiftAvailability ?? null,
-      minShiftsWanted: row?.minShiftsWanted ?? null,
-      feedback: row?.feedback ?? null,
-    },
-  };
+  return out;
 }
 
 /** Grade and persist a quiz attempt for the signed-in volunteer. Lazily creates

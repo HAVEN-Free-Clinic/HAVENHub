@@ -134,7 +134,8 @@ it("quiz path: failing accrues attempts then locks; passing completes and saves 
 it("getMyTraining returns the cycle, questions, and state for the volunteer", async () => {
   const { vol, c1 } = await seedMember();
   await addQuiz(c1.id);
-  const my = await getMyTraining(vol.id);
+  const trainings = await getMyTraining(vol.id);
+  const my = trainings[0]!;
   expect(my.state).toBe("PENDING");
   expect(my.locked).toBe(false);
   expect(my.questions.map((q) => q.key)).toEqual(["q1", "q2"]);
@@ -203,4 +204,25 @@ it("requiredTrainingTracks returns both tracks for a director+volunteer when bot
   const dirCycle = await prisma.recruitmentCycle.create({ data: { track: "DIRECTOR", termId: term.id, title: "D", publicSlug: "d", departments: ["SRHD"], createdById: srr.id, status: "OPEN" } });
   await setTrainingCycle(dirCycle.id, true, srr.id);
   expect(await requiredTrainingTracks(vol.id, term.id)).toEqual(["VOLUNTEER", "DIRECTOR"]);
+});
+
+it("getMyTraining returns one entry per required track", async () => {
+  const { term, srr, vol, dept } = await seedMember(); // volunteer cycle designated; vol is volunteer
+  // volunteer-only
+  const volOnly = await getMyTraining(vol.id);
+  expect(volOnly.map((m) => m.track)).toEqual(["VOLUNTEER"]);
+  expect(volOnly[0].trackLabel).toBe("Volunteer training");
+
+  // make vol also a director and run a director cycle
+  await prisma.termMembership.create({ data: { personId: vol.id, termId: term.id, departmentId: dept.id, kind: "DIRECTOR", status: "ACTIVE" } });
+  const dirCycle = await prisma.recruitmentCycle.create({ data: { track: "DIRECTOR", termId: term.id, title: "D", publicSlug: "d", departments: ["SRHD"], createdById: srr.id, status: "OPEN" } });
+  await setTrainingCycle(dirCycle.id, true, srr.id);
+  const both = await getMyTraining(vol.id);
+  expect(both.map((m) => m.track)).toEqual(["VOLUNTEER", "DIRECTOR"]);
+  expect(both.map((m) => m.trackLabel)).toEqual(["Volunteer training", "Director training"]);
+});
+
+it("getMyTraining is empty for a director-only person with no director cycle", async () => {
+  const { dir } = await seedMember();
+  expect(await getMyTraining(dir.id)).toEqual([]);
 });

@@ -109,3 +109,24 @@ export async function updateReferralSite(
     });
   });
 }
+
+export async function markSiteVerified(id: string) {
+  return prisma.referralSite.update({
+    where: { id },
+    data: {
+      verificationStatus: "CONFIRMED",
+      lastReviewedAt: new Date(),
+    },
+  });
+}
+
+
+export async function revertSiteVerification(id: string) {
+  return prisma.referralSite.update({
+    where: { id },
+    data: {
+      verificationStatus: "UNVERIFIED",
+      lastReviewedAt: null,
+    },
+  });
+}

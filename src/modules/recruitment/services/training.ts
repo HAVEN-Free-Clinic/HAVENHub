@@ -304,7 +304,7 @@ export type TrainingRosterRow = {
   overallClearance: OverallClearance;
 };
 
-/** The designated cycle's training roster: in-scope active volunteer memberships
+/** The designated cycle's training roster: in-scope active memberships of the cycle's track
  *  in the cycle's term, each with cert status and training state. Director-scoped
  *  or review_all. Throws TrainingStateError if the cycle is not the designated
  *  training cycle for its term. */
@@ -318,7 +318,7 @@ export async function listTrainingRoster(cycleId: string, viewerId: string): Pro
 
   const memberships = await prisma.termMembership.findMany({
     where: {
-      termId: cycle.termId, kind: "VOLUNTEER", status: "ACTIVE",
+      termId: cycle.termId, kind: cycle.track, status: "ACTIVE",
       ...(scope.all ? {} : { department: { code: { in: scope.departmentCodes } } }),
     },
     include: {
@@ -329,7 +329,7 @@ export async function listTrainingRoster(cycleId: string, viewerId: string): Pro
 
   const personIds = memberships.map((m) => m.person.id);
   const training = new Map(
-    (await prisma.training.findMany({ where: { termId: cycle.termId, track: "VOLUNTEER", personId: { in: personIds } } })).map((t) => [t.personId, t])
+    (await prisma.training.findMany({ where: { termId: cycle.termId, track: cycle.track, personId: { in: personIds } } })).map((t) => [t.personId, t])
   );
 
   return memberships.map((m) => {

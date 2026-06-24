@@ -249,3 +249,18 @@ it("getMyTraining is empty for a director-only person with no director cycle", a
   const { dir } = await seedMember();
   expect(await getMyTraining(dir.id)).toEqual([]);
 });
+
+it("listTrainingRoster for a DIRECTOR cycle lists directors not volunteers", async () => {
+  const { term, srr, vol, dir } = await seedMember();
+  const dirCycle = await prisma.recruitmentCycle.create({
+    data: { track: "DIRECTOR", termId: term.id, title: "D", publicSlug: "d", departments: ["SRHD"], createdById: srr.id, status: "OPEN" },
+  });
+  await setTrainingCycle(dirCycle.id, true, srr.id);
+
+  const rows = await listTrainingRoster(dirCycle.id, srr.id);
+  const ids = rows.map((r) => r.personId);
+  expect(ids).toContain(dir.id);
+  expect(ids).not.toContain(vol.id);
+  const dirRow = rows.find((r) => r.personId === dir.id)!;
+  expect(dirRow.trainingState).toBe("PENDING");
+});

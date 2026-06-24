@@ -92,7 +92,7 @@ describe("GET /api/cron/email", () => {
 describe("GET /api/cron/email drains Teams", () => {
   beforeEach(async () => await resetDb());
 
-  it("includes a teams count and marks queued Teams messages sent (log transport)", async () => {
+  it("includes a teams count and marks queued Teams messages LOGGED (log transport)", async () => {
     const p = await prisma.person.create({
       data: { name: "Sam", contactEmail: "sam@x.com", entraObjectId: "e1" },
     });
@@ -117,6 +117,8 @@ describe("GET /api/cron/email drains Teams", () => {
     expect(json.ok).toBe(true);
     expect(json.teams).toBeGreaterThanOrEqual(1);
     const row = await prisma.teamsMessage.findFirst({ where: { personId: p.id } });
-    expect(row?.status).toBe("SENT"); // log transport succeeds (email.transport defaults to "log")
+    // email.transport defaults to "log", so the log transport records the row as
+    // LOGGED (recorded but not actually sent), never SENT.
+    expect(row?.status).toBe("LOGGED");
   });
 });

@@ -64,9 +64,14 @@ export async function drainTeamsQueue(transport: TeamsTransport): Promise<number
         chatId: row.chatId,
         bodyHtml: row.bodyHtml,
       });
+      // The log transport records but never actually sends; mark such rows
+      // LOGGED (not SENT) so the monitor never implies real delivery, and leave
+      // sentAt null since nothing was delivered.
       await prisma.teamsMessage.update({
         where: { id: row.id },
-        data: { status: "SENT", sentAt: new Date(), chatId: result.chatId },
+        data: result.logged
+          ? { status: "LOGGED", chatId: result.chatId }
+          : { status: "SENT", sentAt: new Date(), chatId: result.chatId },
       });
     } catch (error) {
       const attempts = row.attempts + 1;

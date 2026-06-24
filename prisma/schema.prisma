@@ -337,6 +337,10 @@ enum TeamsMessageStatus {
   FAILED
   /// Teams delivery was abandoned and the message was re-queued as email instead.
   FALLBACK
+  /// The log transport ran (email.transport is not "graph"): the message was
+  /// recorded but NOT actually sent. Distinct from SENT so the monitor never
+  /// implies real delivery in log mode. Retryable once graph is enabled.
+  LOGGED
 }
 
 enum RecruitmentTrack {

@@ -8,7 +8,7 @@ import {
   TeamsMessageStateError,
 } from "./teams-messages";
 
-async function seed(status: "QUEUED" | "SENT" | "FAILED" | "FALLBACK") {
+async function seed(status: "QUEUED" | "SENT" | "FAILED" | "FALLBACK" | "LOGGED") {
   const uid = crypto.randomUUID();
   const p = await prisma.person.create({
     data: { name: "Sam", contactEmail: `sam-${uid}@x.com`, entraObjectId: uid },
@@ -59,6 +59,14 @@ describe("retryTeamsMessage", () => {
   it("resets a FALLBACK row to QUEUED with zero attempts", async () => {
     const row = await seed("FALLBACK");
     await prisma.teamsMessage.update({ where: { id: row.id }, data: { attempts: 3 } });
+    await retryTeamsMessage(row.id);
+    const after = await prisma.teamsMessage.findUnique({ where: { id: row.id } });
+    expect(after?.status).toBe("QUEUED");
+    expect(after?.attempts).toBe(0);
+  });
+
+  it("resets a LOGGED row to QUEUED with zero attempts", async () => {
+    const row = await seed("LOGGED");
     await retryTeamsMessage(row.id);
     const after = await prisma.teamsMessage.findUnique({ where: { id: row.id } });
     expect(after?.status).toBe("QUEUED");

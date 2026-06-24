@@ -103,6 +103,7 @@ model Person {
   campaignsCreated          EmailCampaign[]      @relation("campaignCreatedBy")
   complianceReminder        ComplianceReminder?
   teamsMessages             TeamsMessage[]       @relation("teamsMessagePerson")
+  notifications             Notification[]       @relation("personNotifications")
   shiftAssignments          ShiftAssignment[]
   recruitmentCyclesCreated  RecruitmentCycle[]   @relation("RecruitmentCycleCreatedBy")
   recruitmentAcceptances    Acceptance[]         @relation("recruitmentAcceptanceApprover")
@@ -680,6 +681,26 @@ model TeamsMessage {
 
   @@index([personId])
   @@index([status, createdAt])
+}
+
+/// Per-person in-app notification (the bell inbox). Written unconditionally by
+/// notify() for every notification addressed to a person, independent of the
+/// Email/Teams channel routing. readAt null means unread.
+model Notification {
+  id        String    @id @default(cuid())
+  personId  String
+  /// Notification registry key (e.g. "epic-activation").
+  type      String
+  title     String
+  body      String
+  link      String?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+  /// Cascade: notifications do not outlive the person they address.
+  person    Person    @relation("personNotifications", fields: [personId], references: [id], onDelete: Cascade)
+
+  @@index([personId, createdAt])
+  @@index([personId, readAt])
 }
 
 /// One row per person per clinic shift. Med-team tags apply to VOLUNTEER rows;

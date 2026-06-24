@@ -2,6 +2,7 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { queueEmail } from "@/platform/email/send";
 import { resolveChannel } from "./channel";
+import { createNotification } from "./inbox";
 import { resolveTeamsUser, type ResolveIdentityDeps } from "./identity";
 import { renderTeamsBody } from "./render";
 import { queueTeamsMessage } from "./send";
@@ -75,4 +76,14 @@ export async function notify(
       await queueTheEmail();
     }
   }
+
+  // In-app inbox: recorded after primary delivery so that a failed insert does
+  // not short-circuit email or Teams routing. Always unconditional.
+  await createNotification(db, {
+    personId: input.person.id,
+    type: input.type,
+    title: input.teams.title,
+    body: input.teams.summary,
+    link: input.teams.link ?? null,
+  });
 }

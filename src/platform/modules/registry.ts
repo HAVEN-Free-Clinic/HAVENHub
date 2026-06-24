@@ -106,6 +106,7 @@ export const MODULES: ModuleManifest[] = [
       { label: "Audit", href: "/admin/audit" },
       { label: "Sync", href: "/admin/sync" },
       { label: "Email", href: "/admin/email" },
+      { label: "Notifications", href: "/admin/notifications" },
       { label: "Settings", href: "/admin/settings" },
       { label: "ITCM", href: "/admin/itcm" },
     ],

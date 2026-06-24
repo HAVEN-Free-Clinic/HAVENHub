@@ -78,16 +78,6 @@ export async function resolveTrainingState(personId: string, termId: string, tra
   return row?.status === "COMPLETE" ? "COMPLETE" : "PENDING";
 }
 
-/** True when the person holds an active VOLUNTEER membership in the term. Volunteer
- *  training (and its gate task) only applies to volunteers; a director-only member
- *  is not one, and submitQuiz/recordAttendance both reject non-volunteers. */
-export async function isActiveVolunteer(personId: string, termId: string): Promise<boolean> {
-  const count = await prisma.termMembership.count({
-    where: { personId, termId, kind: "VOLUNTEER", status: "ACTIVE" },
-  });
-  return count > 0;
-}
-
 /** The training tracks a person must complete this term: a track is required when
  *  the person holds an active membership of that kind AND the term has a designated
  *  training cycle for that track. Generalizes the volunteer-only check. */
@@ -350,7 +340,7 @@ export async function listTrainingRoster(cycleId: string, viewerId: string): Pro
     return {
       personId: m.person.id, name: m.person.name, departmentCode: m.department.code,
       certStatus, trainingState, locked: row?.locked ?? false,
-      overallClearance: overallClearance(certStatus, trainingState),
+      overallClearance: overallClearance(certStatus, trainingState === "COMPLETE"),
     };
   }).sort((a, b) => a.name.localeCompare(b.name));
 }

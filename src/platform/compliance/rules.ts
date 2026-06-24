@@ -86,19 +86,14 @@ export function complianceStatus(
   return "EXPIRING_SOON";
 }
 
-/** The combined clearance a volunteer needs to be active for the term: a valid
- *  certificate AND completed training. The certificate-specific ComplianceStatus
- *  values are unchanged; this only combines them with training. */
+/** The combined clearance a member needs to be active for the term: a valid
+ *  certificate AND all required trainings complete. */
 export type OverallClearance = "CLEARED" | "NOT_CLEARED";
 
 export function overallClearance(
   certStatus: ComplianceStatus,
-  training: TrainingState,
-  /** Volunteer training only applies to active volunteers; a director-only member
-   *  needs a valid cert alone. Defaults to true so volunteer rosters are unchanged. */
-  trainingRequired = true
+  allRequiredTrainingsComplete: boolean
 ): OverallClearance {
   const certValid = certStatus === "COMPLIANT" || certStatus === "EXPIRING_SOON";
-  const trainingOk = !trainingRequired || training === "COMPLETE";
-  return certValid && trainingOk ? "CLEARED" : "NOT_CLEARED";
+  return certValid && allRequiredTrainingsComplete ? "CLEARED" : "NOT_CLEARED";
 }

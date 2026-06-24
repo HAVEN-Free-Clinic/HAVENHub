@@ -55,37 +55,35 @@ function certRequirement(status: ComplianceStatus): Requirement {
   }
 }
 
-function trainingRequirement(state: TrainingState): Requirement {
+function trainingRequirement(state: TrainingState): Omit<Requirement, "label"> {
   return state === "COMPLETE"
-    ? { label: "Volunteer training", statusLabel: "Complete", met: true, tone: "success" }
-    : { label: "Volunteer training", statusLabel: "Not complete", met: false, tone: "warning" };
+    ? { statusLabel: "Complete", met: true, tone: "success" }
+    : { statusLabel: "Not complete", met: false, tone: "warning" };
 }
 
 /**
- * Volunteer clearance summary: a status banner driven by overall clearance, then
- * a checklist of the two requirements (HIPAA certificate + training) with friendly
- * labels and semantic badges. Frames missing items as next steps, not failures.
+ * Member clearance summary: a status banner driven by overall clearance, then
+ * a checklist of the requirements (HIPAA certificate + per-track trainings) with
+ * friendly labels and semantic badges. Frames missing items as next steps, not failures.
  */
 export function ClearanceCard({
   clearance,
   certStatus,
-  trainingState,
+  trainingRows,
   termName,
-  trainingRequired = true,
 }: {
   clearance: OverallClearance;
   certStatus: ComplianceStatus;
-  trainingState: TrainingState;
+  /** One row per training the person must complete (volunteer and/or director). */
+  trainingRows: { label: string; state: TrainingState }[];
   termName?: string | null;
-  /** Volunteer training only applies to active volunteers; omit the row and CTA
-   *  for director-only members, who are not asked to complete it. */
-  trainingRequired?: boolean;
 }) {
   const cert = certRequirement(certStatus);
-  const training = trainingRequirement(trainingState);
-  const requirements = trainingRequired ? [cert, training] : [cert];
+  const trainings = trainingRows.map((r) => ({ ...trainingRequirement(r.state), label: r.label }));
+  const requirements = [cert, ...trainings];
   const cleared = clearance === "CLEARED";
   const forTerm = termName ? ` for ${termName}` : "";
+  const anyTrainingIncomplete = trainings.some((t) => !t.met);
 
   return (
     <div className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
@@ -101,7 +99,7 @@ export function ClearanceCard({
               You&apos;re cleared to volunteer{forTerm}
             </p>
             <p className="mt-0.5 text-[13px] leading-snug text-slate-700">
-              {trainingRequired
+              {trainings.length > 0
                 ? "Your HIPAA certificate and training are on file, so you can be scheduled for shifts."
                 : "Your HIPAA certificate is on file, so you can be scheduled for shifts."}
             </p>
@@ -136,7 +134,7 @@ export function ClearanceCard({
       </ul>
 
       {/* Next-step CTA */}
-      {trainingRequired && !training.met && (
+      {anyTrainingIncomplete && (
         <div className="border-t border-border-subtle px-5 py-3.5">
           <Link
             href="/training"

@@ -194,7 +194,7 @@ export async function departmentCompliance(
       status,
       verifiedByName,
       trainingState,
-      overallClearance: overallClearance(status, trainingState),
+      overallClearance: overallClearance(status, trainingState === "COMPLETE"),
     });
   }
 
@@ -403,7 +403,7 @@ export async function masterCompliance(
       verifiedByName,
       departments: Array.from(deptCodes).sort(),
       trainingState,
-      overallClearance: overallClearance(computedStatus, trainingState),
+      overallClearance: overallClearance(computedStatus, trainingState === "COMPLETE"),
     };
   });
 

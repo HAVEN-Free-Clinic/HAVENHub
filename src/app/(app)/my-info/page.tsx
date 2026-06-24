@@ -17,7 +17,7 @@ import { HipaaPanel } from "@/modules/my-info/components/hipaa-panel";
 import { EpicPanel } from "@/modules/my-info/components/epic-panel";
 import { ClearanceCard } from "@/modules/my-info/components/clearance-card";
 import { complianceStatus, overallClearance } from "@/platform/compliance/rules";
-import { resolveTrainingState, isActiveVolunteer } from "@/modules/recruitment/services/training";
+import { resolveTrainingState, requiredTrainingTracks } from "@/modules/recruitment/services/training";
 import {
   myEpicPanel,
   createEpicRequest,
@@ -147,15 +147,17 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
     activeTerm?.endDate ?? null
   );
 
-  // Volunteer training only applies to active volunteers; a director-only member
-  // is cleared on their HIPAA cert alone and is not shown the training step.
-  const isVolunteer = activeTerm
-    ? await isActiveVolunteer(person.personId, activeTerm.id)
-    : false;
-  const trainingState = activeTerm && isVolunteer
-    ? await resolveTrainingState(person.personId, activeTerm.id)
-    : "PENDING";
-  const clearance = overallClearance(status, trainingState, isVolunteer);
+  const tracks = activeTerm ? await requiredTrainingTracks(person.personId, activeTerm.id) : [];
+  const trainingRows = activeTerm
+    ? await Promise.all(
+        tracks.map(async (track) => ({
+          label: track === "DIRECTOR" ? "Director training" : "Volunteer training",
+          state: await resolveTrainingState(person.personId, activeTerm.id, track),
+        }))
+      )
+    : [];
+  const allTrainingsComplete = trainingRows.length === 0 || trainingRows.every((r) => r.state === "COMPLETE");
+  const clearance = overallClearance(status, allTrainingsComplete);
 
   const withdrawn = sp.withdrawn !== undefined ? parseInt(sp.withdrawn, 10) : undefined;
 
@@ -214,9 +216,8 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
           <ClearanceCard
             clearance={clearance}
             certStatus={status}
-            trainingState={trainingState}
+            trainingRows={trainingRows}
             termName={activeTerm?.name ?? null}
-            trainingRequired={isVolunteer}
           />
         </section>
 

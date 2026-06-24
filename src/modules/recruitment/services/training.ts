@@ -72,9 +72,9 @@ export async function updateQuizSettings(
 
 type Tx = Prisma.TransactionClient;
 
-/** PENDING unless the person has a COMPLETE Training row for the term. */
-export async function resolveTrainingState(personId: string, termId: string): Promise<TrainingState> {
-  const row = await prisma.training.findUnique({ where: { personId_termId_track: { personId, termId, track: "VOLUNTEER" } } });
+/** PENDING unless the person has a COMPLETE Training row for the term and track. */
+export async function resolveTrainingState(personId: string, termId: string, track: TrainingTrack): Promise<TrainingState> {
+  const row = await prisma.training.findUnique({ where: { personId_termId_track: { personId, termId, track } } });
   return row?.status === "COMPLETE" ? "COMPLETE" : "PENDING";
 }
 
@@ -102,18 +102,18 @@ export async function requiredTrainingTracks(personId: string, termId: string): 
   return result;
 }
 
-/** Upsert the person's training row to COMPLETE for the term, stamping the method.
+/** Upsert the person's training row to COMPLETE for the term and track, stamping the method.
  *  Shared by the attendance and quiz paths. Idempotent. */
 export async function completeTraining(
   db: Tx | typeof prisma,
-  args: { personId: string; termId: string; cycleId: string; via: TrainingMethod; actorId?: string }
+  args: { personId: string; termId: string; cycleId: string; track: TrainingTrack; via: TrainingMethod; actorId?: string }
 ): Promise<void> {
   const now = new Date();
   const attendance = args.via === "ATTENDANCE";
   await db.training.upsert({
-    where: { personId_termId_track: { personId: args.personId, termId: args.termId, track: "VOLUNTEER" } },
+    where: { personId_termId_track: { personId: args.personId, termId: args.termId, track: args.track } },
     create: {
-      personId: args.personId, termId: args.termId, cycleId: args.cycleId, track: "VOLUNTEER",
+      personId: args.personId, termId: args.termId, cycleId: args.cycleId, track: args.track,
       status: "COMPLETE", completedVia: args.via, completedAt: now,
       attendanceRecordedById: attendance ? (args.actorId ?? null) : null,
       attendanceRecordedAt: attendance ? now : null,
@@ -125,25 +125,25 @@ export async function completeTraining(
   });
 }
 
-/** Record live-session attendance for a volunteer (by personId) in the term.
- *  Director-scoped (the volunteer must be in a department the actor manages) or
+/** Record live-session attendance for a member (by personId) in the term and track.
+ *  Director-scoped (the member must be in a department the actor manages) or
  *  review_all. Completes via ATTENDANCE. */
-export async function recordAttendance(personId: string, termId: string, actorId: string): Promise<void> {
-  const cycle = await getTrainingCycleForTerm(termId, "VOLUNTEER");
+export async function recordAttendance(personId: string, termId: string, track: TrainingTrack, actorId: string): Promise<void> {
+  const cycle = await getTrainingCycleForTerm(termId, track);
   if (!cycle) throw new TrainingStateError("This term has no designated training cycle.");
 
   const memberships = await prisma.termMembership.findMany({
-    where: { personId, termId, kind: "VOLUNTEER", status: "ACTIVE" },
+    where: { personId, termId, kind: track, status: "ACTIVE" },
     include: { department: { select: { code: true } } },
   });
-  if (memberships.length === 0) throw new TrainingStateError("Not an active volunteer this term.");
+  if (memberships.length === 0) throw new TrainingStateError("Not an active member of this track this term.");
 
   const scope = await reviewScope(actorId);
   const inScope = scope.all || memberships.some((m) => scope.departmentCodes.includes(m.department.code));
-  if (!inScope) throw new RecruitmentAuthError("You can't record training for that volunteer.");
+  if (!inScope) throw new RecruitmentAuthError("You can't record training for that member.");
 
-  await completeTraining(prisma, { personId, termId, cycleId: cycle.id, via: "ATTENDANCE", actorId });
-  await recordAudit({ actorPersonId: actorId, action: "recruitment.training_attendance", entityType: "Training", entityId: `${personId}:${termId}`, after: { personId, termId } });
+  await completeTraining(prisma, { personId, termId, cycleId: cycle.id, track, via: "ATTENDANCE", actorId });
+  await recordAudit({ actorPersonId: actorId, action: "recruitment.training_attendance", entityType: "Training", entityId: `${personId}:${termId}:${track}`, after: { personId, termId, track } });
 }
 
 export type TrainingIntake = {
@@ -231,27 +231,27 @@ export async function getMyTraining(personId: string): Promise<MyTraining[]> {
   return out;
 }
 
-/** Grade and persist a quiz attempt for the signed-in volunteer. Lazily creates
+/** Grade and persist a quiz attempt for the signed-in member. Lazily creates
  *  the training row. Saves intake. On pass: completes training. On reaching the
  *  attempt cap without a pass: locks. Prior attempts are never deleted. */
 export async function submitQuiz(
   personId: string,
-  input: { answers: Record<string, unknown>; intake: TrainingIntake }
+  input: { track: TrainingTrack; answers: Record<string, unknown>; intake: TrainingIntake }
 ): Promise<QuizSubmission> {
   const term = await activeTermOrThrow();
-  const cycle = await getTrainingCycleForTerm(term.id, "VOLUNTEER");
+  const cycle = await getTrainingCycleForTerm(term.id, input.track);
   if (!cycle) throw new TrainingStateError("This term has no designated training cycle.");
 
-  const isVolunteer = await prisma.termMembership.count({ where: { personId, termId: term.id, kind: "VOLUNTEER", status: "ACTIVE" } });
-  if (isVolunteer === 0) throw new TrainingStateError("Not an active volunteer this term.");
+  const isMember = await prisma.termMembership.count({ where: { personId, termId: term.id, kind: input.track, status: "ACTIVE" } });
+  if (isMember === 0) throw new TrainingStateError("Not an active member of this track this term.");
 
   const questions = await quizQuestions(cycle.id);
   if (questions.length === 0) throw new TrainingStateError("This training has no quiz questions yet.");
 
   return prisma.$transaction(async (tx) => {
     const row = await tx.training.upsert({
-      where: { personId_termId_track: { personId, termId: term.id, track: "VOLUNTEER" } },
-      create: { personId, termId: term.id, cycleId: cycle.id, track: "VOLUNTEER" },
+      where: { personId_termId_track: { personId, termId: term.id, track: input.track } },
+      create: { personId, termId: term.id, cycleId: cycle.id, track: input.track },
       update: {},
     });
     if (row.status === "COMPLETE") throw new TrainingStateError("Training is already complete.");
@@ -274,7 +274,7 @@ export async function submitQuiz(
     const attemptsUsed = await tx.quizAttempt.count({ where: { trainingId: row.id, ...(row.lockResetAt ? { takenAt: { gte: row.lockResetAt } } : {}) } });
     let locked = false;
     if (result.passed) {
-      await completeTraining(tx, { personId, termId: term.id, cycleId: cycle.id, via: "QUIZ" });
+      await completeTraining(tx, { personId, termId: term.id, cycleId: cycle.id, track: input.track, via: "QUIZ" });
     } else if (attemptsUsed >= cycle.quizMaxAttempts) {
       await tx.training.update({ where: { id: row.id }, data: { locked: true } });
       locked = true;
@@ -287,21 +287,21 @@ export async function submitQuiz(
   });
 }
 
-/** Clear a locked volunteer so they can retake the quiz. Opens a fresh attempt
+/** Clear a locked member so they can retake the quiz. Opens a fresh attempt
  *  window (lockResetAt = now); prior attempts stay in history. Director-scoped or
  *  review_all. */
-export async function resetTraining(personId: string, termId: string, actorId: string): Promise<void> {
+export async function resetTraining(personId: string, termId: string, track: TrainingTrack, actorId: string): Promise<void> {
   const memberships = await prisma.termMembership.findMany({
-    where: { personId, termId, kind: "VOLUNTEER", status: "ACTIVE" },
+    where: { personId, termId, kind: track, status: "ACTIVE" },
     include: { department: { select: { code: true } } },
   });
-  if (memberships.length === 0) throw new TrainingStateError("Not an active volunteer this term.");
+  if (memberships.length === 0) throw new TrainingStateError("Not an active member of this track this term.");
   const scope = await reviewScope(actorId);
   const inScope = scope.all || memberships.some((m) => scope.departmentCodes.includes(m.department.code));
-  if (!inScope) throw new RecruitmentAuthError("You can't reset training for that volunteer.");
+  if (!inScope) throw new RecruitmentAuthError("You can't reset training for that member.");
 
-  await prisma.training.updateMany({ where: { personId, termId, track: "VOLUNTEER", status: { not: "COMPLETE" } }, data: { locked: false, lockResetAt: new Date() } });
-  await recordAudit({ actorPersonId: actorId, action: "recruitment.training_reset", entityType: "Training", entityId: `${personId}:${termId}` });
+  await prisma.training.updateMany({ where: { personId, termId, track, status: { not: "COMPLETE" } }, data: { locked: false, lockResetAt: new Date() } });
+  await recordAudit({ actorPersonId: actorId, action: "recruitment.training_reset", entityType: "Training", entityId: `${personId}:${termId}:${track}` });
 }
 
 export type TrainingRosterRow = {

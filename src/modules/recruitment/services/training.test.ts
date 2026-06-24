@@ -62,32 +62,32 @@ async function seedMember() {
 
 it("records attendance: marks COMPLETE/ATTENDANCE for the person and is idempotent", async () => {
   const { term, srr, vol } = await seedMember();
-  await recordAttendance(vol.id, term.id, srr.id);
-  expect(await resolveTrainingState(vol.id, term.id)).toBe("COMPLETE");
+  await recordAttendance(vol.id, term.id, "VOLUNTEER", srr.id);
+  expect(await resolveTrainingState(vol.id, term.id, "VOLUNTEER")).toBe("COMPLETE");
   const row = await prisma.training.findUniqueOrThrow({ where: { personId_termId_track: { personId: vol.id, termId: term.id, track: "VOLUNTEER" } } });
   expect(row.completedVia).toBe("ATTENDANCE");
   expect(row.attendanceRecordedById).toBe(srr.id);
-  await recordAttendance(vol.id, term.id, srr.id);
+  await recordAttendance(vol.id, term.id, "VOLUNTEER", srr.id);
   expect(await prisma.training.count({ where: { personId: vol.id, termId: term.id } })).toBe(1);
 });
 
 it("a director in scope can record attendance; an unrelated person cannot", async () => {
   const { term, vol, dir, plain } = await seedMember();
-  await recordAttendance(vol.id, term.id, dir.id);
-  expect(await resolveTrainingState(vol.id, term.id)).toBe("COMPLETE");
+  await recordAttendance(vol.id, term.id, "VOLUNTEER", dir.id);
+  expect(await resolveTrainingState(vol.id, term.id, "VOLUNTEER")).toBe("COMPLETE");
   await prisma.training.deleteMany({});
-  await expect(recordAttendance(vol.id, term.id, plain.id)).rejects.toBeInstanceOf(RecruitmentAuthError);
+  await expect(recordAttendance(vol.id, term.id, "VOLUNTEER", plain.id)).rejects.toBeInstanceOf(RecruitmentAuthError);
 });
 
 it("resolveTrainingState is PENDING with no row (no backfill)", async () => {
   const { term, vol } = await seedMember();
-  expect(await resolveTrainingState(vol.id, term.id)).toBe("PENDING");
+  expect(await resolveTrainingState(vol.id, term.id, "VOLUNTEER")).toBe("PENDING");
 });
 
 it("recordAttendance fails when the term has no designated training cycle", async () => {
   const { term, srr, vol, c1 } = await seedMember();
   await setTrainingCycle(c1.id, false, srr.id);
-  await expect(recordAttendance(vol.id, term.id, srr.id)).rejects.toBeInstanceOf(TrainingStateError);
+  await expect(recordAttendance(vol.id, term.id, "VOLUNTEER", srr.id)).rejects.toBeInstanceOf(TrainingStateError);
 });
 
 /** Add a 2-question quiz to the designated cycle (both graded). */
@@ -104,25 +104,25 @@ it("quiz path: failing accrues attempts then locks; passing completes and saves 
   await updateQuizSettings(c1.id, { quizPassPercent: 100, quizMaxAttempts: 2 }, srr.id);
   await addQuiz(c1.id);
 
-  const r1 = await submitQuiz(vol.id, { answers: { q1: "a", q2: "x" }, intake: { feedback: "hi" } });
+  const r1 = await submitQuiz(vol.id, { track: "VOLUNTEER", answers: { q1: "a", q2: "x" }, intake: { feedback: "hi" } });
   expect(r1.passed).toBe(false);
   // Review payload powers the in-place correct/wrong highlighting on the page.
   expect(r1.attemptsUsed).toBe(1);
   expect(r1.locked).toBe(false);
   expect(r1.correctByKey).toEqual({ q1: "a", q2: "y" });
-  expect(await resolveTrainingState(vol.id, term.id)).toBe("PENDING");
+  expect(await resolveTrainingState(vol.id, term.id, "VOLUNTEER")).toBe("PENDING");
 
-  const r2 = await submitQuiz(vol.id, { answers: { q1: "a", q2: "x" }, intake: {} });
+  const r2 = await submitQuiz(vol.id, { track: "VOLUNTEER", answers: { q1: "a", q2: "x" }, intake: {} });
   expect(r2.passed).toBe(false);
   expect(r2.attemptsUsed).toBe(2);
   expect(r2.locked).toBe(true);
   const locked = await prisma.training.findUniqueOrThrow({ where: { personId_termId_track: { personId: vol.id, termId: term.id, track: "VOLUNTEER" } } });
   expect(locked.locked).toBe(true);
 
-  await expect(submitQuiz(vol.id, { answers: { q1: "a", q2: "y" }, intake: {} })).rejects.toBeInstanceOf(QuizLockedError);
+  await expect(submitQuiz(vol.id, { track: "VOLUNTEER", answers: { q1: "a", q2: "y" }, intake: {} })).rejects.toBeInstanceOf(QuizLockedError);
 
-  await resetTraining(vol.id, term.id, srr.id);
-  const r3 = await submitQuiz(vol.id, { answers: { q1: "a", q2: "y" }, intake: { feedback: "done" } });
+  await resetTraining(vol.id, term.id, "VOLUNTEER", srr.id);
+  const r3 = await submitQuiz(vol.id, { track: "VOLUNTEER", answers: { q1: "a", q2: "y" }, intake: { feedback: "done" } });
   expect(r3.passed).toBe(true);
   const done = await prisma.training.findUniqueOrThrow({ where: { personId_termId_track: { personId: vol.id, termId: term.id, track: "VOLUNTEER" } } });
   expect(done.status).toBe("COMPLETE");
@@ -144,8 +144,8 @@ it("getMyTraining returns the cycle, questions, and state for the volunteer", as
 it("submitQuiz rejects when already complete", async () => {
   const { term, srr, vol, c1 } = await seedMember();
   await addQuiz(c1.id);
-  await recordAttendance(vol.id, term.id, srr.id);
-  await expect(submitQuiz(vol.id, { answers: { q1: "a", q2: "y" }, intake: {} })).rejects.toBeInstanceOf(TrainingStateError);
+  await recordAttendance(vol.id, term.id, "VOLUNTEER", srr.id);
+  await expect(submitQuiz(vol.id, { track: "VOLUNTEER", answers: { q1: "a", q2: "y" }, intake: {} })).rejects.toBeInstanceOf(TrainingStateError);
 });
 
 import { listTrainingRoster } from "./training";
@@ -204,6 +204,29 @@ it("requiredTrainingTracks returns both tracks for a director+volunteer when bot
   const dirCycle = await prisma.recruitmentCycle.create({ data: { track: "DIRECTOR", termId: term.id, title: "D", publicSlug: "d", departments: ["SRHD"], createdById: srr.id, status: "OPEN" } });
   await setTrainingCycle(dirCycle.id, true, srr.id);
   expect(await requiredTrainingTracks(vol.id, term.id)).toEqual(["VOLUNTEER", "DIRECTOR"]);
+});
+
+it("a director completes director training via the quiz", async () => {
+  const { term, srr, dir } = await seedMember();
+  const dirCycle = await prisma.recruitmentCycle.create({ data: { track: "DIRECTOR", termId: term.id, title: "D", publicSlug: "d", departments: ["SRHD"], createdById: srr.id, status: "OPEN" } });
+  await setTrainingCycle(dirCycle.id, true, srr.id);
+  await updateQuizSettings(dirCycle.id, { quizPassPercent: 100, quizMaxAttempts: 2 }, srr.id);
+  await addQuiz(dirCycle.id);
+
+  const r = await submitQuiz(dir.id, { track: "DIRECTOR", answers: { q1: "a", q2: "y" }, intake: {} });
+  expect(r.passed).toBe(true);
+  expect(await resolveTrainingState(dir.id, term.id, "DIRECTOR")).toBe("COMPLETE");
+  // their (nonexistent) volunteer training is untouched
+  expect(await resolveTrainingState(dir.id, term.id, "VOLUNTEER")).toBe("PENDING");
+});
+
+it("submitQuiz rejects a track the person has no active membership for", async () => {
+  const { term, srr, vol } = await seedMember();
+  const dirCycle = await prisma.recruitmentCycle.create({ data: { track: "DIRECTOR", termId: term.id, title: "D", publicSlug: "d", departments: ["SRHD"], createdById: srr.id, status: "OPEN" } });
+  await setTrainingCycle(dirCycle.id, true, srr.id);
+  await addQuiz(dirCycle.id);
+  await expect(submitQuiz(vol.id, { track: "DIRECTOR", answers: { q1: "a", q2: "y" }, intake: {} }))
+    .rejects.toBeInstanceOf(TrainingStateError); // vol is not an active director
 });
 
 it("getMyTraining returns one entry per required track", async () => {

@@ -9,6 +9,7 @@ import { PhoneCopyButton } from "@/app/referrals/components/phone-copy-button";
 
 type Site = {
   id: string;
+  verificationStatus: "UNVERIFIED" | "CONFIRMED";
   name: string;
   specialty: string;
   category: string;
@@ -24,6 +25,7 @@ type Site = {
   schedulingContact: string | null;
   referralSteps: string[];
   notes: string | null;
+  lastReviewedAt: Date | null;
   providers: { id: string; name: string; specialty: string }[];
 };
 
@@ -122,12 +124,32 @@ function statusPills(site: Site): { short: string; full: string; confirmed: bool
   return pills;
 }
 
-function SiteRow({ site, deleteSiteAction }: { site: Site; deleteSiteAction: (id: string) => Promise<void> }) {
+function SiteRow({
+  site,
+  deleteSiteAction,
+  markVerifiedAction,
+  revertVerificationAction,
+}: {
+  site: Site;
+  deleteSiteAction: (id: string) => Promise<void>;
+  markVerifiedAction: (id: string) => Promise<void>;
+  revertVerificationAction: (id: string) => Promise<void>;
+}) {
   const [expanded, setExpanded] = useState(false);
   const cluster = clusterFor(site.category);
 
   async function boundDelete() {
     await deleteSiteAction(site.id);
+  }
+
+  async function boundMarkVerified(e: React.MouseEvent) {
+    e.stopPropagation();
+    await markVerifiedAction(site.id);
+  }
+
+  async function boundRevertVerification(e: React.MouseEvent) {
+    e.stopPropagation();
+    await revertVerificationAction(site.id);
   }
 
   return (
@@ -149,6 +171,19 @@ function SiteRow({ site, deleteSiteAction }: { site: Site; deleteSiteAction: (id
               >
                 {CATEGORY_LABELS[site.category] ?? site.category}
               </span>
+              {site.verificationStatus === "UNVERIFIED" ? (
+                <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
+                  Not yet reviewed
+                </span>
+              ) : (
+                <button
+                  onClick={boundRevertVerification}
+                  title="Click to undo and mark as not yet reviewed"
+                  className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-green-50 text-success hover:bg-amber-50 hover:text-amber-700 transition"
+                >
+                  Verified{site.lastReviewedAt ? ` ${site.lastReviewedAt.toLocaleDateString("en-US", { month: "short", year: "numeric" })}` : ""}
+                </button>
+              )}
               {statusPills(site).map((p) => (
                 <span
                   key={p.short}
@@ -238,14 +273,21 @@ function SiteRow({ site, deleteSiteAction }: { site: Site; deleteSiteAction: (id
             </div>
           )}
 
-          {site.notes && (
-            <div className="border-l-2 border-brand pl-3">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-subtle-foreground mb-1">Volunteer note</p>
-              <p className="text-sm text-foreground">{site.notes}</p>
-            </div>
+          {site.lastReviewedAt && (
+            <p className="text-xs italic text-muted-foreground">
+              Last reviewed: {site.lastReviewedAt.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
+            </p>
           )}
 
           <div className="flex items-center gap-2 pt-2 border-t border-border">
+            {site.verificationStatus === "UNVERIFIED" && (
+              <button
+                onClick={boundMarkVerified}
+                className="inline-flex items-center gap-2 rounded-lg bg-brand px-3 py-1.5 text-sm font-medium text-white transition hover:bg-brand-hover"
+              >
+                Mark as reviewed
+              </button>
+            )}
             <ReferralChecklistModal
               site={{ name: site.name, specialty: site.specialty, system: site.system, phone: site.phone, address: site.address }}
             />
@@ -268,9 +310,13 @@ type SortKey = "name" | "wait" | "category";
 export function ReferralDirectoryBrowser({
   sites,
   deleteSiteAction,
+  markVerifiedAction,
+  revertVerificationAction,
 }: {
   sites: Site[];
   deleteSiteAction: (id: string) => Promise<void>;
+  markVerifiedAction: (id: string) => Promise<void>;
+  revertVerificationAction: (id: string) => Promise<void>;
 }) {
   const [query, setQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState<string>("all");
@@ -395,7 +441,7 @@ export function ReferralDirectoryBrowser({
           <div className="rounded-2xl border border-border bg-surface shadow-sm overflow-hidden">
             <ul className="divide-y divide-border-subtle">
               {filtered.map((site) => (
-                <SiteRow key={site.id} site={site} deleteSiteAction={deleteSiteAction} />
+                <SiteRow key={site.id} site={site} deleteSiteAction={deleteSiteAction} markVerifiedAction={markVerifiedAction} revertVerificationAction={revertVerificationAction} />
               ))}
             </ul>
           </div>
@@ -433,7 +479,7 @@ export function ReferralDirectoryBrowser({
                   {isOpen && (
                     <ul className="divide-y divide-border-subtle border-t border-border">
                       {clusterSites.map((site) => (
-                        <SiteRow key={site.id} site={site} deleteSiteAction={deleteSiteAction} />
+                        <SiteRow key={site.id} site={site} deleteSiteAction={deleteSiteAction} markVerifiedAction={markVerifiedAction} revertVerificationAction={revertVerificationAction} />
                       ))}
                     </ul>
                   )}

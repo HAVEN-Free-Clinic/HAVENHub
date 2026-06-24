@@ -10,6 +10,7 @@ const ICON: Record<OnboardingTaskKey, LucideIcon> = {
   profile: UserRoundPen,
   hipaa: ShieldCheck,
   training: GraduationCap,
+  directorTraining: GraduationCap,
   learning: BookOpen,
 };
 
@@ -18,6 +19,7 @@ const HUE: Record<OnboardingTaskKey, string> = {
   profile: "volunteers",
   hipaa: "info",
   training: "recruit",
+  directorTraining: "schedule",
   learning: "admin",
 };
 

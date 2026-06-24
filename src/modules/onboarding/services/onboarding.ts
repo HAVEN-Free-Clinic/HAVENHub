@@ -4,7 +4,7 @@ import { can } from "@/platform/rbac/engine";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { complianceStatus } from "@/platform/compliance/rules";
 import { listMyCertificates } from "@/modules/my-info/services/my-info";
-import { getMyTraining, isActiveVolunteer } from "@/modules/recruitment/services/training";
+import { requiredTrainingTracks, resolveTrainingState } from "@/modules/recruitment/services/training";
 import { getMyCourses } from "@/modules/learning/services/enrollment";
 import {
   deriveProfileTaskState,
@@ -54,7 +54,13 @@ const COPY: Record<OnboardingTaskKey, { label: string; description: string; href
   training: {
     label: "Volunteer training",
     description: "Finish this term's training to be cleared for shifts.",
-    href: "/get-started/training",
+    href: "/get-started/training?track=volunteer",
+    ctaLabel: "Go to training",
+  },
+  directorTraining: {
+    label: "Director training",
+    description: "Finish this term's director training to be cleared for shifts.",
+    href: "/get-started/training?track=director",
     ctaLabel: "Go to training",
   },
   learning: {
@@ -83,18 +89,25 @@ export const getOnboardingStatus = cache(async function getOnboardingStatus(
     return { hasActiveTerm: false, exempt, tasks: [], completedCount: 0, totalCount: 0, onboarded: true };
   }
 
-  const [person, certs, training, courses, volunteer] = await Promise.all([
+  const [person, certs, courses, tracks] = await Promise.all([
     prisma.person.findUniqueOrThrow({ where: { id: personId }, select: { contactEmail: true, phone: true } }),
     listMyCertificates(personId),
-    getMyTraining(personId), // safe: active term exists
     getMyCourses(personId),
-    isActiveVolunteer(personId, term.id),
+    requiredTrainingTracks(personId, term.id),
   ]);
+
+  const trainingTasks: OnboardingTask[] = [];
+  for (const track of tracks) {
+    const state = await resolveTrainingState(personId, term.id, track);
+    const attemptsUsed = 0; // gate only needs COMPLETE vs not; attempts refine IN_PROGRESS, optional here
+    const key = track === "DIRECTOR" ? "directorTraining" : "training";
+    trainingTasks.push(task(key, deriveTrainingTaskState({ state, attemptsUsed })));
+  }
 
   const tasks: OnboardingTask[] = [
     task("profile", deriveProfileTaskState(person)),
     task("hipaa", deriveHipaaTaskState(complianceStatus(certs[0] ?? null, term.endDate))),
-    task("training", deriveTrainingTaskState({ state: training.state, attemptsUsed: training.attemptsUsed }, volunteer)),
+    ...trainingTasks,
     task("learning", deriveLearningTaskState(courses)),
   ];
 

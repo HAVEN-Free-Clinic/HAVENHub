@@ -3,13 +3,14 @@ import { describe, it, expect, vi } from "vitest";
 import { GraphTeamsTransport, LogTeamsTransport } from "./teams-transport";
 
 describe("LogTeamsTransport", () => {
-  it("returns a synthetic chat id and never calls the network", async () => {
+  it("returns a synthetic chat id, flags logged, and never calls the network", async () => {
     const r = await new LogTeamsTransport().send({
       recipientUserId: "u1",
       chatId: null,
       bodyHtml: "<p>hi</p>",
     });
     expect(r.chatId).toBeTruthy();
+    expect(r.logged).toBe(true);
   });
 });
 
@@ -35,6 +36,7 @@ describe("GraphTeamsTransport", () => {
     });
 
     expect(result.chatId).toBe("chat-1");
+    expect(result.logged).toBeFalsy();
 
     const [chatUrl, chatInit] = fetchImpl.mock.calls[0];
     expect(chatUrl).toBe("https://graph.microsoft.com/v1.0/chats");

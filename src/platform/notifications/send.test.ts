@@ -43,6 +43,24 @@ describe("drainTeamsQueue", () => {
     const row = await prisma.teamsMessage.findFirst({ where: { personId: p.id } });
     expect(row?.status).toBe("SENT");
     expect(row?.chatId).toBe("chat-9");
+    expect(row?.sentAt).not.toBeNull();
+  });
+
+  it("marks the row LOGGED (not SENT) when the transport only logged", async () => {
+    const p = await prisma.person.create({
+      data: { name: "Sam", contactEmail: "sam@x.com", entraObjectId: "e1" },
+    });
+    await queueTeamsMessage(prisma, { personId: p.id, ...baseInput });
+    const transport: TeamsTransport = {
+      send: vi.fn().mockResolvedValue({ chatId: "log-chat", logged: true }),
+    };
+    const n = await drainTeamsQueue(transport);
+    expect(n).toBe(1);
+    const row = await prisma.teamsMessage.findFirst({ where: { personId: p.id } });
+    expect(row?.status).toBe("LOGGED");
+    expect(row?.sentAt).toBeNull();
+    // No email fallback for a logged (success) row.
+    expect(await prisma.emailLog.count()).toBe(0);
   });
 
   it("requeues on transient failure until max attempts", async () => {

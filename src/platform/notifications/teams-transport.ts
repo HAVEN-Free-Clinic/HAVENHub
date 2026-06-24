@@ -15,6 +15,12 @@ export interface TeamsOutboundMessage {
 /** Result of a successful send: the chat id used, so callers can cache it. */
 export interface TeamsSendResult {
   chatId: string;
+  /**
+   * True when the log transport handled this (nothing was actually sent to
+   * Graph). The drainer records these as LOGGED rather than SENT so the monitor
+   * never implies real delivery while email.transport is not "graph".
+   */
+  logged?: boolean;
 }
 
 /** Minimal contract every Teams transport must satisfy. */
@@ -32,7 +38,7 @@ export class LogTeamsTransport implements TeamsTransport {
     console.log(
       `[teams] to=${message.recipientUserId} body=${message.bodyHtml.slice(0, 80)}`
     );
-    return { chatId: message.chatId ?? "log-chat" };
+    return { chatId: message.chatId ?? "log-chat", logged: true };
   }
 }
 

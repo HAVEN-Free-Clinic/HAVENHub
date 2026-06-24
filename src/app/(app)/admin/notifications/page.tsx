@@ -2,8 +2,8 @@
  * /admin/notifications -- Teams message monitoring dashboard.
  *
  * Shows a paginated list of TeamsMessage rows with status/type/recipient
- * filters, global health-count cards, and a per-row Retry action for FAILED
- * and FALLBACK messages. Gates on admin.manage_sync.
+ * filters, global health-count cards, and a per-row Retry action for FAILED,
+ * FALLBACK, and LOGGED messages. Gates on admin.manage_sync.
  */
 
 import Link from "next/link";
@@ -35,7 +35,7 @@ import { StatCard } from "@/platform/ui/stat-card";
 // Constants
 // ---------------------------------------------------------------------------
 
-const VALID_STATUSES: TeamsMessageStatus[] = ["QUEUED", "SENT", "FAILED", "FALLBACK"];
+const VALID_STATUSES: TeamsMessageStatus[] = ["QUEUED", "SENT", "FAILED", "FALLBACK", "LOGGED"];
 
 const NOTIFICATION_TYPE_LABELS = new Map(NOTIFICATION_TYPES.map((t) => [t.key, t.label]));
 
@@ -123,7 +123,8 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
       prisma.teamsMessage.count({ where: { status: "QUEUED" } }),
       prisma.teamsMessage.count({ where: { status: "FAILED" } }),
       prisma.teamsMessage.count({ where: { status: "FALLBACK" } }),
-    ]).then(([queued, failed, fallback]) => ({ queued, failed, fallback })),
+      prisma.teamsMessage.count({ where: { status: "LOGGED" } }),
+    ]).then(([queued, failed, fallback, logged]) => ({ queued, failed, fallback, logged })),
   ]);
 
   const pageCount = Math.max(1, Math.ceil(total / TEAMS_PAGE_SIZE));
@@ -193,8 +194,23 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
         <Alert tone="success">Teams message re-queued.</Alert>
       )}
 
+      {/* Log-mode warning: rows were recorded but never actually sent. */}
+      {counts.logged > 0 && (
+        <Alert tone="warning">
+          {counts.logged} message(s) were recorded in Log mode and NOT actually
+          sent. Set Email transport to Microsoft Graph in{" "}
+          <Link
+            href="/admin/settings"
+            className="font-medium underline underline-offset-2"
+          >
+            Settings &gt; Email
+          </Link>
+          , then retry them.
+        </Alert>
+      )}
+
       {/* Health stat cards */}
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-4">
         <StatCard label="Queued" value={counts.queued} />
         <StatCard
           label="Failed"
@@ -205,6 +221,11 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
           label="Fallback"
           value={counts.fallback}
           tone={counts.fallback > 0 ? "critical" : "default"}
+        />
+        <StatCard
+          label="Logged (not sent)"
+          value={counts.logged}
+          tone={counts.logged > 0 ? "critical" : "default"}
         />
       </div>
 
@@ -305,7 +326,7 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
                     {fmtDateTime(row.sentAt)}
                   </TD>
                   <TD>
-                    {(row.status === "FAILED" || row.status === "FALLBACK") && (
+                    {(row.status === "FAILED" || row.status === "FALLBACK" || row.status === "LOGGED") && (
                       <form action={retryAction}>
                         <input type="hidden" name="id" value={row.id} />
                         <ConfirmButton

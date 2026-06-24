@@ -78,20 +78,22 @@ export async function listTeamsMessages(params: {
 // ---------------------------------------------------------------------------
 
 /**
- * Reset a FAILED or FALLBACK Teams message back to QUEUED for another attempt.
+ * Reset a FAILED, FALLBACK, or LOGGED Teams message back to QUEUED for another
+ * attempt.
  *
- * Only FAILED or FALLBACK messages may be retried. Throws TeamsMessageStateError
- * for any other status. The actual send is performed by the delivery cron;
- * this function only resets the row state.
+ * LOGGED rows were recorded by the log transport (email.transport not "graph")
+ * and never actually sent, so they are retryable once graph delivery is enabled.
+ * Throws TeamsMessageStateError for QUEUED/SENT. The actual send is performed by
+ * the delivery cron; this function only resets the row state.
  *
  * @param id - The TeamsMessage row to retry.
  */
 export async function retryTeamsMessage(id: string): Promise<void> {
   const row = await prisma.teamsMessage.findUnique({ where: { id } });
   if (!row) throw new TeamsMessageNotFoundError(id);
-  if (row.status !== "FAILED" && row.status !== "FALLBACK") {
+  if (row.status !== "FAILED" && row.status !== "FALLBACK" && row.status !== "LOGGED") {
     throw new TeamsMessageStateError(
-      `Only FAILED or FALLBACK messages can be retried (status: ${row.status}).`,
+      `Only FAILED, FALLBACK, or LOGGED messages can be retried (status: ${row.status}).`,
     );
   }
   await prisma.teamsMessage.update({

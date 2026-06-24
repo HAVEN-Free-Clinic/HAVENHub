@@ -103,25 +103,6 @@ function shiftTags(tags: { triage: boolean; walkin: boolean; cc: boolean; remote
 function ModuleTile({ m }: { m: ModuleManifest }) {
   const Icon = m.icon;
 
-  if (m.status !== "active") {
-    return (
-      <div className="relative flex items-start gap-4 overflow-hidden rounded-2xl border border-border bg-muted p-[18px]">
-        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-muted-strong/70 text-subtle-foreground">
-          <Icon aria-hidden className="h-[22px] w-[22px]" />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="flex items-center gap-2">
-            <span className="text-[15px] font-bold text-muted-foreground">{m.title}</span>
-            <span className="rounded-full border border-border bg-surface px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-subtle-foreground">
-              Soon
-            </span>
-          </span>
-          <span className="mt-1 block text-[13px] leading-relaxed text-subtle-foreground">{m.description}</span>
-        </span>
-      </div>
-    );
-  }
-
   return (
     <Link
       href={`/${m.id}`}
@@ -172,12 +153,10 @@ export default async function HubPage() {
   const { term, shifts } = schedule;
   const trainingState = term ? await resolveTrainingState(person.personId, term.id) : "PENDING";
 
-  // --- Module visibility (unchanged rules) ---
-  const visible = MODULES.filter(
-    (m) => m.status === "coming-soon" || canAccessModule(m, permissions)
+  // --- Module visibility ---
+  const activeModules = MODULES.filter(
+    (m) => m.status === "active" && canAccessModule(m, permissions)
   );
-  const activeModules = visible.filter((m) => m.status === "active");
-  const soonModules = visible.filter((m) => m.status !== "active");
   const accessible = new Set(activeModules.map((m) => m.id));
 
   // --- Next shift ---
@@ -397,17 +376,6 @@ export default async function HubPage() {
               <ModuleTile key={m.id} m={m} />
             ))}
           </div>
-
-          {soonModules.length > 0 && (
-            <>
-              <h2 className="mt-8 mb-3 text-base font-bold tracking-tight text-muted-foreground">On the roadmap</h2>
-              <div className="grid gap-3 sm:grid-cols-2">
-                {soonModules.map((m) => (
-                  <ModuleTile key={m.id} m={m} />
-                ))}
-              </div>
-            </>
-          )}
         </div>
 
         {/* Side rail (real data only) */}

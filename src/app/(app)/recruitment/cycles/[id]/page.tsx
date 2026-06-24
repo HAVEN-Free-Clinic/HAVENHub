@@ -75,9 +75,11 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
         )}
       </div>
 
-      {cycle.track === "VOLUNTEER" && (
+      {(cycle.track === "VOLUNTEER" || cycle.track === "DIRECTOR") && (
         <div className="space-y-4 rounded-2xl border border-border bg-surface p-5 shadow-sm">
-          <p className="text-xs font-medium uppercase tracking-wider text-subtle-foreground">Training</p>
+          <p className="text-xs font-medium uppercase tracking-wider text-subtle-foreground">
+            {cycle.track === "DIRECTOR" ? "Director training" : "Training"}
+          </p>
           <div className="flex flex-wrap gap-2">
             <Link href={`/recruitment/cycles/${id}/builder/quiz`} className={navLink}>Edit quiz</Link>
             <Link href={`/recruitment/cycles/${id}/training`} className={navLink}>Training roster</Link>

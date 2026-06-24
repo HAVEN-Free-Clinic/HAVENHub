@@ -3,7 +3,7 @@ import type { ProviderCategory, ProviderFlag, ProviderSystem } from "@prisma/cli
 import { requireModuleAccess } from "@/platform/auth/session";
 import { PageHeader } from "@/platform/ui/page-header";
 import { getReferralSite, updateReferralSite } from "@/modules/referrals/services/referrals";
-import { ReferralSiteForm } from "@/app/referrals/new/referral-site-form";
+import { ReferralSiteForm } from "../../new/referral-site-form";
 
 export default async function EditReferralSitePage({
   params,

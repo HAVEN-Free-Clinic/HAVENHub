@@ -5,8 +5,8 @@ import { requireModuleAccess } from "@/platform/auth/session";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
 import { getReferralSite, deleteReferralSite } from "@/modules/referrals/services/referrals";
-import { ReferralChecklistModal } from "@/app/referrals/components/referral-checklist-modal";
-import { DeleteSiteButton } from "@/app/referrals/components/delete-site-button";
+import { ReferralChecklistModal } from "../components/referral-checklist-modal";
+import { DeleteSiteButton } from "../components/delete-site-button";
 
 const FLAG_STYLES = {
   SUCCESS: { Icon: CheckCircle2, classes: "bg-green-50 text-success" },

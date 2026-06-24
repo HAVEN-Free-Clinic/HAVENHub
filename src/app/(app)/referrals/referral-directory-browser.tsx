@@ -3,9 +3,9 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Building2, Search, ChevronDown, MapPin, Languages, Clock } from "lucide-react";
-import { ReferralChecklistModal } from "@/app/referrals/components/referral-checklist-modal";
-import { DeleteSiteButton } from "@/app/referrals/components/delete-site-button";
-import { PhoneCopyButton } from "@/app/referrals/components/phone-copy-button";
+import { ReferralChecklistModal } from "./components/referral-checklist-modal";
+import { DeleteSiteButton } from "./components/delete-site-button";
+import { PhoneCopyButton } from "./components/phone-copy-button";
 
 type Site = {
   id: string;

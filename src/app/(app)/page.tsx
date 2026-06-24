@@ -23,7 +23,7 @@ import { TimeGreeting } from "@/platform/ui/time-greeting";
 import { ClinicChannelCard } from "./clinic-channel-card";
 import { mySchedule } from "@/modules/schedule/services/schedule";
 import { listMyCertificates } from "@/modules/my-info/services/my-info";
-import { resolveTrainingState, isActiveVolunteer } from "@/modules/recruitment/services/training";
+import { requiredTrainingTracks, resolveTrainingState } from "@/modules/recruitment/services/training";
 import { complianceStatus, certExpiresAt } from "@/platform/compliance/rules";
 import { isoDateKey } from "@/platform/dates";
 
@@ -151,10 +151,18 @@ export default async function HubPage() {
     listMyCertificates(person.personId),
   ]);
   const { term, shifts } = schedule;
-  // Volunteer training only applies to active volunteers; a director-only member
-  // is neither shown the status line nor blocked by the gate on it.
-  const isVolunteer = term ? await isActiveVolunteer(person.personId, term.id) : false;
-  const trainingState = term && isVolunteer ? await resolveTrainingState(person.personId, term.id) : "PENDING";
+  const tracks = term ? await requiredTrainingTracks(person.personId, term.id) : [];
+  const trainingLines = term
+    ? await Promise.all(
+        tracks.map(async (track) => {
+          const state = await resolveTrainingState(person.personId, term.id, track);
+          const label = track === "DIRECTOR" ? "Director training" : "Volunteer training";
+          return state === "COMPLETE"
+            ? { ok: true, title: `${label} complete`, sub: "You're cleared for this term", href: "/training" }
+            : { ok: false, title: `Complete your ${label.toLowerCase()}`, sub: "Required to be cleared", href: "/training" };
+        })
+      )
+    : [];
 
   // --- Module visibility ---
   const activeModules = MODULES.filter(
@@ -191,14 +199,9 @@ export default async function HubPage() {
             ? { ok: false, title: "Add your HIPAA completion date", sub: "Certificate on file, date missing" }
             : { ok: false, title: "Upload your HIPAA certificate", sub: "Required for clinic clearance" };
 
-  const trainingLine =
-    trainingState === "COMPLETE"
-      ? { ok: true, title: "Volunteer training complete", sub: "You're cleared for this term" }
-      : { ok: false, title: "Complete your volunteer training", sub: "Required to be cleared" };
-
   const statusLines: Array<{ ok: boolean; title: string; sub: string; href: string }> = [
     { ...hipaaLine, href: "/my-info" },
-    ...(isVolunteer ? [{ ...trainingLine, href: "/training" }] : []),
+    ...trainingLines,
   ];
 
   // --- Quick actions (real links, access-filtered, capped at 4) ---

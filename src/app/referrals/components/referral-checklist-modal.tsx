@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { X, Check, ClipboardCheck } from "lucide-react";
+import { Check, ClipboardCheck } from "lucide-react";
+import { Modal } from "@/platform/ui/modal";
 
 type ChecklistSection = { title: string; items: string[] };
 
@@ -84,67 +85,47 @@ export function ReferralChecklistModal({
         Referral checklist
       </button>
 
-      {open && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setOpen(false);
-          }}
-        >
-          <div className="w-full max-w-lg max-h-[85vh] overflow-y-auto rounded-2xl bg-surface shadow-xl">
-            <div className="sticky top-0 flex items-center justify-between border-b border-border bg-surface px-6 py-4">
-              <p className="text-sm font-semibold text-foreground">Referral checklist — {site.name}</p>
-              <button
-                onClick={() => setOpen(false)}
-                aria-label="Close"
-                className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-muted"
-              >
-                <X className="h-4 w-4" aria-hidden />
-              </button>
-            </div>
+      <Modal open={open} onClose={() => setOpen(false)} title={`Referral checklist — ${site.name}`}>
+        <div className="space-y-6">
+          <p className="text-sm text-muted-foreground">
+            Referral to <strong className="text-foreground">{site.name}</strong> · {site.specialty}
+          </p>
 
-            <div className="px-6 py-5 space-y-6">
-              <p className="text-sm text-muted-foreground">
-                Referral to <strong className="text-foreground">{site.name}</strong> · {site.specialty}
+          {sections.map((section, si) => (
+            <div key={section.title}>
+              <p className="text-xs font-semibold uppercase tracking-wider text-subtle-foreground mb-2">
+                {section.title}
               </p>
-
-              {sections.map((section, si) => (
-                <div key={section.title}>
-                  <p className="text-xs font-semibold uppercase tracking-wider text-subtle-foreground mb-2">
-                    {section.title}
-                  </p>
-                  <div className="space-y-1">
-                    {section.items.map((item, ii) => {
-                      const key = `${si}-${ii}`;
-                      const isChecked = checked[key] ?? false;
-                      return (
-                        <div
-                          key={key}
-                          className="flex items-start gap-3 py-1.5 text-sm text-foreground cursor-pointer"
-                          onClick={() => toggle(key)}
-                        >
-                          <span
-                            className={`mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded border ${
-                              isChecked ? "bg-brand border-brand text-white" : "border-border-strong"
-                            }`}
-                          >
-                            {isChecked && <Check className="h-3 w-3" aria-hidden />}
-                          </span>
-                          {item}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-
-              <p className="text-xs italic text-muted-foreground pt-2 border-t border-border">
-                Check off each item as you complete it. This checklist is for this session only — it does not save.
-              </p>
+              <div className="space-y-1">
+                {section.items.map((item, ii) => {
+                  const key = `${si}-${ii}`;
+                  const isChecked = checked[key] ?? false;
+                  return (
+                    <div
+                      key={key}
+                      className="flex items-start gap-3 py-1.5 text-sm text-foreground cursor-pointer"
+                      onClick={() => toggle(key)}
+                    >
+                      <span
+                        className={`mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded border ${
+                          isChecked ? "bg-brand border-brand text-white" : "border-border-strong"
+                        }`}
+                      >
+                        {isChecked && <Check className="h-3 w-3" aria-hidden />}
+                      </span>
+                      {item}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-          </div>
+          ))}
+
+          <p className="text-xs italic text-muted-foreground pt-2 border-t border-border">
+            Check off each item as you complete it. This checklist is for this session only — it does not save.
+          </p>
         </div>
-      )}
+      </Modal>
     </>
   );
 }

@@ -146,17 +146,17 @@ export const MODULES: ModuleManifest[] = [
     nav: [],
   },
   {
-  id: "referrals",
-  title: "Referral Directory",
-  description: "Specialists, community health partners, and social services for patient referrals",
-  icon: Send,
-  accessPermission: "referrals.access",
-  permissions: ["referrals.access"],
-  status: "active",
-  nav: [
-    { label: "Directory", href: "/referrals" },
-    { label: "Add provider", href: "/referrals/new" },
-  ],
+    id: "referrals",
+    title: "Referral Directory",
+    description: "Specialists, community health partners, and social services for patient referrals",
+    icon: Send,
+    accessPermission: "referrals.access",
+    permissions: ["referrals.access"],
+    status: "active",
+    nav: [
+      { label: "Directory", href: "/referrals" },
+      { label: "Add provider", href: "/referrals/new" },
+    ],
   },
   {
     id: "patient-trackers",

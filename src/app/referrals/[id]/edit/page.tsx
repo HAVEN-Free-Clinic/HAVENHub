@@ -1,4 +1,6 @@
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
+import type { ProviderCategory, ProviderFlag, ProviderSystem } from "@prisma/client";
+import { requireModuleAccess } from "@/platform/auth/session";
 import { PageHeader } from "@/platform/ui/page-header";
 import { getReferralSite, updateReferralSite } from "@/modules/referrals/services/referrals";
 import { ReferralSiteForm } from "@/app/referrals/new/referral-site-form";
@@ -9,10 +11,17 @@ export default async function EditReferralSitePage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const site = await getReferralSite(id);
+
+  let site;
+  try {
+    site = await getReferralSite(id);
+  } catch {
+    notFound();
+  }
 
   async function updateSiteAction(formData: FormData) {
     "use server";
+    await requireModuleAccess("referrals");
 
     const languages = (formData.get("languages") as string)
       .split(",")
@@ -37,9 +46,9 @@ export default async function EditReferralSitePage({
 
     await updateReferralSite(id, {
       name: formData.get("name") as string,
-      category: formData.get("category") as any,
+      category: formData.get("category") as ProviderCategory,
       specialty: formData.get("specialty") as string,
-      system: formData.get("system") as any,
+      system: (formData.get("system") as ProviderSystem) || undefined,
       acceptsUninsured: formData.get("acceptsUninsured") === "on",
       freeCareEligible: formData.get("freeCareEligible") === "on",
       slidingScale: formData.get("slidingScale") === "on",
@@ -52,7 +61,7 @@ export default async function EditReferralSitePage({
       fax: (formData.get("fax") as string) || undefined,
       referralSteps,
       notes: (formData.get("notes") as string) || undefined,
-      flag: flagRaw ? (flagRaw as any) : undefined,
+      flag: flagRaw ? (flagRaw as ProviderFlag) : undefined,
       flagText: (formData.get("flagText") as string) || undefined,
       providers,
     });

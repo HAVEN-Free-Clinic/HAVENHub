@@ -114,8 +114,9 @@ export function ReferralSiteForm({
           </select>
         </Field>
 
-        <Field label="System">
-          <select name="system" required defaultValue={initialValues?.system ?? ""} className="rounded-lg border border-border-strong px-3 py-2 text-sm w-full">
+        <Field label="System" hint="Optional">
+          <select name="system" defaultValue={initialValues?.system ?? ""} className="rounded-lg border border-border-strong px-3 py-2 text-sm w-full">
+            <option value="">Unspecified</option>
             {SYSTEMS.map((s) => (
               <option key={s.value} value={s.value}>
                 {s.label}
@@ -194,34 +195,6 @@ export function ReferralSiteForm({
 
         <Field label="Flag text" hint="Required if a flag is selected">
           <Input name="flagText" defaultValue={initialValues?.flagText ?? ""} placeholder="Graduation partner — warm handoff preferred" />
-        </Field>
-      </div>
-
-      <Field label="Referral steps" hint="One step per line">
-        <Textarea
-          name="referralSteps"
-          rows={4}
-          placeholder={"Patient calls directly or HAVEN coordinator makes warm handoff call\nNo formal referral needed — walk-in welcome"}
-        />
-      </Field>
-
-      <Field label="Volunteer note" hint="Optional context for whoever makes the referral">
-        <Textarea name="notes" rows={3} placeholder="Our primary graduation partner..." />
-      </Field>
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Flag" hint="Optional callout shown on the provider's page">
-          <select name="flag" className="rounded-lg border border-border-strong px-3 py-2 text-sm w-full">
-            {FLAGS.map((f) => (
-              <option key={f.value} value={f.value}>
-                {f.label}
-              </option>
-            ))}
-          </select>
-        </Field>
-
-        <Field label="Flag text" hint="Required if a flag is selected">
-          <Input name="flagText" placeholder="Graduation partner — warm handoff preferred" />
         </Field>
       </div>
 

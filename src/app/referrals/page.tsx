@@ -1,23 +1,28 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Plus } from "lucide-react";
+import { requireModuleAccess } from "@/platform/auth/session";
 import { PageHeader } from "@/platform/ui/page-header";
 import { ReferralDirectoryBrowser } from "./referral-directory-browser";
 import { listReferralSites, deleteReferralSite, markSiteVerified, revertSiteVerification } from "@/modules/referrals/services/referrals";
 
 async function deleteSiteAction(id: string) {
   "use server";
+  await requireModuleAccess("referrals");
   await deleteReferralSite(id);
   redirect("/referrals");
 }
 
 async function markVerifiedAction(id: string) {
   "use server";
+  await requireModuleAccess("referrals");
   await markSiteVerified(id);
   redirect("/referrals");
 }
 
 async function revertVerificationAction(id: string) {
   "use server";
+  await requireModuleAccess("referrals");
   await revertSiteVerification(id);
   redirect("/referrals");
 }
@@ -46,13 +51,13 @@ export default async function ReferralsPage() {
           </>
         }
         action={
-          <a
+          <Link
             href="/referrals/new"
             className="inline-flex items-center gap-2 rounded-lg bg-brand px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-hover hover:shadow-md"
           >
             <Plus className="h-4 w-4" aria-hidden />
             Add provider
-          </a>
+          </Link>
         }
       />
 

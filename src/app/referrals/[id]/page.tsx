@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ArrowLeft, Phone, MapPin, Languages, Clock, AlertTriangle, CheckCircle2, Info } from "lucide-react";
+import { requireModuleAccess } from "@/platform/auth/session";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
 import { getReferralSite, deleteReferralSite } from "@/modules/referrals/services/referrals";
@@ -29,6 +30,7 @@ export default async function ReferralSitePage({
 
   async function deleteSiteAction() {
     "use server";
+    await requireModuleAccess("referrals");
     await deleteReferralSite(id);
     redirect("/referrals");
   }

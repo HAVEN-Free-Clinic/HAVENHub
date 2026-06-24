@@ -346,9 +346,6 @@ export function EpicRequestForm({ departments }: Props) {
           disabled={loading || selectedPeopleIds.size === 0}
         >
           {loading ? "Generating…" : "Generate PDF" + (isBulk ? " + spreadsheet" : "")}
-          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
-          Note: after downloading, open the PDF, then use File → Print → Save as PDF before emailing it to YNHH. This ensures the filled fields display correctly on their end.
-        </p>
         </Button>
 
         {emailDraft && (

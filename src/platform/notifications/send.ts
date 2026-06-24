@@ -86,9 +86,12 @@ export async function drainTeamsQueue(transport: TeamsTransport): Promise<number
             personId: row.personId,
           });
         }
+        const lastError = person?.contactEmail
+          ? message
+          : `${message} | no contactEmail: email fallback skipped, message not delivered`.slice(0, 500);
         await prisma.teamsMessage.update({
           where: { id: row.id },
-          data: { attempts, lastError: message, status: "FALLBACK" },
+          data: { attempts, lastError, status: "FALLBACK" },
         });
       } else {
         await prisma.teamsMessage.update({

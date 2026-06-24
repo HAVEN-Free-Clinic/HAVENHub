@@ -37,6 +37,8 @@ import { StatCard } from "@/platform/ui/stat-card";
 
 const VALID_STATUSES: TeamsMessageStatus[] = ["QUEUED", "SENT", "FAILED", "FALLBACK"];
 
+const NOTIFICATION_TYPE_LABELS = new Map(NOTIFICATION_TYPES.map((t) => [t.key, t.label]));
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -275,7 +277,7 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
               {rows.map((row) => (
                 <TR key={row.id}>
                   <TD className="font-medium text-sm">{row.person.name}</TD>
-                  <TD className="text-sm text-foreground-soft">{row.type}</TD>
+                  <TD className="text-sm text-foreground-soft">{NOTIFICATION_TYPE_LABELS.get(row.type) ?? row.type}</TD>
                   <TD>
                     <Badge tone={statusTone(row.status)}>{row.status}</Badge>
                   </TD>

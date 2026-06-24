@@ -64,6 +64,26 @@ describe("drainTeamsQueue", () => {
     expect(after1?.attempts).toBe(TEAMS_MAX_ATTEMPTS - 1);
   });
 
+  it("marks FALLBACK with 'not delivered' in lastError when person has no contactEmail", async () => {
+    const p = await prisma.person.create({
+      data: { name: "NoEmail", contactEmail: null, entraObjectId: "e-no-email" },
+    });
+    const row = await queueTeamsMessage(prisma, { personId: p.id, ...baseInput });
+    await prisma.teamsMessage.update({
+      where: { id: row.id },
+      data: { attempts: TEAMS_MAX_ATTEMPTS - 1 },
+    });
+    const transport: TeamsTransport = {
+      send: vi.fn().mockRejectedValue(new Error("graph 503")),
+    };
+    await drainTeamsQueue(transport);
+    const after = await prisma.teamsMessage.findUnique({ where: { id: row.id } });
+    expect(after?.status).toBe("FALLBACK");
+    const emailCount = await prisma.emailLog.count({ where: { personId: p.id } });
+    expect(emailCount).toBe(0);
+    expect(after?.lastError).toContain("not delivered");
+  });
+
   it("falls back to email when a send fails permanently", async () => {
     const p = await prisma.person.create({
       data: { name: "Sam", contactEmail: "sam@x.com", entraObjectId: "e1" },

@@ -22,7 +22,7 @@
  *        between the two re-queues on the next run (at-least-once) rather than leaving
  *        escalatedAt set with no director notification ever sent.
  *
- * All emails are queued via queueEmail; no transport is invoked here.
+ * All notifications are dispatched via notify(); no transport is invoked here.
  */
 
 import { prisma } from "@/platform/db";

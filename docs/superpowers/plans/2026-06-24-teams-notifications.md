@@ -13,7 +13,7 @@
 - **Product name:** "HAVEN Hub" (two words) in all prose/UI copy; identifiers stay `havenhub`.
 - **No em-dashes** in any user-facing copy or comments; use other punctuation.
 - **TDD:** every task is test-first. Run the test, see it fail, implement, see it pass, commit.
-- **Test DB isolation:** this worktree must run vitest with a per-worktree `TEST_DATABASE_URL` (a migration adds a table). Set it before running DB-backed tests, e.g. `TEST_DATABASE_URL=postgresql://localhost/havenhub_test_teams`.
+- **Test DB isolation:** this worktree must run vitest with a per-worktree `TEST_DATABASE_URL` (a migration adds a table). Set it before running DB-backed tests, e.g. `TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_teams`.
 - **Single drainer:** the Teams queue, like the email queue, assumes one drainer (no `SELECT FOR UPDATE SKIP LOCKED`). Only the email cron drains it.
 - **Reuse `EmailStatus` semantics** but Teams adds a `FALLBACK` terminal state, so Teams uses its own enum `TeamsMessageStatus`.
 - **Graph delegated send:** all Graph calls use `getAccessToken()` from `src/platform/email/oauth.ts`; the connected account (the authorizing user, `MailCredential.account`) is the chat sender.
@@ -105,7 +105,7 @@ describe("TeamsMessage model", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `TEST_DATABASE_URL=postgresql://localhost/havenhub_test_teams npx vitest run src/platform/notifications/schema.test.ts`
+Run: `TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_teams npx vitest run src/platform/notifications/schema.test.ts`
 Expected: FAIL — `prisma.teamsMessage` is undefined (model does not exist).
 
 - [ ] **Step 3: Add the enum**
@@ -169,16 +169,17 @@ In `prisma/schema.prisma`, in the `Person` model, after the `complianceReminder`
 
 - [ ] **Step 6: Generate the migration and client**
 
-Run:
+The migration runs against the dedicated worktree test DB (no `.env` is present; Prisma needs both URLs, which are equal locally). Run from the worktree root:
 ```bash
-cd .claude/worktrees/feat+teams-notifications
+export DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_teams
+export DATABASE_URL_UNPOOLED=$DATABASE_URL
 npx prisma migrate dev --name teams_messages
 ```
-Expected: a new migration directory under `prisma/migrations/`, `prisma generate` runs, no errors.
+Expected: a new migration directory under `prisma/migrations/`, `prisma generate` runs, no errors. (The existing migrations are already applied to this DB.)
 
 - [ ] **Step 7: Run test to verify it passes**
 
-Run: `TEST_DATABASE_URL=postgresql://localhost/havenhub_test_teams npx vitest run src/platform/notifications/schema.test.ts`
+Run: `TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_teams npx vitest run src/platform/notifications/schema.test.ts`
 Expected: PASS.
 
 - [ ] **Step 8: Commit**
@@ -478,7 +479,7 @@ describe("resolveTeamsUser", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `TEST_DATABASE_URL=postgresql://localhost/havenhub_test_teams npx vitest run src/platform/notifications/identity.test.ts`
+Run: `TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_teams npx vitest run src/platform/notifications/identity.test.ts`
 Expected: FAIL — cannot find module `./identity`.
 
 - [ ] **Step 3: Implement**
@@ -534,7 +535,7 @@ export async function resolveTeamsUser(
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `TEST_DATABASE_URL=postgresql://localhost/havenhub_test_teams npx vitest run src/platform/notifications/identity.test.ts`
+Run: `TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_teams npx vitest run src/platform/notifications/identity.test.ts`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -1009,7 +1010,7 @@ describe("drainTeamsQueue", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `TEST_DATABASE_URL=postgresql://localhost/havenhub_test_teams npx vitest run src/platform/notifications/send.test.ts`
+Run: `TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_teams npx vitest run src/platform/notifications/send.test.ts`
 Expected: FAIL — cannot find module `./send`.
 
 - [ ] **Step 3: Implement**
@@ -1122,7 +1123,7 @@ export async function drainTeamsQueue(transport: TeamsTransport): Promise<number
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `TEST_DATABASE_URL=postgresql://localhost/havenhub_test_teams npx vitest run src/platform/notifications/send.test.ts`
+Run: `TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_teams npx vitest run src/platform/notifications/send.test.ts`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -1217,7 +1218,7 @@ describe("notify", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `TEST_DATABASE_URL=postgresql://localhost/havenhub_test_teams npx vitest run src/platform/notifications/notify.test.ts`
+Run: `TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_teams npx vitest run src/platform/notifications/notify.test.ts`
 Expected: FAIL — cannot find module `./notify`.
 
 - [ ] **Step 3: Implement**
@@ -1305,7 +1306,7 @@ export async function notify(
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `TEST_DATABASE_URL=postgresql://localhost/havenhub_test_teams npx vitest run src/platform/notifications/notify.test.ts`
+Run: `TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_teams npx vitest run src/platform/notifications/notify.test.ts`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -1453,7 +1454,7 @@ describe("GET /api/cron/email drains Teams", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `TEST_DATABASE_URL=postgresql://localhost/havenhub_test_teams npx vitest run src/app/api/cron/email/route.test.ts`
+Run: `TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_teams npx vitest run src/app/api/cron/email/route.test.ts`
 Expected: FAIL — response has no `teams` field; the row stays QUEUED.
 
 - [ ] **Step 3: Wire the drain into the route**
@@ -1483,7 +1484,7 @@ Then, after the existing email drain `do/while` loop and before the `return`, ad
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `TEST_DATABASE_URL=postgresql://localhost/havenhub_test_teams npx vitest run src/app/api/cron/email/route.test.ts`
+Run: `TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_teams npx vitest run src/app/api/cron/email/route.test.ts`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -1525,7 +1526,7 @@ it("queues a Teams message for the reminder when the type routes to teams", asyn
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `TEST_DATABASE_URL=postgresql://localhost/havenhub_test_teams npx vitest run src/platform/email/reminders.test.ts`
+Run: `TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_teams npx vitest run src/platform/email/reminders.test.ts`
 Expected: FAIL — no `teamsMessage` is created (reminders still call `queueEmail` directly).
 
 - [ ] **Step 3: Replace the reminder send with notify()**
@@ -1620,7 +1621,7 @@ Replace the escalation `queueEmail(...)` block (~lines 328-334) with:
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `TEST_DATABASE_URL=postgresql://localhost/havenhub_test_teams npx vitest run src/platform/email/reminders.test.ts`
+Run: `TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_teams npx vitest run src/platform/email/reminders.test.ts`
 Expected: PASS (the new Teams case plus all existing reminder/escalation cases).
 
 - [ ] **Step 6: Commit**
@@ -1660,7 +1661,7 @@ it("queues a Teams message when the EPIC type routes to teams", async () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `TEST_DATABASE_URL=postgresql://localhost/havenhub_test_teams npx vitest run src/modules/volunteers/services/epic.test.ts`
+Run: `TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_teams npx vitest run src/modules/volunteers/services/epic.test.ts`
 Expected: FAIL — no `teamsMessage` created (still calling `queueEmail`).
 
 - [ ] **Step 3: Replace the EPIC send with notify()**
@@ -1710,7 +1711,7 @@ import { getSetting } from "@/platform/settings/service";
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `TEST_DATABASE_URL=postgresql://localhost/havenhub_test_teams npx vitest run src/modules/volunteers/services/epic.test.ts`
+Run: `TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_teams npx vitest run src/modules/volunteers/services/epic.test.ts`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -1801,7 +1802,7 @@ describe("retryTeamsMessage", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `TEST_DATABASE_URL=postgresql://localhost/havenhub_test_teams npx vitest run src/modules/admin/services/teams-messages.test.ts`
+Run: `TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_teams npx vitest run src/modules/admin/services/teams-messages.test.ts`
 Expected: FAIL — cannot find module `./teams-messages`.
 
 - [ ] **Step 3: Implement (mirroring email.ts conventions)**
@@ -1879,7 +1880,7 @@ export async function retryTeamsMessage(id: string): Promise<void> {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `TEST_DATABASE_URL=postgresql://localhost/havenhub_test_teams npx vitest run src/modules/admin/services/teams-messages.test.ts`
+Run: `TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_teams npx vitest run src/modules/admin/services/teams-messages.test.ts`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -1995,7 +1996,7 @@ Add a bullet under the appropriate heading in `CHANGELOG.md` (match the file's e
 
 Run:
 ```bash
-TEST_DATABASE_URL=postgresql://localhost/havenhub_test_teams npx vitest run \
+TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_teams npx vitest run \
   src/platform/notifications \
   src/platform/email/reminders.test.ts \
   src/platform/email/oauth.test.ts \
@@ -2007,7 +2008,7 @@ Expected: all PASS.
 
 - [ ] **Step 4: Run the entire test suite**
 
-Run: `TEST_DATABASE_URL=postgresql://localhost/havenhub_test_teams npx vitest run`
+Run: `TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_teams npx vitest run`
 Expected: green except the 4 pre-existing cert `/tmp` ENOENT flakes noted in project memory.
 
 - [ ] **Step 5: Type-check**

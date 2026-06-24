@@ -4,14 +4,14 @@ import { resetDb } from "@/platform/test/db";
 import {
   listTeamsMessages,
   retryTeamsMessage,
+  TeamsMessageNotFoundError,
   TeamsMessageStateError,
 } from "./teams-messages";
 
-let _seedIdx = 0;
 async function seed(status: "QUEUED" | "SENT" | "FAILED" | "FALLBACK") {
-  const idx = ++_seedIdx;
+  const uid = crypto.randomUUID();
   const p = await prisma.person.create({
-    data: { name: "Sam", contactEmail: `sam${idx}@x.com`, entraObjectId: `e${idx}` },
+    data: { name: "Sam", contactEmail: `sam-${uid}@x.com`, entraObjectId: uid },
   });
   return prisma.teamsMessage.create({
     data: {
@@ -54,5 +54,25 @@ describe("retryTeamsMessage", () => {
   it("rejects retrying a SENT row", async () => {
     const row = await seed("SENT");
     await expect(retryTeamsMessage(row.id)).rejects.toBeInstanceOf(TeamsMessageStateError);
+  });
+
+  it("resets a FALLBACK row to QUEUED with zero attempts", async () => {
+    const row = await seed("FALLBACK");
+    await prisma.teamsMessage.update({ where: { id: row.id }, data: { attempts: 3 } });
+    await retryTeamsMessage(row.id);
+    const after = await prisma.teamsMessage.findUnique({ where: { id: row.id } });
+    expect(after?.status).toBe("QUEUED");
+    expect(after?.attempts).toBe(0);
+  });
+
+  it("rejects retrying a QUEUED row with TeamsMessageStateError", async () => {
+    const row = await seed("QUEUED");
+    await expect(retryTeamsMessage(row.id)).rejects.toBeInstanceOf(TeamsMessageStateError);
+  });
+
+  it("throws TeamsMessageNotFoundError for a missing id", async () => {
+    await expect(retryTeamsMessage("non-existent-id")).rejects.toBeInstanceOf(
+      TeamsMessageNotFoundError,
+    );
   });
 });

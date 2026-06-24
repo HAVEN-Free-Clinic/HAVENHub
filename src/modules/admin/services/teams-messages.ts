@@ -91,7 +91,7 @@ export async function retryTeamsMessage(id: string): Promise<void> {
   if (!row) throw new TeamsMessageNotFoundError(id);
   if (row.status !== "FAILED" && row.status !== "FALLBACK") {
     throw new TeamsMessageStateError(
-      `Only failed messages can be retried (status: ${row.status}).`,
+      `Only FAILED or FALLBACK messages can be retried (status: ${row.status}).`,
     );
   }
   await prisma.teamsMessage.update({

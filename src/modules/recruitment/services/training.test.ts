@@ -26,12 +26,12 @@ afterEach(async () => { await resetDb(); });
 it("designates one training cycle per term; re-designating moves the flag", async () => {
   const { term, srr, c1, c2 } = await seed();
   await setTrainingCycle(c1.id, true, srr.id);
-  expect((await getTrainingCycleForTerm(term.id))?.id).toBe(c1.id);
+  expect((await getTrainingCycleForTerm(term.id, "VOLUNTEER"))?.id).toBe(c1.id);
   await setTrainingCycle(c2.id, true, srr.id);
-  expect((await getTrainingCycleForTerm(term.id))?.id).toBe(c2.id);
+  expect((await getTrainingCycleForTerm(term.id, "VOLUNTEER"))?.id).toBe(c2.id);
   expect((await prisma.recruitmentCycle.findUnique({ where: { id: c1.id } }))?.isTermTraining).toBe(false);
   await setTrainingCycle(c2.id, false, srr.id);
-  expect(await getTrainingCycleForTerm(term.id)).toBeNull();
+  expect(await getTrainingCycleForTerm(term.id, "VOLUNTEER")).toBeNull();
 });
 
 it("requires manage_cycles to designate", async () => {
@@ -161,4 +161,23 @@ it("listTrainingRoster lists in-scope active volunteers with cert + training sta
 it("listTrainingRoster rejects a cycle that is not the term training cycle", async () => {
   const { srr, c2 } = await seedMember(); // c2 is not designated
   await expect(listTrainingRoster(c2.id, srr.id)).rejects.toBeInstanceOf(TrainingStateError);
+});
+
+it("a term can have one volunteer and one director training cycle at once", async () => {
+  const { srr, term, c1 } = await seed();
+  const dirCycle = await prisma.recruitmentCycle.create({ data: { track: "DIRECTOR", termId: term.id, title: "D", publicSlug: "d", departments: ["SRHD"], createdById: srr.id, status: "OPEN" } });
+  await setTrainingCycle(c1.id, true, srr.id);        // volunteer
+  await setTrainingCycle(dirCycle.id, true, srr.id);  // director
+  expect((await getTrainingCycleForTerm(term.id, "VOLUNTEER"))?.id).toBe(c1.id);
+  expect((await getTrainingCycleForTerm(term.id, "DIRECTOR"))?.id).toBe(dirCycle.id);
+});
+
+it("designating a second cycle of a track clears the first of that track only", async () => {
+  const { srr, term, c1, c2 } = await seed();
+  const dirCycle = await prisma.recruitmentCycle.create({ data: { track: "DIRECTOR", termId: term.id, title: "D", publicSlug: "d", departments: ["SRHD"], createdById: srr.id, status: "OPEN" } });
+  await setTrainingCycle(c1.id, true, srr.id);
+  await setTrainingCycle(dirCycle.id, true, srr.id);
+  await setTrainingCycle(c2.id, true, srr.id); // second VOLUNTEER cycle
+  expect((await getTrainingCycleForTerm(term.id, "VOLUNTEER"))?.id).toBe(c2.id);
+  expect((await getTrainingCycleForTerm(term.id, "DIRECTOR"))?.id).toBe(dirCycle.id); // untouched
 });

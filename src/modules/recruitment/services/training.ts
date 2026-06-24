@@ -1,4 +1,4 @@
-import type { RecruitmentCycle, Prisma, TrainingMethod } from "@prisma/client";
+import type { RecruitmentCycle, Prisma, TrainingMethod, TrainingTrack } from "@prisma/client";
 import { complianceStatus, overallClearance } from "@/platform/compliance/rules";
 import type { TrainingState, OverallClearance } from "@/platform/compliance/rules";
 import { prisma } from "@/platform/db";
@@ -27,24 +27,23 @@ export type QuizSubmission = QuizResultPublic & {
   correctByKey: Record<string, string>;
 };
 
-/** The term's designated training cycle, or null. */
-export async function getTrainingCycleForTerm(termId: string): Promise<RecruitmentCycle | null> {
-  return prisma.recruitmentCycle.findFirst({ where: { termId, isTermTraining: true } });
+/** The term's designated training cycle for a track, or null. */
+export async function getTrainingCycleForTerm(termId: string, track: TrainingTrack): Promise<RecruitmentCycle | null> {
+  return prisma.recruitmentCycle.findFirst({ where: { termId, track, isTermTraining: true } });
 }
 
 /** Mark a cycle as the term's training source (or clear it). Designating one
- *  clears any other in the same term inside a transaction, preserving the
- *  one-per-term invariant. Requires manage_cycles. */
+ *  clears any other of the same track in the same term inside a transaction,
+ *  preserving the one-per-term-per-track invariant. Requires manage_cycles. */
 export async function setTrainingCycle(cycleId: string, value: boolean, actorId: string): Promise<void> {
   if (!(await can(actorId, "recruitment.manage_cycles"))) {
     throw new RecruitmentAuthError("Only recruitment leads can set the training cycle.");
   }
   const cycle = await prisma.recruitmentCycle.findUnique({ where: { id: cycleId } });
   if (!cycle) throw new TrainingStateError("Cycle not found.");
-  if (cycle.track !== "VOLUNTEER") throw new TrainingStateError("Only a volunteer cycle can host training.");
   await prisma.$transaction(async (tx) => {
     if (value) {
-      await tx.recruitmentCycle.updateMany({ where: { termId: cycle.termId, isTermTraining: true, NOT: { id: cycleId } }, data: { isTermTraining: false } });
+      await tx.recruitmentCycle.updateMany({ where: { termId: cycle.termId, track: cycle.track, isTermTraining: true, NOT: { id: cycleId } }, data: { isTermTraining: false } });
     }
     await tx.recruitmentCycle.update({ where: { id: cycleId }, data: { isTermTraining: value } });
   });
@@ -116,7 +115,7 @@ export async function completeTraining(
  *  Director-scoped (the volunteer must be in a department the actor manages) or
  *  review_all. Completes via ATTENDANCE. */
 export async function recordAttendance(personId: string, termId: string, actorId: string): Promise<void> {
-  const cycle = await getTrainingCycleForTerm(termId);
+  const cycle = await getTrainingCycleForTerm(termId, "VOLUNTEER");
   if (!cycle) throw new TrainingStateError("This term has no designated training cycle.");
 
   const memberships = await prisma.termMembership.findMany({
@@ -174,7 +173,7 @@ export type MyTraining = {
 /** Everything the volunteer's /training page needs. */
 export async function getMyTraining(personId: string): Promise<MyTraining> {
   const term = await activeTermOrThrow();
-  const cycle = await getTrainingCycleForTerm(term.id);
+  const cycle = await getTrainingCycleForTerm(term.id, "VOLUNTEER");
   const row = await prisma.training.findUnique({ where: { personId_termId_track: { personId, termId: term.id, track: "VOLUNTEER" } } });
   const state: TrainingState = row?.status === "COMPLETE" ? "COMPLETE" : "PENDING";
 
@@ -213,7 +212,7 @@ export async function submitQuiz(
   input: { answers: Record<string, unknown>; intake: TrainingIntake }
 ): Promise<QuizSubmission> {
   const term = await activeTermOrThrow();
-  const cycle = await getTrainingCycleForTerm(term.id);
+  const cycle = await getTrainingCycleForTerm(term.id, "VOLUNTEER");
   if (!cycle) throw new TrainingStateError("This term has no designated training cycle.");
 
   const isVolunteer = await prisma.termMembership.count({ where: { personId, termId: term.id, kind: "VOLUNTEER", status: "ACTIVE" } });

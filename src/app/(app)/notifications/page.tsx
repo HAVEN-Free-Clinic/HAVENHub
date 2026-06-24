@@ -1,5 +1,4 @@
 // src/app/(app)/notifications/page.tsx
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requirePersonSession } from "@/platform/auth/session";

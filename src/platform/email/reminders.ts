@@ -28,7 +28,7 @@
 import { prisma } from "@/platform/db";
 import { getSetting } from "@/platform/settings/service";
 import { complianceStatus, certExpiresAt } from "@/platform/compliance/rules";
-import { queueEmail } from "./send";
+import { notify } from "@/platform/notifications/notify";
 import { renderEmail } from "./templates/renderEmail";
 import {
   complianceReminderContext,
@@ -95,7 +95,7 @@ export async function runComplianceReminders(
 
   const persons = await prisma.person.findMany({
     where: { id: { in: candidateIds }, status: "ACTIVE" },
-    select: { id: true, name: true, contactEmail: true },
+    select: { id: true, name: true, contactEmail: true, entraObjectId: true },
   });
 
   if (persons.length === 0) return result;
@@ -184,12 +184,19 @@ export async function runComplianceReminders(
       "compliance-reminder",
       complianceReminderContext({ personName: person.name, status, expiresAt }),
     );
-    await queueEmail(prisma, {
-      to: person.contactEmail,
-      subject: renderedReminder.subject,
-      html: renderedReminder.html,
-      template: "compliance-reminder",
-      personId: person.id,
+    await notify(prisma, {
+      type: "compliance-reminder",
+      person: {
+        id: person.id,
+        entraObjectId: person.entraObjectId,
+        contactEmail: person.contactEmail,
+      },
+      email: { subject: renderedReminder.subject, html: renderedReminder.html },
+      teams: {
+        title: "HIPAA compliance reminder",
+        summary: "Your HIPAA training needs attention. Please review your compliance status.",
+        link: `${await getSetting<string>("app.baseUrl")}/get-started`,
+      },
     });
 
     const newRemindersSent = (existing?.remindersSent ?? 0) + 1;
@@ -284,7 +291,7 @@ async function sendEscalations(
     },
     select: {
       departmentId: true,
-      person: { select: { id: true, name: true, contactEmail: true } },
+      person: { select: { id: true, name: true, contactEmail: true, entraObjectId: true } },
     },
     orderBy: { department: { code: "asc" } },
   });
@@ -292,7 +299,7 @@ async function sendEscalations(
   // Dedupe directors by personId. Track the first department (by code order) for each.
   const seenDirectors = new Map<
     string,
-    { name: string; contactEmail: string | null; departmentName: string }
+    { id: string; name: string; contactEmail: string | null; entraObjectId: string | null; departmentName: string }
   >();
 
   for (const dm of directorMemberships) {
@@ -304,17 +311,19 @@ async function sendEscalations(
     if (!seenDirectors.has(dirPersonId)) {
       const dept = deptMeta.get(dm.departmentId);
       seenDirectors.set(dirPersonId, {
+        id: dirPersonId,
         name: dm.person.name,
         contactEmail: dm.person.contactEmail,
+        entraObjectId: dm.person.entraObjectId,
         // Use the first department by code (memberships are ordered by code asc).
         departmentName: dept?.name ?? "Unknown Department",
       });
     }
   }
 
-  // Queue one escalation email per director that has a contactEmail.
+  // Queue one escalation notification per director that has a contactEmail or entraObjectId.
   for (const [, director] of seenDirectors) {
-    if (!director.contactEmail) continue;
+    if (!director.contactEmail && !director.entraObjectId) continue;
 
     const renderedEscalation = await renderEmail(
       "compliance-escalation",
@@ -325,12 +334,19 @@ async function sendEscalations(
         status,
       }),
     );
-    await queueEmail(prisma, {
-      to: director.contactEmail,
-      subject: renderedEscalation.subject,
-      html: renderedEscalation.html,
-      template: "compliance-escalation",
-      personId: volunteer.id,
+    await notify(prisma, {
+      type: "compliance-escalation",
+      person: {
+        id: director.id,
+        entraObjectId: director.entraObjectId,
+        contactEmail: director.contactEmail,
+      },
+      email: { subject: renderedEscalation.subject, html: renderedEscalation.html },
+      teams: {
+        title: "HIPAA compliance escalation",
+        summary: `${volunteer.name} in ${director.departmentName} has an outstanding HIPAA compliance issue.`,
+        link: `${await getSetting<string>("app.baseUrl")}/admin`,
+      },
     });
 
     result.escalationsSent++;

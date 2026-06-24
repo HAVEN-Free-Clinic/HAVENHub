@@ -1,8 +1,14 @@
-import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Plus } from "lucide-react";
 import { PageHeader } from "@/platform/ui/page-header";
-import { listReferralSites } from "@/modules/referrals/services/referrals";
+import { listReferralSites, deleteReferralSite } from "@/modules/referrals/services/referrals";
 import { ReferralDirectoryBrowser } from "./referral-directory-browser";
+
+async function deleteSiteAction(id: string) {
+  "use server";
+  await deleteReferralSite(id);
+  redirect("/referrals");
+}
 
 export default async function ReferralsPage() {
   const sites = await listReferralSites();
@@ -14,19 +20,34 @@ export default async function ReferralsPage() {
     fast: sites.filter((s) => s.waitWeeks != null && s.waitWeeks < 4).length,
   };
 
+  const oldestReview = sites.reduce<Date | null>((oldest, s) => {
+    if (!s.lastReviewedAt) return oldest;
+    if (!oldest || s.lastReviewedAt < oldest) return s.lastReviewedAt;
+    return oldest;
+  }, null);
+  
   return (
     <div className="space-y-8">
       <PageHeader
         title="Referral Directory"
-        description="Specialists, community health partners, and social services HAVEN refers patients to."
+        description={
+          <>
+            Specialists, community health partners, and social services HAVEN refers patients to.
+            {oldestReview && (
+              <span className="ml-2 italic text-subtle-foreground">
+                · Oldest entry last reviewed {oldestReview.toLocaleDateString("en-US", { month: "short", year: "numeric" })}
+              </span>
+            )}
+          </>
+        }
         action={
-          <Link
+          <a
             href="/referrals/new"
-            className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-hover"
+            className="inline-flex items-center gap-2 rounded-lg bg-brand px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-hover hover:shadow-md"
           >
             <Plus className="h-4 w-4" aria-hidden />
             Add provider
-          </Link>
+          </a>
         }
       />
 
@@ -49,7 +70,7 @@ export default async function ReferralsPage() {
         </div>
       </div>
 
-      <ReferralDirectoryBrowser sites={sites} />
+      <ReferralDirectoryBrowser sites={sites} deleteSiteAction={deleteSiteAction} />
     </div>
   );
 }

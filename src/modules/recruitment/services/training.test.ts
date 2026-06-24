@@ -202,5 +202,5 @@ it("requiredTrainingTracks returns both tracks for a director+volunteer when bot
   await prisma.termMembership.create({ data: { personId: vol.id, termId: term.id, departmentId: dept.id, kind: "DIRECTOR", status: "ACTIVE" } });
   const dirCycle = await prisma.recruitmentCycle.create({ data: { track: "DIRECTOR", termId: term.id, title: "D", publicSlug: "d", departments: ["SRHD"], createdById: srr.id, status: "OPEN" } });
   await setTrainingCycle(dirCycle.id, true, srr.id);
-  expect((await requiredTrainingTracks(vol.id, term.id)).sort()).toEqual(["DIRECTOR", "VOLUNTEER"]);
+  expect(await requiredTrainingTracks(vol.id, term.id)).toEqual(["VOLUNTEER", "DIRECTOR"]);
 });

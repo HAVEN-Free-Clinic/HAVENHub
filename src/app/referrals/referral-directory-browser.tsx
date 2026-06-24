@@ -1,8 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
-import { Building2, Search } from "lucide-react";
+import { Building2, Search, ChevronDown, MapPin, Languages, Phone, Clock, ClipboardCheck } from "lucide-react";
+import { ReferralChecklistModal } from "@/app/referrals/components/referral-checklist-modal";
+import { DeleteSiteButton } from "@/app/referrals/components/delete-site-button";
+import { PhoneCopyButton } from "@/app/referrals/components/phone-copy-button";
 
 type Site = {
   id: string;
@@ -12,9 +15,16 @@ type Site = {
   system: string | null;
   acceptsUninsured: boolean;
   freeCareEligible: boolean;
+  slidingScale: boolean;
   waitWeeks: number | null;
+  waitNote: string | null;
+  phone: string | null;
+  address: string;
   languages: string[];
+  schedulingContact: string | null;
+  referralSteps: string[];
   notes: string | null;
+  providers: { id: string; name: string; specialty: string }[];
 };
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -112,11 +122,21 @@ function statusPills(site: Site): { short: string; full: string; confirmed: bool
   return pills;
 }
 
-function SiteRow({ site }: { site: Site }) {
+function SiteRow({ site, deleteSiteAction }: { site: Site; deleteSiteAction: (id: string) => Promise<void> }) {
+  const [expanded, setExpanded] = useState(false);
+  const cluster = clusterFor(site.category);
+
+  async function boundDelete() {
+    await deleteSiteAction(site.id);
+  }
+
   return (
     <li>
-      <div className="flex items-start justify-between gap-4 px-6 py-4 transition hover:bg-muted">
-        <Link href={`/referrals/${site.id}`} className="flex items-start gap-3 min-w-0 flex-1">
+      <div
+        onClick={() => setExpanded((e) => !e)}
+        className="flex items-start justify-between gap-4 px-6 py-4 cursor-pointer transition hover:bg-muted"
+      >
+        <div className="flex items-start gap-3 min-w-0 flex-1">
           <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-faint text-brand-fg">
             <Building2 className="h-[18px] w-[18px]" aria-hidden />
           </span>
@@ -125,7 +145,7 @@ function SiteRow({ site }: { site: Site }) {
             <div className="mt-1 flex flex-wrap items-center gap-1.5">
               <span
                 className="text-[11px] font-medium px-2 py-0.5 rounded-full"
-                style={{ background: clusterFor(site.category).bg, color: clusterFor(site.category).color }}
+                style={{ background: cluster.bg, color: cluster.color }}
               >
                 {CATEGORY_LABELS[site.category] ?? site.category}
               </span>
@@ -142,21 +162,116 @@ function SiteRow({ site }: { site: Site }) {
               ))}
             </div>
           </div>
-        </Link>
-        <Link
-          href={`/referrals/${site.id}/edit`}
-          className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-muted"
-        >
-          Edit
-        </Link>
+        </div>
+        <ChevronDown
+          className={`h-4 w-4 shrink-0 text-subtle-foreground mt-1 transition-transform ${expanded ? "rotate-180" : ""}`}
+          aria-hidden
+        />
       </div>
+
+      {expanded && (
+        <div className="border-t border-border bg-muted/30 px-6 py-5 space-y-4" onClick={(e) => e.stopPropagation()}>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-subtle-foreground">Address</p>
+              <p className="mt-1 flex items-center gap-2 text-sm text-foreground">
+                <MapPin className="h-3.5 w-3.5 text-subtle-foreground" aria-hidden />
+                {site.address}
+              </p>
+            </div>
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-subtle-foreground">Languages</p>
+              <p className="mt-1 flex items-center gap-2 text-sm text-foreground">
+                <Languages className="h-3.5 w-3.5 text-subtle-foreground" aria-hidden />
+                {site.languages.length > 0 ? site.languages.join(" · ") : "Not on file"}
+              </p>
+            </div>
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-subtle-foreground mb-1">Scheduling contact</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <PhoneCopyButton phone={site.phone} />
+                <span className="text-sm text-muted-foreground">{site.schedulingContact ?? "Contact not on file"}</span>
+              </div>
+            </div>
+            {site.waitNote && (
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-subtle-foreground">Wait note</p>
+                <p className="mt-1 flex items-center gap-2 text-sm text-foreground">
+                  <Clock className="h-3.5 w-3.5 text-subtle-foreground" aria-hidden />
+                  {site.waitNote}
+                </p>
+              </div>
+            )}
+          </div>
+
+          {site.providers.length > 0 && (
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-subtle-foreground mb-2">
+                Providers at this location
+              </p>
+              <ul className="space-y-1.5">
+                {site.providers.map((p) => (
+                  <li key={p.id} className="flex items-center gap-2 text-sm">
+                    <span className="text-foreground font-medium">{p.name}</span>
+                    <span className="text-muted-foreground">{p.specialty}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {site.referralSteps.length > 0 && (
+            <div className="rounded-xl border border-border bg-surface p-3.5">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-subtle-foreground mb-2">
+                Referral process
+              </p>
+              <ol className="space-y-1.5">
+                {site.referralSteps.map((step, i) => (
+                  <li key={i} className="flex items-start gap-2 text-sm text-foreground">
+                    <span className="grid h-4 w-4 shrink-0 place-items-center rounded-full bg-brand-faint text-brand-fg text-[10px] font-semibold mt-0.5">
+                      {i + 1}
+                    </span>
+                    {step}
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+
+          {site.notes && (
+            <div className="border-l-2 border-brand pl-3">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-subtle-foreground mb-1">Volunteer note</p>
+              <p className="text-sm text-foreground">{site.notes}</p>
+            </div>
+          )}
+
+          <div className="flex items-center gap-2 pt-2 border-t border-border">
+            <ReferralChecklistModal
+              site={{ name: site.name, specialty: site.specialty, system: site.system, phone: site.phone, address: site.address }}
+            />
+            <Link
+              href={`/referrals/${site.id}/edit`}
+              className="inline-flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-1.5 text-sm font-medium text-foreground transition hover:bg-muted"
+            >
+              Edit
+            </Link>
+            <DeleteSiteButton action={boundDelete} />
+          </div>
+        </div>
+      )}
     </li>
   );
 }
 
 type SortKey = "name" | "wait" | "category";
 
-export function ReferralDirectoryBrowser({ sites }: { sites: Site[] }) {
+export function ReferralDirectoryBrowser({
+  sites,
+  deleteSiteAction,
+}: {
+  sites: Site[];
+  deleteSiteAction: (id: string) => Promise<void>;
+}) {
   const [query, setQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState<string>("all");
   const [sort, setSort] = useState<SortKey>("name");
@@ -165,36 +280,43 @@ export function ReferralDirectoryBrowser({ sites }: { sites: Site[] }) {
   const [onlyFast, setOnlyFast] = useState(false);
   const [onlySpanish, setOnlySpanish] = useState(false);
 
-  const categoryCounts = useMemo(() => {
-    const counts: Record<string, number> = { all: sites.length };
-    for (const s of sites) counts[s.category] = (counts[s.category] ?? 0) + 1;
-    return counts;
-  }, [sites]);
+  const [openClusters, setOpenClusters] = useState<Set<string>>(new Set());
 
-  const filtered = useMemo(() => {
-    let list = sites.filter((s) => {
-      if (activeCategory !== "all" && s.category !== activeCategory) return false;
-      if (onlyUninsured && !s.acceptsUninsured) return false;
-      if (onlyFreeCare && !s.freeCareEligible) return false;
-      if (onlyFast && (s.waitWeeks == null || s.waitWeeks >= 4)) return false;
-      if (onlySpanish && !s.languages.some((l) => l.toLowerCase().includes("spanish"))) return false;
-      if (query) {
-        const haystack = `${s.name} ${s.specialty} ${s.system ?? ""} ${s.languages.join(" ")} ${s.notes ?? ""}`.toLowerCase();
-        if (!haystack.includes(query.toLowerCase())) return false;
+  function toggleCluster(label: string) {
+    setOpenClusters((prev) => {
+      const next = new Set(prev);
+      if (next.has(label)) {
+        next.delete(label);
+      } else {
+        next.add(label);
       }
-      return true;
+      return next;
     });
+  }
 
-    if (sort === "wait") {
-      list = [...list].sort((a, b) => (a.waitWeeks ?? 999) - (b.waitWeeks ?? 999));
-    } else if (sort === "name") {
-      list = [...list].sort((a, b) => a.name.localeCompare(b.name));
-    } else if (sort === "category") {
-      list = [...list].sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
+  const categoryCounts: Record<string, number> = { all: sites.length };
+  for (const s of sites) categoryCounts[s.category] = (categoryCounts[s.category] ?? 0) + 1;
+
+  let filtered = sites.filter((s) => {
+    if (activeCategory !== "all" && s.category !== activeCategory) return false;
+    if (onlyUninsured && !s.acceptsUninsured) return false;
+    if (onlyFreeCare && !s.freeCareEligible) return false;
+    if (onlyFast && (s.waitWeeks == null || s.waitWeeks >= 4)) return false;
+    if (onlySpanish && !s.languages.some((l) => l.toLowerCase().includes("spanish"))) return false;
+    if (query) {
+      const haystack = `${s.name} ${s.specialty} ${s.system ?? ""} ${s.languages.join(" ")} ${s.notes ?? ""}`.toLowerCase();
+      if (!haystack.includes(query.toLowerCase())) return false;
     }
+    return true;
+  });
 
-    return list;
-  }, [sites, activeCategory, sort, onlyUninsured, onlyFreeCare, onlyFast, onlySpanish, query]);
+  if (sort === "wait") {
+    filtered = [...filtered].sort((a, b) => (a.waitWeeks ?? 999) - (b.waitWeeks ?? 999));
+  } else if (sort === "name") {
+    filtered = [...filtered].sort((a, b) => a.name.localeCompare(b.name));
+  } else if (sort === "category") {
+    filtered = [...filtered].sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
+  }
 
   return (
     <div className="grid gap-6 lg:grid-cols-[260px_1fr] items-start">
@@ -264,37 +386,57 @@ export function ReferralDirectoryBrowser({ sites }: { sites: Site[] }) {
 
       <div>
         {filtered.length === 0 ? (
-          <div className="rounded-2xl border border-border bg-surface p-12 text-center">
-            <Search className="mx-auto h-8 w-8 text-subtle-foreground mb-3" aria-hidden />
-            <p className="text-sm text-muted-foreground">No providers match — try clearing filters or adjusting your search.</p>
+          <div className="rounded-2xl border border-dashed border-border bg-surface p-14 text-center">
+            <Search className="mx-auto h-10 w-10 text-subtle-foreground/40 mb-4" aria-hidden />
+            <p className="text-sm font-medium text-foreground">No providers match</p>
+            <p className="mt-1 text-sm text-muted-foreground">Try clearing filters or adjusting your search.</p>
           </div>
         ) : activeCategory !== "all" ? (
           <div className="rounded-2xl border border-border bg-surface shadow-sm overflow-hidden">
             <ul className="divide-y divide-border-subtle">
               {filtered.map((site) => (
-                <SiteRow key={site.id} site={site} />
+                <SiteRow key={site.id} site={site} deleteSiteAction={deleteSiteAction} />
               ))}
             </ul>
           </div>
         ) : (
-          <div className="space-y-6">
+          <div className="space-y-3">
             {CATEGORY_CLUSTERS.map((cluster) => {
               const clusterSites = filtered.filter((s) => cluster.categories.includes(s.category));
               if (clusterSites.length === 0) return null;
+              const isOpen = openClusters.has(cluster.label);
               return (
-                <div key={cluster.label}>
-                  <div className="flex items-center gap-2 mb-2 px-1">
-                    <span className="h-2.5 w-2.5 rounded-full" style={{ background: cluster.color }} />
-                    <h3 className="text-sm font-semibold text-foreground">{cluster.label}</h3>
-                    <span className="text-xs text-muted-foreground">({clusterSites.length})</span>
-                  </div>
-                  <div className="rounded-2xl border border-border bg-surface shadow-sm overflow-hidden">
-                    <ul className="divide-y divide-border-subtle">
+                <div
+                  key={cluster.label}
+                  className="rounded-2xl border border-border bg-surface shadow-sm overflow-hidden"
+                >
+                  <button
+                    onClick={() => toggleCluster(cluster.label)}
+                    className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left transition hover:bg-muted"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="h-3 w-3 rounded-full shrink-0" style={{ background: cluster.color }} />
+                      <h3 className="text-sm font-semibold text-foreground">{cluster.label}</h3>
+                      <span
+                        className="text-xs font-medium px-2 py-0.5 rounded-full"
+                        style={{ background: cluster.bg, color: cluster.color }}
+                      >
+                        {clusterSites.length}
+                      </span>
+                    </div>
+                    <ChevronDown
+                      className={`h-4 w-4 shrink-0 text-subtle-foreground transition-transform ${isOpen ? "rotate-180" : ""}`}
+                      aria-hidden
+                    />
+                  </button>
+
+                  {isOpen && (
+                    <ul className="divide-y divide-border-subtle border-t border-border">
                       {clusterSites.map((site) => (
-                        <SiteRow key={site.id} site={site} />
+                        <SiteRow key={site.id} site={site} deleteSiteAction={deleteSiteAction} />
                       ))}
                     </ul>
-                  </div>
+                  )}
                 </div>
               );
             })}

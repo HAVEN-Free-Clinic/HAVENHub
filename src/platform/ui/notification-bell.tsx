@@ -68,11 +68,11 @@ export function NotificationBell() {
     };
   }, [open]);
 
-  async function openItem(item: Item) {
+  function openItem(item: Item) {
     setOpen(false);
     if (!item.readAt) {
-      await markReadAction(item.id);
-      await refresh();
+      // Mark read + refresh in the background so navigation is instant.
+      void markReadAction(item.id).then(() => void refresh());
     }
     if (item.link) router.push(item.link);
   }

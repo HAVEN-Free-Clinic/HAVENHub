@@ -96,7 +96,7 @@ function GridFilledButton({
         type="submit"
         disabled={pending}
         aria-label={`Confirm remove. ${ariaLabel ?? label}`}
-        className="flex h-9 w-full min-w-[40px] touch-manipulation items-center justify-center rounded border border-red-300 bg-red-50 text-red-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+        className="flex h-9 w-full min-w-[40px] touch-manipulation items-center justify-center rounded-lg border border-critical/30 bg-red-50 text-critical transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-fg"
         title="Click again to remove"
       >
         <span className="text-xs font-semibold leading-none">
@@ -115,7 +115,7 @@ function GridFilledButton({
         arm();
       }}
       aria-label={ariaLabel ?? label}
-      className="flex h-9 w-full min-w-[40px] touch-manipulation flex-col items-center justify-center rounded border border-slate-300 bg-slate-100 text-slate-700 hover:bg-red-50 hover:border-red-300 hover:text-red-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+      className="flex h-9 w-full min-w-[40px] touch-manipulation flex-col items-center justify-center rounded-lg border border-border-strong bg-muted-strong text-foreground-soft hover:bg-red-50 hover:border-critical/30 hover:text-critical transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-fg"
       title={ariaLabel ?? label}
     >
       {pending ? (
@@ -128,7 +128,7 @@ function GridFilledButton({
               {activeTags.map((t) => (
                 <span
                   key={t}
-                  className="rounded-sm bg-brand-faint px-0.5 text-[10px] font-medium text-brand leading-tight"
+                  className="rounded-sm bg-brand-faint px-0.5 text-[10px] font-medium text-brand-fg leading-tight"
                 >
                   {TAG_SHORT[t]}
                 </span>
@@ -163,7 +163,7 @@ function SubmitButton({
         type="submit"
         disabled={pending}
         aria-label={ariaLabel ?? label}
-        className="flex h-9 w-full min-w-[40px] touch-manipulation items-center justify-center rounded border border-dashed border-slate-300 text-slate-300 hover:border-brand hover:text-brand transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+        className="flex h-9 w-full min-w-[40px] touch-manipulation items-center justify-center rounded-lg border border-dashed border-border-strong text-subtle-foreground hover:border-brand hover:text-brand-fg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-fg"
       >
         {pending ? "..." : "+"}
       </button>

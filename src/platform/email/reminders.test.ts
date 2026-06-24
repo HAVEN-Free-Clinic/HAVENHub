@@ -12,10 +12,11 @@
  * All assertions use EmailLog.template to distinguish reminder vs escalation rows.
  */
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import { runComplianceReminders } from "./reminders";
+import * as channel from "@/platform/notifications/channel";
 
 // ---------------------------------------------------------------------------
 // Reference "now" for all tests
@@ -569,5 +570,33 @@ describe("EXPIRING_SOON person", () => {
     expect(result.remindersSent).toBe(1);
     const row = await getReminderRow(person.id);
     expect(row!.lastStatus).toBe("EXPIRING_SOON");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Teams channel routing for compliance reminder
+// ---------------------------------------------------------------------------
+
+describe("Teams channel routing", () => {
+  it("queues a Teams message for the reminder when the type routes to teams", async () => {
+    vi.spyOn(channel, "resolveChannel").mockResolvedValue("teams");
+
+    const term = await createTerm();
+    const dept = await createDepartment("PCAR");
+    // Create person with entraObjectId so Teams identity can be resolved
+    const person = await createPerson("Teams Volunteer", "teams-vol@example.com");
+    // Update the person to set entraObjectId (createPerson helper does not set it)
+    await prisma.person.update({
+      where: { id: person.id },
+      data: { entraObjectId: "e-vol" },
+    });
+    await addMembership(person.id, term.id, dept.id, "VOLUNTEER");
+    await addCert(person.id, EXPIRED_COMPLETION);
+
+    await runComplianceReminders(NOW);
+
+    const teams = await prisma.teamsMessage.findFirst({ where: { type: "compliance-reminder" } });
+    expect(teams).not.toBeNull();
+    expect(teams?.title).toContain("compliance");
   });
 });

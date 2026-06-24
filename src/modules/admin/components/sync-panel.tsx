@@ -12,9 +12,11 @@
 import type { AuditLog, Outbox } from "@prisma/client";
 import type { SyncOverview } from "@/modules/admin/services/sync";
 import { Badge } from "@/platform/ui/badge";
+import { Card } from "@/platform/ui/card";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { StatCard } from "@/platform/ui/stat-card";
+import { Alert } from "@/platform/ui/alert";
 import { ALL_PEOPLE_FIELDS } from "@/platform/airtable/fields";
 
 // ---------------------------------------------------------------------------
@@ -67,9 +69,9 @@ function relativeTime(date: Date): string {
 function FailuresTable({ rows }: { rows: Outbox[] }) {
   if (rows.length === 0) {
     return (
-      <div className="rounded-lg border border-slate-200 bg-white px-6 py-8 text-center text-sm text-slate-400">
+      <Card pad={false} className="px-6 py-8 text-center text-sm text-muted-foreground">
         No failed outbox rows.
-      </div>
+      </Card>
     );
   }
 
@@ -86,19 +88,19 @@ function FailuresTable({ rows }: { rows: Outbox[] }) {
       <tbody>
         {rows.map((row) => (
           <TR key={row.id}>
-            <TD className="text-xs text-slate-600">
+            <TD className="text-xs text-foreground-soft">
               <span className="font-medium">{row.entityType}</span>{" "}
-              <span className="text-slate-400" title={row.entityId}>
+              <span className="text-subtle-foreground" title={row.entityId}>
                 {truncate(row.entityId)}
               </span>
             </TD>
-            <TD className="text-xs text-slate-600">{row.attempts}</TD>
-            <TD className="text-xs text-slate-500">
+            <TD className="text-xs text-foreground-soft">{row.attempts}</TD>
+            <TD className="text-xs text-muted-foreground">
               <span title={row.lastError ?? undefined}>
                 {row.lastError ? truncate(row.lastError, 48) : null}
               </span>
             </TD>
-            <TD className="whitespace-nowrap text-xs text-slate-400">
+            <TD className="whitespace-nowrap text-xs text-subtle-foreground">
               {formatUtc(row.createdAt)}
             </TD>
           </TR>
@@ -111,9 +113,9 @@ function FailuresTable({ rows }: { rows: Outbox[] }) {
 function DriftTable({ rows }: { rows: AuditLog[] }) {
   if (rows.length === 0) {
     return (
-      <div className="rounded-lg border border-slate-200 bg-white px-6 py-8 text-center text-sm text-slate-400">
+      <Card pad={false} className="px-6 py-8 text-center text-sm text-muted-foreground">
         No drift corrections recorded.
-      </div>
+      </Card>
     );
   }
 
@@ -140,13 +142,13 @@ function DriftTable({ rows }: { rows: AuditLog[] }) {
 
           return (
             <TR key={row.id}>
-              <TD className="whitespace-nowrap text-xs text-slate-400">
+              <TD className="whitespace-nowrap text-xs text-subtle-foreground">
                 {formatUtc(row.createdAt)}
               </TD>
-              <TD className="text-xs text-slate-500" title={row.entityId ?? undefined}>
+              <TD className="text-xs text-muted-foreground" title={row.entityId ?? undefined}>
                 {row.entityId ? truncate(row.entityId) : null}
               </TD>
-              <TD className="text-xs text-slate-600">{changedFields}</TD>
+              <TD className="text-xs text-foreground-soft">{changedFields}</TD>
             </TR>
           );
         })}
@@ -174,13 +176,10 @@ export function SyncPanel({ overview, requeued, retryAction }: SyncPanelProps) {
     <div className="space-y-8">
       {/* Mirror-disabled banner */}
       {!mirrorEnabled && (
-        <div
-          role="status"
-          className="rounded-lg border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800"
-        >
+        <Alert tone="warning">
           Mirror is disabled. Outbox rows will accumulate until the FA26 cutover
           enables it.
-        </div>
+        </Alert>
       )}
 
       {/* Status cards */}
@@ -194,7 +193,7 @@ export function SyncPanel({ overview, requeued, retryAction }: SyncPanelProps) {
               <Badge tone="warning">Disabled</Badge>
             )}
             {targetBaseId && (
-              <p className="text-xs text-slate-400" title={targetBaseId}>
+              <p className="text-xs text-subtle-foreground" title={targetBaseId}>
                 {truncate(targetBaseId, 24)}
               </p>
             )}
@@ -208,14 +207,14 @@ export function SyncPanel({ overview, requeued, retryAction }: SyncPanelProps) {
               <>
                 <Badge tone="success">Healthy</Badge>
                 {worker.beatAt && (
-                  <p className="text-xs text-slate-400">{relativeTime(worker.beatAt)}</p>
+                  <p className="text-xs text-subtle-foreground">{relativeTime(worker.beatAt)}</p>
                 )}
               </>
             ) : (
               <>
                 <Badge tone="critical">No heartbeat</Badge>
                 {worker.beatAt && (
-                  <p className="text-xs text-slate-400">{formatUtc(worker.beatAt)}</p>
+                  <p className="text-xs text-subtle-foreground">{formatUtc(worker.beatAt)}</p>
                 )}
               </>
             )}
@@ -239,7 +238,7 @@ export function SyncPanel({ overview, requeued, retryAction }: SyncPanelProps) {
       {/* Failures section */}
       <section aria-label="Failures">
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-slate-800">Failed Rows</h2>
+          <h2 className="text-base font-semibold text-foreground">Failed Rows</h2>
           {failures.length > 0 && (
             <form action={retryAction}>
               <ConfirmButton
@@ -251,7 +250,7 @@ export function SyncPanel({ overview, requeued, retryAction }: SyncPanelProps) {
         </div>
 
         {requeued !== undefined && requeued > 0 && (
-          <p className="mb-3 text-sm text-slate-500">
+          <p className="mb-3 text-sm text-muted-foreground">
             Requeued {requeued} {requeued === 1 ? "row" : "rows"}.
           </p>
         )}
@@ -261,7 +260,7 @@ export function SyncPanel({ overview, requeued, retryAction }: SyncPanelProps) {
 
       {/* Drift section */}
       <section aria-label="Drift">
-        <h2 className="mb-3 text-base font-semibold text-slate-800">
+        <h2 className="mb-3 text-base font-semibold text-foreground">
           Drift Corrections
         </h2>
         <DriftTable rows={drift} />

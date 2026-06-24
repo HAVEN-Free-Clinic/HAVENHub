@@ -27,6 +27,7 @@ import {
 import { searchPeople } from "@/modules/admin/services/people";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
+import { Card } from "@/platform/ui/card";
 import { Input, Field } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
@@ -60,7 +61,7 @@ type AssignmentFormProps = {
 
 function SectionHeading({ children }: { children: ReactNode }) {
   return (
-    <h2 className="mb-4 text-base font-semibold tracking-tight text-slate-800">
+    <h2 className="mb-4 text-base font-semibold tracking-tight text-foreground">
       {children}
     </h2>
   );
@@ -187,7 +188,7 @@ export async function AssignmentForm({
 
       {/* Assignments table */}
       {assignments.length === 0 ? (
-        <p className="text-sm text-slate-400">No assignments yet.</p>
+        <p className="text-sm text-subtle-foreground">No assignments yet.</p>
       ) : (
         <Table>
           <THead>
@@ -201,7 +202,7 @@ export async function AssignmentForm({
           <tbody>
             {assignments.map((a) => (
               <TR key={a.id}>
-                <TD className="font-medium text-slate-800">{a.role.name}</TD>
+                <TD className="font-medium text-foreground">{a.role.name}</TD>
                 <TD>
                   {a.person ? (
                     <span className="flex items-center gap-2">
@@ -214,14 +215,14 @@ export async function AssignmentForm({
                       {a.department.code}
                     </span>
                   ) : (
-                    <span className="text-slate-400">Unknown</span>
+                    <span className="text-subtle-foreground">Unknown</span>
                   )}
                 </TD>
                 <TD>
                   {a.term ? (
                     <span className="font-mono text-xs">{a.term.code}</span>
                   ) : (
-                    <span className="text-slate-400">Global</span>
+                    <span className="text-subtle-foreground">Global</span>
                   )}
                 </TD>
                 <TD>
@@ -237,8 +238,8 @@ export async function AssignmentForm({
       )}
 
       {/* Create person assignment */}
-      <div className="rounded-lg border border-slate-200 bg-white p-5 space-y-4">
-        <h3 className="text-sm font-semibold text-slate-700">Assign role to person</h3>
+      <Card className="space-y-4">
+        <h3 className="text-sm font-semibold text-foreground-soft">Assign role to person</h3>
 
         {/* Person search box */}
         <form method="GET" className="flex items-end gap-3">
@@ -257,7 +258,7 @@ export async function AssignmentForm({
           {assignq && (
             <a
               href={pageHref}
-              className="self-end pb-2 text-sm text-slate-500 hover:text-slate-900"
+              className="self-end pb-2 text-sm text-muted-foreground hover:text-foreground"
             >
               Clear
             </a>
@@ -266,25 +267,25 @@ export async function AssignmentForm({
 
         {/* Person search results */}
         {assignq && assignq.trim() && (
-          <div className="rounded-lg border border-slate-200">
-            <div className="border-b border-slate-100 px-4 py-3">
-              <p className="text-sm font-medium text-slate-700">
+          <div className="rounded-2xl border border-border">
+            <div className="border-b border-border-subtle px-4 py-3">
+              <p className="text-sm font-medium text-foreground-soft">
                 {personResults.length === 0
                   ? `No results for "${assignq}"`
                   : `${personResults.length} result(s) for "${assignq}"`}
               </p>
             </div>
             {personResults.length > 0 && (
-              <div className="divide-y divide-slate-100">
+              <div className="divide-y divide-border-subtle">
                 {personResults.map((person) => (
                   <div
                     key={person.id}
                     className="flex flex-wrap items-center gap-3 px-4 py-3"
                   >
                     <div className="min-w-[12rem]">
-                      <p className="text-sm font-medium text-slate-800">{person.name}</p>
+                      <p className="text-sm font-medium text-foreground">{person.name}</p>
                       {person.netId && (
-                        <p className="text-xs text-slate-400">{person.netId}</p>
+                        <p className="text-xs text-subtle-foreground">{person.netId}</p>
                       )}
                     </div>
                     <form action={assignPersonAction} className="flex flex-wrap items-center gap-2">
@@ -318,11 +319,11 @@ export async function AssignmentForm({
             )}
           </div>
         )}
-      </div>
+      </Card>
 
       {/* Create department assignment */}
-      <div className="rounded-lg border border-slate-200 bg-white p-5 space-y-4">
-        <h3 className="text-sm font-semibold text-slate-700">Assign role to department</h3>
+      <Card className="space-y-4">
+        <h3 className="text-sm font-semibold text-foreground-soft">Assign role to department</h3>
         <form action={assignDepartmentAction} className="flex flex-wrap items-end gap-3">
           <Field label="Department">
             <Select name="departmentId" className="w-56">
@@ -356,7 +357,7 @@ export async function AssignmentForm({
             Assign department
           </Button>
         </form>
-      </div>
+      </Card>
     </section>
   );
 }

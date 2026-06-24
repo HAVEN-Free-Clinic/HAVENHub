@@ -1,0 +1,178 @@
+"use client";
+
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { Eye } from "lucide-react";
+import { Modal } from "@/platform/ui/modal";
+import { buttonClasses } from "@/platform/ui/button";
+import { Field, Input } from "@/platform/ui/input";
+
+type CertificateViewerProps = {
+  certId: string;
+  fileName: string;
+  /** Shown in the header when a manager is viewing someone else's certificate. */
+  ownerName?: string;
+  /** The cert's current completion date, if any. Controls whether entry is offered. */
+  completionDate?: Date | null;
+  /** True only when the viewer holds volunteers.manage_compliance. Gates date entry. */
+  canEditDate?: boolean;
+  /** True only for superadmins. Allows overwriting a date that is already set. */
+  canEditExistingDate?: boolean;
+  /** Bound server action: (dateIso) => result. Required for entry to render. */
+  onSetDate?: (dateIso: string) => Promise<{ error?: string }>;
+};
+
+/**
+ * "View" button that opens a modal previewing the certificate PDF inline. The
+ * iframe is only mounted while the modal is open (so roster rows never each load
+ * a PDF) and unmounts on close. Download / Open-in-new-tab are provided as
+ * fallbacks for browsers that will not render PDFs in an iframe.
+ *
+ * When canEditDate is true, onSetDate is provided, and the cert has no
+ * completion date, a date-entry form appears in the footer so a compliance
+ * manager can record the date read off the PDF. Saving also verifies the cert.
+ */
+export function CertificateViewer({
+  certId,
+  fileName,
+  ownerName,
+  completionDate,
+  canEditDate,
+  canEditExistingDate,
+  onSetDate,
+}: CertificateViewerProps) {
+  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+  const router = useRouter();
+
+  const inlineHref = `/my-info/certificate/${certId}?inline=1`;
+  const downloadHref = `/my-info/certificate/${certId}`;
+  const title = ownerName ? `${ownerName}: ${fileName}` : fileName;
+
+  const hasDate = Boolean(completionDate);
+  const canSetNew = Boolean(canEditDate && onSetDate && !hasDate);
+  const canOverwrite = Boolean(canEditExistingDate && onSetDate && hasDate);
+  const showForm = canSetNew || (canOverwrite && editing);
+  const isOverwrite = canOverwrite && editing;
+
+  const currentDateValue = completionDate
+    ? completionDate.toISOString().split("T")[0]
+    : undefined;
+
+  function handleSubmit(formData: FormData) {
+    if (!onSetDate) return;
+    const dateIso = (formData.get("completionDate") as string | null) ?? "";
+    setError(null);
+    startTransition(async () => {
+      const result = await onSetDate(dateIso);
+      if (result?.error) {
+        setError(result.error);
+        return;
+      }
+      setEditing(false);
+      setOpen(false);
+      router.refresh();
+    });
+  }
+
+  // Local-time YYYY-MM-DD so the date input's max matches the user's "today".
+  const today = new Date().toLocaleDateString("en-CA");
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => {
+          setError(null);
+          setEditing(false);
+          setOpen(true);
+        }}
+        className={buttonClasses("outline", "sm", "gap-1.5")}
+      >
+        <Eye className="h-4 w-4" />
+        View
+      </button>
+
+      {open && (
+        <Modal
+          open={open}
+          onClose={() => setOpen(false)}
+          title={title}
+          footer={
+            <div className="flex w-full items-end justify-between gap-3">
+              {showForm ? (
+                <form action={handleSubmit} className="flex items-end gap-2">
+                  <Field label="Completion date">
+                    <Input
+                      type="date"
+                      name="completionDate"
+                      required
+                      max={today}
+                      defaultValue={isOverwrite ? currentDateValue : undefined}
+                    />
+                  </Field>
+                  <button
+                    type="submit"
+                    disabled={isPending}
+                    className={buttonClasses("primary", "sm")}
+                  >
+                    {isPending ? "Saving..." : isOverwrite ? "Update and verify" : "Save and verify"}
+                  </button>
+                  {isOverwrite && (
+                    <button
+                      type="button"
+                      className={buttonClasses("ghost", "sm")}
+                      onClick={() => {
+                        setEditing(false);
+                        setError(null);
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  )}
+                </form>
+              ) : canOverwrite ? (
+                <button
+                  type="button"
+                  className={buttonClasses("outline", "sm")}
+                  onClick={() => {
+                    setError(null);
+                    setEditing(true);
+                  }}
+                >
+                  Edit date
+                </button>
+              ) : (
+                <span />
+              )}
+              <div className="flex items-center gap-2">
+                <a
+                  href={inlineHref}
+                  target="_blank"
+                  rel="noreferrer"
+                  className={buttonClasses("ghost", "sm")}
+                >
+                  Open in new tab
+                </a>
+                <a href={downloadHref} className={buttonClasses("outline", "sm")}>
+                  Download
+                </a>
+              </div>
+            </div>
+          }
+        >
+          {error && (
+            <p className="mb-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
+          )}
+          <iframe
+            src={inlineHref}
+            title={`Certificate preview: ${fileName}`}
+            className="h-[75vh] w-full rounded-lg border border-border"
+          />
+        </Modal>
+      )}
+    </>
+  );
+}

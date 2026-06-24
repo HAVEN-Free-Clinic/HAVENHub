@@ -55,28 +55,28 @@ export function MyInfoForm({ action, person, error, saved }: MyInfoFormProps) {
       {/* Read-only identity rows */}
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="flex flex-col gap-1">
-          <span className="text-xs font-medium text-slate-500">Name</span>
-          <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-            {person.name || <span className="italic text-slate-400">Not set</span>}
+          <span className="text-xs font-medium text-muted-foreground">Name</span>
+          <p className="rounded-xl border border-border bg-muted px-3 py-2 text-sm text-foreground-soft">
+            {person.name || <span className="italic text-subtle-foreground">Not set</span>}
           </p>
         </div>
 
         <div className="flex flex-col gap-1">
-          <span className="text-xs font-medium text-slate-500">NetID</span>
-          <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-            {person.netId || <span className="italic text-slate-400">Not set</span>}
+          <span className="text-xs font-medium text-muted-foreground">NetID</span>
+          <p className="rounded-xl border border-border bg-muted px-3 py-2 text-sm text-foreground-soft">
+            {person.netId || <span className="italic text-subtle-foreground">Not set</span>}
           </p>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-subtle-foreground">
             Contact the IT team to correct your name or NetID.
           </p>
         </div>
 
         <div className="flex flex-col gap-1">
-          <span className="text-xs font-medium text-slate-500">Epic ID</span>
-          <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-            {person.epicId || <span className="italic text-slate-400">Not set</span>}
+          <span className="text-xs font-medium text-muted-foreground">Epic ID</span>
+          <p className="rounded-xl border border-border bg-muted px-3 py-2 text-sm text-foreground-soft">
+            {person.epicId || <span className="italic text-subtle-foreground">Not set</span>}
           </p>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-subtle-foreground">
             Contact the IT team to update your Epic ID.
           </p>
         </div>

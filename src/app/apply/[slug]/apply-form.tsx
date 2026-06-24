@@ -2,6 +2,10 @@
 import { useMemo, useState } from "react";
 import { submitPublicApplication, type SubmitResult } from "./actions";
 import { isSectionVisible } from "@/modules/recruitment/engine/visibility";
+import { Alert } from "@/platform/ui/alert";
+import { Button } from "@/platform/ui/button";
+import { Input, Textarea } from "@/platform/ui/input";
+import { Select } from "@/platform/ui/select";
 
 type FieldDef = { key: string; label: string; helpText: string | null; type: string; required: boolean; options: { value: string; label: string }[] | null; validation: Record<string, unknown> | null };
 type SectionDef = { id: string; title: string; description: string | null; appliesTo: "NEW" | "RENEWAL" | "BOTH"; departmentCode: string | null; fields: FieldDef[] };
@@ -35,21 +39,22 @@ export function ApplyForm({ def }: { def: Def }) {
   }
 
   if (result?.ok) {
-    return <p className="mt-8 rounded border border-green-300 bg-green-50 px-4 py-3 text-green-800">Thanks, your application was received. Check your email for a confirmation.</p>;
+    return <Alert tone="success" className="mt-8">Thanks, your application was received. Check your email for a confirmation.</Alert>;
   }
 
   return (
     <form onSubmit={onSubmit} className="mt-6 space-y-8">
-      {result && !result.ok && <p role="alert" className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">{result.message}</p>}
+      {result && !result.ok && <Alert tone="error">{result.message}</Alert>}
 
       {def.acceptsRenewals && (
-        <fieldset className="rounded border p-4">
+        <fieldset className="rounded-xl border border-border bg-surface p-4">
           <legend className="text-sm font-medium">Are you new or renewing?</legend>
           <label className="mr-4 text-sm"><input type="radio" name="__type_ui" checked={applicantType === "NEW"} onChange={() => setApplicantType("NEW")} /> New applicant</label>
           <label className="text-sm"><input type="radio" name="__type_ui" checked={applicantType === "RENEWAL"} onChange={() => setApplicantType("RENEWAL")} /> Renewing in my current department</label>
           {applicantType === "RENEWAL" && (
-            <div className="mt-3 text-sm">Current department:
-              <select value={renewalDept} onChange={(e) => setRenewalDept(e.target.value)} className="ml-2 rounded border px-2 py-1">{def.departments.map((d) => <option key={d} value={d}>{d}</option>)}</select>
+            <div className="mt-3 flex items-center gap-2 text-sm">
+              <span>Current department:</span>
+              <Select value={renewalDept} onChange={(e) => setRenewalDept(e.target.value)} className="w-auto">{def.departments.map((d) => <option key={d} value={d}>{d}</option>)}</Select>
             </div>
           )}
         </fieldset>
@@ -57,8 +62,8 @@ export function ApplyForm({ def }: { def: Def }) {
 
       {visible.map((section) => (
         <fieldset key={section.id} className="space-y-3">
-          <legend className="text-sm font-semibold uppercase tracking-wide text-slate-400">{section.title}</legend>
-          {section.description && <p className="text-sm text-slate-500">{section.description}</p>}
+          <legend className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">{section.title}</legend>
+          {section.description && <p className="text-sm text-muted-foreground">{section.description}</p>}
           {section.fields.map((f) => (
             <Field key={f.key} f={f} departments={def.departments} fieldError={result && !result.ok ? result.fieldErrors?.[f.key] : undefined}
               onDeptChoice={f.type === "DEPARTMENT_CHOICE" ? setDeptChoice : undefined} />
@@ -66,39 +71,37 @@ export function ApplyForm({ def }: { def: Def }) {
         </fieldset>
       ))}
 
-      <button disabled={submitting} className="rounded-md bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50">{submitting ? "Submitting…" : "Submit application"}</button>
+      <Button type="submit" disabled={submitting}>{submitting ? "Submitting…" : "Submit application"}</Button>
     </form>
   );
 }
 
 function Field({ f, departments, fieldError, onDeptChoice }: { f: FieldDef; departments: string[]; fieldError?: string; onDeptChoice?: (v: string) => void }) {
-  const label = <span className="block text-sm font-medium">{f.label}{f.required && <span className="text-red-600"> *</span>}</span>;
-  const help = f.helpText ? <span className="block text-xs text-slate-500">{f.helpText}</span> : null;
-  const err = fieldError ? <span className="block text-xs text-red-600">{fieldError}</span> : null;
-  const common = "mt-1 w-full rounded border px-2 py-1 text-sm";
-
+  const label = <span className="block text-sm font-medium">{f.label}{f.required && <span className="text-critical"> *</span>}</span>;
+  const help = f.helpText ? <span className="block text-xs text-muted-foreground">{f.helpText}</span> : null;
+  const err = fieldError ? <span className="block text-xs text-critical">{fieldError}</span> : null;
   let control: React.ReactNode;
   switch (f.type) {
-    case "LONG_TEXT": control = <textarea name={f.key} required={f.required} className={common} rows={4} />; break;
+    case "LONG_TEXT": control = <Textarea name={f.key} required={f.required} className="mt-1" rows={4} />; break;
     case "CHECKBOX": control = <input type="checkbox" name={f.key} />; break;
-    case "NUMBER": control = <input type="number" name={f.key} required={f.required} className={common} />; break;
-    case "DATE": control = <input type="date" name={f.key} required={f.required} className={common} />; break;
-    case "EMAIL": control = <input type="email" name={f.key} required={f.required} className={common} />; break;
+    case "NUMBER": control = <Input type="number" name={f.key} required={f.required} className="mt-1" />; break;
+    case "DATE": control = <Input type="date" name={f.key} required={f.required} className="mt-1" />; break;
+    case "EMAIL": control = <Input type="email" name={f.key} required={f.required} className="mt-1" />; break;
     case "FILE": {
       const accept = Array.isArray(f.validation?.acceptedTypes) ? (f.validation!.acceptedTypes as string[]).join(",") : undefined;
-      control = <input type="file" name={f.key} required={f.required} accept={accept} className={common} />;
+      control = <Input type="file" name={f.key} required={f.required} accept={accept} className="mt-1 cursor-pointer" />;
       break;
     }
     case "DEPARTMENT_CHOICE":
-      control = <select name={f.key} required={f.required} className={common} onChange={(e) => onDeptChoice?.(e.target.value)} defaultValue=""><option value="" disabled>Select…</option>{departments.map((d) => <option key={d} value={d}>{d}</option>)}</select>;
+      control = <Select name={f.key} required={f.required} className="mt-1" onChange={(e) => onDeptChoice?.(e.target.value)} defaultValue=""><option value="" disabled>Select…</option>{departments.map((d) => <option key={d} value={d}>{d}</option>)}</Select>;
       break;
     case "SINGLE_SELECT":
-      control = <select name={f.key} required={f.required} className={common} defaultValue=""><option value="" disabled>Select…</option>{(f.options ?? []).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select>;
+      control = <Select name={f.key} required={f.required} className="mt-1" defaultValue=""><option value="" disabled>Select…</option>{(f.options ?? []).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</Select>;
       break;
     case "MULTI_SELECT":
       control = <span className="mt-1 flex flex-col gap-1">{(f.options ?? []).map((o) => <label key={o.value} className="text-sm"><input type="checkbox" name={f.key} value={o.value} /> {o.label}</label>)}</span>;
       break;
-    default: control = <input type="text" name={f.key} required={f.required} className={common} />;
+    default: control = <Input type="text" name={f.key} required={f.required} className="mt-1" />;
   }
   return <label className="block">{label}{help}{control}{err}</label>;
 }

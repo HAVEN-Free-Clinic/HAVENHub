@@ -16,13 +16,13 @@ export function Pagination({
   const hasNext = page < pageCount;
 
   const linkBase =
-    "inline-flex items-center rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors";
+    "inline-flex items-center rounded-lg border border-border-strong px-3 py-1.5 text-sm font-medium text-foreground-soft hover:bg-muted transition-colors";
   const disabledBase =
-    "inline-flex items-center rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-300 cursor-default";
+    "inline-flex items-center rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-subtle-foreground cursor-default";
 
   return (
     <div className="flex items-center justify-between gap-4 py-3">
-      <span className="text-sm text-slate-500">
+      <span className="text-sm text-muted-foreground">
         Page {page} of {pageCount}
       </span>
       <div className="flex items-center gap-2">

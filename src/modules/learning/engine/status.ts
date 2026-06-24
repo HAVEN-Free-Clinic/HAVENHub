@@ -12,6 +12,16 @@ export function deriveStatus(lessonStatus: string | null | undefined): DerivedSt
   return { status: completed ? "COMPLETE" : "IN_PROGRESS", completed };
 }
 
+/**
+ * Roll per-SCO lesson_status values up to a course-level status. A course is
+ * COMPLETE only when it has at least one SCO and every SCO is individually
+ * complete; otherwise it is IN_PROGRESS.
+ */
+export function rollupStatus(scoStatuses: Array<string | null | undefined>): DerivedStatus {
+  const completed = scoStatuses.length > 0 && scoStatuses.every((s) => deriveStatus(s).completed);
+  return { status: completed ? "COMPLETE" : "IN_PROGRESS", completed };
+}
+
 /** Parse cmi.core.score.raw (a string) to a rounded int, or null when absent. */
 export function parseScore(raw: string | null | undefined): number | null {
   if (raw == null) return null;

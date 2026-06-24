@@ -1,11 +1,13 @@
 import { prisma } from "@/platform/db";
+import { getActiveTerm } from "@/platform/terms/active-term";
 import { coursesForMember, type AssignableCourse } from "../engine/assignment";
-import { deriveStatus } from "../engine/status";
+import { deriveStatus, rollupStatus } from "../engine/status";
+import type { ScoEntry } from "../engine/manifest";
 import { LearningAuthError } from "./errors";
 
 /** Active term used for assignment (newest ACTIVE term). */
 async function activeTermId(): Promise<string | null> {
-  const term = await prisma.term.findFirst({ where: { status: "ACTIVE" }, orderBy: { startDate: "desc" } });
+  const term = await getActiveTerm();
   return term?.id ?? null;
 }
 
@@ -42,6 +44,26 @@ export async function isCourseAssignedTo(personId: string, courseId: string): Pr
   return ids.includes(courseId);
 }
 
+/**
+ * The course's SCO list. Uses the stored manifest list (keeping only well-formed
+ * entries); for a legacy package (scormScos null) synthesizes a single SCO
+ * ("sco-0") from scormEntryHref so old courses keep working without re-ingest.
+ */
+function courseScos(course: { scormScos: unknown; scormEntryHref: string | null; title: string }): ScoEntry[] {
+  if (Array.isArray(course.scormScos)) {
+    return course.scormScos.filter(
+      (s): s is ScoEntry =>
+        !!s &&
+        typeof s === "object" &&
+        typeof (s as ScoEntry).id === "string" &&
+        typeof (s as ScoEntry).title === "string" &&
+        typeof (s as ScoEntry).href === "string"
+    );
+  }
+  if (course.scormEntryHref) return [{ id: "sco-0", title: course.title, href: course.scormEntryHref }];
+  return [];
+}
+
 export type LearnerStatus = "NOT_STARTED" | "IN_PROGRESS" | "COMPLETE";
 
 export type MyCourseRow = {
@@ -73,41 +95,59 @@ export async function getMyCourses(personId: string): Promise<MyCourseRow[]> {
   });
 }
 
+export type LearnerSco = {
+  id: string;
+  title: string;
+  href: string;
+  cmi: CmiSnapshot;
+};
+
 export type LearnerCourse = {
   id: string;
   title: string;
   description: string | null;
-  entryHref: string | null;
   status: LearnerStatus;
-  cmi: {
-    lessonStatus: string | null;
-    scoreRaw: number | null;
-    suspendData: string | null;
-    lessonLocation: string | null;
-  };
+  scos: LearnerSco[];
 };
 
 export async function getCourseForLearner(personId: string, courseId: string): Promise<LearnerCourse> {
   if (!(await isCourseAssignedTo(personId, courseId))) {
     throw new LearningAuthError("This course is not assigned to you.");
   }
-  const course = await prisma.course.findUniqueOrThrow({ where: { id: courseId } });
-  const progress = await prisma.courseProgress.findUnique({
-    where: { personId_courseId: { personId, courseId } },
+  const course = await prisma.course.findUniqueOrThrow({
+    where: { id: courseId },
+    select: { id: true, title: true, description: true, scormScos: true, scormEntryHref: true },
   });
-  const status: LearnerStatus = !progress ? "NOT_STARTED" : deriveStatus(progress.lessonStatus).status;
+  const scos = courseScos(course);
+
+  const scoRows = await prisma.scoProgress.findMany({ where: { personId, courseId } });
+  const byId = new Map(scoRows.map((r) => [r.scoId, r]));
+
+  const rollup = await prisma.courseProgress.findUnique({
+    where: { personId_courseId: { personId, courseId } },
+    select: { status: true },
+  });
+  const status: LearnerStatus = !rollup ? "NOT_STARTED" : (rollup.status as LearnerStatus);
+
   return {
     id: course.id,
     title: course.title,
     description: course.description,
-    entryHref: course.scormEntryHref,
     status,
-    cmi: {
-      lessonStatus: progress?.lessonStatus ?? null,
-      scoreRaw: progress?.scoreRaw ?? null,
-      suspendData: progress?.suspendData ?? null,
-      lessonLocation: progress?.lessonLocation ?? null,
-    },
+    scos: scos.map((s) => {
+      const r = byId.get(s.id);
+      return {
+        id: s.id,
+        title: s.title,
+        href: s.href,
+        cmi: {
+          lessonStatus: r?.lessonStatus ?? null,
+          scoreRaw: r?.scoreRaw ?? null,
+          suspendData: r?.suspendData ?? null,
+          lessonLocation: r?.lessonLocation ?? null,
+        },
+      };
+    }),
   };
 }
 
@@ -119,34 +159,85 @@ export type CmiSnapshot = {
 };
 
 /**
- * Persist a SCORM CMI snapshot for one person+course. Idempotent: re-commits
- * update the state; completedAt is stamped once (the first time status becomes
- * COMPLETE) and preserved on later commits.
+ * Persist one SCO's CMI snapshot, then recompute the course rollup. Idempotent:
+ * re-commits update state; per-SCO and course completedAt are each stamped once
+ * (the first time that level becomes COMPLETE) and preserved afterwards.
+ *
+ * CourseProgress remains the course-level rollup record (its status/lessonStatus/
+ * completedAt drive the dashboard and "My Courses"); per-SCO state lives in
+ * ScoProgress.
  */
-export async function persistCmi(personId: string, courseId: string, cmi: CmiSnapshot): Promise<void> {
+export async function persistScoCmi(
+  personId: string,
+  courseId: string,
+  scoId: string,
+  cmi: CmiSnapshot
+): Promise<void> {
   if (!(await isCourseAssignedTo(personId, courseId))) {
     throw new LearningAuthError("This course is not assigned to you.");
   }
-  const { status, completed } = deriveStatus(cmi.lessonStatus);
-  const existing = await prisma.courseProgress.findUnique({
-    where: { personId_courseId: { personId, courseId } },
+
+  // 1. Upsert this SCO's state.
+  const sco = deriveStatus(cmi.lessonStatus);
+  const existingSco = await prisma.scoProgress.findUnique({
+    where: { personId_courseId_scoId: { personId, courseId, scoId } },
     select: { completedAt: true },
   });
-  const completedAt = completed ? (existing?.completedAt ?? new Date()) : null;
-
-  const data = {
-    status,
-    completedAt,
+  const scoCompletedAt = sco.completed ? (existingSco?.completedAt ?? new Date()) : null;
+  const scoData = {
+    completedAt: scoCompletedAt,
     lessonStatus: cmi.lessonStatus,
-    // scoreRaw is an Int column; round defensively so a fractional score from any
-    // caller cannot fail the write.
     scoreRaw: cmi.scoreRaw == null ? null : Math.round(cmi.scoreRaw),
     suspendData: cmi.suspendData,
     lessonLocation: cmi.lessonLocation,
   };
+  await prisma.scoProgress.upsert({
+    where: { personId_courseId_scoId: { personId, courseId, scoId } },
+    create: { personId, courseId, scoId, ...scoData },
+    update: scoData,
+  });
+
+  // 2. Recompute the course rollup over every SCO in the manifest.
+  const course = await prisma.course.findUniqueOrThrow({
+    where: { id: courseId },
+    select: { scormScos: true, scormEntryHref: true, title: true },
+  });
+  const scos = courseScos(course);
+  const rows = await prisma.scoProgress.findMany({
+    where: { personId, courseId },
+    select: { scoId: true, lessonStatus: true, scoreRaw: true },
+  });
+  const statusById = new Map(rows.map((r) => [r.scoId, r.lessonStatus]));
+  const roll = rollupStatus(scos.map((s) => statusById.get(s.id) ?? null));
+
+  // Roll up the course score as the HIGHEST score among the SCOs that reported one
+  // (eXeLearning/Moodle convention: the learner's best quiz score), or null when none
+  // did. For a single-SCO course this is just that SCO's score.
+  const scoreById = new Map(rows.map((r) => [r.scoId, r.scoreRaw]));
+  const scoScores = scos
+    .map((s) => scoreById.get(s.id))
+    .filter((v): v is number => v != null);
+  const rolledScore = scoScores.length ? Math.max(...scoScores) : null;
+
+  const existingCourse = await prisma.courseProgress.findUnique({
+    where: { personId_courseId: { personId, courseId } },
+    select: { completedAt: true },
+  });
+  const completedAt = roll.completed ? (existingCourse?.completedAt ?? new Date()) : null;
+
+  // lessonStatus is a rollup token so existing readers (dashboard, getMyCourses)
+  // keep deriving the course status from CourseProgress unchanged.
+  const courseData = {
+    status: roll.status,
+    completedAt,
+    lessonStatus: roll.completed ? "completed" : "incomplete",
+    scoreRaw: rolledScore,
+    suspendData: null,
+    lessonLocation: null,
+  };
   await prisma.courseProgress.upsert({
     where: { personId_courseId: { personId, courseId } },
-    create: { personId, courseId, ...data },
-    update: data,
+    create: { personId, courseId, ...courseData },
+    update: courseData,
   });
 }

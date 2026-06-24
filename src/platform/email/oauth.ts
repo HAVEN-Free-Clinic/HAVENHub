@@ -26,7 +26,7 @@ import { prisma } from "@/platform/db";
 // ---------------------------------------------------------------------------
 
 const SCOPES =
-  "openid profile email offline_access https://graph.microsoft.com/Mail.Send https://graph.microsoft.com/Mail.Send.Shared https://graph.microsoft.com/Channel.ReadBasic.All";
+  "openid profile email offline_access https://graph.microsoft.com/Mail.Send https://graph.microsoft.com/Mail.Send.Shared https://graph.microsoft.com/Channel.ReadBasic.All https://graph.microsoft.com/Chat.Create https://graph.microsoft.com/ChatMessage.Send";
 
 function tokenEndpoint(): string {
   const tenant = config.GRAPH_OAUTH_TENANT_ID ?? "common";
@@ -295,4 +295,13 @@ export async function mailConnectionStatus(): Promise<{
     account: row?.account ?? null,
     connectedAt: row?.connectedAt ?? null,
   };
+}
+
+/**
+ * True when the stored credential scope string already includes both Teams chat
+ * scopes. Used by the admin UI to prompt for a reconnect after the scopes grew.
+ */
+export function teamsScopesGranted(scope: string | null): boolean {
+  if (!scope) return false;
+  return scope.includes("Chat.Create") && scope.includes("ChatMessage.Send");
 }

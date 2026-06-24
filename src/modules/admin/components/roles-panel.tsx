@@ -29,6 +29,7 @@ import {
 } from "@/modules/admin/services/rbac";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
+import { Card } from "@/platform/ui/card";
 import { Input, Field } from "@/platform/ui/input";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
@@ -54,7 +55,7 @@ type RolesPanelProps = {
 
 function SectionHeading({ children }: { children: ReactNode }) {
   return (
-    <h2 className="mb-4 text-base font-semibold tracking-tight text-slate-800">
+    <h2 className="mb-4 text-base font-semibold tracking-tight text-foreground">
       {children}
     </h2>
   );
@@ -149,8 +150,8 @@ export async function RolesPanel({ roles, pageHref }: RolesPanelProps): Promise<
       <SectionHeading>Roles</SectionHeading>
 
       {/* Create-role inline form */}
-      <div className="rounded-lg border border-slate-200 bg-white p-5">
-        <h3 className="mb-4 text-sm font-semibold text-slate-700">Create new role</h3>
+      <Card>
+        <h3 className="mb-4 text-sm font-semibold text-foreground-soft">Create new role</h3>
         <form action={createRoleAction} className="flex flex-wrap items-end gap-3">
           <Field label="Name">
             <Input
@@ -173,33 +174,30 @@ export async function RolesPanel({ roles, pageHref }: RolesPanelProps): Promise<
             Create role
           </Button>
         </form>
-      </div>
+      </Card>
 
       {/* One card per role */}
       {roles.length === 0 && (
-        <p className="text-sm text-slate-400">No roles yet. Create one above.</p>
+        <p className="text-sm text-muted-foreground">No roles yet. Create one above.</p>
       )}
       {roles.map((role) => {
         const grantedSet = new Set(role.grants.map((g) => g.permission));
 
         return (
-          <div
-            key={role.id}
-            className="rounded-lg border border-slate-200 bg-white p-5 space-y-5"
-          >
+          <Card key={role.id} className="space-y-5">
             {/* Card header */}
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-semibold text-slate-800">{role.name}</h3>
+                  <h3 className="text-sm font-semibold text-foreground">{role.name}</h3>
                   {role.isSystem && (
                     <Badge tone="brand">System</Badge>
                   )}
                 </div>
                 {role.description && (
-                  <p className="text-xs text-slate-500">{role.description}</p>
+                  <p className="text-xs text-muted-foreground">{role.description}</p>
                 )}
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-subtle-foreground">
                   {role._count.assignments} assignment(s)
                 </p>
               </div>
@@ -220,14 +218,14 @@ export async function RolesPanel({ roles, pageHref }: RolesPanelProps): Promise<
               {/* Module permission groups */}
               {MODULES.filter((m) => m.permissions.length > 0).map((mod) => (
                 <div key={mod.id} className="space-y-2">
-                  <p className="text-xs font-medium uppercase tracking-wider text-slate-400">
+                  <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                     {mod.title}
                   </p>
                   <div className="flex flex-wrap gap-x-6 gap-y-1.5">
                     {mod.permissions.map((perm) => (
                       <label
                         key={perm}
-                        className="flex items-center gap-2 text-sm text-slate-700"
+                        className="flex items-center gap-2 text-sm text-foreground-soft"
                       >
                         <Checkbox
                           name="permissions"
@@ -243,18 +241,18 @@ export async function RolesPanel({ roles, pageHref }: RolesPanelProps): Promise<
 
               {/* Platform group: wildcard */}
               <div className="space-y-2">
-                <p className="text-xs font-medium uppercase tracking-wider text-slate-400">
+                <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                   Platform
                 </p>
                 <div className="flex flex-wrap gap-x-6 gap-y-1.5">
-                  <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <label className="flex items-center gap-2 text-sm text-foreground-soft">
                     <Checkbox
                       name="permissions"
                       value="*"
                       defaultChecked={grantedSet.has("*")}
                     />
                     <span className="font-mono text-xs">*</span>
-                    <span className="text-xs text-slate-400">(superadmin: all permissions)</span>
+                    <span className="text-xs text-subtle-foreground">(superadmin: all permissions)</span>
                   </label>
                 </div>
               </div>
@@ -265,7 +263,7 @@ export async function RolesPanel({ roles, pageHref }: RolesPanelProps): Promise<
                 </Button>
               </div>
             </form>
-          </div>
+          </Card>
         );
       })}
     </section>

@@ -6,6 +6,7 @@ import {
   MessagesSquare,
   Send,
   Settings,
+  Stethoscope,
   UserRoundPen,
   Users,
 } from "lucide-react";
@@ -67,6 +68,17 @@ export const MODULES: ModuleManifest[] = [
     ],
   },
   {
+    id: "clinic",
+    title: "Clinic Tools",
+    description: "Point-of-care tools for clinical volunteers",
+    icon: Stethoscope,
+    // No accessPermission: the After Visit Summary tool is open to any
+    // onboarded signed-in volunteer for use during a visit (spec decision).
+    permissions: [],
+    status: "active",
+    nav: [{ label: "After Visit Summary", href: "/clinic/avs" }],
+  },
+  {
     id: "admin",
     title: "Admin",
     description: "People, terms, roles, sync health, audit log",
@@ -94,6 +106,7 @@ export const MODULES: ModuleManifest[] = [
       { label: "Audit", href: "/admin/audit" },
       { label: "Sync", href: "/admin/sync" },
       { label: "Email", href: "/admin/email" },
+      { label: "Notifications", href: "/admin/notifications" },
       { label: "Settings", href: "/admin/settings" },
       { label: "ITCM", href: "/admin/itcm" },
     ],

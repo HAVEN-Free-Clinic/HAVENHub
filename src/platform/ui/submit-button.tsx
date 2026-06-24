@@ -3,6 +3,7 @@
 import { useFormStatus } from "react-dom";
 import type { ComponentProps } from "react";
 import { Button } from "./button";
+import { Spinner } from "./spinner";
 
 type SubmitButtonProps = Omit<ComponentProps<typeof Button>, "type"> & {
   /** Label shown while the surrounding form's server action is pending. */
@@ -10,9 +11,9 @@ type SubmitButtonProps = Omit<ComponentProps<typeof Button>, "type"> & {
 };
 
 /**
- * Submit button that disables itself and swaps to a pending label while the
- * surrounding <form>'s server action is in flight. Prevents double-submits and
- * gives users feedback that something is happening.
+ * Submit button that disables itself and swaps to a pending label (with a
+ * spinner) while the surrounding <form>'s server action is in flight. Prevents
+ * double-submits and gives users feedback that something is happening.
  *
  * Must be rendered inside a <form>; useFormStatus reads that form's state.
  */
@@ -24,8 +25,11 @@ export function SubmitButton({
 }: SubmitButtonProps) {
   const { pending } = useFormStatus();
   return (
-    <Button {...rest} type="submit" disabled={pending || disabled}>
-      {pending ? (pendingLabel ?? "Saving…") : children}
+    <Button {...rest} type="submit" disabled={pending || disabled} aria-busy={pending}>
+      <span className="inline-flex items-center gap-2">
+        {pending && <Spinner size="sm" />}
+        {pending ? (pendingLabel ?? "Saving…") : children}
+      </span>
     </Button>
   );
 }

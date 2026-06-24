@@ -4,6 +4,7 @@
  */
 
 import type { RhdAttending } from "@prisma/client";
+import { Alert } from "@/platform/ui/alert";
 import { Input, Field } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Button } from "@/platform/ui/button";
@@ -18,11 +19,7 @@ type AttendingFormProps = {
 export function AttendingForm({ action, attending, error }: AttendingFormProps) {
   return (
     <form action={action} className="space-y-6">
-      {error && (
-        <p role="alert" className="rounded-md border border-critical/20 bg-red-50 px-3 py-2 text-sm text-critical">
-          {error}
-        </p>
-      )}
+      {error && <Alert tone="error">{error}</Alert>}
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Schedule name">
           <Input name="scheduleName" defaultValue={attending?.scheduleName ?? ""} required placeholder="Rivera" />
@@ -49,7 +46,7 @@ export function AttendingForm({ action, attending, error }: AttendingFormProps) 
       </Field>
 
       {attending !== undefined && (
-        <label className="flex items-center gap-2 text-sm text-slate-700">
+        <label className="flex items-center gap-2 text-sm text-foreground-soft">
           <input type="checkbox" name="isActive" defaultChecked={attending.isActive} className="h-4 w-4 rounded accent-brand" />
           Active
         </label>

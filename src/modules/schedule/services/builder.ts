@@ -541,6 +541,10 @@ export type BuilderView = {
   clinicDates: Date[];
   selectedDate: Date | null;
   selectedDateKey: string | null;
+  /** The current week's clinic Saturday (first clinic date >= today), or null
+   *  when the term has no clinic dates. Used for the grid-view "this week"
+   *  highlight, independent of the selected date. */
+  currentClinicDateKey: string | null;
   members: BuilderMember[];
   /** Nested map: dateKey -> personId -> assignment entry. */
   assignmentsByDate: Record<string, Record<string, BuilderAssignmentEntry>>;
@@ -589,6 +593,7 @@ export async function builderView(
       clinicDates: [],
       selectedDate: null,
       selectedDateKey: null,
+      currentClinicDateKey: null,
       members: [],
       assignmentsByDate: {},
       capacity: emptyMetrics,
@@ -623,6 +628,7 @@ export async function builderView(
       clinicDates: [],
       selectedDate: null,
       selectedDateKey: null,
+      currentClinicDateKey: null,
       members: [],
       assignmentsByDate: {},
       capacity: emptyMetrics,
@@ -636,14 +642,22 @@ export async function builderView(
 
   const { clinicDates } = term;
 
-  // Resolve selected date.
+  // The current week's clinic Saturday: the first clinic date on or after today
+  // (clinic dates are weekly Saturdays). Used as a fixed wayfinding highlight in
+  // the grid view, independent of which date is selected for editing.
+  const nowKey = isoDateKey(now);
+  const currentClinicDate =
+    clinicDates.find((d) => isoDateKey(d) >= nowKey) ?? null;
+  const currentClinicDateKey = currentClinicDate ? isoDateKey(currentClinicDate) : null;
+
+  // Resolve selected date (Day view): explicit ?date= param, else default to the
+  // current clinic Saturday, else the last clinic date of the term.
   let selectedDate: Date | null = null;
   if (opts.dateKey) {
     selectedDate = clinicDates.find((d) => isoDateKey(d) === opts.dateKey) ?? null;
   }
   if (!selectedDate) {
-    const nowKey = isoDateKey(now);
-    selectedDate = clinicDates.find((d) => isoDateKey(d) >= nowKey) ?? (clinicDates[clinicDates.length - 1] ?? null);
+    selectedDate = currentClinicDate ?? (clinicDates[clinicDates.length - 1] ?? null);
   }
   const selectedDateKey = selectedDate ? isoDateKey(selectedDate) : null;
 
@@ -816,6 +830,7 @@ export async function builderView(
     clinicDates,
     selectedDate,
     selectedDateKey,
+    currentClinicDateKey,
     members: builderMembers,
     assignmentsByDate,
     capacity,

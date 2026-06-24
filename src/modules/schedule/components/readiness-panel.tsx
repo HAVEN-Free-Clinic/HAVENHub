@@ -72,8 +72,8 @@ export function ReadinessPanel({
   const { readiness, attendingOptions, clinic } = rhd;
 
   return (
-    <section className="rounded-lg border border-slate-200 bg-white px-4 py-3 flex flex-col gap-4">
-      <h2 className="text-sm font-semibold text-slate-700">RHD Clinic Readiness</h2>
+    <section className="rounded-2xl border border-border bg-surface px-4 py-3 flex flex-col gap-4">
+      <h2 className="text-sm font-semibold text-foreground-soft">RHD Clinic Readiness</h2>
 
       {/* Clinic config form */}
       <form action={clinicAction} className="flex flex-col gap-3">
@@ -119,20 +119,20 @@ export function ReadinessPanel({
 
       {/* Quick-add a new attending */}
       <details className="text-xs">
-        <summary className="cursor-pointer text-slate-500 hover:text-slate-700">&#xFF0B; Add attending</summary>
+        <summary className="cursor-pointer text-muted-foreground hover:text-foreground-soft">&#xFF0B; Add attending</summary>
         <form action={addAttendingAction} className="mt-2 flex flex-col gap-2">
           <Input name="scheduleName" placeholder="Schedule name (e.g. Rivera)" required className="text-sm" />
           <Input name="fullName" placeholder="Full name (optional)" className="text-sm" />
           <Button type="submit" variant="outline" size="sm">Add</Button>
         </form>
       </details>
-      <Link href="/schedule/attendings" className="text-xs text-brand hover:underline">
+      <Link href="/schedule/attendings" className="text-xs text-brand-fg hover:underline">
         Manage attendings
       </Link>
 
       {/* Readiness readout */}
-      <div className="flex flex-col gap-3 border-t border-slate-100 pt-3">
-        <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+      <div className="flex flex-col gap-3 border-t border-border-subtle pt-3">
+        <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
           Readiness
         </h3>
 
@@ -154,7 +154,7 @@ export function ReadinessPanel({
         </div>
 
         {/* Coverage line */}
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-foreground-soft">
           SCTM {readiness.coverage.sctm}, JCTM {readiness.coverage.jctm},{" "}
           RN {readiness.coverage.rn}, Spanish {readiness.coverage.spanish}
         </p>
@@ -171,7 +171,7 @@ export function ReadinessPanel({
 
         {/* Clinic emails */}
         {readiness.emails.length > 0 && (
-          <p className="text-sm text-slate-600 break-words [overflow-wrap:anywhere]">
+          <p className="text-sm text-foreground-soft break-words [overflow-wrap:anywhere]">
             <span className="font-medium">Clinic emails:</span>{" "}
             {readiness.emails.join(", ")}
           </p>

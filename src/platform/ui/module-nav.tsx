@@ -27,7 +27,7 @@ export function ModuleNav({ items }: { items: NavItem[] }) {
   return (
     <nav
       aria-label="Module"
-      className="flex gap-6 border-b border-slate-200 text-sm"
+      className="flex gap-6 border-b border-border text-sm"
     >
       {items.map((item) => (
         <Link
@@ -35,8 +35,8 @@ export function ModuleNav({ items }: { items: NavItem[] }) {
           href={item.href}
           className={
             isActive(item.href)
-              ? "border-b-2 border-brand pb-2 text-brand font-medium"
-              : "pb-2 text-slate-500 hover:text-slate-900"
+              ? "border-b-2 border-brand pb-2 text-brand-fg font-medium"
+              : "pb-2 text-muted-foreground hover:text-foreground"
           }
         >
           {item.label}

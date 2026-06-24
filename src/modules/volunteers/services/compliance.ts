@@ -13,6 +13,9 @@ import { complianceStatus, overallClearance } from "@/platform/compliance/rules"
 import type { ComplianceStatus, TrainingState, OverallClearance } from "@/platform/compliance/rules";
 import { canViewCertificate } from "@/platform/compliance/access";
 import { manageableDepartmentIds } from "@/platform/departments";
+import { can } from "@/platform/rbac/engine";
+import { enqueueMirror } from "@/platform/outbox";
+import { parseCompletionDate, CompletionDateError } from "@/platform/compliance/completion-date";
 
 export type { ComplianceStatus };
 
@@ -148,8 +151,8 @@ export async function departmentCompliance(
 
   // 5. Fetch the set of people with COMPLETE training for the active term once.
   const completedTraining = new Set(
-    (await prisma.volunteerTraining.findMany({
-      where: { termId: activeTerm.id, status: "COMPLETE" },
+    (await prisma.training.findMany({
+      where: { termId: activeTerm.id, track: "VOLUNTEER", status: "COMPLETE" },
       select: { personId: true },
     })).map((t) => t.personId)
   );
@@ -191,7 +194,7 @@ export async function departmentCompliance(
       status,
       verifiedByName,
       trainingState,
-      overallClearance: overallClearance(status, trainingState),
+      overallClearance: overallClearance(status, trainingState === "COMPLETE"),
     });
   }
 
@@ -315,8 +318,8 @@ export async function masterCompliance(
 
   // 2b. Fetch the set of people with COMPLETE training for the active term once.
   const completedTraining = new Set(
-    (await prisma.volunteerTraining.findMany({
-      where: { termId: activeTerm.id, status: "COMPLETE" },
+    (await prisma.training.findMany({
+      where: { termId: activeTerm.id, track: "VOLUNTEER", status: "COMPLETE" },
       select: { personId: true },
     })).map((t) => t.personId)
   );
@@ -400,7 +403,7 @@ export async function masterCompliance(
       verifiedByName,
       departments: Array.from(deptCodes).sort(),
       trainingState,
-      overallClearance: overallClearance(computedStatus, trainingState),
+      overallClearance: overallClearance(computedStatus, trainingState === "COMPLETE"),
     };
   });
 
@@ -475,3 +478,94 @@ export async function verifyCertificate(
     after: { certId, ownerPersonId: cert.personId },
   });
 }
+
+// ---------------------------------------------------------------------------
+// setCompletionDateAsManager
+// ---------------------------------------------------------------------------
+
+/**
+ * Set a HIPAA certificate's completion date as a compliance manager or admin.
+ *
+ * Holders of `volunteers.manage_compliance` may call this for dateless certs
+ * only (a master-key check, NOT canViewCertificate: department directors do not
+ * get date entry). Entry is set-once for compliance managers: a cert that
+ * already has a completionDate is rejected. Holders of `admin.access` may also
+ * call this, and may overwrite an existing date to correct a wrong entry.
+ *
+ * Setting the date also verifies the cert (the actor read the PDF to get the
+ * date), so completionDate, extraction=MANUAL, and the verified stamp are
+ * written in one transaction alongside the Person mirror enqueue. Audits
+ * "compliance.set_date" with before/after. The before snapshot captures the
+ * real prior state (including any existing completionDate) so overwrites are
+ * fully traceable.
+ *
+ * Throws ComplianceForbiddenError (neither manager nor admin),
+ * CertificateNotFoundError (no such cert), or CompletionDateError (already set
+ * for non-admin, or invalid date).
+ */
+export async function setCompletionDateAsManager(
+  actorPersonId: string,
+  certId: string,
+  dateIso: string
+): Promise<void> {
+  const isAdmin = await can(actorPersonId, "admin.access");
+  const isManager = await can(actorPersonId, "volunteers.manage_compliance");
+  if (!isManager && !isAdmin) {
+    throw new ComplianceForbiddenError(
+      "Only compliance managers or admins can set certificate completion dates."
+    );
+  }
+
+  const cert = await prisma.hipaaCertificate.findUnique({ where: { id: certId } });
+  if (!cert) throw new CertificateNotFoundError(certId);
+
+  // Set-once for compliance managers: a cert that already has a date is rejected.
+  // Superadmins (admin.access) may overwrite to correct a wrong date. As before,
+  // this guard runs before the transaction, so two concurrent writers could race;
+  // the later write wins and both are visible in the audit log. That is acceptable
+  // given how rare concurrent edits on one cert are. Do not move this into the
+  // transaction without weighing the audit/UX implications.
+  if (cert.completionDate !== null && !isAdmin) {
+    throw new CompletionDateError("completion date is already set");
+  }
+
+  // Validates format/future/5-year and normalizes to noon UTC. Throws CompletionDateError.
+  const completionDate = parseCompletionDate(dateIso);
+  const now = new Date();
+
+  const before = {
+    completionDate: cert.completionDate ?? null,
+    extraction: cert.extraction,
+    verifiedById: cert.verifiedById ?? null,
+    verifiedAt: cert.verifiedAt ?? null,
+  };
+
+  await prisma.$transaction(async (tx) => {
+    await tx.hipaaCertificate.update({
+      where: { id: cert.id },
+      data: {
+        completionDate,
+        extraction: "MANUAL",
+        verifiedById: actorPersonId,
+        verifiedAt: now,
+      },
+    });
+
+    await enqueueMirror(tx, {
+      entityType: "Person",
+      entityId: cert.personId,
+      changedFields: ["hipaaStatus"],
+    });
+  });
+
+  await recordAudit({
+    actorPersonId,
+    action: "compliance.set_date",
+    entityType: "HipaaCertificate",
+    entityId: cert.id,
+    before,
+    after: { completionDate, extraction: "MANUAL", verifiedById: actorPersonId, verifiedAt: now },
+  });
+}
+
+export { CompletionDateError };

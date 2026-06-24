@@ -90,15 +90,15 @@ export default async function LoginPage({
       {/* Right panel */}
       <div className="flex items-center justify-center p-8">
         <div className="w-full max-w-sm">
-          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
             Sign in to {appName}
           </h1>
-          <p className="mt-2 text-sm text-slate-600">Use your Yale account to continue.</p>
+          <p className="mt-2 text-sm text-foreground-soft">Use your Yale account to continue.</p>
 
           {errorMessage && (
             <p
               role="alert"
-              className="mt-5 rounded-md border border-critical/20 bg-critical/5 px-3 py-2 text-sm text-critical"
+              className="mt-5 rounded-xl border border-critical/20 bg-critical/5 px-3 py-2 text-sm text-critical"
             >
               {errorMessage}
             </p>
@@ -124,17 +124,17 @@ export default async function LoginPage({
               <SignInButton />
             </form>
           ) : (
-            <p className="mt-7 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-sm text-warning">
+            <p className="mt-7 rounded-xl border border-warning/30 bg-warning/5 px-3 py-2 text-sm text-warning">
               Entra ID is not configured (AZURE_AD_* unset).
             </p>
           )}
 
           {/* Persistent help affordance, available before any error occurs */}
-          <p className="mt-5 text-sm text-slate-500">
+          <p className="mt-5 text-sm text-muted-foreground">
             Trouble signing in?{" "}
             <a
               href="mailto:hfc.it@yale.edu"
-              className="font-medium text-brand underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+              className="font-medium text-brand-fg underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
             >
               Contact the HAVEN IT team
             </a>
@@ -142,7 +142,7 @@ export default async function LoginPage({
 
           {(config.NODE_ENV !== "production" || config.DEMO_MODE) && (
             <form
-              className="mt-8 border-t border-slate-100 pt-6"
+              className="mt-8 border-t border-border-subtle pt-6"
               action={async (formData: FormData) => {
                 "use server";
                 try {
@@ -162,7 +162,7 @@ export default async function LoginPage({
               }}
             >
               <label
-                className="text-xs font-medium uppercase tracking-wide text-slate-400"
+                className="text-xs font-medium uppercase tracking-wide text-subtle-foreground"
                 htmlFor="email"
               >
                 Local development
@@ -173,11 +173,11 @@ export default async function LoginPage({
                 type="email"
                 required
                 placeholder="j.carney@yale.edu"
-                className="mt-2 w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15"
+                className="mt-2 w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15"
               />
               <button
                 type="submit"
-                className="mt-3 w-full rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+                className="mt-3 w-full rounded-lg border border-border-strong px-4 py-2 text-sm font-medium text-foreground-soft transition-colors hover:bg-muted"
               >
                 Dev sign in
               </button>

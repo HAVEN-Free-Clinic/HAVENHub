@@ -1,4 +1,5 @@
 import { unzipSync } from "fflate";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { recordAudit } from "@/platform/audit";
@@ -101,7 +102,12 @@ export async function ingestScormPackage(courseId: string, zipBytes: Buffer, act
 
   await prisma.course.update({
     where: { id: courseId },
-    data: { scormEntryHref: parsed.entryHref, scormVersion: parsed.version, scormUploadedAt: new Date() },
+    data: {
+      scormEntryHref: parsed.entryHref,
+      scormVersion: parsed.version,
+      scormScos: parsed.scos as unknown as Prisma.InputJsonValue,
+      scormUploadedAt: new Date(),
+    },
   });
 
   await recordAudit({
@@ -109,6 +115,6 @@ export async function ingestScormPackage(courseId: string, zipBytes: Buffer, act
     action: "learning.package_upload",
     entityType: "Course",
     entityId: courseId,
-    after: { entryHref: parsed.entryHref, version: parsed.version, fileCount: files.length },
+    after: { entryHref: parsed.entryHref, version: parsed.version, fileCount: files.length, scoCount: parsed.scos.length },
   });
 }

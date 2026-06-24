@@ -29,7 +29,8 @@ import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { can } from "@/platform/rbac/engine";
 import { updatePersonFields, PersonNotFoundError } from "@/platform/people";
-import { queueEmail } from "@/platform/email/send";
+import { notify } from "@/platform/notifications/notify";
+import { getSetting } from "@/platform/settings/service";
 import {
   epicOnboardingContext,
   epicActivationContext,
@@ -640,13 +641,26 @@ export async function sendEpicEmail(
   };
   const { subject, html } = await renderEmail(template, contextBuilders[template](params));
 
+  const epicTeamsSummary: Record<EpicTemplateKey, string> = {
+    "epic-onboarding": "Your EPIC access onboarding has an update. Open HAVEN Hub for details.",
+    "epic-activation": "Your EPIC access has been activated. Open HAVEN Hub for details.",
+    "epic-password-reset": "Your EPIC password was reset. Open HAVEN Hub for details.",
+  };
+
   // Global prisma client is intentional: there is no surrounding domain write to be transactional with.
-  await queueEmail(prisma, {
-    to: person.contactEmail,
-    subject,
-    html,
-    template,
-    personId: person.id,
+  await notify(prisma, {
+    type: template,
+    person: {
+      id: person.id,
+      entraObjectId: person.entraObjectId,
+      contactEmail: person.contactEmail,
+    },
+    email: { subject, html },
+    teams: {
+      title: "EPIC access update",
+      summary: epicTeamsSummary[template],
+      link: `${await getSetting<string>("app.baseUrl")}/volunteers`,
+    },
     triggeredById: actorPersonId,
   });
 

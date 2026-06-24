@@ -22,6 +22,9 @@ import type { DepartmentWithMembers, MemberLite } from "@/modules/admin/services
 import { Button } from "@/platform/ui/button";
 import { Select } from "@/platform/ui/select";
 import { Input, Field } from "@/platform/ui/input";
+import { Card } from "@/platform/ui/card";
+import { Alert } from "@/platform/ui/alert";
+import { Badge } from "@/platform/ui/badge";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -181,8 +184,8 @@ export function EpicRequestForm({ departments }: Props) {
   return (
     <div className="space-y-8">
       {/* ── Step 1: Configuration ── */}
-      <section className="rounded-xl border border-slate-200 bg-white p-6 space-y-5">
-        <h2 className="text-base font-semibold text-slate-800">1. Configure request</h2>
+      <Card pad={false} className="p-6 space-y-5">
+        <h2 className="text-base font-semibold text-foreground">1. Configure request</h2>
 
         <div className="grid gap-4 sm:grid-cols-3">
           <Field label="Authorizer">
@@ -246,18 +249,18 @@ export function EpicRequestForm({ departments }: Props) {
           )}
         </div>
 
-        <div className="rounded-lg bg-slate-50 border border-slate-200 px-4 py-3 text-sm text-slate-600">
-          Authorizer: <span className="font-medium text-slate-800">{AUTHORIZERS[authorizer].name}</span>
+        <Alert tone="info">
+          Authorizer: <span className="font-medium">{AUTHORIZERS[authorizer].name}</span>
           {" · "}
           {AUTHORIZERS[authorizer].phone}
           {" · "}
           {AUTHORIZERS[authorizer].email}
-        </div>
-      </section>
+        </Alert>
+      </Card>
 
       {/* ── Step 2: Person selection ── */}
-      <section className="rounded-xl border border-slate-200 bg-white p-6 space-y-5">
-        <h2 className="text-base font-semibold text-slate-800">
+      <Card pad={false} className="p-6 space-y-5">
+        <h2 className="text-base font-semibold text-foreground">
           2. Select {isBulk ? "people" : "person"}
         </h2>
 
@@ -283,7 +286,7 @@ export function EpicRequestForm({ departments }: Props) {
             {/* Directors */}
             {selectedDept.directors.length > 0 && (
               <div>
-                <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-2">
+                <p className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-2">
                   Directors
                 </p>
                 <div className="space-y-1">
@@ -302,7 +305,7 @@ export function EpicRequestForm({ departments }: Props) {
             {/* Volunteers */}
             {selectedDept.volunteers.length > 0 && (
               <div>
-                <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-2">
+                <p className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-2">
                   Volunteers
                 </p>
                 <div className="space-y-1">
@@ -319,27 +322,23 @@ export function EpicRequestForm({ departments }: Props) {
             )}
 
             {allMembers.length === 0 && (
-              <p className="text-sm text-slate-500">No active members in this department.</p>
+              <p className="text-sm text-muted-foreground">No active members in this department.</p>
             )}
           </div>
         )}
 
         {selectedPeopleIds.size > 0 && (
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-foreground-soft">
             {selectedPeopleIds.size} {selectedPeopleIds.size === 1 ? "person" : "people"} selected
           </p>
         )}
-      </section>
+      </Card>
 
       {/* ── Step 3: Generate ── */}
-      <section className="rounded-xl border border-slate-200 bg-white p-6 space-y-5">
-        <h2 className="text-base font-semibold text-slate-800">3. Generate</h2>
+      <Card pad={false} className="p-6 space-y-5">
+        <h2 className="text-base font-semibold text-foreground">3. Generate</h2>
 
-        {error && (
-          <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
-            {error}
-          </div>
-        )}
+        {error && <Alert tone="error">{error}</Alert>}
 
         <Button
           variant="primary"
@@ -354,15 +353,15 @@ export function EpicRequestForm({ departments }: Props) {
 
         {emailDraft && (
           <div className="space-y-3">
-            <p className="text-sm font-semibold text-slate-700">Email draft</p>
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-2">
-              <div className="text-xs text-slate-500 font-medium">
-                To: <span className="text-slate-700">helpdesk@ynhh.org</span>
+            <p className="text-sm font-semibold text-foreground-soft">Email draft</p>
+            <div className="rounded-xl border border-border bg-muted p-4 space-y-2">
+              <div className="text-xs text-muted-foreground font-medium">
+                To: <span className="text-foreground-soft">helpdesk@ynhh.org</span>
               </div>
-              <div className="text-xs text-slate-500 font-medium">
-                Subject: <span className="text-slate-700">{emailDraft.subject}</span>
+              <div className="text-xs text-muted-foreground font-medium">
+                Subject: <span className="text-foreground-soft">{emailDraft.subject}</span>
               </div>
-              <pre className="text-sm text-slate-700 whitespace-pre-wrap font-sans mt-3 leading-relaxed">
+              <pre className="text-sm text-foreground-soft whitespace-pre-wrap font-sans mt-3 leading-relaxed">
                 {emailDraft.body}
               </pre>
             </div>
@@ -376,7 +375,7 @@ export function EpicRequestForm({ departments }: Props) {
             </Button>
           </div>
         )}
-      </section>
+      </Card>
     </div>
   );
 }
@@ -395,25 +394,21 @@ function PersonRow({
   onToggle: () => void;
 }) {
   return (
-    <label className="flex items-center gap-3 rounded-lg px-3 py-2 hover:bg-slate-50 cursor-pointer">
+    <label className="flex items-center gap-3 rounded-lg px-3 py-2 hover:bg-muted cursor-pointer">
       <input
         type="checkbox"
         checked={selected}
         onChange={onToggle}
         className="h-4 w-4 rounded accent-brand"
       />
-      <span className="text-sm text-slate-800">{person.name}</span>
+      <span className="text-sm text-foreground">{person.name}</span>
       {person.netId && (
-        <span className="text-xs text-slate-400">{person.netId}</span>
+        <span className="text-xs text-subtle-foreground">{person.netId}</span>
       )}
       {person.epicId ? (
-        <span className="text-xs px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
-          Epic: {person.epicId}
-        </span>
+        <Badge tone="success">Epic: {person.epicId}</Badge>
       ) : (
-        <span className="text-xs px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">
-          No Epic ID
-        </span>
+        <Badge tone="warning">No Epic ID</Badge>
       )}
     </label>
   );

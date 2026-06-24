@@ -7,9 +7,9 @@ function cx(...parts: (string | undefined | false | null)[]): string {
 }
 
 const controlBase =
-  "rounded-md border border-slate-300 px-3 py-2 text-sm w-full outline-none bg-white " +
+  "rounded-lg border border-border-strong px-3 py-2 text-sm w-full outline-none bg-surface " +
   "focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15 " +
-  "disabled:opacity-50 disabled:bg-slate-50";
+  "disabled:opacity-50 disabled:bg-muted";
 
 export type ComboboxOption = { value: string; label: string };
 
@@ -113,10 +113,10 @@ export function Combobox({
         <ul
           id={listId}
           role="listbox"
-          className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-md border border-slate-200 bg-white py-1 shadow-lg"
+          className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-xl glass-panel py-1"
         >
           {filtered.length === 0 && (
-            <li className="px-3 py-2 text-sm text-slate-400">{emptyLabel}</li>
+            <li className="px-3 py-2 text-sm text-subtle-foreground">{emptyLabel}</li>
           )}
           {filtered.map((o, i) => (
             <li
@@ -125,7 +125,7 @@ export function Combobox({
               aria-selected={o.value === value}
               className={cx(
                 "cursor-pointer px-3 py-2 text-sm",
-                i === active ? "bg-brand-faint text-brand" : "text-slate-700 hover:bg-slate-50",
+                i === active ? "bg-brand-faint text-brand-fg" : "text-foreground-soft hover:bg-muted",
               )}
               onMouseEnter={() => setActive(i)}
               // onMouseDown (not onClick) so selection fires before the input blur closes the list.

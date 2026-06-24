@@ -9,6 +9,7 @@ import {
   mailConnectionStatus,
   MailNotConnectedError,
   __resetTokenCache,
+  teamsScopesGranted,
 } from "./oauth";
 
 // ---------------------------------------------------------------------------
@@ -123,6 +124,42 @@ describe("buildAuthorizeUrl", () => {
   it("includes the redirect_uri param key", () => {
     const url = buildAuthorizeUrl({ state: "s1" });
     expect(url).toContain("redirect_uri=");
+  });
+
+  it("includes Chat.Create in the scope", () => {
+    const url = buildAuthorizeUrl({ state: "s1" });
+    expect(decodeURIComponent(url)).toContain("Chat.Create");
+  });
+
+  it("includes ChatMessage.Send in the scope", () => {
+    const url = buildAuthorizeUrl({ state: "s1" });
+    expect(decodeURIComponent(url)).toContain("ChatMessage.Send");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// teamsScopesGranted
+// ---------------------------------------------------------------------------
+
+describe("teamsScopesGranted", () => {
+  it("returns false for null", () => {
+    expect(teamsScopesGranted(null)).toBe(false);
+  });
+
+  it("returns false when only Mail.Send is present", () => {
+    expect(teamsScopesGranted("Mail.Send")).toBe(false);
+  });
+
+  it("returns false when only Chat.Create is present", () => {
+    expect(teamsScopesGranted("Mail.Send Chat.Create")).toBe(false);
+  });
+
+  it("returns false when only ChatMessage.Send is present", () => {
+    expect(teamsScopesGranted("Mail.Send ChatMessage.Send")).toBe(false);
+  });
+
+  it("returns true when both Chat.Create and ChatMessage.Send are present", () => {
+    expect(teamsScopesGranted("Mail.Send Chat.Create ChatMessage.Send")).toBe(true);
   });
 });
 

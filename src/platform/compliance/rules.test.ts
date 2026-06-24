@@ -180,17 +180,17 @@ describe("complianceStatus - with termEnd", () => {
 });
 
 describe("overallClearance", () => {
-  it("is CLEARED only when the cert is valid and training is COMPLETE", () => {
-    expect(overallClearance("COMPLIANT", "COMPLETE")).toBe("CLEARED");
-    expect(overallClearance("EXPIRING_SOON", "COMPLETE")).toBe("CLEARED");
-    expect(overallClearance("COMPLIANT", "PENDING")).toBe("NOT_CLEARED");
-    expect(overallClearance("EXPIRING_SOON", "PENDING")).toBe("NOT_CLEARED");
+  it("is CLEARED only when the cert is valid and all required trainings are complete", () => {
+    expect(overallClearance("COMPLIANT", true)).toBe("CLEARED");
+    expect(overallClearance("EXPIRING_SOON", true)).toBe("CLEARED");
+    expect(overallClearance("COMPLIANT", false)).toBe("NOT_CLEARED");
   });
-
-  it("is NOT_CLEARED for any invalid cert regardless of training", () => {
+  it("is NOT_CLEARED for any invalid cert even when trainings are complete", () => {
     for (const s of ["EXPIRED", "UNKNOWN_DATE", "NO_CERTIFICATE"] as const) {
-      expect(overallClearance(s, "COMPLETE")).toBe("NOT_CLEARED");
-      expect(overallClearance(s, "PENDING")).toBe("NOT_CLEARED");
+      expect(overallClearance(s, true)).toBe("NOT_CLEARED");
     }
+  });
+  it("clears on cert alone when no trainings are required", () => {
+    expect(overallClearance("COMPLIANT", true)).toBe("CLEARED"); // caller passes true when nothing required
   });
 });

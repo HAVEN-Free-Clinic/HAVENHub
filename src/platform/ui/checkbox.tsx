@@ -14,7 +14,7 @@ export function Checkbox({ className, ...rest }: ComponentProps<"input">) {
       type="checkbox"
       {...rest}
       className={cx(
-        "h-4 w-4 rounded border-slate-300 text-brand accent-brand cursor-pointer",
+        "h-4 w-4 rounded border-border-strong text-brand accent-brand cursor-pointer",
         "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand",
         "disabled:opacity-50 disabled:cursor-not-allowed",
         className,

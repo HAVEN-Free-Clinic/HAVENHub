@@ -1,5 +1,6 @@
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
+import { getActiveTerm } from "@/platform/terms/active-term";
 import { recordAudit } from "@/platform/audit";
 import { deriveStatus } from "../engine/status";
 import { LearningAuthError } from "./errors";
@@ -27,7 +28,7 @@ export async function getCourseCompletion(courseId: string, viewerId: string): P
     where: { id: courseId },
     include: { departments: { select: { departmentId: true } } },
   });
-  const term = await prisma.term.findFirst({ where: { status: "ACTIVE" }, orderBy: { startDate: "desc" } });
+  const term = await getActiveTerm();
   if (!term) return [];
 
   const deptFilter = course.assignToAll
@@ -78,6 +79,7 @@ export async function resetCourseProgress(personId: string, courseId: string, ac
     throw new LearningAuthError("You do not have permission to reset progress.");
   }
   await prisma.courseProgress.deleteMany({ where: { personId, courseId } });
+  await prisma.scoProgress.deleteMany({ where: { personId, courseId } });
   await recordAudit({
     actorPersonId: actorId,
     action: "learning.progress_reset",

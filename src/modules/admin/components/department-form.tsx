@@ -1,6 +1,7 @@
 import type { Department } from "@prisma/client";
 import { Input, Field } from "@/platform/ui/input";
 import { Button } from "@/platform/ui/button";
+import { Checkbox } from "@/platform/ui/checkbox";
 import { Alert } from "@/platform/ui/alert";
 
 type DepartmentFormProps = {
@@ -51,7 +52,7 @@ export function DepartmentForm({ action, mode, department, error, saved }: Depar
       </div>
 
       <label className="flex items-center gap-2 text-sm">
-        <input type="checkbox" name="isActive" defaultChecked={department?.isActive ?? true} />
+        <Checkbox name="isActive" defaultChecked={department?.isActive ?? true} />
         Active
       </label>
 

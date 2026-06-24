@@ -15,6 +15,21 @@
   /* Calm cool-neutral canvas the hub shell sits on (vs. flat white). */
   --color-canvas: #eef1f5;
 
+  /* Semantic neutral roles. Light values equal today's slate/white hex so the
+     existing UI is visually unchanged; the .dark block below overrides them. */
+  --color-surface: #ffffff;          /* was bg-white (neutral surfaces) */
+  --color-muted: #f8fafc;            /* slate-50  */
+  --color-muted-strong: #f1f5f9;     /* slate-100 */
+  --color-foreground: #0f172a;       /* slate-900 */
+  --color-foreground-soft: #334155;  /* slate-700 */
+  --color-muted-foreground: #64748b; /* slate-500 */
+  --color-subtle-foreground: #94a3b8;/* slate-400 */
+  --color-border: #e2e8f0;           /* slate-200 */
+  --color-border-strong: #cbd5e1;    /* slate-300 */
+  --color-border-subtle: #f1f5f9;    /* slate-100 */
+  /* Brand used as text/icon color. Light = brand; lifted in dark for legibility. */
+  --color-brand-fg: var(--color-brand);
+
   --font-sans: var(--font-hanken), ui-sans-serif, system-ui, sans-serif;
 }
 
@@ -34,4 +49,142 @@
   --mod-admin-bg: oklch(0.96 0.03 70);
   --mod-recruit:    oklch(0.50 0.08 300);
   --mod-recruit-bg: oklch(0.96 0.024 300);
+}
+
+/*
+ * Dark theme. Activated by the `dark` class on <html> (set server-side for an
+ * explicit light/dark preference, or by the inline no-flash script for system).
+ * Values are tuned for WCAG AA body-text contrast on the surface/canvas pair.
+ */
+html.dark {
+  --color-canvas: #020617;            /* slate-950 page base */
+  --color-surface: #0f172a;           /* slate-900 raised surface */
+  --color-muted: #1e293b;             /* slate-800 */
+  --color-muted-strong: #334155;      /* slate-700 */
+  --color-foreground: #f1f5f9;        /* slate-100 */
+  --color-foreground-soft: #cbd5e1;   /* slate-300 */
+  --color-muted-foreground: #94a3b8;  /* slate-400 */
+  --color-subtle-foreground: #64748b; /* slate-500 */
+  --color-border: #334155;            /* slate-700 */
+  --color-border-strong: #475569;     /* slate-600 */
+  --color-border-subtle: #1e293b;     /* slate-800 */
+
+  /* Brand tints become dark-tinted surfaces; brand text is lifted to read on dark.
+     color-mix keeps these tracking the admin-chosen brand hue. */
+  --color-brand-fg: color-mix(in srgb, var(--color-brand) 55%, white);
+  --color-brand-faint: color-mix(in srgb, var(--color-brand) 22%, #0b1220);
+  --color-brand-light: color-mix(in srgb, var(--color-brand) 30%, #0b1220);
+}
+
+/* Tell the UA which native scheme to use (form controls, scrollbars). */
+html:not(.dark) { color-scheme: light; }
+html.dark { color-scheme: dark; }
+
+/*
+ * Liquid Glass — the floating navigation / control material (Apple-style).
+ * Applied only to the topmost nav bar and floating overlays (modals, popovers),
+ * never to content. `.glass-bar` = pinned horizontal bars (bottom-edge emphasis);
+ * `.glass-panel` = floating overlays (full border, leans opaque per Apple's
+ * "expanded sheets become more opaque"). Dark + accessibility overrides follow.
+ */
+@layer components {
+  .glass-bar,
+  .glass-panel {
+    position: relative;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.45));
+    -webkit-backdrop-filter: blur(18px) saturate(190%);
+    backdrop-filter: blur(18px) saturate(190%);
+  }
+
+  /* Specular edge sheen. z-index:-1 sits it above the glass background but below content (backdrop-filter makes the element a stacking context). pointer-events:none so it never blocks clicks. */
+  .glass-bar::before,
+  .glass-panel::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    z-index: -1;
+    background: linear-gradient(
+      105deg,
+      rgba(255, 255, 255, 0.5) 0%,
+      rgba(255, 255, 255, 0) 22%,
+      rgba(255, 255, 255, 0) 72%,
+      rgba(255, 255, 255, 0.28) 100%
+    );
+  }
+
+  .glass-bar {
+    /* Floating pill: full hairline border + a lift shadow so it reads as a
+       detached island, not a pinned edge-to-edge bar. */
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.9) inset,
+      0 10px 30px rgba(15, 23, 42, 0.16);
+  }
+
+  .glass-panel {
+    /* Apple: expanded sheets lean opaque to keep focus. Higher alpha floor. */
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.82));
+    border: 1px solid rgba(255, 255, 255, 0.7);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.95) inset,
+      0 12px 34px rgba(15, 23, 42, 0.18);
+  }
+
+  /* Dark mode: tint derived from the surface token so it tracks the theme. */
+  html.dark .glass-bar,
+  html.dark .glass-panel {
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--color-surface) 65%, transparent),
+      color-mix(in srgb, var(--color-surface) 55%, transparent)
+    );
+  }
+  html.dark .glass-bar::before,
+  html.dark .glass-panel::before {
+    background: linear-gradient(
+      105deg,
+      rgba(255, 255, 255, 0.12) 0%,
+      rgba(255, 255, 255, 0) 30%,
+      rgba(255, 255, 255, 0) 80%,
+      rgba(255, 255, 255, 0.08) 100%
+    );
+  }
+  html.dark .glass-bar {
+    border-color: rgba(255, 255, 255, 0.12);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.06) inset,
+      0 10px 30px rgba(0, 0, 0, 0.5);
+  }
+  html.dark .glass-panel {
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--color-surface) 92%, transparent),
+      color-mix(in srgb, var(--color-surface) 86%, transparent)
+    );
+    border-color: rgba(255, 255, 255, 0.12);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.08) inset,
+      0 12px 34px rgba(0, 0, 0, 0.5);
+  }
+
+  /*
+   * Accessibility: drop translucency entirely and fall back to a solid surface
+   * when the user reduces transparency, raises contrast, or uses forced colors.
+   */
+  @media (prefers-reduced-transparency: reduce),
+    (prefers-contrast: more),
+    (forced-colors: active) {
+    .glass-bar,
+    .glass-panel {
+      background: var(--color-surface);
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+    }
+    .glass-bar::before,
+    .glass-panel::before {
+      display: none;
+    }
+  }
 }

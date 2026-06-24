@@ -10,6 +10,7 @@
  */
 
 import type { TermMembership, Department, Term } from "@prisma/client";
+import { Card } from "@/platform/ui/card";
 import { Badge } from "@/platform/ui/badge";
 import { Alert } from "@/platform/ui/alert";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
@@ -34,7 +35,7 @@ export function MembershipsCard({
   const hasDirector = memberships.some((m) => m.kind === "DIRECTOR");
 
   return (
-    <div>
+    <Card>
       {withdrawn !== undefined && withdrawn > 0 && (
         <Alert tone="success" className="mb-3">
           Withdrawn from {withdrawn} volunteer assignment{withdrawn !== 1 ? "s" : ""} this term.
@@ -42,12 +43,12 @@ export function MembershipsCard({
       )}
 
       {memberships.length === 0 ? (
-        <p className="text-sm text-slate-400">No current-term assignments.</p>
+        <p className="text-sm text-subtle-foreground">No current-term assignments.</p>
       ) : (
         <ul className="space-y-2">
           {memberships.map((m) => (
             <li key={m.id} className="flex items-center gap-2 text-sm">
-              <span className="font-medium text-slate-700">{m.department.code}</span>
+              <span className="font-medium text-foreground-soft">{m.department.code}</span>
               {m.kind === "DIRECTOR" ? (
                 <Badge tone="brand">Director</Badge>
               ) : (
@@ -70,10 +71,10 @@ export function MembershipsCard({
 
       {/* Director note */}
       {hasDirector && (
-        <p className="mt-3 text-sm text-slate-500">
+        <p className="mt-3 text-sm text-muted-foreground">
           To step down as a director, contact the executive directors.
         </p>
       )}
-    </div>
+    </Card>
   );
 }

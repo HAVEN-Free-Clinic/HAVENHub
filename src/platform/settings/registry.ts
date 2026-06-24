@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { config, type AppConfig } from "@/platform/config";
 import { brandingAssetSchema, type BrandingAsset } from "@/platform/branding/asset-types";
+import { NOTIFICATION_TYPES, channelSettingKey, type NotificationChannel } from "@/platform/notifications/registry";
 
 export interface SettingValidateCtx {
   /** Env config, for checking that required secrets are present. */
@@ -210,6 +211,39 @@ export const SETTINGS: SettingDef<unknown>[] = [
     envDefault: () => ({ contentType: "", version: 0 }),
     secret: false,
   }),
+  define<"light" | "dark" | "system">({
+    key: "ui.defaultTheme",
+    category: "Branding",
+    label: "Default appearance",
+    help: "The theme used for users who have not chosen one, and for signed-out pages. Users can override this for themselves.",
+    input: { type: "select", options: [
+      { value: "light", label: "Light" },
+      { value: "dark", label: "Dark" },
+      { value: "system", label: "System (follow device)" },
+    ] },
+    schema: z.enum(["light", "dark", "system"]),
+    envDefault: () => "system",
+    secret: false,
+  }),
+  ...NOTIFICATION_TYPES.map((t) =>
+    define<NotificationChannel>({
+      key: channelSettingKey(t.key),
+      category: "Notifications",
+      label: t.label,
+      help: `Where to deliver the "${t.label}" notification.`,
+      input: {
+        type: "select",
+        options: [
+          { value: "email", label: "Email" },
+          { value: "teams", label: "Teams DM" },
+          { value: "both", label: "Email + Teams DM" },
+        ],
+      },
+      schema: z.enum(["email", "teams", "both"]),
+      envDefault: () => t.defaultChannel,
+      secret: false,
+    })
+  ),
 ];
 
 const BY_KEY = new Map(SETTINGS.map((d) => [d.key, d]));

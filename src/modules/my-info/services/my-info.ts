@@ -18,6 +18,7 @@
  *   - audits every mutation
  */
 
+import { cache } from "react";
 import type { HipaaCertificate } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
@@ -113,12 +114,20 @@ export async function getMyInfo(personId: string) {
   return { person, activeTerm, memberships };
 }
 
-export async function listMyCertificates(personId: string): Promise<HipaaCertificate[]> {
-  return prisma.hipaaCertificate.findMany({
-    where: { personId },
-    orderBy: { uploadedAt: "desc" },
-  });
-}
+/**
+ * The person's certificates, newest first. Memoized per request via cache():
+ * a homepage render reads this from both the onboarding gate and the dashboard,
+ * so without memoization the same query runs twice. Per-request only -- a fresh
+ * upload is reflected on the next navigation.
+ */
+export const listMyCertificates = cache(
+  async (personId: string): Promise<HipaaCertificate[]> => {
+    return prisma.hipaaCertificate.findMany({
+      where: { personId },
+      orderBy: { uploadedAt: "desc" },
+    });
+  }
+);
 
 export async function getOwnedCertificate(
   personId: string,
@@ -331,101 +340,3 @@ export async function saveCertificate(
   return cert;
 }
 
-/**
- * Manually set the completion date for a HIPAA certificate.
- *
- * Owner-only: the certificate must belong to personId. Validates:
- *   - The cert exists and belongs to this person (CertificateValidationError "certificate not found" on failure)
- *   - dateIso is a valid calendar date (YYYY-MM-DD)
- *   - The date is not in the future
- *   - The date is not older than 5 years
- *
- * Normalises to noon UTC; sets extraction=MANUAL; audits with before/after.
- */
-export async function setCertificateCompletionDate(
-  personId: string,
-  certId: string,
-  dateIso: string
-): Promise<HipaaCertificate> {
-  // --- Ownership check ---
-  const cert = await getOwnedCertificate(personId, certId);
-  if (!cert) {
-    throw new CertificateValidationError("certificate not found");
-  }
-
-  // --- Date validation ---
-  // Must match YYYY-MM-DD format exactly
-  const dateRx = /^(\d{4})-(\d{2})-(\d{2})$/;
-  const match = dateRx.exec(dateIso);
-  if (!match) {
-    throw new CertificateValidationError(`invalid date "${dateIso}"; expected YYYY-MM-DD format`);
-  }
-
-  const year = parseInt(match[1], 10);
-  const month0 = parseInt(match[2], 10) - 1;
-  const day = parseInt(match[3], 10);
-
-  // Build noon UTC to match parser convention
-  const completionDate = new Date(Date.UTC(year, month0, day, 12, 0, 0, 0));
-
-  // Verify no calendar overflow (e.g. Feb 30)
-  if (
-    completionDate.getUTCFullYear() !== year ||
-    completionDate.getUTCMonth() !== month0 ||
-    completionDate.getUTCDate() !== day
-  ) {
-    throw new CertificateValidationError(`invalid date "${dateIso}"`);
-  }
-
-  const now = new Date();
-
-  // Must not be in the future
-  if (completionDate.getTime() > now.getTime()) {
-    throw new CertificateValidationError("completion date cannot be in the future");
-  }
-
-  // Must not be older than 5 years
-  const cutoff = new Date(Date.UTC(
-    now.getUTCFullYear() - 5,
-    now.getUTCMonth(),
-    now.getUTCDate(),
-    12, 0, 0, 0
-  ));
-  if (completionDate.getTime() < cutoff.getTime()) {
-    throw new CertificateValidationError("completion date is too old (older than 5 years)");
-  }
-
-  // --- Update + enqueue (single transaction) ---
-  const before = { completionDate: cert.completionDate ?? null, extraction: cert.extraction };
-
-  // Wrap the update and the Person outbox row together so both land atomically.
-  // The drain recomputes the freshest hipaaStatus on the next cycle; this
-  // prevents a member who manually enters their date from staying "Not Compliant"
-  // in Airtable until the nightly refresh.
-  const updated = await prisma.$transaction(async (tx) => {
-    const result = await tx.hipaaCertificate.update({
-      where: { id: cert.id },
-      data: { completionDate, extraction: "MANUAL" },
-    });
-
-    await enqueueMirror(tx, {
-      entityType: "Person",
-      entityId: personId,
-      changedFields: ["hipaaStatus"],
-    });
-
-    return result;
-  });
-
-  // --- Audit ---
-  await recordAudit({
-    actorPersonId: personId,
-    action: "my-info.certificate_date",
-    entityType: "HipaaCertificate",
-    entityId: cert.id,
-    before,
-    after: { completionDate, extraction: "MANUAL" },
-  });
-
-  return updated;
-}

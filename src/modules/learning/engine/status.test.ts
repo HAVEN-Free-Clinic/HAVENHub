@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveStatus, parseScore } from "./status";
+import { deriveStatus, parseScore, rollupStatus } from "./status";
 
 describe("deriveStatus", () => {
   it("treats passed and completed as COMPLETE", () => {
@@ -30,5 +30,18 @@ describe("parseScore", () => {
     expect(parseScore(null)).toBeNull();
     expect(parseScore("")).toBeNull();
     expect(parseScore("  ")).toBeNull();
+  });
+});
+
+describe("rollupStatus", () => {
+  it("is COMPLETE only when every SCO is complete", () => {
+    expect(rollupStatus(["completed", "passed"]).status).toBe("COMPLETE");
+    expect(rollupStatus(["completed", "incomplete"]).status).toBe("IN_PROGRESS");
+    expect(rollupStatus(["completed", null]).status).toBe("IN_PROGRESS");
+  });
+
+  it("is IN_PROGRESS for an empty SCO list (nothing to complete yet)", () => {
+    expect(rollupStatus([]).status).toBe("IN_PROGRESS");
+    expect(rollupStatus([]).completed).toBe(false);
   });
 });

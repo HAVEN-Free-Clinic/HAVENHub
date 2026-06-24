@@ -10,6 +10,7 @@ import type { Person } from "@prisma/client";
 import type { ReactNode } from "react";
 import { Input, Field } from "@/platform/ui/input";
 import { Button } from "@/platform/ui/button";
+import { Checkbox } from "@/platform/ui/checkbox";
 import { Alert } from "@/platform/ui/alert";
 
 type PersonFormProps = {
@@ -104,21 +105,17 @@ export function PersonForm({ action, person, error, saved, children }: PersonFor
       </div>
 
       <div className="flex flex-wrap gap-6">
-        <label className="flex items-center gap-2 text-sm text-slate-700">
-          <input
-            type="checkbox"
+        <label className="flex items-center gap-2 text-sm text-foreground-soft">
+          <Checkbox
             name="spanishSpeaking"
             defaultChecked={person?.spanishSpeaking ?? false}
-            className="h-4 w-4 rounded accent-brand"
           />
           Spanish-speaking
         </label>
-        <label className="flex items-center gap-2 text-sm text-slate-700">
-          <input
-            type="checkbox"
+        <label className="flex items-center gap-2 text-sm text-foreground-soft">
+          <Checkbox
             name="licensedRN"
             defaultChecked={person?.licensedRN ?? false}
-            className="h-4 w-4 rounded accent-brand"
           />
           Licensed RN
         </label>

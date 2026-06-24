@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import { LearningAuthError } from "./errors";
-import { getMyCourses, getCourseForLearner, persistCmi, isCourseAssignedTo } from "./enrollment";
+import { getMyCourses, getCourseForLearner, persistScoCmi, isCourseAssignedTo } from "./enrollment";
 
 /** A learner assigned to one active, department-scoped course with a package. */
 async function seed() {
@@ -21,6 +21,10 @@ async function seed() {
       description: "d",
       scormEntryHref: "index.html",
       scormVersion: "1.2",
+      scormScos: [
+        { id: "ITEM-A", title: "hb", href: "index.html" },
+        { id: "ITEM-B", title: "ytf", href: "html/ytf.html" },
+      ],
       departments: { create: [{ departmentId: dept.id }] },
     },
   });
@@ -51,44 +55,104 @@ it("getCourseForLearner refuses an unassigned course", async () => {
   await expect(getCourseForLearner(learner.id, unassigned.id)).rejects.toBeInstanceOf(LearningAuthError);
 });
 
-it("persistCmi records status and stamps completedAt once on completion", async () => {
+it("getCourseForLearner returns every SCO with its own resume state", async () => {
   const { learner, course } = await seed();
-  await persistCmi(learner.id, course.id, {
-    lessonStatus: "incomplete", scoreRaw: null, suspendData: "page=1", lessonLocation: "1",
+  await persistScoCmi(learner.id, course.id, "ITEM-A", {
+    lessonStatus: "completed", scoreRaw: null, suspendData: "a=1", lessonLocation: "1",
   });
-  let row = await getCourseForLearner(learner.id, course.id);
-  expect(row.status).toBe("IN_PROGRESS");
-  expect(row.cmi.suspendData).toBe("page=1");
-
-  await persistCmi(learner.id, course.id, {
-    lessonStatus: "passed", scoreRaw: 90, suspendData: "page=9", lessonLocation: "9",
-  });
-  row = await getCourseForLearner(learner.id, course.id);
-  expect(row.status).toBe("COMPLETE");
-  expect(row.cmi.scoreRaw).toBe(90);
-
-  const first = await prisma.courseProgress.findFirstOrThrow({ where: { personId: learner.id, courseId: course.id } });
-  const firstCompletedAt = first.completedAt;
-
-  await persistCmi(learner.id, course.id, {
-    lessonStatus: "completed", scoreRaw: 95, suspendData: "page=9", lessonLocation: "9",
-  });
-  const again = await prisma.courseProgress.findFirstOrThrow({ where: { personId: learner.id, courseId: course.id } });
-  expect(again.completedAt?.getTime()).toBe(firstCompletedAt?.getTime());
+  const row = await getCourseForLearner(learner.id, course.id);
+  expect(row.scos.map((s) => s.id)).toEqual(["ITEM-A", "ITEM-B"]);
+  expect(row.scos[0].cmi.suspendData).toBe("a=1");
+  expect(row.scos[1].cmi.lessonStatus).toBeNull();
 });
 
-it("persistCmi rounds a fractional score to fit the Int column", async () => {
+it("course is IN_PROGRESS until every SCO completes, then COMPLETE", async () => {
   const { learner, course } = await seed();
-  await persistCmi(learner.id, course.id, {
+  await persistScoCmi(learner.id, course.id, "ITEM-A", {
+    lessonStatus: "completed", scoreRaw: null, suspendData: null, lessonLocation: null,
+  });
+  expect((await getCourseForLearner(learner.id, course.id)).status).toBe("IN_PROGRESS");
+
+  await persistScoCmi(learner.id, course.id, "ITEM-B", {
+    lessonStatus: "completed", scoreRaw: null, suspendData: null, lessonLocation: null,
+  });
+  expect((await getCourseForLearner(learner.id, course.id)).status).toBe("COMPLETE");
+});
+
+it("stamps course completedAt once and preserves it across later commits", async () => {
+  const { learner, course } = await seed();
+  await persistScoCmi(learner.id, course.id, "ITEM-A", {
+    lessonStatus: "completed", scoreRaw: null, suspendData: null, lessonLocation: null,
+  });
+  await persistScoCmi(learner.id, course.id, "ITEM-B", {
+    lessonStatus: "completed", scoreRaw: null, suspendData: null, lessonLocation: null,
+  });
+  const first = await prisma.courseProgress.findFirstOrThrow({ where: { personId: learner.id, courseId: course.id } });
+
+  await persistScoCmi(learner.id, course.id, "ITEM-B", {
+    lessonStatus: "completed", scoreRaw: 95, suspendData: "b=9", lessonLocation: "9",
+  });
+  const again = await prisma.courseProgress.findFirstOrThrow({ where: { personId: learner.id, courseId: course.id } });
+  expect(again.completedAt?.getTime()).toBe(first.completedAt?.getTime());
+});
+
+it("rounds a fractional SCO score to fit the Int column", async () => {
+  const { learner, course } = await seed();
+  await persistScoCmi(learner.id, course.id, "ITEM-A", {
     lessonStatus: "passed", scoreRaw: 83.5, suspendData: null, lessonLocation: null,
   });
   const row = await getCourseForLearner(learner.id, course.id);
-  expect(row.cmi.scoreRaw).toBe(84);
+  expect(row.scos[0].cmi.scoreRaw).toBe(84);
 });
 
-it("persistCmi refuses an unassigned course", async () => {
+it("getMyCourses reports COMPLETE only after the rollup completes", async () => {
+  const { learner, course } = await seed();
+  await persistScoCmi(learner.id, course.id, "ITEM-A", {
+    lessonStatus: "completed", scoreRaw: null, suspendData: null, lessonLocation: null,
+  });
+  expect((await getMyCourses(learner.id))[0].status).toBe("IN_PROGRESS");
+  await persistScoCmi(learner.id, course.id, "ITEM-B", {
+    lessonStatus: "completed", scoreRaw: null, suspendData: null, lessonLocation: null,
+  });
+  expect((await getMyCourses(learner.id))[0].status).toBe("COMPLETE");
+});
+
+it("supports a legacy single-SCO course (scormScos null) via sco-0", async () => {
+  const { learner, dept } = await seed();
+  const legacy = await prisma.course.create({
+    data: {
+      title: "Legacy",
+      scormEntryHref: "index.html",
+      scormVersion: "1.2",
+      departments: { create: [{ departmentId: dept.id }] },
+    },
+  });
+  const before = await getCourseForLearner(learner.id, legacy.id);
+  expect(before.scos.map((s) => s.id)).toEqual(["sco-0"]);
+  expect(before.status).toBe("NOT_STARTED");
+
+  await persistScoCmi(learner.id, legacy.id, "sco-0", {
+    lessonStatus: "completed", scoreRaw: null, suspendData: null, lessonLocation: null,
+  });
+  const after = await getCourseForLearner(learner.id, legacy.id);
+  expect(after.status).toBe("COMPLETE");
+});
+
+it("rolls up the highest SCO score onto CourseProgress", async () => {
+  const { learner, course } = await seed();
+  await persistScoCmi(learner.id, course.id, "ITEM-A", {
+    lessonStatus: "passed", scoreRaw: 90, suspendData: null, lessonLocation: null,
+  });
+  await persistScoCmi(learner.id, course.id, "ITEM-B", {
+    lessonStatus: "passed", scoreRaw: 80, suspendData: null, lessonLocation: null,
+  });
+  const cp = await prisma.courseProgress.findFirstOrThrow({ where: { personId: learner.id, courseId: course.id } });
+  expect(cp.scoreRaw).toBe(90);
+});
+
+it("persistScoCmi refuses an unassigned course", async () => {
   const { learner, unassigned } = await seed();
   await expect(
-    persistCmi(learner.id, unassigned.id, { lessonStatus: "completed", scoreRaw: null, suspendData: null, lessonLocation: null })
+    persistScoCmi(learner.id, unassigned.id, "ITEM-A", { lessonStatus: "completed", scoreRaw: null, suspendData: null, lessonLocation: null })
   ).rejects.toBeInstanceOf(LearningAuthError);
 });

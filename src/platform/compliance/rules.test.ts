@@ -193,4 +193,11 @@ describe("overallClearance", () => {
       expect(overallClearance(s, "PENDING")).toBe("NOT_CLEARED");
     }
   });
+
+  it("ignores training when it is not required (non-volunteer, e.g. director-only)", () => {
+    expect(overallClearance("COMPLIANT", "PENDING", false)).toBe("CLEARED");
+    expect(overallClearance("EXPIRING_SOON", "PENDING", false)).toBe("CLEARED");
+    // an invalid cert still blocks clearance even when training is not required
+    expect(overallClearance("EXPIRED", "PENDING", false)).toBe("NOT_CLEARED");
+  });
 });

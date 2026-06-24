@@ -4,7 +4,7 @@ import { can } from "@/platform/rbac/engine";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { complianceStatus } from "@/platform/compliance/rules";
 import { listMyCertificates } from "@/modules/my-info/services/my-info";
-import { getMyTraining } from "@/modules/recruitment/services/training";
+import { getMyTraining, isActiveVolunteer } from "@/modules/recruitment/services/training";
 import { getMyCourses } from "@/modules/learning/services/enrollment";
 import {
   deriveProfileTaskState,
@@ -83,17 +83,18 @@ export const getOnboardingStatus = cache(async function getOnboardingStatus(
     return { hasActiveTerm: false, exempt, tasks: [], completedCount: 0, totalCount: 0, onboarded: true };
   }
 
-  const [person, certs, training, courses] = await Promise.all([
+  const [person, certs, training, courses, volunteer] = await Promise.all([
     prisma.person.findUniqueOrThrow({ where: { id: personId }, select: { contactEmail: true, phone: true } }),
     listMyCertificates(personId),
     getMyTraining(personId), // safe: active term exists
     getMyCourses(personId),
+    isActiveVolunteer(personId, term.id),
   ]);
 
   const tasks: OnboardingTask[] = [
     task("profile", deriveProfileTaskState(person)),
     task("hipaa", deriveHipaaTaskState(complianceStatus(certs[0] ?? null, term.endDate))),
-    task("training", deriveTrainingTaskState({ state: training.state, attemptsUsed: training.attemptsUsed })),
+    task("training", deriveTrainingTaskState({ state: training.state, attemptsUsed: training.attemptsUsed }, volunteer)),
     task("learning", deriveLearningTaskState(courses)),
   ];
 

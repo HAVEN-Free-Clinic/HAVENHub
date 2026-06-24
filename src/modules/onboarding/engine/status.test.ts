@@ -32,14 +32,19 @@ describe("deriveHipaaTaskState", () => {
 });
 
 describe("deriveTrainingTaskState", () => {
+  it("is NOT_REQUIRED for someone who is not an active volunteer (e.g. director-only)", () => {
+    // The quiz itself rejects non-volunteers, so the gate must not demand it of them.
+    expect(deriveTrainingTaskState({ state: "PENDING", attemptsUsed: 0 }, false)).toBe("NOT_REQUIRED");
+    expect(deriveTrainingTaskState({ state: "PENDING", attemptsUsed: 3 }, false)).toBe("NOT_REQUIRED");
+  });
   it("is COMPLETE when state is COMPLETE", () => {
-    expect(deriveTrainingTaskState({ state: "COMPLETE", attemptsUsed: 0 })).toBe("COMPLETE");
+    expect(deriveTrainingTaskState({ state: "COMPLETE", attemptsUsed: 0 }, true)).toBe("COMPLETE");
   });
   it("is IN_PROGRESS when pending with at least one attempt", () => {
-    expect(deriveTrainingTaskState({ state: "PENDING", attemptsUsed: 2 })).toBe("IN_PROGRESS");
+    expect(deriveTrainingTaskState({ state: "PENDING", attemptsUsed: 2 }, true)).toBe("IN_PROGRESS");
   });
   it("is INCOMPLETE when pending with no attempts", () => {
-    expect(deriveTrainingTaskState({ state: "PENDING", attemptsUsed: 0 })).toBe("INCOMPLETE");
+    expect(deriveTrainingTaskState({ state: "PENDING", attemptsUsed: 0 }, true)).toBe("INCOMPLETE");
   });
 });
 

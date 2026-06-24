@@ -21,8 +21,14 @@ export function deriveHipaaTaskState(status: ComplianceStatus): OnboardingTaskSt
   return status === "COMPLIANT" || status === "EXPIRING_SOON" ? "COMPLETE" : "INCOMPLETE";
 }
 
-/** Training is complete when passed; a started-but-unpassed attempt reads as in progress. */
-export function deriveTrainingTaskState(t: { state: TrainingState; attemptsUsed: number }): OnboardingTaskState {
+/** Volunteer training only applies to active volunteers; the quiz itself rejects
+ *  non-volunteers, so a director-only member is NOT_REQUIRED rather than blocked.
+ *  Otherwise: complete when passed; a started-but-unpassed attempt is in progress. */
+export function deriveTrainingTaskState(
+  t: { state: TrainingState; attemptsUsed: number },
+  isVolunteer: boolean
+): OnboardingTaskState {
+  if (!isVolunteer) return "NOT_REQUIRED";
   if (t.state === "COMPLETE") return "COMPLETE";
   return t.attemptsUsed > 0 ? "IN_PROGRESS" : "INCOMPLETE";
 }

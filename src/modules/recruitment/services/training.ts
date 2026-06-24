@@ -79,6 +79,16 @@ export async function resolveTrainingState(personId: string, termId: string): Pr
   return row?.status === "COMPLETE" ? "COMPLETE" : "PENDING";
 }
 
+/** True when the person holds an active VOLUNTEER membership in the term. Volunteer
+ *  training (and its gate task) only applies to volunteers; a director-only member
+ *  is not one, and submitQuiz/recordAttendance both reject non-volunteers. */
+export async function isActiveVolunteer(personId: string, termId: string): Promise<boolean> {
+  const count = await prisma.termMembership.count({
+    where: { personId, termId, kind: "VOLUNTEER", status: "ACTIVE" },
+  });
+  return count > 0;
+}
+
 /** Upsert the person's training row to COMPLETE for the term, stamping the method.
  *  Shared by the attendance and quiz paths. Idempotent. */
 export async function completeTraining(

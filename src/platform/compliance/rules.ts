@@ -93,8 +93,12 @@ export type OverallClearance = "CLEARED" | "NOT_CLEARED";
 
 export function overallClearance(
   certStatus: ComplianceStatus,
-  training: TrainingState
+  training: TrainingState,
+  /** Volunteer training only applies to active volunteers; a director-only member
+   *  needs a valid cert alone. Defaults to true so volunteer rosters are unchanged. */
+  trainingRequired = true
 ): OverallClearance {
   const certValid = certStatus === "COMPLIANT" || certStatus === "EXPIRING_SOON";
-  return certValid && training === "COMPLETE" ? "CLEARED" : "NOT_CLEARED";
+  const trainingOk = !trainingRequired || training === "COMPLETE";
+  return certValid && trainingOk ? "CLEARED" : "NOT_CLEARED";
 }

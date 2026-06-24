@@ -71,15 +71,19 @@ export function ClearanceCard({
   certStatus,
   trainingState,
   termName,
+  trainingRequired = true,
 }: {
   clearance: OverallClearance;
   certStatus: ComplianceStatus;
   trainingState: TrainingState;
   termName?: string | null;
+  /** Volunteer training only applies to active volunteers; omit the row and CTA
+   *  for director-only members, who are not asked to complete it. */
+  trainingRequired?: boolean;
 }) {
   const cert = certRequirement(certStatus);
   const training = trainingRequirement(trainingState);
-  const requirements = [cert, training];
+  const requirements = trainingRequired ? [cert, training] : [cert];
   const cleared = clearance === "CLEARED";
   const forTerm = termName ? ` for ${termName}` : "";
 
@@ -97,7 +101,9 @@ export function ClearanceCard({
               You&apos;re cleared to volunteer{forTerm}
             </p>
             <p className="mt-0.5 text-[13px] leading-snug text-slate-700">
-              Your HIPAA certificate and training are on file, so you can be scheduled for shifts.
+              {trainingRequired
+                ? "Your HIPAA certificate and training are on file, so you can be scheduled for shifts."
+                : "Your HIPAA certificate is on file, so you can be scheduled for shifts."}
             </p>
           </div>
         </div>
@@ -130,7 +136,7 @@ export function ClearanceCard({
       </ul>
 
       {/* Next-step CTA */}
-      {!training.met && (
+      {trainingRequired && !training.met && (
         <div className="border-t border-border-subtle px-5 py-3.5">
           <Link
             href="/training"

@@ -23,7 +23,7 @@ import { TimeGreeting } from "@/platform/ui/time-greeting";
 import { ClinicChannelCard } from "./clinic-channel-card";
 import { mySchedule } from "@/modules/schedule/services/schedule";
 import { listMyCertificates } from "@/modules/my-info/services/my-info";
-import { resolveTrainingState } from "@/modules/recruitment/services/training";
+import { resolveTrainingState, isActiveVolunteer } from "@/modules/recruitment/services/training";
 import { complianceStatus, certExpiresAt } from "@/platform/compliance/rules";
 import { isoDateKey } from "@/platform/dates";
 
@@ -151,7 +151,10 @@ export default async function HubPage() {
     listMyCertificates(person.personId),
   ]);
   const { term, shifts } = schedule;
-  const trainingState = term ? await resolveTrainingState(person.personId, term.id) : "PENDING";
+  // Volunteer training only applies to active volunteers; a director-only member
+  // is neither shown the status line nor blocked by the gate on it.
+  const isVolunteer = term ? await isActiveVolunteer(person.personId, term.id) : false;
+  const trainingState = term && isVolunteer ? await resolveTrainingState(person.personId, term.id) : "PENDING";
 
   // --- Module visibility ---
   const activeModules = MODULES.filter(
@@ -195,7 +198,7 @@ export default async function HubPage() {
 
   const statusLines: Array<{ ok: boolean; title: string; sub: string; href: string }> = [
     { ...hipaaLine, href: "/my-info" },
-    ...(term ? [{ ...trainingLine, href: "/training" }] : []),
+    ...(isVolunteer ? [{ ...trainingLine, href: "/training" }] : []),
   ];
 
   // --- Quick actions (real links, access-filtered, capped at 4) ---

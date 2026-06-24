@@ -17,7 +17,7 @@ import { HipaaPanel } from "@/modules/my-info/components/hipaa-panel";
 import { EpicPanel } from "@/modules/my-info/components/epic-panel";
 import { ClearanceCard } from "@/modules/my-info/components/clearance-card";
 import { complianceStatus, overallClearance } from "@/platform/compliance/rules";
-import { resolveTrainingState } from "@/modules/recruitment/services/training";
+import { resolveTrainingState, isActiveVolunteer } from "@/modules/recruitment/services/training";
 import {
   myEpicPanel,
   createEpicRequest,
@@ -147,10 +147,15 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
     activeTerm?.endDate ?? null
   );
 
-  const trainingState = activeTerm
+  // Volunteer training only applies to active volunteers; a director-only member
+  // is cleared on their HIPAA cert alone and is not shown the training step.
+  const isVolunteer = activeTerm
+    ? await isActiveVolunteer(person.personId, activeTerm.id)
+    : false;
+  const trainingState = activeTerm && isVolunteer
     ? await resolveTrainingState(person.personId, activeTerm.id)
     : "PENDING";
-  const clearance = overallClearance(status, trainingState);
+  const clearance = overallClearance(status, trainingState, isVolunteer);
 
   const withdrawn = sp.withdrawn !== undefined ? parseInt(sp.withdrawn, 10) : undefined;
 
@@ -211,6 +216,7 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
             certStatus={status}
             trainingState={trainingState}
             termName={activeTerm?.name ?? null}
+            trainingRequired={isVolunteer}
           />
         </section>
 

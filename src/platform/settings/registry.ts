@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { config, type AppConfig } from "@/platform/config";
 import { brandingAssetSchema, type BrandingAsset } from "@/platform/branding/asset-types";
+import { NOTIFICATION_TYPES, channelSettingKey, type NotificationChannel } from "@/platform/notifications/registry";
 
 export interface SettingValidateCtx {
   /** Env config, for checking that required secrets are present. */
@@ -224,6 +225,25 @@ export const SETTINGS: SettingDef<unknown>[] = [
     envDefault: () => "system",
     secret: false,
   }),
+  ...NOTIFICATION_TYPES.map((t) =>
+    define<NotificationChannel>({
+      key: channelSettingKey(t.key),
+      category: "Notifications",
+      label: t.label,
+      help: `Where to deliver the "${t.label}" notification.`,
+      input: {
+        type: "select",
+        options: [
+          { value: "email", label: "Email" },
+          { value: "teams", label: "Teams DM" },
+          { value: "both", label: "Email + Teams DM" },
+        ],
+      },
+      schema: z.enum(["email", "teams", "both"]),
+      envDefault: () => t.defaultChannel,
+      secret: false,
+    })
+  ),
 ];
 
 const BY_KEY = new Map(SETTINGS.map((d) => [d.key, d]));

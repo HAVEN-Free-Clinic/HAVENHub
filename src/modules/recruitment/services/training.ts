@@ -88,6 +88,20 @@ export async function isActiveVolunteer(personId: string, termId: string): Promi
   return count > 0;
 }
 
+/** The training tracks a person must complete this term: a track is required when
+ *  the person holds an active membership of that kind AND the term has a designated
+ *  training cycle for that track. Generalizes the volunteer-only check. */
+export async function requiredTrainingTracks(personId: string, termId: string): Promise<TrainingTrack[]> {
+  const pairs: [TrainingTrack, "VOLUNTEER" | "DIRECTOR"][] = [["VOLUNTEER", "VOLUNTEER"], ["DIRECTOR", "DIRECTOR"]];
+  const result: TrainingTrack[] = [];
+  for (const [track, kind] of pairs) {
+    const hasMembership = await prisma.termMembership.count({ where: { personId, termId, kind, status: "ACTIVE" } });
+    if (hasMembership === 0) continue;
+    if (await getTrainingCycleForTerm(termId, track)) result.push(track);
+  }
+  return result;
+}
+
 /** Upsert the person's training row to COMPLETE for the term, stamping the method.
  *  Shared by the attendance and quiz paths. Idempotent. */
 export async function completeTraining(

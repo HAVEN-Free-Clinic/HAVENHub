@@ -4,6 +4,7 @@ import { prisma } from "@/platform/db";
 import { RecruitmentAuthError } from "./review";
 import {
   setTrainingCycle, getTrainingCycleForTerm, updateQuizSettings, TrainingStateError, QuizLockedError,
+  requiredTrainingTracks,
 } from "./training";
 import { recordAttendance, resolveTrainingState } from "./training";
 import { getMyTraining, submitQuiz, resetTraining } from "./training";
@@ -180,4 +181,26 @@ it("designating a second cycle of a track clears the first of that track only", 
   await setTrainingCycle(c2.id, true, srr.id); // second VOLUNTEER cycle
   expect((await getTrainingCycleForTerm(term.id, "VOLUNTEER"))?.id).toBe(c2.id);
   expect((await getTrainingCycleForTerm(term.id, "DIRECTOR"))?.id).toBe(dirCycle.id); // untouched
+});
+
+it("requiredTrainingTracks reflects membership kind ∩ designated cycles", async () => {
+  const { term, srr, vol, dir } = await seedMember(); // volunteer cycle c1 is designated
+  // volunteer-only, volunteer cycle running -> [VOLUNTEER]
+  expect(await requiredTrainingTracks(vol.id, term.id)).toEqual(["VOLUNTEER"]);
+  // director-only, no director cycle -> []
+  expect(await requiredTrainingTracks(dir.id, term.id)).toEqual([]);
+
+  // designate a director cycle
+  const dirCycle = await prisma.recruitmentCycle.create({ data: { track: "DIRECTOR", termId: term.id, title: "D", publicSlug: "d", departments: ["SRHD"], createdById: srr.id, status: "OPEN" } });
+  await setTrainingCycle(dirCycle.id, true, srr.id);
+  // director-only now -> [DIRECTOR]
+  expect(await requiredTrainingTracks(dir.id, term.id)).toEqual(["DIRECTOR"]);
+});
+
+it("requiredTrainingTracks returns both tracks for a director+volunteer when both cycles run", async () => {
+  const { term, srr, vol, dept } = await seedMember();
+  await prisma.termMembership.create({ data: { personId: vol.id, termId: term.id, departmentId: dept.id, kind: "DIRECTOR", status: "ACTIVE" } });
+  const dirCycle = await prisma.recruitmentCycle.create({ data: { track: "DIRECTOR", termId: term.id, title: "D", publicSlug: "d", departments: ["SRHD"], createdById: srr.id, status: "OPEN" } });
+  await setTrainingCycle(dirCycle.id, true, srr.id);
+  expect((await requiredTrainingTracks(vol.id, term.id)).sort()).toEqual(["DIRECTOR", "VOLUNTEER"]);
 });

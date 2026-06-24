@@ -2,6 +2,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requirePersonSession } from "@/platform/auth/session";
+import { prisma } from "@/platform/db";
 import {
   listNotifications,
   markRead,
@@ -39,9 +40,18 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
     "use server";
     const { personId: pid } = await requirePersonSession();
     const id = String(formData.get("id") ?? "");
-    const link = String(formData.get("link") ?? "");
-    if (id) await markRead(pid, id);
-    redirect(link.length > 0 ? link : "/notifications");
+    let target = "/notifications";
+    if (id) {
+      // Resolve the redirect target from trusted server data (owner-scoped),
+      // never from the client-submitted form, to avoid an open redirect.
+      const row = await prisma.notification.findFirst({
+        where: { id, personId: pid },
+        select: { link: true },
+      });
+      await markRead(pid, id);
+      if (row?.link) target = row.link;
+    }
+    redirect(target);
   }
 
   return (
@@ -60,7 +70,6 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
             <li key={n.id}>
               <form action={openAction}>
                 <input type="hidden" name="id" value={n.id} />
-                <input type="hidden" name="link" value={n.link ?? ""} />
                 <button
                   type="submit"
                   className="flex w-full flex-col items-start gap-1 px-4 py-3 text-left transition-colors hover:bg-muted"

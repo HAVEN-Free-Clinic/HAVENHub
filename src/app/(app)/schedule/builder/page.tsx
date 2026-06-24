@@ -644,7 +644,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                       const m = memberByPersonId.get(pid);
                       const name = m?.person.name ?? pid;
                       return (
-                        <div key={pid} className="rounded-2xl border-l-4 border-l-brand border border-border bg-surface shadow-sm px-3 py-2 flex items-center justify-between">
+                        <div key={pid} className="rounded-2xl border border-border bg-surface shadow-sm px-3 py-2 flex items-center justify-between">
                           <span className="flex flex-wrap items-center gap-2">
                             <span className="text-sm font-bold text-foreground">{name}</span>
                             {m?.person && flagBadges(m.person)}
@@ -678,7 +678,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                       const tags = assignment.tags;
                       const personConflicts = conflicts[pid] ?? [];
                       return (
-                        <div key={pid} className="rounded-2xl border-l-4 border-l-success border border-border bg-surface shadow-sm px-3 py-2">
+                        <div key={pid} className="rounded-2xl border border-border bg-surface shadow-sm px-3 py-2">
                           <div className="flex flex-wrap items-center gap-2 text-sm">
                             <span className="font-medium text-foreground">{name}</span>
                             {m?.person && flagBadges(m.person)}
@@ -727,7 +727,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                       const m = memberByPersonId.get(pid);
                       const name = m?.person.name ?? pid;
                       return (
-                        <div key={pid} className="rounded-2xl border-l-4 border-l-warning border border-border bg-surface shadow-sm px-3 py-2 flex items-center justify-between">
+                        <div key={pid} className="rounded-2xl border border-border bg-surface shadow-sm px-3 py-2 flex items-center justify-between">
                           <span className="flex flex-wrap items-center gap-2">
                             <span className="text-sm font-medium text-foreground-soft">{name}</span>
                             {m?.person && flagBadges(m.person)}

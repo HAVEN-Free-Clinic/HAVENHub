@@ -113,8 +113,8 @@ model Person {
   interviewsDecided         Interview[]          @relation("interviewDecidedBy")
   interviewPanels           InterviewPanelist[]  @relation("interviewPanelistPerson")
   interviewEvaluations      Evaluation[]         @relation("interviewEvaluator")
-  volunteerTrainings        VolunteerTraining[]  @relation("volunteerTrainingPerson")
-  trainingAttendanceMarked  VolunteerTraining[]  @relation("volunteerTrainingAttendanceRecorder")
+  trainings                Training[]  @relation("trainingPerson")
+  trainingAttendanceMarked Training[]  @relation("trainingAttendanceRecorder")
   courseProgress            CourseProgress[]
   scoProgress               ScoProgress[]
   /// Shift requests this person raised.
@@ -171,7 +171,7 @@ model Term {
   scheduleDays       ScheduleDay[]
   rhdClinics         RhdClinic[]
   recruitmentCycles  RecruitmentCycle[]
-  volunteerTrainings VolunteerTraining[]
+  trainings Training[]
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
 }
@@ -418,6 +418,11 @@ enum TrainingStatus {
 enum TrainingMethod {
   ATTENDANCE
   QUIZ
+}
+
+enum TrainingTrack {
+  VOLUNTEER
+  DIRECTOR
 }
 
 /// One row per mirrored change. Written in the same transaction as the domain
@@ -840,7 +845,7 @@ model RecruitmentCycle {
   fields       FormField[]
   applicants   Applicant[]
   applications Application[]
-  trainings    VolunteerTraining[]
+  trainings    Training[]
 
   @@index([status, track])
 }
@@ -983,11 +988,12 @@ model OnboardingContract {
   @@index([status])
 }
 
-model VolunteerTraining {
+model Training {
   id                          String          @id @default(cuid())
   personId                    String
   termId                      String
   cycleId                     String
+  track                       TrainingTrack   @default(VOLUNTEER)
   status                      TrainingStatus  @default(PENDING)
   completedVia                TrainingMethod?
   completedAt                 DateTime?
@@ -1002,13 +1008,13 @@ model VolunteerTraining {
   createdAt                   DateTime        @default(now())
   updatedAt                   DateTime        @updatedAt
 
-  person               Person           @relation("volunteerTrainingPerson", fields: [personId], references: [id], onDelete: Cascade)
+  person               Person           @relation("trainingPerson", fields: [personId], references: [id], onDelete: Cascade)
   term                 Term             @relation(fields: [termId], references: [id], onDelete: Cascade)
   cycle                RecruitmentCycle @relation(fields: [cycleId], references: [id], onDelete: Restrict)
-  attendanceRecordedBy Person?          @relation("volunteerTrainingAttendanceRecorder", fields: [attendanceRecordedById], references: [id], onDelete: SetNull)
+  attendanceRecordedBy Person?          @relation("trainingAttendanceRecorder", fields: [attendanceRecordedById], references: [id], onDelete: SetNull)
   attempts             QuizAttempt[]
 
-  @@unique([personId, termId])
+  @@unique([personId, termId, track])
   @@index([termId])
 }
 
@@ -1021,7 +1027,7 @@ model QuizAttempt {
   passed     Boolean
   takenAt    DateTime @default(now())
 
-  training VolunteerTraining @relation(fields: [trainingId], references: [id], onDelete: Cascade)
+  training Training @relation(fields: [trainingId], references: [id], onDelete: Cascade)
 
   @@index([trainingId, takenAt])
 }

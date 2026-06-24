@@ -1,7 +1,7 @@
 import type { ComplianceStatus, TrainingState } from "@/platform/compliance/rules";
 
-/** The four onboarding requirements a volunteer clears for the active term. */
-export type OnboardingTaskKey = "profile" | "hipaa" | "training" | "learning";
+/** The onboarding requirements a member clears for the active term. */
+export type OnboardingTaskKey = "profile" | "hipaa" | "training" | "directorTraining" | "learning";
 
 /** Per-task resolution. NOT_REQUIRED means the task does not apply (e.g. no
  *  courses assigned) and is treated as satisfied for gating. */
@@ -21,7 +21,8 @@ export function deriveHipaaTaskState(status: ComplianceStatus): OnboardingTaskSt
   return status === "COMPLIANT" || status === "EXPIRING_SOON" ? "COMPLETE" : "INCOMPLETE";
 }
 
-/** Training is complete when passed; a started-but-unpassed attempt reads as in progress. */
+/** Training is complete when passed; a started-but-unpassed attempt reads as in progress.
+ *  Only called for tracks the person is actually required to complete. */
 export function deriveTrainingTaskState(t: { state: TrainingState; attemptsUsed: number }): OnboardingTaskState {
   if (t.state === "COMPLETE") return "COMPLETE";
   return t.attemptsUsed > 0 ? "IN_PROGRESS" : "INCOMPLETE";

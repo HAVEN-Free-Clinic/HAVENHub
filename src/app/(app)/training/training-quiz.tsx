@@ -3,6 +3,7 @@
 import { useRef, useState, useTransition, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Check, FileText, RotateCcw, ClipboardList } from "lucide-react";
+import type { TrainingTrack } from "@prisma/client";
 import { gradeQuizAction, type QuizActionResult } from "./actions";
 import type { MyTraining } from "@/modules/recruitment/services/training";
 
@@ -14,12 +15,14 @@ type Graded = Extract<QuizActionResult, { status: "graded" }>;
  *  grading with correct/wrong review, and retry. Passing or hitting the attempt
  *  cap refreshes the page so the server re-renders the clearance state. */
 export function TrainingQuiz({
+  track,
   questions,
   passPercent,
   maxAttempts,
   attemptsUsed: initialAttemptsUsed,
   intake,
 }: {
+  track: TrainingTrack;
   questions: Question[];
   passPercent: number;
   maxAttempts: number;
@@ -61,7 +64,7 @@ export function TrainingQuiz({
       feedback: (fd.get("feedback") as string) || null,
     };
     startTransition(async () => {
-      const res = await gradeQuizAction({ answers, intake: intakePayload });
+      const res = await gradeQuizAction({ track, answers, intake: intakePayload });
       if (res.status === "error") {
         setError(res.message);
         return;

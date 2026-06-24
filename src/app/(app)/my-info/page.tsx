@@ -17,7 +17,7 @@ import { HipaaPanel } from "@/modules/my-info/components/hipaa-panel";
 import { EpicPanel } from "@/modules/my-info/components/epic-panel";
 import { ClearanceCard } from "@/modules/my-info/components/clearance-card";
 import { complianceStatus, overallClearance } from "@/platform/compliance/rules";
-import { resolveTrainingState } from "@/modules/recruitment/services/training";
+import { resolveTrainingState, requiredTrainingTracks } from "@/modules/recruitment/services/training";
 import {
   myEpicPanel,
   createEpicRequest,
@@ -147,10 +147,17 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
     activeTerm?.endDate ?? null
   );
 
-  const trainingState = activeTerm
-    ? await resolveTrainingState(person.personId, activeTerm.id)
-    : "PENDING";
-  const clearance = overallClearance(status, trainingState);
+  const tracks = activeTerm ? await requiredTrainingTracks(person.personId, activeTerm.id) : [];
+  const trainingRows = activeTerm
+    ? await Promise.all(
+        tracks.map(async (track) => ({
+          label: track === "DIRECTOR" ? "Director training" : "Volunteer training",
+          state: await resolveTrainingState(person.personId, activeTerm.id, track),
+        }))
+      )
+    : [];
+  const allTrainingsComplete = trainingRows.length === 0 || trainingRows.every((r) => r.state === "COMPLETE");
+  const clearance = overallClearance(status, allTrainingsComplete);
 
   const withdrawn = sp.withdrawn !== undefined ? parseInt(sp.withdrawn, 10) : undefined;
 
@@ -209,7 +216,7 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
           <ClearanceCard
             clearance={clearance}
             certStatus={status}
-            trainingState={trainingState}
+            trainingRows={trainingRows}
             termName={activeTerm?.name ?? null}
           />
         </section>

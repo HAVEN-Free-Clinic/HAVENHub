@@ -279,49 +279,55 @@ function BackToHub() {
 
 export default async function TrainingPage() {
   const person = await requirePersonSession();
-  const my = await getMyTraining(person.personId);
-  const pending = my.cycle && my.state !== "COMPLETE" && !my.locked;
+  const trainings = await getMyTraining(person.personId);
   const canSchedule =
-    my.state === "COMPLETE" &&
+    trainings.length > 0 &&
+    trainings.every((m) => m.state === "COMPLETE") &&
     (await getAccessibleModules(person.personId)).some((m) => m.id === "schedule");
 
   return (
-    <>
-      <div className="max-w-[760px]">
-        <header className="mb-[22px]">
-          <h1 className="text-[26px] font-bold tracking-tight text-foreground">Volunteer Training</h1>
-          <p className="mt-1.5 text-[14.5px] text-foreground-soft">Complete training to be cleared for {my.term.name}.</p>
-        </header>
+    <div className="max-w-[760px]">
+      <header className="mb-[22px]">
+        <h1 className="text-[26px] font-bold tracking-tight text-foreground">Training</h1>
+        <p className="mt-1.5 text-[14.5px] text-foreground-soft">
+          Complete your training to be cleared{trainings[0] ? ` for ${trainings[0].term.name}` : ""}.
+        </p>
+      </header>
 
-        <ClearanceHero my={my} />
-
-        {pending && (
-          <>
-            <PathCards my={my} />
-            <SectionHead>Makeup quiz</SectionHead>
-            <TrainingQuiz
-              questions={my.questions}
-              passPercent={my.passPercent}
-              maxAttempts={my.maxAttempts}
-              attemptsUsed={my.attemptsUsed}
-              intake={my.intake}
-            />
-            <div className="mt-[18px] flex justify-end">
-              <BackToHub />
-            </div>
-          </>
-        )}
-
-        {my.state === "COMPLETE" && <CompleteDetail accessibleSchedule={canSchedule} />}
-
-        {my.locked && my.state !== "COMPLETE" && <LockedDetail />}
-
-        {!my.cycle && my.state !== "COMPLETE" && (
-          <div className="flex justify-start">
-            <BackToHub />
-          </div>
-        )}
+      {trainings.length === 0 ? (
+        <div className="rounded-2xl border border-border bg-surface px-[22px] py-5 text-[14px] text-foreground-soft shadow-sm">
+          You have no training requirements this term.
+        </div>
+      ) : (
+        trainings.map((my) => {
+          const pending = my.cycle && my.state !== "COMPLETE" && !my.locked;
+          return (
+            <section key={my.track} className="mb-9">
+              <h2 className="mb-3 text-base font-bold tracking-tight text-foreground">{my.trackLabel}</h2>
+              <ClearanceHero my={my} />
+              {pending && (
+                <>
+                  <PathCards my={my} />
+                  <SectionHead>Makeup quiz</SectionHead>
+                  <TrainingQuiz
+                    track={my.track}
+                    questions={my.questions}
+                    passPercent={my.passPercent}
+                    maxAttempts={my.maxAttempts}
+                    attemptsUsed={my.attemptsUsed}
+                    intake={my.intake}
+                  />
+                </>
+              )}
+              {my.state === "COMPLETE" && <CompleteDetail accessibleSchedule={canSchedule} />}
+              {my.locked && my.state !== "COMPLETE" && <LockedDetail />}
+            </section>
+          );
+        })
+      )}
+      <div className="mt-[18px] flex justify-end">
+        <BackToHub />
       </div>
-    </>
+    </div>
   );
 }

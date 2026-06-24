@@ -46,7 +46,7 @@ export default async function TrainingRosterPage({ params, searchParams }: { par
       <Table>
         <THead>
           <tr>
-            <TH>Volunteer</TH>
+            <TH>{cycle.track === "DIRECTOR" ? "Director" : "Volunteer"}</TH>
             <TH>Dept</TH>
             <TH>Cert</TH>
             <TH>Training</TH>
@@ -86,7 +86,7 @@ export default async function TrainingRosterPage({ params, searchParams }: { par
           {rows.length === 0 && (
             <TR>
               <TD colSpan={6} className="py-10 text-center text-subtle-foreground">
-                No active volunteers in scope.
+                No active {cycle.track === "DIRECTOR" ? "directors" : "volunteers"} in scope.
               </TD>
             </TR>
           )}

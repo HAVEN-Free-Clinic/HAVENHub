@@ -2,6 +2,7 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { queueEmail } from "@/platform/email/send";
 import { resolveChannel } from "./channel";
+import { createNotification } from "./inbox";
 import { resolveTeamsUser, type ResolveIdentityDeps } from "./identity";
 import { renderTeamsBody } from "./render";
 import { queueTeamsMessage } from "./send";
@@ -37,6 +38,16 @@ export async function notify(
   input: NotifyInput,
   deps: ResolveIdentityDeps = {}
 ): Promise<void> {
+  // In-app inbox: always recorded for the recipient, independent of the
+  // Email/Teams channel routing below.
+  await createNotification(db, {
+    personId: input.person.id,
+    type: input.type,
+    title: input.teams.title,
+    body: input.teams.summary,
+    link: input.teams.link ?? null,
+  });
+
   const channel = await resolveChannel(input.type);
   const wantsEmail = channel === "email" || channel === "both";
   const wantsTeams = channel === "teams" || channel === "both";

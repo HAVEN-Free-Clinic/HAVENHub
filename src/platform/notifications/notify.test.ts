@@ -60,4 +60,20 @@ describe("notify", () => {
     const e = await prisma.emailLog.findFirst({ where: { personId: p.id } });
     expect(e?.subject).toBe("Subj");
   });
+
+  it("always creates one in-app Notification for the recipient, regardless of channel", async () => {
+    // channel = email: one Notification row created
+    vi.spyOn(channel, "resolveChannel").mockResolvedValue("email");
+    const p1 = await makePerson({ entraObjectId: null });
+    await notify(prisma, { type: "epic-onboarding", person: p1, email, teams });
+    expect(await prisma.notification.count({ where: { personId: p1.id } })).toBe(1);
+
+    // channel = teams: Notification title/body match teams fixture
+    vi.spyOn(channel, "resolveChannel").mockResolvedValue("teams");
+    const p2 = await makePerson({ entraObjectId: "e2", contactEmail: "sam2@x.com" });
+    await notify(prisma, { type: "epic-onboarding", person: p2, email, teams });
+    const n = await prisma.notification.findFirst({ where: { personId: p2.id } });
+    expect(n?.title).toBe(teams.title);
+    expect(n?.body).toBe(teams.summary);
+  });
 });

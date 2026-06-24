@@ -38,16 +38,6 @@ export async function notify(
   input: NotifyInput,
   deps: ResolveIdentityDeps = {}
 ): Promise<void> {
-  // In-app inbox: always recorded for the recipient, independent of the
-  // Email/Teams channel routing below.
-  await createNotification(db, {
-    personId: input.person.id,
-    type: input.type,
-    title: input.teams.title,
-    body: input.teams.summary,
-    link: input.teams.link ?? null,
-  });
-
   const channel = await resolveChannel(input.type);
   const wantsEmail = channel === "email" || channel === "both";
   const wantsTeams = channel === "teams" || channel === "both";
@@ -86,4 +76,14 @@ export async function notify(
       await queueTheEmail();
     }
   }
+
+  // In-app inbox: recorded after primary delivery so that a failed insert does
+  // not short-circuit email or Teams routing. Always unconditional.
+  await createNotification(db, {
+    personId: input.person.id,
+    type: input.type,
+    title: input.teams.title,
+    body: input.teams.summary,
+    link: input.teams.link ?? null,
+  });
 }

@@ -46,6 +46,7 @@ describe("notify", () => {
     await notify(prisma, { type: "epic-onboarding", person: p, email, teams });
     expect(await prisma.emailLog.count()).toBe(1);
     expect(await prisma.teamsMessage.count()).toBe(1);
+    expect(await prisma.notification.count({ where: { personId: p.id } })).toBe(1);
   });
 
   it("channel=teams with no identity falls back to email at queue time", async () => {
@@ -68,12 +69,14 @@ describe("notify", () => {
     await notify(prisma, { type: "epic-onboarding", person: p1, email, teams });
     expect(await prisma.notification.count({ where: { personId: p1.id } })).toBe(1);
 
-    // channel = teams: Notification title/body match teams fixture
+    // channel = teams: Notification title/body/type/link match teams fixture
     vi.spyOn(channel, "resolveChannel").mockResolvedValue("teams");
     const p2 = await makePerson({ entraObjectId: "e2", contactEmail: "sam2@x.com" });
     await notify(prisma, { type: "epic-onboarding", person: p2, email, teams });
     const n = await prisma.notification.findFirst({ where: { personId: p2.id } });
     expect(n?.title).toBe(teams.title);
     expect(n?.body).toBe(teams.summary);
+    expect(n?.type).toBe("epic-onboarding");
+    expect(n?.link).toBe(teams.link);
   });
 });

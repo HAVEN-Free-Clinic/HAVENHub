@@ -28,6 +28,8 @@ import { authorizeCron } from "@/platform/cron";
 import { dispatchDueCampaigns } from "@/platform/email/campaigns/dispatch";
 import { drainEmailQueue } from "@/platform/email/send";
 import { resolveEmailTransport } from "@/platform/email/transport";
+import { drainTeamsQueue } from "@/platform/notifications/send";
+import { resolveTeamsTransport } from "@/platform/notifications/teams-transport";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -46,5 +48,13 @@ export async function GET(req: Request): Promise<Response> {
     emails += processed;
   } while (processed > 0);
 
-  return Response.json({ ok: true, dispatched: executed, errors, emails });
+  const teamsTransport = await resolveTeamsTransport();
+  let teams = 0;
+  let teamsProcessed: number;
+  do {
+    teamsProcessed = await drainTeamsQueue(teamsTransport);
+    teams += teamsProcessed;
+  } while (teamsProcessed > 0);
+
+  return Response.json({ ok: true, dispatched: executed, errors, emails, teams });
 }

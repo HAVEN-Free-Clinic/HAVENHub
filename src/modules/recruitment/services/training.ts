@@ -73,9 +73,9 @@ export async function updateQuizSettings(
 
 type Tx = Prisma.TransactionClient;
 
-/** PENDING unless the person has a COMPLETE VolunteerTraining row for the term. */
+/** PENDING unless the person has a COMPLETE Training row for the term. */
 export async function resolveTrainingState(personId: string, termId: string): Promise<TrainingState> {
-  const row = await prisma.volunteerTraining.findUnique({ where: { personId_termId: { personId, termId } } });
+  const row = await prisma.training.findUnique({ where: { personId_termId_track: { personId, termId, track: "VOLUNTEER" } } });
   return row?.status === "COMPLETE" ? "COMPLETE" : "PENDING";
 }
 
@@ -97,10 +97,10 @@ export async function completeTraining(
 ): Promise<void> {
   const now = new Date();
   const attendance = args.via === "ATTENDANCE";
-  await db.volunteerTraining.upsert({
-    where: { personId_termId: { personId: args.personId, termId: args.termId } },
+  await db.training.upsert({
+    where: { personId_termId_track: { personId: args.personId, termId: args.termId, track: "VOLUNTEER" } },
     create: {
-      personId: args.personId, termId: args.termId, cycleId: args.cycleId,
+      personId: args.personId, termId: args.termId, cycleId: args.cycleId, track: "VOLUNTEER",
       status: "COMPLETE", completedVia: args.via, completedAt: now,
       attendanceRecordedById: attendance ? (args.actorId ?? null) : null,
       attendanceRecordedAt: attendance ? now : null,
@@ -130,7 +130,7 @@ export async function recordAttendance(personId: string, termId: string, actorId
   if (!inScope) throw new RecruitmentAuthError("You can't record training for that volunteer.");
 
   await completeTraining(prisma, { personId, termId, cycleId: cycle.id, via: "ATTENDANCE", actorId });
-  await recordAudit({ actorPersonId: actorId, action: "recruitment.training_attendance", entityType: "VolunteerTraining", entityId: `${personId}:${termId}`, after: { personId, termId } });
+  await recordAudit({ actorPersonId: actorId, action: "recruitment.training_attendance", entityType: "Training", entityId: `${personId}:${termId}`, after: { personId, termId } });
 }
 
 export type TrainingIntake = {
@@ -175,7 +175,7 @@ export type MyTraining = {
 export async function getMyTraining(personId: string): Promise<MyTraining> {
   const term = await activeTermOrThrow();
   const cycle = await getTrainingCycleForTerm(term.id);
-  const row = await prisma.volunteerTraining.findUnique({ where: { personId_termId: { personId, termId: term.id } } });
+  const row = await prisma.training.findUnique({ where: { personId_termId_track: { personId, termId: term.id, track: "VOLUNTEER" } } });
   const state: TrainingState = row?.status === "COMPLETE" ? "COMPLETE" : "PENDING";
 
   let questions: MyTraining["questions"] = [];
@@ -223,15 +223,15 @@ export async function submitQuiz(
   if (questions.length === 0) throw new TrainingStateError("This training has no quiz questions yet.");
 
   return prisma.$transaction(async (tx) => {
-    const row = await tx.volunteerTraining.upsert({
-      where: { personId_termId: { personId, termId: term.id } },
-      create: { personId, termId: term.id, cycleId: cycle.id },
+    const row = await tx.training.upsert({
+      where: { personId_termId_track: { personId, termId: term.id, track: "VOLUNTEER" } },
+      create: { personId, termId: term.id, cycleId: cycle.id, track: "VOLUNTEER" },
       update: {},
     });
     if (row.status === "COMPLETE") throw new TrainingStateError("Training is already complete.");
     if (row.locked) throw new QuizLockedError("Your quiz is locked. Ask your director to reset it.");
 
-    await tx.volunteerTraining.update({
+    await tx.training.update({
       where: { id: row.id },
       data: {
         subcommitteeInterest: input.intake.subcommitteeInterest ?? undefined,
@@ -250,7 +250,7 @@ export async function submitQuiz(
     if (result.passed) {
       await completeTraining(tx, { personId, termId: term.id, cycleId: cycle.id, via: "QUIZ" });
     } else if (attemptsUsed >= cycle.quizMaxAttempts) {
-      await tx.volunteerTraining.update({ where: { id: row.id }, data: { locked: true } });
+      await tx.training.update({ where: { id: row.id }, data: { locked: true } });
       locked = true;
     }
 
@@ -274,8 +274,8 @@ export async function resetTraining(personId: string, termId: string, actorId: s
   const inScope = scope.all || memberships.some((m) => scope.departmentCodes.includes(m.department.code));
   if (!inScope) throw new RecruitmentAuthError("You can't reset training for that volunteer.");
 
-  await prisma.volunteerTraining.updateMany({ where: { personId, termId, status: { not: "COMPLETE" } }, data: { locked: false, lockResetAt: new Date() } });
-  await recordAudit({ actorPersonId: actorId, action: "recruitment.training_reset", entityType: "VolunteerTraining", entityId: `${personId}:${termId}` });
+  await prisma.training.updateMany({ where: { personId, termId, track: "VOLUNTEER", status: { not: "COMPLETE" } }, data: { locked: false, lockResetAt: new Date() } });
+  await recordAudit({ actorPersonId: actorId, action: "recruitment.training_reset", entityType: "Training", entityId: `${personId}:${termId}` });
 }
 
 export type TrainingRosterRow = {
@@ -313,7 +313,7 @@ export async function listTrainingRoster(cycleId: string, viewerId: string): Pro
 
   const personIds = memberships.map((m) => m.person.id);
   const training = new Map(
-    (await prisma.volunteerTraining.findMany({ where: { termId: cycle.termId, personId: { in: personIds } } })).map((t) => [t.personId, t])
+    (await prisma.training.findMany({ where: { termId: cycle.termId, track: "VOLUNTEER", personId: { in: personIds } } })).map((t) => [t.personId, t])
   );
 
   return memberships.map((m) => {

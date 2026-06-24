@@ -23,7 +23,7 @@ export function certExpiresAt(completionDate: Date): Date {
 
 /**
  * The resolved training state for a volunteer in a given term.
- * PENDING unless the person has a COMPLETE VolunteerTraining row for the term.
+ * PENDING unless the person has a COMPLETE Training row for the term.
  */
 export type TrainingState = "COMPLETE" | "PENDING";
 

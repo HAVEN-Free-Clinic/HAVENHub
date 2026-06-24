@@ -151,8 +151,8 @@ export async function departmentCompliance(
 
   // 5. Fetch the set of people with COMPLETE training for the active term once.
   const completedTraining = new Set(
-    (await prisma.volunteerTraining.findMany({
-      where: { termId: activeTerm.id, status: "COMPLETE" },
+    (await prisma.training.findMany({
+      where: { termId: activeTerm.id, track: "VOLUNTEER", status: "COMPLETE" },
       select: { personId: true },
     })).map((t) => t.personId)
   );
@@ -318,8 +318,8 @@ export async function masterCompliance(
 
   // 2b. Fetch the set of people with COMPLETE training for the active term once.
   const completedTraining = new Set(
-    (await prisma.volunteerTraining.findMany({
-      where: { termId: activeTerm.id, status: "COMPLETE" },
+    (await prisma.training.findMany({
+      where: { termId: activeTerm.id, track: "VOLUNTEER", status: "COMPLETE" },
       select: { personId: true },
     })).map((t) => t.personId)
   );

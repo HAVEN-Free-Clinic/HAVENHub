@@ -63,18 +63,18 @@ it("records attendance: marks COMPLETE/ATTENDANCE for the person and is idempote
   const { term, srr, vol } = await seedMember();
   await recordAttendance(vol.id, term.id, srr.id);
   expect(await resolveTrainingState(vol.id, term.id)).toBe("COMPLETE");
-  const row = await prisma.volunteerTraining.findUniqueOrThrow({ where: { personId_termId: { personId: vol.id, termId: term.id } } });
+  const row = await prisma.training.findUniqueOrThrow({ where: { personId_termId_track: { personId: vol.id, termId: term.id, track: "VOLUNTEER" } } });
   expect(row.completedVia).toBe("ATTENDANCE");
   expect(row.attendanceRecordedById).toBe(srr.id);
   await recordAttendance(vol.id, term.id, srr.id);
-  expect(await prisma.volunteerTraining.count({ where: { personId: vol.id, termId: term.id } })).toBe(1);
+  expect(await prisma.training.count({ where: { personId: vol.id, termId: term.id } })).toBe(1);
 });
 
 it("a director in scope can record attendance; an unrelated person cannot", async () => {
   const { term, vol, dir, plain } = await seedMember();
   await recordAttendance(vol.id, term.id, dir.id);
   expect(await resolveTrainingState(vol.id, term.id)).toBe("COMPLETE");
-  await prisma.volunteerTraining.deleteMany({});
+  await prisma.training.deleteMany({});
   await expect(recordAttendance(vol.id, term.id, plain.id)).rejects.toBeInstanceOf(RecruitmentAuthError);
 });
 
@@ -115,7 +115,7 @@ it("quiz path: failing accrues attempts then locks; passing completes and saves 
   expect(r2.passed).toBe(false);
   expect(r2.attemptsUsed).toBe(2);
   expect(r2.locked).toBe(true);
-  const locked = await prisma.volunteerTraining.findUniqueOrThrow({ where: { personId_termId: { personId: vol.id, termId: term.id } } });
+  const locked = await prisma.training.findUniqueOrThrow({ where: { personId_termId_track: { personId: vol.id, termId: term.id, track: "VOLUNTEER" } } });
   expect(locked.locked).toBe(true);
 
   await expect(submitQuiz(vol.id, { answers: { q1: "a", q2: "y" }, intake: {} })).rejects.toBeInstanceOf(QuizLockedError);
@@ -123,11 +123,11 @@ it("quiz path: failing accrues attempts then locks; passing completes and saves 
   await resetTraining(vol.id, term.id, srr.id);
   const r3 = await submitQuiz(vol.id, { answers: { q1: "a", q2: "y" }, intake: { feedback: "done" } });
   expect(r3.passed).toBe(true);
-  const done = await prisma.volunteerTraining.findUniqueOrThrow({ where: { personId_termId: { personId: vol.id, termId: term.id } } });
+  const done = await prisma.training.findUniqueOrThrow({ where: { personId_termId_track: { personId: vol.id, termId: term.id, track: "VOLUNTEER" } } });
   expect(done.status).toBe("COMPLETE");
   expect(done.completedVia).toBe("QUIZ");
   expect(done.feedback).toBe("done");
-  expect(await prisma.quizAttempt.count({ where: { training: { personId: vol.id, termId: term.id } } })).toBe(3);
+  expect(await prisma.quizAttempt.count({ where: { training: { personId: vol.id, termId: term.id, track: "VOLUNTEER" } } })).toBe(3);
 });
 
 it("getMyTraining returns the cycle, questions, and state for the volunteer", async () => {

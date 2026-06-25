@@ -58,7 +58,6 @@ export function TrainingQuiz({
     if (!allAnswered || pending || reviewing) return;
     const fd = new FormData(formRef.current!);
     const intakePayload = {
-      subcommitteeInterest: (fd.get("subcommitteeInterest") as string) || null,
       minShiftsWanted: (fd.get("minShiftsWanted") as string) || null,
       additionalShiftAvailability: (fd.get("additionalShiftAvailability") as string) || null,
       feedback: (fd.get("feedback") as string) || null,
@@ -218,14 +217,6 @@ export function TrainingQuiz({
           </div>
         </div>
         <div className="grid grid-cols-1 gap-3.5 p-[22px] sm:grid-cols-2">
-          <Field label="Subcommittee interest">
-            <input
-              name="subcommitteeInterest"
-              defaultValue={intake.subcommitteeInterest ?? ""}
-              placeholder="e.g. Community Outreach"
-              className={fieldInputClass}
-            />
-          </Field>
           <Field label="Minimum shifts wanted this term">
             <select name="minShiftsWanted" defaultValue={intake.minShiftsWanted ?? "4"} className={fieldInputClass}>
               {[2, 3, 4, 5, 6, 8].map((n) => (

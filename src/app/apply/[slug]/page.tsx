@@ -32,6 +32,7 @@ export default async function ApplyPage({ params, searchParams }: { params: Prom
   const def = {
     slug: cycle.publicSlug,
     title: cycle.title,
+    track: cycle.track,
     acceptsRenewals: cycle.acceptsRenewals,
     departments: cycle.departments,
     subcommittees,
@@ -50,7 +51,7 @@ export default async function ApplyPage({ params, searchParams }: { params: Prom
   if (session?.personId) {
     signedIn = true;
     signedInName = session.user?.name ?? null;
-    const ctx = await getRenewalContext(session.personId, session.user?.email ?? null);
+    const ctx = await getRenewalContext(session.personId, session.user?.email ?? null, cycle.track);
     eligible = ctx.eligible;
     currentDepartments = ctx.currentDepartments.filter((d) => cycle.departments.includes(d));
     const fields = cycle.sections.flatMap((s) => s.fields).map((f) => ({ key: f.key, type: f.type }));

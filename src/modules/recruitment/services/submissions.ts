@@ -106,12 +106,13 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
   // here regardless of the client UI, and links the submission to the person.
   let applicantPersonId: string | null = null;
   if (input.applicantType === "RENEWAL") {
+    const roleNoun = cycle.track === "DIRECTOR" ? "director" : "volunteer";
     if (!input.sessionPersonId || !input.sessionEmail) {
-      throw new SubmissionValidationError("Please sign in with Yale to apply as a returning volunteer.");
+      throw new SubmissionValidationError(`Please sign in with Yale to apply as a returning ${roleNoun}.`);
     }
-    const renewalCtx = await getRenewalContext(input.sessionPersonId, input.sessionEmail);
+    const renewalCtx = await getRenewalContext(input.sessionPersonId, input.sessionEmail, cycle.track);
     if (!renewalCtx.eligible) {
-      throw new SubmissionValidationError("We do not see a current volunteer membership for your account.");
+      throw new SubmissionValidationError(`We do not see a current ${roleNoun} membership for your account.`);
     }
     applicantPersonId = renewalCtx.personId;
     // Use the verified session email as the answer too, so schema validation

@@ -1,4 +1,5 @@
 // src/modules/recruitment/services/renewal.ts
+import type { MembershipKind } from "@prisma/client";
 import { prisma } from "@/platform/db";
 
 export type RenewalContext = {
@@ -12,17 +13,19 @@ export type RenewalContext = {
 };
 
 /**
- * Eligibility + identity for a returning applicant. `email` is the verified
- * session (Entra) address, returned verbatim, never read from Person.contactEmail.
- * Departments are the codes from the person's active VOLUNTEER memberships in
- * their most-recent term (by term.startDate).
+ * Eligibility + identity for a returning applicant. `kind` is the cycle's track
+ * (VOLUNTEER or DIRECTOR): a returning director renews against their director
+ * membership, a returning volunteer against their volunteer membership. `email`
+ * is the verified session (Entra) address, returned verbatim, never read from
+ * Person.contactEmail. Departments are the codes from the person's active
+ * memberships of that kind in their most-recent term (by term.startDate).
  */
-export async function getRenewalContext(personId: string, sessionEmail: string | null): Promise<RenewalContext> {
+export async function getRenewalContext(personId: string, sessionEmail: string | null, kind: MembershipKind): Promise<RenewalContext> {
   const person = await prisma.person.findUnique({
     where: { id: personId },
     include: {
       memberships: {
-        where: { kind: "VOLUNTEER", status: "ACTIVE" },
+        where: { kind, status: "ACTIVE" },
         include: { term: { select: { startDate: true } }, department: { select: { code: true } } },
       },
     },

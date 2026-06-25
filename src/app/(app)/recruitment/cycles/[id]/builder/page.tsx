@@ -1,26 +1,39 @@
+// src/app/(app)/recruitment/cycles/[id]/builder/page.tsx
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowRight } from "lucide-react";
 import { getCycle } from "@/modules/recruitment/services/cycles";
-import { addSectionAction, addFieldAction, deleteFieldAction, deleteSectionAction } from "./actions";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 import { PageHeader } from "@/platform/ui/page-header";
-import { Field, Input, Textarea } from "@/platform/ui/input";
-import { Select } from "@/platform/ui/select";
-import { Checkbox } from "@/platform/ui/checkbox";
-import { Alert } from "@/platform/ui/alert";
-import { SubmitButton } from "@/platform/ui/submit-button";
-import { ConfirmButton } from "@/platform/ui/confirm-button";
+import { FormBuilder } from "./form-builder";
+import type { BuilderSection } from "./section-card";
 
-const FIELD_TYPES = ["SHORT_TEXT","LONG_TEXT","SINGLE_SELECT","MULTI_SELECT","CHECKBOX","EMAIL","PHONE","NUMBER","DATE","FILE","DEPARTMENT_CHOICE"];
-
-export default async function BuilderPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ error?: string }> }) {
+export default async function BuilderPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const { error } = await searchParams;
   const cycle = await getCycle(id);
   if (!cycle) notFound();
-  const editable = cycle.status === "DRAFT";
+
+  const sections: BuilderSection[] = cycle.sections
+    .filter((s) => s.purpose === "APPLICATION")
+    .map((s) => ({
+      id: s.id,
+      title: s.title,
+      description: s.description,
+      appliesTo: s.appliesTo,
+      departmentCode: s.departmentCode,
+      fields: s.fields.map((f) => ({
+        id: f.id,
+        key: f.key,
+        label: f.label,
+        helpText: f.helpText,
+        type: f.type,
+        required: f.required,
+        options: (f.options as { value: string; label: string }[] | null) ?? null,
+        validation: (f.validation as Record<string, unknown> | null) ?? null,
+        correctValue: f.correctValue,
+      })),
+    }));
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -43,104 +56,14 @@ export default async function BuilderPage({ params, searchParams }: { params: Pr
           </Link>
         }
       />
-      {!editable && (
-        <Alert tone="warning">
-          This cycle is {cycle.status}. Only safe edits (labels, help text) are allowed.
-        </Alert>
-      )}
-      {error && <Alert tone="error">{error}</Alert>}
-
-      {cycle.sections.map((section) => (
-        <section key={section.id} className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
-          <div className="flex items-center justify-between gap-4">
-            <h2 className="font-medium text-foreground">
-              {section.title}{" "}
-              <span className="text-xs font-normal text-subtle-foreground">
-                ({section.appliesTo}{section.departmentCode ? ` · ${section.departmentCode}` : ""})
-              </span>
-            </h2>
-            <form action={deleteSectionAction.bind(null, id, section.id)}>
-              <ConfirmButton label="Delete section" size="sm" />
-            </form>
-          </div>
-          <ul className="mt-4 divide-y divide-border-subtle">
-            {section.fields.map((f) => (
-              <li key={f.id} className="flex items-center justify-between gap-4 py-2 text-sm">
-                <span className="text-foreground-soft">
-                  {f.label}{" "}
-                  <span className="text-xs text-subtle-foreground">
-                    · {f.type}{f.required ? " · required" : ""} · {f.key}
-                  </span>
-                </span>
-                <form action={deleteFieldAction.bind(null, id, f.id)}>
-                  <ConfirmButton label="Remove" size="sm" />
-                </form>
-              </li>
-            ))}
-            {section.fields.length === 0 && (
-              <li className="py-2 text-sm text-subtle-foreground">No fields yet.</li>
-            )}
-          </ul>
-          <form
-            action={addFieldAction.bind(null, id, section.id)}
-            className="mt-4 flex flex-wrap items-end gap-3 border-t border-border-subtle pt-4"
-          >
-            <div className="min-w-[12rem] flex-1">
-              <Field label="Field label">
-                <Input name="label" required />
-              </Field>
-            </div>
-            <div className="w-44">
-              <Field label="Type">
-                <Select name="type">
-                  {FIELD_TYPES.map((t) => (
-                    <option key={t}>{t}</option>
-                  ))}
-                </Select>
-              </Field>
-            </div>
-            <label className="flex items-center gap-2 py-2 text-sm text-foreground-soft">
-              <Checkbox name="required" /> Required
-            </label>
-            <div className="min-w-[12rem] flex-1">
-              <Field label="Options" hint="One per line.">
-                <Textarea name="options" rows={1} />
-              </Field>
-            </div>
-            <SubmitButton size="sm" pendingLabel="Adding…">
-              Add field
-            </SubmitButton>
-          </form>
-        </section>
-      ))}
-
-      <form
-        action={addSectionAction.bind(null, id)}
-        className="flex flex-wrap items-end gap-3 rounded-2xl border border-dashed border-border-strong bg-muted/60 p-5"
-      >
-        <div className="min-w-[12rem] flex-1">
-          <Field label="New section title">
-            <Input name="title" required />
-          </Field>
-        </div>
-        <div className="w-36">
-          <Field label="Applies to">
-            <Select name="appliesTo">
-              <option>BOTH</option>
-              <option>NEW</option>
-              <option>RENEWAL</option>
-            </Select>
-          </Field>
-        </div>
-        <div className="w-44">
-          <Field label="Dept code" hint="Supplement only.">
-            <Input name="departmentCode" />
-          </Field>
-        </div>
-        <SubmitButton size="sm" variant="outline" pendingLabel="Adding…">
-          Add section
-        </SubmitButton>
-      </form>
+      <FormBuilder
+        cycleId={id}
+        cycleTitle={cycle.title}
+        editable={cycle.status === "DRAFT"}
+        status={cycle.status}
+        departments={cycle.departments}
+        sections={sections}
+      />
     </div>
   );
 }

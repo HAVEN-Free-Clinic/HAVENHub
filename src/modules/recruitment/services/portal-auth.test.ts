@@ -1,7 +1,13 @@
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
+
+// Mock Next.js server-only modules so the pure-crypto cookie tests run in Vitest.
+vi.mock("next/headers", () => ({ cookies: async () => ({ get: vi.fn(), set: vi.fn() }) }));
+vi.mock("@/platform/auth/auth", () => ({ auth: async () => null }));
+
 import { issueMagicToken, verifyMagicToken } from "./portal-auth";
+import { signApplicantCookie, readApplicantCookie } from "./portal-auth";
 
 beforeEach(async () => { await resetDb(); });
 afterEach(async () => { await resetDb(); });
@@ -33,4 +39,12 @@ it("rejects an expired token", async () => {
 
 it("rejects an unknown token", async () => {
   expect(await verifyMagicToken("not-a-real-token")).toBeNull();
+});
+
+it("signs and reads back a cookie email, rejecting tampering", () => {
+  const cookie = signApplicantCookie("Reed@Yale.edu");
+  expect(readApplicantCookie(cookie)).toBe("reed@yale.edu");
+  expect(readApplicantCookie(cookie + "x")).toBeNull(); // tampered signature
+  expect(readApplicantCookie(undefined)).toBeNull();
+  expect(readApplicantCookie("garbage")).toBeNull();
 });

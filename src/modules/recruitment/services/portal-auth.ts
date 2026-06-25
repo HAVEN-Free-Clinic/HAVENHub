@@ -27,3 +27,69 @@ export async function verifyMagicToken(rawToken: string): Promise<string | null>
   await prisma.applicantPortalToken.update({ where: { id: token.id }, data: { usedAt: new Date() } });
   return token.emailLower;
 }
+
+// ---------------------------------------------------------------------------
+// Applicant session cookie (signed) + unified identity resolver
+// ---------------------------------------------------------------------------
+
+import { createHmac, timingSafeEqual } from "node:crypto";
+import { cookies } from "next/headers";
+import { auth } from "@/platform/auth/auth";
+import { config } from "@/platform/config";
+
+export const APPLICANT_COOKIE = "applicant_session";
+const COOKIE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+function sign(data: string): string {
+  return createHmac("sha256", config.AUTH_SECRET).update(data).digest("base64url");
+}
+
+/** Sign a payload.signature cookie carrying the verified email + expiry. */
+export function signApplicantCookie(email: string): string {
+  const payload = Buffer.from(
+    JSON.stringify({ email: email.trim().toLowerCase(), exp: Date.now() + COOKIE_TTL_MS }),
+  ).toString("base64url");
+  return `${payload}.${sign(payload)}`;
+}
+
+/** Validate the cookie and return its emailLower, or null if forged/expired. */
+export function readApplicantCookie(value: string | undefined): string | null {
+  if (!value) return null;
+  const dot = value.lastIndexOf(".");
+  if (dot <= 0) return null;
+  const payload = value.slice(0, dot);
+  const sig = value.slice(dot + 1);
+  const expected = sign(payload);
+  const a = Buffer.from(sig);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(payload, "base64url").toString()) as {
+      email?: unknown;
+      exp?: unknown;
+    };
+    if (
+      typeof parsed.email !== "string" ||
+      typeof parsed.exp !== "number" ||
+      parsed.exp < Date.now()
+    )
+      return null;
+    return parsed.email;
+  } catch {
+    return null;
+  }
+}
+
+export type ApplicantIdentity = { email: string; personId: string | null };
+
+/** The current applicant: from the NextAuth Person session if signed in,
+ *  otherwise from the signed applicant cookie, otherwise null. */
+export async function getApplicantIdentity(): Promise<ApplicantIdentity | null> {
+  const session = await auth();
+  if (session?.personId && session.user?.email) {
+    return { email: session.user.email.toLowerCase(), personId: session.personId };
+  }
+  const store = await cookies();
+  const email = readApplicantCookie(store.get(APPLICANT_COOKIE)?.value);
+  return email ? { email, personId: null } : null;
+}

@@ -1,6 +1,7 @@
 // src/app/(app)/recruitment/cycles/[id]/builder/options-editor.tsx
 "use client";
 import { GripVertical, Plus, X } from "lucide-react";
+import { useId, type HTMLAttributes } from "react";
 import { appendChoice, renameChoice, type Choice } from "@/modules/recruitment/engine/options";
 import { Input } from "@/platform/ui/input";
 import { Button } from "@/platform/ui/button";
@@ -14,6 +15,7 @@ export function OptionsEditor({
   disabled?: boolean;
   markCorrect?: { value: string | null; onPick: (value: string) => void };
 }) {
+  const radioName = useId();
   const items = options.map((o) => ({ id: o.value, ...o }));
 
   function reorder(orderedIds: string[]) {
@@ -29,12 +31,12 @@ export function OptionsEditor({
         <div className="flex items-center gap-2 py-1">
           <button type="button" className="cursor-grab text-subtle-foreground disabled:cursor-not-allowed"
             disabled={disabled} aria-label="Drag to reorder option"
-            {...(handle.attributes as React.HTMLAttributes<HTMLButtonElement>)}
-            {...((handle.listeners ?? {}) as React.HTMLAttributes<HTMLButtonElement>)}>
+            {...(handle.attributes as HTMLAttributes<HTMLButtonElement>)}
+            {...((handle.listeners ?? {}) as HTMLAttributes<HTMLButtonElement>)}>
             <GripVertical className="h-4 w-4" aria-hidden />
           </button>
           {markCorrect && (
-            <input type="radio" name="__correct" aria-label="Correct answer"
+            <input type="radio" name={radioName} aria-label="Correct answer"
               className="h-4 w-4 accent-brand" checked={markCorrect.value === item.value}
               disabled={disabled} onChange={() => markCorrect.onPick(item.value)} />
           )}

@@ -82,11 +82,9 @@ jobs:
         run: vercel build --target=preview --token=${{ secrets.VERCEL_TOKEN }}
 
       # `--prebuilt` uploads .vercel/output and skips the build (and the
-      # ignoreCommand). `--target=preview` associates the deployment with the
-      # Preview environment so it inherits the project's real Preview env vars
-      # (AUTH_SECRET, EMAIL_TRANSPORT, ...) at runtime — without it, target is
-      # null and the deployment gets none of them, 500ing on every request.
-      # `-e` then overrides just the DB to this PR's Neon branch.
+      # ignoreCommand). `--target=preview` binds the deployment to the Preview
+      # environment so it inherits the project's Preview env vars at runtime;
+      # `-e` overrides just the DB to this PR's Neon branch.
       - name: Deploy preview
         id: deploy
         env:

@@ -12,7 +12,8 @@ export async function resetDb() {
               "DepartmentDelegation", "Department", "Term", "Person", "AuditLog",
               "Outbox", "MirrorRecord", "WorkerHeartbeat",
               "OffboardFlag", "EpicRequest", "YnhhTicket", "DisciplinaryAction", "Notification", "EmailLog", "EmailCampaignRun", "EmailCampaign", "EmailTemplate",
-              "ComplianceReminder", "MailCredential", "Setting" CASCADE`
+              "ComplianceReminder", "MailCredential", "Setting",
+              "ApplicantPortalToken" CASCADE`
   );
   // The settings resolver holds a process-global 30s in-memory cache. We just
   // truncated "Setting", so any cached override is now stale -- clear it so a

@@ -95,6 +95,7 @@ export const MODULES: ModuleManifest[] = [
       "admin.send_email_campaign",
       "admin.manage_settings",
       "admin.manage_departments",
+      "admin.manage_subcommittees",
     ],
     status: "active",
     nav: [
@@ -103,6 +104,7 @@ export const MODULES: ModuleManifest[] = [
       { label: "Terms", href: "/admin/terms" },
       { label: "Roles", href: "/admin/roles" },
       { label: "Departments", href: "/admin/departments" },
+      { label: "Subcommittees", href: "/admin/subcommittees" },
       { label: "Audit", href: "/admin/audit" },
       { label: "Sync", href: "/admin/sync" },
       { label: "Email", href: "/admin/email" },

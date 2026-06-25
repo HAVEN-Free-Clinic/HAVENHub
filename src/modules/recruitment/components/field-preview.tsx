@@ -92,6 +92,7 @@ export function FieldPreview({
               </Select>
             </div>
           ))}
+          <span className="text-xs text-muted-foreground">Choose a different subcommittee for each rank.</span>
         </span>
       );
       break;

@@ -213,7 +213,7 @@ export function TrainingQuiz({
           </span>
           <div>
             <p className="text-[15px] font-bold text-foreground">A few quick questions</p>
-            <p className="mt-px text-[12.5px] text-muted-foreground">Helps us place you on shifts and subcommittees</p>
+            <p className="mt-px text-[12.5px] text-muted-foreground">Helps us place you on shifts</p>
           </div>
         </div>
         <div className="grid grid-cols-1 gap-3.5 p-[22px] sm:grid-cols-2">

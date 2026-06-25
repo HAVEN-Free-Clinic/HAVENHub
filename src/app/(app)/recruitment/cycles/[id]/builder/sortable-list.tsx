@@ -1,5 +1,6 @@
 // src/app/(app)/recruitment/cycles/[id]/builder/sortable-list.tsx
 "use client";
+import { useState } from "react";
 import {
   DndContext, closestCenter, KeyboardSensor, PointerSensor,
   useSensor, useSensors, type DragEndEvent,
@@ -32,32 +33,47 @@ export function SortableList<T extends { id: string }>({
   items, onReorder, disabled = false, renderItem,
 }: {
   items: T[];
-  onReorder: (orderedIds: string[]) => void;
+  onReorder: (orderedIds: string[]) => void | boolean | Promise<void | boolean>;
   disabled?: boolean;
   renderItem: (item: T, handle: SortableHandleProps) => React.ReactNode;
 }) {
+  const [optimisticIds, setOptimisticIds] = useState<string[] | null>(null);
+
+  const itemMap = new Map(items.map((i) => [i.id, i]));
+  const orderedItems: T[] = optimisticIds === null
+    ? items
+    : [
+        ...optimisticIds.flatMap((id) => { const it = itemMap.get(id); return it ? [it] : []; }),
+        ...items.filter((i) => !optimisticIds.includes(i.id)),
+      ];
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
   if (disabled) {
-    return <>{items.map((it) => renderItem(it, { attributes: {}, listeners: undefined, isDragging: false }))}</>;
+    return <>{orderedItems.map((it) => renderItem(it, { attributes: {}, listeners: undefined, isDragging: false }))}</>;
   }
 
-  function handleDragEnd(e: DragEndEvent) {
+  async function handleDragEnd(e: DragEndEvent) {
     const { active, over } = e;
     if (!over || active.id === over.id) return;
-    const oldIndex = items.findIndex((i) => i.id === active.id);
-    const newIndex = items.findIndex((i) => i.id === over.id);
+    const oldIndex = orderedItems.findIndex((i) => i.id === active.id);
+    const newIndex = orderedItems.findIndex((i) => i.id === over.id);
     if (oldIndex < 0 || newIndex < 0) return;
-    onReorder(arrayMove(items, oldIndex, newIndex).map((i) => i.id));
+    const newOrder = arrayMove(orderedItems, oldIndex, newIndex).map((i) => i.id);
+    setOptimisticIds(newOrder);
+    const res = await onReorder(newOrder);
+    if (res === false) {
+      setOptimisticIds(null);
+    }
   }
 
   return (
     <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-      <SortableContext items={items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
-        {items.map((it) => <SortableRow key={it.id} item={it} renderItem={renderItem} />)}
+      <SortableContext items={orderedItems.map((i) => i.id)} strategy={verticalListSortingStrategy}>
+        {orderedItems.map((it) => <SortableRow key={it.id} item={it} renderItem={renderItem} />)}
       </SortableContext>
     </DndContext>
   );

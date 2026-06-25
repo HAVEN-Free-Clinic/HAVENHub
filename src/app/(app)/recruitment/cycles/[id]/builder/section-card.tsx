@@ -11,6 +11,7 @@ import { Field, Input, Textarea } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Button } from "@/platform/ui/button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
+import { Alert } from "@/platform/ui/alert";
 
 export type BuilderSection = {
   id: string;
@@ -32,6 +33,7 @@ export function SectionCard({
   onChanged: () => void;
 }) {
   const [showSettings, setShowSettings] = useState(false);
+  const [reorderError, setReorderError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
   function saveSection(patch: Parameters<typeof updateSectionAction>[2]) {
@@ -40,8 +42,12 @@ export function SectionCard({
   function addField(type: FieldType) {
     startTransition(async () => { const r = await addFieldAction(cycleId, section.id, { type }); if (r.ok) onChanged(); });
   }
-  function reorder(orderedFieldIds: string[]) {
-    startTransition(async () => { const r = await reorderFieldsAction(cycleId, section.id, orderedFieldIds); if (r.ok) onChanged(); });
+  async function reorder(orderedFieldIds: string[]) {
+    setReorderError(null);
+    const r = await reorderFieldsAction(cycleId, section.id, orderedFieldIds);
+    if (r.ok) { onChanged(); return true; }
+    setReorderError(r.error);
+    return false;
   }
 
   const scope = section.appliesTo === "BOTH" ? "NEW · RENEWAL" : section.appliesTo;
@@ -92,6 +98,7 @@ export function SectionCard({
       )}
 
       <div className="mt-3 space-y-2">
+        {reorderError && <Alert tone="error">{reorderError}</Alert>}
         <SortableList items={section.fields} onReorder={reorder} disabled={!editable} renderItem={(field, fhandle) => (
           <div className="py-1">
             <FieldCard cycleId={cycleId} field={field} departments={departments} editable={editable} handle={fhandle} onChanged={onChanged} />

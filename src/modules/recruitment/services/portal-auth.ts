@@ -22,10 +22,21 @@ export async function issueMagicToken(email: string): Promise<string> {
 /** Validate a raw token: returns the emailLower and marks it used, or null if
  *  it is unknown, already used, or expired. */
 export async function verifyMagicToken(rawToken: string): Promise<string | null> {
-  const token = await prisma.applicantPortalToken.findUnique({ where: { tokenHash: hashToken(rawToken) } });
-  if (!token || token.usedAt || token.expiresAt < new Date()) return null;
-  await prisma.applicantPortalToken.update({ where: { id: token.id }, data: { usedAt: new Date() } });
-  return token.emailLower;
+  const tokenHash = hashToken(rawToken);
+  // Atomically claim the token: the WHERE clause only matches an unused,
+  // unexpired row, and a row-level lock means exactly one concurrent caller
+  // flips usedAt. This closes the check-then-update race (TOCTOU) so the
+  // single-use guarantee holds.
+  const claimed = await prisma.applicantPortalToken.updateMany({
+    where: { tokenHash, usedAt: null, expiresAt: { gt: new Date() } },
+    data: { usedAt: new Date() },
+  });
+  if (claimed.count !== 1) return null;
+  const token = await prisma.applicantPortalToken.findUnique({
+    where: { tokenHash },
+    select: { emailLower: true },
+  });
+  return token?.emailLower ?? null;
 }
 
 // ---------------------------------------------------------------------------

@@ -41,6 +41,13 @@ it("rejects an unknown token", async () => {
   expect(await verifyMagicToken("not-a-real-token")).toBeNull();
 });
 
+it("is single-use under concurrent verification (no TOCTOU)", async () => {
+  const raw = await issueMagicToken("race@yale.edu");
+  const results = await Promise.all([verifyMagicToken(raw), verifyMagicToken(raw)]);
+  const succeeded = results.filter((r) => r !== null);
+  expect(succeeded).toEqual(["race@yale.edu"]); // exactly one wins, the other is null
+});
+
 it("signs and reads back a cookie email, rejecting tampering", () => {
   const cookie = signApplicantCookie("Reed@Yale.edu");
   expect(readApplicantCookie(cookie)).toBe("reed@yale.edu");

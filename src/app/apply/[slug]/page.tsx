@@ -1,6 +1,9 @@
+import { redirect } from "next/navigation";
 import { prisma } from "@/platform/db";
 import { auth } from "@/platform/auth/auth";
 import { getRenewalContext, resolveRenewalPrefill } from "@/modules/recruitment/services/renewal";
+import { getApplicantIdentity } from "@/modules/recruitment/services/portal-auth";
+import { getDraft } from "@/modules/recruitment/services/drafts";
 import { ApplyForm } from "./apply-form";
 
 export default async function ApplyPage({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<{ type?: string }> }) {
@@ -19,6 +22,18 @@ export default async function ApplyPage({ params, searchParams }: { params: Prom
       <main className="mx-auto max-w-2xl px-6 py-16 text-center">
         <h1 className="text-xl font-bold">Applications are closed</h1>
         <p className="mt-2 text-muted-foreground">This recruitment form is not currently accepting submissions.</p>
+      </main>
+    );
+  }
+
+  const identity = await getApplicantIdentity();
+  if (!identity) redirect(`/apply?next=${encodeURIComponent(`/apply/${slug}`)}`);
+  const draft = await getDraft(slug, identity);
+  if (draft?.status === "SUBMITTED") {
+    return (
+      <main className="mx-auto max-w-2xl px-6 py-16 text-center">
+        <h1 className="text-xl font-bold">Application submitted</h1>
+        <p className="mt-2 text-muted-foreground">You have already submitted this application. We will be in touch.</p>
       </main>
     );
   }
@@ -66,7 +81,7 @@ export default async function ApplyPage({ params, searchParams }: { params: Prom
         Complete the fields below to submit your application. Required fields are marked with{" "}
         <span className="font-medium text-critical">*</span>.
       </p>
-      <ApplyForm def={def} signedIn={signedIn} signedInName={signedInName} eligible={eligible} prefill={prefill} currentDepartments={currentDepartments} initialApplicantType={initialApplicantType} />
+      <ApplyForm def={def} signedIn={signedIn} signedInName={signedInName} eligible={eligible} prefill={prefill} currentDepartments={currentDepartments} initialApplicantType={initialApplicantType} initialAnswers={(draft?.answers as Record<string, string>) ?? {}} initialApplicantTypeFromDraft={draft?.applicantType} />
     </main>
   );
 }

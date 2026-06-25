@@ -1,6 +1,7 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { submitPublicApplication, type SubmitResult } from "./actions";
+import { saveDraftAction, uploadDraftFileAction } from "./draft-actions";
 import { isSectionVisible } from "@/modules/recruitment/engine/visibility";
 import { Alert } from "@/platform/ui/alert";
 import { Button, buttonClasses } from "@/platform/ui/button";
@@ -18,6 +19,7 @@ type Prefill = { values: Record<string, string>; lockedKeys: string[] };
 
 export function ApplyForm({
   def, signedIn = false, signedInName = null, eligible = false, prefill, currentDepartments = [], initialApplicantType = "NEW",
+  initialAnswers = {}, initialApplicantTypeFromDraft,
 }: {
   def: Def;
   signedIn?: boolean;
@@ -26,16 +28,29 @@ export function ApplyForm({
   prefill?: Prefill;
   currentDepartments?: string[];
   initialApplicantType?: "NEW" | "RENEWAL";
+  initialAnswers?: Record<string, string>;
+  initialApplicantTypeFromDraft?: "NEW" | "RENEWAL";
 }) {
+  // Draft type takes precedence over the URL ?type param when present.
+  const seedType = initialApplicantTypeFromDraft ?? initialApplicantType;
+
   // A returning visitor whose account has no current membership is moved to the
   // New flow on arrival, with a note.
-  const autoIneligible = initialApplicantType === "RENEWAL" && signedIn && !eligible;
-  const [applicantType, setApplicantType] = useState<"NEW" | "RENEWAL">(autoIneligible ? "NEW" : initialApplicantType);
+  const autoIneligible = seedType === "RENEWAL" && signedIn && !eligible;
+  const [applicantType, setApplicantType] = useState<"NEW" | "RENEWAL">(autoIneligible ? "NEW" : seedType);
   const [ineligibleNote, setIneligibleNote] = useState(autoIneligible);
   const [renewalDept, setRenewalDept] = useState<string>(currentDepartments[0] ?? def.departments[0] ?? "");
   const [deptChoice, setDeptChoice] = useState<string>("");
   const [result, setResult] = useState<SubmitResult | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  // Autosave state
+  const formRef = useRef<HTMLFormElement | null>(null);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
+
+  // Per-file-field upload status: key -> "Attached: <name>" or error message
+  const [fileStatus, setFileStatus] = useState<Record<string, string>>({});
 
   const lockedKeys = useMemo(() => new Set(prefill?.lockedKeys ?? []), [prefill]);
   const loginHref = `/login?callbackUrl=${encodeURIComponent(`/apply/${def.slug}?type=renewal`)}`;
@@ -54,6 +69,43 @@ export function ApplyForm({
     }
     setIneligibleNote(false);
     setApplicantType(v);
+  }
+
+  function scheduleSave() {
+    if (renewalGate) return; // not identified for renewal yet; nothing to save
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    setSaveState("saving");
+    saveTimer.current = setTimeout(async () => {
+      const form = formRef.current;
+      if (!form) return;
+      const fd = new FormData(form);
+      const answers: Record<string, unknown> = {};
+      for (const [k, v] of fd.entries()) {
+        if (k.startsWith("__") || v instanceof File) continue;
+        answers[k] = answers[k] === undefined ? v : ([] as unknown[]).concat(answers[k], v);
+      }
+      const res = await saveDraftAction(def.slug, {
+        answers,
+        applicantType,
+        renewalDepartment: applicantType === "RENEWAL" ? renewalDept : null,
+      });
+      setSaveState(res.ok ? "saved" : "idle");
+    }, 800);
+  }
+
+  async function handleFileChange(fieldKey: string, e: React.ChangeEvent<HTMLInputElement> | React.SyntheticEvent) {
+    const input = (e.target as HTMLInputElement);
+    const file = input.files?.[0];
+    if (!file) return;
+    setFileStatus((prev) => ({ ...prev, [fieldKey]: "Uploading..." }));
+    const fd = new FormData();
+    fd.set("file", file);
+    const res = await uploadDraftFileAction(def.slug, fieldKey, fd);
+    if (res.ok && res.fileName) {
+      setFileStatus((prev) => ({ ...prev, [fieldKey]: `Attached: ${res.fileName}` }));
+    } else {
+      setFileStatus((prev) => ({ ...prev, [fieldKey]: res.error ?? "Upload failed." }));
+    }
   }
 
   const selectedDepartmentCodes = useMemo(
@@ -81,8 +133,14 @@ export function ApplyForm({
   }
 
   return (
-    <form onSubmit={onSubmit} className="mt-6 space-y-8">
+    <form ref={formRef} onSubmit={onSubmit} onChange={scheduleSave} className="mt-6 space-y-8">
       {result && !result.ok && <Alert tone="error">{result.message}</Alert>}
+
+      {saveState !== "idle" && (
+        <p className="text-xs text-muted-foreground" aria-live="polite">
+          {saveState === "saving" ? "Saving..." : "Saved"}
+        </p>
+      )}
 
       {def.acceptsRenewals && (
         <fieldset className="space-y-3">
@@ -140,16 +198,30 @@ export function ApplyForm({
             <fieldset key={section.id} className="space-y-3">
               <legend className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">{section.title}</legend>
               {section.description && <p className="text-sm text-muted-foreground">{section.description}</p>}
-              {section.fields.map((f) => (
-                <FieldPreview key={f.key} f={f} departments={def.departments} subcommittees={def.subcommittees}
-                  fieldError={result && !result.ok ? result.fieldErrors?.[f.key] : undefined}
-                  onDeptChoice={f.type === "DEPARTMENT_CHOICE" ? setDeptChoice : undefined}
-                  prefill={prefill?.values[f.key]} locked={lockedKeys.has(f.key)} />
-              ))}
+              {section.fields.map((f) =>
+                f.type === "FILE" ? (
+                  // FILE fields: intercept onChange here so files upload immediately
+                  // and do not flow into the text autosave path.
+                  <div key={f.key} onChange={(e) => { e.stopPropagation(); handleFileChange(f.key, e as unknown as React.ChangeEvent<HTMLInputElement>); }}>
+                    <FieldPreview f={f} departments={def.departments} subcommittees={def.subcommittees}
+                      fieldError={result && !result.ok ? result.fieldErrors?.[f.key] : undefined}
+                      onDeptChoice={undefined}
+                      prefill={prefill?.values[f.key] ?? initialAnswers[f.key]} locked={lockedKeys.has(f.key)} />
+                    {fileStatus[f.key] && (
+                      <p className="mt-1 text-xs text-muted-foreground">{fileStatus[f.key]}</p>
+                    )}
+                  </div>
+                ) : (
+                  <FieldPreview key={f.key} f={f} departments={def.departments} subcommittees={def.subcommittees}
+                    fieldError={result && !result.ok ? result.fieldErrors?.[f.key] : undefined}
+                    onDeptChoice={f.type === "DEPARTMENT_CHOICE" ? setDeptChoice : undefined}
+                    prefill={prefill?.values[f.key] ?? initialAnswers[f.key]} locked={lockedKeys.has(f.key)} />
+                )
+              )}
             </fieldset>
           ))}
 
-          <Button type="submit" disabled={submitting}>{submitting ? "Submitting…" : "Submit application"}</Button>
+          <Button type="submit" disabled={submitting}>{submitting ? "Submitting..." : "Submit application"}</Button>
         </>
       )}
     </form>

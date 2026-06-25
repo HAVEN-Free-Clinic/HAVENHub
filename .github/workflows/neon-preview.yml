@@ -79,11 +79,14 @@ jobs:
           mv "$ENVFILE.tmp" "$ENVFILE"
 
       - name: Build
-        run: vercel build --token=${{ secrets.VERCEL_TOKEN }}
+        run: vercel build --target=preview --token=${{ secrets.VERCEL_TOKEN }}
 
       # `--prebuilt` uploads .vercel/output and skips the build (and the
-      # ignoreCommand). `-e` sets this deployment's runtime DB to the branch,
-      # overriding the project's prod DATABASE_URL for this preview only.
+      # ignoreCommand). `--target=preview` associates the deployment with the
+      # Preview environment so it inherits the project's real Preview env vars
+      # (AUTH_SECRET, EMAIL_TRANSPORT, ...) at runtime — without it, target is
+      # null and the deployment gets none of them, 500ing on every request.
+      # `-e` then overrides just the DB to this PR's Neon branch.
       - name: Deploy preview
         id: deploy
         env:
@@ -92,7 +95,7 @@ jobs:
           PR_NUMBER: ${{ github.event.number }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
-          url=$(vercel deploy --prebuilt --archive=tgz \
+          url=$(vercel deploy --prebuilt --archive=tgz --target=preview \
             -e DATABASE_URL="$POOLED" \
             -e DATABASE_URL_UNPOOLED="$DIRECT" \
             -m pr="$PR_NUMBER" \

@@ -27,6 +27,8 @@ export function QuizBuilder({
   const [newSectionTitle, setNewSectionTitle] = useState("");
   const refresh = () => router.refresh();
 
+  // Quiz field edits are never "structural" in the service layer, so published-cycle protection here is UI-only: the disabled props below are the only guard. Keep them in sync with editable.
+
   function addQuizSection() {
     const title = newSectionTitle.trim() || "Quiz";
     startTransition(async () => { const r = await addSectionAction(cycleId, { title, appliesTo: "BOTH", departmentCode: null, purpose: "QUIZ" }); if (r.ok) { setNewSectionTitle(""); refresh(); } });

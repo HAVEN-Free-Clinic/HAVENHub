@@ -70,9 +70,9 @@ export function FieldCard({
           <span title={meta.label} className="px-1 text-subtle-foreground"><Icon className="h-4 w-4" aria-hidden /></span>
           <Button type="button" variant="ghost" size="sm" onClick={() => setOpen((v) => !v)} aria-label="Edit field"><Pencil className="h-4 w-4" aria-hidden /></Button>
           <Button type="button" variant="ghost" size="sm" disabled={!editable || pending}
-            onClick={() => startTransition(async () => { const r = await duplicateFieldAction(cycleId, field.id); if (r.ok) onChanged(); else setError(r.error); })}
+            onClick={() => { setError(null); startTransition(async () => { const r = await duplicateFieldAction(cycleId, field.id); if (r.ok) onChanged(); else setError(r.error); }); }}
             aria-label="Duplicate field"><Copy className="h-4 w-4" aria-hidden /></Button>
-          <form action={async () => { const r = await deleteFieldAction(cycleId, field.id); if (r.ok) onChanged(); else setError(r.error); }}>
+          <form action={async () => { setError(null); const r = await deleteFieldAction(cycleId, field.id); if (r.ok) onChanged(); else setError(r.error); }}>
             <ConfirmButton label="Remove" size="sm" disabled={!editable} />
           </form>
         </div>

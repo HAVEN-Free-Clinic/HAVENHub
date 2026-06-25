@@ -1,8 +1,11 @@
 import { prisma } from "@/platform/db";
+import { auth } from "@/platform/auth/auth";
+import { getRenewalContext, resolveRenewalPrefill } from "@/modules/recruitment/services/renewal";
 import { ApplyForm } from "./apply-form";
 
-export default async function ApplyPage({ params }: { params: Promise<{ slug: string }> }) {
+export default async function ApplyPage({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<{ type?: string }> }) {
   const { slug } = await params;
+  const { type } = await searchParams;
   const cycle = await prisma.recruitmentCycle.findUnique({
     where: { publicSlug: slug },
     include: { sections: { where: { purpose: "APPLICATION" }, include: { fields: { orderBy: { order: "asc" } } }, orderBy: { order: "asc" } } },
@@ -38,6 +41,23 @@ export default async function ApplyPage({ params }: { params: Promise<{ slug: st
     })),
   };
 
+  const session = await auth();
+  let signedIn = false;
+  let signedInName: string | null = null;
+  let eligible = false;
+  let currentDepartments: string[] = [];
+  let prefill: { values: Record<string, string>; lockedKeys: string[] } | undefined;
+  if (session?.personId) {
+    signedIn = true;
+    signedInName = session.user?.name ?? null;
+    const ctx = await getRenewalContext(session.personId, session.user?.email ?? null);
+    eligible = ctx.eligible;
+    currentDepartments = ctx.currentDepartments.filter((d) => cycle.departments.includes(d));
+    const fields = cycle.sections.flatMap((s) => s.fields).map((f) => ({ key: f.key, type: f.type }));
+    prefill = resolveRenewalPrefill(fields, ctx);
+  }
+  const initialApplicantType: "NEW" | "RENEWAL" = type === "renewal" ? "RENEWAL" : "NEW";
+
   return (
     <main className="mx-auto max-w-2xl px-6 py-10">
       <h1 className="text-2xl font-bold tracking-tight">{def.title}</h1>
@@ -45,7 +65,7 @@ export default async function ApplyPage({ params }: { params: Promise<{ slug: st
         Complete the fields below to submit your application. Required fields are marked with{" "}
         <span className="font-medium text-critical">*</span>.
       </p>
-      <ApplyForm def={def} />
+      <ApplyForm def={def} signedIn={signedIn} signedInName={signedInName} eligible={eligible} prefill={prefill} currentDepartments={currentDepartments} initialApplicantType={initialApplicantType} />
     </main>
   );
 }

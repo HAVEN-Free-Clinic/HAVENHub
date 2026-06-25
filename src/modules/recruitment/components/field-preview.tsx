@@ -17,7 +17,7 @@ export type PreviewFieldDef = {
 };
 
 export function FieldPreview({
-  f, departments, subcommittees = [], fieldError, onDeptChoice, disabled = false,
+  f, departments, subcommittees = [], fieldError, onDeptChoice, disabled = false, prefill, locked = false,
 }: {
   f: PreviewFieldDef;
   departments: string[];
@@ -25,6 +25,8 @@ export function FieldPreview({
   fieldError?: string;
   onDeptChoice?: (v: string) => void;
   disabled?: boolean;
+  prefill?: string;
+  locked?: boolean;
 }) {
   const required = f.required;
   const invalid = fieldError ? true : undefined;
@@ -32,9 +34,11 @@ export function FieldPreview({
   const help = f.helpText ? <span className="mt-1 block text-xs text-muted-foreground">{f.helpText}</span> : null;
   const err = fieldError ? <span className="mt-1 block text-xs text-critical">{fieldError}</span> : null;
 
-  // A single boolean checkbox reads as a statement you agree to, so the box sits
-  // inline with its label rather than orphaned under a heading. The tap row is a
-  // full 44px target. This shape is shared by the public form and the builder.
+  // Prefill: a locked field is read-only (verified value); otherwise it seeds an
+  // editable default. Read-only controlled inputs do not trigger React warnings.
+  const textProps = prefill === undefined ? {} : locked ? { value: prefill, readOnly: true } : { defaultValue: prefill };
+  const lockedCls = prefill !== undefined && locked ? "bg-muted text-muted-foreground" : null;
+
   if (f.type === "CHECKBOX") {
     return (
       <div>
@@ -51,11 +55,11 @@ export function FieldPreview({
   const labelEl = <span className="block text-sm font-medium text-foreground">{f.label}{req}</span>;
   let control: React.ReactNode;
   switch (f.type) {
-    case "LONG_TEXT": control = <Textarea name={f.key} required={required} disabled={disabled} aria-invalid={invalid} className="mt-1.5" rows={4} />; break;
-    case "NUMBER": control = <Input type="number" name={f.key} required={required} disabled={disabled} aria-invalid={invalid} className="mt-1.5" />; break;
-    case "DATE": control = <Input type="date" name={f.key} required={required} disabled={disabled} aria-invalid={invalid} className="mt-1.5" />; break;
-    case "EMAIL": control = <Input type="email" name={f.key} required={required} disabled={disabled} aria-invalid={invalid} className="mt-1.5" />; break;
-    case "PHONE": control = <Input type="tel" name={f.key} required={required} disabled={disabled} aria-invalid={invalid} className="mt-1.5" />; break;
+    case "LONG_TEXT": control = <Textarea name={f.key} required={required} disabled={disabled} aria-invalid={invalid} className={cx("mt-1.5", lockedCls)} rows={4} {...textProps} />; break;
+    case "NUMBER": control = <Input type="number" name={f.key} required={required} disabled={disabled} aria-invalid={invalid} className={cx("mt-1.5", lockedCls)} {...textProps} />; break;
+    case "DATE": control = <Input type="date" name={f.key} required={required} disabled={disabled} aria-invalid={invalid} className={cx("mt-1.5", lockedCls)} {...textProps} />; break;
+    case "EMAIL": control = <Input type="email" name={f.key} required={required} disabled={disabled} aria-invalid={invalid} className={cx("mt-1.5", lockedCls)} {...textProps} />; break;
+    case "PHONE": control = <Input type="tel" name={f.key} required={required} disabled={disabled} aria-invalid={invalid} className={cx("mt-1.5", lockedCls)} {...textProps} />; break;
     case "FILE": {
       const accept = Array.isArray(f.validation?.acceptedTypes) ? (f.validation!.acceptedTypes as string[]).join(",") : undefined;
       control = <Input type="file" name={f.key} required={required} disabled={disabled} aria-invalid={invalid} accept={accept} className="mt-1.5 cursor-pointer" />;
@@ -97,7 +101,7 @@ export function FieldPreview({
       );
       break;
     }
-    default: control = <Input type="text" name={f.key} required={required} disabled={disabled} aria-invalid={invalid} className="mt-1.5" />;
+    default: control = <Input type="text" name={f.key} required={required} disabled={disabled} aria-invalid={invalid} className={cx("mt-1.5", lockedCls)} {...textProps} />;
   }
   return <label className="block">{labelEl}{help}{control}{err}</label>;
 }

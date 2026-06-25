@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/platform/db";
 import { getApplicantIdentity } from "@/modules/recruitment/services/portal-auth";
+import { listApplicantApplications } from "@/modules/recruitment/services/portal-status";
 import { applicantSignOutAction } from "./portal-actions";
 import { SignInForm } from "./sign-in-form";
 import { buttonClasses } from "@/platform/ui/button";
@@ -27,6 +28,8 @@ export default async function PortalHome({ searchParams }: { searchParams: Promi
     );
   }
 
+  const myApps = await listApplicantApplications(identity);
+
   const now = new Date();
   const openCycles = await prisma.recruitmentCycle.findMany({
     where: { status: "OPEN", AND: [{ OR: [{ opensAt: null }, { opensAt: { lte: now } }] }, { OR: [{ closesAt: null }, { closesAt: { gte: now } }] }] },
@@ -41,6 +44,22 @@ export default async function PortalHome({ searchParams }: { searchParams: Promi
         <form action={applicantSignOutAction}><button className="text-sm text-muted-foreground hover:text-foreground">Sign out</button></form>
       </div>
       <p className="text-sm text-muted-foreground">Signed in as {identity.email}.</p>
+
+      {myApps.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Your applications</h2>
+          <ul className="space-y-2">
+            {myApps.map((a) => (
+              <li key={a.slug}>
+                <Link href={`/apply/${a.slug}`} className="flex items-center justify-between rounded-xl border border-border bg-surface px-4 py-3 text-sm hover:bg-muted">
+                  <span className="font-medium text-foreground">{a.cycleTitle}</span>
+                  <span className={a.status === "DRAFT" ? "text-brand-fg" : "text-muted-foreground"}>{a.status === "DRAFT" ? "Continue" : "Submitted"}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Open applications</h2>

@@ -18,8 +18,9 @@ import {
   EmailNotFoundError,
   EmailStateError,
 } from "@/modules/admin/services/email";
-import { buildAuthorizeUrl, mailConnectionStatus } from "@/platform/email/oauth";
+import { buildAuthorizeUrl, mailConnectionStatus, teamsScopesGranted } from "@/platform/email/oauth";
 import type { EmailStatus } from "@prisma/client";
+import { prisma } from "@/platform/db";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
@@ -121,7 +122,7 @@ export default async function EmailPage({ searchParams }: PageProps) {
   const retriedSuccess = sp.retried === "1";
   const connectedSuccess = sp.connected === "1";
 
-  const [{ rows, total, counts }, mailConn] = await Promise.all([
+  const [{ rows, total, counts }, mailConn, mailCred] = await Promise.all([
     listEmails({
       status: validatedStatus,
       template: validatedTemplate,
@@ -129,7 +130,10 @@ export default async function EmailPage({ searchParams }: PageProps) {
       page,
     }),
     mailConnectionStatus(),
+    prisma.mailCredential.findUnique({ where: { id: "mailer" } }),
   ]);
+
+  const needsTeamsReconnect = mailCred != null && !teamsScopesGranted(mailCred.scope);
 
   const pageCount = Math.max(1, Math.ceil(total / EMAIL_PAGE_SIZE));
 
@@ -247,6 +251,11 @@ export default async function EmailPage({ searchParams }: PageProps) {
           </Button>
         </form>
       </div>
+      {needsTeamsReconnect && (
+        <Alert tone="warning">
+          Teams direct messages need an additional permission. Reconnect the mailbox to grant it.
+        </Alert>
+      )}
 
       {/* Health stat cards */}
       <div className="grid gap-4 sm:grid-cols-3">

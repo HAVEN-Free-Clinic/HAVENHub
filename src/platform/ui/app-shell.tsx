@@ -11,6 +11,7 @@ import { BreadcrumbProvider } from "./breadcrumb-context";
 import type { BreadcrumbModule } from "./breadcrumb-trail";
 import { ThemeToggle } from "./theme-toggle";
 import { resolvePreference } from "./theme";
+import { NotificationBell } from "./notification-bell";
 
 /** First letters of the first and last name parts, e.g. "Maya Chen" -> "MC". */
 function toInitials(name: string | null): string {
@@ -72,6 +73,7 @@ export async function AppShell({
 
           <div className="flex items-center gap-3">
             <ThemeToggle initial={resolvedTheme} />
+            <NotificationBell />
             <div className="hidden items-center gap-2.5 sm:flex">
               <span
                 aria-hidden

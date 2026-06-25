@@ -36,7 +36,7 @@ export async function createReferralSite(input: {
   name: string;
   category: ProviderCategory;
   specialty: string;
-  system: "YNHH" | "COMMUNITY_HC" | "COMMUNITY_NONPROFIT" | "STATE_RESOURCE_HUB" | "NONPROFIT_LEGAL_AID";
+  system?: "YNHH" | "COMMUNITY_HC" | "COMMUNITY_NONPROFIT" | "STATE_RESOURCE_HUB" | "NONPROFIT_LEGAL_AID";
   acceptsUninsured?: boolean;
   freeCareEligible?: boolean;
   slidingScale?: boolean;

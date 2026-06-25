@@ -830,7 +830,7 @@ describe("training clearance on compliance rows", () => {
 
     const srr = await createPerson("SRR");
     const cycle = await prisma.recruitmentCycle.create({ data: { track: "VOLUNTEER", termId: term.id, title: "T", publicSlug: "t", departments: ["SRHD"], createdById: srr.id, isTermTraining: true } });
-    await prisma.volunteerTraining.create({ data: { personId: vol.id, termId: term.id, cycleId: cycle.id, status: "COMPLETE", completedVia: "QUIZ", completedAt: new Date() } });
+    await prisma.training.create({ data: { personId: vol.id, termId: term.id, cycleId: cycle.id, status: "COMPLETE", completedVia: "QUIZ", completedAt: new Date() } });
 
     const cards = await departmentCompliance(viewer.id);
     const row = cards.flatMap((c) => c.members).find((m) => m.person.id === vol.id)!;
@@ -857,7 +857,7 @@ describe("training clearance on compliance rows", () => {
     await createCert(vol.id, daysFromNow(-1));
     const srr = await createPerson("SRR");
     const cycle = await prisma.recruitmentCycle.create({ data: { track: "VOLUNTEER", termId: term.id, title: "T", publicSlug: "t", departments: ["SRHD"], createdById: srr.id, isTermTraining: true } });
-    await prisma.volunteerTraining.create({ data: { personId: vol.id, termId: term.id, cycleId: cycle.id, status: "COMPLETE", completedVia: "ATTENDANCE", completedAt: new Date() } });
+    await prisma.training.create({ data: { personId: vol.id, termId: term.id, cycleId: cycle.id, status: "COMPLETE", completedVia: "ATTENDANCE", completedAt: new Date() } });
 
     const res = await masterCompliance({});
     const row = res.rows.find((r) => r.person.id === vol.id)!;

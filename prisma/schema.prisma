@@ -103,6 +103,8 @@ model Person {
   emailTemplatesUpdated     EmailTemplate[]      @relation("emailTemplateUpdatedBy")
   campaignsCreated          EmailCampaign[]      @relation("campaignCreatedBy")
   complianceReminder        ComplianceReminder?
+  teamsMessages             TeamsMessage[]       @relation("teamsMessagePerson")
+  notifications             Notification[]       @relation("personNotifications")
   shiftAssignments          ShiftAssignment[]
   recruitmentCyclesCreated  RecruitmentCycle[]   @relation("RecruitmentCycleCreatedBy")
   recruitmentAcceptances    Acceptance[]         @relation("recruitmentAcceptanceApprover")
@@ -112,8 +114,8 @@ model Person {
   interviewsDecided         Interview[]          @relation("interviewDecidedBy")
   interviewPanels           InterviewPanelist[]  @relation("interviewPanelistPerson")
   interviewEvaluations      Evaluation[]         @relation("interviewEvaluator")
-  volunteerTrainings        VolunteerTraining[]  @relation("volunteerTrainingPerson")
-  trainingAttendanceMarked  VolunteerTraining[]  @relation("volunteerTrainingAttendanceRecorder")
+  trainings                Training[]  @relation("trainingPerson")
+  trainingAttendanceMarked Training[]  @relation("trainingAttendanceRecorder")
   courseProgress            CourseProgress[]
   scoProgress               ScoProgress[]
   /// Shift requests this person raised.
@@ -170,7 +172,7 @@ model Term {
   scheduleDays       ScheduleDay[]
   rhdClinics         RhdClinic[]
   recruitmentCycles  RecruitmentCycle[]
-  volunteerTrainings VolunteerTraining[]
+  trainings Training[]
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
 }
@@ -428,6 +430,18 @@ enum EmailStatus {
   FAILED
 }
 
+enum TeamsMessageStatus {
+  QUEUED
+  SENT
+  FAILED
+  /// Teams delivery was abandoned and the message was re-queued as email instead.
+  FALLBACK
+  /// The log transport ran (email.transport is not "graph"): the message was
+  /// recorded but NOT actually sent. Distinct from SENT so the monitor never
+  /// implies real delivery in log mode. Retryable once graph is enabled.
+  LOGGED
+}
+
 enum RecruitmentTrack {
   VOLUNTEER
   DIRECTOR
@@ -502,6 +516,11 @@ enum TrainingStatus {
 enum TrainingMethod {
   ATTENDANCE
   QUIZ
+}
+
+enum TrainingTrack {
+  VOLUNTEER
+  DIRECTOR
 }
 
 /// One row per mirrored change. Written in the same transaction as the domain
@@ -736,6 +755,57 @@ model MailCredential {
   updatedAt    DateTime @updatedAt
 }
 
+/// Outbound Teams 1:1 chat message queue (mirrors EmailLog). Drained by the
+/// email cron alongside the email queue. Carries the email fallback payload so a
+/// permanently-failed Teams send degrades to email without re-involving the caller.
+model TeamsMessage {
+  id              String             @id @default(cuid())
+  /// Recipient person. Teams messages are always person-addressed.
+  personId        String
+  /// Notification type key from the notification registry (e.g. "compliance-reminder").
+  type            String
+  title           String
+  summary         String
+  link            String?
+  /// Rendered HTML body posted to the Teams chat.
+  bodyHtml        String
+  /// Cached 1:1 chat id once resolved, so a retry does not re-create the chat.
+  chatId          String?
+  /// Email fallback payload, queued if Teams delivery fails permanently.
+  fallbackSubject String
+  fallbackHtml    String
+  status          TeamsMessageStatus @default(QUEUED)
+  attempts        Int                @default(0)
+  lastError       String?
+  sentAt          DateTime?
+  createdAt       DateTime           @default(now())
+  /// Cascade: Teams messages do not outlive the person they address.
+  person          Person             @relation("teamsMessagePerson", fields: [personId], references: [id], onDelete: Cascade)
+
+  @@index([personId])
+  @@index([status, createdAt])
+}
+
+/// Per-person in-app notification (the bell inbox). Written unconditionally by
+/// notify() for every notification addressed to a person, independent of the
+/// Email/Teams channel routing. readAt null means unread.
+model Notification {
+  id        String    @id @default(cuid())
+  personId  String
+  /// Notification registry key (e.g. "epic-activation").
+  type      String
+  title     String
+  body      String
+  link      String?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+  /// Cascade: notifications do not outlive the person they address.
+  person    Person    @relation("personNotifications", fields: [personId], references: [id], onDelete: Cascade)
+
+  @@index([personId, createdAt])
+  @@index([personId, readAt])
+}
+
 /// One row per person per clinic shift. Med-team tags apply to VOLUNTEER rows;
 /// the legacy invariant holds: a triage/walk-in/CC/remote designee is also on
 /// shift (their row IS the on-shift row, tags are attributes of it).
@@ -873,7 +943,7 @@ model RecruitmentCycle {
   fields       FormField[]
   applicants   Applicant[]
   applications Application[]
-  trainings    VolunteerTraining[]
+  trainings    Training[]
 
   @@index([status, track])
 }
@@ -1016,11 +1086,12 @@ model OnboardingContract {
   @@index([status])
 }
 
-model VolunteerTraining {
+model Training {
   id                          String          @id @default(cuid())
   personId                    String
   termId                      String
   cycleId                     String
+  track                       TrainingTrack   @default(VOLUNTEER)
   status                      TrainingStatus  @default(PENDING)
   completedVia                TrainingMethod?
   completedAt                 DateTime?
@@ -1035,13 +1106,13 @@ model VolunteerTraining {
   createdAt                   DateTime        @default(now())
   updatedAt                   DateTime        @updatedAt
 
-  person               Person           @relation("volunteerTrainingPerson", fields: [personId], references: [id], onDelete: Cascade)
+  person               Person           @relation("trainingPerson", fields: [personId], references: [id], onDelete: Cascade)
   term                 Term             @relation(fields: [termId], references: [id], onDelete: Cascade)
   cycle                RecruitmentCycle @relation(fields: [cycleId], references: [id], onDelete: Restrict)
-  attendanceRecordedBy Person?          @relation("volunteerTrainingAttendanceRecorder", fields: [attendanceRecordedById], references: [id], onDelete: SetNull)
+  attendanceRecordedBy Person?          @relation("trainingAttendanceRecorder", fields: [attendanceRecordedById], references: [id], onDelete: SetNull)
   attempts             QuizAttempt[]
 
-  @@unique([personId, termId])
+  @@unique([personId, termId, track])
   @@index([termId])
 }
 
@@ -1054,7 +1125,7 @@ model QuizAttempt {
   passed     Boolean
   takenAt    DateTime @default(now())
 
-  training VolunteerTraining @relation(fields: [trainingId], references: [id], onDelete: Cascade)
+  training Training @relation(fields: [trainingId], references: [id], onDelete: Cascade)
 
   @@index([trainingId, takenAt])
 }

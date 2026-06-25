@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, type ProviderCategory } from "@prisma/client";
 import { SEED_SITES } from "./seed-data";
 
 const prisma = new PrismaClient();
@@ -9,7 +9,7 @@ async function main() {
     await prisma.referralSite.create({
       data: {
         name: site.name,
-        category: site.category as any,
+        category: site.category as ProviderCategory,
         specialty: site.specialty,
         address: site.address,
         verificationStatus: "UNVERIFIED",

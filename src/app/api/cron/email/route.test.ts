@@ -5,6 +5,9 @@ import { createDraft, updateCampaign, scheduleCampaign } from "@/platform/email/
 import { queueEmail } from "@/platform/email/send";
 import { GET } from "./route";
 
+// Set CRON_SECRET early so the module-level check in the Teams describe block works.
+process.env.CRON_SECRET = process.env.CRON_SECRET ?? "test-cron-secret";
+
 const CRON_SECRET = "test-cron-secret";
 const ALL_ACTIVE = {
   recordType: "PERSON" as const,
@@ -83,5 +86,39 @@ describe("GET /api/cron/email", () => {
 
     const sent = await prisma.emailLog.findFirstOrThrow({ where: { toEmail: "sam@example.com" } });
     expect(sent.status).toBe("SENT");
+  });
+});
+
+describe("GET /api/cron/email drains Teams", () => {
+  beforeEach(async () => await resetDb());
+
+  it("includes a teams count and marks queued Teams messages LOGGED (log transport)", async () => {
+    const p = await prisma.person.create({
+      data: { name: "Sam", contactEmail: "sam@x.com", entraObjectId: "e1" },
+    });
+    await prisma.teamsMessage.create({
+      data: {
+        personId: p.id,
+        type: "epic-onboarding",
+        title: "T",
+        summary: "S",
+        bodyHtml: "<p>x</p>",
+        fallbackSubject: "T",
+        fallbackHtml: "<p>x</p>",
+      },
+    });
+
+    const req = new Request("https://app/api/cron/email", {
+      headers: { Authorization: `Bearer ${CRON_SECRET}` },
+    });
+    const res = await GET(req);
+    const json = await res.json();
+
+    expect(json.ok).toBe(true);
+    expect(json.teams).toBeGreaterThanOrEqual(1);
+    const row = await prisma.teamsMessage.findFirst({ where: { personId: p.id } });
+    // email.transport defaults to "log", so the log transport records the row as
+    // LOGGED (recorded but not actually sent), never SENT.
+    expect(row?.status).toBe("LOGGED");
   });
 });

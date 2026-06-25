@@ -95,7 +95,7 @@ export async function generatePdf(args: {
   const auth = AUTHORIZERS[authorizerKey];
   const today = new Date().toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
   const isBulk = requestType.startsWith("bulk");
-  const isNew = requestType.includes("new");
+  const isNew = requestType === "new_individual" || requestType === "bulk_new";
 
   const pdfDoc = await PDFDocument.load(templateBytes);
   const form = pdfDoc.getForm();
@@ -160,8 +160,9 @@ export async function generatePdf(args: {
   }
 
   if (mirrorPerson) {
+    checkBox(form, "Check Box58");
     fillText(form, "Text78", mirrorPerson.name);
-    fillText(form, "Text79", "  " + mirrorPerson.epicId);
+    fillText(form, "Text79", mirrorPerson.epicId);
   }
 
   // Section VI — System access

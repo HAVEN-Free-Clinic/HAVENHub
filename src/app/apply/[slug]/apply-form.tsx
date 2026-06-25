@@ -4,8 +4,8 @@ import { submitPublicApplication, type SubmitResult } from "./actions";
 import { isSectionVisible } from "@/modules/recruitment/engine/visibility";
 import { Alert } from "@/platform/ui/alert";
 import { Button } from "@/platform/ui/button";
-import { Input, Textarea } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
+import { FieldPreview } from "@/modules/recruitment/components/field-preview";
 
 type FieldDef = { key: string; label: string; helpText: string | null; type: string; required: boolean; options: { value: string; label: string }[] | null; validation: Record<string, unknown> | null };
 type SectionDef = { id: string; title: string; description: string | null; appliesTo: "NEW" | "RENEWAL" | "BOTH"; departmentCode: string | null; fields: FieldDef[] };
@@ -65,7 +65,8 @@ export function ApplyForm({ def }: { def: Def }) {
           <legend className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">{section.title}</legend>
           {section.description && <p className="text-sm text-muted-foreground">{section.description}</p>}
           {section.fields.map((f) => (
-            <Field key={f.key} f={f} departments={def.departments} fieldError={result && !result.ok ? result.fieldErrors?.[f.key] : undefined}
+            <FieldPreview key={f.key} f={f} departments={def.departments}
+              fieldError={result && !result.ok ? result.fieldErrors?.[f.key] : undefined}
               onDeptChoice={f.type === "DEPARTMENT_CHOICE" ? setDeptChoice : undefined} />
           ))}
         </fieldset>
@@ -74,34 +75,4 @@ export function ApplyForm({ def }: { def: Def }) {
       <Button type="submit" disabled={submitting}>{submitting ? "Submitting…" : "Submit application"}</Button>
     </form>
   );
-}
-
-function Field({ f, departments, fieldError, onDeptChoice }: { f: FieldDef; departments: string[]; fieldError?: string; onDeptChoice?: (v: string) => void }) {
-  const label = <span className="block text-sm font-medium">{f.label}{f.required && <span className="text-critical"> *</span>}</span>;
-  const help = f.helpText ? <span className="block text-xs text-muted-foreground">{f.helpText}</span> : null;
-  const err = fieldError ? <span className="block text-xs text-critical">{fieldError}</span> : null;
-  let control: React.ReactNode;
-  switch (f.type) {
-    case "LONG_TEXT": control = <Textarea name={f.key} required={f.required} className="mt-1" rows={4} />; break;
-    case "CHECKBOX": control = <input type="checkbox" name={f.key} />; break;
-    case "NUMBER": control = <Input type="number" name={f.key} required={f.required} className="mt-1" />; break;
-    case "DATE": control = <Input type="date" name={f.key} required={f.required} className="mt-1" />; break;
-    case "EMAIL": control = <Input type="email" name={f.key} required={f.required} className="mt-1" />; break;
-    case "FILE": {
-      const accept = Array.isArray(f.validation?.acceptedTypes) ? (f.validation!.acceptedTypes as string[]).join(",") : undefined;
-      control = <Input type="file" name={f.key} required={f.required} accept={accept} className="mt-1 cursor-pointer" />;
-      break;
-    }
-    case "DEPARTMENT_CHOICE":
-      control = <Select name={f.key} required={f.required} className="mt-1" onChange={(e) => onDeptChoice?.(e.target.value)} defaultValue=""><option value="" disabled>Select…</option>{departments.map((d) => <option key={d} value={d}>{d}</option>)}</Select>;
-      break;
-    case "SINGLE_SELECT":
-      control = <Select name={f.key} required={f.required} className="mt-1" defaultValue=""><option value="" disabled>Select…</option>{(f.options ?? []).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</Select>;
-      break;
-    case "MULTI_SELECT":
-      control = <span className="mt-1 flex flex-col gap-1">{(f.options ?? []).map((o) => <label key={o.value} className="text-sm"><input type="checkbox" name={f.key} value={o.value} /> {o.label}</label>)}</span>;
-      break;
-    default: control = <Input type="text" name={f.key} required={f.required} className="mt-1" />;
-  }
-  return <label className="block">{label}{help}{control}{err}</label>;
 }

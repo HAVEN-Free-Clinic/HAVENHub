@@ -11,6 +11,7 @@ import {
   type SectionDef, type FieldDef,
 } from "../engine/schema-builder";
 import { visibleSections, type ApplicantType } from "../engine/visibility";
+import { getRenewalContext } from "./renewal";
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -30,6 +31,8 @@ export type SubmitInput = {
   renewalDepartment?: string;
   answers: Record<string, unknown>;
   files: Record<string, UploadedFile>;
+  sessionPersonId?: string | null;
+  sessionEmail?: string | null;
 };
 
 const DEPT_CHOICE_KEY_TYPE: FieldType = "DEPARTMENT_CHOICE";
@@ -66,6 +69,20 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
   const open = cycle.status === "OPEN" && (!cycle.opensAt || cycle.opensAt <= now) && (!cycle.closesAt || cycle.closesAt >= now);
   if (!open) throw new CycleNotOpenError();
   if (input.applicantType === "RENEWAL" && !cycle.acceptsRenewals) throw new CycleNotOpenError("This cycle does not accept renewals.");
+
+  // Renewals must be signed in and a current volunteer. The server re-verifies
+  // here regardless of the client UI, and links the submission to the person.
+  let applicantPersonId: string | null = null;
+  if (input.applicantType === "RENEWAL") {
+    if (!input.sessionPersonId || !input.sessionEmail) {
+      throw new SubmissionValidationError("Please sign in with Yale to apply as a returning volunteer.");
+    }
+    const renewalCtx = await getRenewalContext(input.sessionPersonId, input.sessionEmail);
+    if (!renewalCtx.eligible) {
+      throw new SubmissionValidationError("We do not see a current volunteer membership for your account.");
+    }
+    applicantPersonId = renewalCtx.personId;
+  }
 
   const sectionDefs = toSectionDefs(cycle.sections, cycle.departments, input.applicantType);
 
@@ -124,7 +141,9 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
     }
   }
 
-  const email = String(input.answers.email ?? "").trim();
+  // For renewals the email is the verified session address (also the dedup key);
+  // the client-submitted value is ignored so it cannot be spoofed.
+  const email = (input.applicantType === "RENEWAL" ? input.sessionEmail! : String(input.answers.email ?? "")).trim();
   const emailLower = email.toLowerCase();
   const firstName = String(input.answers.first_name ?? "").trim();
   const lastName = String(input.answers.last_name ?? "").trim();
@@ -139,7 +158,7 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
   try {
     application = await prisma.$transaction(async (tx) => {
       const applicant = await tx.applicant.create({
-        data: { cycleId: cycle.id, firstName, lastName, email, emailLower, netId: typeof input.answers.netid === "string" ? input.answers.netid : null, phone: typeof input.answers.phone === "string" ? input.answers.phone : null },
+        data: { cycleId: cycle.id, applicantPersonId, firstName, lastName, email, emailLower, netId: typeof input.answers.netid === "string" ? input.answers.netid : null, phone: typeof input.answers.phone === "string" ? input.answers.phone : null },
       });
       const app = await tx.application.create({
         data: {

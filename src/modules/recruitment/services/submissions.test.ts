@@ -57,11 +57,14 @@ it("does not require the SRHD supplement when MDIC is chosen", async () => {
 
 it("routes a RENEWAL submission and stores renewalDepartment", async () => {
   await openVolunteerCycle();
+  const person = await makeVolunteer("SRHD");
   const app = await submitApplication("apply-v", {
     applicantType: "RENEWAL",
     renewalDepartment: "SRHD",
     answers: { first_name: "Cy", last_name: "Oz", email: "cy@yale.edu", continue_reason: "yes" },
     files: {},
+    sessionPersonId: person.id,
+    sessionEmail: "cy@yale.edu",
   });
   expect(app.applicantType).toBe("RENEWAL");
   expect(app.renewalDepartment).toBe("SRHD");
@@ -146,6 +149,53 @@ it("getApplication excludes QUIZ sections from the loaded cycle form", async () 
   const loaded = await getApplication(app.id);
   const titles = loaded!.cycle.sections.map((s) => s.title);
   expect(titles).not.toContain("Quiz");
+});
+
+async function makeVolunteer(deptCode: string) {
+  const person = await prisma.person.create({ data: { name: "Reed Renew", contactEmail: "reed-old@yale.edu", status: "ACTIVE" } });
+  const term = await prisma.term.create({ data: { code: "SP26", name: "Spring 2026", startDate: new Date("2026-01-01"), endDate: new Date("2026-05-01") } });
+  const dept = await prisma.department.create({ data: { code: deptCode, name: deptCode } });
+  await prisma.termMembership.create({ data: { personId: person.id, termId: term.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" } });
+  return person;
+}
+
+const RENEWAL_ANSWERS = { first_name: "Reed", last_name: "Renew", email: "tampered@evil.com", continue_reason: "I want to keep volunteering." };
+
+it("rejects a renewal submit with no session", async () => {
+  await openVolunteerCycle();
+  await expect(
+    submitApplication("apply-v", { applicantType: "RENEWAL", renewalDepartment: "SRHD", answers: RENEWAL_ANSWERS, files: {} })
+  ).rejects.toBeInstanceOf(SubmissionValidationError);
+});
+
+it("links an eligible renewal to the person and stores the verified email (not the tampered one)", async () => {
+  await openVolunteerCycle();
+  const person = await makeVolunteer("SRHD");
+  const app = await submitApplication("apply-v", {
+    applicantType: "RENEWAL", renewalDepartment: "SRHD", answers: RENEWAL_ANSWERS, files: {},
+    sessionPersonId: person.id, sessionEmail: "reed@yale.edu",
+  });
+  const applicant = await prisma.applicant.findFirstOrThrow({ where: { id: app.applicantId } });
+  expect(applicant.applicantPersonId).toBe(person.id);
+  expect(applicant.email).toBe("reed@yale.edu");
+  expect(app.applicantType).toBe("RENEWAL");
+  expect(app.departmentChoices).toEqual(["SRHD"]);
+});
+
+it("rejects a second renewal by the same person", async () => {
+  await openVolunteerCycle();
+  const person = await makeVolunteer("SRHD");
+  const args = { applicantType: "RENEWAL" as const, renewalDepartment: "SRHD", answers: RENEWAL_ANSWERS, files: {}, sessionPersonId: person.id, sessionEmail: "reed@yale.edu" };
+  await submitApplication("apply-v", args);
+  await expect(submitApplication("apply-v", args)).rejects.toBeInstanceOf(DuplicateApplicationError);
+});
+
+it("rejects a renewal when the signed-in person has no active volunteer membership", async () => {
+  await openVolunteerCycle();
+  const person = await prisma.person.create({ data: { name: "Lapsed", status: "ACTIVE" } });
+  await expect(
+    submitApplication("apply-v", { applicantType: "RENEWAL", renewalDepartment: "SRHD", answers: RENEWAL_ANSWERS, files: {}, sessionPersonId: person.id, sessionEmail: "lapsed@yale.edu" })
+  ).rejects.toBeInstanceOf(SubmissionValidationError);
 });
 
 it("links an applicant to a person and blocks a second per cycle, but allows anonymous applicants", async () => {

@@ -1,5 +1,10 @@
 generator client {
   provider = "prisma-client-js"
+  // "native" covers local dev + CI (Debian). "rhel-openssl-3.0.x" is the Vercel
+  // Lambda runtime: required because preview deployments are built in GitHub
+  // Actions (Debian) and shipped with `vercel deploy --prebuilt`, so the query
+  // engine is bundled at build time rather than generated on Vercel's RHEL infra.
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {

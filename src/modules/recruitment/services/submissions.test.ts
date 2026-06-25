@@ -74,8 +74,9 @@ it("routes a RENEWAL submission and stores renewalDepartment", async () => {
 
 it("rejects a renewalDepartment outside the cycle departments", async () => {
   await openVolunteerCycle();
+  const person = await makeVolunteer("SRHD");
   await expect(
-    submitApplication("apply-v", { applicantType: "RENEWAL", renewalDepartment: "ZZZ", answers: { first_name: "D", last_name: "E", email: "d@yale.edu", continue_reason: "x" }, files: {} })
+    submitApplication("apply-v", { applicantType: "RENEWAL", renewalDepartment: "ZZZ", answers: { first_name: "D", last_name: "E", continue_reason: "x" }, files: {}, sessionPersonId: person.id, sessionEmail: "d@yale.edu" })
   ).rejects.toBeInstanceOf(SubmissionValidationError);
 });
 
@@ -180,6 +181,23 @@ it("links an eligible renewal to the person and stores the verified email (not t
   expect(applicant.email).toBe("reed@yale.edu");
   expect(app.applicantType).toBe("RENEWAL");
   expect(app.departmentChoices).toEqual(["SRHD"]);
+});
+
+it("accepts a renewal with a missing email in answers and stores the verified session email", async () => {
+  await openVolunteerCycle();
+  const person = await makeVolunteer("SRHD");
+  // Omit 'email' from answers entirely - it would normally fail schema validation.
+  // The server must inject the verified session email before validation runs.
+  const app = await submitApplication("apply-v", {
+    applicantType: "RENEWAL",
+    renewalDepartment: "SRHD",
+    answers: { first_name: "Reed", last_name: "Renew", continue_reason: "I want to keep volunteering." },
+    files: {},
+    sessionPersonId: person.id,
+    sessionEmail: "reed@yale.edu",
+  });
+  const applicant = await prisma.applicant.findFirstOrThrow({ where: { id: app.applicantId } });
+  expect(applicant.email).toBe("reed@yale.edu");
 });
 
 it("rejects a second renewal by the same person", async () => {

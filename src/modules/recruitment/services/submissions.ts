@@ -82,6 +82,9 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
       throw new SubmissionValidationError("We do not see a current volunteer membership for your account.");
     }
     applicantPersonId = renewalCtx.personId;
+    // Use the verified session email as the answer too, so schema validation
+    // (and any EMAIL field) sees the authoritative value, not the client's.
+    input.answers = { ...input.answers, email: input.sessionEmail };
   }
 
   const sectionDefs = toSectionDefs(cycle.sections, cycle.departments, input.applicantType);

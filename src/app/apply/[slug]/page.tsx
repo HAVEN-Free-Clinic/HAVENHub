@@ -34,6 +34,10 @@ export default async function ApplyPage({ params }: { params: Promise<{ slug: st
   return (
     <main className="mx-auto max-w-2xl px-6 py-10">
       <h1 className="text-2xl font-bold tracking-tight">{def.title}</h1>
+      <p className="mt-2 text-sm text-muted-foreground">
+        Complete the fields below to submit your application. Required fields are marked with{" "}
+        <span className="font-medium text-critical">*</span>.
+      </p>
       <ApplyForm def={def} />
     </main>
   );

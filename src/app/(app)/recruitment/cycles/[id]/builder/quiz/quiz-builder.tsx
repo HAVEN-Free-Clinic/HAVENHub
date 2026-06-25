@@ -65,6 +65,7 @@ export function QuizBuilder({
                   options={q.options}
                   onChange={(next) => saveQuestion(q.id, { options: next })}
                   markCorrect={{ value: q.correctValue, onPick: (value) => saveQuestion(q.id, { correctValue: value }) }}
+                  disabled={!editable}
                 />
                 <div className="mt-2 flex justify-end">
                   <form action={async () => { const r = await deleteFieldAction(cycleId, q.id); if (r.ok) refresh(); }}>

@@ -18,7 +18,7 @@ const APPLICANT_OPTIONS = [
 
 type FieldDef = { key: string; label: string; helpText: string | null; type: string; required: boolean; options: { value: string; label: string }[] | null; validation: Record<string, unknown> | null };
 type SectionDef = { id: string; title: string; description: string | null; appliesTo: "NEW" | "RENEWAL" | "BOTH"; departmentCode: string | null; fields: FieldDef[] };
-type Def = { slug: string; title: string; acceptsRenewals: boolean; departments: string[]; sections: SectionDef[] };
+type Def = { slug: string; title: string; acceptsRenewals: boolean; departments: string[]; subcommittees: { id: string; name: string }[]; sections: SectionDef[] };
 
 export function ApplyForm({ def }: { def: Def }) {
   const [applicantType, setApplicantType] = useState<"NEW" | "RENEWAL">("NEW");
@@ -108,7 +108,7 @@ export function ApplyForm({ def }: { def: Def }) {
           <legend className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">{section.title}</legend>
           {section.description && <p className="text-sm text-muted-foreground">{section.description}</p>}
           {section.fields.map((f) => (
-            <FieldPreview key={f.key} f={f} departments={def.departments}
+            <FieldPreview key={f.key} f={f} departments={def.departments} subcommittees={def.subcommittees}
               fieldError={result && !result.ok ? result.fieldErrors?.[f.key] : undefined}
               onDeptChoice={f.type === "DEPARTMENT_CHOICE" ? setDeptChoice : undefined} />
           ))}

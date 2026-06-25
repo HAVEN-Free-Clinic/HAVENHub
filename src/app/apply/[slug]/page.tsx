@@ -20,11 +20,18 @@ export default async function ApplyPage({ params }: { params: Promise<{ slug: st
     );
   }
 
+  const subcommittees = await prisma.subcommittee.findMany({
+    where: { isActive: true },
+    select: { id: true, name: true },
+    orderBy: [{ order: "asc" }, { name: "asc" }],
+  });
+
   const def = {
     slug: cycle.publicSlug,
     title: cycle.title,
     acceptsRenewals: cycle.acceptsRenewals,
     departments: cycle.departments,
+    subcommittees,
     sections: cycle.sections.map((s) => ({
       id: s.id, title: s.title, description: s.description, appliesTo: s.appliesTo, departmentCode: s.departmentCode,
       fields: s.fields.map((f) => ({ key: f.key, label: f.label, helpText: f.helpText, type: f.type, required: f.required, options: (f.options as { value: string; label: string }[] | null) ?? null, validation: (f.validation as Record<string, unknown> | null) ?? null })),

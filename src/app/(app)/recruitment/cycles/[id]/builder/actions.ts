@@ -51,7 +51,7 @@ export async function deleteSectionAction(cycleId: string, sectionId: string): P
 }
 
 export async function reorderSectionsAction(cycleId: string, orderedSectionIds: string[]): Promise<ActionResult> {
-  return run(cycleId, () => reorderSections(cycleId, orderedSectionIds));
+  return run(cycleId, () => reorderSections(cycleId, orderedSectionIds), [builderPath(cycleId), quizPath(cycleId)]);
 }
 
 export async function addFieldAction(

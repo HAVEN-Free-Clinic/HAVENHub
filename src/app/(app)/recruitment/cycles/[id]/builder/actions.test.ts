@@ -88,3 +88,23 @@ it("rejects a structural type change on a published cycle as an inline error", a
   const safe = await updateFieldAction(cycle.id, field.id, { label: "Renamed" });
   expect(safe.ok).toBe(true);
 });
+
+it("reorders sections and persists order", async () => {
+  const cycle = await draftCycle();
+  await addSectionAction(cycle.id, { title: "Alpha", appliesTo: "BOTH", departmentCode: null });
+  await addSectionAction(cycle.id, { title: "Beta", appliesTo: "BOTH", departmentCode: null });
+  const sections = await prisma.formSection.findMany({
+    where: { cycleId: cycle.id, title: { in: ["Alpha", "Beta"] } },
+    orderBy: { order: "asc" },
+  });
+  const first = sections[0];
+  const second = sections[1];
+  const reversed = [second.id, first.id];
+  const r = await reorderSectionsAction(cycle.id, reversed);
+  expect(r.ok).toBe(true);
+  const after = await prisma.formSection.findMany({
+    where: { cycleId: cycle.id, title: { in: ["Alpha", "Beta"] } },
+    orderBy: { order: "asc" },
+  });
+  expect(after.map((s) => s.id)).toEqual(reversed);
+});

@@ -41,6 +41,19 @@ it("ignores DIRECTOR and REMOVED memberships", async () => {
   expect((await getRenewalContext(removed.id, "r@yale.edu")).eligible).toBe(false);
 });
 
+it("returns currentDepartments from the most-recent term only when memberships span two terms", async () => {
+  const person = await prisma.person.create({ data: { name: "Multi Term", status: "ACTIVE" } });
+  const termOld = await prisma.term.create({ data: { code: "FA24", name: "FA24", startDate: new Date("2024-08-01"), endDate: new Date("2024-08-01") } });
+  const termNew = await prisma.term.create({ data: { code: "FA25", name: "FA25", startDate: new Date("2025-08-01"), endDate: new Date("2025-08-01") } });
+  const deptSrhd = await prisma.department.create({ data: { code: "SRHD", name: "SRHD" } });
+  const deptExec = await prisma.department.create({ data: { code: "EXEC", name: "EXEC" } });
+  await prisma.termMembership.create({ data: { personId: person.id, termId: termOld.id, departmentId: deptSrhd.id, kind: "VOLUNTEER", status: "ACTIVE" } });
+  await prisma.termMembership.create({ data: { personId: person.id, termId: termNew.id, departmentId: deptExec.id, kind: "VOLUNTEER", status: "ACTIVE" } });
+  const ctx = await getRenewalContext(person.id, "mt@yale.edu");
+  expect(ctx.eligible).toBe(true);
+  expect(ctx.currentDepartments).toEqual(["EXEC"]);
+});
+
 it("resolveRenewalPrefill splits name, locks email by type, maps phone/netid, skips off-convention keys", async () => {
   const ctx = { personId: "p1", name: "Mary Jane Watson", email: "mjw@yale.edu", netId: "mjw1", phone: "555", currentDepartments: ["SRHD"], eligible: true };
   const { values, lockedKeys } = resolveRenewalPrefill(

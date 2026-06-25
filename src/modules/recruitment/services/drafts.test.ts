@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
-import { getDraft, saveDraft, DraftError, uploadDraftFile } from "./drafts";
+import { getDraft, saveDraft, DraftError, uploadDraftFile, sweepAbandonedDrafts } from "./drafts";
 
 beforeEach(async () => { await resetDb(); });
 afterEach(async () => { await resetDb(); });
@@ -73,4 +73,22 @@ it("rejects a draft upload to an unknown field key", async () => {
   await openCycle("file-cyc2");
   await saveDraft("file-cyc2", ID, { answers: {} });
   await expect(uploadDraftFile("file-cyc2", ID, "not_a_field", { fileName: "x.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") })).rejects.toBeInstanceOf(DraftError);
+});
+
+it("sweeps abandoned drafts older than the cutoff, leaving recent and submitted ones", async () => {
+  const cycle = await openCycle("sweep-cyc");
+  const old = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000);
+  const mk = async (email: string, status: "DRAFT" | "SUBMITTED", updatedAt: Date) => {
+    const ap = await prisma.applicant.create({ data: { cycleId: cycle.id, firstName: "", lastName: "", email, emailLower: email } });
+    await prisma.application.create({ data: { cycleId: cycle.id, applicantId: ap.id, answers: {}, applicantType: "NEW", departmentChoices: [], subcommitteeRanking: [], status, submittedAt: status === "SUBMITTED" ? new Date() : null } });
+    await prisma.application.updateMany({ where: { applicantId: ap.id }, data: { updatedAt } });
+  };
+  await mk("oldraft@yale.edu", "DRAFT", old);
+  await mk("newdraft@yale.edu", "DRAFT", new Date());
+  await mk("oldsub@yale.edu", "SUBMITTED", old);
+  const res = await sweepAbandonedDrafts(30);
+  expect(res.deleted).toBe(1);
+  expect(await prisma.applicant.findFirst({ where: { emailLower: "oldraft@yale.edu" } })).toBeNull();
+  expect(await prisma.applicant.findFirst({ where: { emailLower: "newdraft@yale.edu" } })).not.toBeNull();
+  expect(await prisma.applicant.findFirst({ where: { emailLower: "oldsub@yale.edu" } })).not.toBeNull();
 });

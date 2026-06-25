@@ -122,6 +122,31 @@ export async function saveDraft(
   });
 }
 
+/** Delete DRAFT applications (and their applicant + uploaded files) not touched
+ *  in `olderThanDays`. Submitted applications are never swept. */
+export async function sweepAbandonedDrafts(olderThanDays = 30): Promise<{ deleted: number }> {
+  const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
+  const stale = await prisma.application.findMany({
+    where: { status: "DRAFT", updatedAt: { lt: cutoff } },
+    select: { id: true, applicantId: true, cycleId: true, answers: true },
+  });
+  let deleted = 0;
+  for (const app of stale) {
+    const answers = (app.answers as Record<string, unknown>) ?? {};
+    const keys: string[] = [];
+    for (const v of Object.values(answers)) {
+      if (v && typeof v === "object" && "storedName" in (v as object)) {
+        keys.push(`recruitment/${app.cycleId}/${(v as { storedName: string }).storedName}`);
+      }
+    }
+    await cleanupFiles(keys);
+    // Deleting the Applicant cascades to its Application (Application FK is onDelete: Cascade).
+    await prisma.applicant.delete({ where: { id: app.applicantId } });
+    deleted += 1;
+  }
+  return { deleted };
+}
+
 export async function uploadDraftFile(
   slug: string,
   identity: ApplicantIdentity,

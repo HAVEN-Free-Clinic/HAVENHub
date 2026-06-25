@@ -24,11 +24,12 @@ const FILE_TYPE_CHOICES: { label: string; value: string }[] = [
 ];
 
 export function FieldCard({
-  cycleId, field, departments, editable, handle, onChanged,
+  cycleId, field, departments, subcommittees, editable, handle, onChanged,
 }: {
   cycleId: string;
   field: BuilderField;
   departments: string[];
+  subcommittees: { id: string; name: string }[];
   editable: boolean;
   handle: SortableHandleProps;
   onChanged: () => void;
@@ -64,7 +65,7 @@ export function FieldCard({
           <GripVertical className="h-4 w-4" aria-hidden />
         </button>
         <div className="flex-1">
-          <FieldPreview f={field} departments={departments} disabled />
+          <FieldPreview f={field} departments={departments} subcommittees={subcommittees} disabled />
         </div>
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
           <span title={meta.label} className="px-1 text-subtle-foreground"><Icon className="h-4 w-4" aria-hidden /></span>
@@ -133,6 +134,23 @@ export function FieldCard({
 
           {field.type === "DEPARTMENT_CHOICE" && (
             <p className="text-xs text-subtle-foreground">Choices come from this cycle&apos;s departments automatically.</p>
+          )}
+
+          {field.type === "SUBCOMMITTEE_RANK" && (
+            <Field label="Number to rank" hint="How many ordered choices the applicant makes. Choices come from active subcommittees.">
+              <Input
+                type="number"
+                min={1}
+                max={5}
+                defaultValue={String((field.validation?.rankCount as number | undefined) ?? 3)}
+                disabled={!editable}
+                onBlur={(e) => {
+                  const n = Math.max(1, Math.min(5, Number(e.target.value) || 3));
+                  const current = (field.validation?.rankCount as number | undefined) ?? 3;
+                  if (n !== current) save({ validation: { ...(field.validation ?? {}), rankCount: n } });
+                }}
+              />
+            </Field>
           )}
         </div>
       )}

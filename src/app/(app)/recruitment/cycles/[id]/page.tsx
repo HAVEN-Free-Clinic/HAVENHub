@@ -38,6 +38,9 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
         <Link href={`/recruitment/cycles/${id}/builder`} className={navLink}>Edit form</Link>
         <Link href={`/recruitment/cycles/${id}/applicants`} className={navLink}>View applicants</Link>
         <Link href={`/recruitment/cycles/${id}/decisions`} className={navLink}>Decisions</Link>
+        {cycle.track === "VOLUNTEER" && (
+          <Link href={`/recruitment/cycles/${id}/subcommittees`} className={navLink}>Subcommittees</Link>
+        )}
         {cycle.track === "DIRECTOR" && (
           <Link href={`/recruitment/cycles/${id}/interviews`} className={navLink}>Interviews</Link>
         )}

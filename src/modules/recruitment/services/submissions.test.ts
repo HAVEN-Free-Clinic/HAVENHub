@@ -152,6 +152,69 @@ it("getApplication excludes QUIZ sections from the loaded cycle form", async () 
   expect(titles).not.toContain("Quiz");
 });
 
+async function openCycleWithRanking() {
+  const person = await prisma.person.create({ data: { name: "Lead", status: "ACTIVE" } });
+  const term = await prisma.term.create({ data: { code: "FA26", name: "Fall 2026", startDate: new Date(), endDate: new Date() } });
+  const a = await prisma.subcommittee.create({ data: { name: "Outreach", order: 0 } });
+  const b = await prisma.subcommittee.create({ data: { name: "Events", order: 1 } });
+  const c = await prisma.subcommittee.create({ data: { name: "Fundraising", order: 2 } });
+  const d = await prisma.subcommittee.create({ data: { name: "Health Fairs", order: 3 } });
+  const cycle = await createCycle({ track: "VOLUNTEER", termId: term.id, title: "V", publicSlug: "apply-rank", departments: ["SRHD"], acceptsRenewals: false, createdById: person.id });
+  const section = await prisma.formSection.findFirstOrThrow({ where: { cycleId: cycle.id }, orderBy: { order: "asc" } });
+  await addField(section.id, { label: "1st choice department", type: "DEPARTMENT_CHOICE", required: true });
+  await addField(section.id, { label: "Subcommittee preferences", type: "SUBCOMMITTEE_RANK", required: true, validation: { rankCount: 3 } });
+  await publishCycle(cycle.id, person.id);
+  return { person, cycle, subs: { a, b, c, d } };
+}
+
+it("hoists ranked subcommittee IDs into subcommitteeRanking in order", async () => {
+  const { subs } = await openCycleWithRanking();
+  const app = await submitApplication("apply-rank", {
+    applicantType: "NEW",
+    answers: {
+      first_name: "Ann", last_name: "Lee", email: "ann@yale.edu",
+      "1st_choice_department": "SRHD",
+      subcommittee_preferences: [subs.b.id, subs.a.id],
+    },
+    files: {},
+  });
+  expect(app.subcommitteeRanking).toEqual([subs.b.id, subs.a.id]);
+  const stored = (app.answers ?? {}) as Record<string, unknown>;
+  expect(stored.subcommittee_preferences).toBeUndefined();
+});
+
+it("rejects a required ranking left empty", async () => {
+  await openCycleWithRanking();
+  await expect(submitApplication("apply-rank", {
+    applicantType: "NEW",
+    answers: { first_name: "Ann", last_name: "Lee", email: "ann@yale.edu", "1st_choice_department": "SRHD", subcommittee_preferences: [] },
+    files: {},
+  })).rejects.toBeInstanceOf(SubmissionValidationError);
+});
+
+it("rejects duplicate or unknown subcommittee IDs and over-count", async () => {
+  const { subs } = await openCycleWithRanking();
+  await expect(submitApplication("apply-rank", {
+    applicantType: "NEW",
+    answers: { first_name: "B", last_name: "B", email: "b@yale.edu", "1st_choice_department": "SRHD", subcommittee_preferences: [subs.a.id, subs.a.id] },
+    files: {},
+  })).rejects.toBeInstanceOf(SubmissionValidationError);
+
+  await expect(submitApplication("apply-rank", {
+    applicantType: "NEW",
+    answers: { first_name: "C", last_name: "C", email: "c@yale.edu", "1st_choice_department": "SRHD", subcommittee_preferences: ["nope"] },
+    files: {},
+  })).rejects.toBeInstanceOf(SubmissionValidationError);
+
+  // Over-count: four distinct active IDs trips the `> rankCount` branch (rankCount is 3),
+  // since the distinct check passes.
+  await expect(submitApplication("apply-rank", {
+    applicantType: "NEW",
+    answers: { first_name: "D", last_name: "D", email: "d@yale.edu", "1st_choice_department": "SRHD", subcommittee_preferences: [subs.a.id, subs.b.id, subs.c.id, subs.d.id] },
+    files: {},
+  })).rejects.toBeInstanceOf(SubmissionValidationError);
+});
+
 async function makeVolunteer(deptCode: string) {
   const person = await prisma.person.create({ data: { name: "Reed Renew", contactEmail: "reed-old@yale.edu", status: "ACTIVE" } });
   const term = await prisma.term.create({ data: { code: "SP26", name: "Spring 2026", startDate: new Date("2026-01-01"), endDate: new Date("2026-05-01") } });

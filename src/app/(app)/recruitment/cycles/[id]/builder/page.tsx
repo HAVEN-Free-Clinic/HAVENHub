@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowRight } from "lucide-react";
 import { getCycle } from "@/modules/recruitment/services/cycles";
+import { prisma } from "@/platform/db";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 import { PageHeader } from "@/platform/ui/page-header";
@@ -13,6 +14,12 @@ export default async function BuilderPage({ params }: { params: Promise<{ id: st
   const { id } = await params;
   const cycle = await getCycle(id);
   if (!cycle) notFound();
+
+  const subcommittees = await prisma.subcommittee.findMany({
+    where: { isActive: true },
+    select: { id: true, name: true },
+    orderBy: [{ order: "asc" }, { name: "asc" }],
+  });
 
   const sections: BuilderSection[] = cycle.sections
     .filter((s) => s.purpose === "APPLICATION")
@@ -62,6 +69,7 @@ export default async function BuilderPage({ params }: { params: Promise<{ id: st
         editable={cycle.status === "DRAFT"}
         status={cycle.status}
         departments={cycle.departments}
+        subcommittees={subcommittees}
         sections={sections}
       />
     </div>

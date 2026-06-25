@@ -11,13 +11,14 @@ import { Alert } from "@/platform/ui/alert";
 import { Button } from "@/platform/ui/button";
 
 export function FormBuilder({
-  cycleId, cycleTitle, editable, status, departments, sections,
+  cycleId, cycleTitle, editable, status, departments, subcommittees, sections,
 }: {
   cycleId: string;
   cycleTitle: string;
   editable: boolean;
   status: string;
   departments: string[];
+  subcommittees: { id: string; name: string }[];
   sections: BuilderSection[];
 }) {
   const router = useRouter();
@@ -67,6 +68,7 @@ export function FormBuilder({
               cycleId={cycleId}
               section={section}
               departments={departments}
+              subcommittees={subcommittees}
               editable={editable}
               handle={handle}
               onChanged={refresh}

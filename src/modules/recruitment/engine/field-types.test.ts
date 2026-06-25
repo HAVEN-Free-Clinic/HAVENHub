@@ -4,7 +4,7 @@ import { FIELD_TYPE_META, fieldTypesByGroup } from "./field-types";
 
 const ALL_TYPES: FieldType[] = [
   "SHORT_TEXT", "LONG_TEXT", "SINGLE_SELECT", "MULTI_SELECT", "CHECKBOX",
-  "EMAIL", "PHONE", "NUMBER", "DATE", "FILE", "DEPARTMENT_CHOICE",
+  "EMAIL", "PHONE", "NUMBER", "DATE", "FILE", "DEPARTMENT_CHOICE", "SUBCOMMITTEE_RANK",
 ];
 
 it("has metadata for every FieldType", () => {
@@ -32,4 +32,12 @@ it("groups every type exactly once", () => {
   const flat = fieldTypesByGroup().flatMap((g) => g.types);
   expect(new Set(flat).size).toBe(ALL_TYPES.length);
   for (const t of ALL_TYPES) expect(flat).toContain(t);
+});
+
+it("exposes SUBCOMMITTEE_RANK in a Subcommittee group", () => {
+  expect(FIELD_TYPE_META.SUBCOMMITTEE_RANK).toBeDefined();
+  expect(FIELD_TYPE_META.SUBCOMMITTEE_RANK.hasOptions).toBe(false);
+  const groups = fieldTypesByGroup();
+  const sub = groups.find((g) => g.group === "Subcommittee");
+  expect(sub?.types).toContain("SUBCOMMITTEE_RANK");
 });

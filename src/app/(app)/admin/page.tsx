@@ -51,6 +51,7 @@ export default async function AdminOverviewPage() {
     { label: "People", href: "/admin/people" },
     { label: "Terms", href: "/admin/terms" },
     { label: "Roles", href: "/admin/roles" },
+    { label: "Subcommittees", href: "/admin/subcommittees" },
     { label: "Audit", href: "/admin/audit" },
     { label: "Sync", href: "/admin/sync" },
   ];

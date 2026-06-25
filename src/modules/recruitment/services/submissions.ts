@@ -1,10 +1,9 @@
-import path from "node:path";
-import { randomUUID } from "node:crypto";
 import type { Application, FieldType } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { getSetting } from "@/platform/settings/service";
-import { putObject, deleteObject } from "@/platform/storage";
 import { queueEmail } from "@/platform/email/send";
+import { persistFiles, cleanupFiles, type UploadedFile } from "./upload";
+export type { UploadedFile } from "./upload";
 import { recordAudit } from "@/platform/audit";
 import {
   buildApplicationSchema, requiredFileKeys,
@@ -23,8 +22,6 @@ export class SubmissionValidationError extends Error {
   fieldErrors: Record<string, string>;
   constructor(message: string, fieldErrors: Record<string, string> = {}) { super(message); this.name = "SubmissionValidationError"; this.fieldErrors = fieldErrors; }
 }
-
-export type UploadedFile = { fileName: string; mimeType: string; bytes: Buffer };
 
 export type SubmitInput = {
   applicantType: ApplicantType;
@@ -235,28 +232,6 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
 
   await recordAudit({ action: "recruitment.application_submit", entityType: "Application", entityId: application.id });
   return application;
-}
-
-async function persistFiles(cycleId: string, files: Record<string, UploadedFile>) {
-  const answerPatch: Record<string, unknown> = {};
-  const storageKeys: string[] = [];
-  const entries = Object.entries(files);
-  for (const [key, file] of entries) {
-    // Sanitize both path components so a hostile field key or filename can never
-    // escape the recruitment prefix; storage layer enforces a final backstop.
-    const safeKey = key.replace(/[^a-z0-9_]/gi, "_");
-    const safeExt = (path.extname(file.fileName).match(/^\.[A-Za-z0-9]{1,8}$/)?.[0]) ?? "";
-    const storedName = `${safeKey}-${randomUUID()}${safeExt}`;
-    const storageKey = `recruitment/${cycleId}/${storedName}`;
-    await putObject(storageKey, file.bytes, file.mimeType);
-    storageKeys.push(storageKey);
-    answerPatch[key] = { storedName, fileName: file.fileName, mimeType: file.mimeType, size: file.bytes.length };
-  }
-  return { answerPatch, storageKeys };
-}
-
-async function cleanupFiles(storageKeys: string[]) {
-  await Promise.all(storageKeys.map((k) => deleteObject(k)));
 }
 
 export async function listApplications(cycleId: string) {

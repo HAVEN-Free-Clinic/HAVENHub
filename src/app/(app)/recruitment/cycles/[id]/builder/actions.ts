@@ -41,7 +41,7 @@ export async function addSectionAction(
 export async function updateSectionAction(
   cycleId: string,
   sectionId: string,
-  patch: { title?: string; description?: string | null; appliesTo?: ApplicantScope; departmentCode?: string | null },
+  patch: { title?: string; description?: string; appliesTo?: ApplicantScope; departmentCode?: string | null },
 ): Promise<ActionResult> {
   return run(cycleId, () => updateSection(sectionId, patch), [builderPath(cycleId), quizPath(cycleId)]);
 }
@@ -68,7 +68,7 @@ export async function updateFieldAction(
   cycleId: string,
   fieldId: string,
   patch: {
-    label?: string; helpText?: string | null; required?: boolean; type?: FieldType;
+    label?: string; helpText?: string; required?: boolean; type?: FieldType;
     options?: { value: string; label: string }[]; validation?: Record<string, unknown> | null; correctValue?: string | null;
   },
 ): Promise<ActionResult> {

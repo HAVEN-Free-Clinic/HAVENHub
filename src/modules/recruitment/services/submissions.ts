@@ -36,6 +36,7 @@ export type SubmitInput = {
 };
 
 const DEPT_CHOICE_KEY_TYPE: FieldType = "DEPARTMENT_CHOICE";
+const SUBCOMMITTEE_RANK_TYPE: FieldType = "SUBCOMMITTEE_RANK";
 
 function toSectionDefs(
   sections: { id: string; appliesTo: SectionDef["appliesTo"]; departmentCode: string | null; fields: { key: string; type: FieldType; required: boolean; options: unknown; validation: unknown }[] }[],
@@ -56,6 +57,37 @@ function toSectionDefs(
       validation: (f.validation as FieldDef["validation"]) ?? null,
     })),
   }));
+}
+
+/** Validate + normalize a ranking answer into ordered subcommittee IDs.
+ *  Filters blanks (unfilled dropdowns submit ""), enforces distinct, known-active,
+ *  and the field's rankCount cap; required means at least one. */
+function resolveRanking(
+  raw: unknown,
+  required: boolean,
+  rankCount: number,
+  activeIds: Set<string>,
+  fieldKey: string
+): string[] {
+  const list = (Array.isArray(raw) ? raw : raw == null || raw === "" ? [] : [raw])
+    .map((v) => String(v))
+    .filter((v) => v !== "");
+  if (list.length === 0) {
+    if (required) throw new SubmissionValidationError("Please rank at least one subcommittee.", { [fieldKey]: "required" });
+    return [];
+  }
+  if (new Set(list).size !== list.length) {
+    throw new SubmissionValidationError("Each subcommittee can be ranked only once.", { [fieldKey]: "duplicate choice" });
+  }
+  if (list.length > rankCount) {
+    throw new SubmissionValidationError(`Rank at most ${rankCount} subcommittees.`, { [fieldKey]: `max ${rankCount}` });
+  }
+  for (const id of list) {
+    if (!activeIds.has(id)) {
+      throw new SubmissionValidationError("That subcommittee is not available.", { [fieldKey]: "unknown choice" });
+    }
+  }
+  return list;
 }
 
 export async function submitApplication(slug: string, input: SubmitInput): Promise<Application> {
@@ -145,6 +177,17 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
     }
   }
 
+  // Subcommittee ranking: hoisted into its own column like departmentChoices, and
+  // intentionally kept out of stored answers (single source of truth = the column).
+  const rankField = cycle.sections.flatMap((s) => s.fields).find((f) => f.type === SUBCOMMITTEE_RANK_TYPE);
+  let subcommitteeRanking: string[] = [];
+  if (rankField) {
+    const activeSubs = await prisma.subcommittee.findMany({ where: { isActive: true }, select: { id: true } });
+    const activeIds = new Set(activeSubs.map((s) => s.id));
+    const rankCount = (rankField.validation as { rankCount?: number } | null)?.rankCount ?? 3;
+    subcommitteeRanking = resolveRanking(input.answers[rankField.key], rankField.required, rankCount, activeIds, rankField.key);
+  }
+
   // For renewals the email is the verified session address (also the dedup key);
   // the client-submitted value is ignored so it cannot be spoofed.
   const email = (input.applicantType === "RENEWAL" ? input.sessionEmail! : String(input.answers.email ?? "")).trim();
@@ -157,6 +200,7 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
 
   const fileRefs = await persistFiles(cycle.id, input.files);
   const answersWithFiles = { ...parsed.data, ...fileRefs.answerPatch };
+  if (rankField) delete (answersWithFiles as Record<string, unknown>)[rankField.key];
 
   let application: Application;
   try {
@@ -168,6 +212,7 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
         data: {
           cycleId: cycle.id, applicantId: applicant.id, answers: answersWithFiles as never,
           applicantType: input.applicantType, departmentChoices: selectedDepartmentCodes,
+          subcommitteeRanking,
           renewalDepartment: input.applicantType === "RENEWAL" ? input.renewalDepartment! : null,
         },
       });

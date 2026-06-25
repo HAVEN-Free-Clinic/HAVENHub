@@ -17,10 +17,11 @@ export type PreviewFieldDef = {
 };
 
 export function FieldPreview({
-  f, departments, fieldError, onDeptChoice, disabled = false, prefill, locked = false,
+  f, departments, subcommittees = [], fieldError, onDeptChoice, disabled = false, prefill, locked = false,
 }: {
   f: PreviewFieldDef;
   departments: string[];
+  subcommittees?: { id: string; name: string }[];
   fieldError?: string;
   onDeptChoice?: (v: string) => void;
   disabled?: boolean;
@@ -81,6 +82,25 @@ export function FieldPreview({
         </span>
       );
       break;
+    case "SUBCOMMITTEE_RANK": {
+      const rankCount = typeof f.validation?.rankCount === "number" ? f.validation.rankCount : 3;
+      const ordinals = ["1st choice", "2nd choice", "3rd choice", "4th choice", "5th choice"];
+      control = (
+        <span className="mt-1 flex flex-col gap-2">
+          {Array.from({ length: rankCount }).map((_, i) => (
+            <div key={i} className="flex items-center gap-2 text-sm">
+              <span className="w-20 shrink-0 text-xs text-muted-foreground">{ordinals[i] ?? `Choice ${i + 1}`}</span>
+              <Select name={f.key} required={f.required && i === 0} disabled={disabled} defaultValue="" className="flex-1">
+                <option value="">{i === 0 && f.required ? "Select…" : "None"}</option>
+                {subcommittees.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </Select>
+            </div>
+          ))}
+          <span className="text-xs text-muted-foreground">Choose a different subcommittee for each rank.</span>
+        </span>
+      );
+      break;
+    }
     default: control = <Input type="text" name={f.key} required={required} disabled={disabled} aria-invalid={invalid} className={cx("mt-1.5", lockedCls)} {...textProps} />;
   }
   return <label className="block">{labelEl}{help}{control}{err}</label>;

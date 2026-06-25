@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import {
-  createCycle, publishCycle, closeCycle, listCycles, CyclePublishError,
+  createCycle, publishCycle, closeCycle, listCycles, CyclePublishError, setCycleDepartments,
 } from "./cycles";
 
 async function seedTermAndPerson() {
@@ -76,5 +76,65 @@ describe("closeCycle / listCycles", () => {
     expect(closed.status).toBe("CLOSED");
     const all = await listCycles();
     expect(all.find((c) => c.id === cycle.id)?.status).toBe("CLOSED");
+  });
+});
+
+describe("setCycleDepartments", () => {
+  async function makeCycle(departments: string[]) {
+    const { person, term } = await seedTermAndPerson();
+    const cycle = await createCycle({
+      track: "VOLUNTEER", termId: term.id, title: "V", publicSlug: `v-${departments.join("-").toLowerCase() || "none"}`,
+      departments, acceptsRenewals: false, createdById: person.id,
+    });
+    return { person, cycle };
+  }
+
+  it("adds a department and records the new list", async () => {
+    const { person, cycle } = await makeCycle(["SRHD"]);
+    const { cycle: updated, removedWithApplicants } = await setCycleDepartments(cycle.id, ["SRHD", "MDIC"], person.id);
+    expect(updated.departments).toEqual(["SRHD", "MDIC"]);
+    expect(removedWithApplicants).toEqual([]);
+  });
+
+  it("removes a department with no applicants without warning", async () => {
+    const { person, cycle } = await makeCycle(["SRHD", "MDIC"]);
+    const { cycle: updated, removedWithApplicants } = await setCycleDepartments(cycle.id, ["SRHD"], person.id);
+    expect(updated.departments).toEqual(["SRHD"]);
+    expect(removedWithApplicants).toEqual([]);
+  });
+
+  it("removes a department that has applicants, saving but reporting the impact", async () => {
+    const { person, cycle } = await makeCycle(["SRHD", "MDIC"]);
+    const applicant = await prisma.applicant.create({ data: { cycleId: cycle.id, firstName: "A", lastName: "A", email: "a@yale.edu", emailLower: "a@yale.edu" } });
+    await prisma.application.create({ data: { cycleId: cycle.id, applicantId: applicant.id, answers: {}, applicantType: "NEW", departmentChoices: ["MDIC"] } });
+    const { cycle: updated, removedWithApplicants } = await setCycleDepartments(cycle.id, ["SRHD"], person.id);
+    expect(updated.departments).toEqual(["SRHD"]);
+    expect(removedWithApplicants).toEqual([{ code: "MDIC", applicantCount: 1 }]);
+  });
+
+  it("trims and dedupes the input", async () => {
+    const { person, cycle } = await makeCycle(["SRHD"]);
+    const { cycle: updated } = await setCycleDepartments(cycle.id, [" SRHD ", "SRHD", "MDIC", ""], person.id);
+    expect(updated.departments).toEqual(["SRHD", "MDIC"]);
+  });
+
+  it("rejects a missing cycle", async () => {
+    const { person } = await seedTermAndPerson();
+    await expect(setCycleDepartments("missing", ["SRHD"], person.id)).rejects.toBeInstanceOf(CyclePublishError);
+  });
+
+  it("rejects an archived cycle", async () => {
+    const { person, cycle } = await makeCycle(["SRHD"]);
+    await prisma.recruitmentCycle.update({ where: { id: cycle.id }, data: { status: "ARCHIVED" } });
+    await expect(setCycleDepartments(cycle.id, ["SRHD", "MDIC"], person.id)).rejects.toBeInstanceOf(CyclePublishError);
+  });
+
+  it("records an audit entry with before and after departments", async () => {
+    const { person, cycle } = await makeCycle(["SRHD"]);
+    await setCycleDepartments(cycle.id, ["SRHD", "MDIC"], person.id);
+    const audit = await prisma.auditLog.findFirst({ where: { entityId: cycle.id, action: "recruitment.cycle_set_departments" } });
+    expect(audit).not.toBeNull();
+    expect((audit!.before as { departments: string[] }).departments).toEqual(["SRHD"]);
+    expect((audit!.after as { departments: string[] }).departments).toEqual(["SRHD", "MDIC"]);
   });
 });

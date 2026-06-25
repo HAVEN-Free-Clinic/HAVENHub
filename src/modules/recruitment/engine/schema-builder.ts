@@ -16,7 +16,8 @@ export type FieldType =
   | "NUMBER"
   | "DATE"
   | "FILE"
-  | "DEPARTMENT_CHOICE";
+  | "DEPARTMENT_CHOICE"
+  | "SUBCOMMITTEE_RANK";
 
 export type FieldValidation = {
   min?: number;
@@ -24,6 +25,7 @@ export type FieldValidation = {
   regex?: string;
   maxFileMB?: number;
   acceptedTypes?: string[];
+  rankCount?: number;
 };
 
 export type FieldDef = {
@@ -104,6 +106,7 @@ export function buildApplicationSchema(
   for (const section of visibleSections(sections, ctx)) {
     for (const field of section.fields) {
       if (field.type === "FILE") continue;
+      if (field.type === "SUBCOMMITTEE_RANK") continue; // ordered ranking is validated + hoisted in submissions
       shape[field.key] = fieldSchema(field);
     }
   }

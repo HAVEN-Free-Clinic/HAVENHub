@@ -405,6 +405,7 @@ enum ApplicantType {
 }
 
 enum ApplicationStatus {
+  DRAFT
   SUBMITTED
 }
 
@@ -949,7 +950,7 @@ model Application {
   assignedSubcommitteeById String?
   assignedSubcommitteeAt   DateTime?
   status            ApplicationStatus @default(SUBMITTED)
-  submittedAt       DateTime          @default(now())
+  submittedAt       DateTime?
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
 

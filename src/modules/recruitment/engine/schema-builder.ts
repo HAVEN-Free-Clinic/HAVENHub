@@ -16,7 +16,8 @@ export type FieldType =
   | "NUMBER"
   | "DATE"
   | "FILE"
-  | "DEPARTMENT_CHOICE";
+  | "DEPARTMENT_CHOICE"
+  | "SUBCOMMITTEE_RANK";
 
 export type FieldValidation = {
   min?: number;

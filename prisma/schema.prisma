@@ -1215,3 +1215,17 @@ model ScoProgress {
   @@unique([personId, courseId, scoId])
   @@index([courseId])
 }
+
+/// Single-use, hashed, expiring magic-link token for the applicant portal.
+/// Only the SHA-256 hash of the token is stored; the raw token lives only in
+/// the emailed link.
+model ApplicantPortalToken {
+  id         String    @id @default(cuid())
+  emailLower String
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  usedAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([emailLower])
+}

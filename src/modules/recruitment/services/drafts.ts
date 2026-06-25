@@ -1,6 +1,7 @@
 // src/modules/recruitment/services/drafts.ts
 import { prisma } from "@/platform/db";
 import type { ApplicantIdentity } from "./portal-auth";
+import { persistFiles, cleanupFiles, type UploadedFile } from "./upload";
 
 export class DraftError extends Error {
   constructor(m: string) { super(m); this.name = "DraftError"; }
@@ -119,4 +120,37 @@ export async function saveDraft(
       },
     },
   });
+}
+
+export async function uploadDraftFile(
+  slug: string,
+  identity: ApplicantIdentity,
+  fieldKey: string,
+  file: UploadedFile,
+): Promise<{ fileName: string }> {
+  const row = await findRow(slug, identity);
+  if (!row) throw new DraftError("Application not found.");
+  const { cycle, applicant } = row;
+  const now = new Date();
+  const open = cycle.status === "OPEN" && (!cycle.opensAt || cycle.opensAt <= now) && (!cycle.closesAt || cycle.closesAt >= now);
+  if (!open) throw new DraftError("This application is closed.");
+  const app = applicant?.applications[0];
+  if (!app || app.status === "SUBMITTED") throw new DraftError("No editable draft.");
+
+  // The key must be a FILE field in this cycle (the same allowlist defense the
+  // submit path uses, since the key builds the storage path).
+  const fileField = await prisma.formField.findFirst({ where: { cycleId: cycle.id, key: fieldKey, type: "FILE" }, select: { key: true } });
+  if (!fileField) throw new DraftError("Unexpected file upload.");
+
+  const { answerPatch, storageKeys } = await persistFiles(cycle.id, { [fieldKey]: file });
+  const prior = (app.answers as Record<string, unknown>)[fieldKey] as { storedName?: string } | undefined;
+  try {
+    await prisma.application.update({ where: { id: app.id }, data: { answers: { ...(app.answers as Record<string, unknown>), ...answerPatch } as never } });
+  } catch (err) {
+    await cleanupFiles(storageKeys);
+    throw err;
+  }
+  // Best-effort delete of the file this one replaced.
+  if (prior?.storedName) await cleanupFiles([`recruitment/${cycle.id}/${prior.storedName}`]);
+  return { fileName: file.fileName };
 }

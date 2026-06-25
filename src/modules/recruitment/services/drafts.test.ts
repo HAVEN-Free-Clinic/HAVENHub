@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
-import { getDraft, saveDraft, DraftError } from "./drafts";
+import { getDraft, saveDraft, DraftError, uploadDraftFile } from "./drafts";
 
 beforeEach(async () => { await resetDb(); });
 afterEach(async () => { await resetDb(); });
@@ -55,4 +55,22 @@ it("scopes a draft to the identity (other identity sees nothing)", async () => {
   await openCycle("iso-cyc");
   await saveDraft("iso-cyc", ID, { answers: { a: 1 } });
   expect(await getDraft("iso-cyc", { email: "other@yale.edu", personId: null })).toBeNull();
+});
+
+it("uploads a draft file and records the ref in answers", async () => {
+  const cycle = await openCycle("file-cyc");
+  // The cycle needs a FILE field for the key to be allowed.
+  const idSection = await prisma.formSection.create({ data: { cycleId: cycle.id, title: "Main", order: 0, appliesTo: "BOTH", purpose: "APPLICATION" } });
+  await prisma.formField.create({ data: { sectionId: idSection.id, cycleId: cycle.id, key: "resume", label: "Resume", type: "FILE", required: false, order: 0 } });
+  await saveDraft("file-cyc", ID, { answers: {} });
+  const res = await uploadDraftFile("file-cyc", ID, "resume", { fileName: "cv.pdf", mimeType: "application/pdf", bytes: Buffer.from("hi") });
+  expect(res.fileName).toBe("cv.pdf");
+  const d = await getDraft("file-cyc", ID);
+  expect((d?.answers.resume as { fileName: string }).fileName).toBe("cv.pdf");
+});
+
+it("rejects a draft upload to an unknown field key", async () => {
+  await openCycle("file-cyc2");
+  await saveDraft("file-cyc2", ID, { answers: {} });
+  await expect(uploadDraftFile("file-cyc2", ID, "not_a_field", { fileName: "x.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") })).rejects.toBeInstanceOf(DraftError);
 });

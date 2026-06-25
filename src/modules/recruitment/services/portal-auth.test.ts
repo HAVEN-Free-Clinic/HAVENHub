@@ -3,14 +3,19 @@ import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 
 // Mock Next.js server-only modules so the pure-crypto cookie tests run in Vitest.
-vi.mock("next/headers", () => ({ cookies: async () => ({ get: vi.fn(), set: vi.fn() }) }));
-vi.mock("@/platform/auth/auth", () => ({ auth: async () => null }));
+vi.mock("next/headers", () => ({ cookies: vi.fn(async () => ({ get: vi.fn(), set: vi.fn() })) }));
+vi.mock("@/platform/auth/auth", () => ({ auth: vi.fn(async () => null) }));
 
 import { issueMagicToken, verifyMagicToken, requestMagicLink } from "./portal-auth";
-import { signApplicantCookie, readApplicantCookie } from "./portal-auth";
+import { signApplicantCookie, readApplicantCookie, getApplicantIdentity, APPLICANT_COOKIE } from "./portal-auth";
+import { auth } from "@/platform/auth/auth";
+import { cookies } from "next/headers";
 
 beforeEach(async () => { await resetDb(); });
-afterEach(async () => { await resetDb(); });
+afterEach(async () => {
+  vi.clearAllMocks();
+  await resetDb();
+});
 
 it("stores a portal token and finds it by hash", async () => {
   await prisma.applicantPortalToken.create({
@@ -70,4 +75,28 @@ it("queues a magic-link email containing a verify URL and rate-limits", async ()
   await requestMagicLink("reed@yale.edu");
   const after = await prisma.emailLog.count();
   expect(after).toBeLessThanOrEqual(3); // capped, not 4+
+});
+
+// ---------------------------------------------------------------------------
+// getApplicantIdentity: SSO session wins, cookie-only path, neither -> null
+// ---------------------------------------------------------------------------
+
+it("getApplicantIdentity returns the SSO session identity when a Person session exists", async () => {
+  vi.mocked(auth).mockResolvedValueOnce({ personId: "p1", user: { email: "Member@Yale.edu" } } as never);
+  // cookies() is not called on the SSO path (early return); no need to queue a value.
+  expect(await getApplicantIdentity()).toEqual({ email: "member@yale.edu", personId: "p1" });
+});
+
+it("getApplicantIdentity falls back to the signed cookie when there is no SSO session", async () => {
+  vi.mocked(auth).mockResolvedValueOnce(null as never);
+  vi.mocked(cookies).mockResolvedValueOnce({
+    get: (n: string) => (n === APPLICANT_COOKIE ? { value: signApplicantCookie("guest@yale.edu") } : undefined),
+  } as never);
+  expect(await getApplicantIdentity()).toEqual({ email: "guest@yale.edu", personId: null });
+});
+
+it("getApplicantIdentity returns null when there is neither a session nor a valid cookie", async () => {
+  vi.mocked(auth).mockResolvedValueOnce(null as never);
+  vi.mocked(cookies).mockResolvedValueOnce({ get: () => undefined } as never);
+  expect(await getApplicantIdentity()).toBeNull();
 });

@@ -14,9 +14,14 @@ export function SignInForm() {
     e.preventDefault();
     setPending(true);
     setError(false);
-    const res = await requestMagicLinkAction(new FormData(e.currentTarget));
-    setPending(false);
-    if (res.ok) setSent(true); else setError(true);
+    try {
+      const res = await requestMagicLinkAction(new FormData(e.currentTarget));
+      if (res.ok) setSent(true); else setError(true);
+    } catch {
+      setError(true);
+    } finally {
+      setPending(false);
+    }
   }
 
   if (sent) {

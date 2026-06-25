@@ -17,7 +17,7 @@ async function volunteerIn(deptCode: string, termCode: string, termStart: Date, 
 
 it("is eligible with an active volunteer membership and returns its department", async () => {
   const person = await volunteerIn("SRHD", "FA25", new Date("2025-08-01"));
-  const ctx = await getRenewalContext(person.id, "reed@yale.edu");
+  const ctx = await getRenewalContext(person.id, "reed@yale.edu", "VOLUNTEER");
   expect(ctx.eligible).toBe(true);
   expect(ctx.currentDepartments).toEqual(["SRHD"]);
   expect(ctx.email).toBe("reed@yale.edu"); // session email, verbatim
@@ -28,17 +28,21 @@ it("is eligible with an active volunteer membership and returns its department",
 
 it("is not eligible without an active volunteer membership", async () => {
   const person = await prisma.person.create({ data: { name: "No Member", status: "ACTIVE" } });
-  const ctx = await getRenewalContext(person.id, "no@yale.edu");
+  const ctx = await getRenewalContext(person.id, "no@yale.edu", "VOLUNTEER");
   expect(ctx.eligible).toBe(false);
   expect(ctx.currentDepartments).toEqual([]);
 });
 
-it("ignores DIRECTOR and REMOVED memberships", async () => {
+it("filters memberships by the requested kind and ignores REMOVED", async () => {
+  // A director is eligible on a DIRECTOR cycle but not on a VOLUNTEER cycle.
   const dir = await volunteerIn("EXEC", "FA25", new Date("2025-08-01"), "DIRECTOR");
-  expect((await getRenewalContext(dir.id, "d@yale.edu")).eligible).toBe(false);
+  expect((await getRenewalContext(dir.id, "d@yale.edu", "VOLUNTEER")).eligible).toBe(false);
+  const dirCtx = await getRenewalContext(dir.id, "d@yale.edu", "DIRECTOR");
+  expect(dirCtx.eligible).toBe(true);
+  expect(dirCtx.currentDepartments).toEqual(["EXEC"]);
   await resetDb();
   const removed = await volunteerIn("SRHD", "FA25", new Date("2025-08-01"), "VOLUNTEER", "REMOVED");
-  expect((await getRenewalContext(removed.id, "r@yale.edu")).eligible).toBe(false);
+  expect((await getRenewalContext(removed.id, "r@yale.edu", "VOLUNTEER")).eligible).toBe(false);
 });
 
 it("returns currentDepartments from the most-recent term only when memberships span two terms", async () => {
@@ -49,7 +53,7 @@ it("returns currentDepartments from the most-recent term only when memberships s
   const deptExec = await prisma.department.create({ data: { code: "EXEC", name: "EXEC" } });
   await prisma.termMembership.create({ data: { personId: person.id, termId: termOld.id, departmentId: deptSrhd.id, kind: "VOLUNTEER", status: "ACTIVE" } });
   await prisma.termMembership.create({ data: { personId: person.id, termId: termNew.id, departmentId: deptExec.id, kind: "VOLUNTEER", status: "ACTIVE" } });
-  const ctx = await getRenewalContext(person.id, "mt@yale.edu");
+  const ctx = await getRenewalContext(person.id, "mt@yale.edu", "VOLUNTEER");
   expect(ctx.eligible).toBe(true);
   expect(ctx.currentDepartments).toEqual(["EXEC"]);
 });

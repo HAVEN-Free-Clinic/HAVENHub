@@ -11,14 +11,9 @@ function cx(...parts: (string | undefined | false | null)[]): string {
   return parts.filter(Boolean).join(" ");
 }
 
-const APPLICANT_OPTIONS = [
-  { value: "NEW" as const, label: "New applicant", desc: "First time applying to volunteer" },
-  { value: "RENEWAL" as const, label: "Returning volunteer", desc: "Renewing in my current department" },
-];
-
-type FieldDef = { key: string; label: string; helpText: string | null; type: string; required: boolean; options: { value: string; label: string }[] | null; validation: Record<string, unknown> | null };
+type FieldDef ={ key: string; label: string; helpText: string | null; type: string; required: boolean; options: { value: string; label: string }[] | null; validation: Record<string, unknown> | null };
 type SectionDef = { id: string; title: string; description: string | null; appliesTo: "NEW" | "RENEWAL" | "BOTH"; departmentCode: string | null; fields: FieldDef[] };
-type Def = { slug: string; title: string; acceptsRenewals: boolean; departments: string[]; sections: SectionDef[] };
+type Def = { slug: string; title: string; track: "VOLUNTEER" | "DIRECTOR"; acceptsRenewals: boolean; departments: string[]; sections: SectionDef[] };
 type Prefill = { values: Record<string, string>; lockedKeys: string[] };
 
 export function ApplyForm({
@@ -45,6 +40,11 @@ export function ApplyForm({
   const lockedKeys = useMemo(() => new Set(prefill?.lockedKeys ?? []), [prefill]);
   const loginHref = `/login?callbackUrl=${encodeURIComponent(`/apply/${def.slug}?type=renewal`)}`;
   const renewalGate = applicantType === "RENEWAL" && !signedIn;
+  const roleNoun = def.track === "DIRECTOR" ? "director" : "volunteer";
+  const applicantOptions = [
+    { value: "NEW" as const, label: "New applicant", desc: "First time applying" },
+    { value: "RENEWAL" as const, label: `Returning ${roleNoun}`, desc: "Renewing in my current department" },
+  ];
 
   function chooseType(v: "NEW" | "RENEWAL") {
     if (v === "RENEWAL" && signedIn && !eligible) {
@@ -86,9 +86,9 @@ export function ApplyForm({
 
       {def.acceptsRenewals && (
         <fieldset className="space-y-3">
-          <legend className="text-sm font-medium text-foreground">Are you a new or returning volunteer?</legend>
+          <legend className="text-sm font-medium text-foreground">Are you a new or returning {roleNoun}?</legend>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {APPLICANT_OPTIONS.map((opt) => {
+            {applicantOptions.map((opt) => {
               const active = applicantType === opt.value;
               return (
                 <label
@@ -113,7 +113,7 @@ export function ApplyForm({
           </div>
 
           {ineligibleNote && (
-            <Alert tone="warning">We do not see a current volunteer membership for your account, so we have set you up as a new applicant. Your name and email are filled in below.</Alert>
+            <Alert tone="warning">We do not see a current {roleNoun} membership for your account, so we have set you up as a new applicant. Your name and email are filled in below.</Alert>
           )}
 
           {applicantType === "RENEWAL" && signedIn && eligible && (
@@ -127,7 +127,7 @@ export function ApplyForm({
 
       {renewalGate ? (
         <div className="rounded-xl border border-border bg-surface p-5">
-          <p className="text-sm text-foreground">Returning volunteers sign in with Yale so we can verify your renewal and fill in your information.</p>
+          <p className="text-sm text-foreground">Returning {roleNoun}s sign in with Yale so we can verify your renewal and fill in your information.</p>
           <a href={loginHref} className={cx(buttonClasses("primary", "md"), "mt-3")}>Sign in with Yale</a>
         </div>
       ) : (

@@ -6,7 +6,7 @@ import { prisma } from "@/platform/db";
 vi.mock("next/headers", () => ({ cookies: async () => ({ get: vi.fn(), set: vi.fn() }) }));
 vi.mock("@/platform/auth/auth", () => ({ auth: async () => null }));
 
-import { issueMagicToken, verifyMagicToken } from "./portal-auth";
+import { issueMagicToken, verifyMagicToken, requestMagicLink } from "./portal-auth";
 import { signApplicantCookie, readApplicantCookie } from "./portal-auth";
 
 beforeEach(async () => { await resetDb(); });
@@ -54,4 +54,20 @@ it("signs and reads back a cookie email, rejecting tampering", () => {
   expect(readApplicantCookie(cookie + "x")).toBeNull(); // tampered signature
   expect(readApplicantCookie(undefined)).toBeNull();
   expect(readApplicantCookie("garbage")).toBeNull();
+});
+
+it("queues a magic-link email containing a verify URL and rate-limits", async () => {
+  await requestMagicLink("reed@yale.edu");
+  const emails = await prisma.emailLog.findMany();
+  expect(emails).toHaveLength(1);
+  expect(emails[0].toEmail).toBe("reed@yale.edu");
+  expect(emails[0].template).toBe("recruitment.portal_link");
+  expect(emails[0].html).toContain("/apply/verify?token=");
+
+  // Rate limit: three more requests do not all send.
+  await requestMagicLink("reed@yale.edu");
+  await requestMagicLink("reed@yale.edu");
+  await requestMagicLink("reed@yale.edu");
+  const after = await prisma.emailLog.count();
+  expect(after).toBeLessThanOrEqual(3); // capped, not 4+
 });

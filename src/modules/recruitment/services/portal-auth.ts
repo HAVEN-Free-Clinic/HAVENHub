@@ -104,3 +104,28 @@ export async function getApplicantIdentity(): Promise<ApplicantIdentity | null> 
   const email = readApplicantCookie(store.get(APPLICANT_COOKIE)?.value);
   return email ? { email, personId: null } : null;
 }
+
+// ---------------------------------------------------------------------------
+// Magic-link request (rate-limited)
+// ---------------------------------------------------------------------------
+
+import { queueEmail } from "@/platform/email/send";
+import { portalLinkEmail } from "./portal-link-email";
+
+const RATE_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+const RATE_MAX = 3;
+
+/** Issue a magic-link token and email it, unless the email has already been
+ *  sent RATE_MAX links in the last window (silently skip to avoid spam). */
+export async function requestMagicLink(email: string): Promise<void> {
+  const emailLower = email.trim().toLowerCase();
+  const recent = await prisma.applicantPortalToken.count({
+    where: { emailLower, createdAt: { gt: new Date(Date.now() - RATE_WINDOW_MS) } },
+  });
+  if (recent >= RATE_MAX) return;
+
+  const raw = await issueMagicToken(emailLower);
+  const url = `${config.APP_BASE_URL}/apply/verify?token=${encodeURIComponent(raw)}`;
+  const mail = portalLinkEmail({ url });
+  await queueEmail(prisma, { to: emailLower, subject: mail.subject, html: mail.html, template: "recruitment.portal_link" });
+}

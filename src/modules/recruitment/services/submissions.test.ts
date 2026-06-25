@@ -147,3 +147,25 @@ it("getApplication excludes QUIZ sections from the loaded cycle form", async () 
   const titles = loaded!.cycle.sections.map((s) => s.title);
   expect(titles).not.toContain("Quiz");
 });
+
+it("links an applicant to a person and blocks a second per cycle, but allows anonymous applicants", async () => {
+  const { cycle } = await openVolunteerCycle();
+  const person = await prisma.person.create({ data: { name: "Reed", status: "ACTIVE" } });
+
+  await prisma.applicant.create({
+    data: { cycleId: cycle.id, applicantPersonId: person.id, firstName: "Reed", lastName: "R", email: "reed@yale.edu", emailLower: "reed@yale.edu" },
+  });
+
+  // Same person, same cycle -> unique violation (P2002).
+  await expect(
+    prisma.applicant.create({
+      data: { cycleId: cycle.id, applicantPersonId: person.id, firstName: "Reed", lastName: "R", email: "reed2@yale.edu", emailLower: "reed2@yale.edu" },
+    })
+  ).rejects.toMatchObject({ code: "P2002" });
+
+  // Two anonymous applicants (null personId) in the same cycle are fine.
+  await prisma.applicant.create({ data: { cycleId: cycle.id, firstName: "A", lastName: "A", email: "a@yale.edu", emailLower: "a@yale.edu" } });
+  await prisma.applicant.create({ data: { cycleId: cycle.id, firstName: "B", lastName: "B", email: "b@yale.edu", emailLower: "b@yale.edu" } });
+  const anon = await prisma.applicant.count({ where: { cycleId: cycle.id, applicantPersonId: null } });
+  expect(anon).toBe(2);
+});

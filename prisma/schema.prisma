@@ -112,6 +112,7 @@ model Person {
   shiftAssignments          ShiftAssignment[]
   recruitmentCyclesCreated  RecruitmentCycle[]   @relation("RecruitmentCycleCreatedBy")
   recruitmentAcceptances    Acceptance[]         @relation("recruitmentAcceptanceApprover")
+  applicantSubmissions      Applicant[]          @relation("ApplicantPerson")
   contractsPromoted         OnboardingContract[] @relation("contractPromotedBy")
   contractsPromotedTo       OnboardingContract[] @relation("contractPromotedPerson")
   interviewsCreated         Interview[]          @relation("interviewCreatedBy")
@@ -895,6 +896,7 @@ model FormField {
 model Applicant {
   id         String   @id @default(cuid())
   cycleId    String
+  applicantPersonId String?
   firstName  String
   lastName   String
   email      String
@@ -904,10 +906,15 @@ model Applicant {
   phone      String?
   createdAt  DateTime @default(now())
 
-  cycle        RecruitmentCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
-  applications Application[]
+  cycle           RecruitmentCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  /// Set for signed-in renewals; null for anonymous new applicants. Links the
+  /// submission to the verified HAVEN Hub account.
+  applicantPerson Person?          @relation("ApplicantPerson", fields: [applicantPersonId], references: [id], onDelete: SetNull)
+  applications    Application[]
 
   @@unique([cycleId, emailLower])
+  @@unique([cycleId, applicantPersonId])
+  @@index([applicantPersonId])
 }
 
 model Application {

@@ -53,9 +53,15 @@ jobs:
       - name: Pull Vercel preview env
         run: vercel pull --yes --environment=preview --token=${{ secrets.VERCEL_TOKEN }}
 
-      # `vercel pull` writes the prod DATABASE_URL into the preview env file.
-      # Repoint it at this PR's Neon branch so the build (which runs
-      # `prisma migrate deploy && next build`) migrates and builds against it.
+      # Prepare the env file `vercel build` reads. Two problems to fix:
+      #  1. `vercel pull` writes the prod DATABASE_URL -> repoint at the branch.
+      #  2. Vercel "Sensitive" env vars come back blank ("") from `vercel pull`.
+      #     Blank is not `undefined`, so it defeats the zod `.default()`s in
+      #     src/platform/config.ts and fails enum/number validation at build
+      #     (e.g. EMAIL_TRANSPORT). Drop the blank lines so defaults apply, then
+      #     supply the two genuinely-required-with-no-default values. AUTH_SECRET
+      #     is a BUILD-ONLY placeholder; the deployed (prebuilt) functions read
+      #     the real AUTH_SECRET from the project's Preview env at runtime.
       - name: Point the build at the Neon branch
         env:
           POOLED: ${{ steps.neon.outputs.db_url_pooled }}
@@ -63,16 +69,16 @@ jobs:
         run: |
           ENVFILE=.vercel/.env.preview.local
           {
-            grep -vE '^(DATABASE_URL|DATABASE_URL_UNPOOLED)=' "$ENVFILE" || true
+            grep -vE '^[A-Za-z_][A-Za-z0-9_]*=("")?$' "$ENVFILE" \
+              | grep -vE '^(DATABASE_URL|DATABASE_URL_UNPOOLED|AUTH_SECRET)=' \
+              || true
             echo "DATABASE_URL=\"$POOLED\""
             echo "DATABASE_URL_UNPOOLED=\"$DIRECT\""
+            echo "AUTH_SECRET=\"build-only-placeholder-not-used-at-runtime\""
           } > "$ENVFILE.tmp"
           mv "$ENVFILE.tmp" "$ENVFILE"
 
       - name: Build
-        env:
-          DATABASE_URL: ${{ steps.neon.outputs.db_url_pooled }}
-          DATABASE_URL_UNPOOLED: ${{ steps.neon.outputs.db_url }}
         run: vercel build --token=${{ secrets.VERCEL_TOKEN }}
 
       # `--prebuilt` uploads .vercel/output and skips the build (and the

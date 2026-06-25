@@ -8,6 +8,7 @@ import {
   submitApplication, listApplications, getApplication,
   CycleNotOpenError, DuplicateApplicationError, SubmissionValidationError,
 } from "./submissions";
+import { saveDraft } from "./drafts";
 
 async function openVolunteerCycle() {
   const person = await prisma.person.create({ data: { name: "Lead", status: "ACTIVE" } });
@@ -213,6 +214,28 @@ it("rejects duplicate or unknown subcommittee IDs and over-count", async () => {
     answers: { first_name: "D", last_name: "D", email: "d@yale.edu", "1st_choice_department": "SRHD", subcommittee_preferences: [subs.a.id, subs.b.id, subs.c.id, subs.d.id] },
     files: {},
   })).rejects.toBeInstanceOf(SubmissionValidationError);
+});
+
+it("finalizes an existing draft into a submission (no duplicate Applicant)", async () => {
+  await openVolunteerCycle();
+  const ID = { email: "ann@yale.edu", personId: null };
+  await saveDraft("apply-v", ID, { answers: { first_name: "Ann", last_name: "Lee", email: "ann@yale.edu" } });
+  const app = await submitApplication("apply-v", {
+    applicantType: "NEW",
+    answers: { first_name: "Ann", last_name: "Lee", email: "ann@yale.edu", "1st_choice_department": "SRHD", srhd_essay: "because" },
+    files: {},
+  });
+  expect(app.status).toBe("SUBMITTED");
+  expect(app.submittedAt).not.toBeNull();
+  const applicants = await prisma.applicant.count({ where: { emailLower: "ann@yale.edu" } });
+  expect(applicants).toBe(1); // the draft applicant was finalized, not duplicated
+});
+
+it("rejects submitting when the application is already SUBMITTED", async () => {
+  await openVolunteerCycle();
+  const args = { applicantType: "NEW" as const, answers: { first_name: "Bo", last_name: "Ng", email: "bo@yale.edu", "1st_choice_department": "MDIC" }, files: {} };
+  await submitApplication("apply-v", args);
+  await expect(submitApplication("apply-v", args)).rejects.toBeInstanceOf(DuplicateApplicationError);
 });
 
 async function makeVolunteer(deptCode: string) {

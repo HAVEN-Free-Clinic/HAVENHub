@@ -141,8 +141,29 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
     throw new SubmissionValidationError("Please fix the highlighted fields.", fieldErrors);
   }
 
+  // For renewals the email is the verified session address (also the dedup key);
+  // the client-submitted value is ignored so it cannot be spoofed.
+  const email = (input.applicantType === "RENEWAL" ? input.sessionEmail! : String(input.answers.email ?? "")).trim();
+  const emailLower = email.toLowerCase();
+  const firstName = String(input.answers.first_name ?? "").trim();
+  const lastName = String(input.answers.last_name ?? "").trim();
+
+  const existingApplicant = await prisma.applicant.findUnique({
+    where: { cycleId_emailLower: { cycleId: cycle.id, emailLower } },
+    include: { applications: true },
+  });
+  const existingApp = existingApplicant?.applications[0];
+  if (existingApp && existingApp.status === "SUBMITTED") throw new DuplicateApplicationError();
+  // Files uploaded during the draft live in the draft answers as refs; treat
+  // them as already-present so a resumed applicant need not re-pick them.
+  const draftAnswers = (existingApp?.answers as Record<string, unknown>) ?? {};
+  const draftFileKeys = Object.keys(draftAnswers).filter((k) => {
+    const v = draftAnswers[k];
+    return v != null && typeof v === "object" && "storedName" in (v as object);
+  });
+
   const needFiles = requiredFileKeys(sectionDefs, ctx);
-  const missingFile = needFiles.find((k) => !input.files[k]);
+  const missingFile = needFiles.find((k) => !input.files[k] && !draftFileKeys.includes(k));
   if (missingFile) throw new SubmissionValidationError("A required file is missing.", { [missingFile]: "required" });
 
   // Enforce upload rules: a file may only be uploaded under the key of a visible
@@ -185,34 +206,36 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
     subcommitteeRanking = resolveRanking(input.answers[rankField.key], rankField.required, rankCount, activeIds, rankField.key);
   }
 
-  // For renewals the email is the verified session address (also the dedup key);
-  // the client-submitted value is ignored so it cannot be spoofed.
-  const email = (input.applicantType === "RENEWAL" ? input.sessionEmail! : String(input.answers.email ?? "")).trim();
-  const emailLower = email.toLowerCase();
-  const firstName = String(input.answers.first_name ?? "").trim();
-  const lastName = String(input.answers.last_name ?? "").trim();
-
-  const dup = await prisma.applicant.findUnique({ where: { cycleId_emailLower: { cycleId: cycle.id, emailLower } } });
-  if (dup) throw new DuplicateApplicationError();
-
   const fileRefs = await persistFiles(cycle.id, input.files);
-  const answersWithFiles = { ...parsed.data, ...fileRefs.answerPatch };
+  const draftFileRefs = Object.fromEntries(draftFileKeys.map((k) => [k, draftAnswers[k]]));
+  const answersWithFiles = { ...draftFileRefs, ...parsed.data, ...fileRefs.answerPatch };
   if (rankField) delete (answersWithFiles as Record<string, unknown>)[rankField.key];
 
   let application: Application;
   try {
     application = await prisma.$transaction(async (tx) => {
-      const applicant = await tx.applicant.create({
-        data: { cycleId: cycle.id, applicantPersonId, firstName, lastName, email, emailLower, netId: typeof input.answers.netid === "string" ? input.answers.netid : null, phone: typeof input.answers.phone === "string" ? input.answers.phone : null },
-      });
-      const app = await tx.application.create({
-        data: {
-          cycleId: cycle.id, applicantId: applicant.id, answers: answersWithFiles as never,
-          applicantType: input.applicantType, departmentChoices: selectedDepartmentCodes,
-          subcommitteeRanking,
-          renewalDepartment: input.applicantType === "RENEWAL" ? input.renewalDepartment! : null,
-        },
-      });
+      let applicantId = existingApplicant?.id;
+      if (applicantId) {
+        // Finalize the existing draft applicant: fill in identity fields from answers.
+        await tx.applicant.update({
+          where: { id: applicantId },
+          data: { applicantPersonId, firstName, lastName, email, emailLower, netId: typeof input.answers.netid === "string" ? input.answers.netid : null, phone: typeof input.answers.phone === "string" ? input.answers.phone : null },
+        });
+      } else {
+        const created = await tx.applicant.create({
+          data: { cycleId: cycle.id, applicantPersonId, firstName, lastName, email, emailLower, netId: typeof input.answers.netid === "string" ? input.answers.netid : null, phone: typeof input.answers.phone === "string" ? input.answers.phone : null },
+        });
+        applicantId = created.id;
+      }
+      const appData = {
+        answers: answersWithFiles as never,
+        applicantType: input.applicantType, departmentChoices: selectedDepartmentCodes, subcommitteeRanking,
+        renewalDepartment: input.applicantType === "RENEWAL" ? input.renewalDepartment! : null,
+        status: "SUBMITTED" as const, submittedAt: new Date(),
+      };
+      const app = existingApp
+        ? await tx.application.update({ where: { id: existingApp.id }, data: appData })
+        : await tx.application.create({ data: { cycleId: cycle.id, applicantId, ...appData } });
       await queueEmail(tx, {
         to: email,
         subject: `We received your ${cycle.title} application`,

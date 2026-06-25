@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { PageHeader } from "@/platform/ui/page-header";
 import { createReferralSite } from "@/modules/referrals/services/referrals";
 import { ReferralSiteForm } from "./referral-site-form";
+import type { ProviderCategory, ProviderFlag, ProviderSystem } from "@prisma/client";
 
 async function createSiteAction(formData: FormData) {
   "use server";
@@ -29,9 +30,9 @@ async function createSiteAction(formData: FormData) {
 
   const site = await createReferralSite({
     name: formData.get("name") as string,
-    category: formData.get("category") as any,
+    category: formData.get("category") as ProviderCategory,
     specialty: formData.get("specialty") as string,
-    system: formData.get("system") as any,
+    system: (formData.get("system") as ProviderSystem) || undefined,
     acceptsUninsured: formData.get("acceptsUninsured") === "on",
     freeCareEligible: formData.get("freeCareEligible") === "on",
     slidingScale: formData.get("slidingScale") === "on",
@@ -44,7 +45,7 @@ async function createSiteAction(formData: FormData) {
     fax: (formData.get("fax") as string) || undefined,
     referralSteps,
     notes: (formData.get("notes") as string) || undefined,
-    flag: flagRaw ? (flagRaw as any) : undefined,
+    flag: flagRaw ? (flagRaw as ProviderFlag) : undefined,
     flagText: (formData.get("flagText") as string) || undefined,
     providers,
   });

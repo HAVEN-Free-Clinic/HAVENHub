@@ -1,6 +1,6 @@
 "use server";
 import { cookies } from "next/headers";
-import { redirect } from "next/navigation";
+import { signOut } from "@/platform/auth/auth";
 import { requestMagicLink, APPLICANT_COOKIE } from "@/modules/recruitment/services/portal-auth";
 
 export async function requestMagicLinkAction(formData: FormData): Promise<{ ok: boolean }> {
@@ -12,10 +12,12 @@ export async function requestMagicLinkAction(formData: FormData): Promise<{ ok: 
 }
 
 export async function applicantSignOutAction(): Promise<void> {
+  // The portal identity comes from either the magic-link cookie or the Yale
+  // (NextAuth) session, so signing out must clear BOTH. Deleting only the cookie
+  // left an SSO-signed-in applicant still identified, so the button did nothing.
   const store = await cookies();
   store.delete(APPLICANT_COOKIE);
-  // Redirect so the portal re-renders in the signed-out state. Without a fresh
-  // navigation the page keeps showing the signed-in view (the deleted cookie is
-  // not re-read), which is why the button appeared to do nothing.
-  redirect("/apply");
+  // signOut clears the NextAuth session and redirects (a no-op session still
+  // redirects), so the portal re-renders in the signed-out state.
+  await signOut({ redirectTo: "/apply" });
 }

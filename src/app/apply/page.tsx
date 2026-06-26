@@ -16,7 +16,7 @@ export default async function PortalHome({ searchParams }: { searchParams: Promi
   if (!identity) {
     return (
       <main className="mx-auto max-w-md px-6 py-16 space-y-6">
-        <h1 className="text-2xl font-bold tracking-tight">Your HAVEN Hub application</h1>
+        <h1 className="text-2xl font-bold tracking-tight">HAVEN Free Clinic Application Portal</h1>
         {error === "link" && <Alert tone="error">That link has expired or was already used. Request a new one below.</Alert>}
         <p className="text-sm text-muted-foreground">Sign in to start, continue, or check the status of an application.</p>
         <a href="/login?callbackUrl=/apply" className={buttonClasses("primary", "md")}>Sign in with Yale</a>

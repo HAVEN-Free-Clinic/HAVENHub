@@ -100,3 +100,11 @@ it("getApplicantIdentity returns null when there is neither a session nor a vali
   vi.mocked(cookies).mockResolvedValueOnce({ get: () => undefined } as never);
   expect(await getApplicantIdentity()).toBeNull();
 });
+
+it("queues a magic link rendered through the global template + layout", async () => {
+  await requestMagicLink("someone@yale.edu");
+  const mail = await prisma.emailLog.findFirstOrThrow({ where: { template: "recruitment.portal_link" } });
+  expect(mail.subject).toBe("Your HAVEN Hub application link");
+  expect(mail.html).toContain("Open my application");
+  expect(mail.html).toContain("<!DOCTYPE html>");
+});

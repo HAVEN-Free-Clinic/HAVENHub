@@ -11,10 +11,7 @@ import {
 } from "../engine/schema-builder";
 import { visibleSections, type ApplicantType } from "../engine/visibility";
 import { getRenewalContext } from "./renewal";
-
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
+import { renderCycleEmail } from "../email/render";
 
 export class CycleNotOpenError extends Error { constructor(m = "This application is closed.") { super(m); this.name = "CycleNotOpenError"; } }
 export class DuplicateApplicationError extends Error { constructor(m = "You have already applied.") { super(m); this.name = "DuplicateApplicationError"; } }
@@ -251,10 +248,14 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
       const app = existingApp
         ? await tx.application.update({ where: { id: existingApp.id }, data: appData })
         : await tx.application.create({ data: { cycleId: cycle.id, applicantId, ...appData } });
+      const receivedEmail = await renderCycleEmail(cycle.id, "recruitment.application_received", {
+        firstName: firstName || "there",
+        cycleTitle: cycle.title,
+      });
       await queueEmail(tx, {
         to: email,
-        subject: `We received your ${cycle.title} application`,
-        html: `<p>Hi ${escapeHtml(firstName) || "there"},</p><p>Thanks for applying to HAVEN Free Clinic. We have received your application and will be in touch.</p>`,
+        subject: receivedEmail.subject,
+        html: receivedEmail.html,
         template: "recruitment.application_received",
       });
       return app;

@@ -311,6 +311,18 @@ it("rejects a renewal when the signed-in person has no active volunteer membersh
   ).rejects.toBeInstanceOf(SubmissionValidationError);
 });
 
+it("uses the cycle's application-received override when present", async () => {
+  const { cycle } = await openVolunteerCycle();
+  await prisma.recruitmentCycleEmail.create({
+    data: { cycleId: cycle.id, key: "recruitment.application_received", subject: "Got it {{ firstName }}", body: "<p>Re {{ cycleTitle }}</p>" },
+  });
+  await submitApplication("apply-v", { applicantType: "NEW", answers: { first_name: "Ann", last_name: "Lee", email: "ann@yale.edu", "1st_choice_department": "MDIC" }, files: {} });
+  const mail = await prisma.emailLog.findFirstOrThrow({ where: { template: "recruitment.application_received" } });
+  expect(mail.subject).toBe("Got it Ann");
+  expect(mail.html).toContain("Re V");
+  expect(mail.html).toContain("<!DOCTYPE html>");
+});
+
 it("binds a NEW submission to the resolved identity email, ignoring a tampered form email", async () => {
   await openVolunteerCycle();
   const app = await submitApplication("apply-v", {

@@ -110,7 +110,7 @@ export async function getApplicantIdentity(): Promise<ApplicantIdentity | null> 
 // ---------------------------------------------------------------------------
 
 import { queueEmail } from "@/platform/email/send";
-import { portalLinkEmail } from "./portal-link-email";
+import { renderEmail } from "@/platform/email/templates/renderEmail";
 
 const RATE_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 const RATE_MAX = 3;
@@ -126,6 +126,6 @@ export async function requestMagicLink(email: string): Promise<void> {
 
   const raw = await issueMagicToken(emailLower);
   const url = `${config.APP_BASE_URL}/apply/verify?token=${encodeURIComponent(raw)}`;
-  const mail = portalLinkEmail({ url });
+  const mail = await renderEmail("recruitment.portal_link", { firstName: "there", portalUrl: url });
   await queueEmail(prisma, { to: emailLower, subject: mail.subject, html: mail.html, template: "recruitment.portal_link" });
 }

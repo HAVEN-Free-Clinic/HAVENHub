@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/platform/db";
 import { getApplicantIdentity } from "@/modules/recruitment/services/portal-auth";
-import { listApplicantApplications } from "@/modules/recruitment/services/portal-status";
+import { getApplicantStatus } from "@/modules/recruitment/services/portal-status";
 import { applicantSignOutAction } from "./portal-actions";
 import { SignInForm } from "./sign-in-form";
 import { buttonClasses } from "@/platform/ui/button";
@@ -28,7 +28,7 @@ export default async function PortalHome({ searchParams }: { searchParams: Promi
     );
   }
 
-  const myApps = await listApplicantApplications(identity);
+  const myApps = await getApplicantStatus(identity);
 
   const now = new Date();
   const openCycles = await prisma.recruitmentCycle.findMany({
@@ -51,10 +51,17 @@ export default async function PortalHome({ searchParams }: { searchParams: Promi
           <ul className="space-y-2">
             {myApps.map((a) => (
               <li key={a.slug}>
-                <Link href={`/apply/${a.slug}`} className="flex items-center justify-between rounded-xl border border-border bg-surface px-4 py-3 text-sm hover:bg-muted">
-                  <span className="font-medium text-foreground">{a.cycleTitle}</span>
-                  <span className={a.status === "DRAFT" ? "text-brand-fg" : "text-muted-foreground"}>{a.status === "DRAFT" ? "Continue" : "Submitted"}</span>
-                </Link>
+                {a.canContinue ? (
+                  <Link href={`/apply/${a.slug}`} className="flex items-center justify-between rounded-xl border border-border bg-surface px-4 py-3 hover:bg-muted">
+                    <span><span className="block text-sm font-medium text-foreground">{a.cycleTitle}</span><span className="block text-xs text-muted-foreground">{a.detail}</span></span>
+                    <span className="text-sm text-brand-fg">Continue</span>
+                  </Link>
+                ) : (
+                  <div className="flex items-center justify-between rounded-xl border border-border bg-surface px-4 py-3">
+                    <span><span className="block text-sm font-medium text-foreground">{a.cycleTitle}</span><span className="block text-xs text-muted-foreground">{a.detail}</span></span>
+                    <span className="text-sm font-medium text-foreground">{a.headline}</span>
+                  </div>
+                )}
               </li>
             ))}
           </ul>

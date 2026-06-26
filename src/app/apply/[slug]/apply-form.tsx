@@ -39,7 +39,7 @@ export function ApplyForm({
   const autoIneligible = seedType === "RENEWAL" && signedIn && !eligible;
   const [applicantType, setApplicantType] = useState<"NEW" | "RENEWAL">(autoIneligible ? "NEW" : seedType);
   const [ineligibleNote, setIneligibleNote] = useState(autoIneligible);
-  const [renewalDept, setRenewalDept] = useState<string>(currentDepartments[0] ?? def.departments[0] ?? "");
+  const [renewalDept, setRenewalDept] = useState<string>(currentDepartments[0] ?? "");
   const [deptChoice, setDeptChoice] = useState<string>("");
   const [result, setResult] = useState<SubmitResult | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -177,7 +177,16 @@ export function ApplyForm({
           {applicantType === "RENEWAL" && signedIn && eligible && (
             <label className="flex flex-col gap-1.5 pt-1">
               <span className="text-sm font-medium text-foreground">Current department</span>
-              <Select value={renewalDept} onChange={(e) => setRenewalDept(e.target.value)} className="sm:max-w-xs">{def.departments.map((d) => <option key={d} value={d}>{d}</option>)}</Select>
+              {currentDepartments.length > 1 ? (
+                // Members of more than one department choose which one they are renewing in,
+                // but only among their own departments.
+                <Select value={renewalDept} onChange={(e) => setRenewalDept(e.target.value)} className="sm:max-w-xs">{currentDepartments.map((d) => <option key={d} value={d}>{d}</option>)}</Select>
+              ) : (
+                <>
+                  <span className="rounded-lg border border-border bg-muted px-3 py-2 text-sm text-foreground sm:max-w-xs">{renewalDept}</span>
+                  <span className="text-xs text-muted-foreground">You are renewing in your current department. Contact us if this needs to change.</span>
+                </>
+              )}
             </label>
           )}
         </fieldset>

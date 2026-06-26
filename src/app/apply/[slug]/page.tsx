@@ -67,8 +67,10 @@ export default async function ApplyPage({ params, searchParams }: { params: Prom
     signedIn = true;
     signedInName = session.user?.name ?? null;
     const ctx = await getRenewalContext(session.personId, session.user?.email ?? null, cycle.track);
-    eligible = ctx.eligible;
     currentDepartments = ctx.currentDepartments.filter((d) => cycle.departments.includes(d));
+    // Eligible to renew here only if a current department is offered by this cycle.
+    // Otherwise there is nothing to renew into, so route them to the New flow.
+    eligible = ctx.eligible && currentDepartments.length > 0;
     const fields = cycle.sections.flatMap((s) => s.fields).map((f) => ({ key: f.key, type: f.type }));
     prefill = resolveRenewalPrefill(fields, ctx);
   }

@@ -103,6 +103,9 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
   // Renewals must be signed in and a current volunteer. The server re-verifies
   // here regardless of the client UI, and links the submission to the person.
   let applicantPersonId: string | null = null;
+  // The departments the renewing person currently belongs to, within this cycle.
+  // A renewal can only be in one of these, so the department cannot be changed.
+  let renewalAllowedDepartments: string[] = [];
   if (input.applicantType === "RENEWAL") {
     const roleNoun = cycle.track === "DIRECTOR" ? "director" : "volunteer";
     if (!input.sessionPersonId || !input.sessionEmail) {
@@ -113,6 +116,7 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
       throw new SubmissionValidationError(`We do not see a current ${roleNoun} membership for your account.`);
     }
     applicantPersonId = renewalCtx.personId;
+    renewalAllowedDepartments = renewalCtx.currentDepartments.filter((d) => cycle.departments.includes(d));
     // Use the verified session email as the answer too, so schema validation
     // (and any EMAIL field) sees the authoritative value, not the client's.
     input.answers = { ...input.answers, email: input.sessionEmail };
@@ -129,8 +133,11 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
 
   let selectedDepartmentCodes: string[];
   if (input.applicantType === "RENEWAL") {
-    if (!input.renewalDepartment || !cycle.departments.includes(input.renewalDepartment)) {
-      throw new SubmissionValidationError("Choose the department you are renewing in.", { renewalDepartment: "required" });
+    // Authoritative check: the renewal department must be one the person actually
+    // belongs to in this cycle, not just any cycle department. The client locks
+    // this control, but the server is the source of truth.
+    if (!input.renewalDepartment || !renewalAllowedDepartments.includes(input.renewalDepartment)) {
+      throw new SubmissionValidationError("You can only renew in a department you currently belong to.", { renewalDepartment: "required" });
     }
     selectedDepartmentCodes = [input.renewalDepartment];
   } else {

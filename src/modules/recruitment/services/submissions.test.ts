@@ -81,6 +81,15 @@ it("rejects a renewalDepartment outside the cycle departments", async () => {
   ).rejects.toBeInstanceOf(SubmissionValidationError);
 });
 
+it("rejects a renewal into an in-cycle department the person does not belong to", async () => {
+  await openVolunteerCycle();
+  // The person is a current SRHD volunteer; MDIC is in the cycle but not theirs.
+  const person = await makeVolunteer("SRHD");
+  await expect(
+    submitApplication("apply-v", { applicantType: "RENEWAL", renewalDepartment: "MDIC", answers: { first_name: "D", last_name: "E", continue_reason: "x" }, files: {}, sessionPersonId: person.id, sessionEmail: "d@yale.edu" })
+  ).rejects.toBeInstanceOf(SubmissionValidationError);
+});
+
 it("rejects a missing required answer", async () => {
   await openVolunteerCycle();
   await expect(

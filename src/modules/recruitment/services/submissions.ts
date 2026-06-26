@@ -30,6 +30,7 @@ export type SubmitInput = {
   files: Record<string, UploadedFile>;
   sessionPersonId?: string | null;
   sessionEmail?: string | null;
+  identityEmail?: string | null;
 };
 
 const DEPT_CHOICE_KEY_TYPE: FieldType = "DEPARTMENT_CHOICE";
@@ -115,6 +116,13 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
     // Use the verified session email as the answer too, so schema validation
     // (and any EMAIL field) sees the authoritative value, not the client's.
     input.answers = { ...input.answers, email: input.sessionEmail };
+  }
+
+  if (input.applicantType === "NEW" && input.identityEmail) {
+    // The apply page is identity-gated; the authoritative email is the verified
+    // identity (magic-link or SSO), not the form value. Override so the dedup +
+    // owner key cannot be a different, unverified address.
+    input.answers = { ...input.answers, email: input.identityEmail };
   }
 
   const sectionDefs = toSectionDefs(cycle.sections, cycle.departments, input.applicantType);

@@ -302,6 +302,18 @@ it("rejects a renewal when the signed-in person has no active volunteer membersh
   ).rejects.toBeInstanceOf(SubmissionValidationError);
 });
 
+it("binds a NEW submission to the resolved identity email, ignoring a tampered form email", async () => {
+  await openVolunteerCycle();
+  const app = await submitApplication("apply-v", {
+    applicantType: "NEW",
+    answers: { first_name: "Ann", last_name: "Lee", email: "tampered@evil.com", "1st_choice_department": "SRHD", srhd_essay: "x" },
+    files: {},
+    identityEmail: "ann@yale.edu",
+  });
+  const applicant = await prisma.applicant.findFirstOrThrow({ where: { id: app.applicantId } });
+  expect(applicant.email).toBe("ann@yale.edu"); // identity wins, not the form value
+});
+
 it("links an applicant to a person and blocks a second per cycle, but allows anonymous applicants", async () => {
   const { cycle } = await openVolunteerCycle();
   const person = await prisma.person.create({ data: { name: "Reed", status: "ACTIVE" } });

@@ -5,6 +5,7 @@ import {
 } from "@/modules/recruitment/services/submissions";
 import type { ApplicantType } from "@/modules/recruitment/engine/visibility";
 import { auth } from "@/platform/auth/auth";
+import { getApplicantIdentity } from "@/modules/recruitment/services/portal-auth";
 
 export type SubmitResult =
   | { ok: true }
@@ -32,12 +33,14 @@ export async function submitPublicApplication(slug: string, formData: FormData):
   }
 
   const session = await auth();
+  const identity = await getApplicantIdentity();
 
   try {
     await submitApplication(slug, {
       applicantType, renewalDepartment, answers, files,
       sessionPersonId: session?.personId ?? null,
       sessionEmail: session?.user?.email ?? null,
+      identityEmail: identity?.email ?? null,
     });
     return { ok: true };
   } catch (err) {

@@ -57,7 +57,9 @@ export async function getApplicantStatus(identity: ApplicantIdentity): Promise<A
       views.push({ ...base, state: "ACCEPTED", headline: `Accepted to ${deptName.get(emailedAcc.departmentCode) ?? emailedAcc.departmentCode}`, detail: null, canContinue: false });
     } else if (released && waitlisted) {
       views.push({ ...base, state: "WAITLISTED", headline: "Waitlisted", detail: "We will be in touch if a spot opens.", canContinue: false });
-    } else if (released) {
+    } else if (released && app.acceptances.length === 0) {
+      // Guard against the conflict case: if acceptance rows exist but none is emailed (pending resolution),
+      // fall through to the neutral state rather than showing a false rejection.
       views.push({ ...base, state: "NOT_SELECTED", headline: "Not selected this cycle", detail: "Thank you for applying.", canContinue: false });
     } else if (scheduledInterview?.scheduledAt) {
       const when = scheduledInterview.scheduledAt.toLocaleString("en-US", { dateStyle: "long", timeStyle: "short" });

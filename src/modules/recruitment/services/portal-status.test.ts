@@ -68,6 +68,17 @@ it("does not leak another identity's status", async () => {
   expect(await getApplicantStatus(ID("other@yale.edu"))).toEqual([]);
 });
 
+it("does not show NOT_SELECTED for a released cycle where acceptances exist but none is emailed (conflict case)", async () => {
+  const { srr, cycle, app } = await cycleWithApp("c7", "reed@yale.edu");
+  // Create an un-emailed acceptance row directly (simulates conflict: accepted by 2+ depts, email withheld).
+  await prisma.acceptance.create({ data: { applicationId: app.id, departmentCode: "SRHD", approvedById: srr.id, emailedAt: null } });
+  // Mark the cycle as released without going through releaseDecisions (which would send the email).
+  await prisma.recruitmentCycle.update({ where: { id: cycle.id }, data: { decisionsReleasedAt: new Date() } });
+  const [v] = await getApplicantStatus(ID("reed@yale.edu"));
+  // Conflicted applicant must see neutral SUBMITTED, not a false rejection.
+  expect(v.state).toBe("SUBMITTED");
+});
+
 it("lists the identity's applications across cycles with status", async () => {
   const lead = await prisma.person.create({ data: { name: "L", status: "ACTIVE" } });
   const term = await prisma.term.create({ data: { code: "FA26", name: "F", startDate: new Date(), endDate: new Date() } });

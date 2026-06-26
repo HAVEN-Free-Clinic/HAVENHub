@@ -58,6 +58,7 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
           <Link href={`/recruitment/cycles/${id}/interviews`} className={navLink}>Interviews</Link>
         )}
         <Link href={`/recruitment/cycles/${id}/onboarding`} className={navLink}>Onboarding</Link>
+        <Link href={`/recruitment/cycles/${id}/emails`} className={navLink}>Edit emails</Link>
       </div>
 
       <div className="rounded-2xl border border-border bg-surface p-5 shadow-sm">

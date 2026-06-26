@@ -104,7 +104,8 @@ model Person {
   emailLogs                 EmailLog[]           @relation("emailLogPerson")
   /// Email log rows this person triggered (may differ from the recipient).
   emailLogsTriggered        EmailLog[]           @relation("emailLogTriggeredBy")
-  emailTemplatesUpdated     EmailTemplate[]      @relation("emailTemplateUpdatedBy")
+  emailTemplatesUpdated                 EmailTemplate[]         @relation("emailTemplateUpdatedBy")
+  recruitmentCycleEmailsUpdated         RecruitmentCycleEmail[] @relation("recruitmentCycleEmailUpdatedBy")
   campaignsCreated          EmailCampaign[]      @relation("campaignCreatedBy")
   complianceReminder        ComplianceReminder?
   teamsMessages             TeamsMessage[]       @relation("teamsMessagePerson")
@@ -656,6 +657,24 @@ model EmailTemplate {
   updatedAt   DateTime @updatedAt
 }
 
+/// Per-cycle override of a recruitment email. A row exists only when a cycle
+/// customizes that email; absence means inherit the global default. `key` is one
+/// of the cycle-scoped recruitment descriptor keys (not recruitment.portal_link).
+model RecruitmentCycleEmail {
+  id          String           @id @default(cuid())
+  cycleId     String
+  cycle       RecruitmentCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  key         String
+  subject     String
+  body        String
+  updatedById String?
+  updatedBy   Person?          @relation("recruitmentCycleEmailUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@unique([cycleId, key])
+}
+
 /// Per-person HIPAA reminder state. Drives the weekly cadence (lastRemindedAt),
 /// the escalation threshold (remindersSent), and the once-only director
 /// escalation (escalatedAt). Reset to zero when the person becomes COMPLIANT.
@@ -871,6 +890,7 @@ model RecruitmentCycle {
   applicants   Applicant[]
   applications Application[]
   trainings    Training[]
+  cycleEmails  RecruitmentCycleEmail[]
 
   @@index([status, track])
 }

@@ -83,6 +83,10 @@ export async function releaseDecisions(cycleId: string, actorId: string): Promis
     sent += 1;
   }
 
+  // Mark the cycle's decisions released so the applicant portal may surface
+  // final outcomes (accepted via emailedAt, not-selected/waitlist via this stamp).
+  await prisma.recruitmentCycle.update({ where: { id: cycleId }, data: { decisionsReleasedAt: new Date() } });
+
   await recordAudit({ actorPersonId: actorId, action: "recruitment.release", entityType: "RecruitmentCycle", entityId: cycleId, after: { sent, skippedConflicted: skippedApps.size } });
   return { sent, skippedConflicted: skippedApps.size };
 }

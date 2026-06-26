@@ -63,6 +63,21 @@ it("requires review_all", async () => {
   await expect(releaseDecisions(cycle.id, plain.id)).rejects.toBeInstanceOf(RecruitmentAuthError);
 });
 
+it("stamps decisionsReleasedAt on the cycle when decisions are released", async () => {
+  const { srr, cycle, clean } = await seed();
+  await acceptApplicant(clean.id, "SRHD", srr.id, null);
+  expect((await prisma.recruitmentCycle.findUniqueOrThrow({ where: { id: cycle.id } })).decisionsReleasedAt).toBeNull();
+  await releaseDecisions(cycle.id, srr.id);
+  expect((await prisma.recruitmentCycle.findUniqueOrThrow({ where: { id: cycle.id } })).decisionsReleasedAt).not.toBeNull();
+});
+
+it("stamps decisionsReleasedAt even when there are no acceptances (all not-selected)", async () => {
+  const { srr, cycle } = await seed();
+  const res = await releaseDecisions(cycle.id, srr.id);
+  expect(res.sent).toBe(0);
+  expect((await prisma.recruitmentCycle.findUniqueOrThrow({ where: { id: cycle.id } })).decisionsReleasedAt).not.toBeNull();
+});
+
 it("releaseSummary reports the counts", async () => {
   const { srr, cycle, clean, conflicted } = await seed();
   await acceptApplicant(clean.id, "SRHD", srr.id, null);

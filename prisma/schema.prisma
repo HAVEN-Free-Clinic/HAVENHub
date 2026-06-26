@@ -855,7 +855,8 @@ model RecruitmentCycle {
   opensAt         DateTime?
   closesAt        DateTime?
   departments     String[]
-  acceptsRenewals Boolean          @default(false)
+  acceptsRenewals     Boolean          @default(false)
+  decisionsReleasedAt DateTime?
   isTermTraining  Boolean          @default(false)
   quizPassPercent Int              @default(80)
   quizMaxAttempts Int              @default(3)

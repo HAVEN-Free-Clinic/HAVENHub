@@ -89,3 +89,18 @@ it("releaseSummary reports the counts", async () => {
   expect(s.unnotified).toBe(1);
   expect(s.emailed).toBe(0);
 });
+
+it("uses the cycle's acceptance email override when present", async () => {
+  const { srr, cycle, clean } = await seed();
+  await acceptApplicant(clean.id, "SRHD", srr.id, null);
+  const cycleId = cycle.id;
+  const actorId = srr.id;
+  await prisma.recruitmentCycleEmail.create({
+    data: { cycleId, key: "recruitment.acceptance", subject: "Custom accept {{ firstName }}", body: "<p>Joined {{ departmentName }}</p>" },
+  });
+  await releaseDecisions(cycleId, actorId);
+  const mail = await prisma.emailLog.findFirstOrThrow({ where: { template: "recruitment.acceptance" } });
+  expect(mail.subject).toBe("Custom accept A");
+  expect(mail.html).toContain("Joined");
+  expect(mail.html).toContain("<!DOCTYPE html>");
+});

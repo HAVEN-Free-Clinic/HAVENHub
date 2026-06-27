@@ -74,6 +74,23 @@ it("rejects a director scheduling for a department the applicant did not rank", 
   await expect(createInterview(application.id, "PCAR", pcarDir.id)).rejects.toBeInstanceOf(RecruitmentAuthError);
 });
 
+it("uses the cycle's interview-invite override when present", async () => {
+  const { director, application, cycle } = await seed();
+  const iv = await createInterview(application.id, "EDUC", director.id);
+  await updateInterview(iv.id, { scheduledAt: new Date("2026-04-15T18:30:00Z"), zoomLink: "https://z", notes: null }, director.id);
+  const cycleId = cycle.id;
+  const interviewId = iv.id;
+  const actorId = director.id;
+  await prisma.recruitmentCycleEmail.create({
+    data: { cycleId, key: "recruitment.interview_invite", subject: "Talk {{ departmentName }}", body: "<p>At {{ interviewTime }}, join {{{ joinLink }}}</p>" },
+  });
+  await sendInterviewInvite(interviewId, actorId);
+  const mail = await prisma.emailLog.findFirstOrThrow({ where: { template: "recruitment.interview_invite" } });
+  expect(mail.subject).toContain("Talk");
+  expect(mail.html).toContain("At ");
+  expect(mail.html).toContain("<!DOCTYPE html>");
+});
+
 it("lists interviews in scope and the panelist's assignments", async () => {
   const { director, panelist, srr, cycle, application } = await seed();
   const iv = await createInterview(application.id, "EDUC", director.id);

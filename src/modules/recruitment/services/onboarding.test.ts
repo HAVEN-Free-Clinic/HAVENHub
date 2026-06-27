@@ -93,3 +93,18 @@ it("listOnboarding returns acceptances with contract status", async () => {
   expect(rows).toHaveLength(1);
   expect(rows[0].contract?.status).toBe("PENDING");
 });
+
+it("uses the cycle's onboarding email override when present", async () => {
+  const { srr, cycle, acceptance } = await seed();
+  const cycleId = cycle.id;
+  const acceptanceId = acceptance.id;
+  const actorId = srr.id;
+  await prisma.recruitmentCycleEmail.create({
+    data: { cycleId, key: "recruitment.onboarding", subject: "Finish {{ cycleTitle }}", body: '<p>Go to <a href="{{ contractUrl }}">link</a></p>' },
+  });
+  await createOrResendContract(acceptanceId, actorId, "https://hub.test");
+  const mail = await prisma.emailLog.findFirstOrThrow({ where: { template: "recruitment.onboarding" } });
+  expect(mail.subject).toContain("Finish");
+  expect(mail.html).toContain("Go to");
+  expect(mail.html).toContain("<!DOCTYPE html>");
+});

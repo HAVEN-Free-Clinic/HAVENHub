@@ -6,13 +6,14 @@ export async function resetDb() {
   // CASCADE handles FK ordering. (RESTART IDENTITY would be a no-op: all PKs are cuid text.)
   await prisma.$executeRawUnsafe(
     `TRUNCATE "CourseProgress", "CourseDepartment", "Course",
-              "QuizAttempt", "Training", "Evaluation", "InterviewPanelist", "Interview", "OnboardingContract", "Acceptance", "Application", "Applicant", "FormField", "FormSection", "RecruitmentCycle",
+              "QuizAttempt", "Training", "Evaluation", "InterviewPanelist", "Interview", "OnboardingContract", "Acceptance", "Application", "Applicant", "Subcommittee", "FormField", "FormSection", "RecruitmentCycleEmail", "RecruitmentCycle",
               "ShiftRequest", "ScheduleDay", "RhdClinic", "RhdAttending",
               "ShiftAssignment", "HipaaCertificate", "RoleAssignment", "RoleGrant", "Role", "TermMembership",
               "DepartmentDelegation", "Department", "Term", "Person", "AuditLog",
               "Outbox", "MirrorRecord", "WorkerHeartbeat",
               "OffboardFlag", "EpicRequest", "YnhhTicket", "DisciplinaryAction", "Notification", "EmailLog", "EmailCampaignRun", "EmailCampaign", "EmailTemplate",
-              "ComplianceReminder", "MailCredential", "Setting" CASCADE`
+              "ComplianceReminder", "MailCredential", "Setting",
+              "ApplicantPortalToken" CASCADE`
   );
   // The settings resolver holds a process-global 30s in-memory cache. We just
   // truncated "Setting", so any cached override is now stale -- clear it so a

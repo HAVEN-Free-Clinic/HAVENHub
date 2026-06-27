@@ -19,3 +19,4 @@ uploads/
 
 # Design system reference bundle (local-only; not app source)
 HAVEN Free Clinic Design System/
+.vercel

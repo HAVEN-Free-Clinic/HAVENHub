@@ -137,7 +137,6 @@ export async function recordAttendance(personId: string, termId: string, track: 
 }
 
 export type TrainingIntake = {
-  subcommitteeInterest?: string | null;
   additionalShiftAvailability?: string | null;
   minShiftsWanted?: string | null;
   feedback?: string | null;
@@ -211,7 +210,6 @@ export async function getMyTraining(personId: string): Promise<MyTraining[]> {
       attemptsUsed, maxAttempts: cycle?.quizMaxAttempts ?? 0, passPercent: cycle?.quizPassPercent ?? 0,
       questions,
       intake: {
-        subcommitteeInterest: row?.subcommitteeInterest ?? null,
         additionalShiftAvailability: row?.additionalShiftAvailability ?? null,
         minShiftsWanted: row?.minShiftsWanted ?? null,
         feedback: row?.feedback ?? null,
@@ -250,7 +248,6 @@ export async function submitQuiz(
     await tx.training.update({
       where: { id: row.id },
       data: {
-        subcommitteeInterest: input.intake.subcommitteeInterest ?? undefined,
         additionalShiftAvailability: input.intake.additionalShiftAvailability ?? undefined,
         minShiftsWanted: input.intake.minShiftsWanted ?? undefined,
         feedback: input.intake.feedback ?? undefined,

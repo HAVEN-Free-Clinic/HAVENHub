@@ -63,6 +63,21 @@ it("requires review_all", async () => {
   await expect(releaseDecisions(cycle.id, plain.id)).rejects.toBeInstanceOf(RecruitmentAuthError);
 });
 
+it("stamps decisionsReleasedAt on the cycle when decisions are released", async () => {
+  const { srr, cycle, clean } = await seed();
+  await acceptApplicant(clean.id, "SRHD", srr.id, null);
+  expect((await prisma.recruitmentCycle.findUniqueOrThrow({ where: { id: cycle.id } })).decisionsReleasedAt).toBeNull();
+  await releaseDecisions(cycle.id, srr.id);
+  expect((await prisma.recruitmentCycle.findUniqueOrThrow({ where: { id: cycle.id } })).decisionsReleasedAt).not.toBeNull();
+});
+
+it("stamps decisionsReleasedAt even when there are no acceptances (all not-selected)", async () => {
+  const { srr, cycle } = await seed();
+  const res = await releaseDecisions(cycle.id, srr.id);
+  expect(res.sent).toBe(0);
+  expect((await prisma.recruitmentCycle.findUniqueOrThrow({ where: { id: cycle.id } })).decisionsReleasedAt).not.toBeNull();
+});
+
 it("releaseSummary reports the counts", async () => {
   const { srr, cycle, clean, conflicted } = await seed();
   await acceptApplicant(clean.id, "SRHD", srr.id, null);
@@ -73,4 +88,19 @@ it("releaseSummary reports the counts", async () => {
   expect(s.conflictedApplications).toBe(1);
   expect(s.unnotified).toBe(1);
   expect(s.emailed).toBe(0);
+});
+
+it("uses the cycle's acceptance email override when present", async () => {
+  const { srr, cycle, clean } = await seed();
+  await acceptApplicant(clean.id, "SRHD", srr.id, null);
+  const cycleId = cycle.id;
+  const actorId = srr.id;
+  await prisma.recruitmentCycleEmail.create({
+    data: { cycleId, key: "recruitment.acceptance", subject: "Custom accept {{ firstName }}", body: "<p>Joined {{ departmentName }}</p>" },
+  });
+  await releaseDecisions(cycleId, actorId);
+  const mail = await prisma.emailLog.findFirstOrThrow({ where: { template: "recruitment.acceptance" } });
+  expect(mail.subject).toBe("Custom accept A");
+  expect(mail.html).toContain("Joined");
+  expect(mail.html).toContain("<!DOCTYPE html>");
 });

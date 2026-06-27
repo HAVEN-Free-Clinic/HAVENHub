@@ -4,7 +4,8 @@ import { can } from "@/platform/rbac/engine";
 import { queueEmail } from "@/platform/email/send";
 import { recordAudit } from "@/platform/audit";
 import { reviewScope, RecruitmentAuthError } from "./review";
-import { interviewInviteEmail } from "../email/templates/interview-invite";
+import { renderCycleEmail } from "../email/render";
+import { esc } from "@/platform/email/render/escape";
 
 export class InterviewError extends Error {
   constructor(message: string) { super(message); this.name = "InterviewError"; }
@@ -96,13 +97,20 @@ export async function removePanelist(panelistId: string, actorId: string): Promi
 }
 
 export async function sendInterviewInvite(interviewId: string, actorId: string): Promise<void> {
-  const iv = await prisma.interview.findUnique({ where: { id: interviewId }, include: { application: { include: { applicant: true } } } });
+  const iv = await prisma.interview.findUnique({ where: { id: interviewId }, include: { application: { include: { applicant: true, cycle: { select: { id: true } } } } } });
   if (!iv) throw new InterviewError("Interview not found.");
   await assertCanManage(iv.departmentCode, actorId);
   if (!iv.scheduledAt) throw new InterviewError("Set an interview time first.");
   const dept = await prisma.department.findUnique({ where: { code: iv.departmentCode }, select: { name: true } });
   const applicant = iv.application.applicant;
-  const email = interviewInviteEmail({ firstName: applicant.firstName, departmentName: dept?.name ?? iv.departmentCode, scheduledAt: iv.scheduledAt, zoomLink: iv.zoomLink });
+  const interviewTime = iv.scheduledAt.toLocaleString("en-US", { dateStyle: "full", timeStyle: "short", timeZone: "America/New_York" });
+  const joinLink = iv.zoomLink ? `<a href="${esc(iv.zoomLink)}">${esc(iv.zoomLink)}</a>` : "link to follow";
+  const email = await renderCycleEmail(iv.application.cycle.id, "recruitment.interview_invite", {
+    firstName: applicant.firstName || "there",
+    departmentName: dept?.name ?? iv.departmentCode,
+    interviewTime,
+    joinLink,
+  });
   await prisma.$transaction(async (tx) => {
     await queueEmail(tx, { to: applicant.email, subject: email.subject, html: email.html, template: "recruitment.interview_invite" });
     await tx.interview.update({ where: { id: interviewId }, data: { invitedAt: new Date() } });

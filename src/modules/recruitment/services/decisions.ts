@@ -3,7 +3,7 @@ import { can } from "@/platform/rbac/engine";
 import { queueEmail } from "@/platform/email/send";
 import { recordAudit } from "@/platform/audit";
 import { findAcceptanceConflicts } from "../engine/conflicts";
-import { acceptanceEmail } from "../email/templates/acceptance";
+import { resolveCycleEmail, renderResolvedEmail } from "../email/render";
 import { RecruitmentAuthError, AcceptanceError } from "./review";
 
 export type Conflict = { applicationId: string; applicantName: string; departments: string[] };
@@ -69,19 +69,30 @@ export async function releaseDecisions(cycleId: string, actorId: string): Promis
   });
   const conflictIds = findAcceptanceConflicts(acceptances.map((a) => ({ applicationId: a.applicationId, departmentCode: a.departmentCode })));
 
+  // Resolve the acceptance email sources once for the whole cycle.
+  const acceptanceSources = await resolveCycleEmail(cycleId, "recruitment.acceptance");
+
   let sent = 0;
   const skippedApps = new Set<string>();
   for (const acc of acceptances) {
     if (acc.emailedAt) continue;
     if (conflictIds.has(acc.applicationId)) { skippedApps.add(acc.applicationId); continue; }
     const applicant = acc.application.applicant;
-    const email = acceptanceEmail({ firstName: applicant.firstName, cycleTitle: cycle.title, departmentName: deptName.get(acc.departmentCode) ?? acc.departmentCode });
+    const email = renderResolvedEmail(acceptanceSources, {
+      firstName: applicant.firstName || "there",
+      cycleTitle: cycle.title,
+      departmentName: deptName.get(acc.departmentCode) ?? acc.departmentCode,
+    });
     await prisma.$transaction(async (tx) => {
       await queueEmail(tx, { to: applicant.email, subject: email.subject, html: email.html, template: "recruitment.acceptance" });
       await tx.acceptance.update({ where: { id: acc.id }, data: { emailedAt: new Date() } });
     });
     sent += 1;
   }
+
+  // Mark the cycle's decisions released so the applicant portal may surface
+  // final outcomes (accepted via emailedAt, not-selected/waitlist via this stamp).
+  await prisma.recruitmentCycle.update({ where: { id: cycleId }, data: { decisionsReleasedAt: new Date() } });
 
   await recordAudit({ actorPersonId: actorId, action: "recruitment.release", entityType: "RecruitmentCycle", entityId: cycleId, after: { sent, skippedConflicted: skippedApps.size } });
   return { sent, skippedConflicted: skippedApps.size };

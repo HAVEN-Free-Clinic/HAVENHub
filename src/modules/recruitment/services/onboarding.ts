@@ -8,7 +8,7 @@ import { putObject, deleteObject } from "@/platform/storage";
 import { queueEmail } from "@/platform/email/send";
 import { recordAudit } from "@/platform/audit";
 import { RecruitmentAuthError } from "./review";
-import { onboardingEmail } from "../email/templates/onboarding";
+import { renderCycleEmail } from "../email/render";
 
 export class ContractError extends Error {
   constructor(message: string) { super(message); this.name = "ContractError"; }
@@ -36,7 +36,7 @@ export async function createOrResendContract(
       application: {
         include: {
           applicant: true,
-          cycle: { select: { title: true } },
+          cycle: { select: { id: true, title: true } },
         },
       },
       contract: true,
@@ -62,8 +62,8 @@ export async function createOrResendContract(
     });
   }
   const url = `${baseUrl}/onboard/${contract.token}`;
-  const email = onboardingEmail({
-    firstName: contract.firstName,
+  const email = await renderCycleEmail(acceptance.application.cycle.id, "recruitment.onboarding", {
+    firstName: contract.firstName || "there",
     cycleTitle: acceptance.application.cycle.title,
     contractUrl: url,
   });

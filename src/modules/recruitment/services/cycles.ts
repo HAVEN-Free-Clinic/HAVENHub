@@ -119,3 +119,43 @@ export async function setAcceptsRenewals(id: string, value: boolean, actorId: st
   await recordAudit({ actorPersonId: actorId, action: "recruitment.cycle_set_renewals", entityType: "RecruitmentCycle", entityId: id, after: { acceptsRenewals: value } });
   return updated;
 }
+
+export type RemovedDepartmentImpact = { code: string; applicantCount: number };
+
+/** Replace a cycle's department list (add or remove). Allowed on any non-archived
+ *  cycle. Removal is never blocked: the new list is always saved, and any removed
+ *  department that still has applicants is reported back so the caller can warn.
+ *  Codes are trimmed, de-duplicated, and emptied entries dropped (order preserved). */
+export async function setCycleDepartments(
+  id: string,
+  departmentCodes: string[],
+  actorId: string
+): Promise<{ cycle: RecruitmentCycle; removedWithApplicants: RemovedDepartmentImpact[] }> {
+  const cycle = await prisma.recruitmentCycle.findUnique({ where: { id } });
+  if (!cycle) throw new CyclePublishError("Cycle not found.");
+  if (cycle.status === "ARCHIVED") throw new CyclePublishError("Departments cannot be changed on an archived cycle.");
+
+  const next: string[] = [];
+  for (const raw of departmentCodes) {
+    const code = raw.trim();
+    if (code && !next.includes(code)) next.push(code);
+  }
+
+  const removed = cycle.departments.filter((c) => !next.includes(c));
+  const removedWithApplicants: RemovedDepartmentImpact[] = [];
+  for (const code of removed) {
+    const applicantCount = await prisma.application.count({ where: { cycleId: id, departmentChoices: { has: code } } });
+    if (applicantCount > 0) removedWithApplicants.push({ code, applicantCount });
+  }
+
+  const updated = await prisma.recruitmentCycle.update({ where: { id }, data: { departments: next } });
+  await recordAudit({
+    actorPersonId: actorId,
+    action: "recruitment.cycle_set_departments",
+    entityType: "RecruitmentCycle",
+    entityId: id,
+    before: { departments: cycle.departments },
+    after: { departments: next },
+  });
+  return { cycle: updated, removedWithApplicants };
+}

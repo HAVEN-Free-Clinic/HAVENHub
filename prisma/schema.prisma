@@ -104,7 +104,8 @@ model Person {
   emailLogs                 EmailLog[]           @relation("emailLogPerson")
   /// Email log rows this person triggered (may differ from the recipient).
   emailLogsTriggered        EmailLog[]           @relation("emailLogTriggeredBy")
-  emailTemplatesUpdated     EmailTemplate[]      @relation("emailTemplateUpdatedBy")
+  emailTemplatesUpdated                 EmailTemplate[]         @relation("emailTemplateUpdatedBy")
+  recruitmentCycleEmailsUpdated         RecruitmentCycleEmail[] @relation("recruitmentCycleEmailUpdatedBy")
   campaignsCreated          EmailCampaign[]      @relation("campaignCreatedBy")
   complianceReminder        ComplianceReminder?
   teamsMessages             TeamsMessage[]       @relation("teamsMessagePerson")
@@ -112,6 +113,7 @@ model Person {
   shiftAssignments          ShiftAssignment[]
   recruitmentCyclesCreated  RecruitmentCycle[]   @relation("RecruitmentCycleCreatedBy")
   recruitmentAcceptances    Acceptance[]         @relation("recruitmentAcceptanceApprover")
+  applicantSubmissions      Applicant[]          @relation("ApplicantPerson")
   contractsPromoted         OnboardingContract[] @relation("contractPromotedBy")
   contractsPromotedTo       OnboardingContract[] @relation("contractPromotedPerson")
   interviewsCreated         Interview[]          @relation("interviewCreatedBy")
@@ -120,6 +122,7 @@ model Person {
   interviewEvaluations      Evaluation[]         @relation("interviewEvaluator")
   trainings                Training[]  @relation("trainingPerson")
   trainingAttendanceMarked Training[]  @relation("trainingAttendanceRecorder")
+  subcommitteeAssignments  Application[] @relation("applicationSubcommitteeAssigner")
   courseProgress            CourseProgress[]
   scoProgress               ScoProgress[]
   /// Shift requests this person raised.
@@ -202,6 +205,21 @@ model Department {
   patientCapacityPerProvider Int?
   createdAt                  DateTime               @default(now())
   updatedAt                  DateTime               @updatedAt
+}
+
+/// Admin-managed subcommittees applicants rank at application time and the
+/// recruitment team assigns post-acceptance. Soft-delete via isActive so
+/// historical rankings always resolve to a name.
+model Subcommittee {
+  id                   String        @id @default(cuid())
+  name                 String
+  isActive             Boolean       @default(true)
+  order                Int           @default(0)
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+  assignedApplications Application[] @relation("applicationAssignedSubcommittee")
+
+  @@index([isActive, order])
 }
 
 /// One row per "manager department oversees managed department" edge. Used to
@@ -373,6 +391,7 @@ enum FieldType {
   DATE
   FILE
   DEPARTMENT_CHOICE
+  SUBCOMMITTEE_RANK
 }
 
 enum ApplicantScope {
@@ -387,6 +406,7 @@ enum ApplicantType {
 }
 
 enum ApplicationStatus {
+  DRAFT
   SUBMITTED
 }
 
@@ -637,6 +657,24 @@ model EmailTemplate {
   updatedAt   DateTime @updatedAt
 }
 
+/// Per-cycle override of a recruitment email. A row exists only when a cycle
+/// customizes that email; absence means inherit the global default. `key` is one
+/// of the cycle-scoped recruitment descriptor keys (not recruitment.portal_link).
+model RecruitmentCycleEmail {
+  id          String           @id @default(cuid())
+  cycleId     String
+  cycle       RecruitmentCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  key         String
+  subject     String
+  body        String
+  updatedById String?
+  updatedBy   Person?          @relation("recruitmentCycleEmailUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@unique([cycleId, key])
+}
+
 /// Per-person HIPAA reminder state. Drives the weekly cadence (lastRemindedAt),
 /// the escalation threshold (remindersSent), and the once-only director
 /// escalation (escalatedAt). Reset to zero when the person becomes COMPLIANT.
@@ -836,7 +874,8 @@ model RecruitmentCycle {
   opensAt         DateTime?
   closesAt        DateTime?
   departments     String[]
-  acceptsRenewals Boolean          @default(false)
+  acceptsRenewals     Boolean          @default(false)
+  decisionsReleasedAt DateTime?
   isTermTraining  Boolean          @default(false)
   quizPassPercent Int              @default(80)
   quizMaxAttempts Int              @default(3)
@@ -851,6 +890,7 @@ model RecruitmentCycle {
   applicants   Applicant[]
   applications Application[]
   trainings    Training[]
+  cycleEmails  RecruitmentCycleEmail[]
 
   @@index([status, track])
 }
@@ -895,6 +935,7 @@ model FormField {
 model Applicant {
   id         String   @id @default(cuid())
   cycleId    String
+  applicantPersonId String?
   firstName  String
   lastName   String
   email      String
@@ -904,10 +945,15 @@ model Applicant {
   phone      String?
   createdAt  DateTime @default(now())
 
-  cycle        RecruitmentCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
-  applications Application[]
+  cycle           RecruitmentCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  /// Set for signed-in renewals; null for anonymous new applicants. Links the
+  /// submission to the verified HAVEN Hub account.
+  applicantPerson Person?          @relation("ApplicantPerson", fields: [applicantPersonId], references: [id], onDelete: SetNull)
+  applications    Application[]
 
   @@unique([cycleId, emailLower])
+  @@unique([cycleId, applicantPersonId])
+  @@index([applicantPersonId])
 }
 
 model Application {
@@ -918,8 +964,14 @@ model Application {
   applicantType     ApplicantType     @default(NEW)
   departmentChoices String[]
   renewalDepartment String?
+  // ordered subcommittee IDs the applicant ranked (1st -> Nth); hoisted from the
+  // SUBCOMMITTEE_RANK field answer at submit, like departmentChoices.
+  subcommitteeRanking      String[]
+  assignedSubcommitteeId   String?
+  assignedSubcommitteeById String?
+  assignedSubcommitteeAt   DateTime?
   status            ApplicationStatus @default(SUBMITTED)
-  submittedAt       DateTime          @default(now())
+  submittedAt       DateTime?
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
 
@@ -927,6 +979,8 @@ model Application {
   applicant   Applicant        @relation(fields: [applicantId], references: [id], onDelete: Cascade)
   acceptances Acceptance[]
   interviews  Interview[]
+  assignedSubcommittee   Subcommittee? @relation("applicationAssignedSubcommittee", fields: [assignedSubcommitteeId], references: [id], onDelete: SetNull)
+  assignedSubcommitteeBy Person?       @relation("applicationSubcommitteeAssigner", fields: [assignedSubcommitteeById], references: [id], onDelete: SetNull)
 
   @@unique([cycleId, applicantId])
   @@index([cycleId, submittedAt])
@@ -1006,7 +1060,6 @@ model Training {
   attendanceRecordedAt        DateTime?
   locked                      Boolean         @default(false)
   lockResetAt                 DateTime?
-  subcommitteeInterest        String?
   additionalShiftAvailability String?
   minShiftsWanted             String?
   feedback                    String?
@@ -1183,4 +1236,18 @@ model ScoProgress {
 
   @@unique([personId, courseId, scoId])
   @@index([courseId])
+}
+
+/// Single-use, hashed, expiring magic-link token for the applicant portal.
+/// Only the SHA-256 hash of the token is stored; the raw token lives only in
+/// the emailed link.
+model ApplicantPortalToken {
+  id         String    @id @default(cuid())
+  emailLower String
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  usedAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([emailLower])
 }

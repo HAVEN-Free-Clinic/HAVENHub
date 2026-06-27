@@ -221,3 +221,38 @@ export async function getEpicRequestHistory(): Promise<EpicRequestHistoryRow[]> 
     })),
   }));
 }
+
+
+// ---------------------------------------------------------------------------
+// closeTicket
+// ---------------------------------------------------------------------------
+
+/**
+ * Marks a YNHH ticket as closed, stamping closedAt with the current time.
+ * Closed tickets move out of the active Tracker view and into History --
+ * see EpicRequestTabs, which filters getEpicRequestHistory's results by
+ * ticket.status rather than querying separately.
+ */
+export async function closeTicket(ticketId: string) {
+  return prisma.ynhhTicket.update({
+    where: { id: ticketId },
+    data: {
+      status: "CLOSED",
+      closedAt: new Date(),
+    },
+  });
+}
+
+
+
+// ---------------------------------------------------------------------------
+// updateServiceRequestNumber
+// ---------------------------------------------------------------------------
+
+/** Sets or updates the YNHH service request number on a ticket. */
+export async function updateServiceRequestNumber(ticketId: string, serviceRequestNumber: string) {
+  return prisma.ynhhTicket.update({
+    where: { id: ticketId },
+    data: { serviceRequestNumber },
+  });
+}

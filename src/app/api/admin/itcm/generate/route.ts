@@ -18,45 +18,25 @@
  */
 
 import { NextResponse } from "next/server";
-import { PDFDocument } from "pdf-lib";
 import * as fs from "fs";
 import * as path from "path";
 import { auth } from "@/platform/auth/auth";
 import { getActivePerson } from "@/platform/auth/match-person";
 import { can } from "@/platform/rbac/engine";
 import { findMirrorPerson, getPeopleByIds } from "@/modules/admin/services/itcm";
+import {
+  AUTHORIZERS,
+  generatePdf,
+  type AuthorizerKey,
+  type RequestType,
+} from "@/modules/admin/services/itcm-pdf";
 import { prisma } from "@/platform/db";
+
+
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-
-const AUTHORIZERS = {
-  CC: { name: "Caprice Culkin", phone: "720-254-2589", email: "caprice.culkin@yale.edu" },
-  RT: { name: "Renee Tracey", phone: "201-815-6054", email: "renee.tracey@yale.edu" },
-  JC: { name: "Jack Carney", phone: "585-689-9720", email: "j.carney@yale.edu" },
-} as const;
-type AuthorizerKey = keyof typeof AUTHORIZERS;
-
-type RequestType =
-  | "new_individual"
-  | "mod_individual"
-  | "renew_individual"
-  | "bulk_new"
-  | "bulk_mod";
-
-const SECTION_IX: Record<RequestType, string> = {
-  new_individual:
-    "This individual requires a NEW Epic account, and require access to the department YM HAVEN FREE CLINIC. Their account should have similar functions of the aforementioned Epic ID to mirror within the department YM HAVEN FREE CLINIC.",
-  mod_individual:
-    "This individual already has an Epic account, but they require extended access to the department YM HAVEN FREE CLINIC. Their account should also have similar functions of the aforementioned Epic ID to mirror within the department YM HAVEN FREE CLINIC.",
-  renew_individual:
-    "This individual already has an Epic account, but they require extended access to the department YM HAVEN FREE CLINIC. Their account should also have similar functions of the aforementioned Epic ID to mirror within the department YM HAVEN FREE CLINIC.",
-  bulk_new:
-    "These individuals require NEW Epic accounts, and require access to the department YM HAVEN FREE CLINIC. Their accounts should have similar functions of the aforementioned Epic ID to mirror within the department YM HAVEN FREE CLINIC. Please see the attached spreadsheet for the multiple user information.",
-  bulk_mod:
-    "These individuals already have Epic accounts, but they require extended access to the department YM HAVEN FREE CLINIC. Their accounts should also have similar functions of the aforementioned Epic ID to mirror within the department YM HAVEN FREE CLINIC. Please see the attached spreadsheet for the multiple user information.",
-};
 
 const EMAIL_BODIES: Record<RequestType, (args: {
   personName: string;
@@ -94,35 +74,8 @@ const REQUEST_TYPE_LABELS: Record<RequestType, string> = {
 };
 
 // ---------------------------------------------------------------------------
-// Checkbox helper
+// Helpers
 // ---------------------------------------------------------------------------
-
-/**
- * Checks a PDF form checkbox by setting its value to /Yes and its appearance
- * state to /Yes. pdf-lib's built-in check() sometimes fails on non-standard
- * checkbox widgets; direct annotation mutation is more reliable.
- */
-function checkBox(form: ReturnType<PDFDocument["getForm"]>, fieldName: string) {
-  try {
-    const field = form.getCheckBox(fieldName);
-    field.check();
-  } catch {
-    // Field missing or not a checkbox: log so a re-versioned template surfaces
-    // instead of silently shipping an unchecked box.
-    console.warn(`[itcm] PDF checkbox not set: "${fieldName}"`);
-  }
-}
-
-function fillText(form: ReturnType<PDFDocument["getForm"]>, fieldName: string, value: string) {
-  try {
-    const field = form.getTextField(fieldName);
-    field.setText(value);
-  } catch {
-    // Field missing: log so a re-versioned template surfaces instead of
-    // silently shipping a blank field.
-    console.warn(`[itcm] PDF text field not set: "${fieldName}"`);
-  }
-}
 
 /**
  * Splits a stored full name into first/last for the PDF and spreadsheet name
@@ -136,107 +89,6 @@ function splitName(full: string): { firstName: string; lastName: string } {
   if (parts.length === 0) return { firstName: "", lastName: "" };
   if (parts.length === 1) return { firstName: parts[0], lastName: "" };
   return { firstName: parts.slice(0, -1).join(" "), lastName: parts[parts.length - 1] };
-}
-
-// ---------------------------------------------------------------------------
-// PDF generator
-// ---------------------------------------------------------------------------
-
-async function generatePdf(args: {
-  requestType: RequestType;
-  authorizerKey: AuthorizerKey;
-  person: { firstName: string; lastName: string; email: string; netId: string; epicId: string; yaleAffiliation: string } | null;
-  endDate: string;
-  mirrorPerson: { name: string; epicId: string } | null;
-  templateBytes: Uint8Array;
-}): Promise<Uint8Array> {
-  const { requestType, authorizerKey, person, endDate, mirrorPerson, templateBytes } = args;
-  const authorizer = AUTHORIZERS[authorizerKey];
-  const today = new Date().toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
-  const isBulk = requestType.startsWith("bulk");
-  const isNew = requestType.includes("new");
-
-  const pdfDoc = await PDFDocument.load(templateBytes);
-  const form = pdfDoc.getForm();
-
-  // Section I — Authorizer
-  fillText(form, "Text1", authorizer.name);
-  fillText(form, "Text2", "HAVEN IT & Communications Director");
-  fillText(form, "Text3", authorizer.phone);
-  fillText(form, "Text4", today);
-  fillText(form, "Text5", authorizer.email);
-
-  // Section III — Person info
-  if (isBulk) {
-    fillText(form, "Text12", "See spreadsheet");
-    fillText(form, "Text18", "See spreadsheet");
-    fillText(form, "Text19", "See spreadsheet");
-    fillText(form, "Text23", "See spreadsheet");
-    fillText(form, "Text29", "See spreadsheet");
-  } else if (person) {
-    fillText(form, "Text12", person.firstName);
-    fillText(form, "Text18", person.lastName);
-    fillText(form, "Text19", person.email);
-    fillText(form, "Text23", person.netId);
-    if (!isNew) fillText(form, "Text17", "  " + person.epicId);
-  }
-
-  // Section III — always-fixed fields
-  fillText(form, "Text14", "203-936-8705");
-  fillText(form, "Text15", "800 Howard Avenue 06519");
-  fillText(form, "Text21", "Floor 1");
-
-  // Section IV — Affiliation + position
-  fillText(form, "Text28", "YM HAVEN FREE CLINIC");
-  checkBox(form, "Check Box1");   // Electronic signature
-  checkBox(form, "Check Box40");  // Community Connect Practice
-
-  if (!isBulk) {
-    checkBox(form, "Check Box21"); // Student (outer)
-    // Check the correct student sub-type based on Yale affiliation.
-    const affiliation = (person?.yaleAffiliation ?? "").toLowerCase();
-    if (affiliation.includes("med") || affiliation.includes("medicine")) {
-      checkBox(form, "Check Box45"); // Med Student
-    }
-    // All others (Yale College, GSAS, etc.) leave sub-type unchecked --
-    // the position "Other" text field (Text29) carries the affiliation label.
-    if (!isBulk && person?.yaleAffiliation) {
-      fillText(form, "Text29", person?.yaleAffiliation);
-    }
-  }
-
-  // Section V — Access type + similar person
-  if (isNew) {
-    checkBox(form, "Check Box49"); // New Hire
-    fillText(form, "Text75", today);
-  } else {
-    checkBox(form, "Check Box51"); // Modify Access
-    checkBox(form, "Check Box53"); // Transfer? No
-    checkBox(form, "Check Box54"); // Current access needed? Yes
-    checkBox(form, "Check Box56"); // Additional access required? Yes
-    fillText(form, "Text76", endDate);
-  }
-
-  if (mirrorPerson) {
-    fillText(form, "Text78", mirrorPerson.name);
-    fillText(form, "Text79", "  " + mirrorPerson.epicId);
-  }
-
-  // Section VI — System access
-  checkBox(form, "Check Box64");   // Epic
-  checkBox(form, "Remote Access"); // Remote Access
-
-  // Section IX — Additional information (font size reduced for wrapping)
-  try {
-    const field = form.getTextField("Text113");
-    field.setText(SECTION_IX[requestType]);
-    field.setFontSize(8);
-  } catch {
-    // skip
-  }
-
-
-  return pdfDoc.save();
 }
 
 // ---------------------------------------------------------------------------
@@ -544,3 +396,13 @@ export async function POST(req: Request) {
     emailBody,
   });
 }
+
+
+
+
+
+
+
+
+
+

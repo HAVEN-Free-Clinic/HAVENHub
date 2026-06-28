@@ -36,6 +36,8 @@ export async function promoteContracts(contractIds: string[], actorId: string): 
               yaleAffiliation: person.yaleAffiliation ?? contract.yaleAffiliation,
               gradYear: person.gradYear ?? contract.gradYear,
               epicId: person.epicId ?? contract.existingEpicId,
+              spanishSelfReported: person.spanishSelfReported || contract.spanishSelfReported,
+              licensedRN: person.licensedRN || contract.licensedRN,
             },
           });
         } else {
@@ -46,6 +48,8 @@ export async function promoteContracts(contractIds: string[], actorId: string): 
               netId: contract.netId, contactEmail: contract.email, phone: contract.phone,
               yaleAffiliation: contract.yaleAffiliation, gradYear: contract.gradYear,
               epicId: contract.existingEpicId, status: "ACTIVE",
+              spanishSelfReported: contract.spanishSelfReported,
+              licensedRN: contract.licensedRN,
             },
           });
         }

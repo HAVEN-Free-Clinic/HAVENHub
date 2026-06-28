@@ -206,6 +206,7 @@ export async function myEpicPanel(
       where: {
         personId,
         status: { in: ["PENDING", "SUBMITTED"] },
+        kind: { not: "DEACTIVATE" },
       },
       orderBy: { createdAt: "desc" },
     }),

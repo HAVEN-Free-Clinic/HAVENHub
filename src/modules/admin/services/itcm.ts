@@ -184,7 +184,7 @@ export type EpicRequestHistoryRow = {
   };
   requests: {
     id: string;
-    kind: "NEW" | "MODIFY" | "RENEW";
+    kind: "NEW" | "MODIFY" | "RENEW" | "DEACTIVATE";
     status: string;
     person: { name: string; epicId: string | null };
   }[];
@@ -215,7 +215,7 @@ export async function getEpicRequestHistory(): Promise<EpicRequestHistoryRow[]> 
     },
     requests: t.requests.map((r) => ({
       id: r.id,
-      kind: r.kind as "NEW" | "MODIFY" | "RENEW",
+      kind: r.kind as "NEW" | "MODIFY" | "RENEW" | "DEACTIVATE",
       status: r.status,
       person: { name: r.person.name, epicId: r.person.epicId },
     })),

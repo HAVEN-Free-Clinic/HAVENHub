@@ -63,7 +63,7 @@ describe("generatePdf deactivation", () => {
 
   it("checks the Delete Access box (Check Box60) on an individual deactivation", async () => {
     const doc = await loadDeactivateIndividual();
-    // Check Box60 is the "Delete Access" box in Section V — the core
+    // Check Box60 is the "Delete Access" box in Section V - the core
     // deactivation signal. This must be true and would fail if the Section V
     // deactivate branch did not check it.
     expect(doc.getForm().getCheckBox("Check Box60").isChecked()).toBe(true);

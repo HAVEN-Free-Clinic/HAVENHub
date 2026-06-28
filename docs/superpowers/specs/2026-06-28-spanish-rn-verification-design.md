@@ -47,9 +47,7 @@ model Person {
   spanishSelfReported  Boolean   @default(false)  // intake signal (onboarding / admin)
   spanishVerified      Boolean   @default(false)  // interpreting-dept confirmed -> gates scheduling
   spanishVerifiedAt    DateTime?                  // null = never assessed by a human
-  spanishVerifiedById  String?                    // the interpreting-dept verifier (Person id)
-  spanishVerifiedBy    Person?   @relation("SpanishVerifier", fields: [spanishVerifiedById], references: [id])
-  spanishVerifications Person[]  @relation("SpanishVerifier")  // back-relation
+  spanishVerifiedById  String?                    // verifier's Person id, bare (no FK), mirroring HipaaCertificate.verifiedById
 
   licensedRN           Boolean   @default(false)  // self-report only, unchanged
 }
@@ -95,8 +93,8 @@ All other rows get the column defaults (false / null). `licensedRN` is untouched
 1. **Admin person form (`modules/admin/components/person-form.tsx`).** Replace the two checkboxes with three:
    - Licensed RN (self-report), unchanged.
    - Spanish-speaking (self-reported) -> `spanishSelfReported`.
-   - Spanish verified, interpreting dept -> `spanishVerified` (admin override), with a read-only "Verified by {name} on {date}" caption rendered when `spanishVerifiedAt` is set.
-   The form's `person` prop type widens to include the new fields and the verifier's name.
+   - Spanish verified, interpreting dept -> `spanishVerified` (admin override), with a read-only "Verified on {date}" caption rendered when `spanishVerifiedAt` is set. (Verifier-name display is deferred to the Phase 2 interpreting-department surface to avoid a name lookup here.)
+   The form's `person` prop type widens to include the new fields.
 
 2. **`createPersonRecord` (`platform/people.ts`) and the create page action (`admin/people/new/page.tsx`).** This is the bug fix for #68. The create action reads `spanishSelfReported`, `spanishVerified`, and `licensedRN` from `formData`. `createPersonRecord` writes all three in the create branch and includes them in the audit `after`. When `spanishVerified` is true on create, stamp `spanishVerifiedById = actor` and `spanishVerifiedAt = now`.
 
@@ -129,7 +127,7 @@ Repoint tests:
 - RHD Spanish coverage counts `spanishVerified`, not self-report: a self-reported-but-unverified person does not count; a verified one does.
 - Email audience: the "Spanish-speaking" condition resolves against `spanishVerified`; the new self-reported condition resolves correctly.
 
-Migration verification: a person who had `spanishSpeaking = true` lands as `spanishSelfReported = true, spanishVerified = false, spanishVerifiedAt = null` (self-reported, in queue, and NOT scheduling-eligible until assessed).
+Migration verification: the backfill cannot be unit-tested (the Vitest harness applies migrations to an empty database before any seed, so there is no pre-migration data to assert). It is verified by reviewing the migration SQL and by a manual check on a staging copy of production data: a person who had `spanishSpeaking = true` must land as `spanishSelfReported = true, spanishVerified = false, spanishVerifiedAt = null` (self-reported, in queue, and NOT scheduling-eligible until assessed).
 
 Plus updating every existing test or reference that names `spanishSpeaking` (the rename is compile-breaking, so this is required cleanup, not optional).
 

@@ -131,9 +131,17 @@ model Person {
   shiftRequestsTargeted     ShiftRequest[]       @relation("shiftRequestTarget")
   /// Shift requests this person decided (approved or denied).
   shiftRequestsDecided      ShiftRequest[]       @relation("shiftRequestDecidedBy")
-  /// Capacity/RHD attributes imported from Airtable; future source is the Recruitment module.
+  /// Legacy Airtable-sourced flag. Retained during the expand phase; dropped after consumers repoint.
   spanishSpeaking           Boolean              @default(false)
-  /// Capacity/RHD attributes imported from Airtable; future source is the Recruitment module.
+  /// Self-reported at onboarding (or set by an admin). Intake signal only; does NOT gate scheduling.
+  spanishSelfReported       Boolean              @default(false)
+  /// Interpreting-department-confirmed Spanish capability. Gates clinical scheduling.
+  spanishVerified           Boolean              @default(false)
+  /// When the interpreting department (or an admin override) recorded the verification. Null = never assessed.
+  spanishVerifiedAt         DateTime?
+  /// Verifier's Person id. Bare id (no FK), mirroring HipaaCertificate.verifiedById.
+  spanishVerifiedById       String?
+  /// Self-reported RN licensure. No verification workflow.
   licensedRN                Boolean              @default(false)
   createdAt                 DateTime             @default(now())
   updatedAt                 DateTime             @updatedAt

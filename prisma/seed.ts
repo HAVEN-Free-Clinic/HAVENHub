@@ -1,5 +1,8 @@
 // Dev fixture seed. Run via `npm run db:seed` (after `npm run db:migrate`; a stale Prisma client errors with P2011).
 import { PrismaClient } from "@prisma/client";
+// Canonical system-role grants live in one importable, side-effect-free module
+// so the seed, the backfill migrations, and tests all share one source of truth.
+import { SYSTEM_ROLES } from "../src/platform/rbac/system-roles";
 
 const prisma = new PrismaClient();
 
@@ -50,35 +53,6 @@ const DELEGATIONS: Array<{ manager: string; managed: string }> = [
   { manager: "SRHD", managed: "CCRH" },
   { manager: "SRHD", managed: "JCTS" },
   { manager: "SRHD", managed: "SCTS" },
-];
-
-// Director/Volunteer are auto-attached by the RBAC engine via TermMembership.kind.
-const SYSTEM_ROLES: Array<{ name: string; description: string; grants: string[] }> = [
-  {
-    name: "Platform Admin",
-    description: "Full access to every module and admin function",
-    grants: ["*"],
-  },
-  {
-    name: "Director",
-    description: "Baseline access for current-term directors",
-    grants: ["schedule.view", "schedule.edit_own_dept", "volunteers.view", "my-info.access"],
-  },
-  {
-    name: "Volunteer",
-    description: "Baseline access for current-term volunteers",
-    grants: ["schedule.view", "my-info.access", "learning.access"],
-  },
-  {
-    name: "Compliance Manager",
-    description: "Master compliance view across the clinic",
-    grants: ["volunteers.view", "volunteers.manage_compliance"],
-  },
-  {
-    name: "Volunteer Operations Manager",
-    description: "Offboarding, Epic requests, and disciplinary across the clinic",
-    grants: ["volunteers.view", "volunteers.manage_offboarding", "volunteers.manage_epic", "volunteers.issue_disciplinary"],
-  },
 ];
 
 /**

@@ -164,7 +164,7 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
                 <li key={iv.id}>
                   <Link
                     className="font-medium text-brand-fg hover:text-brand-hover"
-                    href={`/recruitment/cycles/${id}/interviews/${iv.id}`}
+                    href={`/recruitment/interviews/${iv.id}`}
                   >
                     Interview for {iv.departmentCode}
                   </Link>

@@ -29,7 +29,7 @@ export default async function MyInterviewsPage() {
               <TD>
                 <Link
                   className="font-medium text-foreground hover:text-brand-fg"
-                  href={`/recruitment/cycles/${iv.application.cycle.id}/interviews/${iv.id}`}
+                  href={`/recruitment/interviews/${iv.id}`}
                 >
                   {iv.application.applicant.firstName} {iv.application.applicant.lastName}
                 </Link>

@@ -335,6 +335,7 @@ enum EpicRequestKind {
   NEW
   MODIFY
   RENEW
+  DEACTIVATE
 }
 
 enum EpicRequestStatus {

@@ -19,7 +19,6 @@ function nullPerson(): Person {
     status: "ACTIVE",
     airtableRecordId: null,
     mirroredHipaaStatus: null,
-    spanishSpeaking: false,
     spanishSelfReported: false,
     spanishVerified: false,
     spanishVerifiedAt: null,

@@ -68,7 +68,6 @@ export type PersonInput = {
   epicId?: string | null;
   yaleAffiliation?: string | null;
   gradYear?: string | null;
-  spanishSpeaking?: boolean; // legacy; removed in the contract step (Task 8)
   spanishSelfReported?: boolean;
   spanishVerified?: boolean;
   licensedRN?: boolean;
@@ -173,7 +172,6 @@ export async function updatePersonFields(
     "epicId",
     "yaleAffiliation",
     "gradYear",
-    "spanishSpeaking",
     "spanishSelfReported",
     "spanishVerified",
     "licensedRN",

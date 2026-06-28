@@ -131,8 +131,6 @@ model Person {
   shiftRequestsTargeted     ShiftRequest[]       @relation("shiftRequestTarget")
   /// Shift requests this person decided (approved or denied).
   shiftRequestsDecided      ShiftRequest[]       @relation("shiftRequestDecidedBy")
-  /// Legacy Airtable-sourced flag. Retained during the expand phase; dropped after consumers repoint.
-  spanishSpeaking           Boolean              @default(false)
   /// Self-reported at onboarding (or set by an admin). Intake signal only; does NOT gate scheduling.
   spanishSelfReported       Boolean              @default(false)
   /// Interpreting-department-confirmed Spanish capability. Gates clinical scheduling.

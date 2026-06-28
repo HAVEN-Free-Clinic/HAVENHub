@@ -38,14 +38,24 @@ export class AttendingValidationError extends Error {
   }
 }
 
-async function assertRhdManager(actor: string): Promise<void> {
-  const manageable = await manageableScheduleDepartmentIds(actor);
+/**
+ * True when the person manages at least one RHD-family department (a
+ * directorship, a delegation, or schedule.edit_all). This is the capability the
+ * attendings roster requires; it drives both the Attendings nav tab visibility
+ * and the page gate so the tab is never a render-but-do-nothing dead end.
+ */
+export async function canManageAnyRhdDept(personId: string): Promise<boolean> {
+  const manageable = await manageableScheduleDepartmentIds(personId);
   const rhdDepts = await prisma.department.findMany({
     where: { code: { in: [...RHD_CODES] } },
     select: { id: true },
   });
   const rhdIds = new Set(rhdDepts.map((d) => d.id));
-  if (!manageable.some((id) => rhdIds.has(id))) throw new AttendingForbiddenError();
+  return manageable.some((id) => rhdIds.has(id));
+}
+
+async function assertRhdManager(actor: string): Promise<void> {
+  if (!(await canManageAnyRhdDept(actor))) throw new AttendingForbiddenError();
 }
 
 function validCapability(v: unknown): CapabilityValue {

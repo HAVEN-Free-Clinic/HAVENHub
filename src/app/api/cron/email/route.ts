@@ -12,10 +12,16 @@
  *
  *   1. dispatchDueCampaigns -- fire any SCHEDULED/RECURRING campaign whose
  *      nextRunAt has passed, enqueuing its recipient emails.
- *   2. drainEmailQueue (loop until empty) -- deliver every QUEUED row, whether
- *      it came from a campaign just dispatched above, a "send now" action, or a
- *      transactional trigger (recruitment, epic, reminders) enqueued since the
- *      last tick.
+ *   2. drainEmailQueue -- deliver every QUEUED row, whether it came from a
+ *      campaign just dispatched above, a "send now" action, or a transactional
+ *      trigger (recruitment, epic, reminders) enqueued since the last tick.
+ *
+ * drainEmailQueue / drainTeamsQueue each fully walk their backlog in a single
+ * call, attempting every QUEUED row AT MOST ONCE per tick. Do NOT wrap them in a
+ * `while (processed > 0)` loop: a failed row stays QUEUED, so re-invoking within
+ * the same tick would re-attempt it pass after pass and burn all 8 retries in
+ * seconds during a transient outage (issue #63). Retries are intentionally
+ * spread one-per-minute across ticks.
  *
  * Because this runs every minute, an email queued "right now" goes out within
  * ~60s, and a scheduled campaign fires within ~60s of its time. To avoid the
@@ -40,21 +46,13 @@ export async function GET(req: Request): Promise<Response> {
 
   const { executed, errors } = await dispatchDueCampaigns(new Date());
 
+  // One drain per tick -- each fully empties the eligible backlog and attempts
+  // every QUEUED row at most once. See the header note: do not re-loop.
   const transport = await resolveEmailTransport();
-  let emails = 0;
-  let processed: number;
-  do {
-    processed = await drainEmailQueue(transport);
-    emails += processed;
-  } while (processed > 0);
+  const emails = await drainEmailQueue(transport);
 
   const teamsTransport = await resolveTeamsTransport();
-  let teams = 0;
-  let teamsProcessed: number;
-  do {
-    teamsProcessed = await drainTeamsQueue(teamsTransport);
-    teams += teamsProcessed;
-  } while (teamsProcessed > 0);
+  const teams = await drainTeamsQueue(teamsTransport);
 
   return Response.json({ ok: true, dispatched: executed, errors, emails, teams });
 }

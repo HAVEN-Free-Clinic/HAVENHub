@@ -247,7 +247,18 @@ export async function setPersonStatusField(
   // offboarding rosters all key off TermMembership.status, not Person.status.
   // Reactivation is status-only -- it never restores memberships (which ones to
   // restore is ambiguous), matching the existing offboarding behavior.
+  //
+  // Epic access: offboarding also cancels any open NEW/MODIFY/RENEW requests
+  // (a departing person must not remain in the actionable queue) and enqueues
+  // one PENDING DEACTIVATE request when epicId is set. The create is guarded so
+  // a second offboard call does not produce a duplicate (idempotent). On
+  // reactivation the open DEACTIVATE request is cancelled: the person is back,
+  // so revocation is no longer needed.
   let removedMemberships = 0;
+  let cancelledEpicRequestIds: string[] = [];
+  let deactivationRequestId: string | null = null;
+  let cancelledDeactivationRequestIds: string[] = [];
+
   const updated = await prisma.$transaction(async (tx) => {
     if (status === "OFFBOARDED") {
       const { count } = await tx.termMembership.updateMany({
@@ -255,6 +266,56 @@ export async function setPersonStatusField(
         data: { status: "REMOVED" },
       });
       removedMemberships = count;
+
+      // Cancel open access-granting requests. A person who has left should not
+      // have a NEW/MODIFY/RENEW request lingering as actionable in the queue.
+      // DEACTIVATE is intentionally excluded: it is the revocation task itself.
+      const openGrants = await tx.epicRequest.findMany({
+        where: {
+          personId,
+          status: { in: ["PENDING", "SUBMITTED"] },
+          kind: { in: ["NEW", "MODIFY", "RENEW"] },
+        },
+        select: { id: true, notes: true },
+      });
+      for (const r of openGrants) {
+        const line = "Cancelled: person offboarded";
+        await tx.epicRequest.update({
+          where: { id: r.id },
+          data: { status: "CANCELLED", notes: r.notes ? `${r.notes}\n${line}` : line },
+        });
+      }
+      cancelledEpicRequestIds = openGrants.map((r) => r.id);
+
+      // Enqueue a deactivation task when there is recorded Epic access to
+      // revoke and no open DEACTIVATE request already exists (idempotent).
+      if (existing.epicId) {
+        const openDeact = await tx.epicRequest.findFirst({
+          where: { personId, status: { in: ["PENDING", "SUBMITTED"] }, kind: "DEACTIVATE" },
+          select: { id: true },
+        });
+        if (!openDeact) {
+          const created = await tx.epicRequest.create({
+            data: { personId, kind: "DEACTIVATE", status: "PENDING", requestedById: actorPersonId },
+            select: { id: true },
+          });
+          deactivationRequestId = created.id;
+        }
+      }
+    } else if (status === "ACTIVE") {
+      // Reactivation: a returning person no longer owes a revocation.
+      const openDeact = await tx.epicRequest.findMany({
+        where: { personId, status: { in: ["PENDING", "SUBMITTED"] }, kind: "DEACTIVATE" },
+        select: { id: true, notes: true },
+      });
+      for (const r of openDeact) {
+        const line = "Cancelled: person reactivated";
+        await tx.epicRequest.update({
+          where: { id: r.id },
+          data: { status: "CANCELLED", notes: r.notes ? `${r.notes}\n${line}` : line },
+        });
+      }
+      cancelledDeactivationRequestIds = openDeact.map((r) => r.id);
     }
 
     return tx.person.update({
@@ -266,8 +327,8 @@ export async function setPersonStatusField(
   const action = status === "OFFBOARDED" ? "person.offboard" : "person.reactivate";
 
   // Await audit. recordAudit never throws, so this cannot abort the mutation.
-  // The removed-membership count rides on the offboard entry (one audit row per
-  // status change is the contract callers rely on).
+  // One audit row per status change is the contract callers rely on; the
+  // membership count and Epic-request effects ride on that single row.
   await recordAudit({
     actorPersonId,
     action,
@@ -276,7 +337,9 @@ export async function setPersonStatusField(
     before: { status: existing.status },
     after: {
       status: updated.status,
-      ...(status === "OFFBOARDED" ? { removedMemberships } : {}),
+      ...(status === "OFFBOARDED"
+        ? { removedMemberships, cancelledEpicRequestIds, deactivationRequestId }
+        : { cancelledDeactivationRequestIds }),
     },
   });
 

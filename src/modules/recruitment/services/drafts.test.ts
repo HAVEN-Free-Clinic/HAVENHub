@@ -75,6 +75,32 @@ it("rejects a draft upload to an unknown field key", async () => {
   await expect(uploadDraftFile("file-cyc2", ID, "not_a_field", { fileName: "x.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") })).rejects.toBeInstanceOf(DraftError);
 });
 
+it("preserves an uploaded file reference when a later autosave omits it", async () => {
+  // A file input cannot round-trip through the form's FormData, so the next
+  // autosave serializes answers without the file. The save must not wipe it.
+  const cycle = await openCycle("file-keep-cyc");
+  const sec = await prisma.formSection.create({ data: { cycleId: cycle.id, title: "Main", order: 0, appliesTo: "BOTH", purpose: "APPLICATION" } });
+  await prisma.formField.create({ data: { sectionId: sec.id, cycleId: cycle.id, key: "resume", label: "Resume", type: "FILE", required: false, order: 0 } });
+  await saveDraft("file-keep-cyc", ID, { answers: { first_name: "Reed" } });
+  await uploadDraftFile("file-keep-cyc", ID, "resume", { fileName: "cv.pdf", mimeType: "application/pdf", bytes: Buffer.from("hi") });
+  await saveDraft("file-keep-cyc", ID, { answers: { first_name: "Reed", last_name: "R" } });
+  const d = await getDraft("file-keep-cyc", ID);
+  expect((d?.answers.resume as { fileName: string } | undefined)?.fileName).toBe("cv.pdf");
+  expect(d?.answers.first_name).toBe("Reed");
+  expect(d?.answers.last_name).toBe("R");
+});
+
+it("does not resurrect a non-file answer that a later save clears", async () => {
+  // Unchecking a checkbox / clearing a select drops it from the serialized form.
+  // The merge must only protect file refs, never stale choice values.
+  await openCycle("clear-cyc");
+  await saveDraft("clear-cyc", ID, { answers: { dept: "SRHD", note: "x" } });
+  await saveDraft("clear-cyc", ID, { answers: { note: "x" } });
+  const d = await getDraft("clear-cyc", ID);
+  expect(d?.answers.dept).toBeUndefined();
+  expect(d?.answers.note).toBe("x");
+});
+
 it("sweeps abandoned drafts older than the cutoff, leaving recent and submitted ones", async () => {
   const cycle = await openCycle("sweep-cyc");
   const old = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000);

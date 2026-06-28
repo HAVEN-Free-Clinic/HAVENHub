@@ -7,6 +7,7 @@ import { Alert } from "@/platform/ui/alert";
 import { Button, buttonClasses } from "@/platform/ui/button";
 import { Select } from "@/platform/ui/select";
 import { FieldPreview } from "@/modules/recruitment/components/field-preview";
+import { prefillString } from "@/modules/recruitment/components/field-prefill";
 
 function cx(...parts: (string | undefined | false | null)[]): string {
   return parts.filter(Boolean).join(" ");
@@ -19,7 +20,7 @@ type Prefill = { values: Record<string, string>; lockedKeys: string[] };
 
 export function ApplyForm({
   def, signedIn = false, signedInName = null, eligible = false, prefill, currentDepartments = [], initialApplicantType = "NEW",
-  initialAnswers = {}, initialApplicantTypeFromDraft,
+  initialAnswers = {}, initialApplicantTypeFromDraft, initialRenewalDepartment = null,
 }: {
   def: Def;
   signedIn?: boolean;
@@ -28,8 +29,9 @@ export function ApplyForm({
   prefill?: Prefill;
   currentDepartments?: string[];
   initialApplicantType?: "NEW" | "RENEWAL";
-  initialAnswers?: Record<string, string>;
+  initialAnswers?: Record<string, unknown>;
   initialApplicantTypeFromDraft?: "NEW" | "RENEWAL";
+  initialRenewalDepartment?: string | null;
 }) {
   // Draft type takes precedence over the URL ?type param when present.
   const seedType = initialApplicantTypeFromDraft ?? initialApplicantType;
@@ -39,8 +41,19 @@ export function ApplyForm({
   const autoIneligible = seedType === "RENEWAL" && signedIn && !eligible;
   const [applicantType, setApplicantType] = useState<"NEW" | "RENEWAL">(autoIneligible ? "NEW" : seedType);
   const [ineligibleNote, setIneligibleNote] = useState(autoIneligible);
-  const [renewalDept, setRenewalDept] = useState<string>(currentDepartments[0] ?? "");
-  const [deptChoice, setDeptChoice] = useState<string>("");
+  // Seed the renewal department from the saved draft when it is still one the
+  // applicant belongs to, so conditional department sections re-render on resume.
+  const [renewalDept, setRenewalDept] = useState<string>(() =>
+    initialRenewalDepartment && currentDepartments.includes(initialRenewalDepartment)
+      ? initialRenewalDepartment
+      : (currentDepartments[0] ?? ""),
+  );
+  // Seed the department choice from the saved draft answer so its conditional
+  // section is visible immediately on resume (instead of collapsing to "").
+  const [deptChoice, setDeptChoice] = useState<string>(() => {
+    const key = def.sections.flatMap((s) => s.fields).find((f) => f.type === "DEPARTMENT_CHOICE")?.key;
+    return key ? prefillString(prefill?.values[key] ?? initialAnswers[key]) : "";
+  });
   const [result, setResult] = useState<SubmitResult | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -49,8 +62,17 @@ export function ApplyForm({
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
 
-  // Per-file-field upload status: key -> "Attached: <name>" or error message
-  const [fileStatus, setFileStatus] = useState<Record<string, string>>({});
+  // Per-file-field upload status: key -> "Attached: <name>" or error message.
+  // Seed from the draft so a previously uploaded file shows as attached on resume.
+  const [fileStatus, setFileStatus] = useState<Record<string, string>>(() => {
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(initialAnswers)) {
+      if (v && typeof v === "object" && "fileName" in (v as object)) {
+        out[k] = `Attached: ${(v as { fileName: string }).fileName}`;
+      }
+    }
+    return out;
+  });
 
   const lockedKeys = useMemo(() => new Set(prefill?.lockedKeys ?? []), [prefill]);
   const loginHref = `/login?callbackUrl=${encodeURIComponent(`/apply/${def.slug}?type=renewal`)}`;

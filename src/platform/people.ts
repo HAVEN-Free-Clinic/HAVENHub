@@ -239,21 +239,45 @@ export async function setPersonStatusField(
   if (!existingOrNull) throw new PersonNotFoundError(personId);
   const existing = existingOrNull;
 
-  const updated = await prisma.person.update({
-    where: { id: personId },
-    data: { status },
+  // Offboarding is the single convergence point for every offboard path (the
+  // admin people page AND the volunteers executeOffboard flow both call here).
+  // A person can never be OFFBOARDED yet still appear as a current member: we
+  // set ALL their ACTIVE memberships (any term) to REMOVED in the same
+  // transaction as the status flip, because the compliance, disciplinary, and
+  // offboarding rosters all key off TermMembership.status, not Person.status.
+  // Reactivation is status-only -- it never restores memberships (which ones to
+  // restore is ambiguous), matching the existing offboarding behavior.
+  let removedMemberships = 0;
+  const updated = await prisma.$transaction(async (tx) => {
+    if (status === "OFFBOARDED") {
+      const { count } = await tx.termMembership.updateMany({
+        where: { personId, status: "ACTIVE" },
+        data: { status: "REMOVED" },
+      });
+      removedMemberships = count;
+    }
+
+    return tx.person.update({
+      where: { id: personId },
+      data: { status },
+    });
   });
 
   const action = status === "OFFBOARDED" ? "person.offboard" : "person.reactivate";
 
   // Await audit. recordAudit never throws, so this cannot abort the mutation.
+  // The removed-membership count rides on the offboard entry (one audit row per
+  // status change is the contract callers rely on).
   await recordAudit({
     actorPersonId,
     action,
     entityType: "Person",
     entityId: personId,
     before: { status: existing.status },
-    after: { status: updated.status },
+    after: {
+      status: updated.status,
+      ...(status === "OFFBOARDED" ? { removedMemberships } : {}),
+    },
   });
 
   return updated;

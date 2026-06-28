@@ -7,6 +7,26 @@ export class DraftError extends Error {
   constructor(m: string) { super(m); this.name = "DraftError"; }
 }
 
+function isFileAnswer(v: unknown): boolean {
+  return !!v && typeof v === "object" && "storedName" in (v as object);
+}
+
+/** Full-replace incoming answers, but carry over any stored file references the
+ *  incoming set omits. A file input cannot round-trip through the form's
+ *  FormData, so each autosave arrives without it; without this the next save
+ *  would wipe a previously uploaded file. Non-file answers are intentionally
+ *  not preserved so unchecking a box or clearing a select still clears it. */
+function mergeDraftAnswers(
+  existing: Record<string, unknown> | null | undefined,
+  incoming: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...incoming };
+  for (const [k, v] of Object.entries(existing ?? {})) {
+    if (!(k in merged) && isFileAnswer(v)) merged[k] = v;
+  }
+  return merged;
+}
+
 export type DraftView = {
   applicationId: string;
   status: "DRAFT" | "SUBMITTED";
@@ -72,14 +92,16 @@ export async function saveDraft(
     throw new DraftError("Your application has already been submitted.");
   }
 
-  const data = {
-    answers: input.answers as never,
-    ...(input.applicantType ? { applicantType: input.applicantType } : {}),
-    ...(input.renewalDepartment !== undefined ? { renewalDepartment: input.renewalDepartment } : {}),
-  };
-
   if (existing) {
-    await prisma.application.update({ where: { id: existing.id }, data });
+    const answers = mergeDraftAnswers(existing.answers as Record<string, unknown> | null, input.answers);
+    await prisma.application.update({
+      where: { id: existing.id },
+      data: {
+        answers: answers as never,
+        ...(input.applicantType ? { applicantType: input.applicantType } : {}),
+        ...(input.renewalDepartment !== undefined ? { renewalDepartment: input.renewalDepartment } : {}),
+      },
+    });
     return;
   }
 

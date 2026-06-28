@@ -83,7 +83,7 @@ export default async function ApplyPage({ params, searchParams }: { params: Prom
         Complete the fields below to submit your application. Required fields are marked with{" "}
         <span className="font-medium text-critical">*</span>.
       </p>
-      <ApplyForm def={def} signedIn={signedIn} signedInName={signedInName} eligible={eligible} prefill={prefill} currentDepartments={currentDepartments} initialApplicantType={initialApplicantType} initialAnswers={(draft?.answers as Record<string, string>) ?? {}} initialApplicantTypeFromDraft={draft?.applicantType} />
+      <ApplyForm def={def} signedIn={signedIn} signedInName={signedInName} eligible={eligible} prefill={prefill} currentDepartments={currentDepartments} initialApplicantType={initialApplicantType} initialAnswers={draft?.answers ?? {}} initialApplicantTypeFromDraft={draft?.applicantType} initialRenewalDepartment={draft?.renewalDepartment ?? null} />
     </main>
   );
 }

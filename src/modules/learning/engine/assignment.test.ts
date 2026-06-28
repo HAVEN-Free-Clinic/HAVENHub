@@ -89,8 +89,19 @@ it("EVERYONE course reaches both directors and volunteers in the department", ()
   expect(coursesForMember({ courses: list, memberships: [dir("A")] })).toEqual(["evrA"]);
 });
 
+it("excludes an assignToAll course from a person with no active membership", () => {
+  // Org-wide means all departments; a person in no department is not a member,
+  // so they are assigned nothing. This matches the completion dashboard, which
+  // only ever lists people who hold a TermMembership.
+  const list = [course({ id: "all", assignToAll: true, audience: "EVERYONE" })];
+  expect(coursesForMember({ courses: list, memberships: [] })).toEqual([]);
+});
+
 it("kindMatchesAudience maps plural audiences to singular kinds", () => {
   expect(kindMatchesAudience("DIRECTOR", "DIRECTORS")).toBe(true);
   expect(kindMatchesAudience("VOLUNTEER", "DIRECTORS")).toBe(false);
   expect(kindMatchesAudience("VOLUNTEER", "EVERYONE")).toBe(true);
+  expect(kindMatchesAudience("DIRECTOR", "EVERYONE")).toBe(true);
+  expect(kindMatchesAudience("DIRECTOR", "VOLUNTEERS")).toBe(false);
+  expect(kindMatchesAudience("VOLUNTEER", "VOLUNTEERS")).toBe(true);
 });

@@ -34,7 +34,7 @@ Export `TEST_DATABASE_URL` in every shell that runs `npm test` / `npx vitest`.
 
 ---
 
-### Task 1: Schema — add `Course.audience` + migration + regenerate client
+### Task 1: Schema, add `Course.audience` + migration + regenerate client
 
 **Files:**
 - Modify: `prisma/schema.prisma` (Course model + new enum)
@@ -108,7 +108,7 @@ git commit -m "feat(learning): add Course.audience enum (EVERYONE/DIRECTORS/VOLU
 
 ---
 
-### Task 2: Engine + enrollment resolver — thread kind and audience
+### Task 2: Engine + enrollment resolver, thread kind and audience
 
 `coursesForMember` is called only by the enrollment resolver, so the signature change and its caller move together to keep the tree compiling.
 
@@ -232,7 +232,7 @@ it("kindMatchesAudience maps plural audiences to singular kinds", () => {
 - [ ] **Step 2: Run the engine tests to verify they fail**
 
 Run: `npx vitest run src/modules/learning/engine/assignment.test.ts`
-Expected: FAIL — type/compile error (`memberships` not a known param, `kindMatchesAudience` not exported, `audience` not on `AssignableCourse`).
+Expected: FAIL. Type/compile error (`memberships` not a known param, `kindMatchesAudience` not exported, `audience` not on `AssignableCourse`).
 
 - [ ] **Step 3: Implement the engine**
 
@@ -404,7 +404,7 @@ git commit -m "feat(learning): assign courses by membership kind via course audi
 
 ---
 
-### Task 3: Completion dashboard — apply the audience filter
+### Task 3: Completion dashboard, apply the audience filter
 
 **Files:**
 - Modify: `src/modules/learning/services/dashboard.ts:23-41`
@@ -437,7 +437,7 @@ it("a DIRECTORS course lists directors of the assigned department and excludes v
 - [ ] **Step 2: Run to verify it fails**
 
 Run: `npx vitest run src/modules/learning/services/dashboard.test.ts`
-Expected: FAIL — the volunteer `learner` is still listed (no kind filter yet), so `ids` contains `learner.id`.
+Expected: FAIL. The volunteer `learner` is still listed (no kind filter yet), so `ids` contains `learner.id`.
 
 - [ ] **Step 3: Implement the filter**
 
@@ -466,7 +466,7 @@ Replace the membership query block (currently lines 34-41) with:
 - [ ] **Step 4: Run to verify it passes**
 
 Run: `npx vitest run src/modules/learning/services/dashboard.test.ts`
-Expected: PASS (existing + new test). Also run `npx tsc --noEmit` — no errors.
+Expected: PASS (existing + new test). Also run `npx tsc --noEmit`. No errors.
 
 - [ ] **Step 5: Commit**
 
@@ -512,7 +512,7 @@ it("persists the course audience", async () => {
 - [ ] **Step 2: Run to verify it fails**
 
 Run: `npx vitest run src/modules/learning/services/courses.test.ts`
-Expected: FAIL — `audience` is not an accepted property on the `setCourseAssignment` input type (compile error).
+Expected: FAIL. `audience` is not an accepted property on the `setCourseAssignment` input type (compile error).
 
 - [ ] **Step 3: Implement the service change**
 
@@ -653,6 +653,6 @@ Confirm in the manage UI that a course saved with "Directors only" persists (rel
 - TDD coverage (engine unit, enrollment integration, dashboard integration, service) → Tasks 2-4. ✓
 - Out of scope (no per-department-per-kind; sub-nav gating untouched) → respected (no such tasks). ✓
 
-**Placeholder scan:** none — every step has concrete code/commands.
+**Placeholder scan:** none; every step has concrete code/commands.
 
 **Type consistency:** `CourseAudience` (`EVERYONE`/`DIRECTORS`/`VOLUNTEERS`) and `MembershipKind` (`DIRECTOR`/`VOLUNTEER`) used consistently; `audienceToKind`/`kindMatchesAudience`/`coursesForMember`/`MemberMembership` names match across engine, enrollment, and dashboard.

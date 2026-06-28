@@ -24,6 +24,7 @@ import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import {
   manageableScheduleDepartmentIds,
+  canManageAnyScheduleDept,
   setAssignment,
   toggleTag,
   setPatientsBooked,
@@ -236,6 +237,39 @@ describe("manageableScheduleDepartmentIds", () => {
     const ids = await manageableScheduleDepartmentIds(person.id);
     const unique = new Set(ids);
     expect(ids.length).toBe(unique.size);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// canManageAnyScheduleDept (drives Builder tab visibility + page gate)
+// ---------------------------------------------------------------------------
+
+describe("canManageAnyScheduleDept", () => {
+  it("is true for a director (manages their own department)", async () => {
+    const term = await createTerm(sixSaturdays());
+    const dept = await createDepartment("PCAR");
+    const person = await createPerson("Director");
+    await createMembership(person.id, term.id, dept.id, "DIRECTOR");
+
+    expect(await canManageAnyScheduleDept(person.id)).toBe(true);
+  });
+
+  it("is true for a person with schedule.edit_all", async () => {
+    await createTerm(sixSaturdays());
+    await createDepartment("DEPT1");
+    const person = await createPerson("Admin");
+    await grantPermission(person.id, "schedule.edit_all");
+
+    expect(await canManageAnyScheduleDept(person.id)).toBe(true);
+  });
+
+  it("is false for a plain volunteer (schedule.view only)", async () => {
+    const term = await createTerm(sixSaturdays());
+    const dept = await createDepartment("PCAR");
+    const person = await createPerson("Volunteer");
+    await createMembership(person.id, term.id, dept.id, "VOLUNTEER");
+
+    expect(await canManageAnyScheduleDept(person.id)).toBe(false);
   });
 });
 

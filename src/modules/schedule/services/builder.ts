@@ -101,6 +101,17 @@ export async function manageableScheduleDepartmentIds(personId: string): Promise
   return [...ids];
 }
 
+/**
+ * True when the person can use the Builder at all -- i.e. manages at least one
+ * schedule department (a directorship, a delegation, or schedule.edit_all).
+ * Plain schedule.view holders get false. Drives both the Builder nav tab
+ * visibility and the page gate so the tab is never a render-but-do-nothing
+ * dead end for a non-manager.
+ */
+export async function canManageAnyScheduleDept(personId: string): Promise<boolean> {
+  return (await manageableScheduleDepartmentIds(personId)).length > 0;
+}
+
 // ---------------------------------------------------------------------------
 // setAssignment
 // ---------------------------------------------------------------------------

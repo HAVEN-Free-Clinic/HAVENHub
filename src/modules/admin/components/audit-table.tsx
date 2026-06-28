@@ -67,7 +67,7 @@ export function AuditTable({ rows }: { rows: AuditRow[] }) {
               <TD>
                 {hasDetails ? (
                   <details>
-                    <summary className="cursor-pointer text-xs text-brand-fg hover:underline">
+                    <summary className="text-xs text-brand-fg hover:underline">
                       view
                     </summary>
                     <pre className="mt-2 max-w-xl overflow-x-auto rounded bg-muted p-2 text-xs">

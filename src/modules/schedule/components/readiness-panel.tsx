@@ -119,7 +119,7 @@ export function ReadinessPanel({
 
       {/* Quick-add a new attending */}
       <details className="text-xs">
-        <summary className="cursor-pointer text-muted-foreground hover:text-foreground-soft">&#xFF0B; Add attending</summary>
+        <summary className="text-muted-foreground hover:text-foreground-soft">&#xFF0B; Add attending</summary>
         <form action={addAttendingAction} className="mt-2 flex flex-col gap-2">
           <Input name="scheduleName" placeholder="Schedule name (e.g. Rivera)" required className="text-sm" />
           <Input name="fullName" placeholder="Full name (optional)" className="text-sm" />

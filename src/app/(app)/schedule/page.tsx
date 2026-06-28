@@ -229,7 +229,7 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                             </div>
                           ) : (
                             <details className="group">
-                              <summary className="cursor-pointer text-xs font-medium text-subtle-foreground hover:text-foreground-soft list-none [&::-webkit-details-marker]:hidden">
+                              <summary className="text-xs font-medium text-subtle-foreground hover:text-foreground-soft list-none [&::-webkit-details-marker]:hidden">
                                 <span className="underline underline-offset-2">Request a change</span>
                               </summary>
                               <div className="mt-3 flex flex-col gap-4 pl-1 border-t border-border-subtle pt-3">

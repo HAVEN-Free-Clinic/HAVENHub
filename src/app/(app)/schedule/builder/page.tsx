@@ -25,6 +25,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import {
   builderView,
+  canManageAnyScheduleDept,
   setAssignment,
   toggleTag,
   setAvailabilityOverride,
@@ -102,6 +103,11 @@ function buildHref(base: string, p: HrefParams): string {
 
 export default async function BuilderPage({ searchParams }: PageProps) {
   const session = await requireModuleAccess("schedule");
+  // The Builder is a management tool: only people who manage a schedule
+  // department (directorship, delegation, or schedule.edit_all) can do anything
+  // here. Plain schedule.view holders are sent to /no-access rather than shown
+  // an empty, do-nothing builder. Mutations are still scope-checked server-side.
+  if (!(await canManageAnyScheduleDept(session.personId))) redirect("/no-access");
   const sp = await searchParams;
 
   const deptParam = sp.dept ?? undefined;

@@ -74,10 +74,15 @@ export async function requirePersonSession(): Promise<PersonSession> {
   return result;
 }
 
-/** Layout/page-level permission gate. NOTE: the redirect sink (the root hub page) must never itself be permission-gated, or this loops. */
+/**
+ * Layout/page-level permission gate. Denied users land on /no-access -- a
+ * friendly explanation -- rather than being silently bounced to the hub.
+ * NOTE: the redirect sink (/no-access) must never itself be permission-gated,
+ * or this loops; it is gated only by requirePersonSession via the (app) layout.
+ */
 export async function requirePermission(permission: string): Promise<PersonSession> {
   const person = await requirePersonSession();
-  if (!(await can(person.personId, permission))) redirect("/");
+  if (!(await can(person.personId, permission))) redirect("/no-access");
   return person;
 }
 

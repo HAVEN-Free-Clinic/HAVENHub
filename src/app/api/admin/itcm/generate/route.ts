@@ -103,12 +103,12 @@ async function generateSpreadsheet(args: {
     email: string;
     netId: string;
     epicId: string;
+    mirrorEpicId: string;
   }>;
   endDate: string;
-  mirrorEpicId: string;
 }): Promise<Buffer> {
   const ExcelJS = (await import("exceljs")).default;
-  const { requestType, people, endDate, mirrorEpicId } = args;
+  const { requestType, people, endDate } = args;
   const today = new Date().toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
   const isNew = requestType.includes("new");
 
@@ -131,13 +131,14 @@ async function generateSpreadsheet(args: {
     cell.alignment = { wrapText: true };
   });
 
-  // Add data rows.
+  // Add data rows. Each row carries its own mirror Epic ID since bulk requests
+  // can span multiple departments — there is no single shared mirror anymore.
   for (const p of people) {
     const row = ws.addRow([
       p.lastName, p.firstName, "", p.email, "",
       "Yale College (Student)", "Yale College (Student)",
       today, endDate, "No", p.netId, "",
-      isNew ? "" : p.epicId, mirrorEpicId,
+      isNew ? "" : p.epicId, p.mirrorEpicId,
     ]);
     row.eachCell((cell) => {
       cell.alignment = { wrapText: true };
@@ -149,7 +150,7 @@ async function generateSpreadsheet(args: {
     const maxLen = Math.max(
       headers[i]?.length ?? 10,
       ...people.map((p) => {
-        const vals = [p.lastName, p.firstName, "", p.email, "", "Yale College (Student)", "Yale College (Student)", today, endDate, "No", p.netId, "", isNew ? "" : p.epicId, mirrorEpicId];
+        const vals = [p.lastName, p.firstName, "", p.email, "", "Yale College (Student)", "Yale College (Student)", today, endDate, "No", p.netId, "", isNew ? "" : p.epicId, p.mirrorEpicId];
         return String(vals[i] ?? "").length;
       })
     );
@@ -226,29 +227,31 @@ export async function POST(req: Request) {
     orderBy: { startDate: "desc" },
   });
 
-  // Find a department/role to mirror from. Bulk selections are constrained to a
-  // single department by the form, so any selected person's active membership
-  // gives the right department; using the first one that actually has a
-  // membership avoids a blank mirror when the alphabetically-first person lacks one.
-  let mirrorPerson: { name: string; epicId: string } | null = null;
+  // Find a mirror Epic ID per selected person, based on THEIR OWN department
+  // and role — bulk requests can now span multiple departments, so there is
+  // no single global mirror; each spreadsheet row gets its own.
+  const mirrorByPersonId = new Map<string, { name: string; epicId: string } | null>();
   if (activeTerm) {
-    const membership = await prisma.termMembership.findFirst({
+    const memberships = await prisma.termMembership.findMany({
       where: {
         personId: { in: people.map((p) => p.id) },
         termId: activeTerm.id,
         status: "ACTIVE",
       },
     });
-    if (membership) {
-      mirrorPerson = await findMirrorPerson(membership.departmentId, membership.kind, {
+    for (const m of memberships) {
+      const mirror = await findMirrorPerson(m.departmentId, m.kind, {
         excludePersonIds: people.map((p) => p.id),
         termId: activeTerm.id,
       });
+      mirrorByPersonId.set(m.personId, mirror);
     }
   }
 
-  // Load the PDF template from the public/templates directory.
-  const templatePath = path.join(process.cwd(), "public", "templates", "epic-request-template.pdf");
+  // For individual requests there's exactly one person, so this is their mirror.
+  const singleMirrorPerson = mirrorByPersonId.get(people[0].id) ?? null;
+
+ const templatePath = path.join(process.cwd(), "public", "templates", "epic-request-template.pdf");
   let templateBytes: Uint8Array;
   try {
     templateBytes = new Uint8Array(fs.readFileSync(templatePath));
@@ -258,6 +261,8 @@ export async function POST(req: Request) {
       { status: 500 }
     );
   }
+
+  
 
   const isBulk = requestType.startsWith("bulk");
   const isNew = requestType.includes("new");
@@ -276,13 +281,14 @@ export async function POST(req: Request) {
     yaleAffiliation: firstPerson.yaleAffiliation ?? "",
   };
 
-  // Generate PDF.
+  // Generate PDF. Bulk requests pass no single mirror — itcm-pdf.ts should
+  // print "See spreadsheet" for "person with similar job functions" instead.
   const pdfBytes = await generatePdf({
     requestType,
     authorizerKey,
     person: personArg,
     endDate,
-    mirrorPerson,
+    mirrorPerson: isBulk ? null : singleMirrorPerson,
     templateBytes,
   });
 
@@ -337,6 +343,7 @@ export async function POST(req: Request) {
         email: p.contactEmail ?? "",
         netId: p.netId ?? "",
         epicId: p.epicId ?? "",
+        mirrorEpicId: mirrorByPersonId.get(p.id)?.epicId ?? "",
       };
     });
 
@@ -344,7 +351,6 @@ export async function POST(req: Request) {
       requestType,
       people: peopleRows,
       endDate,
-      mirrorEpicId: mirrorPerson?.epicId ?? "",
     });
 
     xlsxBase64 = xlsxBuffer.toString("base64");
@@ -380,7 +386,7 @@ export async function POST(req: Request) {
           personId: p.id,
           kind: epicKind,
           status: "SUBMITTED",
-          mirrorEpicId: mirrorPerson?.epicId ?? null,
+          mirrorEpicId: mirrorByPersonId.get(p.id)?.epicId ?? null,
           requestedById: actor.id,
           ticketId: ticket.id,
         },

@@ -71,9 +71,11 @@ export function EpicRequestForm({ departments }: Props) {
   const [requestType, setRequestType] = useState<RequestType>("new_individual");
   const [endDate, setEndDate] = useState("");
 
-  // Step 2: person selection
+  // Step 2: person selection. For bulk requests, selections persist across
+  // department switches so people from multiple departments can be picked together.
   const [selectedDeptId, setSelectedDeptId] = useState<string>("");
   const [selectedPeopleIds, setSelectedPeopleIds] = useState<Set<string>>(new Set());
+  const [selectedPeopleMap, setSelectedPeopleMap] = useState<Map<string, MemberLite>>(new Map());
 
   // Step 3: results
   const [loading, setLoading] = useState(false);
@@ -96,7 +98,7 @@ export function EpicRequestForm({ departments }: Props) {
     return [...selectedDept.directors, ...selectedDept.volunteers];
   }, [selectedDept]);
 
-  function togglePerson(id: string) {
+  function togglePerson(id: string, person: MemberLite) {
     setSelectedPeopleIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) {
@@ -105,6 +107,16 @@ export function EpicRequestForm({ departments }: Props) {
         // For individual requests, only one person at a time.
         if (!isBulk) next.clear();
         next.add(id);
+      }
+      return next;
+    });
+    setSelectedPeopleMap((prev) => {
+      const next = new Map(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        if (!isBulk) next.clear();
+        next.set(id, person);
       }
       return next;
     });
@@ -212,6 +224,7 @@ export function EpicRequestForm({ departments }: Props) {
                 const safe = raw === "bulk_renew" ? "bulk_mod" : raw;
                 setRequestType(safe as RequestType);
                 setSelectedPeopleIds(new Set());
+                setSelectedPeopleMap(new Map());
               }}
             >
               <option value="new">New</option>
@@ -230,6 +243,7 @@ export function EpicRequestForm({ departments }: Props) {
                 const safe = raw === "bulk_renew" ? "bulk_mod" : raw;
                 setRequestType(safe as RequestType);
                 setSelectedPeopleIds(new Set());
+                setSelectedPeopleMap(new Map());
               }}
             >
               <option value="individual">Individual</option>
@@ -264,73 +278,143 @@ export function EpicRequestForm({ departments }: Props) {
           2. Select {isBulk ? "people" : "person"}
         </h2>
 
-        <Field label="Department">
-          <Select
-            value={selectedDeptId}
-            onChange={(e) => {
-              setSelectedDeptId(e.target.value);
-              setSelectedPeopleIds(new Set());
-            }}
-          >
-            <option value="">— choose a department —</option>
+        {isBulk ? (
+          <div className="space-y-6">
             {departments.map((d) => (
-              <option key={d.department.id} value={d.department.id}>
-                {d.department.code} — {d.department.name}
-              </option>
+              <div key={d.department.id} className="space-y-3">
+                <p className="text-sm font-semibold text-foreground">
+                  {d.department.code} — {d.department.name}
+                </p>
+                {d.directors.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                      Directors
+                    </p>
+                    <div className="space-y-1">
+                      {d.directors.map((p) => (
+                        <PersonRow
+                          key={p.id}
+                          person={p}
+                          selected={selectedPeopleIds.has(p.id)}
+                          onToggle={() => togglePerson(p.id, p)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {d.volunteers.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                      Volunteers
+                    </p>
+                    <div className="space-y-1">
+                      {d.volunteers.map((p) => (
+                        <PersonRow
+                          key={p.id}
+                          person={p}
+                          selected={selectedPeopleIds.has(p.id)}
+                          onToggle={() => togglePerson(p.id, p)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {d.directors.length === 0 && d.volunteers.length === 0 && (
+                  <p className="text-sm text-muted-foreground">No active members in this department.</p>
+                )}
+              </div>
             ))}
-          </Select>
-        </Field>
-
-        {selectedDept && (
-          <div className="space-y-4">
-            {/* Directors */}
-            {selectedDept.directors.length > 0 && (
-              <div>
-                <p className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-                  Directors
-                </p>
-                <div className="space-y-1">
-                  {selectedDept.directors.map((p) => (
-                    <PersonRow
-                      key={p.id}
-                      person={p}
-                      selected={selectedPeopleIds.has(p.id)}
-                      onToggle={() => togglePerson(p.id)}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Volunteers */}
-            {selectedDept.volunteers.length > 0 && (
-              <div>
-                <p className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-                  Volunteers
-                </p>
-                <div className="space-y-1">
-                  {selectedDept.volunteers.map((p) => (
-                    <PersonRow
-                      key={p.id}
-                      person={p}
-                      selected={selectedPeopleIds.has(p.id)}
-                      onToggle={() => togglePerson(p.id)}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {allMembers.length === 0 && (
-              <p className="text-sm text-muted-foreground">No active members in this department.</p>
-            )}
           </div>
+        ) : (
+          <>
+            <Field label="Department">
+              <Select
+                value={selectedDeptId}
+                onChange={(e) => {
+                  setSelectedDeptId(e.target.value);
+                  setSelectedPeopleIds(new Set());
+                  setSelectedPeopleMap(new Map());
+                }}
+              >
+                <option value="">— choose a department —</option>
+                {departments.map((d) => (
+                  <option key={d.department.id} value={d.department.id}>
+                    {d.department.code} — {d.department.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+
+            {selectedDept && (
+              <div className="space-y-4">
+                {selectedDept.directors.length > 0 && (
+                  <div>
+                    <p className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                      Directors
+                    </p>
+                    <div className="space-y-1">
+                      {selectedDept.directors.map((p) => (
+                        <PersonRow
+                          key={p.id}
+                          person={p}
+                          selected={selectedPeopleIds.has(p.id)}
+                          onToggle={() => togglePerson(p.id, p)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {selectedDept.volunteers.length > 0 && (
+                  <div>
+                    <p className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                      Volunteers
+                    </p>
+                    <div className="space-y-1">
+                      {selectedDept.volunteers.map((p) => (
+                        <PersonRow
+                          key={p.id}
+                          person={p}
+                          selected={selectedPeopleIds.has(p.id)}
+                          onToggle={() => togglePerson(p.id, p)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {allMembers.length === 0 && (
+                  <p className="text-sm text-muted-foreground">No active members in this department.</p>
+                )}
+              </div>
+            )}
+          </>
         )}
 
         {selectedPeopleIds.size > 0 && (
           <p className="text-sm text-foreground-soft">
             {selectedPeopleIds.size} {selectedPeopleIds.size === 1 ? "person" : "people"} selected
           </p>
+        )}
+
+        {isBulk && selectedPeopleMap.size > 0 && (
+          <div className="rounded-xl border border-border bg-muted p-4 space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Selected across all departments
+            </p>
+            <div className="space-y-1">
+              {[...selectedPeopleMap.values()].map((p) => (
+                <div key={p.id} className="flex items-center justify-between text-sm">
+                  <span className="text-foreground">{p.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => togglePerson(p.id, p)}
+                    className="text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
         )}
       </Card>
 

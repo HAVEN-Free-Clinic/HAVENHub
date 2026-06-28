@@ -112,11 +112,13 @@ export async function generatePdf(args: {
   fillText(form, "Text5", auth.email);
 
   // Section III — Person info
+  // Section III — Person info
   if (isBulk) {
     fillText(form, "Text12", "See spreadsheet");
     fillText(form, "Text18", "See spreadsheet");
     fillText(form, "Text19", "See spreadsheet");
     fillText(form, "Text23", "See spreadsheet");
+    checkBox(form, "Check Box21"); // Job Title row: "Other"
     fillText(form, "Text29", "See spreadsheet");
   } else if (person) {
     fillText(form, "Text12", person.firstName);
@@ -137,15 +139,24 @@ export async function generatePdf(args: {
   checkBox(form, "Check Box40");
 
   if (!isBulk) {
-    checkBox(form, "Check Box21");
-    const affiliation = (person?.yaleAffiliation ?? "").toLowerCase();
-    if (affiliation.includes("med") || affiliation.includes("medicine")) {
+    const affiliation = person?.yaleAffiliation ?? "";
+    const isStaffOrOther = affiliation === "Yale Staff" || affiliation === "Other Yale Affiliation";
+    const isMedStudent = affiliation.toLowerCase().includes("med");
+
+    if (isStaffOrOther) {
+      // Job Title row: "Other", with the affiliation text.
+      checkBox(form, "Check Box21");
+      fillText(form, "Text29", affiliation);
+    } else if (isMedStudent) {
+      // Student row: Med Student.
       checkBox(form, "Check Box45");
-    }
-    if (person?.yaleAffiliation) {
-      fillText(form, "Text29", person?.yaleAffiliation);
+    } else if (affiliation) {
+      // Student row: "Other", with the affiliation text.
+      checkBox(form, "Check Box48");
+      fillText(form, "Text30", affiliation);
     }
   }
+  
 
   // Section V — Access type + similar person
   if (isNew) {
@@ -159,7 +170,11 @@ export async function generatePdf(args: {
     fillText(form, "Text76", endDate);
   }
 
-  if (mirrorPerson) {
+  if (isBulk) {
+    checkBox(form, "Check Box58");
+    fillText(form, "Text78", "See spreadsheet");
+    fillText(form, "Text79", "See spreadsheet");
+  } else if (mirrorPerson) {
     checkBox(form, "Check Box58");
     fillText(form, "Text78", mirrorPerson.name);
     fillText(form, "Text79", mirrorPerson.epicId);

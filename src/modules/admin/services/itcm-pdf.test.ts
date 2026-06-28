@@ -16,10 +16,12 @@ const person = {
   yaleAffiliation: "Yale College",
 };
 
+const authorizer = { name: "Caprice Culkin", phone: "720-254-2589", email: "caprice.culkin@yale.edu" };
+
 async function loadOutput() {
   const bytes = await generatePdf({
     requestType: "new_individual",
-    authorizerKey: "CC",
+    authorizer,
     person,
     endDate: "10/15/2026",
     mirrorPerson: { name: "Mirror Person", epicId: "MIR456" },
@@ -31,7 +33,7 @@ async function loadOutput() {
 async function loadDeactivateIndividual() {
   const bytes = await generatePdf({
     requestType: "deactivate_individual",
-    authorizerKey: "CC",
+    authorizer,
     person: { firstName: "Jane", lastName: "Doe", email: "jane.doe@yale.edu", netId: "jd123", epicId: "EPIC123", yaleAffiliation: "Yale College" },
     endDate: "10/15/2026",
     mirrorPerson: null,
@@ -43,7 +45,7 @@ async function loadDeactivateIndividual() {
 async function loadBulkDeactivate() {
   const bytes = await generatePdf({
     requestType: "bulk_deactivate",
-    authorizerKey: "CC",
+    authorizer,
     person: null,
     endDate: "10/15/2026",
     mirrorPerson: null,
@@ -109,7 +111,11 @@ describe("generatePdf", () => {
   it("fills the authorizer and person fields with the supplied values", async () => {
     const doc = await loadOutput();
     const form = doc.getForm();
+    // Authorizer name/phone/email come straight from the passed object (the
+    // route resolves them from the current ITCM director's person record).
     expect(form.getTextField("Text1").getText()).toBe("Caprice Culkin");
+    expect(form.getTextField("Text3").getText()).toBe("720-254-2589");
+    expect(form.getTextField("Text5").getText()).toBe("caprice.culkin@yale.edu");
     expect(form.getTextField("Text12").getText()).toBe("Jane");
     expect(form.getTextField("Text18").getText()).toBe("Doe");
     expect(form.getTextField("Text78").getText()).toBe("Mirror Person");

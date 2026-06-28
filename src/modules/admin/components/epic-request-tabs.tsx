@@ -18,7 +18,7 @@ import { EpicRequestForm } from "./epic-request-form";
 import { businessDaysSince } from "@/platform/dates";
 import { Badge } from "@/platform/ui/badge";
 import { Card } from "@/platform/ui/card";
-import type { DepartmentWithMembers, EpicRequestHistoryRow, PendingDeactivation } from "@/modules/admin/services/itcm";
+import type { DepartmentWithMembers, EpicAuthorizer, EpicRequestHistoryRow, PendingDeactivation } from "@/modules/admin/services/itcm";
 import { TicketNumberField } from "./ticket-number-field";
 
 type Tab = "generate" | "tracker" | "history";
@@ -28,6 +28,7 @@ type Props = {
   departments: DepartmentWithMembers[];
   history: EpicRequestHistoryRow[];
   pendingDeactivations: PendingDeactivation[];
+  authorizers: EpicAuthorizer[];
   closeTicketAction: (ticketId: string) => Promise<void>;
   updateServiceRequestNumberAction: (ticketId: string, value: string) => Promise<void>;
 };
@@ -207,14 +208,14 @@ function HistoryTable({ history }: { history: EpicRequestHistoryRow[] }) {
 // Main export
 // ---------------------------------------------------------------------------
 
-export function EpicRequestTabs({ activeTab, departments, history, pendingDeactivations, closeTicketAction, updateServiceRequestNumberAction }: Props) {
+export function EpicRequestTabs({ activeTab, departments, history, pendingDeactivations, authorizers, closeTicketAction, updateServiceRequestNumberAction }: Props) {
   return (
     <div>
       <Suspense>
         <TabNav activeTab={activeTab} />
       </Suspense>
       {activeTab === "generate" ? (
-        <EpicRequestForm departments={departments} pendingDeactivations={pendingDeactivations} />
+        <EpicRequestForm departments={departments} pendingDeactivations={pendingDeactivations} authorizers={authorizers} />
       ) : activeTab === "tracker" ? (
         <TrackerTable history={history} closeTicketAction={closeTicketAction} updateServiceRequestNumberAction={updateServiceRequestNumberAction} />
       ) : (

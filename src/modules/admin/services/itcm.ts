@@ -37,6 +37,87 @@ export type DepartmentWithMembers = {
   volunteers: MemberLite[];
 };
 
+/**
+ * An Epic request authorizer: an ITCM director who can sign off on a YNHH
+ * service request. Sourced live from the current term's ITCM directors, so the
+ * list rotates with the directorship and the contact details come from each
+ * person's record (no hardcoded directory to keep in sync).
+ */
+export type EpicAuthorizer = {
+  /** Person id — the stable key the form submits and the route re-resolves. */
+  id: string;
+  name: string;
+  /** First+last name initials, used for PDF filenames and email subjects. */
+  initials: string;
+  /** From Person.phone; "" when unset rather than a stale hardcoded number. */
+  phone: string;
+  /** From Person.contactEmail; "" when unset. */
+  email: string;
+};
+
+// The department whose directors authorize Epic requests. "ITCM" is the seeded,
+// unique code for "IT & Compliance Management" (prisma/seed.ts) and the module
+// this page lives under (/admin/itcm).
+const ITCM_DEPARTMENT_CODE = "ITCM";
+
+// ---------------------------------------------------------------------------
+// listEpicAuthorizers
+// ---------------------------------------------------------------------------
+
+/**
+ * Initials from a full name: the first letter of the first and last
+ * whitespace-separated tokens, uppercased. "Caprice Culkin" -> "CC",
+ * "Mary Jane Watson" -> "MW", "Cher" -> "C", "" -> "".
+ */
+export function authorizerInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "";
+  if (parts.length === 1) return parts[0][0].toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+/**
+ * Returns the people who can authorize Epic requests: the ACTIVE directors of
+ * the ITCM department in the current (ACTIVE) term. Replaces the hardcoded
+ * AUTHORIZERS directory so the picker rotates as directors change each term and
+ * personal phone/email are read from each person's record. Returns an empty
+ * list when there is no active term or no ITCM director, so the caller can
+ * disable generation rather than offer a stale name.
+ */
+export async function listEpicAuthorizers(): Promise<EpicAuthorizer[]> {
+  const activeTerm = await prisma.term.findFirst({
+    where: { status: "ACTIVE" },
+    orderBy: { startDate: "desc" },
+  });
+  if (!activeTerm) return [];
+
+  const memberships = await prisma.termMembership.findMany({
+    where: {
+      termId: activeTerm.id,
+      status: "ACTIVE",
+      kind: "DIRECTOR",
+      department: { code: ITCM_DEPARTMENT_CODE },
+    },
+    include: { person: { select: { id: true, name: true, phone: true, contactEmail: true } } },
+    orderBy: { person: { name: "asc" } },
+  });
+
+  // De-dupe by person (the membership unique constraint already prevents a
+  // person holding the same director slot twice, but guard anyway).
+  const byId = new Map<string, EpicAuthorizer>();
+  for (const m of memberships) {
+    if (byId.has(m.person.id)) continue;
+    byId.set(m.person.id, {
+      id: m.person.id,
+      name: m.person.name,
+      initials: authorizerInitials(m.person.name),
+      phone: m.person.phone ?? "",
+      email: m.person.contactEmail ?? "",
+    });
+  }
+  return [...byId.values()];
+}
+
 // ---------------------------------------------------------------------------
 // listDepartmentsWithMembers
 // ---------------------------------------------------------------------------

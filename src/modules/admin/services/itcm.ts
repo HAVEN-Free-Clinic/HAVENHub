@@ -257,7 +257,6 @@ export async function updateServiceRequestNumber(ticketId: string, serviceReques
   });
 }
 
-
 // ---------------------------------------------------------------------------
 // listPendingDeactivations
 // ---------------------------------------------------------------------------
@@ -317,4 +316,43 @@ export async function listPendingDeactivations(): Promise<PendingDeactivation[]>
     });
   }
   return [...byPerson.values()];
+}
+
+// ---------------------------------------------------------------------------
+// reconcileDeactivationRequests
+// ---------------------------------------------------------------------------
+
+/**
+ * Links the selected people's deactivation requests to a YNHH ticket when an
+ * admin generates a deactivation service request. For each person: reuse an
+ * open (PENDING/SUBMITTED) DEACTIVATE request if one exists (the one queued at
+ * offboard), attaching it to the ticket and marking it SUBMITTED; otherwise
+ * create a SUBMITTED DEACTIVATE request attached to the ticket (supports an
+ * ad-hoc deactivation for someone who was not auto-queued).
+ *
+ * Trusts its caller for permissions: the generate route gates on admin.access.
+ */
+export async function reconcileDeactivationRequests(
+  actorPersonId: string,
+  personIds: string[],
+  ticketId: string
+): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    for (const personId of personIds) {
+      const open = await tx.epicRequest.findFirst({
+        where: { personId, kind: "DEACTIVATE", status: { in: ["PENDING", "SUBMITTED"] } },
+        select: { id: true },
+      });
+      if (open) {
+        await tx.epicRequest.update({
+          where: { id: open.id },
+          data: { status: "SUBMITTED", ticketId },
+        });
+      } else {
+        await tx.epicRequest.create({
+          data: { personId, kind: "DEACTIVATE", status: "SUBMITTED", ticketId, requestedById: actorPersonId },
+        });
+      }
+    }
+  });
 }

@@ -1,22 +1,16 @@
 /**
- * Imports person-level flags (spanishSpeaking, licensedRN) and department
- * capacity config (idealHeadcount, patientCapacityPerProvider) from Airtable.
+ * Imports department capacity config (idealHeadcount, patientCapacityPerProvider)
+ * from Airtable.
  *
- * Sources:
- *   - All People table: Spanish Speaking and Licensed RN checkbox fields.
+ * Source:
  *   - SU 26 Roster table: Department Name (code), Ideal Headcount, Patient
  *     Capacity Per Provider number fields.
  *
  * AirtableClient.listAll requests returnFieldsByFieldId=true, so record fields
- * are keyed by FIELD ID (e.g. "fldU9oI3O8CaB17j1"), not display name. The
+ * are keyed by FIELD ID (e.g. "fldBIGmgM2dU0vFUQ"), not display name. The
  * FIELD constants below map semantic names to those real field IDs.
  *
- * Checkbox fields: present as `true` when checked; ABSENT (not `false`) when
- * unchecked. Airtable is authoritative at cutover: a true platform flag CAN
- * be lowered to false.
- *
- * The import NEVER deletes rows; it only updates existing Person and
- * Department rows.
+ * The import NEVER deletes rows; it only updates existing Department rows.
  */
 
 import type { Prisma } from "@prisma/client";
@@ -30,31 +24,15 @@ import type { AirtableReader } from "./importer";
 
 export type ScheduleConfigImportOptions = {
   baseId: string;
-  peopleTableId: string;
   rosterTableId: string;
   dryRun: boolean;
 };
 
 export type ScheduleConfigImportReport = {
-  peopleScanned: number;
-  /** Rows whose spanishSpeaking changed (either direction). */
-  spanishChanged: number;
-  rnChanged: number;
-  /** Airtable rows with no matching Person.airtableRecordId. */
-  peopleUnresolved: number;
   rosterRowsScanned: number;
   deptConfigChanged: number;
   unknownDepartments: string[];
 };
-
-// ---------------------------------------------------------------------------
-// All People field IDs (returnFieldsByFieldId=true; display names in comments)
-// ---------------------------------------------------------------------------
-
-const PEOPLE_FIELD = {
-  spanish: "fldU9oI3O8CaB17j1", // Spanish Speaking (checkbox)
-  rn: "fld16LPmc7y1gQZ7K",       // Licensed RN (checkbox)
-} as const;
 
 // ---------------------------------------------------------------------------
 // SU 26 Roster field IDs
@@ -70,11 +48,6 @@ const ROSTER_FIELD = {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Read an Airtable checkbox field: present as `true` -> true, absent -> false. */
-function checkboxValue(fields: Record<string, unknown>, fieldId: string): boolean {
-  return fields[fieldId] === true;
-}
-
 /** Read a number field; absent or non-number -> null. */
 function numberOrNull(fields: Record<string, unknown>, fieldId: string): number | null {
   const v = fields[fieldId];
@@ -89,34 +62,18 @@ function numberOrNull(fields: Record<string, unknown>, fieldId: string): number 
 /**
  * Runs the schedule config import.
  *
- * In apply mode, updates Person flags and Department config columns, then
- * writes one AuditLog entry. In dry-run mode, computes the same counts
- * without any DB writes.
+ * In apply mode, updates Department config columns, then writes one AuditLog
+ * entry. In dry-run mode, computes the same counts without any DB writes.
  */
 export async function runScheduleConfigImport(
   reader: AirtableReader,
   options: ScheduleConfigImportOptions
 ): Promise<ScheduleConfigImportReport> {
   const report: ScheduleConfigImportReport = {
-    peopleScanned: 0,
-    spanishChanged: 0,
-    rnChanged: 0,
-    peopleUnresolved: 0,
     rosterRowsScanned: 0,
     deptConfigChanged: 0,
     unknownDepartments: [],
   };
-
-  // --- People: load all rows upfront into a map keyed by airtableRecordId ---
-  const allPersonRows = await prisma.person.findMany({
-    select: { id: true, airtableRecordId: true, spanishSpeaking: true, licensedRN: true },
-  });
-  const personByRecordId = new Map<string, typeof allPersonRows[number]>();
-  for (const p of allPersonRows) {
-    if (p.airtableRecordId) {
-      personByRecordId.set(p.airtableRecordId, p);
-    }
-  }
 
   // --- Departments: load all rows upfront into a map keyed by lower code ---
   const allDepts = await prisma.department.findMany({
@@ -128,38 +85,7 @@ export async function runScheduleConfigImport(
   }
 
   // -------------------------------------------------------------------------
-  // Phase 1: People flags
-  // -------------------------------------------------------------------------
-
-  const peopleRecords = await reader.listAll(options.baseId, options.peopleTableId);
-
-  for (const record of peopleRecords) {
-    report.peopleScanned++;
-    const person = personByRecordId.get(record.id);
-    if (!person) {
-      report.peopleUnresolved++;
-      continue;
-    }
-
-    const desiredSpanish = checkboxValue(record.fields, PEOPLE_FIELD.spanish);
-    const desiredRn = checkboxValue(record.fields, PEOPLE_FIELD.rn);
-
-    const spanishDiff = person.spanishSpeaking !== desiredSpanish;
-    const rnDiff = person.licensedRN !== desiredRn;
-
-    if (spanishDiff) report.spanishChanged++;
-    if (rnDiff) report.rnChanged++;
-
-    if ((spanishDiff || rnDiff) && !options.dryRun) {
-      await prisma.person.update({
-        where: { id: person.id },
-        data: { spanishSpeaking: desiredSpanish, licensedRN: desiredRn },
-      });
-    }
-  }
-
-  // -------------------------------------------------------------------------
-  // Phase 2: Department config
+  // Department config
   // -------------------------------------------------------------------------
 
   const rosterRecords = await reader.listAll(options.baseId, options.rosterTableId);

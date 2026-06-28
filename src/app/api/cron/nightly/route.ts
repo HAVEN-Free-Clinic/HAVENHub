@@ -2,6 +2,12 @@
  * Daily maintenance: recompute compliance statuses (enqueues mirror changes) ->
  * drain the mirror outbox -> reconcile People against Airtable.
  *
+ * Triggered DAILY at 06:00 UTC by an EXTERNAL scheduler (cron-job.org) hitting
+ * this path with `Authorization: Bearer $CRON_SECRET`, not by Vercel Cron; this
+ * route is intentionally absent from vercel.json (see the /api/cron/email note
+ * and docs/cron-jobs.md). If that external schedule is lost on re-provision,
+ * compliance statuses and the Airtable mirror silently stop updating.
+ *
  * Email delivery is NOT done here. The per-minute /api/cron/email route is the
  * sole drainer of the outbound email queue; draining here too would run
  * concurrently with that route at 06:00 UTC and double-send (drainEmailQueue

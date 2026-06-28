@@ -5,6 +5,7 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { Button } from "@/platform/ui/button";
 import { Input, Textarea } from "@/platform/ui/input";
 import { Checkbox } from "@/platform/ui/checkbox";
+import { Select } from "@/platform/ui/select";
 import { Alert } from "@/platform/ui/alert";
 import { getCourseForEdit } from "@/modules/learning/services/courses";
 import { usingBlobStorage } from "@/platform/storage";
@@ -43,6 +44,14 @@ export default async function EditCoursePage({ params }: { params: Promise<{ cou
           <input type="hidden" name="courseId" value={course.id} />
           <h2 className="font-medium">Assignment</h2>
           <label className="flex items-center gap-2 text-sm"><Checkbox name="assignToAll" defaultChecked={course.assignToAll} /> Assign to all departments</label>
+          <label className="block text-sm">
+            Audience
+            <Select name="audience" defaultValue={course.audience} className="mt-1 max-w-xs">
+              <option value="EVERYONE">Everyone</option>
+              <option value="DIRECTORS">Directors only</option>
+              <option value="VOLUNTEERS">Volunteers only</option>
+            </Select>
+          </label>
           <div className="grid grid-cols-2 gap-1 text-sm">
             {departments.map((d) => (
               <label key={d.id} className="flex items-center gap-2">

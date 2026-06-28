@@ -4,6 +4,7 @@ import { getActiveTerm } from "@/platform/terms/active-term";
 import { recordAudit } from "@/platform/audit";
 import { deriveStatus } from "../engine/status";
 import { LearningAuthError } from "./errors";
+import { audienceToKind } from "../engine/assignment";
 
 async function requireViewer(actorId: string): Promise<void> {
   if (!(await can(actorId, "learning.view_progress"))) {
@@ -34,9 +35,10 @@ export async function getCourseCompletion(courseId: string, viewerId: string): P
   const deptFilter = course.assignToAll
     ? {}
     : { departmentId: { in: course.departments.map((d) => d.departmentId) } };
+  const kind = audienceToKind(course.audience);
 
   const memberships = await prisma.termMembership.findMany({
-    where: { termId: term.id, status: "ACTIVE", ...deptFilter },
+    where: { termId: term.id, status: "ACTIVE", ...deptFilter, ...(kind ? { kind } : {}) },
     include: { person: { select: { id: true, name: true } }, department: { select: { code: true } } },
   });
 

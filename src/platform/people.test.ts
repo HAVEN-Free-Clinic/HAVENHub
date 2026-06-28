@@ -258,4 +258,74 @@ describe("setPersonStatusField", () => {
     expect(logs[0].action).toBe("person.reactivate");
     expect((logs[0].after as Record<string, unknown>).removedMemberships).toBeUndefined();
   });
+
+  it("offboard cancels open NEW/MODIFY/RENEW requests and enqueues one PENDING DEACTIVATE when epicId is set", async () => {
+    const actor = await prisma.person.create({ data: { name: "Actor" } });
+    const person = await prisma.person.create({
+      data: { name: "Leaver", epicId: "E123", status: "ACTIVE" },
+    });
+    const open = await prisma.epicRequest.create({
+      data: { personId: person.id, kind: "MODIFY", status: "PENDING", requestedById: actor.id, notes: "prior" },
+    });
+
+    await setPersonStatusField(actor.id, person.id, "OFFBOARDED");
+
+    const cancelled = await prisma.epicRequest.findUnique({ where: { id: open.id } });
+    expect(cancelled?.status).toBe("CANCELLED");
+    expect(cancelled?.notes).toBe("prior\nCancelled: person offboarded");
+
+    const deact = await prisma.epicRequest.findMany({ where: { personId: person.id, kind: "DEACTIVATE" } });
+    expect(deact).toHaveLength(1);
+    expect(deact[0].status).toBe("PENDING");
+    expect(deact[0].requestedById).toBe(actor.id);
+
+    const log = await prisma.auditLog.findFirst({
+      where: { entityId: person.id, action: "person.offboard" },
+      orderBy: { createdAt: "desc" },
+    });
+    const after = log?.after as Record<string, unknown>;
+    expect(after.cancelledEpicRequestIds).toEqual([open.id]);
+    expect(after.deactivationRequestId).toBe(deact[0].id);
+  });
+
+  it("offboard creates NO deactivation request when the person has no epicId", async () => {
+    const actor = await prisma.person.create({ data: { name: "Actor" } });
+    const person = await prisma.person.create({ data: { name: "NoEpic", epicId: null, status: "ACTIVE" } });
+
+    await setPersonStatusField(actor.id, person.id, "OFFBOARDED");
+
+    const deact = await prisma.epicRequest.findMany({ where: { personId: person.id, kind: "DEACTIVATE" } });
+    expect(deact).toHaveLength(0);
+  });
+
+  it("offboard is idempotent: a second offboard does not create a duplicate DEACTIVATE", async () => {
+    const actor = await prisma.person.create({ data: { name: "Actor" } });
+    const person = await prisma.person.create({ data: { name: "Leaver", epicId: "E123", status: "ACTIVE" } });
+
+    await setPersonStatusField(actor.id, person.id, "OFFBOARDED");
+    await setPersonStatusField(actor.id, person.id, "OFFBOARDED");
+
+    const deact = await prisma.epicRequest.findMany({ where: { personId: person.id, kind: "DEACTIVATE" } });
+    expect(deact).toHaveLength(1);
+  });
+
+  it("reactivation cancels an open DEACTIVATE request", async () => {
+    const actor = await prisma.person.create({ data: { name: "Actor" } });
+    const person = await prisma.person.create({ data: { name: "Leaver", epicId: "E123", status: "ACTIVE" } });
+    await setPersonStatusField(actor.id, person.id, "OFFBOARDED");
+
+    await setPersonStatusField(actor.id, person.id, "ACTIVE");
+
+    const deact = await prisma.epicRequest.findMany({ where: { personId: person.id, kind: "DEACTIVATE" } });
+    expect(deact).toHaveLength(1);
+    expect(deact[0].status).toBe("CANCELLED");
+    expect(deact[0].notes?.endsWith("Cancelled: person reactivated")).toBe(true);
+
+    const log = await prisma.auditLog.findFirst({
+      where: { entityId: person.id, action: "person.reactivate" },
+      orderBy: { createdAt: "desc" },
+    });
+    const after = log?.after as Record<string, unknown>;
+    expect(after.cancelledDeactivationRequestIds).toEqual([deact[0].id]);
+  });
 });

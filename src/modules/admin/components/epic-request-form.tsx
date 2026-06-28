@@ -18,7 +18,7 @@
  */
 
 import { useState, useMemo } from "react";
-import type { DepartmentWithMembers, MemberLite } from "@/modules/admin/services/itcm";
+import type { DepartmentWithMembers, MemberLite, PendingDeactivation } from "@/modules/admin/services/itcm";
 import { Button } from "@/platform/ui/button";
 import { Select } from "@/platform/ui/select";
 import { Input, Field } from "@/platform/ui/input";
@@ -42,7 +42,9 @@ type RequestType =
   | "mod_individual"
   | "renew_individual"
   | "bulk_new"
-  | "bulk_mod";
+  | "bulk_mod"
+  | "deactivate_individual"
+  | "bulk_deactivate";
 
 
 const EMAIL_SUBJECTS: Record<RequestType, (initials: string, date: string) => string> = {
@@ -51,6 +53,8 @@ const EMAIL_SUBJECTS: Record<RequestType, (initials: string, date: string) => st
   renew_individual: (i, d) => `[HAVEN] Renew Epic Access for One User ${d} ${i}`,
   bulk_mod: (i, d) => `[HAVEN] Reactivate/Extend and Modify Epic Access for Multiple Users ${d} ${i}`,
   bulk_new: (i, d) => `[HAVEN] Multiple New Epic Account Request ${d} ${i}`,
+  deactivate_individual: (i, d) => `[HAVEN] Deactivate Epic Access for One User ${d} ${i}`,
+  bulk_deactivate: (i, d) => `[HAVEN] Deactivate Epic Access for Multiple Users ${d} ${i}`,
 };
 
 // ---------------------------------------------------------------------------
@@ -59,13 +63,14 @@ const EMAIL_SUBJECTS: Record<RequestType, (initials: string, date: string) => st
 
 type Props = {
   departments: DepartmentWithMembers[];
+  pendingDeactivations: PendingDeactivation[];
 };
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
-export function EpicRequestForm({ departments }: Props) {
+export function EpicRequestForm({ departments, pendingDeactivations }: Props) {
   // Step 1: configuration
   const [authorizer, setAuthorizer] = useState<AuthorizerKey>("CC");
   const [requestType, setRequestType] = useState<RequestType>("new_individual");
@@ -84,6 +89,7 @@ export function EpicRequestForm({ departments }: Props) {
 
   const isBulk = requestType.startsWith("bulk");
   const isNew = requestType.includes("new");
+  const isDeactivate = requestType.startsWith("deactivate") || requestType === "bulk_deactivate";
 
   // The selected department's members for the person list.
   const selectedDept = useMemo(
@@ -136,7 +142,7 @@ export function EpicRequestForm({ departments }: Props) {
       setError("Select at least one person before generating.");
       return;
     }
-    if (!isNew && !endDate) {
+    if (!isNew && !isDeactivate && !endDate) {
       setError("Set the access end date before generating a modify/renew request.");
       return;
     }
@@ -219,7 +225,7 @@ export function EpicRequestForm({ departments }: Props) {
             <Select
               value={requestType.startsWith("bulk") ? requestType.replace("bulk_", "") : requestType.replace("_individual", "")}
               onChange={(e) => {
-                const base = e.target.value as "new" | "mod" | "renew";
+                const base = e.target.value as "new" | "mod" | "renew" | "deactivate";
                 const raw = isBulk ? `bulk_${base}` : `${base}_individual`;
                 const safe = raw === "bulk_renew" ? "bulk_mod" : raw;
                 setRequestType(safe as RequestType);
@@ -230,6 +236,7 @@ export function EpicRequestForm({ departments }: Props) {
               <option value="new">New</option>
               <option value="mod">Modify</option>
               {!isBulk && <option value="renew">Renew</option>}
+              <option value="deactivate">Deactivate</option>
             </Select>
           </Field>
 
@@ -278,7 +285,21 @@ export function EpicRequestForm({ departments }: Props) {
           2. Select {isBulk ? "people" : "person"}
         </h2>
 
-        {isBulk ? (
+        {isDeactivate ? (
+          <div className="space-y-1">
+            {pendingDeactivations.length === 0 && (
+              <p className="text-sm text-muted-foreground">No people are awaiting Epic deactivation.</p>
+            )}
+            {pendingDeactivations.map((p) => (
+              <PersonRow
+                key={p.id}
+                person={{ id: p.id, name: p.name, netId: p.netId, contactEmail: p.contactEmail, epicId: p.epicId, kind: "VOLUNTEER" }}
+                selected={selectedPeopleIds.has(p.id)}
+                onToggle={() => togglePerson(p.id, { id: p.id, name: p.name, netId: p.netId, contactEmail: p.contactEmail, epicId: p.epicId, kind: "VOLUNTEER" })}
+              />
+            ))}
+          </div>
+        ) : isBulk ? (
           <div className="space-y-6">
             {departments.map((d) => (
               <div key={d.department.id} className="space-y-3">

@@ -28,6 +28,64 @@ async function loadOutput() {
   return PDFDocument.load(bytes);
 }
 
+async function loadDeactivateIndividual() {
+  const bytes = await generatePdf({
+    requestType: "deactivate_individual",
+    authorizerKey: "CC",
+    person: { firstName: "Jane", lastName: "Doe", email: "jane.doe@yale.edu", netId: "jd123", epicId: "EPIC123", yaleAffiliation: "Yale College" },
+    endDate: "10/15/2026",
+    mirrorPerson: null,
+    templateBytes,
+  });
+  return PDFDocument.load(bytes);
+}
+
+async function loadBulkDeactivate() {
+  const bytes = await generatePdf({
+    requestType: "bulk_deactivate",
+    authorizerKey: "CC",
+    person: null,
+    endDate: "10/15/2026",
+    mirrorPerson: null,
+    templateBytes,
+  });
+  return PDFDocument.load(bytes);
+}
+
+describe("generatePdf deactivation", () => {
+  it("fills the person's existing Epic ID on an individual deactivation", async () => {
+    const doc = await loadDeactivateIndividual();
+    const form = doc.getForm();
+    // Epic ID field used for the account being deactivated (Text17 holds the
+    // person's existing Epic ID on non-new requests).
+    expect(form.getTextField("Text17").getText()).toContain("EPIC123");
+  });
+
+  it("checks the Delete Access box (Check Box60) on an individual deactivation", async () => {
+    const doc = await loadDeactivateIndividual();
+    // Check Box60 is the "Delete Access" box in Section V - the core
+    // deactivation signal. This must be true and would fail if the Section V
+    // deactivate branch did not check it.
+    expect(doc.getForm().getCheckBox("Check Box60").isChecked()).toBe(true);
+  });
+
+  it("writes the deactivation Section IX narrative", async () => {
+    const doc = await loadDeactivateIndividual();
+    const form = doc.getForm();
+    expect((form.getTextField("Text113").getText() ?? "").toLowerCase()).toContain("deactivat");
+  });
+
+  it("fills bulk Section III fields and checks Delete Access on a bulk deactivation", async () => {
+    const doc = await loadBulkDeactivate();
+    const form = doc.getForm();
+    // Bulk requests fill Section III with "See spreadsheet" placeholders; the
+    // mirror block is intentionally skipped for deactivation, so Text78/Text79
+    // are not asserted here.
+    expect(form.getTextField("Text12").getText()).toBe("See spreadsheet");
+    expect(form.getCheckBox("Check Box60").isChecked()).toBe(true);
+  });
+});
+
 describe("generatePdf", () => {
   it("clears NeedAppearances so Adobe Acrobat shows the filled text instead of a blank form", async () => {
     const doc = await loadOutput();

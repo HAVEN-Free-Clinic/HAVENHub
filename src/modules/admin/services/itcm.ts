@@ -184,7 +184,7 @@ export type EpicRequestHistoryRow = {
   };
   requests: {
     id: string;
-    kind: "NEW" | "MODIFY" | "RENEW";
+    kind: "NEW" | "MODIFY" | "RENEW" | "DEACTIVATE";
     status: string;
     person: { name: string; epicId: string | null };
   }[];
@@ -215,7 +215,7 @@ export async function getEpicRequestHistory(): Promise<EpicRequestHistoryRow[]> 
     },
     requests: t.requests.map((r) => ({
       id: r.id,
-      kind: r.kind as "NEW" | "MODIFY" | "RENEW",
+      kind: r.kind as "NEW" | "MODIFY" | "RENEW" | "DEACTIVATE",
       status: r.status,
       person: { name: r.person.name, epicId: r.person.epicId },
     })),
@@ -254,5 +254,105 @@ export async function updateServiceRequestNumber(ticketId: string, serviceReques
   return prisma.ynhhTicket.update({
     where: { id: ticketId },
     data: { serviceRequestNumber },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// listPendingDeactivations
+// ---------------------------------------------------------------------------
+
+export type PendingDeactivation = {
+  id: string;
+  name: string;
+  netId: string | null;
+  contactEmail: string | null;
+  epicId: string | null;
+  departmentNames: string[];
+};
+
+/**
+ * Returns people who have an open (PENDING) DEACTIVATE EpicRequest: the people
+ * an admin can batch into a YNHH deactivation service request. Offboarded
+ * people are no longer active members, so they do not appear in
+ * listDepartmentsWithMembers; this is the person source for the deactivate flow.
+ *
+ * departmentNames is best-effort: the person's most recent term memberships
+ * (any status) for display only.
+ */
+export async function listPendingDeactivations(): Promise<PendingDeactivation[]> {
+  const requests = await prisma.epicRequest.findMany({
+    where: { kind: "DEACTIVATE", status: "PENDING" },
+    include: {
+      person: {
+        select: {
+          id: true,
+          name: true,
+          netId: true,
+          contactEmail: true,
+          epicId: true,
+          memberships: {
+            select: { department: { select: { name: true } } },
+            orderBy: { term: { startDate: "desc" } },
+          },
+        },
+      },
+    },
+    orderBy: { person: { name: "asc" } },
+  });
+
+  // De-duplicate by person (a person should have at most one open DEACTIVATE,
+  // but guard against duplicates) and dedupe department names.
+  const byPerson = new Map<string, PendingDeactivation>();
+  for (const r of requests) {
+    if (byPerson.has(r.person.id)) continue;
+    const departmentNames = [...new Set(r.person.memberships.map((m) => m.department.name))];
+    byPerson.set(r.person.id, {
+      id: r.person.id,
+      name: r.person.name,
+      netId: r.person.netId,
+      contactEmail: r.person.contactEmail,
+      epicId: r.person.epicId,
+      departmentNames,
+    });
+  }
+  return [...byPerson.values()];
+}
+
+// ---------------------------------------------------------------------------
+// reconcileDeactivationRequests
+// ---------------------------------------------------------------------------
+
+/**
+ * Links the selected people's deactivation requests to a YNHH ticket when an
+ * admin generates a deactivation service request. For each person: reuse an
+ * open (PENDING/SUBMITTED) DEACTIVATE request if one exists (the one queued at
+ * offboard), attaching it to the ticket and marking it SUBMITTED; otherwise
+ * create a SUBMITTED DEACTIVATE request attached to the ticket (supports an
+ * ad-hoc deactivation for someone who was not auto-queued).
+ *
+ * Trusts its caller for permissions: the generate route gates on admin.access.
+ */
+export async function reconcileDeactivationRequests(
+  actorPersonId: string,
+  personIds: string[],
+  ticketId: string
+): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    for (const personId of personIds) {
+      const open = await tx.epicRequest.findFirst({
+        where: { personId, kind: "DEACTIVATE", status: { in: ["PENDING", "SUBMITTED"] } },
+        select: { id: true },
+      });
+      if (open) {
+        await tx.epicRequest.update({
+          where: { id: open.id },
+          data: { status: "SUBMITTED", ticketId },
+        });
+      } else {
+        await tx.epicRequest.create({
+          data: { personId, kind: "DEACTIVATE", status: "SUBMITTED", ticketId, requestedById: actorPersonId },
+        });
+      }
+    }
   });
 }

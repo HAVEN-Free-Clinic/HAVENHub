@@ -23,7 +23,7 @@ import * as path from "path";
 import { auth } from "@/platform/auth/auth";
 import { getActivePerson } from "@/platform/auth/match-person";
 import { can } from "@/platform/rbac/engine";
-import { findMirrorPerson, getPeopleByIds } from "@/modules/admin/services/itcm";
+import { findMirrorPerson, getPeopleByIds, reconcileDeactivationRequests } from "@/modules/admin/services/itcm";
 import {
   AUTHORIZERS,
   generatePdf,
@@ -55,6 +55,10 @@ const EMAIL_BODIES: Record<RequestType, (args: {
     `Hello,\nCould we please reactivate/extend the Epic accounts for the users in the Excel Spreadsheet?\nThey already have an Epic account, but need access to the department "YM HAVEN FREE CLINIC".\nPlease reactivate and/or extend their access until ${endDate}.\nThey will need the abilities of the corresponding Epic ID to mirror (included in the spreadsheet), in the department YM HAVEN FREE CLINIC.\nThey neither have YNHH privileges nor are requesting them.\nI've attached a spreadsheet containing ${userCount} users and the completed pdf request form. Please feel free to contact me with any questions or if you require more information. Thank you very much!\n\nBest,\n${authorizerName}`,
   bulk_new: ({ authorizerName, userCount }) =>
     `Hello,\nI hope you are doing well! Could we please create new Epic accounts for each of the attached users in the department "YM HAVEN FREE CLINIC"?\nThey will need the abilities identical to the Epic ID listed under "Epic ID to Mirror," in the department YM HAVEN FREE CLINIC\nThese individuals neither have YNHH hospital privileges nor are requesting them.\nThey will complete Epic training upon receipt of their accounts.\nI've attached the completed pdf request form with further details and an Excel spreadsheet with a set of ${userCount} users who need access. Please feel free to contact me with any questions or if you need any more information. Thank you!\n\nBest,\n${authorizerName}`,
+  deactivate_individual: ({ personName, endDate, authorizerName }) =>
+    `Hello,\nCould we please DEACTIVATE Epic access for ${personName}? They are no longer with the YM HAVEN FREE CLINIC. Please deactivate their access effective ${endDate}.\nThe completed PDF request form is attached. Please contact me with any questions.\n\nBest,\n${authorizerName}`,
+  bulk_deactivate: ({ endDate, authorizerName, userCount }) =>
+    `Hello,\nCould we please DEACTIVATE Epic access for the ${userCount} users in the attached spreadsheet? They are no longer with the YM HAVEN FREE CLINIC. Please deactivate their access effective ${endDate}.\nThe completed PDF request form and the spreadsheet are attached. Please contact me with any questions.\n\nBest,\n${authorizerName}`,
 };
 
 const PDF_FILENAMES: Record<RequestType, (initials: string, date: string) => string> = {
@@ -63,6 +67,8 @@ const PDF_FILENAMES: Record<RequestType, (initials: string, date: string) => str
   renew_individual: (i, d) => `${i} ${d} MOD_REACT Service Request Form_V5.5.pdf`,
   bulk_new: (i, d) => `${i} ${d} Multiple Users NEW Service Request Form_V5.5.pdf`,
   bulk_mod: (i, d) => `${i} ${d} Multiple Users MOD_REACT Service Request Form_V5.5.pdf`,
+  deactivate_individual: (i, d) => `${i} ${d} DEACTIVATE Service Request Form_V5.5.pdf`,
+  bulk_deactivate: (i, d) => `${i} ${d} Multiple Users DEACTIVATE Service Request Form_V5.5.pdf`,
 };
 
 const REQUEST_TYPE_LABELS: Record<RequestType, string> = {
@@ -71,6 +77,8 @@ const REQUEST_TYPE_LABELS: Record<RequestType, string> = {
   renew_individual: "Renew — Individual",
   bulk_new: "New — Bulk",
   bulk_mod: "Modify / Renew — Bulk",
+  deactivate_individual: "Deactivate - Individual",
+  bulk_deactivate: "Deactivate - Bulk",
 };
 
 // ---------------------------------------------------------------------------
@@ -203,14 +211,21 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "No people selected" }, { status: 400 });
   }
 
+  // Deactivation requests default to today if no end date is provided.
+  const isDeactivate = requestType === "deactivate_individual" || requestType === "bulk_deactivate";
+
   // Modify/renew requests carry an access end date; new requests use a fixed
-  // one-year-out date instead. Require it so a blank date never reaches YNHH.
-  if (!requestType.includes("new") && !endDate?.trim()) {
+  // one-year-out date instead; deactivation defaults to today.
+  // Require it only for non-new, non-deactivate types so a blank date never reaches YNHH.
+  if (!requestType.includes("new") && !isDeactivate && !endDate?.trim()) {
     return NextResponse.json(
       { error: "An end date is required for modify/renew requests" },
       { status: 400 }
     );
   }
+
+  const todayMMDDYYYY = new Date().toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
+  const effectiveEndDate = isDeactivate && !endDate?.trim() ? todayMMDDYYYY : endDate;
 
   // Load people from the database.
   const people = await getPeopleByIds(personIds);
@@ -287,7 +302,7 @@ export async function POST(req: Request) {
     requestType,
     authorizerKey,
     person: personArg,
-    endDate,
+    endDate: effectiveEndDate,
     mirrorPerson: isBulk ? null : singleMirrorPerson,
     templateBytes,
   });
@@ -303,6 +318,8 @@ export async function POST(req: Request) {
     case "renew_individual": pdfFilename = PDF_FILENAMES.renew_individual(authorizerKey, dateStr); break;
     case "bulk_new": pdfFilename = PDF_FILENAMES.bulk_new(authorizerKey, dateStr); break;
     case "bulk_mod": pdfFilename = PDF_FILENAMES.bulk_mod(authorizerKey, dateStr); break;
+    case "deactivate_individual": pdfFilename = PDF_FILENAMES.deactivate_individual(authorizerKey, dateStr); break;
+    case "bulk_deactivate": pdfFilename = PDF_FILENAMES.bulk_deactivate(authorizerKey, dateStr); break;
     default: return NextResponse.json({ error: "Invalid request type" }, { status: 400 });
   }
 
@@ -314,7 +331,7 @@ export async function POST(req: Request) {
   const emailBodyArgs = {
     personName: isBulk ? "Multiple Users" : firstPerson.name,
     epicId: firstPerson.epicId ?? "",
-    endDate: isNew ? oneYearStr : endDate,
+    endDate: isNew ? oneYearStr : effectiveEndDate,
     authorizerName: authorizer.name,
     userCount: people.length,
   };
@@ -327,6 +344,8 @@ export async function POST(req: Request) {
     case "renew_individual": emailBody = EMAIL_BODIES.renew_individual(emailBodyArgs); break;
     case "bulk_new": emailBody = EMAIL_BODIES.bulk_new(emailBodyArgs); break;
     case "bulk_mod": emailBody = EMAIL_BODIES.bulk_mod(emailBodyArgs); break;
+    case "deactivate_individual": emailBody = EMAIL_BODIES.deactivate_individual(emailBodyArgs); break;
+    case "bulk_deactivate": emailBody = EMAIL_BODIES.bulk_deactivate(emailBodyArgs); break;
     default: return NextResponse.json({ error: "Invalid request type" }, { status: 400 });
   };
 
@@ -357,42 +376,48 @@ export async function POST(req: Request) {
     xlsxFilename = pdfFilename.replace(".pdf", ".xlsx");
   }
 
-  // Record Epic requests and a YNHH ticket in the database for tracking.
-  // kind maps: new_individual/bulk_new → NEW, mod_individual → MODIFY,
-  // renew_individual/bulk_mod → RENEW.
-  const epicKind =
-    requestType === "new_individual" || requestType === "bulk_new"
-      ? "NEW"
-      : requestType === "mod_individual"
-      ? "MODIFY"
-      : "RENEW";
-
   // Create one YnhhTicket per PDF submission to group the requests together.
   // Service request number and close date are filled in manually when YNHH responds.
   // The actor is the signed-in admin who generated the request (resolved above),
-  // so tracking is always recorded — never silently skipped.
+  // so tracking is always recorded - never silently skipped.
   const ticket = await prisma.ynhhTicket.create({
     data: {
       submittedById: actor.id,
-      description: `${REQUEST_TYPE_LABELS[requestType]} — ${people.map((p) => p.name).join(", ")}`,
+      description: `${REQUEST_TYPE_LABELS[requestType]} - ${people.map((p) => p.name).join(", ")}`,
       status: "OPEN",
     },
   });
 
-  await prisma.$transaction(
-    people.map((p) =>
-      prisma.epicRequest.create({
-        data: {
-          personId: p.id,
-          kind: epicKind,
-          status: "SUBMITTED",
-          mirrorEpicId: mirrorByPersonId.get(p.id)?.epicId ?? null,
-          requestedById: actor.id,
-          ticketId: ticket.id,
-        },
-      })
-    )
-  );
+  if (isDeactivate) {
+    // Deactivation requests already exist (queued at offboard) or are created
+    // here for an ad-hoc deactivation; link them to this ticket as SUBMITTED.
+    await reconcileDeactivationRequests(actor.id, people.map((p) => p.id), ticket.id);
+  } else {
+    // Record Epic requests for tracking.
+    // kind maps: new_individual/bulk_new -> NEW, mod_individual -> MODIFY,
+    // renew_individual/bulk_mod -> RENEW.
+    const epicKind =
+      requestType === "new_individual" || requestType === "bulk_new"
+        ? "NEW"
+        : requestType === "mod_individual"
+        ? "MODIFY"
+        : "RENEW";
+
+    await prisma.$transaction(
+      people.map((p) =>
+        prisma.epicRequest.create({
+          data: {
+            personId: p.id,
+            kind: epicKind,
+            status: "SUBMITTED",
+            mirrorEpicId: mirrorByPersonId.get(p.id)?.epicId ?? null,
+            requestedById: actor.id,
+            ticketId: ticket.id,
+          },
+        })
+      )
+    );
+  }
 
   return NextResponse.json({
     pdfBase64: Buffer.from(pdfBytes).toString("base64"),

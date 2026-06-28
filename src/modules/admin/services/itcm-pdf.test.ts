@@ -72,7 +72,7 @@ describe("generatePdf deactivation", () => {
   it("writes the deactivation Section IX narrative", async () => {
     const doc = await loadDeactivateIndividual();
     const form = doc.getForm();
-    expect(form.getTextField("Text113").getText().toLowerCase()).toContain("deactivat");
+    expect((form.getTextField("Text113").getText() ?? "").toLowerCase()).toContain("deactivat");
   });
 
   it("fills bulk Section III fields and checks Delete Access on a bulk deactivation", async () => {

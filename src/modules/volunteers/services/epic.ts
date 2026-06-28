@@ -656,7 +656,9 @@ export async function sendEpicEmail(
     contactEmail: person.contactEmail,
     epicId: person.epicId,
     departmentNames,
-    kind: req.kind ?? undefined,
+    // DEACTIVATE has no onboarding/activation/renewal email variant, so it maps
+    // to undefined here (the epic email templates only model NEW/MODIFY/RENEW).
+    kind: req.kind === "DEACTIVATE" ? undefined : req.kind,
   };
 
   const contextBuilders: Record<EpicTemplateKey, (p: EpicEmailParams) => Record<string, unknown>> = {

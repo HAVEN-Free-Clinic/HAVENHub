@@ -465,6 +465,15 @@ export async function listTickets(): Promise<TicketRow[]> {
  * For kind RENEW any provided epicId is IGNORED; the person's epicId is left
  * untouched.
  *
+ * For kind DEACTIVATE the epicId argument is IGNORED and Person.epicId is
+ * never cleared. Revocation is tracked via the request status; the epicId
+ * is retained as a historical record per product decision. DEACTIVATE requests
+ * may be completed for a person of any status (including OFFBOARDED).
+ *
+ * Access-granting kinds (NEW, MODIFY, RENEW) may only be completed for an
+ * ACTIVE person (EpicStateError otherwise). This prevents stamping a fresh
+ * epicId onto someone who has been offboarded, closing a security hole.
+ *
  * Sets status COMPLETED + completedAt. Audits "epic.complete".
  *
  * Note on atomicity: updatePersonFields runs before the request-status update
@@ -488,6 +497,20 @@ export async function completeRequest(
     );
   }
 
+  const person = await prisma.person.findUnique({ where: { id: req.personId } });
+  if (!person) throw new EpicNotFoundError("Person for this request no longer exists.");
+
+  // Access-granting kinds may only be completed for an ACTIVE person. This
+  // prevents stamping a fresh epicId onto someone who has been offboarded and
+  // removes the inconsistency with createEpicRequest (which already refuses a
+  // non-active person). DEACTIVATE is exempt: completing it is the whole point
+  // for a person who has left.
+  if (req.kind !== "DEACTIVATE" && person.status !== "ACTIVE") {
+    throw new EpicStateError(
+      `Cannot complete a ${req.kind} request for a non-active person (status: ${person.status}).`
+    );
+  }
+
   let writtenEpicId: string | null = null;
 
   if (req.kind === "NEW" || req.kind === "MODIFY") {
@@ -504,7 +527,9 @@ export async function completeRequest(
       throw err;
     }
   }
-  // RENEW: ignore any passed epicId, leave person untouched.
+  // RENEW and DEACTIVATE: leave Person.epicId untouched. DEACTIVATE keeps the
+  // epicId as a historical record per product decision; revocation happens at
+  // YNHH and is tracked by the request status, not by clearing the field.
 
   await prisma.epicRequest.update({
     where: { id: requestId },
@@ -516,7 +541,7 @@ export async function completeRequest(
     action: "epic.complete",
     entityType: "EpicRequest",
     entityId: requestId,
-    // For NEW/MODIFY record the epicId actually written; for RENEW omit it (no write occurred).
+    // For NEW/MODIFY record the epicId actually written; for RENEW and DEACTIVATE omit it (no write occurred).
     after: { kind: req.kind, epicId: writtenEpicId },
   });
 }

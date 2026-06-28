@@ -50,6 +50,17 @@ it("isCourseAssignedTo reflects department assignment", async () => {
   expect(await isCourseAssignedTo(learner.id, unassigned.id)).toBe(false);
 });
 
+it("excludes an assigned course with no uploaded SCORM package (cannot block the gate)", async () => {
+  const { learner, dept } = await seed();
+  // Mirrors the admin flow: create + assign a course, upload the package later.
+  const packageless = await prisma.course.create({
+    data: { title: "No package yet", departments: { create: [{ departmentId: dept.id }] } },
+  });
+  const rows = await getMyCourses(learner.id);
+  expect(rows.map((r) => r.id)).not.toContain(packageless.id);
+  expect(await isCourseAssignedTo(learner.id, packageless.id)).toBe(false);
+});
+
 it("getCourseForLearner refuses an unassigned course", async () => {
   const { learner, unassigned } = await seed();
   await expect(getCourseForLearner(learner.id, unassigned.id)).rejects.toBeInstanceOf(LearningAuthError);

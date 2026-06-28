@@ -27,13 +27,14 @@ async function assignedCourseIds(personId: string): Promise<string[]> {
   const memberDepts = await memberDepartmentIds(personId, termId);
   const courses = await prisma.course.findMany({
     where: { isActive: true },
-    select: { id: true, isActive: true, assignToAll: true, departments: { select: { departmentId: true } } },
+    select: { id: true, isActive: true, assignToAll: true, scormEntryHref: true, departments: { select: { departmentId: true } } },
   });
   const assignable: AssignableCourse[] = courses.map((c) => ({
     id: c.id,
     isActive: c.isActive,
     assignToAll: c.assignToAll,
     departmentIds: c.departments.map((d) => d.departmentId),
+    hasPackage: c.scormEntryHref != null,
   }));
   return coursesForMember({ courses: assignable, memberDepartmentIds: memberDepts });
 }

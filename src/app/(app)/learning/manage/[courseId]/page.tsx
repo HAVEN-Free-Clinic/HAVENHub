@@ -5,6 +5,7 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { Button } from "@/platform/ui/button";
 import { Input, Textarea } from "@/platform/ui/input";
 import { Checkbox } from "@/platform/ui/checkbox";
+import { Alert } from "@/platform/ui/alert";
 import { getCourseForEdit } from "@/modules/learning/services/courses";
 import { usingBlobStorage } from "@/platform/storage";
 import { updateCourseAction, setAssignmentAction } from "../actions";
@@ -17,11 +18,19 @@ export default async function EditCoursePage({ params }: { params: Promise<{ cou
   if (!course) notFound();
   const departments = await prisma.department.findMany({ where: { isActive: true }, orderBy: { name: "asc" } });
   const assignedDeptIds = new Set(course.departments.map((d) => d.departmentId));
+  const isAssigned = course.assignToAll || course.departments.length > 0;
+  const hasPackage = course.scormEntryHref != null;
 
   return (
     <>
       <PageHeader title={`Edit: ${course.title}`} />
       <div className="mt-6 grid max-w-3xl gap-8">
+        {course.isActive && isAssigned && !hasPackage && (
+          <Alert tone="warning">
+            This course is assigned but has no SCORM package yet, so it is hidden from members and does
+            not count toward onboarding. Upload a package below to make it visible and required.
+          </Alert>
+        )}
         <form action={updateCourseAction} className="space-y-2">
           <input type="hidden" name="courseId" value={course.id} />
           <Input name="title" defaultValue={course.title} />

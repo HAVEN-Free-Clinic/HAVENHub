@@ -1167,6 +1167,8 @@ model Course {
   isActive        Boolean            @default(true)
   /// When true, the course is assigned to every department (org-wide).
   assignToAll     Boolean            @default(false)
+  /// Who the course targets, composed with department / assignToAll scoping.
+  audience        CourseAudience     @default(EVERYONE)
   /// Ordering in the catalog / management list.
   position        Int                @default(0)
   /// Launch file from imsmanifest.xml (e.g. "index.html"). Null = no package uploaded yet (draft).
@@ -1182,6 +1184,12 @@ model Course {
   departments     CourseDepartment[]
   progress        CourseProgress[]
   scoProgress     ScoProgress[]
+}
+
+enum CourseAudience {
+  EVERYONE
+  DIRECTORS
+  VOLUNTEERS
 }
 
 model CourseDepartment {

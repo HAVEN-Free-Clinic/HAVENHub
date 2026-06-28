@@ -26,6 +26,7 @@ import { listMyCertificates } from "@/modules/my-info/services/my-info";
 import { requiredTrainingTracks, resolveTrainingState } from "@/modules/recruitment/services/training";
 import { isInterviewPanelist } from "@/modules/recruitment/services/interviews";
 import { complianceStatus, certExpiresAt } from "@/platform/compliance/rules";
+import { getSetting } from "@/platform/settings/service";
 import { isoDateKey } from "@/platform/dates";
 
 // ---------------------------------------------------------------------------
@@ -148,10 +149,11 @@ export default async function HubPage() {
   // One permission fetch per render; tiles filter in memory (never can() in a loop).
   const permissions = await getEffectivePermissions(person.personId);
 
-  const [schedule, certificates, isPanelist] = await Promise.all([
+  const [schedule, certificates, isPanelist, orgName] = await Promise.all([
     mySchedule(person.personId),
     listMyCertificates(person.personId),
     isInterviewPanelist(person.personId),
+    getSetting<string>("branding.orgName"),
   ]);
   const { term, shifts } = schedule;
   const tracks = term ? await requiredTrainingTracks(person.personId, term.id) : [];
@@ -183,7 +185,7 @@ export default async function HubPage() {
   // --- Greeting context ---
   const firstName = person.name ? person.name.trim().split(/\s+/)[0] : null;
   const dept = next?.department.name ?? shifts[0]?.department.name ?? null;
-  const eyebrow = [term?.name, dept].filter(Boolean).join(" · ") || "HAVEN Free Clinic";
+  const eyebrow = [term?.name, dept].filter(Boolean).join(" · ") || orgName;
 
   // --- Compliance status (real data, same rules as My Info) ---
   const newestCert = certificates[0] ?? null;

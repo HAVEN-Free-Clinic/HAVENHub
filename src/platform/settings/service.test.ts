@@ -199,6 +199,20 @@ describe("phase 2a branding settings", () => {
     expect(await getSetting<string>("branding.appName")).toBe("Clinic Hub");
   });
 
+  it("resolves branding.orgName default then DB override", async () => {
+    expect(await getSetting<string>("branding.orgName")).toBe("HAVEN Free Clinic");
+    await prisma.setting.create({ data: { key: "branding.orgName", value: "Open Door Clinic" } });
+    _resetSettingsCache();
+    expect(await getSetting<string>("branding.orgName")).toBe("Open Door Clinic");
+  });
+
+  it("resolves branding.orgTagline default then DB override (blank allowed)", async () => {
+    expect(await getSetting<string>("branding.orgTagline")).toBe("Yale University");
+    await prisma.setting.create({ data: { key: "branding.orgTagline", value: "" } });
+    _resetSettingsCache();
+    expect(await getSetting<string>("branding.orgTagline")).toBe("");
+  });
+
   it("resolves branding.brandColor default", async () => {
     expect(await getSetting<string>("branding.brandColor")).toBe("#00356b");
   });

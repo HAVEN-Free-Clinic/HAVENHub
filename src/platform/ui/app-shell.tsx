@@ -4,6 +4,7 @@ import { signOut } from "@/platform/auth/auth";
 import { MODULES } from "@/platform/modules/registry";
 import { getAccessibleModules } from "@/platform/modules/access";
 import { getSetting } from "@/platform/settings/service";
+import { getOrgIdentity, formatOrgLine } from "@/platform/branding/org";
 import { HavenLogo } from "./haven-logo";
 import { GlobalNav } from "./global-nav";
 import { Breadcrumbs } from "./breadcrumbs";
@@ -37,9 +38,10 @@ export async function AppShell({
   personThemePreference: string | null;
   children: ReactNode;
 }) {
-  const [navModules, themeDefault] = await Promise.all([
+  const [navModules, themeDefault, org] = await Promise.all([
     getAccessibleModules(personId),
     getSetting<string>("ui.defaultTheme"),
+    getOrgIdentity(),
   ]);
   const resolvedTheme = resolvePreference(personThemePreference, themeDefault);
   const breadcrumbModules: BreadcrumbModule[] = MODULES.map((m) => ({
@@ -112,7 +114,7 @@ export async function AppShell({
 
       <footer className="border-t border-border-subtle">
         <div className="mx-auto max-w-6xl px-6 py-8 text-xs text-subtle-foreground">
-          HAVEN Free Clinic · Yale University
+          {formatOrgLine(org)}
         </div>
       </footer>
     </div>

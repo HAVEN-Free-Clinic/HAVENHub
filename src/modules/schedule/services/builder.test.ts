@@ -57,10 +57,16 @@ function sixSaturdays(): Date[] {
 
 async function createPerson(
   name: string,
-  opts: { licensedRN?: boolean; spanishSpeaking?: boolean; contactEmail?: string } = {}
+  opts: { licensedRN?: boolean; spanishVerified?: boolean; spanishSelfReported?: boolean; contactEmail?: string } = {}
 ) {
   return prisma.person.create({
-    data: { name, licensedRN: opts.licensedRN ?? false, spanishSpeaking: opts.spanishSpeaking ?? false, contactEmail: opts.contactEmail },
+    data: {
+      name,
+      licensedRN: opts.licensedRN ?? false,
+      spanishVerified: opts.spanishVerified ?? false,
+      spanishSelfReported: opts.spanishSelfReported ?? false,
+      contactEmail: opts.contactEmail,
+    },
   });
 }
 
@@ -988,7 +994,7 @@ describe("builderView", () => {
     const term = await createTerm(dates);
     const dept = await createDepartment("PCAR", { idealHeadcount: 4 });
     const director = await createPerson("Director");
-    const spanishVol = await createPerson("Bilingual", { spanishSpeaking: true });
+    const spanishVol = await createPerson("Bilingual", { spanishVerified: true });
     const regularVol = await createPerson("Regular");
     await createMembership(director.id, term.id, dept.id, "DIRECTOR");
     await createMembership(spanishVol.id, term.id, dept.id, "VOLUNTEER");
@@ -1000,6 +1006,21 @@ describe("builderView", () => {
     const view = await builderView(director.id, { departmentId: dept.id, dateKey: isoDateKey(dates[0]) });
     expect(view.capacity.spanishCount).toBe(1);
     expect(view.capacity.headcount).toBe(2);
+  });
+
+  it("capacity math: self-reported-only (unverified) Spanish does not count", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const dept = await createDepartment("PCAR", { idealHeadcount: 4 });
+    const director = await createPerson("Director");
+    const selfReportedVol = await createPerson("Pending", { spanishSelfReported: true });
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(selfReportedVol.id, term.id, dept.id, "VOLUNTEER");
+
+    await createShift(term.id, dept.id, selfReportedVol.id, dates[0], "VOLUNTEER");
+
+    const view = await builderView(director.id, { departmentId: dept.id, dateKey: isoDateKey(dates[0]) });
+    expect(view.capacity.spanishCount).toBe(0);
   });
 
   it("banner lists only non-compliant volunteers assigned on selected date", async () => {

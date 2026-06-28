@@ -527,7 +527,7 @@ export async function upsertRhdClinic(
 
 export type BuilderMember = {
   membershipId: string;
-  person: { id: string; name: string; spanishSpeaking: boolean; licensedRN: boolean };
+  person: { id: string; name: string; spanishVerified: boolean; licensedRN: boolean };
   kind: "DIRECTOR" | "VOLUNTEER";
   availability: ResolvedAvailability;
   overrideActive: boolean;
@@ -677,7 +677,7 @@ export async function builderView(
     prisma.shiftAssignment.findMany({
       where: { termId: term.id, departmentId: selectedDept.id },
       include: {
-        person: { select: { id: true, name: true, spanishSpeaking: true, licensedRN: true } },
+        person: { select: { id: true, name: true, spanishVerified: true, licensedRN: true } },
       },
     }),
     prisma.termMembership.findMany({
@@ -725,7 +725,7 @@ export async function builderView(
       person: {
         id: m.person.id,
         name: m.person.name,
-        spanishSpeaking: m.person.spanishSpeaking,
+        spanishVerified: m.person.spanishVerified,
         licensedRN: m.person.licensedRN,
       },
       kind: m.kind as "DIRECTOR" | "VOLUNTEER",
@@ -746,7 +746,7 @@ export async function builderView(
   const onShiftPeople = selectedAssignments.filter((a) => a.role === "VOLUNTEER" || a.role === "DIRECTOR");
   const spanishCount = onShiftPeople.filter((a) => {
     const p = personById.get(a.personId) ?? a.person;
-    return p.spanishSpeaking;
+    return p.spanishVerified;
   }).length;
 
   const capacity = computeDayMetrics(
@@ -951,7 +951,7 @@ async function buildRhdBlock(
   const persons = personIds.length > 0
     ? await prisma.person.findMany({
         where: { id: { in: personIds } },
-        select: { id: true, contactEmail: true, licensedRN: true, spanishSpeaking: true },
+        select: { id: true, contactEmail: true, licensedRN: true, spanishVerified: true },
       })
     : [];
   const personMap = new Map(persons.map((p) => [p.id, p]));
@@ -962,7 +962,7 @@ async function buildRhdBlock(
       id: personId,
       email: p?.contactEmail ?? "",
       licensedRN: p?.licensedRN ?? false,
-      spanishSpeaking: p?.spanishSpeaking ?? false,
+      spanishVerified: p?.spanishVerified ?? false,
     };
   }
 

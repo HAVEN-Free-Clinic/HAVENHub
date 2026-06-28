@@ -39,6 +39,20 @@ export const recruitmentDescriptors: TemplateDescriptor[] = [
       "<p>Hi {{ firstName }},</p><p>You're invited to a director interview for <strong>{{ departmentName }}</strong> at HAVEN Free Clinic.</p><p>Time: {{ interviewTime }}<br/>Join: {{{ joinLink }}}</p><p>Please reply if you need to reschedule.</p>",
   },
   {
+    key: "recruitment.interview_assignment",
+    name: "Recruitment: interview panel assignment",
+    category: "transactional",
+    variables: [
+      { name: "panelistFirstName", label: "Panelist first name", sampleValue: "Sam" },
+      { name: "candidateName", label: "Candidate name", sampleValue: "Jordan Lee" },
+      { name: "departmentName", label: "Department name", sampleValue: "Student Run Health Department" },
+      { name: "interviewsUrl", label: "My interviews URL", sampleValue: "https://hub.havenfreeclinic.com/recruitment/interviews" },
+    ],
+    defaultSubject: "You're on the interview panel for {{ candidateName }}",
+    defaultBody:
+      '<p>Hi {{ panelistFirstName }},</p><p>You\'ve been added to the interview panel for <strong>{{ candidateName }}</strong> ({{ departmentName }} director interview).</p><p>Review the schedule and submit your evaluation from your My interviews page: <a href="{{ interviewsUrl }}">{{ interviewsUrl }}</a></p>',
+  },
+  {
     key: "recruitment.onboarding",
     name: "Recruitment: onboarding link",
     category: "transactional",

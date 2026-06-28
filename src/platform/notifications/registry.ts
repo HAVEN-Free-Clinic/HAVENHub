@@ -18,6 +18,7 @@ export const NOTIFICATION_TYPES: NotificationType[] = [
   { key: "epic-onboarding", label: "EPIC onboarding", defaultChannel: "email" },
   { key: "epic-activation", label: "EPIC activation", defaultChannel: "email" },
   { key: "epic-password-reset", label: "EPIC password reset", defaultChannel: "email" },
+  { key: "recruitment.interview_assignment", label: "Recruitment: interview panel assignment", defaultChannel: "email" },
 ];
 
 /** The settings-registry key that stores a type's channel override. */

@@ -4,7 +4,7 @@ import { prisma } from "@/platform/db";
 import { RecruitmentAuthError } from "./review";
 import {
   createInterview, updateInterview, addPanelist, removePanelist, sendInterviewInvite,
-  listInterviewsForReview, myAssignedInterviews, getInterview, InterviewError,
+  listInterviewsForReview, myAssignedInterviews, getInterview, isInterviewPanelist, InterviewError,
 } from "./interviews";
 
 async function seed(track: "DIRECTOR" | "VOLUNTEER" = "DIRECTOR") {
@@ -99,4 +99,31 @@ it("lists interviews in scope and the panelist's assignments", async () => {
   expect((await listInterviewsForReview(cycle.id, srr.id))).toHaveLength(1);
   expect((await myAssignedInterviews(panelist.id)).map((i) => i.id)).toEqual([iv.id]);
   expect(await getInterview(iv.id)).not.toBeNull();
+});
+
+it("reports whether a person sits on any interview panel", async () => {
+  const { director, panelist, application } = await seed();
+  expect(await isInterviewPanelist(panelist.id)).toBe(false);
+  const iv = await createInterview(application.id, "EDUC", director.id);
+  await addPanelist(iv.id, panelist.id, false, director.id);
+  expect(await isInterviewPanelist(panelist.id)).toBe(true);
+  expect(await isInterviewPanelist(director.id)).toBe(false);
+});
+
+it("notifies a panelist (in-app) when added to a panel by someone else", async () => {
+  const { director, panelist, application } = await seed();
+  const iv = await createInterview(application.id, "EDUC", director.id);
+  await addPanelist(iv.id, panelist.id, false, director.id);
+  const notes = await prisma.notification.findMany({ where: { personId: panelist.id } });
+  expect(notes).toHaveLength(1);
+  expect(notes[0].type).toBe("recruitment.interview_assignment");
+  expect(notes[0].link).toContain("/recruitment/interviews");
+  expect(notes[0].title).toBeTruthy();
+});
+
+it("does not notify when a manager adds themselves to a panel", async () => {
+  const { director, application } = await seed();
+  const iv = await createInterview(application.id, "EDUC", director.id);
+  await addPanelist(iv.id, director.id, true, director.id);
+  expect(await prisma.notification.count({ where: { personId: director.id } })).toBe(0);
 });

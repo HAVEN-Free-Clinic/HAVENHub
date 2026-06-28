@@ -24,6 +24,7 @@ import { ClinicChannelCard } from "./clinic-channel-card";
 import { mySchedule } from "@/modules/schedule/services/schedule";
 import { listMyCertificates } from "@/modules/my-info/services/my-info";
 import { requiredTrainingTracks, resolveTrainingState } from "@/modules/recruitment/services/training";
+import { isInterviewPanelist } from "@/modules/recruitment/services/interviews";
 import { complianceStatus, certExpiresAt } from "@/platform/compliance/rules";
 import { isoDateKey } from "@/platform/dates";
 
@@ -37,6 +38,7 @@ const HUE_BY_MODULE: Record<string, string> = {
   "my-info": "info",
   volunteers: "volunteers",
   recruitment: "recruit",
+  "my-interviews": "recruit",
   admin: "admin",
   triage: "schedule",
   referrals: "info",
@@ -146,9 +148,10 @@ export default async function HubPage() {
   // One permission fetch per render; tiles filter in memory (never can() in a loop).
   const permissions = await getEffectivePermissions(person.personId);
 
-  const [schedule, certificates] = await Promise.all([
+  const [schedule, certificates, isPanelist] = await Promise.all([
     mySchedule(person.personId),
     listMyCertificates(person.personId),
+    isInterviewPanelist(person.personId),
   ]);
   const { term, shifts } = schedule;
   const tracks = term ? await requiredTrainingTracks(person.personId, term.id) : [];
@@ -238,6 +241,17 @@ export default async function HubPage() {
       Icon: ClipboardList,
       label: "Recruitment",
       sub: "Cycles & review",
+    },
+    {
+      // Panelists are often directors with no recruitment.access, so they get no
+      // Recruitment tile or nav — this is their only home-screen path to the
+      // interview assignments page. Shown only when they actually have one.
+      id: "my-interviews",
+      show: isPanelist,
+      href: "/recruitment/interviews",
+      Icon: ClipboardList,
+      label: "My interviews",
+      sub: "Panel assignments",
     },
     {
       id: "admin",

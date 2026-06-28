@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
-import { needsSpanishReview, spanishReviewWhere } from "./spanish-review";
+import { needsSpanishReview, spanishReviewWhere, recordSpanishAssessment, listSpanishReviewQueue } from "./spanish-review";
+import { PersonNotFoundError } from "@/platform/people";
 
 describe("needsSpanishReview (pure predicate)", () => {
   it("not Spanish -> not in queue", () => {
@@ -47,5 +48,48 @@ describe("spanishReviewWhere (Prisma query)", () => {
     expect(ids).not.toContain(notSpanish.id);
     expect(ids).not.toContain(assessedYes.id);
     expect(ids).not.toContain(assessedNo.id);
+  });
+});
+
+describe("recordSpanishAssessment", () => {
+  beforeEach(resetDb);
+  const ACTOR = "actor-1";
+
+  it("verify=true sets verified, stamps verifier+timestamp, audits, and leaves the queue", async () => {
+    const p = await prisma.person.create({ data: { name: "Self", spanishSelfReported: true } });
+    const updated = await recordSpanishAssessment(ACTOR, p.id, true);
+    expect(updated.spanishVerified).toBe(true);
+    expect(updated.spanishVerifiedById).toBe(ACTOR);
+    expect(updated.spanishVerifiedAt).not.toBeNull();
+    expect(await prisma.auditLog.count({ where: { action: "person.spanish_assess", entityId: p.id } })).toBe(1);
+    const queue = await prisma.person.findMany({ where: spanishReviewWhere(), select: { id: true } });
+    expect(queue.map((r) => r.id)).not.toContain(p.id);
+  });
+
+  it("verify=false still stamps verifiedAt (assessed-no) and leaves the queue", async () => {
+    const p = await prisma.person.create({ data: { name: "Self", spanishSelfReported: true } });
+    const updated = await recordSpanishAssessment(ACTOR, p.id, false);
+    expect(updated.spanishVerified).toBe(false);
+    expect(updated.spanishVerifiedAt).not.toBeNull();
+    expect(updated.spanishVerifiedById).toBe(ACTOR);
+    const queue = await prisma.person.findMany({ where: spanishReviewWhere(), select: { id: true } });
+    expect(queue.map((r) => r.id)).not.toContain(p.id);
+  });
+
+  it("throws PersonNotFoundError for a missing id", async () => {
+    await expect(recordSpanishAssessment(ACTOR, "nope", true)).rejects.toBeInstanceOf(PersonNotFoundError);
+  });
+});
+
+describe("listSpanishReviewQueue", () => {
+  beforeEach(resetDb);
+
+  it("returns self-reported-unverified people ordered by name, excluding not-Spanish and assessed", async () => {
+    await prisma.person.create({ data: { name: "Zed", spanishSelfReported: true } });
+    await prisma.person.create({ data: { name: "Amy", spanishSelfReported: true } });
+    await prisma.person.create({ data: { name: "NotSpanish" } });
+    await prisma.person.create({ data: { name: "AssessedYes", spanishSelfReported: true, spanishVerified: true, spanishVerifiedAt: new Date() } });
+    const rows = await listSpanishReviewQueue();
+    expect(rows.map((r) => r.name)).toEqual(["Amy", "Zed"]);
   });
 });

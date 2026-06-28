@@ -68,7 +68,29 @@ export function FieldPreview({
     case "PHONE": control = <Input type="tel" name={f.key} required={required} disabled={disabled} aria-invalid={invalid} className={cx("mt-1.5", lockedCls)} {...textProps} />; break;
     case "FILE": {
       const accept = Array.isArray(f.validation?.acceptedTypes) ? (f.validation!.acceptedTypes as string[]).join(",") : undefined;
-      control = <Input type="file" name={f.key} required={required} disabled={disabled} aria-invalid={invalid} accept={accept} className="mt-1.5 cursor-pointer" />;
+      // A resumed draft stores the upload as { storedName, fileName, ... }. storedName is
+      // the server's source of truth for "a file is already attached" (submissions.ts), so
+      // gate on it and surface fileName as the label.
+      const draftFile =
+        prefill && typeof prefill === "object" && "storedName" in (prefill as object)
+          ? (prefill as { fileName?: string })
+          : null;
+      control = (
+        <>
+          <Input
+            type="file"
+            name={f.key}
+            required={required && !draftFile}
+            disabled={disabled}
+            aria-invalid={invalid}
+            accept={accept}
+            className="mt-1.5 cursor-pointer"
+          />
+          {draftFile && (
+            <span className="mt-1 block text-xs text-muted-foreground">Attached: {draftFile.fileName ?? "uploaded file"}</span>
+          )}
+        </>
+      );
       break;
     }
     case "DEPARTMENT_CHOICE":

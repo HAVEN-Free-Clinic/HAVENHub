@@ -38,7 +38,7 @@ export async function scheduleInterviewAction(cycleId: string, applicationId: st
   const departmentCode = String(formData.get("departmentCode") ?? "").trim();
   try {
     const iv = await createInterview(applicationId, departmentCode, person.personId);
-    redirect(`/recruitment/cycles/${cycleId}/interviews/${iv.id}`);
+    redirect(`/recruitment/interviews/${iv.id}`);
   } catch (err) {
     if (err instanceof RecruitmentAuthError || err instanceof InterviewError) {
       redirect(`/recruitment/cycles/${cycleId}/applicants/${applicationId}?error=${encodeURIComponent(err.message)}`);

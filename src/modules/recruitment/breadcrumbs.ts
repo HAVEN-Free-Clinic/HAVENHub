@@ -44,3 +44,28 @@ export function cycleTrail(opts: {
   if (leaf) crumbs.push({ label: leaf });
   return crumbs;
 }
+
+/**
+ * Trail for the interview detail page, which lives at `/recruitment/interviews/[id]`
+ * — outside the recruitment-staff (`recruitment.access`) gate — so interview
+ * panelists, who are not recruitment staff, can reach it. The page is shared with
+ * cycle staff, so the trail is role-aware: every crumb links somewhere the viewer
+ * can actually go.
+ *
+ * - `staff` viewers (cycle managers / department reviewers) get the cycle path,
+ *   landing back on the cycle's interview list.
+ * - panelists get `Hub > My interviews > {candidate}`; the cycle crumbs would only
+ *   point at pages the recruitment gate would bounce them from.
+ */
+export function interviewDetailTrail(opts: {
+  staff: boolean;
+  cycleId: string;
+  cycleTitle: string;
+  candidate: string;
+}): Crumb[] {
+  const { staff, cycleId, cycleTitle, candidate } = opts;
+  if (staff) {
+    return cycleTrail({ cycleId, cycleTitle, section: { label: "Interviews", slug: "interviews" }, leaf: candidate });
+  }
+  return [HUB, { label: "My interviews", href: "/recruitment/interviews" }, { label: candidate }];
+}

@@ -6,7 +6,7 @@ import { reviewScope } from "@/modules/recruitment/services/review";
 import { evaluationSummary } from "@/modules/recruitment/engine/interview-eval";
 import { scheduleAction, addPanelistAction, removePanelistAction, sendInviteAction, decideAction, submitEvaluationAction } from "../actions";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
-import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
+import { interviewDetailTrail } from "@/modules/recruitment/breadcrumbs";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Field, Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
@@ -19,19 +19,22 @@ import { AddPanelistForm } from "./add-panelist-form";
 const RECS = ["STRONG_YES", "YES", "MAYBE", "NO"];
 const decisionTone = { PENDING: "default", ACCEPT: "success", REJECT: "critical", WAITLIST: "warning" } as const;
 
-export default async function InterviewDetail({ params, searchParams }: { params: Promise<{ id: string; interviewId: string }>; searchParams: Promise<{ error?: string }> }) {
-  const { id, interviewId } = await params;
+export default async function InterviewDetail({ params, searchParams }: { params: Promise<{ interviewId: string }>; searchParams: Promise<{ error?: string }> }) {
+  const { interviewId } = await params;
   const { error } = await searchParams;
   const person = await requirePersonSession();
   const iv = await getInterview(interviewId);
-  if (!iv || iv.application.cycle.id !== id) notFound();
+  if (!iv) notFound();
   const [scope, managesCycles] = await Promise.all([reviewScope(person.personId), can(person.personId, "recruitment.manage_cycles")]);
   const isPanelist = iv.panelists.some((p) => p.person.id === person.personId);
-  // canView gates the page (cycle admins and panelists may read it); canManage
-  // gates the action controls and matches the service authz exactly (scope.all
-  // or the interview's department is in the actor's review scope) so a control
-  // is never shown to someone whose submit would be rejected.
-  const canView = scope.all || managesCycles || scope.departmentCodes.includes(iv.departmentCode) || isPanelist;
+  // This page sits outside the recruitment.access module gate so panelists (who
+  // are not recruitment staff) can reach their assigned interview. Access is
+  // therefore enforced here: canView admits cycle staff and panelists; canManage
+  // gates the action controls and matches the service authz exactly (scope.all or
+  // the interview's department is in the actor's review scope) so a control is
+  // never shown to someone whose submit would be rejected.
+  const isStaff = scope.all || managesCycles || scope.departmentCodes.includes(iv.departmentCode);
+  const canView = isStaff || isPanelist;
   if (!canView) notFound();
   const canManage = scope.all || scope.departmentCodes.includes(iv.departmentCode);
   const candidates = canManage ? await listPanelistCandidates(interviewId) : [];
@@ -42,11 +45,11 @@ export default async function InterviewDetail({ params, searchParams }: { params
   return (
     <div className="max-w-2xl space-y-6">
       <SetBreadcrumb
-        trail={cycleTrail({
-          cycleId: id,
+        trail={interviewDetailTrail({
+          staff: isStaff,
+          cycleId: iv.application.cycle.id,
           cycleTitle: iv.application.cycle.title,
-          section: { label: "Interviews", slug: "interviews" },
-          leaf: `${iv.application.applicant.firstName} ${iv.application.applicant.lastName}`,
+          candidate: `${iv.application.applicant.firstName} ${iv.application.applicant.lastName}`,
         })}
       />
       <PageHeader
@@ -60,7 +63,7 @@ export default async function InterviewDetail({ params, searchParams }: { params
         <>
           <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
             <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Schedule</h2>
-            <form action={scheduleAction.bind(null, id, interviewId)} className="mt-3 space-y-3">
+            <form action={scheduleAction.bind(null, interviewId)} className="mt-3 space-y-3">
               <Field label="Time">
                 <Input type="datetime-local" name="scheduledAt" defaultValue={scheduledValue} />
               </Field>
@@ -72,7 +75,7 @@ export default async function InterviewDetail({ params, searchParams }: { params
               </Field>
               <SubmitButton size="sm" pendingLabel="Saving…">Save</SubmitButton>
             </form>
-            <form action={sendInviteAction.bind(null, id, interviewId)} className="mt-4 flex items-center gap-3 border-t border-border-subtle pt-4">
+            <form action={sendInviteAction.bind(null, interviewId)} className="mt-4 flex items-center gap-3 border-t border-border-subtle pt-4">
               <SubmitButton size="sm" variant="outline" pendingLabel="Sending…">
                 {iv.invitedAt ? "Resend invite" : "Send invite"}
               </SubmitButton>
@@ -90,7 +93,7 @@ export default async function InterviewDetail({ params, searchParams }: { params
                       {p.person.name}
                       {p.isLead && <Badge tone="brand" className="ml-2">lead</Badge>}
                     </span>
-                    <form action={removePanelistAction.bind(null, id, interviewId, p.id)}>
+                    <form action={removePanelistAction.bind(null, interviewId, p.id)}>
                       <ConfirmButton label="Remove" size="sm" />
                     </form>
                   </li>
@@ -99,7 +102,7 @@ export default async function InterviewDetail({ params, searchParams }: { params
             ) : (
               <p className="mt-3 text-sm text-muted-foreground">No panelists yet.</p>
             )}
-            <AddPanelistForm action={addPanelistAction.bind(null, id, interviewId)} candidates={candidates} />
+            <AddPanelistForm action={addPanelistAction.bind(null, interviewId)} candidates={candidates} />
             <p className="mt-2 text-xs text-subtle-foreground">Panel members can submit an evaluation from their My interviews page.</p>
           </section>
         </>
@@ -127,7 +130,7 @@ export default async function InterviewDetail({ params, searchParams }: { params
       {canManage && (
         <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Decision</h2>
-          <form action={decideAction.bind(null, id, interviewId)} className="mt-3 flex flex-wrap items-end gap-3">
+          <form action={decideAction.bind(null, interviewId)} className="mt-3 flex flex-wrap items-end gap-3">
             <div className="w-40">
               <Field label="Outcome">
                 <Select name="outcome" required>
@@ -151,7 +154,7 @@ export default async function InterviewDetail({ params, searchParams }: { params
       {isPanelist && (
         <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Your evaluation</h2>
-          <form action={submitEvaluationAction.bind(null, id, interviewId)} className="mt-3 flex flex-wrap items-end gap-3">
+          <form action={submitEvaluationAction.bind(null, interviewId)} className="mt-3 flex flex-wrap items-end gap-3">
             <div className="w-44">
               <Field label="Recommendation">
                 <Select name="recommendation" required defaultValue={myEval?.recommendation ?? ""}>

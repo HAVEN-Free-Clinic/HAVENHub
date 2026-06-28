@@ -1,12 +1,14 @@
 import { signOut } from "@/platform/auth/auth";
+import { getSetting } from "@/platform/settings/service";
 import { HavenLogo } from "@/platform/ui/haven-logo";
 
-export default function WelcomePage() {
+export default async function WelcomePage() {
+  const orgName = await getSetting<string>("branding.orgName");
   return (
     <main className="flex min-h-screen items-center justify-center bg-muted p-6">
       <div className="w-full max-w-md rounded-2xl border border-border bg-surface p-8 shadow-sm">
         <HavenLogo className="h-10 text-brand-fg" />
-        <h1 className="mt-4 text-2xl font-bold tracking-tight">Welcome to HAVEN Free Clinic</h1>
+        <h1 className="mt-4 text-2xl font-bold tracking-tight">Welcome to {orgName}</h1>
         <p className="mt-3 text-sm leading-relaxed text-foreground-soft">
           You signed in successfully, but we couldn&apos;t find you in our records.
           If you&apos;re a current member, contact the IT team so we can fix your

@@ -6,6 +6,7 @@ import { applicantSignOutAction } from "./portal-actions";
 import { SignInForm } from "./sign-in-form";
 import { buttonClasses } from "@/platform/ui/button";
 import { Alert } from "@/platform/ui/alert";
+import { getSetting } from "@/platform/settings/service";
 
 export const dynamic = "force-dynamic";
 
@@ -14,9 +15,10 @@ export default async function PortalHome({ searchParams }: { searchParams: Promi
   const identity = await getApplicantIdentity();
 
   if (!identity) {
+    const orgName = await getSetting<string>("branding.orgName");
     return (
       <main className="mx-auto max-w-md px-6 py-16 space-y-6">
-        <h1 className="text-2xl font-bold tracking-tight">HAVEN Free Clinic Application Portal</h1>
+        <h1 className="text-2xl font-bold tracking-tight">{orgName} Application Portal</h1>
         {error === "link" && <Alert tone="error">That link has expired or was already used. Request a new one below.</Alert>}
         <p className="text-sm text-muted-foreground">Sign in to start, continue, or check the status of an application.</p>
         <a href="/login?callbackUrl=/apply" className={buttonClasses("primary", "md")}>Sign in with Yale</a>

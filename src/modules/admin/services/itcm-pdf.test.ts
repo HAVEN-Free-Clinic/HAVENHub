@@ -1,6 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
-import { PDFDict, PDFDocument, PDFName } from "pdf-lib";
+import { decodePDFRawStream, PDFDict, PDFDocument, PDFHexString, PDFName, PDFRawStream, PDFString } from "pdf-lib";
 import { describe, expect, it } from "vitest";
 import { generatePdf } from "./itcm-pdf";
 
@@ -55,5 +55,74 @@ describe("generatePdf", () => {
     expect(form.getTextField("Text12").getText()).toBe("Jane");
     expect(form.getTextField("Text18").getText()).toBe("Doe");
     expect(form.getTextField("Text78").getText()).toBe("Mirror Person");
+  });
+
+  // The template ships duplicate field objects: a widget on the page plus an
+  // orphan copy in the AcroForm field tree. pdf-lib's form API mutates the
+  // orphan, but viewers render the on-page widget — so the fix must reach the
+  // widget in the page /Annots. That widget must (a) be in the checked state and
+  // (b) draw its mark as a font-free vector path, because the template's
+  // glyph-based mark (subsetted ZapfDingbats) is invisible in Adobe Acrobat.
+  describe("checked checkboxes render in Adobe Acrobat", () => {
+    // Finds the on-page widget annotation by field name (the object a viewer
+    // actually renders), not the orphan field the form API returns.
+    function renderedWidget(doc: PDFDocument, name: string) {
+      for (const page of doc.getPages()) {
+        const annots = page.node.Annots();
+        if (!annots) continue;
+        for (let i = 0; i < annots.size(); i++) {
+          const widget = doc.context.lookupMaybe(annots.get(i), PDFDict);
+          if (!widget) continue;
+          const t = widget.get(PDFName.of("T"));
+          const tName = t instanceof PDFString || t instanceof PDFHexString ? t.decodeText() : undefined;
+          if (tName !== name) continue;
+          const apN = widget
+            .lookupMaybe(PDFName.of("AP"), PDFDict)
+            ?.lookupMaybe(PDFName.of("N"), PDFDict);
+          if (!apN) throw new Error(`${name} widget has no /AP /N`);
+          const onValue = apN.keys().find((k) => k.toString() !== "/Off");
+          if (!onValue) throw new Error(`${name} widget has no on state`);
+          const stream = apN.lookup(onValue);
+          if (!(stream instanceof PDFRawStream)) throw new Error(`${name} on appearance is not a stream`);
+          return {
+            as: widget.get(PDFName.of("AS"))?.toString(),
+            onValue: onValue.toString(),
+            resources: stream.dict.lookupMaybe(PDFName.of("Resources"), PDFDict),
+            content: Buffer.from(decodePDFRawStream(stream).decode()).toString("latin1"),
+          };
+        }
+      }
+      throw new Error(`${name} widget not found in any page /Annots`);
+    }
+
+    // new_individual checks these boxes (Section IV/V/VI):
+    const CHECKED = ["Check Box1", "Check Box40", "Check Box49", "Check Box64", "Remote Access", "Check Box58"];
+
+    it("sets the rendered widget's appearance state to its on value", async () => {
+      const doc = await loadOutput();
+      for (const name of CHECKED) {
+        const w = renderedWidget(doc, name);
+        expect(w.as, `${name} rendered widget /AS should be its on value`).toBe(w.onValue);
+      }
+    });
+
+    it("draws the on-state mark without a font so Acrobat can render it", async () => {
+      const doc = await loadOutput();
+      for (const name of CHECKED) {
+        const { resources, content } = renderedWidget(doc, name);
+        expect(resources?.has(PDFName.of("Font")) ?? false, `${name} on appearance must not reference a font`).toBe(false);
+        expect(content, `${name} on appearance must not draw text`).not.toMatch(/\bTf\b/);
+      }
+    });
+
+    it("draws a vector checkmark (stroked path) in the on appearance", async () => {
+      const doc = await loadOutput();
+      for (const name of CHECKED) {
+        const { content } = renderedWidget(doc, name);
+        expect(content, `${name} should move-to`).toMatch(/\bm\b/);
+        expect(content, `${name} should line-to`).toMatch(/\bl\b/);
+        expect(content, `${name} should stroke`).toMatch(/\bS\b/);
+      }
+    });
   });
 });

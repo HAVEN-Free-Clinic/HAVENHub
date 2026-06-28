@@ -24,7 +24,10 @@ export function needsSpanishReview(p: {
 }
 
 export function spanishReviewWhere(): Prisma.PersonWhereInput {
+  // Active only: an offboarded volunteer is not part of the interpreting
+  // department's active worklist even if they once self-reported Spanish.
   return {
+    status: "ACTIVE",
     spanishVerifiedAt: null,
     OR: [{ spanishSelfReported: true }, { spanishVerified: true }],
   };

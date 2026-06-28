@@ -92,4 +92,11 @@ describe("listSpanishReviewQueue", () => {
     const rows = await listSpanishReviewQueue();
     expect(rows.map((r) => r.name)).toEqual(["Amy", "Zed"]);
   });
+
+  it("excludes offboarded self-reporters (not part of the active worklist)", async () => {
+    await prisma.person.create({ data: { name: "Active", spanishSelfReported: true } });
+    await prisma.person.create({ data: { name: "Gone", spanishSelfReported: true, status: "OFFBOARDED" } });
+    const rows = await listSpanishReviewQueue();
+    expect(rows.map((r) => r.name)).toEqual(["Active"]);
+  });
 });

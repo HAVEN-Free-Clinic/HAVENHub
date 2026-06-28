@@ -203,4 +203,59 @@ describe("setPersonStatusField", () => {
       setPersonStatusField(ACTOR, "nonexistent-id", "OFFBOARDED")
     ).rejects.toBeInstanceOf(PersonNotFoundError);
   });
+
+  it("offboarding sets ALL ACTIVE memberships (any term) to REMOVED and records the count in the single audit row", async () => {
+    const person = await createPersonRecord(ACTOR, { name: "Member", netId: "mem1" });
+    const dept = await prisma.department.create({ data: { code: "ITCM", name: "IT" } });
+    const term1 = await prisma.term.create({
+      data: { code: "SU26", name: "Summer", startDate: new Date("2026-05-01"), endDate: new Date("2026-09-01"), status: "ACTIVE" },
+    });
+    const term2 = await prisma.term.create({
+      data: { code: "FA26", name: "Fall", startDate: new Date("2026-09-02"), endDate: new Date("2026-12-01"), status: "ACTIVE" },
+    });
+    // Two ACTIVE memberships across two terms + one already-REMOVED (must not be recounted).
+    await prisma.termMembership.create({ data: { personId: person.id, termId: term1.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" } });
+    await prisma.termMembership.create({ data: { personId: person.id, termId: term2.id, departmentId: dept.id, kind: "DIRECTOR", status: "ACTIVE" } });
+    const alreadyRemoved = await prisma.termMembership.create({
+      data: { personId: person.id, termId: term1.id, departmentId: (await prisma.department.create({ data: { code: "SRR", name: "SRR" } })).id, kind: "VOLUNTEER", status: "REMOVED" },
+    });
+    await prisma.auditLog.deleteMany();
+
+    await setPersonStatusField(ACTOR, person.id, "OFFBOARDED");
+
+    const memberships = await prisma.termMembership.findMany({ where: { personId: person.id } });
+    expect(memberships.every((m) => m.status === "REMOVED")).toBe(true);
+    // The pre-existing REMOVED row is untouched (still REMOVED).
+    expect(memberships.find((m) => m.id === alreadyRemoved.id)?.status).toBe("REMOVED");
+
+    // Still exactly one audit row for the person; it carries the removed count.
+    const logs = await prisma.auditLog.findMany({ where: { entityId: person.id } });
+    expect(logs).toHaveLength(1);
+    expect(logs[0].action).toBe("person.offboard");
+    expect((logs[0].after as Record<string, unknown>).removedMemberships).toBe(2);
+  });
+
+  it("reactivating never restores or touches memberships and records no removal count", async () => {
+    const person = await createPersonRecord(ACTOR, { name: "Reactivate", netId: "rea1" });
+    const dept = await prisma.department.create({ data: { code: "ITCM", name: "IT" } });
+    const term = await prisma.term.create({
+      data: { code: "SU26", name: "Summer", startDate: new Date("2026-05-01"), endDate: new Date("2026-09-01"), status: "ACTIVE" },
+    });
+    const membership = await prisma.termMembership.create({
+      data: { personId: person.id, termId: term.id, departmentId: dept.id, kind: "VOLUNTEER", status: "REMOVED" },
+    });
+    await setPersonStatusField(ACTOR, person.id, "OFFBOARDED");
+    await prisma.auditLog.deleteMany();
+
+    await setPersonStatusField(ACTOR, person.id, "ACTIVE");
+
+    // Reactivate is status-only: the REMOVED membership stays REMOVED.
+    const after = await prisma.termMembership.findUniqueOrThrow({ where: { id: membership.id } });
+    expect(after.status).toBe("REMOVED");
+
+    const logs = await prisma.auditLog.findMany({ where: { entityId: person.id } });
+    expect(logs).toHaveLength(1);
+    expect(logs[0].action).toBe("person.reactivate");
+    expect((logs[0].after as Record<string, unknown>).removedMemberships).toBeUndefined();
+  });
 });

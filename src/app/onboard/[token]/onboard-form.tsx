@@ -57,6 +57,10 @@ export function OnboardForm({ token, prefill }: { token: string; prefill: Prefil
         {field("Access type (if known)", "epicAccessType")}
         <label className="block text-sm"><input type="checkbox" name="worksWithYnhh" /> I currently work with Yale New Haven Hospital</label>
       </fieldset>
+      <fieldset className="space-y-3 rounded-xl border border-border bg-surface p-4"><legend className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Background</legend>
+        <label className="block text-sm"><input type="checkbox" name="spanishSelfReported" /> I can speak Spanish with patients</label>
+        <label className="block text-sm"><input type="checkbox" name="licensedRN" /> I am a licensed RN</label>
+      </fieldset>
       <fieldset className="space-y-3 rounded-xl border border-border bg-surface p-4"><legend className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">HIPAA</legend>
         {field("HIPAA completion date", "hipaaCompletedAt", { type: "date", required: true })}
         <label className="block text-sm">HIPAA certificate (PDF)<span className="text-critical"> *</span>

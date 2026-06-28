@@ -112,6 +112,8 @@ export type ContractSubmission = {
   existingEpicId?: string;
   epicAccessType?: string;
   worksWithYnhh: boolean;
+  spanishSelfReported?: boolean;
+  licensedRN?: boolean;
   hipaaCompletedAt?: Date;
   hipaaFile?: { fileName: string; mimeType: string; bytes: Buffer };
 };
@@ -199,6 +201,8 @@ export async function submitContract(
         existingEpicId: input.existingEpicId?.trim() || null,
         epicAccessType: input.epicAccessType?.trim() || null,
         worksWithYnhh: input.worksWithYnhh,
+        spanishSelfReported: input.spanishSelfReported ?? false,
+        licensedRN: input.licensedRN ?? false,
         hipaaCompletedAt: input.hipaaCompletedAt ?? null,
         ...fileRef,
         status: "SUBMITTED",

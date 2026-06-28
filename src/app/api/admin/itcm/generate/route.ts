@@ -72,11 +72,11 @@ const PDF_FILENAMES: Record<RequestType, (initials: string, date: string) => str
 };
 
 const REQUEST_TYPE_LABELS: Record<RequestType, string> = {
-  new_individual: "New — Individual",
-  mod_individual: "Modify — Individual",
-  renew_individual: "Renew — Individual",
-  bulk_new: "New — Bulk",
-  bulk_mod: "Modify / Renew — Bulk",
+  new_individual: "New - Individual",
+  mod_individual: "Modify - Individual",
+  renew_individual: "Renew - Individual",
+  bulk_new: "New - Bulk",
+  bulk_mod: "Modify / Renew - Bulk",
   deactivate_individual: "Deactivate - Individual",
   bulk_deactivate: "Deactivate - Bulk",
 };
@@ -369,7 +369,7 @@ export async function POST(req: Request) {
     const xlsxBuffer = await generateSpreadsheet({
       requestType,
       people: peopleRows,
-      endDate,
+      endDate: effectiveEndDate,
     });
 
     xlsxBase64 = xlsxBuffer.toString("base64");

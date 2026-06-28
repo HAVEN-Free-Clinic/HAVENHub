@@ -176,3 +176,38 @@ export async function retryEmail(actorPersonId: string, emailId: string): Promis
     after: { status: "QUEUED" },
   });
 }
+
+// ---------------------------------------------------------------------------
+// retryAllFailedEmails
+// ---------------------------------------------------------------------------
+
+/**
+ * Bulk-reset every FAILED email to QUEUED so the next drain pass re-attempts
+ * them. Intended for recovery after a transient transport outage that exhausted
+ * the retry budget on many rows at once (issue #63), where clicking per-row
+ * Retry is impractical.
+ *
+ * Resets attempts/lastError exactly like retryEmail. Records a single audit
+ * entry carrying the affected count, or none when there is nothing to retry.
+ * Returns the number of rows re-queued.
+ *
+ * @param actorPersonId - The person authorizing the bulk retry (for audit).
+ */
+export async function retryAllFailedEmails(actorPersonId: string): Promise<number> {
+  const { count } = await prisma.emailLog.updateMany({
+    where: { status: "FAILED" },
+    data: { status: "QUEUED", attempts: 0, lastError: null },
+  });
+
+  if (count === 0) return 0;
+
+  await recordAudit({
+    actorPersonId,
+    action: "email.retry_all",
+    entityType: "EmailLog",
+    before: { status: "FAILED" },
+    after: { status: "QUEUED", count },
+  });
+
+  return count;
+}

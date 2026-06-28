@@ -18,7 +18,7 @@
  */
 
 import { useState, useMemo } from "react";
-import type { DepartmentWithMembers, MemberLite, PendingDeactivation } from "@/modules/admin/services/itcm";
+import type { DepartmentWithMembers, EpicAuthorizer, MemberLite, PendingDeactivation } from "@/modules/admin/services/itcm";
 import { Button } from "@/platform/ui/button";
 import { Select } from "@/platform/ui/select";
 import { Input, Field } from "@/platform/ui/input";
@@ -29,13 +29,6 @@ import { Badge } from "@/platform/ui/badge";
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-
-const AUTHORIZERS = {
-  CC: { name: "Caprice Culkin", phone: "720-254-2589", email: "caprice.culkin@yale.edu" },
-  RT: { name: "Renee Tracey", phone: "201-815-6054", email: "renee.tracey@yale.edu" },
-  JC: { name: "Jack Carney", phone: "585-689-9720", email: "j.carney@yale.edu" },
-} as const;
-type AuthorizerKey = keyof typeof AUTHORIZERS;
 
 type RequestType =
   | "new_individual"
@@ -64,17 +57,25 @@ const EMAIL_SUBJECTS: Record<RequestType, (initials: string, date: string) => st
 type Props = {
   departments: DepartmentWithMembers[];
   pendingDeactivations: PendingDeactivation[];
+  /** Current term's ITCM directors, the people who can authorize a request. */
+  authorizers: EpicAuthorizer[];
 };
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
-export function EpicRequestForm({ departments, pendingDeactivations }: Props) {
-  // Step 1: configuration
-  const [authorizer, setAuthorizer] = useState<AuthorizerKey>("CC");
+export function EpicRequestForm({ departments, pendingDeactivations, authorizers }: Props) {
+  // Step 1: configuration. The authorizer is identified by person id; default
+  // to the first ITCM director (empty string when there are none).
+  const [authorizerId, setAuthorizerId] = useState<string>(authorizers[0]?.id ?? "");
   const [requestType, setRequestType] = useState<RequestType>("new_individual");
   const [endDate, setEndDate] = useState("");
+
+  const selectedAuthorizer = useMemo(
+    () => authorizers.find((a) => a.id === authorizerId) ?? null,
+    [authorizers, authorizerId]
+  );
 
   // Step 2: person selection. For bulk requests, selections persist across
   // department switches so people from multiple departments can be picked together.
@@ -138,6 +139,10 @@ export function EpicRequestForm({ departments, pendingDeactivations }: Props) {
   }
 
   async function handleGenerate() {
+    if (!selectedAuthorizer) {
+      setError("No ITCM director is available to authorize this request.");
+      return;
+    }
     if (selectedPeopleIds.size === 0) {
       setError("Select at least one person before generating.");
       return;
@@ -163,7 +168,7 @@ export function EpicRequestForm({ departments, pendingDeactivations }: Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           requestType,
-          authorizerKey: authorizer,
+          authorizerId: selectedAuthorizer.id,
           personIds: [...selectedPeopleIds],
           endDate: endDateFormatted,
         }),
@@ -189,8 +194,9 @@ export function EpicRequestForm({ departments, pendingDeactivations }: Props) {
         triggerDownload(xlBlob, data.xlsxFilename);
       }
 
-      // Build email draft from returned data.
-      const subject = EMAIL_SUBJECTS[requestType](authorizer, todayMMDDYYYY());
+      // Build email draft from returned data. The subject carries the
+      // authorizer's initials, derived from their name on the server.
+      const subject = EMAIL_SUBJECTS[requestType](selectedAuthorizer.initials, todayMMDDYYYY());
       setEmailDraft({ subject, body: data.emailBody });
     } catch (e) {
       setError((e as Error).message);
@@ -208,15 +214,18 @@ export function EpicRequestForm({ departments, pendingDeactivations }: Props) {
         <div className="grid gap-4 sm:grid-cols-3">
           <Field label="Authorizer">
             <Select
-              value={authorizer}
-              onChange={(e) => setAuthorizer(e.target.value as AuthorizerKey)}
+              value={authorizerId}
+              onChange={(e) => setAuthorizerId(e.target.value)}
+              disabled={authorizers.length === 0}
             >
-              {(Object.entries(AUTHORIZERS) as [AuthorizerKey, typeof AUTHORIZERS[AuthorizerKey]][]).map(
-                ([key, val]) => (
-                  <option key={key} value={key}>
-                    {val.name}
+              {authorizers.length === 0 ? (
+                <option value="">No ITCM directors</option>
+              ) : (
+                authorizers.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
                   </option>
-                )
+                ))
               )}
             </Select>
           </Field>
@@ -270,13 +279,28 @@ export function EpicRequestForm({ departments, pendingDeactivations }: Props) {
           )}
         </div>
 
-        <Alert tone="info">
-          Authorizer: <span className="font-medium">{AUTHORIZERS[authorizer].name}</span>
-          {" · "}
-          {AUTHORIZERS[authorizer].phone}
-          {" · "}
-          {AUTHORIZERS[authorizer].email}
-        </Alert>
+        {selectedAuthorizer ? (
+          <Alert tone="info">
+            Authorizer: <span className="font-medium">{selectedAuthorizer.name}</span>
+            {selectedAuthorizer.phone && (
+              <>
+                {" · "}
+                {selectedAuthorizer.phone}
+              </>
+            )}
+            {selectedAuthorizer.email && (
+              <>
+                {" · "}
+                {selectedAuthorizer.email}
+              </>
+            )}
+          </Alert>
+        ) : (
+          <Alert tone="warning">
+            No ITCM directors are set for the current term, so there is no one to authorize this
+            request. Add an ITCM director to the active term and they will appear here.
+          </Alert>
+        )}
       </Card>
 
       {/* ── Step 2: Person selection ── */}
@@ -448,7 +472,7 @@ export function EpicRequestForm({ departments, pendingDeactivations }: Props) {
         <Button
           variant="primary"
           onClick={handleGenerate}
-          disabled={loading || selectedPeopleIds.size === 0}
+          disabled={loading || selectedPeopleIds.size === 0 || !selectedAuthorizer}
         >
           {loading ? "Generating…" : "Generate PDF" + (isBulk ? " + spreadsheet" : "")}
         </Button>

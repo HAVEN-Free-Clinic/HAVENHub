@@ -45,12 +45,12 @@ import {
   StandardFonts,
 } from "pdf-lib";
 
-export const AUTHORIZERS = {
-  CC: { name: "Caprice Culkin", phone: "720-254-2589", email: "caprice.culkin@yale.edu" },
-  RT: { name: "Renee Tracey", phone: "201-815-6054", email: "renee.tracey@yale.edu" },
-  JC: { name: "Jack Carney", phone: "585-689-9720", email: "j.carney@yale.edu" },
-} as const;
-export type AuthorizerKey = keyof typeof AUTHORIZERS;
+/**
+ * Section I authorizer details. Resolved by the caller from the current term's
+ * ITCM director (see listEpicAuthorizers) rather than a hardcoded directory, so
+ * the name/phone/email always come from a real person record.
+ */
+export type Authorizer = { name: string; phone: string; email: string };
 
 export type RequestType =
   | "new_individual"
@@ -196,14 +196,13 @@ function setVectorCheckOnWidget(pdfDoc: PDFDocument, widget: PDFDict) {
 
 export async function generatePdf(args: {
   requestType: RequestType;
-  authorizerKey: AuthorizerKey;
+  authorizer: Authorizer;
   person: { firstName: string; lastName: string; email: string; netId: string; epicId: string; yaleAffiliation: string } | null;
   endDate: string;
   mirrorPerson: { name: string; epicId: string } | null;
   templateBytes: Uint8Array;
 }): Promise<Uint8Array> {
-  const { requestType, authorizerKey, person, endDate, mirrorPerson, templateBytes } = args;
-  const auth = AUTHORIZERS[authorizerKey];
+  const { requestType, authorizer: auth, person, endDate, mirrorPerson, templateBytes } = args;
   const today = new Date().toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
   // The access-type checkbox that marks a request as a termination/deactivation.
   // Confirmed against the YNHH template (controller-verified, Task 6 Step 1):

@@ -1,7 +1,104 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
-import { listPendingDeactivations, reconcileDeactivationRequests } from "./itcm";
+import { authorizerInitials, listEpicAuthorizers, listPendingDeactivations, reconcileDeactivationRequests } from "./itcm";
+
+describe("authorizerInitials", () => {
+  it("returns the first and last token initials, uppercased", () => {
+    expect(authorizerInitials("Caprice Culkin")).toBe("CC");
+    expect(authorizerInitials("Renee Tracey")).toBe("RT");
+    expect(authorizerInitials("Jack Carney")).toBe("JC");
+  });
+
+  it("uses the first and final token for multi-part names", () => {
+    expect(authorizerInitials("Mary Jane Watson")).toBe("MW");
+  });
+
+  it("handles a single-token name and stray whitespace", () => {
+    expect(authorizerInitials("Cher")).toBe("C");
+    expect(authorizerInitials("  Ada   Lovelace  ")).toBe("AL");
+    expect(authorizerInitials("")).toBe("");
+  });
+});
+
+describe("listEpicAuthorizers", () => {
+  beforeEach(resetDb);
+
+  async function activeItcm() {
+    const term = await prisma.term.create({
+      data: { code: "SU26", name: "Summer 2026", startDate: new Date("2026-06-01"), endDate: new Date("2026-08-31"), status: "ACTIVE" },
+    });
+    const itcm = await prisma.department.create({ data: { code: "ITCM", name: "IT & Compliance Management" } });
+    return { term, itcm };
+  }
+
+  it("returns ACTIVE ITCM directors of the active term with name, phone, email, and initials", async () => {
+    const { term, itcm } = await activeItcm();
+    const cc = await prisma.person.create({
+      data: { name: "Caprice Culkin", phone: "720-254-2589", contactEmail: "caprice.culkin@yale.edu" },
+    });
+    await prisma.termMembership.create({
+      data: { personId: cc.id, termId: term.id, departmentId: itcm.id, kind: "DIRECTOR", status: "ACTIVE" },
+    });
+
+    const rows = await listEpicAuthorizers();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      id: cc.id,
+      name: "Caprice Culkin",
+      phone: "720-254-2589",
+      email: "caprice.culkin@yale.edu",
+      initials: "CC",
+    });
+  });
+
+  it("excludes ITCM volunteers and directors of other departments", async () => {
+    const { term, itcm } = await activeItcm();
+    const exec = await prisma.department.create({ data: { code: "EXEC", name: "Executive Directors" } });
+    const vol = await prisma.person.create({ data: { name: "Vol Unteer", contactEmail: "v@yale.edu" } });
+    const execDir = await prisma.person.create({ data: { name: "Exec Director", contactEmail: "e@yale.edu" } });
+    await prisma.termMembership.create({
+      data: { personId: vol.id, termId: term.id, departmentId: itcm.id, kind: "VOLUNTEER", status: "ACTIVE" },
+    });
+    await prisma.termMembership.create({
+      data: { personId: execDir.id, termId: term.id, departmentId: exec.id, kind: "DIRECTOR", status: "ACTIVE" },
+    });
+
+    expect(await listEpicAuthorizers()).toEqual([]);
+  });
+
+  it("excludes REMOVED memberships and directors from inactive terms", async () => {
+    const { term, itcm } = await activeItcm();
+    const oldTerm = await prisma.term.create({
+      data: { code: "SP26", name: "Spring 2026", startDate: new Date("2026-01-01"), endDate: new Date("2026-05-31"), status: "ARCHIVED" },
+    });
+    const removed = await prisma.person.create({ data: { name: "Removed Dir", contactEmail: "r@yale.edu" } });
+    const oldDir = await prisma.person.create({ data: { name: "Old Dir", contactEmail: "o@yale.edu" } });
+    await prisma.termMembership.create({
+      data: { personId: removed.id, termId: term.id, departmentId: itcm.id, kind: "DIRECTOR", status: "REMOVED" },
+    });
+    await prisma.termMembership.create({
+      data: { personId: oldDir.id, termId: oldTerm.id, departmentId: itcm.id, kind: "DIRECTOR", status: "ACTIVE" },
+    });
+
+    expect(await listEpicAuthorizers()).toEqual([]);
+  });
+
+  it("defaults phone and email to empty strings when the person has none", async () => {
+    const { term, itcm } = await activeItcm();
+    const p = await prisma.person.create({ data: { name: "No Contact" } });
+    await prisma.termMembership.create({
+      data: { personId: p.id, termId: term.id, departmentId: itcm.id, kind: "DIRECTOR", status: "ACTIVE" },
+    });
+
+    const rows = await listEpicAuthorizers();
+    expect(rows[0]).toMatchObject({ name: "No Contact", phone: "", email: "", initials: "NC" });
+  });
+
+  it("returns an empty list when there is no active term", async () => {
+    expect(await listEpicAuthorizers()).toEqual([]);
+  });
+});
 
 describe("listPendingDeactivations", () => {
   beforeEach(resetDb);

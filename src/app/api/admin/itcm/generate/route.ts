@@ -23,11 +23,9 @@ import * as path from "path";
 import { auth } from "@/platform/auth/auth";
 import { getActivePerson } from "@/platform/auth/match-person";
 import { can } from "@/platform/rbac/engine";
-import { findMirrorPerson, getPeopleByIds, reconcileDeactivationRequests } from "@/modules/admin/services/itcm";
+import { findMirrorPerson, getPeopleByIds, listEpicAuthorizers, reconcileDeactivationRequests } from "@/modules/admin/services/itcm";
 import {
-  AUTHORIZERS,
   generatePdf,
-  type AuthorizerKey,
   type RequestType,
 } from "@/modules/admin/services/itcm-pdf";
 import { prisma } from "@/platform/db";
@@ -188,12 +186,12 @@ export async function POST(req: Request) {
 
   const body = await req.json() as {
     requestType: RequestType;
-    authorizerKey: AuthorizerKey;
+    authorizerId: string;
     personIds: string[];
     endDate: string;
   };
 
-  const { requestType, authorizerKey, personIds, endDate } = body;
+  const { requestType, authorizerId, personIds, endDate } = body;
 
   if (!Object.prototype.hasOwnProperty.call(PDF_FILENAMES, requestType)) {
     return NextResponse.json({ error: "Invalid request type" }, { status: 400 });
@@ -203,8 +201,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid request type" }, { status: 400 });
   }
 
-  if (!Object.prototype.hasOwnProperty.call(AUTHORIZERS, authorizerKey)) {
-    return NextResponse.json({ error: "Invalid authorizer key" }, { status: 400 });
+  // Resolve the authorizer from the current term's ITCM directors rather than a
+  // hardcoded directory, and re-resolve server-side so the rendered name/phone/
+  // email come from the trusted person record, not the client.
+  const authorizer = (await listEpicAuthorizers()).find((a) => a.id === authorizerId);
+  if (!authorizer) {
+    return NextResponse.json({ error: "Selected authorizer is not a current ITCM director" }, { status: 400 });
   }
 
   if (!personIds?.length) {
@@ -281,7 +283,6 @@ export async function POST(req: Request) {
 
   const isBulk = requestType.startsWith("bulk");
   const isNew = requestType.includes("new");
-  const authorizer = AUTHORIZERS[authorizerKey];
 
   // Build person shape for individual requests.
   const firstPerson = people[0];
@@ -300,7 +301,7 @@ export async function POST(req: Request) {
   // print "See spreadsheet" for "person with similar job functions" instead.
   const pdfBytes = await generatePdf({
     requestType,
-    authorizerKey,
+    authorizer,
     person: personArg,
     endDate: effectiveEndDate,
     mirrorPerson: isBulk ? null : singleMirrorPerson,
@@ -311,15 +312,18 @@ export async function POST(req: Request) {
   const now = new Date();
   const dateStr = `${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}${now.getFullYear()}`;
   // Build filename using validated switch to satisfy CodeQL dynamic call check.
+  // The authorizer's initials (derived from their name) stand in for the old
+  // hardcoded CC/RT/JC keys in the filename.
+  const initials = authorizer.initials;
   let pdfFilename: string;
   switch (requestType) {
-    case "new_individual": pdfFilename = PDF_FILENAMES.new_individual(authorizerKey, dateStr); break;
-    case "mod_individual": pdfFilename = PDF_FILENAMES.mod_individual(authorizerKey, dateStr); break;
-    case "renew_individual": pdfFilename = PDF_FILENAMES.renew_individual(authorizerKey, dateStr); break;
-    case "bulk_new": pdfFilename = PDF_FILENAMES.bulk_new(authorizerKey, dateStr); break;
-    case "bulk_mod": pdfFilename = PDF_FILENAMES.bulk_mod(authorizerKey, dateStr); break;
-    case "deactivate_individual": pdfFilename = PDF_FILENAMES.deactivate_individual(authorizerKey, dateStr); break;
-    case "bulk_deactivate": pdfFilename = PDF_FILENAMES.bulk_deactivate(authorizerKey, dateStr); break;
+    case "new_individual": pdfFilename = PDF_FILENAMES.new_individual(initials, dateStr); break;
+    case "mod_individual": pdfFilename = PDF_FILENAMES.mod_individual(initials, dateStr); break;
+    case "renew_individual": pdfFilename = PDF_FILENAMES.renew_individual(initials, dateStr); break;
+    case "bulk_new": pdfFilename = PDF_FILENAMES.bulk_new(initials, dateStr); break;
+    case "bulk_mod": pdfFilename = PDF_FILENAMES.bulk_mod(initials, dateStr); break;
+    case "deactivate_individual": pdfFilename = PDF_FILENAMES.deactivate_individual(initials, dateStr); break;
+    case "bulk_deactivate": pdfFilename = PDF_FILENAMES.bulk_deactivate(initials, dateStr); break;
     default: return NextResponse.json({ error: "Invalid request type" }, { status: 400 });
   }
 

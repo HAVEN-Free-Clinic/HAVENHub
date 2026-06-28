@@ -57,7 +57,7 @@ export function PeopleTable({ rows }: { rows: Row[] }) {
             </TD>
             <TD>
               <span className="flex flex-wrap gap-1">
-                {person.spanishSpeaking && <Badge tone="default">ES</Badge>}
+                {person.spanishVerified && <Badge tone="default">ES</Badge>}
                 {person.licensedRN && <Badge tone="default">RN</Badge>}
               </span>
             </TD>

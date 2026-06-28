@@ -421,11 +421,11 @@ export default async function BuilderPage({ searchParams }: PageProps) {
       })
     : null;
 
-  function flagBadges(person: { spanishSpeaking: boolean; licensedRN: boolean }) {
-    if (!person.spanishSpeaking && !person.licensedRN) return null;
+  function flagBadges(person: { spanishVerified: boolean; licensedRN: boolean }) {
+    if (!person.spanishVerified && !person.licensedRN) return null;
     return (
       <>
-        {person.spanishSpeaking && <Badge tone="default">ES</Badge>}
+        {person.spanishVerified && <Badge tone="default">ES</Badge>}
         {person.licensedRN && <Badge tone="default">RN</Badge>}
       </>
     );

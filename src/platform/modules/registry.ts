@@ -57,12 +57,14 @@ export const MODULES: ModuleManifest[] = [
       "volunteers.manage_offboarding",
       "volunteers.manage_epic",
       "volunteers.issue_disciplinary",
+      "volunteers.verify_spanish",
     ],
     status: "active",
     nav: [
       // Compliance / Offboarding / Disciplinary gate on volunteers.view (= module access).
       { label: "Compliance", href: "/volunteers" },
       { label: "Master view", href: "/volunteers/master", permission: "volunteers.manage_compliance" },
+      { label: "Spanish review", href: "/volunteers/spanish-review", permission: "volunteers.verify_spanish" },
       { label: "Offboarding", href: "/volunteers/offboarding" },
       { label: "Epic requests", href: "/volunteers/epic", permission: "volunteers.manage_epic" },
       { label: "Disciplinary", href: "/volunteers/disciplinary" },

@@ -3,6 +3,7 @@ import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import { RecruitmentAuthError } from "./review";
 import { promoteContracts } from "./promotion";
+import { spanishReviewWhere } from "@/platform/spanish-review";
 
 async function seedSubmitted(opts: { netId?: string; email?: string; epicNeeded?: boolean; existingEpicId?: string } = {}) {
   const term = await prisma.term.create({ data: { code: "FA26", name: "Fall", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
@@ -81,4 +82,23 @@ it("reactivates a returning person matched by email when the contract has no net
   expect(res).toEqual({ created: 0, reactivated: 1, skipped: 0 });
   expect(await prisma.person.count({ where: { contactEmail: "mary@yale.edu" } })).toBe(1);
   expect((await prisma.person.findUniqueOrThrow({ where: { id: existing.id } })).status).toBe("ACTIVE");
+});
+
+it("maps spanishSelfReported + licensedRN onto the Person, leaves verified false, and enters the queue", async () => {
+  const { srr, contract } = await seedSubmitted({ netId: "rn1", email: "rn1@yale.edu" });
+  await prisma.onboardingContract.update({
+    where: { id: contract.id },
+    data: { spanishSelfReported: true, licensedRN: true },
+  });
+
+  const res = await promoteContracts([contract.id], srr.id);
+  expect(res.created).toBe(1);
+
+  const person = await prisma.person.findFirstOrThrow({ where: { netId: "rn1" } });
+  expect(person.spanishSelfReported).toBe(true);
+  expect(person.licensedRN).toBe(true);
+  expect(person.spanishVerified).toBe(false);
+
+  const queue = await prisma.person.findMany({ where: spanishReviewWhere(), select: { id: true } });
+  expect(queue.map((r) => r.id)).toContain(person.id);
 });

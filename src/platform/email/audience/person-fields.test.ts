@@ -9,7 +9,7 @@ describe("person fields", () => {
     expect(keys).toEqual([
       "name", "netId", "contactEmail", "epicId", "phone", "yaleAffiliation", "gradYear",
       "status", "role", "department", "complianceStatus", "hasEpicId",
-      "spanishSpeaking", "licensedRN", "hasOpenEpicRequest", "hasDisciplinaryAction",
+      "spanishVerified", "spanishSelfReported", "licensedRN", "hasOpenEpicRequest", "hasDisciplinaryAction",
     ]);
   });
 
@@ -97,9 +97,11 @@ describe("text operators", () => {
 });
 
 describe("booleans and relations", () => {
-  it("spanishSpeaking / licensedRN -> direct boolean", () => {
-    expect(personFieldWhere({ field: "spanishSpeaking", op: "isTrue" }, ctx)).toEqual({ spanishSpeaking: true });
-    expect(personFieldWhere({ field: "spanishSpeaking", op: "isFalse" }, ctx)).toEqual({ spanishSpeaking: false });
+  it("spanishVerified / spanishSelfReported / licensedRN -> direct boolean", () => {
+    expect(personFieldWhere({ field: "spanishVerified", op: "isTrue" }, ctx)).toEqual({ spanishVerified: true });
+    expect(personFieldWhere({ field: "spanishVerified", op: "isFalse" }, ctx)).toEqual({ spanishVerified: false });
+    expect(personFieldWhere({ field: "spanishSelfReported", op: "isTrue" }, ctx)).toEqual({ spanishSelfReported: true });
+    expect(personFieldWhere({ field: "spanishSelfReported", op: "isFalse" }, ctx)).toEqual({ spanishSelfReported: false });
     expect(personFieldWhere({ field: "licensedRN", op: "isTrue" }, ctx)).toEqual({ licensedRN: true });
     expect(personFieldWhere({ field: "licensedRN", op: "isFalse" }, ctx)).toEqual({ licensedRN: false });
   });

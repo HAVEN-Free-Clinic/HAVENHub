@@ -94,6 +94,20 @@ it("listOnboarding returns acceptances with contract status", async () => {
   expect(rows[0].contract?.status).toBe("PENDING");
 });
 
+it("submitContract stores spanishSelfReported and licensedRN", async () => {
+  const { srr, acceptance } = await seed();
+  const c = await createOrResendContract(acceptance.id, srr.id, "http://test");
+  const ok = await submitContract(c.token, {
+    firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu", netId: "al99", phone: "203",
+    agreementSignature: "Ada", professionalismSignature: "Ada", trainingSignature: "Ada", initials: "AL",
+    epicNeeded: false, hasEpic: false, worksWithYnhh: false,
+    spanishSelfReported: true, licensedRN: true,
+    hipaaCompletedAt: new Date("2026-01-01"), hipaaFile: { fileName: "c.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") },
+  });
+  expect(ok.spanishSelfReported).toBe(true);
+  expect(ok.licensedRN).toBe(true);
+});
+
 it("uses the cycle's onboarding email override when present", async () => {
   const { srr, cycle, acceptance } = await seed();
   const cycleId = cycle.id;

@@ -136,7 +136,7 @@ export async function runScheduleConfigImport(
     await recordAudit({
       actorPersonId: null,
       action: "schedule.config_import",
-      entityType: "Person",
+      entityType: "Department",
       entityId: null,
       after: report as unknown as Prisma.InputJsonValue,
     });

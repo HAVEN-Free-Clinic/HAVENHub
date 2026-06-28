@@ -170,6 +170,9 @@ describe("updatePersonFields", () => {
     expect(created.spanishSelfReported).toBe(true);
     expect(created.spanishVerified).toBe(false);
     expect(created.licensedRN).toBe(true);
+    // verified=false on create must not stamp the verifier/timestamp.
+    expect(created.spanishVerifiedById).toBeNull();
+    expect(created.spanishVerifiedAt).toBeNull();
 
     const audit = await prisma.auditLog.findFirstOrThrow({
       where: { action: "person.create", entityId: created.id },

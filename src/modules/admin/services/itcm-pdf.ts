@@ -57,7 +57,9 @@ export type RequestType =
   | "mod_individual"
   | "renew_individual"
   | "bulk_new"
-  | "bulk_mod";
+  | "bulk_mod"
+  | "deactivate_individual"
+  | "bulk_deactivate";
 
 const SECTION_IX: Record<RequestType, string> = {
   new_individual:
@@ -70,6 +72,10 @@ const SECTION_IX: Record<RequestType, string> = {
     "These individuals require NEW Epic accounts, and require access to the department YM HAVEN FREE CLINIC. Their accounts should have similar functions of the aforementioned Epic ID to mirror within the department YM HAVEN FREE CLINIC. Please see the attached spreadsheet for the multiple user information.",
   bulk_mod:
     "These individuals already have Epic accounts, but they require extended access to the department YM HAVEN FREE CLINIC. Their accounts should also have similar functions of the aforementioned Epic ID to mirror within the department YM HAVEN FREE CLINIC. Please see the attached spreadsheet for the multiple user information.",
+  deactivate_individual:
+    "This individual is leaving the YM HAVEN FREE CLINIC. Please DEACTIVATE their Epic access for the department YM HAVEN FREE CLINIC effective on the listed date.",
+  bulk_deactivate:
+    "These individuals are leaving the YM HAVEN FREE CLINIC. Please DEACTIVATE their Epic access for the department YM HAVEN FREE CLINIC. Please see the attached spreadsheet for the multiple user information.",
 };
 
 // ---------------------------------------------------------------------------
@@ -199,8 +205,13 @@ export async function generatePdf(args: {
   const { requestType, authorizerKey, person, endDate, mirrorPerson, templateBytes } = args;
   const auth = AUTHORIZERS[authorizerKey];
   const today = new Date().toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
+  // The access-type checkbox that marks a request as a termination/deactivation.
+  // Confirmed against the YNHH template (controller-verified, Task 6 Step 1):
+  // "Check Box60" is the "Delete Access (Systems: ... Date: ...)" box in Section V.
+  const TERMINATION_CHECKBOX: string | null = "Check Box60";
   const isBulk = requestType.startsWith("bulk");
   const isNew = requestType === "new_individual" || requestType === "bulk_new";
+  const isDeactivate = requestType === "deactivate_individual" || requestType === "bulk_deactivate";
 
   const pdfDoc = await PDFDocument.load(templateBytes);
   const form = pdfDoc.getForm();
@@ -267,6 +278,9 @@ export async function generatePdf(args: {
   if (isNew) {
     checkBox(form, "Check Box49");
     fillText(form, "Text75", today);
+  } else if (isDeactivate) {
+    if (TERMINATION_CHECKBOX) checkBox(form, TERMINATION_CHECKBOX);
+    fillText(form, "Text76", endDate); // effective deactivation date
   } else {
     checkBox(form, "Check Box51");
     checkBox(form, "Check Box53");
@@ -275,11 +289,11 @@ export async function generatePdf(args: {
     fillText(form, "Text76", endDate);
   }
 
-  if (isBulk) {
+  if (isBulk && !isDeactivate) {
     checkBox(form, "Check Box58");
     fillText(form, "Text78", "See spreadsheet");
     fillText(form, "Text79", "See spreadsheet");
-  } else if (mirrorPerson) {
+  } else if (mirrorPerson && !isDeactivate) {
     checkBox(form, "Check Box58");
     fillText(form, "Text78", mirrorPerson.name);
     fillText(form, "Text79", mirrorPerson.epicId);

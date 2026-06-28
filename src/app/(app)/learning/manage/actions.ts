@@ -1,6 +1,7 @@
 "use server";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import type { CourseAudience } from "@prisma/client";
 import { requirePermission } from "@/platform/auth/session";
 import { createCourse, updateCourse, setCourseAssignment } from "@/modules/learning/services/courses";
 import { ingestScormPackage } from "@/modules/learning/services/packages";
@@ -40,7 +41,9 @@ export async function setAssignmentAction(formData: FormData): Promise<void> {
   const person = await requirePermission("learning.manage_courses");
   const courseId = String(formData.get("courseId"));
   const departmentIds = formData.getAll("departmentIds").map(String);
-  await setCourseAssignment(courseId, { departmentIds, assignToAll: formData.get("assignToAll") === "on" }, person.personId);
+  const raw = String(formData.get("audience") ?? "EVERYONE");
+  const audience: CourseAudience = raw === "DIRECTORS" || raw === "VOLUNTEERS" ? raw : "EVERYONE";
+  await setCourseAssignment(courseId, { departmentIds, assignToAll: formData.get("assignToAll") === "on", audience }, person.personId);
   revalidatePath(`/learning/manage/${courseId}`);
 }
 

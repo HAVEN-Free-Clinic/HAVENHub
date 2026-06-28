@@ -1,6 +1,6 @@
 import { getEffectivePermissions, hasPermission } from "@/platform/rbac/engine";
 import { MODULES } from "./registry";
-import type { ModuleManifest } from "./types";
+import type { ModuleManifest, ModuleNavItem } from "./types";
 
 /** A module reduced to what the global nav needs (serializable, no icon). */
 export type NavModule = { id: string; title: string; href: string };
@@ -11,6 +11,19 @@ export function canAccessModule(
   perms: Set<string>,
 ): boolean {
   return !mod.accessPermission || hasPermission(perms, mod.accessPermission);
+}
+
+/**
+ * The module sub-tabs the user may actually open. Mirrors canAccessModule at the
+ * tab level: an item with no `permission` is always shown (it gates on module
+ * access only); an item with one is shown only when the viewer holds it. Keeps
+ * the ModuleNav consistent with the per-page gate so no tab is a dead end.
+ */
+export function filterNavItems(
+  items: ModuleNavItem[],
+  perms: Set<string>,
+): ModuleNavItem[] {
+  return items.filter((item) => !item.permission || hasPermission(perms, item.permission));
 }
 
 /** Active modules the user can access, as nav items. Excludes coming-soon. */

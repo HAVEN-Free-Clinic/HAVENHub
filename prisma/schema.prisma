@@ -1033,6 +1033,8 @@ model OnboardingContract {
   existingEpicId           String?
   epicAccessType           String?
   worksWithYnhh            Boolean        @default(false)
+  spanishSelfReported      Boolean        @default(false)
+  licensedRN               Boolean        @default(false)
   hipaaStoredName          String?
   hipaaFileName            String?
   hipaaMimeType            String?

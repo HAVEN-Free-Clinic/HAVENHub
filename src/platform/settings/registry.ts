@@ -208,7 +208,9 @@ export const SETTINGS: SettingDef<unknown>[] = [
     help: "Small square icon shown in the browser tab. PNG, ICO, or WebP.",
     input: { type: "image" },
     schema: brandingAssetSchema,
-    envDefault: () => ({ contentType: "", version: 0 }),
+    // version bumped to 1 to cache-bust the new bundled default favicon
+    // (public/brand/haven-favicon.png) past browsers that cached the old ?v=0 URL.
+    envDefault: () => ({ contentType: "", version: 1 }),
     secret: false,
   }),
   define<"light" | "dark" | "system">({

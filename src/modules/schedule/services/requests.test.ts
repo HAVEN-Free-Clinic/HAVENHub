@@ -413,7 +413,7 @@ describe("cancelRequest", () => {
 // ---------------------------------------------------------------------------
 
 describe("listDepartmentRequests", () => {
-  it("returns PENDING first (createdAt asc) then decided (decidedAt desc, max 10)", async () => {
+  it("returns PENDING first (createdAt asc) then decided (most recent first, max 10)", async () => {
     const dates = sixSaturdays();
     const term = await createTerm("ACTIVE", dates);
     const dept = await createDepartment("AABB");
@@ -448,6 +448,45 @@ describe("listDepartmentRequests", () => {
     // pending2 is still pending
     const pendingIds = rows.filter((r) => r.request.status === "PENDING").map((r) => r.request.id);
     expect(pendingIds).toContain(pending2.id);
+  });
+
+  it("keeps recent decisions visible: cancelled rows sort by recency, not always first", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("AABB");
+    const director = await createPerson("Director");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+
+    // 11 volunteers each create-and-cancel a drop on dates[0]. Cancellation
+    // leaves decidedAt = null, and 11 exceeds the take:10 decided cap. Under the
+    // old `decidedAt desc` ordering these null rows sorted NULLS FIRST (Postgres
+    // default), filled the entire bucket, and hid every genuine decision.
+    for (let i = 0; i < 11; i++) {
+      const vol = await createPerson(`Canceller ${i}`);
+      await createShift(term.id, dept.id, vol.id, dates[0], "VOLUNTEER");
+      const req = await createRequest(vol.id, {
+        requesterDateKey: isoDateKey(dates[0]),
+        departmentId: dept.id,
+      });
+      await cancelRequest(vol.id, req.id);
+    }
+
+    // A genuine denial happens last, so it is the most recent terminal event.
+    const denied = await createPerson("Denied Vol");
+    await createShift(term.id, dept.id, denied.id, dates[1], "VOLUNTEER");
+    const deniedReq = await createRequest(denied.id, {
+      requesterDateKey: isoDateKey(dates[1]),
+      departmentId: dept.id,
+    });
+    await denyRequest(director.id, deniedReq.id);
+
+    const rows = await listDepartmentRequests(director.id, dept.id);
+    const decidedRows = rows.filter((r) => r.request.status !== "PENDING");
+
+    // The most recent real decision must survive the take:10 cap and rank first.
+    expect(decidedRows.map((r) => r.request.id)).toContain(deniedReq.id);
+    expect(decidedRows[0].request.id).toBe(deniedReq.id);
+    expect(decidedRows[0].request.status).toBe("DENIED");
   });
 
   it("includes requester, target, and decidedBy names", async () => {

@@ -395,7 +395,12 @@ export async function cancelRequest(
 /**
  * Lists shift requests for a department in the active term.
  *
- * Ordering: PENDING first (createdAt asc), then decided (decidedAt desc, max 10 decided).
+ * Ordering: PENDING first (createdAt asc), then decided (most recent first, max
+ * 10 decided). The decided bucket sorts by updatedAt, not decidedAt: CANCELLED
+ * rows are self-service withdrawals with no decider and a null decidedAt, so a
+ * decidedAt-desc sort would float them ahead of every real decision (Postgres
+ * sorts NULLS FIRST on DESC) and bury approvals/denials. updatedAt is the moment
+ * each row reached its terminal state, giving a true chronological history.
  * Requires actor to be a manageable-department director or hold schedule.edit_all.
  */
 export async function listDepartmentRequests(
@@ -430,7 +435,9 @@ export async function listDepartmentRequests(
         target: { select: { name: true } },
         decidedBy: { select: { name: true } },
       },
-      orderBy: { decidedAt: "desc" },
+      // Sort by updatedAt, not decidedAt: CANCELLED rows have a null decidedAt
+      // and would otherwise sort NULLS FIRST, burying real approvals/denials.
+      orderBy: { updatedAt: "desc" },
       take: 10,
     }),
   ]);

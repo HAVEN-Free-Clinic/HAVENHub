@@ -213,21 +213,19 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "No people selected" }, { status: 400 });
   }
 
-  // Deactivation requests default to today if no end date is provided.
   const isDeactivate = requestType === "deactivate_individual" || requestType === "bulk_deactivate";
 
-  // Modify/renew requests carry an access end date; new requests use a fixed
-  // one-year-out date instead; deactivation defaults to today.
-  // Require it only for non-new, non-deactivate types so a blank date never reaches YNHH.
-  if (!requestType.includes("new") && !isDeactivate && !endDate?.trim()) {
+  // Every request type — new, modify, renew, and deactivate — requires an
+  // access/effective date from the admin so a blank date never reaches YNHH.
+  if (!endDate?.trim()) {
     return NextResponse.json(
-      { error: "An end date is required for modify/renew requests" },
+      { error: "An end date is required for this request" },
       { status: 400 }
     );
   }
 
-  const todayMMDDYYYY = new Date().toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
-  const effectiveEndDate = isDeactivate && !endDate?.trim() ? todayMMDDYYYY : endDate;
+  // The blank-date guard above means endDate is always present for every type.
+  const effectiveEndDate = endDate;
 
   // Load people from the database.
   const people = await getPeopleByIds(personIds);
@@ -282,7 +280,6 @@ export async function POST(req: Request) {
   
 
   const isBulk = requestType.startsWith("bulk");
-  const isNew = requestType.includes("new");
 
   // Build person shape for individual requests.
   const firstPerson = people[0];
@@ -327,15 +324,12 @@ export async function POST(req: Request) {
     default: return NextResponse.json({ error: "Invalid request type" }, { status: 400 });
   }
 
-  // Build email body.
-  const oneYearOut = new Date();
-  oneYearOut.setFullYear(oneYearOut.getFullYear() + 1);
-  const oneYearStr = oneYearOut.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
-
+  // Build email body. endDate now comes from the admin-picked Access end date
+  // for every request type, including New (no more hardcoded one-year-out date).
   const emailBodyArgs = {
     personName: isBulk ? "Multiple Users" : firstPerson.name,
     epicId: firstPerson.epicId ?? "",
-    endDate: isNew ? oneYearStr : effectiveEndDate,
+    endDate: effectiveEndDate,
     authorizerName: authorizer.name,
     userCount: people.length,
   };

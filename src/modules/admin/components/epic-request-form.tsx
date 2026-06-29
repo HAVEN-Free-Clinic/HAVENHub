@@ -89,7 +89,6 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
   const [error, setError] = useState<string | null>(null);
 
   const isBulk = requestType.startsWith("bulk");
-  const isNew = requestType.includes("new");
   const isDeactivate = requestType.startsWith("deactivate") || requestType === "bulk_deactivate";
 
   // The selected department's members for the person list.
@@ -147,8 +146,8 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
       setError("Select at least one person before generating.");
       return;
     }
-    if (!isNew && !isDeactivate && !endDate) {
-      setError("Set the access end date before generating a modify/renew request.");
+    if (!endDate) {
+      setError("Set the access end date before generating this request.");
       return;
     }
     setError(null);
@@ -267,16 +266,14 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
             </Select>
           </Field>
 
-          {!isNew && (
-            <Field label="Access end date">
-              <Input
-                type="date"
-                required
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-              />
-            </Field>
-          )}
+          <Field label="Access end date">
+            <Input
+              type="date"
+              required
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+            />
+          </Field>
         </div>
 
         {selectedAuthorizer ? (

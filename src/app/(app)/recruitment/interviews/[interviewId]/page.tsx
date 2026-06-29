@@ -4,7 +4,7 @@ import { can } from "@/platform/rbac/engine";
 import { getInterview, listPanelistCandidates } from "@/modules/recruitment/services/interviews";
 import { reviewScope } from "@/modules/recruitment/services/review";
 import { evaluationSummary } from "@/modules/recruitment/engine/interview-eval";
-import { scheduleAction, addPanelistAction, removePanelistAction, sendInviteAction, decideAction, submitEvaluationAction } from "../actions";
+import { scheduleAction, addPanelistAction, removePanelistAction, sendInviteAction, decideAction, rescindAcceptanceAction, submitEvaluationAction } from "../actions";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { interviewDetailTrail } from "@/modules/recruitment/breadcrumbs";
 import { PageHeader } from "@/platform/ui/page-header";
@@ -41,6 +41,12 @@ export default async function InterviewDetail({ params, searchParams }: { params
   const summary = evaluationSummary(iv.evaluations);
   const scheduledValue = iv.scheduledAt ? new Date(iv.scheduledAt.getTime() - iv.scheduledAt.getTimezoneOffset() * 60000).toISOString().slice(0, 16) : "";
   const myEval = iv.evaluations.find((e) => e.evaluator.id === person.personId);
+  // Once this department's acceptance has been emailed, the applicant has been
+  // told they're in. decideInterview blocks moving the decision off ACCEPT until
+  // the acceptance is rescinded, so warn here before the decider tries (issue #77).
+  // Only an SRR (review_all) may rescind a notified acceptance, so the rescind
+  // control is shown to them alone; a director is told to ask an SRR.
+  const emailedAcceptance = iv.application.acceptances.find((a) => a.departmentCode === iv.departmentCode && a.emailedAt != null);
 
   return (
     <div className="max-w-2xl space-y-6">
@@ -130,6 +136,19 @@ export default async function InterviewDetail({ params, searchParams }: { params
       {canManage && (
         <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Decision</h2>
+          {emailedAcceptance && (
+            <div className="mt-3 space-y-3">
+              <Alert tone="warning">
+                This applicant has already been emailed their acceptance for {iv.departmentCode}. Changing the decision to Reject or Waitlist is blocked until the acceptance is rescinded.{" "}
+                {scope.all ? "Rescind it below, then record the new decision." : "Ask an SRR to rescind it first."}
+              </Alert>
+              {scope.all && (
+                <form action={rescindAcceptanceAction.bind(null, interviewId, emailedAcceptance.id)}>
+                  <ConfirmButton label="Rescind acceptance" size="sm" />
+                </form>
+              )}
+            </div>
+          )}
           <form action={decideAction.bind(null, interviewId)} className="mt-3 flex flex-wrap items-end gap-3">
             <div className="w-40">
               <Field label="Outcome">

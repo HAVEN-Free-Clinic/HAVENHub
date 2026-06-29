@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requirePersonSession } from "@/platform/auth/session";
 import { updateInterview, addPanelist, removePanelist, sendInterviewInvite, InterviewError } from "@/modules/recruitment/services/interviews";
 import { decideInterview, type InterviewOutcome } from "@/modules/recruitment/services/interview-decisions";
-import { RecruitmentAuthError, AcceptanceError } from "@/modules/recruitment/services/review";
+import { RecruitmentAuthError, AcceptanceError, revokeAcceptance } from "@/modules/recruitment/services/review";
 import { submitEvaluation } from "@/modules/recruitment/services/evaluations";
 import type { Recommendation } from "@prisma/client";
 
@@ -61,6 +61,17 @@ export async function decideAction(interviewId: string, formData: FormData) {
     redirect(detail(interviewId, "Invalid outcome."));
   }
   try { await decideInterview(interviewId, outcome, person.personId, notes); }
+  catch (err) { if (isDomain(err)) redirect(detail(interviewId, (err as Error).message)); throw err; }
+  revalidatePath(detail(interviewId));
+}
+
+// Rescind a notified acceptance straight from the interview screen so an SRR can
+// walk back an emailed offer here (decideInterview blocks the decision change
+// until the acceptance is gone; issue #77). revokeAcceptance self-authorizes:
+// only review_all may delete an emailed acceptance, a director is told to ask SRR.
+export async function rescindAcceptanceAction(interviewId: string, acceptanceId: string) {
+  const person = await requirePersonSession();
+  try { await revokeAcceptance(acceptanceId, person.personId); }
   catch (err) { if (isDomain(err)) redirect(detail(interviewId, (err as Error).message)); throw err; }
   revalidatePath(detail(interviewId));
 }

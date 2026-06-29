@@ -1,7 +1,7 @@
 import type { Interview } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
-import { reviewScope, RecruitmentAuthError } from "./review";
+import { reviewScope, RecruitmentAuthError, AcceptanceError } from "./review";
 import { InterviewError } from "./interviews";
 
 export type InterviewOutcome = "ACCEPT" | "REJECT" | "WAITLIST";
@@ -29,10 +29,18 @@ export async function decideInterview(
       }
     } else {
       // Changing away from ACCEPT removes a not-yet-emailed acceptance so the
-      // decision and acceptance never disagree. An emailed one is preserved
-      // (revoked via the Plan 11 review_all path).
+      // decision and acceptance never disagree.
       const existing = await tx.acceptance.findUnique({ where: key });
-      if (existing && !existing.emailedAt) await tx.acceptance.delete({ where: { id: existing.id } });
+      if (existing?.emailedAt) {
+        // The applicant has already been emailed this acceptance. Flipping the
+        // decision here would leave the acceptance row intact, so the portal and
+        // onboarding keep showing "Accepted" while the interview badge reads
+        // REJECT/WAITLIST (issue #77). Rescinding a notified acceptance is a
+        // deliberate, separately-authorized action (revokeAcceptance), so block
+        // the change rather than diverge silently.
+        throw new AcceptanceError("This applicant was already emailed their acceptance. Rescind the acceptance before changing this decision.");
+      }
+      if (existing) await tx.acceptance.delete({ where: { id: existing.id } });
     }
     return tx.interview.update({
       where: { id: interviewId },

@@ -27,6 +27,7 @@ import { getSetting } from "@/platform/settings/service";
 import { putObject } from "@/platform/storage";
 import { extractCompletionDate } from "@/platform/compliance/parser";
 import type { ParsedDate } from "@/platform/compliance/parser";
+import { notifyDatelessCertReview } from "@/platform/compliance/review-notifications";
 
 // ---------------------------------------------------------------------------
 // Typed error
@@ -224,6 +225,9 @@ type ParseFn = (bytes: Buffer) => Promise<ParsedDate | null>;
  *   4. AFTER commit: write bytes to UPLOAD_DIR/<cert.id>.pdf
  *   5. If disk write fails: delete the cert row and rethrow
  *   6. Audit my-info.certificate_upload (fileName + size only; never bytes)
+ *   7. If no completion date was parsed, alert compliance managers so the
+ *      manual-verification queue is driven -- the member cannot set the date
+ *      themselves. Deduped: a re-upload into an already-pending state is silent.
  *
  * @param parse - Optional injected parser function (defaults to extractCompletionDate).
  *   Passed by tests to avoid real PDF I/O. Public call sites leave this undefined.
@@ -261,6 +265,19 @@ export async function saveCertificate(
       // Parser failure is non-fatal; completionDate stays null, extraction stays NONE
     }
   }
+
+  // Dedup signal for the review notification (step 7): capture whether the
+  // member's CURRENT newest cert is already dateless BEFORE inserting the new
+  // row. A re-upload that re-fails parsing must not re-alert compliance managers.
+  const alreadyPending =
+    parsedDate === null &&
+    (
+      await prisma.hipaaCertificate.findFirst({
+        where: { personId },
+        orderBy: { uploadedAt: "desc" },
+        select: { completionDate: true },
+      })
+    )?.completionDate === null;
 
   // --- 3. Transaction: create the certificate row ---
   const cert = await prisma.$transaction(async (tx) => {
@@ -312,6 +329,21 @@ export async function saveCertificate(
     entityId: cert.id,
     after: { fileName: cert.fileName, size: cert.size },
   });
+
+  // --- 7. Dateless cert: alert compliance managers (the member cannot self-fix) ---
+  // The cert is already durably saved and audited; a notification hiccup must
+  // not surface to the member as a failed upload, so failures are logged only.
+  if (parsedDate === null && !alreadyPending) {
+    try {
+      const owner = await prisma.person.findUnique({
+        where: { id: personId },
+        select: { name: true },
+      });
+      await notifyDatelessCertReview(prisma, { id: personId, name: owner?.name ?? "A volunteer" });
+    } catch (err) {
+      console.error("[my-info] failed to notify compliance managers of dateless cert", cert.id, err);
+    }
+  }
 
   return cert;
 }

@@ -34,6 +34,7 @@ import {
   upsertRhdClinic,
   BuilderForbiddenError,
   BuilderValidationError,
+  compareBuilderMembers,
 } from "@/modules/schedule/services/builder";
 import type { BuilderMemberIntake } from "@/modules/schedule/services/builder";
 import { createAttending, AttendingValidationError, AttendingForbiddenError } from "@/modules/schedule/services/attendings";
@@ -189,15 +190,13 @@ export default async function BuilderPage({ searchParams }: PageProps) {
       ? m.availability.dates.some((d) => isoDateKey(d) === selectedDateKey)
       : false;
 
-  const byName = (
-    a: (typeof unassignedMembers)[number],
-    b: (typeof unassignedMembers)[number],
-  ) => a.person.name.localeCompare(b.person.name);
-
-  const availableMembers = unassignedMembers.filter(isAvailableOnDate).sort(byName);
+  // Directors first, then volunteers, alphabetical within each group.
+  const availableMembers = unassignedMembers
+    .filter(isAvailableOnDate)
+    .sort(compareBuilderMembers);
   const notAvailableMembers = unassignedMembers
     .filter((m) => !isAvailableOnDate(m))
-    .sort(byName);
+    .sort(compareBuilderMembers);
   const availableCount = availableMembers.length;
 
   // ---------------------------------------------------------------------------
@@ -909,7 +908,8 @@ function AvailabilityView({
       {members.length === 0 && (
         <p className="text-sm text-subtle-foreground">No members in this department.</p>
       )}
-      {members.map((member) => {
+      {/* Directors first, then volunteers, alphabetical within each group. */}
+      {[...members].sort(compareBuilderMembers).map((member) => {
         const tierLabel =
           member.availability.tier === "DIRECTOR"
             ? "Director override"

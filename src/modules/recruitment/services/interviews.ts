@@ -225,7 +225,10 @@ export async function getInterview(interviewId: string) {
   return prisma.interview.findUnique({
     where: { id: interviewId },
     include: {
-      application: { include: { applicant: true, cycle: true } },
+      // Acceptances ride along so the decision UI can warn when this department's
+      // offer has already been emailed (an emailed acceptance blocks changing the
+      // decision away from ACCEPT; see decideInterview / issue #77).
+      application: { include: { applicant: true, cycle: true, acceptances: { select: { id: true, departmentCode: true, emailedAt: true } } } },
       panelists: { include: { person: { select: { id: true, name: true } } } },
       evaluations: { include: { evaluator: { select: { id: true, name: true } } }, orderBy: { createdAt: "asc" } },
     },

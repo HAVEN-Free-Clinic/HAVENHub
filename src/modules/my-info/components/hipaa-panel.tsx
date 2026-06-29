@@ -102,10 +102,12 @@ export function HipaaPanel({
                 </span>
               )}
             </div>
-            {/* Read-only notice when the completion date could not be parsed */}
+            {/* Read-only notice when the completion date could not be parsed.
+                Members cannot set the date themselves, so the copy is reassuring,
+                not imperative (issue #76). */}
             {latest.completionDate === null && (
               <p className="mt-2 text-sm text-muted-foreground">
-                A compliance manager will confirm the completion date.
+                A compliance manager will verify the completion date. No action is needed from you.
               </p>
             )}
           </div>

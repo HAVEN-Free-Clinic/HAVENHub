@@ -945,6 +945,58 @@ describe("eligibleSwapPartners", () => {
     const ids = partners.map((p) => p.personId);
     expect(ids).not.toContain(dir.id);
   });
+
+  // The dropdown must only offer swaps that createRequest/assertNoSwapCollision
+  // will accept. The two cases below mirror that guard's two collision checks so
+  // volunteers never pick a partner that always fails with "Partner is not eligible".
+
+  it("excludes partners whose date the actor already works (would collide on the target's date)", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("AABB");
+    const actor = await createPerson("Actor");
+    const collidingPartner = await createPerson("Colliding");
+    const cleanPartner = await createPerson("Clean");
+
+    // Actor works dates[0] (the shift being requested) AND dates[1].
+    await createShift(term.id, dept.id, actor.id, dates[0], "VOLUNTEER");
+    await createShift(term.id, dept.id, actor.id, dates[1], "VOLUNTEER");
+    // collidingPartner is on dates[1] — swapping onto it would collide because
+    // the actor already holds an assignment there (requesterOnTargetDate).
+    await createShift(term.id, dept.id, collidingPartner.id, dates[1], "VOLUNTEER");
+    // cleanPartner is on dates[2], where the actor has no assignment.
+    await createShift(term.id, dept.id, cleanPartner.id, dates[2], "VOLUNTEER");
+
+    const partners = await eligibleSwapPartners(actor.id, isoDateKey(dates[0]), dept.id);
+
+    const ids = partners.map((p) => p.personId);
+    expect(ids).not.toContain(collidingPartner.id);
+    expect(ids).toContain(cleanPartner.id);
+  });
+
+  it("excludes partners who also hold an assignment on the actor's requester date", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("AABB");
+    const actor = await createPerson("Actor");
+    const collidingPartner = await createPerson("Colliding");
+    const cleanPartner = await createPerson("Clean");
+
+    await createShift(term.id, dept.id, actor.id, dates[0], "VOLUNTEER");
+    // collidingPartner offers dates[1] but ALSO holds a SHADOW row on dates[0],
+    // the actor's requester date — assertNoSwapCollision rejects this
+    // (targetOnRequesterDate), so it must not be offered.
+    await createShift(term.id, dept.id, collidingPartner.id, dates[1], "VOLUNTEER");
+    await createShift(term.id, dept.id, collidingPartner.id, dates[0], "SHADOW");
+    // cleanPartner only works dates[2].
+    await createShift(term.id, dept.id, cleanPartner.id, dates[2], "VOLUNTEER");
+
+    const partners = await eligibleSwapPartners(actor.id, isoDateKey(dates[0]), dept.id);
+
+    const ids = partners.map((p) => p.personId);
+    expect(ids).not.toContain(collidingPartner.id);
+    expect(ids).toContain(cleanPartner.id);
+  });
 });
 
 // ---------------------------------------------------------------------------

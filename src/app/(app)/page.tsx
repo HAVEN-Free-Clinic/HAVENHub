@@ -201,7 +201,7 @@ export default async function HubPage() {
         : status === "EXPIRED"
           ? { ok: false, title: "HIPAA training expired", sub: "Upload a current certificate" }
           : status === "UNKNOWN_DATE"
-            ? { ok: false, title: "Add your HIPAA completion date", sub: "Certificate on file, date missing" }
+            ? { ok: false, title: "HIPAA completion date pending", sub: "A compliance manager will verify it; no action needed" }
             : status === "PENDING_VERIFICATION"
               ? { ok: false, title: "HIPAA certificate awaiting verification", sub: "A coordinator will confirm your completion date" }
               : { ok: false, title: "Upload your HIPAA certificate", sub: "Required for clinic clearance" };
@@ -212,7 +212,8 @@ export default async function HubPage() {
   ];
 
   // --- Quick actions (real links, access-filtered, capped at 4) ---
-  const hipaaShort = status === "COMPLIANT" ? "current" : "action needed";
+  const hipaaShort =
+    status === "COMPLIANT" ? "current" : status === "UNKNOWN_DATE" ? "pending review" : "action needed";
   const quickAll: Array<{ id: string; show: boolean; href: string; Icon: LucideIcon; label: string; sub: string }> = [
     {
       id: "schedule",

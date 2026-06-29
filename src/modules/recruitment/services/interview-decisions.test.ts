@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
-import { RecruitmentAuthError } from "./review";
+import { RecruitmentAuthError, AcceptanceError } from "./review";
 import { createInterview, InterviewError } from "./interviews";
 import { decideInterview } from "./interview-decisions";
 
@@ -37,13 +37,20 @@ it("changing ACCEPT to REJECT removes the not-yet-emailed Acceptance", async () 
   expect(acc).toBeNull();
 });
 
-it("does not remove an already-emailed Acceptance when changing away from ACCEPT", async () => {
+it("blocks changing away from ACCEPT once the Acceptance has been emailed, leaving the decision unchanged", async () => {
   const { iv, director, application } = await seedInterview();
   await decideInterview(iv.id, "ACCEPT", director.id, null);
   await prisma.acceptance.update({ where: { applicationId_departmentCode: { applicationId: application.id, departmentCode: "EDUC" } }, data: { emailedAt: new Date() } });
-  await decideInterview(iv.id, "WAITLIST", director.id, null);
+
+  await expect(decideInterview(iv.id, "WAITLIST", director.id, null)).rejects.toBeInstanceOf(AcceptanceError);
+
+  // The emailed acceptance is preserved AND the decision is not flipped, so the
+  // internal decision can't silently diverge from the applicant-facing acceptance
+  // (issue #77: a notified acceptance must be rescinded before the decision changes).
   const acc = await prisma.acceptance.findUnique({ where: { applicationId_departmentCode: { applicationId: application.id, departmentCode: "EDUC" } } });
   expect(acc).not.toBeNull();
+  const refreshed = await prisma.interview.findUnique({ where: { id: iv.id } });
+  expect(refreshed?.decision).toBe("ACCEPT");
 });
 
 it("rejects a decider outside the interview's department scope", async () => {

@@ -32,6 +32,13 @@ export type ComplianceEscalationParams = {
   status: ComplianceStatus;
 };
 
+export type ComplianceDateReviewParams = {
+  /** The volunteer whose certificate landed without a parsed completion date. */
+  volunteerName: string;
+  /** Absolute URL to the compliance master view where the date is entered. */
+  reviewLink: string;
+};
+
 // ---------------------------------------------------------------------------
 // Private helpers
 // ---------------------------------------------------------------------------
@@ -122,6 +129,18 @@ export function complianceEscalationContext(p: ComplianceEscalationParams): Reco
   };
 }
 
+/**
+ * Build the flat render-engine context for the compliance-date-review template,
+ * sent to compliance managers when a volunteer's certificate is saved without a
+ * machine-readable completion date.
+ */
+export function complianceDateReviewContext(p: ComplianceDateReviewParams): Record<string, unknown> {
+  return {
+    volunteerName: p.volunteerName,
+    reviewLink: p.reviewLink,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Descriptors
 // ---------------------------------------------------------------------------
@@ -167,6 +186,27 @@ export const complianceDescriptors: TemplateDescriptor[] = [
     defaultBody: `<p>Hello {{ directorName }},</p>
 
 <p>{{ volunteerName }} in {{ departmentName }} is not HIPAA compliant ({{ readableStatus }}) and has not responded to reminders. Please follow up.</p>
+
+<p>Thank you,<br>HAVEN Free Clinic</p>`,
+  },
+  {
+    key: "compliance-date-review",
+    name: "Compliance Date Review",
+    category: "transactional",
+    variables: [
+      { name: "volunteerName", label: "Volunteer name", sampleValue: "Jane Doe" },
+      {
+        name: "reviewLink",
+        label: "Link to the compliance master view",
+        sampleValue: "https://hub.havenfreeclinic.org/volunteers/master",
+      },
+    ],
+    defaultSubject: "[HAVEN] HIPAA certificate needs a completion date",
+    defaultBody: `<p>Hello,</p>
+
+<p>{{ volunteerName }} uploaded a HIPAA certificate, but the completion date could not be read automatically. Please review the certificate and set the completion date so the volunteer can be cleared.</p>
+
+<p><a href="{{ reviewLink }}">Open the compliance master view</a></p>
 
 <p>Thank you,<br>HAVEN Free Clinic</p>`,
   },

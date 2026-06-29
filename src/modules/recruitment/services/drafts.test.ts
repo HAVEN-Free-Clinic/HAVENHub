@@ -23,6 +23,16 @@ async function openCycle(slug = "draft-cyc") {
 }
 const ID = { email: "reed@yale.edu", personId: null };
 
+const DAYS_AGO = (n: number) => new Date(Date.now() - n * 24 * 60 * 60 * 1000);
+
+/** Create an applicant + (back-dated) application in a cycle, for sweep tests. */
+async function seedDraft(cycleId: string, email: string, status: "DRAFT" | "SUBMITTED", updatedAt: Date) {
+  const ap = await prisma.applicant.create({ data: { cycleId, firstName: "", lastName: "", email, emailLower: email } });
+  await prisma.application.create({ data: { cycleId, applicantId: ap.id, answers: {}, applicantType: "NEW", departmentChoices: [], subcommitteeRanking: [], status, submittedAt: status === "SUBMITTED" ? new Date() : null } });
+  await prisma.application.updateMany({ where: { applicantId: ap.id }, data: { updatedAt } });
+  return ap;
+}
+
 it("creates a draft on first save and updates it on the next", async () => {
   await openCycle();
   expect(await getDraft("draft-cyc", ID)).toBeNull();
@@ -101,20 +111,34 @@ it("does not resurrect a non-file answer that a later save clears", async () => 
   expect(d?.answers.note).toBe("x");
 });
 
-it("sweeps abandoned drafts older than the cutoff, leaving recent and submitted ones", async () => {
+it("in a closed cycle, sweeps drafts older than the cutoff, leaving recent and submitted ones", async () => {
   const cycle = await openCycle("sweep-cyc");
-  const old = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000);
-  const mk = async (email: string, status: "DRAFT" | "SUBMITTED", updatedAt: Date) => {
-    const ap = await prisma.applicant.create({ data: { cycleId: cycle.id, firstName: "", lastName: "", email, emailLower: email } });
-    await prisma.application.create({ data: { cycleId: cycle.id, applicantId: ap.id, answers: {}, applicantType: "NEW", departmentChoices: [], subcommitteeRanking: [], status, submittedAt: status === "SUBMITTED" ? new Date() : null } });
-    await prisma.application.updateMany({ where: { applicantId: ap.id }, data: { updatedAt } });
-  };
-  await mk("oldraft@yale.edu", "DRAFT", old);
-  await mk("newdraft@yale.edu", "DRAFT", new Date());
-  await mk("oldsub@yale.edu", "SUBMITTED", old);
+  await prisma.recruitmentCycle.update({ where: { id: cycle.id }, data: { status: "CLOSED" } });
+  await seedDraft(cycle.id, "oldraft@yale.edu", "DRAFT", DAYS_AGO(40));
+  await seedDraft(cycle.id, "newdraft@yale.edu", "DRAFT", new Date());
+  await seedDraft(cycle.id, "oldsub@yale.edu", "SUBMITTED", DAYS_AGO(40));
   const res = await sweepAbandonedDrafts(30);
   expect(res.deleted).toBe(1);
   expect(await prisma.applicant.findFirst({ where: { emailLower: "oldraft@yale.edu" } })).toBeNull();
   expect(await prisma.applicant.findFirst({ where: { emailLower: "newdraft@yale.edu" } })).not.toBeNull();
   expect(await prisma.applicant.findFirst({ where: { emailLower: "oldsub@yale.edu" } })).not.toBeNull();
+});
+
+it("does not sweep an abandoned draft while its cycle is still open", async () => {
+  // A long-running open cycle: the applicant can still submit, so their draft
+  // (and uploaded files) must survive the inactivity purge.
+  const cycle = await openCycle("open-keep-cyc");
+  await seedDraft(cycle.id, "stillopen@yale.edu", "DRAFT", DAYS_AGO(40));
+  const res = await sweepAbandonedDrafts(30);
+  expect(res.deleted).toBe(0);
+  expect(await prisma.applicant.findFirst({ where: { emailLower: "stillopen@yale.edu" } })).not.toBeNull();
+});
+
+it("sweeps an abandoned draft once the cycle's closesAt has passed (even if still marked OPEN)", async () => {
+  const cycle = await openCycle("expired-cyc");
+  await prisma.recruitmentCycle.update({ where: { id: cycle.id }, data: { closesAt: DAYS_AGO(5) } });
+  await seedDraft(cycle.id, "expired@yale.edu", "DRAFT", DAYS_AGO(40));
+  const res = await sweepAbandonedDrafts(30);
+  expect(res.deleted).toBe(1);
+  expect(await prisma.applicant.findFirst({ where: { emailLower: "expired@yale.edu" } })).toBeNull();
 });

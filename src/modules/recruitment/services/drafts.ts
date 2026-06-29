@@ -145,11 +145,31 @@ export async function saveDraft(
 }
 
 /** Delete DRAFT applications (and their applicant + uploaded files) not touched
- *  in `olderThanDays`. Submitted applications are never swept. */
+ *  in `olderThanDays`. Submitted applications are never swept.
+ *
+ *  Only drafts whose cycle is no longer accepting submissions are swept. A draft
+ *  in a still-open cycle is preserved no matter how stale, because the applicant
+ *  can still return and submit it -- deleting it (and their uploads) would be
+ *  irreversible data loss. "Open" mirrors the saveDraft / uploadDraftFile guard:
+ *  status OPEN and within the opensAt..closesAt window; the filter below is its
+ *  negation. */
 export async function sweepAbandonedDrafts(olderThanDays = 30): Promise<{ deleted: number }> {
-  const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
+  const now = new Date();
+  const cutoff = new Date(now.getTime() - olderThanDays * 24 * 60 * 60 * 1000);
   const stale = await prisma.application.findMany({
-    where: { status: "DRAFT", updatedAt: { lt: cutoff } },
+    where: {
+      status: "DRAFT",
+      updatedAt: { lt: cutoff },
+      // Cycle is NOT open: closed/archived/not-yet-published status, or its
+      // submission window has not started / has already ended.
+      cycle: {
+        OR: [
+          { status: { not: "OPEN" } },
+          { opensAt: { gt: now } },
+          { closesAt: { lt: now } },
+        ],
+      },
+    },
     select: { id: true, applicantId: true, cycleId: true, answers: true },
   });
   let deleted = 0;

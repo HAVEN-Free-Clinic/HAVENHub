@@ -686,6 +686,9 @@ model TeamsMessage {
   /// Email fallback payload, queued if Teams delivery fails permanently.
   fallbackSubject String
   fallbackHtml    String
+  /// True when notify() already queued this email up front (channel "both"), so
+  /// the permanent-failure fallback must skip it rather than double-send (#74).
+  emailAlreadyQueued Boolean    @default(false)
   status          TeamsMessageStatus @default(QUEUED)
   attempts        Int                @default(0)
   lastError       String?

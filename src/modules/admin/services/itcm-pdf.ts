@@ -276,7 +276,12 @@ export async function generatePdf(args: {
   // Section V — Access type + similar person
   if (isNew) {
     checkBox(form, "Check Box49");
-    fillText(form, "Text75", today);
+    if (isNew) {
+    checkBox(form, "Check Box49");
+    fillText(form, "Text75", today); // New Hire start date — no end date on the PDF for New
+  } else if (isDeactivate) {
+    if (TERMINATION_CHECKBOX) checkBox(form, TERMINATION_CHECKBOX);
+    fillText(form, "Text76", endDate); // effective deactivation date
   } else {
     checkBox(form, "Check Box51");
     checkBox(form, "Check Box53");

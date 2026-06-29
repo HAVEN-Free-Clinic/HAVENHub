@@ -13,7 +13,7 @@ import type { RhdClinic } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { isoDateKey } from "@/platform/dates";
-import { manageableDepartmentIds } from "@/platform/departments";
+import { manageableDepartmentIds, memberDepartmentIds } from "@/platform/departments";
 import { can } from "@/platform/rbac/engine";
 import { complianceStatus } from "@/platform/compliance/rules";
 import { resolveAvailability } from "../engine/availability";
@@ -84,20 +84,29 @@ async function scopeCheck(actorPersonId: string, departmentId: string): Promise<
 /**
  * Returns the set of department ids the person may manage for schedule
  * purposes: manageableDepartmentIds(personId) UNION (when
- * can(personId, "schedule.edit_all")) ALL department ids. Deduped.
+ * can(personId, "schedule.edit_own_dept")) memberDepartmentIds(personId)
+ * UNION (when can(personId, "schedule.edit_all")) ALL department ids. Deduped.
  */
 export async function manageableScheduleDepartmentIds(personId: string): Promise<string[]> {
-  const [base, editAll] = await Promise.all([
+  const [base, editOwnDept, editAll] = await Promise.all([
     manageableDepartmentIds(personId),
+    can(personId, "schedule.edit_own_dept"),
     can(personId, "schedule.edit_all"),
   ]);
 
-  if (!editAll) return base;
-
-  // edit_all: union base with every department in the DB.
-  const all = await prisma.department.findMany({ select: { id: true } });
   const ids = new Set<string>(base);
-  for (const d of all) ids.add(d.id);
+
+  // edit_own_dept: extend to departments the person is an active member of.
+  if (editOwnDept) {
+    for (const id of await memberDepartmentIds(personId)) ids.add(id);
+  }
+
+  // edit_all: union with every department in the DB.
+  if (editAll) {
+    const all = await prisma.department.findMany({ select: { id: true } });
+    for (const d of all) ids.add(d.id);
+  }
+
   return [...ids];
 }
 

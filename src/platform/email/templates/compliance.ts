@@ -98,9 +98,15 @@ export function complianceReminderContext(p: ComplianceReminderParams): Record<s
     default:
       throw new Error(`Unexpected reminder status: ${p.status}`);
   }
+  const actionLine =
+    p.status === "PENDING_VERIFICATION"
+      ? "No action is needed from you right now. A coordinator will verify your certificate before it counts toward your clearance."
+      : "Please upload or renew your certificate in My Info.";
+
   return {
     personName: p.personName,
     statusLine,
+    actionLine,
   };
 }
 
@@ -132,13 +138,18 @@ export const complianceDescriptors: TemplateDescriptor[] = [
         label: "Status sentence (pre-computed from status + expiry date)",
         sampleValue: "Your HIPAA certification expires on January 15, 2026.",
       },
+      {
+        name: "actionLine",
+        label: "Next-step sentence (status-aware)",
+        sampleValue: "Please upload or renew your certificate in My Info.",
+      },
     ],
     defaultSubject: "[HAVEN] HIPAA certification reminder",
     defaultBody: `<p>Hello {{ personName }},</p>
 
 <p>{{ statusLine }}</p>
 
-<p>Please upload or renew your certificate in My Info.</p>
+<p>{{ actionLine }}</p>
 
 <p>Thank you,<br>HAVEN Free Clinic</p>`,
   },

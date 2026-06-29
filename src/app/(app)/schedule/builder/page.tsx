@@ -441,11 +441,11 @@ export default async function BuilderPage({ searchParams }: PageProps) {
       <div
         key={member.person.id}
         className={`rounded-2xl border px-3 py-3 ${
-          available ? "border-success/30 bg-green-50" : "border-border bg-muted opacity-75"
+          available ? "border-border bg-surface" : "border-border bg-muted opacity-75"
         }`}
       >
         <div className="flex flex-wrap items-center gap-2 mb-2">
-          <span className={`text-sm font-semibold ${available ? "text-slate-800" : "text-foreground"}`}>{member.person.name}</span>
+          <span className="text-sm font-semibold text-foreground">{member.person.name}</span>
           <Badge tone={isDirectorKind ? "brand" : "default"}>
             {isDirectorKind ? "Director" : "Volunteer"}
           </Badge>
@@ -489,7 +489,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
             variant="assign"
           />
         </div>
-        <IntakeNotes intake={member.intake} onLightTint={available} />
+        <IntakeNotes intake={member.intake} />
       </div>
     );
   }
@@ -627,9 +627,9 @@ export default async function BuilderPage({ searchParams }: PageProps) {
 
               {/* HIPAA banner */}
               {data.banner.length > 0 && (
-                <div role="status" className="mb-4 rounded-xl border border-warning/30 bg-amber-50 px-4 py-3 text-sm text-warning">
-                  <p className="font-semibold mb-1 flex items-center gap-1.5">
-                    <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden />
+                <div role="status" className="mb-4 rounded-xl border border-border bg-surface px-4 py-3 text-sm text-foreground-soft">
+                  <p className="font-semibold mb-1 flex items-center gap-1.5 text-foreground">
+                    <AlertTriangle className="h-4 w-4 shrink-0 text-warning" aria-hidden />
                     HIPAA issues on this date
                   </p>
                   <ul className="list-disc list-inside space-y-0.5">
@@ -761,9 +761,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
             <section>
               <div className="flex items-center gap-2 mb-4">
                 <h2 className="text-base font-bold text-foreground">Available to assign</h2>
-                <span className="rounded-full bg-green-50 text-success text-xs font-semibold px-2.5 py-0.5">
-                  {availableCount} available
-                </span>
+                <Badge tone="success">{availableCount} available</Badge>
               </div>
 
               {!selectedDateKey ? (
@@ -842,24 +840,21 @@ export default async function BuilderPage({ searchParams }: PageProps) {
 /**
  * Renders the scheduling preferences a member gave during training intake so
  * directors can use them while building. Returns null when the member left
- * everything blank. `onLightTint` switches to fixed slate colors for the green
- * "available" assign card, which does not flip with the theme.
+ * everything blank.
  */
 function IntakeNotes({
   intake,
-  onLightTint = false,
   className = "",
 }: {
   intake: BuilderMemberIntake;
-  onLightTint?: boolean;
   className?: string;
 }) {
   const { minShiftsWanted, additionalShiftAvailability, feedback } = intake;
   if (!minShiftsWanted && !additionalShiftAvailability && !feedback) return null;
 
-  const border = onLightTint ? "border-success/20" : "border-border";
-  const body = onLightTint ? "text-slate-600" : "text-muted-foreground";
-  const label = onLightTint ? "text-slate-700" : "text-foreground";
+  const border = "border-border";
+  const body = "text-muted-foreground";
+  const label = "text-foreground";
 
   return (
     <div className={`mt-2 space-y-0.5 border-t ${border} pt-2 text-xs ${body} ${className}`}>

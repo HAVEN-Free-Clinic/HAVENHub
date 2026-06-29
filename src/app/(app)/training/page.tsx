@@ -37,20 +37,20 @@ function ClearanceHero({ my }: { my: MyTraining }) {
 
   if (my.state === "COMPLETE") {
     return (
-      <div className="mb-6 flex items-center gap-[18px] rounded-2xl border border-green-300 bg-green-50 px-[22px] py-5 shadow-sm">
+      <div className="mb-6 flex items-center gap-[18px] rounded-2xl border border-border bg-surface px-[22px] py-5 shadow-sm">
         <span className="grid h-[52px] w-[52px] shrink-0 place-items-center rounded-[13px] bg-success text-white">
           <Award aria-hidden className="h-[26px] w-[26px]" />
         </span>
         <div className="min-w-0 flex-1">
           <p className="text-xs font-bold uppercase tracking-wider text-success">Cleared for the term</p>
-          <p className="mt-0.5 text-[19px] font-bold tracking-tight text-slate-800">You&apos;re all set for {term}</p>
-          <p className="mt-1 text-[13.5px] leading-snug text-slate-600">
+          <p className="mt-0.5 text-[19px] font-bold tracking-tight text-foreground">You&apos;re all set for {term}</p>
+          <p className="mt-1 text-[13.5px] leading-snug text-foreground-soft">
             Training complete{my.completedVia ? ` via ${viaLabel(my.completedVia)}` : ""}. You meet the training
             requirement and can be scheduled for shifts.
           </p>
         </div>
         {my.completedAt && (
-          <span className="shrink-0 whitespace-nowrap rounded-full border border-slate-200 bg-white/70 px-3 py-1.5 text-[12.5px] font-semibold text-slate-600">
+          <span className="shrink-0 whitespace-nowrap rounded-full border border-border bg-muted px-3 py-1.5 text-[12.5px] font-semibold text-foreground-soft">
             Completed {fmtDate(my.completedAt)}
           </span>
         )}
@@ -60,21 +60,21 @@ function ClearanceHero({ my }: { my: MyTraining }) {
 
   if (my.locked) {
     return (
-      <div className="mb-6 flex items-center gap-[18px] rounded-2xl border border-red-300 bg-red-50 px-[22px] py-5 shadow-sm">
-        <span className="grid h-[52px] w-[52px] shrink-0 place-items-center rounded-[13px] border border-red-300 bg-white text-critical">
+      <div className="mb-6 flex items-center gap-[18px] rounded-2xl border border-border bg-surface px-[22px] py-5 shadow-sm">
+        <span className="grid h-[52px] w-[52px] shrink-0 place-items-center rounded-[13px] bg-critical text-white">
           <Lock aria-hidden className="h-6 w-6" />
         </span>
         <div className="min-w-0 flex-1">
           <p className="text-xs font-bold uppercase tracking-wider text-critical">Quiz locked</p>
-          <p className="mt-0.5 text-[19px] font-bold tracking-tight text-slate-800">
+          <p className="mt-0.5 text-[19px] font-bold tracking-tight text-foreground">
             You&apos;ve used all {my.maxAttempts} quiz attempts
           </p>
-          <p className="mt-1 text-[13.5px] leading-snug text-slate-600">
+          <p className="mt-1 text-[13.5px] leading-snug text-foreground-soft">
             Your makeup quiz is locked. Contact your recruitment director to reset it, or attend a live session to
             complete training.
           </p>
         </div>
-        <span className="shrink-0 whitespace-nowrap rounded-full border border-slate-200 bg-white/70 px-3 py-1.5 text-[12.5px] font-semibold text-slate-600">
+        <span className="shrink-0 whitespace-nowrap rounded-full border border-border bg-muted px-3 py-1.5 text-[12.5px] font-semibold text-foreground-soft">
           Action needed
         </span>
       </div>
@@ -100,21 +100,21 @@ function ClearanceHero({ my }: { my: MyTraining }) {
   }
 
   return (
-    <div className="mb-6 flex items-center gap-[18px] rounded-2xl border border-amber-300 bg-amber-50 px-[22px] py-5 shadow-sm">
-      <span className="grid h-[52px] w-[52px] shrink-0 place-items-center rounded-[13px] border border-amber-300 bg-white text-warning">
+    <div className="mb-6 flex items-center gap-[18px] rounded-2xl border border-border bg-surface px-[22px] py-5 shadow-sm">
+      <span className="grid h-[52px] w-[52px] shrink-0 place-items-center rounded-[13px] bg-warning text-white">
         <AlertTriangle aria-hidden className="h-6 w-6" />
       </span>
       <div className="min-w-0 flex-1">
         <p className="text-xs font-bold uppercase tracking-wider text-warning">Not yet cleared</p>
-        <p className="mt-0.5 text-[19px] font-bold tracking-tight text-slate-800">
+        <p className="mt-0.5 text-[19px] font-bold tracking-tight text-foreground">
           Complete training to be cleared for {term}
         </p>
-        <p className="mt-1 text-[13.5px] leading-snug text-slate-600">
+        <p className="mt-1 text-[13.5px] leading-snug text-foreground-soft">
           Finish one of the two paths below. Most volunteers attend the live session — the makeup quiz is here if you
           miss it.
         </p>
       </div>
-      <span className="shrink-0 whitespace-nowrap rounded-full border border-slate-200 bg-white/70 px-3 py-1.5 text-[12.5px] font-semibold text-slate-600">
+      <span className="shrink-0 whitespace-nowrap rounded-full border border-border bg-muted px-3 py-1.5 text-[12.5px] font-semibold text-foreground-soft">
         Due before your first shift
       </span>
     </div>
@@ -248,7 +248,7 @@ function DetailRow({
   sub: string;
   icon?: React.ReactNode;
 }) {
-  const toneClass = tone === "success" ? "bg-green-50 text-success" : "bg-brand-faint text-brand-fg";
+  const toneClass = tone === "success" ? "bg-success text-white" : "bg-brand-faint text-brand-fg";
   return (
     <div className="flex items-center gap-3 border-t border-border-subtle py-2.5 first:border-t-0 first:pt-0">
       <span className={`grid h-[30px] w-[30px] shrink-0 place-items-center rounded-lg ${toneClass}`}>

@@ -14,7 +14,7 @@ import { buttonClasses } from "@/platform/ui/button";
 export default function NoAccessPage() {
   return (
     <div className="mx-auto max-w-lg py-10 text-center">
-      <span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-amber-50 text-warning">
+      <span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-muted-strong text-muted-foreground">
         <Lock aria-hidden className="h-7 w-7" />
       </span>
       <h1 className="mt-5 text-2xl font-bold tracking-tight text-foreground">

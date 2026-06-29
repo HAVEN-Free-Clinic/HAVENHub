@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Eye } from "lucide-react";
+import { Alert } from "@/platform/ui/alert";
 import { Modal } from "@/platform/ui/modal";
 import { buttonClasses } from "@/platform/ui/button";
 import { Field, Input } from "@/platform/ui/input";
@@ -164,7 +165,7 @@ export function CertificateViewer({
           }
         >
           {error && (
-            <p className="mb-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
+            <Alert tone="error" className="mb-2">{error}</Alert>
           )}
           <iframe
             src={inlineHref}

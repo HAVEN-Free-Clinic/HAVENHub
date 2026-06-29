@@ -35,6 +35,7 @@ import {
   BuilderForbiddenError,
   BuilderValidationError,
 } from "@/modules/schedule/services/builder";
+import type { BuilderMemberIntake } from "@/modules/schedule/services/builder";
 import { createAttending, AttendingValidationError, AttendingForbiddenError } from "@/modules/schedule/services/attendings";
 import {
   listDepartmentRequests,
@@ -485,6 +486,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
             variant="assign"
           />
         </div>
+        <IntakeNotes intake={member.intake} onLightTint={available} />
       </div>
     );
   }
@@ -829,6 +831,53 @@ export default async function BuilderPage({ searchParams }: PageProps) {
 }
 
 // ---------------------------------------------------------------------------
+// Training-intake notes
+// ---------------------------------------------------------------------------
+
+/**
+ * Renders the scheduling preferences a member gave during training intake so
+ * directors can use them while building. Returns null when the member left
+ * everything blank. `onLightTint` switches to fixed slate colors for the green
+ * "available" assign card, which does not flip with the theme.
+ */
+function IntakeNotes({
+  intake,
+  onLightTint = false,
+  className = "",
+}: {
+  intake: BuilderMemberIntake;
+  onLightTint?: boolean;
+  className?: string;
+}) {
+  const { minShiftsWanted, additionalShiftAvailability, feedback } = intake;
+  if (!minShiftsWanted && !additionalShiftAvailability && !feedback) return null;
+
+  const border = onLightTint ? "border-success/20" : "border-border";
+  const body = onLightTint ? "text-slate-600" : "text-muted-foreground";
+  const label = onLightTint ? "text-slate-700" : "text-foreground";
+
+  return (
+    <div className={`mt-2 space-y-0.5 border-t ${border} pt-2 text-xs ${body} ${className}`}>
+      {minShiftsWanted && (
+        <p>
+          <span className={`font-semibold ${label}`}>Wants</span> {minShiftsWanted}+ shifts this term
+        </p>
+      )}
+      {additionalShiftAvailability && (
+        <p>
+          <span className={`font-semibold ${label}`}>Availability:</span> {additionalShiftAvailability}
+        </p>
+      )}
+      {feedback && (
+        <p>
+          <span className={`font-semibold ${label}`}>Note to directors:</span> {feedback}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Availability mode sub-view
 // ---------------------------------------------------------------------------
 
@@ -882,6 +931,7 @@ function AvailabilityView({
             {member.legacyNote && (
               <p className="mb-3 text-xs text-subtle-foreground italic">{member.legacyNote}</p>
             )}
+            <IntakeNotes intake={member.intake} className="mb-3" />
             <form action={saveOverrideAction} className="mb-2">
               <input type="hidden" name="membershipId" value={member.membershipId} />
               <div className="flex flex-wrap gap-2 mb-3">

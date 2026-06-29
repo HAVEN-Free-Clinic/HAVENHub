@@ -172,6 +172,38 @@ async function grantPermission(personId: string, permission: string) {
   await prisma.roleAssignment.create({ data: { roleId: role.id, personId } });
 }
 
+async function createCycle(termId: string, track: "VOLUNTEER" | "DIRECTOR", creatorId: string) {
+  return prisma.recruitmentCycle.create({
+    data: {
+      track,
+      termId,
+      title: `${track} cycle`,
+      publicSlug: `slug-${Date.now()}-${Math.random()}`,
+      createdById: creatorId,
+    },
+  });
+}
+
+async function createTraining(
+  personId: string,
+  termId: string,
+  cycleId: string,
+  track: "VOLUNTEER" | "DIRECTOR",
+  intake: { minShiftsWanted?: string; additionalShiftAvailability?: string; feedback?: string } = {}
+) {
+  return prisma.training.create({
+    data: {
+      personId,
+      termId,
+      cycleId,
+      track,
+      minShiftsWanted: intake.minShiftsWanted,
+      additionalShiftAvailability: intake.additionalShiftAvailability,
+      feedback: intake.feedback,
+    },
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Setup
 // ---------------------------------------------------------------------------
@@ -945,6 +977,58 @@ describe("builderView", () => {
     expect(member!.acknowledgePending).toBe(true);
     expect(member!.availability.tier).toBe("SELF");
     expect(member!.availability.dates).toHaveLength(2);
+  });
+
+  it("surfaces each member's training intake, keyed by the membership track", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const dept = await createDepartment("PCAR");
+    const director = await createPerson("Director");
+    const volunteer = await createPerson("Volunteer");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(volunteer.id, term.id, dept.id, "VOLUNTEER");
+
+    const cycle = await createCycle(term.id, "VOLUNTEER", director.id);
+    await createTraining(volunteer.id, term.id, cycle.id, "VOLUNTEER", {
+      minShiftsWanted: "5",
+      additionalShiftAvailability: "Saturday mornings",
+      feedback: "Prefer triage",
+    });
+
+    const view = await builderView(director.id, { departmentId: dept.id });
+
+    const member = view.members.find((m) => m.person.id === volunteer.id);
+    expect(member!.intake).toEqual({
+      minShiftsWanted: "5",
+      additionalShiftAvailability: "Saturday mornings",
+      feedback: "Prefer triage",
+    });
+
+    // A member with no training row has null intake fields, not undefined.
+    const dir = view.members.find((m) => m.person.id === director.id);
+    expect(dir!.intake).toEqual({
+      minShiftsWanted: null,
+      additionalShiftAvailability: null,
+      feedback: null,
+    });
+  });
+
+  it("does not surface intake from a training row of a different track", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const dept = await createDepartment("PCAR");
+    const director = await createPerson("Director");
+    const volunteer = await createPerson("Volunteer");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(volunteer.id, term.id, dept.id, "VOLUNTEER");
+
+    // The volunteer-kind member only has a DIRECTOR-track training row; it must not bleed through.
+    const cycle = await createCycle(term.id, "DIRECTOR", director.id);
+    await createTraining(volunteer.id, term.id, cycle.id, "DIRECTOR", { minShiftsWanted: "8" });
+
+    const view = await builderView(director.id, { departmentId: dept.id });
+    const member = view.members.find((m) => m.person.id === volunteer.id);
+    expect(member!.intake.minShiftsWanted).toBeNull();
   });
 
   it("marks overrideActive when directorAvailabilitySetAt is set", async () => {

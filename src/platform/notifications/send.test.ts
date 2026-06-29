@@ -137,6 +137,33 @@ describe("drainTeamsQueue", () => {
     }
   });
 
+  // Issue #74: a "both" Teams message records that its email was already queued
+  // up front. On permanent failure the drain must NOT queue the fallback again,
+  // and lastError must not claim the message was undelivered (it was, by email).
+  it("skips the fallback email on permanent failure when emailAlreadyQueued is set", async () => {
+    const p = await prisma.person.create({
+      data: { name: "Sam", contactEmail: "sam@x.com", entraObjectId: "e1" },
+    });
+    const row = await queueTeamsMessage(prisma, {
+      personId: p.id,
+      ...baseInput,
+      emailAlreadyQueued: true,
+    });
+    await prisma.teamsMessage.update({
+      where: { id: row.id },
+      data: { attempts: TEAMS_MAX_ATTEMPTS - 1 },
+    });
+    const transport: TeamsTransport = {
+      send: vi.fn().mockRejectedValue(new Error("graph 500")),
+    };
+    await drainTeamsQueue(transport);
+    const after = await prisma.teamsMessage.findUnique({ where: { id: row.id } });
+    expect(after?.status).toBe("FALLBACK");
+    // No duplicate email, and the error is the raw Teams failure (not "not delivered").
+    expect(await prisma.emailLog.count({ where: { personId: p.id } })).toBe(0);
+    expect(after?.lastError).toBe("graph 500");
+  });
+
   it("falls back to email when a send fails permanently", async () => {
     const p = await prisma.person.create({
       data: { name: "Sam", contactEmail: "sam@x.com", entraObjectId: "e1" },

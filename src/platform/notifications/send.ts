@@ -15,6 +15,9 @@ export type QueueTeamsInput = {
   bodyHtml: string;
   fallbackSubject: string;
   fallbackHtml: string;
+  /** True when the caller already queued this email up front (channel "both"),
+   *  so the permanent-failure fallback must skip it rather than double-send. */
+  emailAlreadyQueued?: boolean;
 };
 
 export const TEAMS_MAX_ATTEMPTS = 8;
@@ -31,6 +34,7 @@ export async function queueTeamsMessage(db: Db, input: QueueTeamsInput): Promise
       bodyHtml: input.bodyHtml,
       fallbackSubject: input.fallbackSubject,
       fallbackHtml: input.fallbackHtml,
+      emailAlreadyQueued: input.emailAlreadyQueued ?? false,
     },
   });
 }
@@ -102,21 +106,27 @@ export async function drainTeamsQueue(
         const attempts = row.attempts + 1;
         const message = error instanceof Error ? error.message.slice(0, 500) : String(error);
         if (attempts >= TEAMS_MAX_ATTEMPTS) {
-          // Permanent failure: degrade to email so the notification still lands.
-          const person = await prisma.person.findUnique({
-            where: { id: row.personId },
-            select: { contactEmail: true },
-          });
-          if (person?.contactEmail) {
-            await queueEmail(prisma, {
-              to: person.contactEmail,
-              subject: row.fallbackSubject,
-              html: row.fallbackHtml,
-              template: row.type,
-              personId: row.personId,
+          // Permanent failure: degrade to email so the notification still lands
+          // -- UNLESS notify() already queued this email up front (channel
+          // "both", #74), in which case re-queueing here would double-send it.
+          let emailLands = row.emailAlreadyQueued;
+          if (!row.emailAlreadyQueued) {
+            const person = await prisma.person.findUnique({
+              where: { id: row.personId },
+              select: { contactEmail: true },
             });
+            if (person?.contactEmail) {
+              await queueEmail(prisma, {
+                to: person.contactEmail,
+                subject: row.fallbackSubject,
+                html: row.fallbackHtml,
+                template: row.type,
+                personId: row.personId,
+              });
+              emailLands = true;
+            }
           }
-          const lastError = person?.contactEmail
+          const lastError = emailLands
             ? message
             : `${message} | no contactEmail: email fallback skipped, message not delivered`.slice(0, 500);
           await prisma.teamsMessage.update({

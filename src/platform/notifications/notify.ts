@@ -42,8 +42,9 @@ export async function notify(
   const wantsEmail = channel === "email" || channel === "both";
   const wantsTeams = channel === "teams" || channel === "both";
 
-  const queueTheEmail = async () => {
-    if (!input.person.contactEmail) return;
+  /** Queue the email if the recipient has an address; report whether it did. */
+  const queueTheEmail = async (): Promise<boolean> => {
+    if (!input.person.contactEmail) return false;
     await queueEmail(db, {
       to: input.person.contactEmail,
       subject: input.email.subject,
@@ -52,10 +53,12 @@ export async function notify(
       personId: input.person.id,
       triggeredById: input.triggeredById ?? null,
     });
+    return true;
   };
 
+  let emailQueued = false;
   if (wantsEmail) {
-    await queueTheEmail();
+    emailQueued = await queueTheEmail();
   }
 
   if (wantsTeams) {
@@ -70,6 +73,9 @@ export async function notify(
         bodyHtml: renderTeamsBody(input.teams),
         fallbackSubject: input.email.subject,
         fallbackHtml: input.email.html,
+        // For "both" the email was queued above; the Teams fallback must not
+        // re-queue it on permanent failure (#74).
+        emailAlreadyQueued: emailQueued,
       });
     } else if (channel === "teams") {
       // No Teams identity and email was not already queued above: fall back now.

@@ -416,6 +416,42 @@ describe("createAssignment", () => {
     expect(after.personId).toBe(person.id);
     expect(after.termId).toBe(term.id);
   });
+
+  it("creates a kind-target assignment", async () => {
+    const role = await seedRole("R");
+    const term = await seedTerm("T");
+    await createAssignment(ACTOR, { roleId: role.id, kind: "VOLUNTEER", termId: term.id });
+
+    const assignments = await prisma.roleAssignment.findMany();
+    expect(assignments).toHaveLength(1);
+    expect(assignments[0].kind).toBe("VOLUNTEER");
+    expect(assignments[0].personId).toBeNull();
+    expect(assignments[0].departmentId).toBeNull();
+  });
+
+  it("throws AssignmentTargetError when a person and a kind are both set", async () => {
+    const role = await seedRole("R");
+    const person = await seedPerson("P");
+    await expect(
+      createAssignment(ACTOR, { roleId: role.id, personId: person.id, kind: "VOLUNTEER" })
+    ).rejects.toBeInstanceOf(AssignmentTargetError);
+  });
+
+  it("throws AssignmentTargetError for an invalid kind", async () => {
+    const role = await seedRole("R");
+    await expect(
+      // @ts-expect-error invalid kind on purpose
+      createAssignment(ACTOR, { roleId: role.id, kind: "BOGUS" })
+    ).rejects.toBeInstanceOf(AssignmentTargetError);
+  });
+
+  it("throws DuplicateAssignmentError for a duplicate kind-target", async () => {
+    const role = await seedRole("R");
+    await createAssignment(ACTOR, { roleId: role.id, kind: "DIRECTOR" });
+    await expect(
+      createAssignment(ACTOR, { roleId: role.id, kind: "DIRECTOR" })
+    ).rejects.toBeInstanceOf(DuplicateAssignmentError);
+  });
 });
 
 // ---------------------------------------------------------------------------

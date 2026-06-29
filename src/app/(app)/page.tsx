@@ -202,7 +202,9 @@ export default async function HubPage() {
           ? { ok: false, title: "HIPAA training expired", sub: "Upload a current certificate" }
           : status === "UNKNOWN_DATE"
             ? { ok: false, title: "Add your HIPAA completion date", sub: "Certificate on file, date missing" }
-            : { ok: false, title: "Upload your HIPAA certificate", sub: "Required for clinic clearance" };
+            : status === "PENDING_VERIFICATION"
+              ? { ok: false, title: "HIPAA certificate awaiting verification", sub: "A coordinator will confirm your completion date" }
+              : { ok: false, title: "Upload your HIPAA certificate", sub: "Required for clinic clearance" };
 
   const statusLines: Array<{ ok: boolean; title: string; sub: string; href: string }> = [
     { ...hipaaLine, href: "/my-info" },

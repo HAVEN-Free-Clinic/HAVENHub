@@ -174,7 +174,7 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
       />
 
       {/* Summary stat cards */}
-      <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+      <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <StatCard
           label="Compliant"
           value={result.summary.COMPLIANT}
@@ -194,6 +194,11 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
           label="Date Unknown"
           value={result.summary.UNKNOWN_DATE}
           tone="default"
+        />
+        <StatCard
+          label="Needs verification"
+          value={result.summary.PENDING_VERIFICATION}
+          tone="warning"
         />
         <StatCard
           label="No Certificate"

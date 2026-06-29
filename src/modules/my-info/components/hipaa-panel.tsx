@@ -51,6 +51,9 @@ function StatusBadge({ status, cert }: { status: ComplianceStatus; cert: HipaaCe
   if (status === "UNKNOWN_DATE") {
     return <Badge tone="default">Completion date pending</Badge>;
   }
+  if (status === "PENDING_VERIFICATION") {
+    return <Badge tone="warning">Awaiting verification</Badge>;
+  }
   if (!cert?.completionDate) return null;
   const expiresAt = certExpiresAt(cert.completionDate);
   if (status === "COMPLIANT") {

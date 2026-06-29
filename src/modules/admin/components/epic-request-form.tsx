@@ -136,8 +136,8 @@ export function EpicRequestForm({ departments }: Props) {
       setError("Select at least one person before generating.");
       return;
     }
-    if (!isNew && !endDate) {
-      setError("Set the access end date before generating a modify/renew request.");
+    if (!endDate) {
+      setError("Set the access end date before generating this request.");
       return;
     }
     setError(null);
@@ -251,16 +251,16 @@ export function EpicRequestForm({ departments }: Props) {
             </Select>
           </Field>
 
-          {!isNew && (
+          
             <Field label="Access end date">
-              <Input
-                type="date"
-                required
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-              />
-            </Field>
-          )}
+            <Input
+              type="date"
+              required
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+            />
+          </Field>
+    
         </div>
 
         <Alert tone="info">

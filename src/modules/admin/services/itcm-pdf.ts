@@ -161,7 +161,7 @@ export async function generatePdf(args: {
   // Section V — Access type + similar person
   if (isNew) {
     checkBox(form, "Check Box49");
-    fillText(form, "Text75", today);
+    fillText(form, "Text75", today); // New Hire start date — no end date on the PDF for New
   } else {
     checkBox(form, "Check Box51");
     checkBox(form, "Check Box53");

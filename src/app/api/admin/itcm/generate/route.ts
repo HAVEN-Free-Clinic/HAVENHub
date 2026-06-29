@@ -205,9 +205,9 @@ export async function POST(req: Request) {
 
   // Modify/renew requests carry an access end date; new requests use a fixed
   // one-year-out date instead. Require it so a blank date never reaches YNHH.
-  if (!requestType.includes("new") && !endDate?.trim()) {
+  if (!endDate?.trim()) {
     return NextResponse.json(
-      { error: "An end date is required for modify/renew requests" },
+      { error: "An end date is required for this request" },
       { status: 400 }
     );
   }
@@ -306,15 +306,12 @@ export async function POST(req: Request) {
     default: return NextResponse.json({ error: "Invalid request type" }, { status: 400 });
   }
 
-  // Build email body.
-  const oneYearOut = new Date();
-  oneYearOut.setFullYear(oneYearOut.getFullYear() + 1);
-  const oneYearStr = oneYearOut.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
-
+  // Build email body. endDate now comes from the admin-picked Access end date
+  // for every request type, including New (no more hardcoded one-year-out date).
   const emailBodyArgs = {
     personName: isBulk ? "Multiple Users" : firstPerson.name,
     epicId: firstPerson.epicId ?? "",
-    endDate: isNew ? oneYearStr : endDate,
+    endDate,
     authorizerName: authorizer.name,
     userCount: people.length,
   };

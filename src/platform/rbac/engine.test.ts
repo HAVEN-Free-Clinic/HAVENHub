@@ -117,6 +117,27 @@ describe("rbac engine", () => {
     expect(perms.size).toBe(1);
     expect(perms.has("volunteers.view")).toBe(false);
   });
+
+  it("grants kind-target assignments to active members of that kind", async () => {
+    const f = await fixture();
+    const vol = await prisma.person.create({ data: { name: "Vol" } });
+    const dir = await prisma.person.create({ data: { name: "Dir" } });
+    await prisma.termMembership.create({ data: { personId: vol.id, termId: f.term.id, departmentId: f.vadm.id, kind: "VOLUNTEER" } });
+    await prisma.termMembership.create({ data: { personId: dir.id, termId: f.term.id, departmentId: f.vadm.id, kind: "DIRECTOR" } });
+    await prisma.roleAssignment.create({ data: { roleId: f.recruiterRole.id, kind: "VOLUNTEER", termId: f.term.id } });
+
+    expect(await can(vol.id, "recruitment.manage_cycle")).toBe(true);
+    expect(await can(dir.id, "recruitment.manage_cycle")).toBe(false);
+  });
+
+  it("ignores a kind-target assignment scoped to a non-active term", async () => {
+    const f = await fixture();
+    const vol = await prisma.person.create({ data: { name: "Vol2" } });
+    await prisma.termMembership.create({ data: { personId: vol.id, termId: f.term.id, departmentId: f.vadm.id, kind: "VOLUNTEER" } });
+    await prisma.roleAssignment.create({ data: { roleId: f.recruiterRole.id, kind: "VOLUNTEER", termId: f.oldTerm.id } });
+
+    expect(await can(vol.id, "recruitment.manage_cycle")).toBe(false);
+  });
 });
 
 describe("hasPermission", () => {

@@ -32,8 +32,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # Branches off the new main branch (pinned explicitly so it never drifts
-      # to whatever Neon's default flag happens to be), inheriting its schema and
+      # Branches off the Neon project's default branch, inheriting its schema and
       # data so previews behave like production but in full isolation.
       - name: Create Neon branch
         id: neon
@@ -41,7 +40,6 @@ jobs:
         with:
           project_id: ${{ env.NEON_PROJECT_ID }}
           branch_name: ${{ env.NEON_BRANCH }}
-          parent_branch: br-raspy-snow-aq5pcs1v
           api_key: ${{ secrets.NEON_API_KEY }}
 
       - uses: actions/setup-node@v5

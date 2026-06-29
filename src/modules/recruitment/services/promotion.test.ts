@@ -60,6 +60,21 @@ it("sets epicId from existingEpicId and creates no epic request", async () => {
   expect(await prisma.epicRequest.count({ where: { personId: person.id } })).toBe(0);
 });
 
+it("skips a conflicted (multi-department) contract and creates no person or membership", async () => {
+  const { srr, cycle, contract } = await seedSubmitted({ epicNeeded: false });
+  // Add a second acceptance in another department to the same application,
+  // turning it into a conflict the SRR must resolve before promotion.
+  const acc = await prisma.acceptance.findFirstOrThrow({ where: { contract: { id: contract.id } } });
+  await prisma.department.create({ data: { code: "MDIC", name: "MDIC" } });
+  await prisma.acceptance.create({ data: { applicationId: acc.applicationId, departmentCode: "MDIC", approvedById: srr.id } });
+
+  const res = await promoteContracts([contract.id], srr.id);
+  expect(res).toEqual({ created: 0, reactivated: 0, skipped: 1 });
+  expect(await prisma.person.count({ where: { netId: "al99" } })).toBe(0);
+  expect(await prisma.termMembership.count({ where: { termId: cycle.termId } })).toBe(0);
+  expect((await prisma.onboardingContract.findUniqueOrThrow({ where: { id: contract.id } })).status).toBe("SUBMITTED");
+});
+
 it("skips a non-SUBMITTED contract (idempotent re-run)", async () => {
   const { srr, contract } = await seedSubmitted({ epicNeeded: false });
   await promoteContracts([contract.id], srr.id);

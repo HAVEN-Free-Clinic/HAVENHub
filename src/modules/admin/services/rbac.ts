@@ -409,6 +409,8 @@ export async function createAssignment(
       termId: assignment.termId,
     },
   });
+
+  return assignment;
 }
 
 /**

@@ -2,7 +2,7 @@ import type { Application, FieldType } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { getSetting } from "@/platform/settings/service";
 import { queueEmail } from "@/platform/email/send";
-import { persistFiles, cleanupFiles, type UploadedFile } from "./upload";
+import { persistFiles, cleanupFiles, validateUploadedFile, type UploadedFile } from "./upload";
 export type { UploadedFile } from "./upload";
 import { recordAudit } from "@/platform/audit";
 import {
@@ -189,22 +189,8 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
       throw new SubmissionValidationError("Unexpected file upload.", { [key]: "unknown field" });
     }
     const field = visibleFields.find((f) => f.key === key);
-    const capMb = Math.min(field?.validation?.maxFileMB ?? maxMb, maxMb);
-    if (file.bytes.length > capMb * 1024 * 1024) {
-      throw new SubmissionValidationError(`File is too large (max ${capMb} MB).`, { [key]: `max ${capMb} MB` });
-    }
-    const accepted = field?.validation?.acceptedTypes;
-    if (accepted && accepted.length > 0) {
-      const name = file.fileName.toLowerCase();
-      const mime = file.mimeType.toLowerCase();
-      const ok = accepted.some((t) => {
-        const tl = t.toLowerCase();
-        return tl.startsWith(".") ? name.endsWith(tl) : mime === tl || (tl.endsWith("/*") && mime.startsWith(tl.slice(0, -1)));
-      });
-      if (!ok) {
-        throw new SubmissionValidationError(`File type not allowed for this field.`, { [key]: `allowed: ${accepted.join(", ")}` });
-      }
-    }
+    const problem = validateUploadedFile(file, field?.validation, maxMb);
+    if (problem) throw new SubmissionValidationError(problem.message, { [key]: problem.detail });
   }
 
   // Subcommittee ranking: hoisted into its own column like departmentChoices, and
@@ -268,6 +254,15 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
     await cleanupFiles(fileRefs.storageKeys);
     throw err;
   }
+
+  // The freshly-uploaded files replaced any draft file stored under the same
+  // key; now that the submission has committed, delete those superseded draft
+  // blobs so they don't linger orphaned in storage. (On failure the catch above
+  // instead drops the new files and keeps the draft's blob.)
+  const supersededKeys = Object.keys(fileRefs.answerPatch)
+    .filter((k) => draftFileKeys.includes(k))
+    .map((k) => `recruitment/${cycle.id}/${(draftAnswers[k] as { storedName: string }).storedName}`);
+  if (supersededKeys.length > 0) await cleanupFiles(supersededKeys);
 
   await recordAudit({ action: "recruitment.application_submit", entityType: "Application", entityId: application.id });
   return application;

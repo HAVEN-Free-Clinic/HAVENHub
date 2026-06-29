@@ -1,7 +1,9 @@
 // src/modules/recruitment/services/drafts.ts
 import { prisma } from "@/platform/db";
+import { getSetting } from "@/platform/settings/service";
 import type { ApplicantIdentity } from "./portal-auth";
-import { persistFiles, cleanupFiles, type UploadedFile } from "./upload";
+import { persistFiles, cleanupFiles, validateUploadedFile, type UploadedFile } from "./upload";
+import type { FieldValidation } from "../engine/schema-builder";
 
 export class DraftError extends Error {
   constructor(m: string) { super(m); this.name = "DraftError"; }
@@ -206,8 +208,15 @@ export async function uploadDraftFile(
 
   // The key must be a FILE field in this cycle (the same allowlist defense the
   // submit path uses, since the key builds the storage path).
-  const fileField = await prisma.formField.findFirst({ where: { cycleId: cycle.id, key: fieldKey, type: "FILE" }, select: { key: true } });
+  const fileField = await prisma.formField.findFirst({ where: { cycleId: cycle.id, key: fieldKey, type: "FILE" }, select: { key: true, validation: true } });
   if (!fileField) throw new DraftError("Unexpected file upload.");
+
+  // Enforce the same size cap and accepted-type rules the submit path applies.
+  // Without this, an oversize or disallowed file uploaded here would be carried
+  // into the submission unchecked (the submit path never re-validates draft files).
+  const maxMb = await getSetting<number>("uploads.maxMb");
+  const problem = validateUploadedFile(file, fileField.validation as FieldValidation | null, maxMb);
+  if (problem) throw new DraftError(problem.message);
 
   const { answerPatch, storageKeys } = await persistFiles(cycle.id, { [fieldKey]: file });
   const prior = (app.answers as Record<string, unknown>)[fieldKey] as { storedName?: string } | undefined;

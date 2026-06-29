@@ -23,6 +23,16 @@ async function openCycle(slug = "draft-cyc") {
 }
 const ID = { email: "reed@yale.edu", personId: null };
 
+/** A cycle with one FILE field "resume" carrying the given validation rules
+ *  (maxFileMB / acceptedTypes), plus a draft to upload into. */
+async function fileFieldCycle(slug: string, validation: Record<string, unknown> | null) {
+  const cycle = await openCycle(slug);
+  const sec = await prisma.formSection.create({ data: { cycleId: cycle.id, title: "Main", order: 0, appliesTo: "BOTH", purpose: "APPLICATION" } });
+  await prisma.formField.create({ data: { sectionId: sec.id, cycleId: cycle.id, key: "resume", label: "Resume", type: "FILE", required: false, order: 0, ...(validation ? { validation: validation as never } : {}) } });
+  await saveDraft(slug, ID, { answers: {} });
+  return cycle;
+}
+
 const DAYS_AGO = (n: number) => new Date(Date.now() - n * 24 * 60 * 60 * 1000);
 
 /** Create an applicant + (back-dated) application in a cycle, for sweep tests. */
@@ -83,6 +93,29 @@ it("rejects a draft upload to an unknown field key", async () => {
   await openCycle("file-cyc2");
   await saveDraft("file-cyc2", ID, { answers: {} });
   await expect(uploadDraftFile("file-cyc2", ID, "not_a_field", { fileName: "x.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") })).rejects.toBeInstanceOf(DraftError);
+});
+
+it("rejects a draft upload that exceeds the field's size cap", async () => {
+  // The submit path enforces uploads.maxMb / the field cap; the draft upload
+  // must too, or an oversize file slips in and is carried into the submission.
+  await fileFieldCycle("file-big-cyc", { maxFileMB: 1 });
+  const tooBig = Buffer.alloc(1 * 1024 * 1024 + 1);
+  await expect(
+    uploadDraftFile("file-big-cyc", ID, "resume", { fileName: "cv.pdf", mimeType: "application/pdf", bytes: tooBig }),
+  ).rejects.toBeInstanceOf(DraftError);
+});
+
+it("rejects a draft upload whose type is not in the field's acceptedTypes", async () => {
+  await fileFieldCycle("file-type-cyc", { acceptedTypes: [".pdf"] });
+  await expect(
+    uploadDraftFile("file-type-cyc", ID, "resume", { fileName: "evil.exe", mimeType: "application/octet-stream", bytes: Buffer.from("x") }),
+  ).rejects.toBeInstanceOf(DraftError);
+});
+
+it("accepts a draft upload that satisfies the field's size and type rules", async () => {
+  await fileFieldCycle("file-ok-cyc", { acceptedTypes: [".pdf"], maxFileMB: 5 });
+  const res = await uploadDraftFile("file-ok-cyc", ID, "resume", { fileName: "cv.pdf", mimeType: "application/pdf", bytes: Buffer.from("hi") });
+  expect(res.fileName).toBe("cv.pdf");
 });
 
 it("preserves an uploaded file reference when a later autosave omits it", async () => {

@@ -13,6 +13,7 @@ import {
   CampaignConfirmationError,
 } from "@/platform/email/campaigns/service";
 import { loadLayoutSource } from "@/platform/email/templates/renderEmail";
+import { getSetting } from "@/platform/settings/service";
 import { PERSON_FIELD_VIEWS } from "@/platform/email/audience/person-fields";
 import { PERSON_VARIABLES } from "@/platform/email/audience/variables";
 import { isAudience } from "@/platform/email/audience/types";
@@ -61,8 +62,9 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
   const isScheduled = campaign.status === "SCHEDULED";
   const isActive = campaign.status === "ACTIVE";
 
-  const [layoutSource, departments] = await Promise.all([
+  const [layoutSource, brandColor, departments] = await Promise.all([
     loadLayoutSource(),
+    getSetting<string>("branding.brandColor"),
     prisma.department.findMany({
       where: { isActive: true },
       select: { code: true, name: true },
@@ -294,6 +296,7 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
               initialBody={campaign.body}
               isLayout={false}
               layoutSource={layoutSource}
+              brandColor={brandColor}
             />
           </div>
 

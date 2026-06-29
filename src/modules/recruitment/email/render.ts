@@ -2,6 +2,7 @@ import { prisma } from "@/platform/db";
 import { getDescriptor } from "@/platform/email/templates/registry";
 import { loadLayoutSource } from "@/platform/email/templates/renderEmail";
 import { renderTemplate } from "@/platform/email/render/render";
+import { getSetting } from "@/platform/settings/service";
 
 /** The recruitment emails that carry a cycle in their send context and can be
  *  overridden per cycle. recruitment.portal_link is global-only (no cycle). */
@@ -13,7 +14,13 @@ export const CYCLE_EMAIL_KEYS = [
 ] as const;
 export type CycleEmailKey = (typeof CYCLE_EMAIL_KEYS)[number];
 
-export type EmailSources = { subjectSource: string; bodySource: string; layoutSource: string };
+export type EmailSources = {
+  subjectSource: string;
+  bodySource: string;
+  layoutSource: string;
+  /** Resolved branding.brandColor, fed to the layout's {{ brandColor }} slot. */
+  brandColor: string;
+};
 
 function assertCycleKey(key: string): asserts key is CycleEmailKey {
   if (!(CYCLE_EMAIL_KEYS as readonly string[]).includes(key)) {
@@ -28,16 +35,18 @@ export async function resolveCycleEmail(cycleId: string, key: CycleEmailKey): Pr
   const descriptor = getDescriptor(key);
   if (!descriptor) throw new Error(`Unknown email template: ${key}`);
 
-  const [cycleOverride, globalOverride, layoutSource] = await Promise.all([
+  const [cycleOverride, globalOverride, layoutSource, brandColor] = await Promise.all([
     prisma.recruitmentCycleEmail.findUnique({ where: { cycleId_key: { cycleId, key } } }),
     prisma.emailTemplate.findUnique({ where: { key } }),
     loadLayoutSource(),
+    getSetting<string>("branding.brandColor"),
   ]);
 
   return {
     subjectSource: cycleOverride?.subject ?? globalOverride?.subject ?? descriptor.defaultSubject,
     bodySource: cycleOverride?.body ?? globalOverride?.body ?? descriptor.defaultBody,
     layoutSource,
+    brandColor,
   };
 }
 
@@ -46,7 +55,8 @@ export async function resolveCycleEmail(cycleId: string, key: CycleEmailKey): Pr
 export function renderResolvedEmail(sources: EmailSources, context: Record<string, unknown>): { subject: string; html: string } {
   const subject = renderTemplate(sources.subjectSource, context);
   const body = renderTemplate(sources.bodySource, context);
-  const html = renderTemplate(sources.layoutSource, { ...context, subject, body });
+  // brandColor first so a caller-supplied context value (rare) still wins.
+  const html = renderTemplate(sources.layoutSource, { brandColor: sources.brandColor, ...context, subject, body });
   return { subject, html };
 }
 

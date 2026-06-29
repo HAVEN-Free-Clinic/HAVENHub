@@ -105,6 +105,9 @@ async function addCert(personId: string, completionDate: Date | null) {
       size: 1000,
       mimeType: "application/pdf",
       completionDate,
+      // Auto-verify so tests keep their intended EXPIRED / EXPIRING_SOON /
+      // COMPLIANT status under the PENDING_VERIFICATION gate.
+      verifiedAt: completionDate !== null ? new Date() : null,
     },
   });
 }

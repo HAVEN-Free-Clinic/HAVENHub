@@ -63,9 +63,10 @@ type DepartmentCompliance = {
 const STATUS_ORDER: Record<ComplianceStatus, number> = {
   NO_CERTIFICATE: 0,
   EXPIRED: 1,
-  UNKNOWN_DATE: 2,
-  EXPIRING_SOON: 3,
-  COMPLIANT: 4,
+  PENDING_VERIFICATION: 2,
+  UNKNOWN_DATE: 3,
+  EXPIRING_SOON: 4,
+  COMPLIANT: 5,
 };
 
 // ---------------------------------------------------------------------------
@@ -176,7 +177,7 @@ export async function departmentCompliance(
 
     const status = complianceStatus(
       newestCert
-        ? { completionDate: newestCert.completionDate }
+        ? { completionDate: newestCert.completionDate, verifiedAt: newestCert.verifiedAt }
         : null,
       activeTerm.endDate
     );
@@ -213,6 +214,7 @@ export async function departmentCompliance(
       COMPLIANT: 0,
       EXPIRING_SOON: 0,
       EXPIRED: 0,
+      PENDING_VERIFICATION: 0,
       UNKNOWN_DATE: 0,
       NO_CERTIFICATE: 0,
     };
@@ -259,6 +261,7 @@ const EMPTY_SUMMARY: Record<ComplianceStatus, number> = {
   COMPLIANT: 0,
   EXPIRING_SOON: 0,
   EXPIRED: 0,
+  PENDING_VERIFICATION: 0,
   UNKNOWN_DATE: 0,
   NO_CERTIFICATE: 0,
 };
@@ -385,7 +388,7 @@ export async function masterCompliance(
       person.hipaaCertificates.length > 0 ? person.hipaaCertificates[0] : null;
 
     const computedStatus = complianceStatus(
-      newestCert ? { completionDate: newestCert.completionDate } : null,
+      newestCert ? { completionDate: newestCert.completionDate, verifiedAt: newestCert.verifiedAt } : null,
       activeTerm.endDate
     );
 

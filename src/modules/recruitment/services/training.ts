@@ -331,7 +331,7 @@ export async function listTrainingRoster(cycleId: string, viewerId: string): Pro
 
   return memberships.map((m) => {
     const cert = m.person.hipaaCertificates[0] ?? null;
-    const certStatus = complianceStatus(cert ? { completionDate: cert.completionDate } : null, term.endDate);
+    const certStatus = complianceStatus(cert ? { completionDate: cert.completionDate, verifiedAt: cert.verifiedAt } : null, term.endDate);
     const row = training.get(m.person.id);
     const trainingState: TrainingState = row?.status === "COMPLETE" ? "COMPLETE" : "PENDING";
     return {

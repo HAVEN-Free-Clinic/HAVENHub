@@ -50,6 +50,8 @@ function certRequirement(status: ComplianceStatus): Requirement {
       return { label: "HIPAA certificate", statusLabel: "Expired", met: false, tone: "critical" };
     case "UNKNOWN_DATE":
       return { label: "HIPAA certificate", statusLabel: "Needs completion date", met: false, tone: "warning" };
+    case "PENDING_VERIFICATION":
+      return { label: "HIPAA certificate", statusLabel: "Awaiting verification", met: false, tone: "warning" };
     case "NO_CERTIFICATE":
       return { label: "HIPAA certificate", statusLabel: "Not uploaded", met: false, tone: "default" };
   }

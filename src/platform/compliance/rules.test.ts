@@ -57,13 +57,13 @@ describe("complianceStatus - null cert", () => {
 describe("complianceStatus - null completionDate", () => {
   it("returns UNKNOWN_DATE when cert exists but completionDate is null", () => {
     const now = noon(2025, 6, 1);
-    expect(complianceStatus({ completionDate: null }, null, now)).toBe("UNKNOWN_DATE");
+    expect(complianceStatus({ completionDate: null, verifiedAt: null }, null, now)).toBe("UNKNOWN_DATE");
   });
 
   it("returns UNKNOWN_DATE with a termEnd too", () => {
     const now = noon(2025, 6, 1);
     const termEnd = noon(2025, 8, 15);
-    expect(complianceStatus({ completionDate: null }, termEnd, now)).toBe("UNKNOWN_DATE");
+    expect(complianceStatus({ completionDate: null, verifiedAt: null }, termEnd, now)).toBe("UNKNOWN_DATE");
   });
 });
 
@@ -72,7 +72,7 @@ describe("complianceStatus - EXPIRED", () => {
     // completionDate = 2024-01-01; expiresAt = 2025-01-01; now = 2025-06-01 -> expired
     const completion = noon(2024, 1, 1);
     const now = noon(2025, 6, 1);
-    expect(complianceStatus({ completionDate: completion }, null, now)).toBe("EXPIRED");
+    expect(complianceStatus({ completionDate: completion, verifiedAt: now }, null, now)).toBe("EXPIRED");
   });
 
   it("does NOT return EXPIRED when expiresAt === now (>= semantics)", () => {
@@ -80,7 +80,7 @@ describe("complianceStatus - EXPIRED", () => {
     const completion = noon(2024, 6, 1);
     const expiresAt = certExpiresAt(completion); // noon 2025-06-01
     const now = expiresAt;
-    const status = complianceStatus({ completionDate: completion }, null, now);
+    const status = complianceStatus({ completionDate: completion, verifiedAt: now }, null, now);
     expect(status).not.toBe("EXPIRED");
     // expiresAt === now means it is NOT >= now+60d, so EXPIRING_SOON
     expect(status).toBe("EXPIRING_SOON");
@@ -93,7 +93,7 @@ describe("complianceStatus - without termEnd (no active term)", () => {
     // now + 60d = 2025-07-31; expiresAt 2026-01-01 >= 2025-07-31 -> COMPLIANT
     const completion = noon(2025, 1, 1);
     const now = noon(2025, 6, 1);
-    expect(complianceStatus({ completionDate: completion }, null, now)).toBe("COMPLIANT");
+    expect(complianceStatus({ completionDate: completion, verifiedAt: now }, null, now)).toBe("COMPLIANT");
   });
 
   it("returns EXPIRING_SOON when expiresAt < now + 60d (but not expired)", () => {
@@ -101,7 +101,7 @@ describe("complianceStatus - without termEnd (no active term)", () => {
     // now + 60d = 2025-07-14; expiresAt 2025-06-15 < 2025-07-14 -> EXPIRING_SOON
     const completion = noon(2024, 6, 15);
     const now = noon(2025, 5, 15);
-    expect(complianceStatus({ completionDate: completion }, null, now)).toBe("EXPIRING_SOON");
+    expect(complianceStatus({ completionDate: completion, verifiedAt: now }, null, now)).toBe("EXPIRING_SOON");
   });
 
   it("returns COMPLIANT exactly at the now + 60d boundary", () => {
@@ -110,14 +110,14 @@ describe("complianceStatus - without termEnd (no active term)", () => {
     const nowPlus60 = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000);
     // work backward: completionDate such that expiresAt = nowPlus60
     const completion = new Date(nowPlus60.getTime() - 365 * 24 * 60 * 60 * 1000);
-    expect(complianceStatus({ completionDate: completion }, null, now)).toBe("COMPLIANT");
+    expect(complianceStatus({ completionDate: completion, verifiedAt: now }, null, now)).toBe("COMPLIANT");
   });
 
   it("returns EXPIRING_SOON exactly 1ms before the now + 60d boundary", () => {
     const now = noon(2025, 6, 1);
     const nowPlus60MinusMs = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000 - 1);
     const completion = new Date(nowPlus60MinusMs.getTime() - 365 * 24 * 60 * 60 * 1000);
-    expect(complianceStatus({ completionDate: completion }, null, now)).toBe("EXPIRING_SOON");
+    expect(complianceStatus({ completionDate: completion, verifiedAt: now }, null, now)).toBe("EXPIRING_SOON");
   });
 });
 
@@ -130,7 +130,7 @@ describe("complianceStatus - with termEnd", () => {
     const completion = noon(2025, 1, 1);
     const now = noon(2025, 6, 1);
     const termEnd = noon(2025, 8, 15);
-    expect(complianceStatus({ completionDate: completion }, termEnd, now)).toBe("COMPLIANT");
+    expect(complianceStatus({ completionDate: completion, verifiedAt: now }, termEnd, now)).toBe("COMPLIANT");
   });
 
   it("returns COMPLIANT exactly at termEnd + 30d boundary", () => {
@@ -142,7 +142,7 @@ describe("complianceStatus - with termEnd", () => {
     // termEndPlus30 = 2025-09-14; need expiresAt = 2025-09-14
     // expiresAt >= now+60d = 2025-07-31? Yes, 2025-09-14 >= 2025-07-31
     const completion = new Date(termEndPlus30.getTime() - 365 * 24 * 60 * 60 * 1000);
-    expect(complianceStatus({ completionDate: completion }, termEnd, now)).toBe("COMPLIANT");
+    expect(complianceStatus({ completionDate: completion, verifiedAt: now }, termEnd, now)).toBe("COMPLIANT");
   });
 
   it("returns EXPIRING_SOON 1ms before termEnd + 30d boundary", () => {
@@ -150,7 +150,7 @@ describe("complianceStatus - with termEnd", () => {
     const termEnd = noon(2025, 8, 15);
     const termEndPlus30MinusMs = new Date(termEnd.getTime() + 30 * 24 * 60 * 60 * 1000 - 1);
     const completion = new Date(termEndPlus30MinusMs.getTime() - 365 * 24 * 60 * 60 * 1000);
-    const status = complianceStatus({ completionDate: completion }, termEnd, now);
+    const status = complianceStatus({ completionDate: completion, verifiedAt: now }, termEnd, now);
     expect(status).toBe("EXPIRING_SOON");
   });
 
@@ -165,7 +165,7 @@ describe("complianceStatus - with termEnd", () => {
     // pick expiresAt = termEndPlus30 + 6 days = 2025-09-15 (>= termEnd+30d but < now+60d)
     const expiresAt = new Date(termEndPlus30.getTime() + 6 * 24 * 60 * 60 * 1000);
     const completion = new Date(expiresAt.getTime() - 365 * 24 * 60 * 60 * 1000);
-    expect(complianceStatus({ completionDate: completion }, termEnd, now)).toBe("EXPIRING_SOON");
+    expect(complianceStatus({ completionDate: completion, verifiedAt: now }, termEnd, now)).toBe("EXPIRING_SOON");
   });
 
   it("returns EXPIRING_SOON when valid today but term bar not met", () => {
@@ -175,7 +175,7 @@ describe("complianceStatus - with termEnd", () => {
     // expiresAt = 2025-08-01 -> in future but termEnd+30d = 2025-12-30; 2025-08-01 < 2025-12-30
     const expiresAt = noon(2025, 8, 1);
     const completion = new Date(expiresAt.getTime() - 365 * 24 * 60 * 60 * 1000);
-    expect(complianceStatus({ completionDate: completion }, termEnd, now)).toBe("EXPIRING_SOON");
+    expect(complianceStatus({ completionDate: completion, verifiedAt: now }, termEnd, now)).toBe("EXPIRING_SOON");
   });
 });
 
@@ -192,5 +192,35 @@ describe("overallClearance", () => {
   });
   it("clears on cert alone when no trainings are required", () => {
     expect(overallClearance("COMPLIANT", true)).toBe("CLEARED"); // caller passes true when nothing required
+  });
+});
+
+describe("complianceStatus - verification gate", () => {
+  it("dated but unverified -> PENDING_VERIFICATION", () => {
+    const now = new Date("2026-06-29T12:00:00Z");
+    const completion = new Date("2026-06-01T12:00:00Z");
+    expect(complianceStatus({ completionDate: completion, verifiedAt: null }, null, now)).toBe("PENDING_VERIFICATION");
+  });
+
+  it("dated and verified -> COMPLIANT", () => {
+    const now = new Date("2026-06-29T12:00:00Z");
+    const completion = new Date("2026-06-01T12:00:00Z");
+    expect(complianceStatus({ completionDate: completion, verifiedAt: now }, null, now)).toBe("COMPLIANT");
+  });
+
+  it("PENDING takes precedence over expiry math", () => {
+    const now = new Date("2026-06-29T12:00:00Z");
+    const old = new Date("2020-01-01T12:00:00Z"); // would be EXPIRED if verified
+    expect(complianceStatus({ completionDate: old, verifiedAt: null }, null, now)).toBe("PENDING_VERIFICATION");
+  });
+
+  it("no date is still UNKNOWN_DATE regardless of verifiedAt", () => {
+    expect(complianceStatus({ completionDate: null, verifiedAt: null }, null)).toBe("UNKNOWN_DATE");
+  });
+});
+
+describe("overallClearance - PENDING is not cleared", () => {
+  it("PENDING_VERIFICATION never clears", () => {
+    expect(overallClearance("PENDING_VERIFICATION", true)).toBe("NOT_CLEARED");
   });
 });

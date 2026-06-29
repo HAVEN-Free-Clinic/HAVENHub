@@ -30,18 +30,20 @@ export type TrainingState = "COMPLETE" | "PENDING";
 /**
  * The computed compliance status. Never stored; always re-derived from data.
  *
- *   NO_CERTIFICATE   no cert record on file
- *   UNKNOWN_DATE     cert on file but no completionDate parsed yet
- *   EXPIRED          expiresAt < now
- *   EXPIRING_SOON    valid today but fails the term bar, OR expiresAt within 60d of now
- *   COMPLIANT        expiresAt >= termEnd + 30d (with term) OR expiresAt >= now + 60d (no term)
- *                    AND in both cases expiresAt >= now (not expired)
+ *   NO_CERTIFICATE       no cert record on file
+ *   UNKNOWN_DATE         cert on file but no completionDate parsed yet
+ *   PENDING_VERIFICATION cert has a completionDate but has not been verified by a coordinator
+ *   EXPIRED              expiresAt < now (verified cert)
+ *   EXPIRING_SOON        valid today but fails the term bar, OR expiresAt within 60d of now
+ *   COMPLIANT            expiresAt >= termEnd + 30d (with term) OR expiresAt >= now + 60d (no term)
+ *                        AND in both cases expiresAt >= now (not expired)
  */
 export type ComplianceStatus =
   | "COMPLIANT"
   | "EXPIRING_SOON"
   | "EXPIRED"
   | "UNKNOWN_DATE"
+  | "PENDING_VERIFICATION"
   | "NO_CERTIFICATE";
 
 /**
@@ -52,12 +54,15 @@ export type ComplianceStatus =
  * @param now      The reference point in time (defaults to Date.now()).
  */
 export function complianceStatus(
-  cert: { completionDate: Date | null } | null,
+  cert: { completionDate: Date | null; verifiedAt: Date | null } | null,
   termEnd: Date | null,
   now: Date = new Date()
 ): ComplianceStatus {
   if (cert === null) return "NO_CERTIFICATE";
   if (cert.completionDate === null) return "UNKNOWN_DATE";
+  // A self-asserted date does not count toward clearance until a human verifies it.
+  // Precedes the expiry math: we do not compute expiry from an unconfirmed date.
+  if (cert.verifiedAt === null) return "PENDING_VERIFICATION";
 
   const expiresAt = certExpiresAt(cert.completionDate);
   const nowMs = now.getTime();

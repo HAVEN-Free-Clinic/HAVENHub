@@ -23,12 +23,12 @@ export async function loadComplianceStatusMap(
   // the first row seen for each personId.
   const certs = await prisma.hipaaCertificate.findMany({
     orderBy: [{ personId: "asc" }, { uploadedAt: "desc" }],
-    select: { personId: true, completionDate: true },
+    select: { personId: true, completionDate: true, verifiedAt: true },
   });
-  const newestCert = new Map<string, { completionDate: Date | null }>();
+  const newestCert = new Map<string, { completionDate: Date | null; verifiedAt: Date | null }>();
   for (const c of certs) {
     if (!newestCert.has(c.personId)) {
-      newestCert.set(c.personId, { completionDate: c.completionDate });
+      newestCert.set(c.personId, { completionDate: c.completionDate, verifiedAt: c.verifiedAt });
     }
   }
 

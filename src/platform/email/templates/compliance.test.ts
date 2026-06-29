@@ -138,6 +138,37 @@ describe("compliance-reminder via renderEmail", () => {
     const { html } = await renderEmail("compliance-reminder", complianceReminderContext(params));
     expect(html).toContain("soon");
   });
+
+  it("PENDING_VERIFICATION: html contains the awaiting-verification status line", async () => {
+    const params: ComplianceReminderParams = {
+      personName: "Dana Lee",
+      status: "PENDING_VERIFICATION",
+      expiresAt: null,
+    };
+    const { html } = await renderEmail("compliance-reminder", complianceReminderContext(params));
+    expect(html).toContain("awaiting verification");
+  });
+
+  it("PENDING_VERIFICATION: html contains 'No action is needed' and not 'upload or renew'", async () => {
+    const params: ComplianceReminderParams = {
+      personName: "Dana Lee",
+      status: "PENDING_VERIFICATION",
+      expiresAt: null,
+    };
+    const { html } = await renderEmail("compliance-reminder", complianceReminderContext(params));
+    expect(html).toContain("No action is needed");
+    expect(html).not.toContain("upload or renew");
+  });
+
+  it("EXPIRED: html still contains 'Please upload or renew your certificate in My Info.'", async () => {
+    const params: ComplianceReminderParams = {
+      personName: "Bob Jones",
+      status: "EXPIRED",
+      expiresAt: new Date("2025-01-15T00:00:00Z"),
+    };
+    const { html } = await renderEmail("compliance-reminder", complianceReminderContext(params));
+    expect(html).toContain("Please upload or renew your certificate in My Info.");
+  });
 });
 
 // ---------------------------------------------------------------------------

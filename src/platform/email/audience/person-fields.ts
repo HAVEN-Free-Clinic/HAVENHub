@@ -36,6 +36,7 @@ const COMPLIANCE_OPTIONS: { value: ComplianceStatus; label: string }[] = [
   { value: "COMPLIANT", label: "Compliant" },
   { value: "EXPIRING_SOON", label: "Expiring soon" },
   { value: "EXPIRED", label: "Expired" },
+  { value: "PENDING_VERIFICATION", label: "Awaiting verification" },
   { value: "UNKNOWN_DATE", label: "Unknown date" },
   { value: "NO_CERTIFICATE", label: "No certificate" },
 ];

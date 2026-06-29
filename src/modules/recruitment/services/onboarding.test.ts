@@ -1,6 +1,6 @@
 import path from "node:path";
 import { promises as fs } from "node:fs";
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import { config } from "@/platform/config";
@@ -65,14 +65,14 @@ it("submitContract validates signatures + hipaa and stores SUBMITTED", async () 
     firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu",
     agreementSignature: "", professionalismSignature: "Ada", trainingSignature: "Ada", initials: "AL",
     epicNeeded: false, hasEpic: false, worksWithYnhh: false,
-    hipaaCompletedAt: new Date("2026-01-01"), hipaaFile: { fileName: "c.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") },
+    hipaaCompletedAt: "2026-01-01", hipaaFile: { fileName: "c.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") },
   })).rejects.toBeInstanceOf(ContractValidationError);
 
   const ok = await submitContract(c.token, {
     firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu", netId: "al99", phone: "203",
     agreementSignature: "Ada", professionalismSignature: "Ada", trainingSignature: "Ada", initials: "AL",
     epicNeeded: true, hasEpic: false, worksWithYnhh: false,
-    hipaaCompletedAt: new Date("2026-01-01"), hipaaFile: { fileName: "c.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") },
+    hipaaCompletedAt: "2026-01-01", hipaaFile: { fileName: "c.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") },
   });
   expect(ok.status).toBe("SUBMITTED");
   expect(ok.hipaaStoredName).toBeTruthy();
@@ -82,7 +82,7 @@ it("submitContract validates signatures + hipaa and stores SUBMITTED", async () 
     firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu",
     agreementSignature: "Ada", professionalismSignature: "Ada", trainingSignature: "Ada", initials: "AL",
     epicNeeded: false, hasEpic: false, worksWithYnhh: false,
-    hipaaCompletedAt: new Date("2026-01-01"), hipaaFile: { fileName: "c.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") },
+    hipaaCompletedAt: "2026-01-01", hipaaFile: { fileName: "c.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") },
   })).rejects.toBeInstanceOf(ContractError);
 });
 
@@ -102,10 +102,59 @@ it("submitContract stores spanishSelfReported and licensedRN", async () => {
     agreementSignature: "Ada", professionalismSignature: "Ada", trainingSignature: "Ada", initials: "AL",
     epicNeeded: false, hasEpic: false, worksWithYnhh: false,
     spanishSelfReported: true, licensedRN: true,
-    hipaaCompletedAt: new Date("2026-01-01"), hipaaFile: { fileName: "c.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") },
+    hipaaCompletedAt: "2026-01-01", hipaaFile: { fileName: "c.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") },
   });
   expect(ok.spanishSelfReported).toBe(true);
   expect(ok.licensedRN).toBe(true);
+});
+
+describe("submitContract HIPAA date validation", () => {
+  async function pendingContract() {
+    const { srr, acceptance } = await seed();
+    const c = await createOrResendContract(acceptance.id, srr.id, "http://test");
+    await prisma.onboardingContract.update({
+      where: { id: c.id },
+      data: { hipaaStoredName: "pre-seeded.pdf" },
+    });
+    return { token: c.token };
+  }
+
+  const base = {
+    firstName: "A", lastName: "B", email: "a@b.com",
+    agreementSignature: "A B", professionalismSignature: "A B",
+    trainingSignature: "A B", initials: "AB",
+    epicNeeded: false, hasEpic: false, worksWithYnhh: false,
+  };
+
+  it("rejects a future completion date", async () => {
+    const { token } = await pendingContract();
+    const nextYear = new Date().getUTCFullYear() + 1;
+    await expect(
+      submitContract(token, { ...base, hipaaCompletedAt: `${nextYear}-01-01` } as any),
+    ).rejects.toMatchObject({ fieldErrors: { hipaaCompletedAt: expect.any(String) } });
+  });
+
+  it("rejects a date older than 5 years", async () => {
+    const { token } = await pendingContract();
+    const old = new Date().getUTCFullYear() - 6;
+    await expect(
+      submitContract(token, { ...base, hipaaCompletedAt: `${old}-01-01` } as any),
+    ).rejects.toBeInstanceOf(ContractValidationError);
+  });
+
+  it("rejects a malformed date", async () => {
+    const { token } = await pendingContract();
+    await expect(
+      submitContract(token, { ...base, hipaaCompletedAt: "06/01/2025" } as any),
+    ).rejects.toBeInstanceOf(ContractValidationError);
+  });
+
+  it("stores a valid date normalized to noon UTC", async () => {
+    const { token } = await pendingContract();
+    const yyyy = new Date().getUTCFullYear() - 1;
+    const updated = await submitContract(token, { ...base, hipaaCompletedAt: `${yyyy}-06-01` } as any);
+    expect(updated.hipaaCompletedAt?.toISOString()).toBe(`${yyyy}-06-01T12:00:00.000Z`);
+  });
 });
 
 it("uses the cycle's onboarding email override when present", async () => {

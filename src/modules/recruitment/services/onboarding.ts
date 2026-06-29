@@ -7,6 +7,7 @@ import { getSetting } from "@/platform/settings/service";
 import { putObject, deleteObject } from "@/platform/storage";
 import { queueEmail } from "@/platform/email/send";
 import { recordAudit } from "@/platform/audit";
+import { parseCompletionDate, CompletionDateError } from "@/platform/compliance/completion-date";
 import { RecruitmentAuthError } from "./review";
 import { renderCycleEmail } from "../email/render";
 
@@ -114,7 +115,7 @@ export type ContractSubmission = {
   worksWithYnhh: boolean;
   spanishSelfReported?: boolean;
   licensedRN?: boolean;
-  hipaaCompletedAt?: Date;
+  hipaaCompletedAt?: string; // raw YYYY-MM-DD from the date input; validated in submitContract
   hipaaFile?: { fileName: string; mimeType: string; bytes: Buffer };
 };
 
@@ -140,6 +141,18 @@ export async function submitContract(
   if (!input.hipaaFile && !contract.hipaaStoredName) e.hipaaFile = "required";
   if (input.hasEpic && !input.existingEpicId?.trim()) {
     e.existingEpicId = "required when you already have EPIC";
+  }
+  let hipaaCompletedAt: Date | undefined;
+  if (input.hipaaCompletedAt) {
+    try {
+      hipaaCompletedAt = parseCompletionDate(input.hipaaCompletedAt);
+    } catch (err) {
+      if (!(err instanceof CompletionDateError)) throw err;
+      e.hipaaCompletedAt =
+        err.reason.includes("future") ? "Completion date cannot be in the future."
+        : err.reason.includes("older") ? "Completion date cannot be more than 5 years ago."
+        : "Enter a valid completion date.";
+    }
   }
   if (Object.keys(e).length > 0) {
     throw new ContractValidationError("Please fix the highlighted fields.", e);
@@ -203,7 +216,7 @@ export async function submitContract(
         worksWithYnhh: input.worksWithYnhh,
         spanishSelfReported: input.spanishSelfReported ?? false,
         licensedRN: input.licensedRN ?? false,
-        hipaaCompletedAt: input.hipaaCompletedAt ?? null,
+        hipaaCompletedAt: hipaaCompletedAt ?? null,
         ...fileRef,
         status: "SUBMITTED",
         submittedAt: new Date(),

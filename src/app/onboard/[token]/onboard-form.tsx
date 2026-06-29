@@ -23,12 +23,17 @@ export function OnboardForm({ token, prefill }: { token: string; prefill: Prefil
     return <Alert tone="success" className="mt-8">Thanks, your onboarding is complete. We will be in touch with next steps.</Alert>;
   }
   const err = (k: string) => (result && !result.ok ? result.fieldErrors?.[k] : undefined);
-  const field = (label: string, name: string, opts: { type?: string; defaultValue?: string; required?: boolean } = {}) => (
+  const field = (label: string, name: string, opts: { type?: string; defaultValue?: string; required?: boolean; min?: string; max?: string } = {}) => (
     <label className="block text-sm">{label}{opts.required && <span className="text-critical"> *</span>}
-      <Input name={name} type={opts.type ?? "text"} defaultValue={opts.defaultValue} required={opts.required} className="mt-1" />
+      <Input name={name} type={opts.type ?? "text"} defaultValue={opts.defaultValue} required={opts.required} min={opts.min} max={opts.max} className="mt-1" />
       {err(name) && <span className="block text-xs text-critical">{err(name)}</span>}
     </label>
   );
+
+  const iso = (d: Date) => d.toISOString().slice(0, 10);
+  const today = new Date();
+  const maxHipaa = iso(today);
+  const minHipaa = iso(new Date(today.getFullYear() - 5, today.getMonth(), today.getDate()));
 
   return (
     <form onSubmit={onSubmit} className="mt-6 space-y-6">
@@ -62,7 +67,7 @@ export function OnboardForm({ token, prefill }: { token: string; prefill: Prefil
         <label className="block text-sm"><input type="checkbox" name="licensedRN" /> I am a licensed RN</label>
       </fieldset>
       <fieldset className="space-y-3 rounded-xl border border-border bg-surface p-4"><legend className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">HIPAA</legend>
-        {field("HIPAA completion date", "hipaaCompletedAt", { type: "date", required: true })}
+        {field("HIPAA completion date", "hipaaCompletedAt", { type: "date", required: true, min: minHipaa, max: maxHipaa })}
         <label className="block text-sm">HIPAA certificate (PDF)<span className="text-critical"> *</span>
           <Input name="hipaaFile" type="file" accept="application/pdf,image/*" className="mt-1 cursor-pointer" />
           {err("hipaaFile") && <span className="block text-xs text-critical">{err("hipaaFile")}</span>}

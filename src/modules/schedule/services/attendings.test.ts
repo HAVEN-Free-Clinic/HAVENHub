@@ -6,6 +6,7 @@ import {
   createAttending,
   updateAttending,
   setAttendingActive,
+  canManageAnyRhdDept,
   AttendingValidationError,
   AttendingForbiddenError,
 } from "./attendings";
@@ -23,6 +24,18 @@ async function rhdManager() {
 }
 
 beforeEach(resetDb);
+
+describe("canManageAnyRhdDept", () => {
+  it("is true for someone who manages an RHD-family department", async () => {
+    await rhdManager(); // schedule.edit_all + an SCTS department exists
+    expect(await canManageAnyRhdDept(ACTOR)).toBe(true);
+  });
+
+  it("is false for someone who manages no RHD department", async () => {
+    await prisma.person.create({ data: { id: ACTOR, name: "Nobody" } });
+    expect(await canManageAnyRhdDept(ACTOR)).toBe(false);
+  });
+});
 
 describe("createAttending", () => {
   it("creates an attending with capabilities defaulting to unknown", async () => {

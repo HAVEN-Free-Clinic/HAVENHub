@@ -40,7 +40,7 @@ export type RhdPersonLite = {
   id: string;
   email: string;
   licensedRN: boolean;
-  spanishSpeaking: boolean;
+  spanishVerified: boolean;
 };
 
 export type ClinicInput = {
@@ -101,7 +101,7 @@ export function computeClinicReadiness(input: ClinicInput): ClinicReadiness {
       sctm: input.sctsOnShift.length,
       jctm: input.jctsOnShift.length,
       rn,
-      spanish: all.filter((p) => p.spanishSpeaking).length,
+      spanish: all.filter((p) => p.spanishVerified).length,
     },
     depoOk: closed ? true : rn >= 1,
     proceduresBooked: input.proceduresBooked,

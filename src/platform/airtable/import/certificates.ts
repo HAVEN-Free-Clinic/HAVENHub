@@ -1,8 +1,8 @@
 /**
  * Backfill HIPAA certificates from Airtable's "All People" attachment field.
  *
- * DOES NOT enqueue outbox mirror rows: the data came FROM Airtable, so pushing
- * it back would create duplicates.
+ * One-directional: data flows FROM Airtable into Postgres. Nothing is written
+ * back to Airtable.
  */
 
 import { prisma } from "@/platform/db";

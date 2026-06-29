@@ -3,6 +3,7 @@ import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import { RecruitmentAuthError } from "./review";
 import { promoteContracts } from "./promotion";
+import { spanishReviewWhere } from "@/platform/spanish-review";
 
 async function seedSubmitted(opts: { netId?: string; email?: string; epicNeeded?: boolean; existingEpicId?: string } = {}) {
   const term = await prisma.term.create({ data: { code: "FA26", name: "Fall", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
@@ -59,6 +60,21 @@ it("sets epicId from existingEpicId and creates no epic request", async () => {
   expect(await prisma.epicRequest.count({ where: { personId: person.id } })).toBe(0);
 });
 
+it("skips a conflicted (multi-department) contract and creates no person or membership", async () => {
+  const { srr, cycle, contract } = await seedSubmitted({ epicNeeded: false });
+  // Add a second acceptance in another department to the same application,
+  // turning it into a conflict the SRR must resolve before promotion.
+  const acc = await prisma.acceptance.findFirstOrThrow({ where: { contract: { id: contract.id } } });
+  await prisma.department.create({ data: { code: "MDIC", name: "MDIC" } });
+  await prisma.acceptance.create({ data: { applicationId: acc.applicationId, departmentCode: "MDIC", approvedById: srr.id } });
+
+  const res = await promoteContracts([contract.id], srr.id);
+  expect(res).toEqual({ created: 0, reactivated: 0, skipped: 1 });
+  expect(await prisma.person.count({ where: { netId: "al99" } })).toBe(0);
+  expect(await prisma.termMembership.count({ where: { termId: cycle.termId } })).toBe(0);
+  expect((await prisma.onboardingContract.findUniqueOrThrow({ where: { id: contract.id } })).status).toBe("SUBMITTED");
+});
+
 it("skips a non-SUBMITTED contract (idempotent re-run)", async () => {
   const { srr, contract } = await seedSubmitted({ epicNeeded: false });
   await promoteContracts([contract.id], srr.id);
@@ -81,4 +97,23 @@ it("reactivates a returning person matched by email when the contract has no net
   expect(res).toEqual({ created: 0, reactivated: 1, skipped: 0 });
   expect(await prisma.person.count({ where: { contactEmail: "mary@yale.edu" } })).toBe(1);
   expect((await prisma.person.findUniqueOrThrow({ where: { id: existing.id } })).status).toBe("ACTIVE");
+});
+
+it("maps spanishSelfReported + licensedRN onto the Person, leaves verified false, and enters the queue", async () => {
+  const { srr, contract } = await seedSubmitted({ netId: "rn1", email: "rn1@yale.edu" });
+  await prisma.onboardingContract.update({
+    where: { id: contract.id },
+    data: { spanishSelfReported: true, licensedRN: true },
+  });
+
+  const res = await promoteContracts([contract.id], srr.id);
+  expect(res.created).toBe(1);
+
+  const person = await prisma.person.findFirstOrThrow({ where: { netId: "rn1" } });
+  expect(person.spanishSelfReported).toBe(true);
+  expect(person.licensedRN).toBe(true);
+  expect(person.spanishVerified).toBe(false);
+
+  const queue = await prisma.person.findMany({ where: spanishReviewWhere(), select: { id: true } });
+  expect(queue.map((r) => r.id)).toContain(person.id);
 });

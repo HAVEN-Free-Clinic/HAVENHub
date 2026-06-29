@@ -336,7 +336,7 @@ describe("saveCertificate", () => {
     expect(cert.size).toBe(exactBytes);
   });
 
-  it("accepts a valid pdf: creates the DB row, writes the file to disk, creates the audit log, and enqueues TWO outbox rows (HipaaCertificate + Person for hipaaStatus)", async () => {
+  it("accepts a valid pdf: creates the DB row, writes the file to disk, and creates the audit log", async () => {
     const person = await createPerson();
     const file = makePdfFile();
 
@@ -365,23 +365,9 @@ describe("saveCertificate", () => {
     expect(after.size).toBe(file.bytes.length);
     // bytes must never appear in the audit log
     expect(JSON.stringify(after)).not.toContain("PDF");
-
-    // HipaaCertificate outbox row (mirrors the cert attachment)
-    const certOutboxRow = await prisma.outbox.findFirst({
-      where: { entityType: "HipaaCertificate", entityId: cert.id },
-    });
-    expect(certOutboxRow).not.toBeNull();
-    expect(certOutboxRow!.status).toBe("PENDING");
-
-    // Person outbox row (rides the next drain to recompute hipaaStatus so
-    // the member does not stay "Not Compliant" until the nightly refresh)
-    const personOutboxCount = await prisma.outbox.count({
-      where: { entityType: "Person", entityId: person.id },
-    });
-    expect(personOutboxCount).toBe(1);
   });
 
-  it("cleans up the DB row and outbox row if the disk write fails (transactional consistency)", async () => {
+  it("cleans up the DB row if the disk write fails (transactional consistency)", async () => {
     const person = await createPerson();
     const file = makePdfFile();
 
@@ -410,12 +396,6 @@ describe("saveCertificate", () => {
     // DB row must be gone
     const certCount = await prisma.hipaaCertificate.count({ where: { personId: person.id } });
     expect(certCount).toBe(0);
-
-    // Outbox row must also be gone
-    const outboxCount = await prisma.outbox.count({
-      where: { entityType: "HipaaCertificate" },
-    });
-    expect(outboxCount).toBe(0);
   });
 
   // ---- saveCertificate: parse injection ---------------------------------------
@@ -478,6 +458,97 @@ describe("saveCertificate", () => {
     }
     expect(caught).toBeInstanceOf(CertificateValidationError);
     expect(called).toBe(false); // stub never called because validation fires first
+  });
+});
+
+// ---- saveCertificate: compliance-manager date-review notification -----------
+
+/** A person who globally holds volunteers.manage_compliance. */
+async function createComplianceManager(name = "Cathy Compliance") {
+  const person = await prisma.person.create({ data: { name } });
+  const role = await prisma.role.create({
+    data: {
+      name: `Compliance Role ${name}`,
+      grants: { create: [{ permission: "volunteers.manage_compliance" }] },
+    },
+  });
+  await prisma.roleAssignment.create({ data: { roleId: role.id, personId: person.id, termId: null } });
+  return person;
+}
+
+async function countReviewNotifications(): Promise<number> {
+  return prisma.notification.count({ where: { type: "compliance-date-review" } });
+}
+
+const nullParse = async (_bytes: Buffer) => null;
+const dateParse = async (_bytes: Buffer) => ({
+  date: new Date(Date.UTC(2026, 0, 10, 12, 0, 0, 0)),
+  matchedText: "01/10/2026",
+});
+
+describe("saveCertificate compliance-manager notification", () => {
+  it("notifies compliance managers when a cert is saved without a parsed date", async () => {
+    const manager = await createComplianceManager();
+    const volunteer = await createPerson({ name: "Val Volunteer" });
+
+    await saveCertificate(volunteer.id, makePdfFile(), nullParse);
+
+    const notes = await prisma.notification.findMany({ where: { type: "compliance-date-review" } });
+    expect(notes.map((n) => n.personId)).toEqual([manager.id]);
+  });
+
+  it("does not notify when the completion date parses successfully", async () => {
+    await createComplianceManager();
+    const volunteer = await createPerson({ name: "Val Volunteer" });
+
+    await saveCertificate(volunteer.id, makePdfFile(), dateParse);
+
+    expect(await countReviewNotifications()).toBe(0);
+  });
+
+  it("does not re-notify when the member already has a dateless certificate (dedup)", async () => {
+    await createComplianceManager();
+    const volunteer = await createPerson({ name: "Val Volunteer" });
+    // A pre-existing dateless cert (managers were already alerted when it landed).
+    await prisma.hipaaCertificate.create({
+      data: {
+        personId: volunteer.id,
+        fileName: "old.pdf",
+        storedName: "old.pdf",
+        size: 10,
+        mimeType: "application/pdf",
+        completionDate: null,
+        extraction: "NONE",
+        uploadedAt: new Date("2026-01-01T00:00:00Z"),
+      },
+    });
+
+    await saveCertificate(volunteer.id, makePdfFile(), nullParse);
+
+    expect(await countReviewNotifications()).toBe(0);
+  });
+
+  it("notifies again when the member's prior newest cert had a completion date", async () => {
+    const manager = await createComplianceManager();
+    const volunteer = await createPerson({ name: "Val Volunteer" });
+    // A prior, dated cert (e.g. expired) — a fresh dateless upload is a new pending case.
+    await prisma.hipaaCertificate.create({
+      data: {
+        personId: volunteer.id,
+        fileName: "old.pdf",
+        storedName: "old.pdf",
+        size: 10,
+        mimeType: "application/pdf",
+        completionDate: new Date("2024-01-01T12:00:00Z"),
+        extraction: "MANUAL",
+        uploadedAt: new Date("2026-01-01T00:00:00Z"),
+      },
+    });
+
+    await saveCertificate(volunteer.id, makePdfFile(), nullParse);
+
+    const notes = await prisma.notification.findMany({ where: { type: "compliance-date-review" } });
+    expect(notes.map((n) => n.personId)).toEqual([manager.id]);
   });
 });
 

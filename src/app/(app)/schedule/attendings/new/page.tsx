@@ -1,13 +1,14 @@
 import { redirect } from "next/navigation";
 import { requireModuleAccess } from "@/platform/auth/session";
-import { createAttending, CAPABILITY_KEYS, AttendingValidationError, AttendingForbiddenError, type CapabilityValue } from "@/modules/schedule/services/attendings";
+import { createAttending, canManageAnyRhdDept, CAPABILITY_KEYS, AttendingValidationError, AttendingForbiddenError, type CapabilityValue } from "@/modules/schedule/services/attendings";
 import { AttendingForm } from "@/modules/schedule/components/attending-form";
 import { PageHeader } from "@/platform/ui/page-header";
 
 type PageProps = { searchParams: Promise<{ error?: string }> };
 
 export default async function NewAttendingPage({ searchParams }: PageProps) {
-  await requireModuleAccess("schedule");
+  const session = await requireModuleAccess("schedule");
+  if (!(await canManageAnyRhdDept(session.personId))) redirect("/no-access");
   const { error } = await searchParams;
 
   async function createAction(formData: FormData) {

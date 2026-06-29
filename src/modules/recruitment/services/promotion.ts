@@ -1,6 +1,7 @@
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { recordAudit } from "@/platform/audit";
+import { findAcceptanceConflicts } from "../engine/conflicts";
 import { RecruitmentAuthError } from "./review";
 
 export async function promoteContracts(contractIds: string[], actorId: string): Promise<{ created: number; reactivated: number; skipped: number }> {
@@ -10,10 +11,18 @@ export async function promoteContracts(contractIds: string[], actorId: string): 
   for (const id of contractIds) {
     const contract = await prisma.onboardingContract.findUnique({
       where: { id },
-      include: { acceptance: { include: { application: { include: { cycle: { select: { termId: true, track: true } } } } } } },
+      include: { acceptance: { include: { application: { include: { cycle: { select: { termId: true, track: true } }, acceptances: { select: { departmentCode: true } } } } } } },
     });
     if (!contract || contract.status !== "SUBMITTED") { skipped += 1; continue; }
-    const cycle = contract.acceptance.application.cycle;
+    // Never promote a conflicted acceptance: one application accepted by more
+    // than one department would otherwise land the person on two rosters. SRR
+    // must resolve the conflict on the Decisions page first.
+    const application = contract.acceptance.application;
+    const conflicts = findAcceptanceConflicts(
+      application.acceptances.map((a) => ({ applicationId: application.id, departmentCode: a.departmentCode })),
+    );
+    if (conflicts.has(application.id)) { skipped += 1; continue; }
+    const cycle = application.cycle;
     const dept = await prisma.department.findUnique({ where: { code: contract.acceptance.departmentCode } });
     if (!dept) { skipped += 1; continue; }
     const kind: "DIRECTOR" | "VOLUNTEER" = cycle.track === "DIRECTOR" ? "DIRECTOR" : "VOLUNTEER";
@@ -36,6 +45,8 @@ export async function promoteContracts(contractIds: string[], actorId: string): 
               yaleAffiliation: person.yaleAffiliation ?? contract.yaleAffiliation,
               gradYear: person.gradYear ?? contract.gradYear,
               epicId: person.epicId ?? contract.existingEpicId,
+              spanishSelfReported: person.spanishSelfReported || contract.spanishSelfReported,
+              licensedRN: person.licensedRN || contract.licensedRN,
             },
           });
         } else {
@@ -46,6 +57,8 @@ export async function promoteContracts(contractIds: string[], actorId: string): 
               netId: contract.netId, contactEmail: contract.email, phone: contract.phone,
               yaleAffiliation: contract.yaleAffiliation, gradYear: contract.gradYear,
               epicId: contract.existingEpicId, status: "ACTIVE",
+              spanishSelfReported: contract.spanishSelfReported,
+              licensedRN: contract.licensedRN,
             },
           });
         }

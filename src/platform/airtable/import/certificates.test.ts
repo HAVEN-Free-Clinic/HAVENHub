@@ -232,28 +232,6 @@ describe("backfillCertificates", () => {
     expect(certFiles).toHaveLength(0);
   });
 
-  it("no outbox rows are created for imported certificates", async () => {
-    await createPerson({ airtableRecordId: "recDave" });
-
-    const reader: AirtableReader = {
-      async listAll() {
-        return [
-          {
-            id: "recDave",
-            fields: { [AF.hipaaCertificate]: [fakeAttachment()] },
-          },
-        ];
-      },
-    };
-
-    await backfillCertificates(reader, makeDownloader(), OPTS);
-
-    const outboxCount = await prisma.outbox.count({
-      where: { entityType: "HipaaCertificate" },
-    });
-    expect(outboxCount).toBe(0);
-  });
-
   it("audit row is created per import in apply mode with action my-info.certificate_import", async () => {
     const person = await createPerson({ airtableRecordId: "recEve" });
 

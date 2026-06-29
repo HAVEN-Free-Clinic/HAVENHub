@@ -54,7 +54,7 @@ export default async function InterviewsPage({ params }: { params: Promise<{ id:
                 <TD>
                   <Link
                     className="font-medium text-foreground hover:text-brand-fg"
-                    href={`/recruitment/cycles/${id}/interviews/${iv.id}`}
+                    href={`/recruitment/interviews/${iv.id}`}
                   >
                     {iv.application.applicant.firstName} {iv.application.applicant.lastName}
                   </Link>

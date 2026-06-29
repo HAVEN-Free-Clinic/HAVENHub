@@ -2,8 +2,8 @@
  * Person mutation core (platform-level).
  *
  * This module owns the transactional create/update/status mutations for
- * Person, including the changed-field diff, the Airtable mirror enqueue, the
- * P2002 -> typed-conflict mapping, and the audit writes. It lives in the
+ * Person, including the changed-field diff, the P2002 -> typed-conflict
+ * mapping, and the audit writes. It lives in the
  * platform layer (not inside any module) so that both the admin module and the
  * member-facing my-info module can drive person mutations without one module
  * importing another.
@@ -20,15 +20,6 @@
 import type { Person } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
-import { enqueueMirror } from "@/platform/outbox";
-import { ALL_PEOPLE_FIELDS } from "@/platform/airtable/fields";
-
-// The set of Person field names that are mirrored to Airtable.
-// Derived from the keys of ALL_PEOPLE_FIELDS so that the list stays in sync
-// with the field registry automatically.
-export const MIRRORED_FIELDS = new Set(
-  Object.keys(ALL_PEOPLE_FIELDS) as Array<keyof typeof ALL_PEOPLE_FIELDS>
-);
 
 export class PersonConflictError extends Error {
   constructor(public field: string) {
@@ -68,7 +59,8 @@ export type PersonInput = {
   epicId?: string | null;
   yaleAffiliation?: string | null;
   gradYear?: string | null;
-  spanishSpeaking?: boolean;
+  spanishSelfReported?: boolean;
+  spanishVerified?: boolean;
   licensedRN?: boolean;
 };
 
@@ -100,13 +92,14 @@ export async function createPersonRecord(
           epicId: data.epicId ?? null,
           yaleAffiliation: data.yaleAffiliation ?? null,
           gradYear: data.gradYear ?? null,
+          spanishSelfReported: data.spanishSelfReported ?? false,
+          spanishVerified: data.spanishVerified ?? false,
+          licensedRN: data.licensedRN ?? false,
+          // An admin setting "verified" on create is itself a verification event.
+          ...(data.spanishVerified
+            ? { spanishVerifiedAt: new Date(), spanishVerifiedById: actorPersonId }
+            : {}),
         },
-      });
-
-      await enqueueMirror(tx, {
-        entityType: "Person",
-        entityId: created.id,
-        changedFields: Array.from(MIRRORED_FIELDS),
       });
 
       return created;
@@ -128,6 +121,9 @@ export async function createPersonRecord(
         epicId: person.epicId,
         yaleAffiliation: person.yaleAffiliation,
         gradYear: person.gradYear,
+        spanishSelfReported: person.spanishSelfReported,
+        spanishVerified: person.spanishVerified,
+        licensedRN: person.licensedRN,
       },
     });
 
@@ -161,7 +157,8 @@ export async function updatePersonFields(
     "epicId",
     "yaleAffiliation",
     "gradYear",
-    "spanishSpeaking",
+    "spanishSelfReported",
+    "spanishVerified",
     "licensedRN",
   ];
 
@@ -175,14 +172,10 @@ export async function updatePersonFields(
     }
   }
 
-  // No-op: nothing changed, skip write, audit, and mirror.
+  // No-op: nothing changed, skip write and audit.
   if (changedKeys.length === 0) {
     return existing;
   }
-
-  const changedMirroredFields = changedKeys.filter((k) =>
-    MIRRORED_FIELDS.has(k as keyof typeof ALL_PEOPLE_FIELDS)
-  );
 
   const beforeSnapshot = Object.fromEntries(
     changedKeys.map((k) => [k, (existing as Record<string, unknown>)[k] ?? null])
@@ -194,16 +187,19 @@ export async function updatePersonFields(
       for (const key of changedKeys) {
         updateData[key] = data[key] ?? null;
       }
+      // Verification stamping: setting verified true records who/when; clearing
+      // it returns the person to the interpreting-department review queue.
+      if (changedKeys.includes("spanishVerified")) {
+        if (data.spanishVerified) {
+          updateData.spanishVerifiedAt = new Date();
+          updateData.spanishVerifiedById = actorPersonId;
+        } else {
+          updateData.spanishVerifiedAt = null;
+          updateData.spanishVerifiedById = null;
+        }
+      }
 
       const result = await tx.person.update({ where: { id: personId }, data: updateData });
-
-      if (changedMirroredFields.length > 0) {
-        await enqueueMirror(tx, {
-          entityType: "Person",
-          entityId: personId,
-          changedFields: changedMirroredFields,
-        });
-      }
 
       return result;
     });
@@ -233,27 +229,112 @@ export async function setPersonStatusField(
   personId: string,
   status: "ACTIVE" | "OFFBOARDED"
 ): Promise<Person> {
-  // Status is not a mirrored field. The offboarding checkbox flow in Airtable
-  // belongs to the Volunteers module later. We do not enqueue a mirror job here.
   const existingOrNull = await prisma.person.findUnique({ where: { id: personId } });
   if (!existingOrNull) throw new PersonNotFoundError(personId);
   const existing = existingOrNull;
 
-  const updated = await prisma.person.update({
-    where: { id: personId },
-    data: { status },
+  // Offboarding is the single convergence point for every offboard path (the
+  // admin people page AND the volunteers executeOffboard flow both call here).
+  // A person can never be OFFBOARDED yet still appear as a current member: we
+  // set ALL their ACTIVE memberships (any term) to REMOVED in the same
+  // transaction as the status flip, because the compliance, disciplinary, and
+  // offboarding rosters all key off TermMembership.status, not Person.status.
+  // Reactivation is status-only -- it never restores memberships (which ones to
+  // restore is ambiguous), matching the existing offboarding behavior.
+  //
+  // Epic access: offboarding also cancels any open NEW/MODIFY/RENEW requests
+  // (a departing person must not remain in the actionable queue) and enqueues
+  // one PENDING DEACTIVATE request when epicId is set. The create is guarded so
+  // a second offboard call does not produce a duplicate (idempotent). On
+  // reactivation the open DEACTIVATE request is cancelled: the person is back,
+  // so revocation is no longer needed.
+  let removedMemberships = 0;
+  let cancelledEpicRequestIds: string[] = [];
+  let deactivationRequestId: string | null = null;
+  let cancelledDeactivationRequestIds: string[] = [];
+
+  const updated = await prisma.$transaction(async (tx) => {
+    if (status === "OFFBOARDED") {
+      const { count } = await tx.termMembership.updateMany({
+        where: { personId, status: "ACTIVE" },
+        data: { status: "REMOVED" },
+      });
+      removedMemberships = count;
+
+      // Cancel open access-granting requests. A person who has left should not
+      // have a NEW/MODIFY/RENEW request lingering as actionable in the queue.
+      // DEACTIVATE is intentionally excluded: it is the revocation task itself.
+      const openGrants = await tx.epicRequest.findMany({
+        where: {
+          personId,
+          status: { in: ["PENDING", "SUBMITTED"] },
+          kind: { in: ["NEW", "MODIFY", "RENEW"] },
+        },
+        select: { id: true, notes: true },
+      });
+      for (const r of openGrants) {
+        const line = "Cancelled: person offboarded";
+        await tx.epicRequest.update({
+          where: { id: r.id },
+          data: { status: "CANCELLED", notes: r.notes ? `${r.notes}\n${line}` : line },
+        });
+      }
+      cancelledEpicRequestIds = openGrants.map((r) => r.id);
+
+      // Enqueue a deactivation task when there is recorded Epic access to
+      // revoke and no open DEACTIVATE request already exists (idempotent).
+      if (existing.epicId) {
+        const openDeact = await tx.epicRequest.findFirst({
+          where: { personId, status: { in: ["PENDING", "SUBMITTED"] }, kind: "DEACTIVATE" },
+          select: { id: true },
+        });
+        if (!openDeact) {
+          const created = await tx.epicRequest.create({
+            data: { personId, kind: "DEACTIVATE", status: "PENDING", requestedById: actorPersonId },
+            select: { id: true },
+          });
+          deactivationRequestId = created.id;
+        }
+      }
+    } else if (status === "ACTIVE") {
+      // Reactivation: a returning person no longer owes a revocation.
+      const openDeact = await tx.epicRequest.findMany({
+        where: { personId, status: { in: ["PENDING", "SUBMITTED"] }, kind: "DEACTIVATE" },
+        select: { id: true, notes: true },
+      });
+      for (const r of openDeact) {
+        const line = "Cancelled: person reactivated";
+        await tx.epicRequest.update({
+          where: { id: r.id },
+          data: { status: "CANCELLED", notes: r.notes ? `${r.notes}\n${line}` : line },
+        });
+      }
+      cancelledDeactivationRequestIds = openDeact.map((r) => r.id);
+    }
+
+    return tx.person.update({
+      where: { id: personId },
+      data: { status },
+    });
   });
 
   const action = status === "OFFBOARDED" ? "person.offboard" : "person.reactivate";
 
   // Await audit. recordAudit never throws, so this cannot abort the mutation.
+  // One audit row per status change is the contract callers rely on; the
+  // membership count and Epic-request effects ride on that single row.
   await recordAudit({
     actorPersonId,
     action,
     entityType: "Person",
     entityId: personId,
     before: { status: existing.status },
-    after: { status: updated.status },
+    after: {
+      status: updated.status,
+      ...(status === "OFFBOARDED"
+        ? { removedMemberships, cancelledEpicRequestIds, deactivationRequestId }
+        : { cancelledDeactivationRequestIds }),
+    },
   });
 
   return updated;

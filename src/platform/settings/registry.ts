@@ -128,25 +128,6 @@ export const SETTINGS: SettingDef<unknown>[] = [
     envDefault: () => config.TEAMS_CLINIC_GROUP_ID ?? "",
     secret: false,
   }),
-  define<boolean>({
-    key: "airtable.mirrorEnabled",
-    category: "Integrations",
-    label: "Airtable mirror enabled",
-    help: "When on, person changes are mirrored to Airtable. Requires AIRTABLE_PAT, mirror base ID, and people table ID in the environment.",
-    input: { type: "boolean" },
-    schema: z.boolean(),
-    envDefault: () => config.AIRTABLE_MIRROR_ENABLED,
-    secret: false,
-    validate: async (value, { config }) => {
-      if (value !== true) return null;
-      const problems: string[] = (
-        ["AIRTABLE_PAT", "AIRTABLE_MIRROR_BASE_ID", "AIRTABLE_MIRROR_PEOPLE_TABLE_ID"] as const
-      ).filter((k) => !config[k]);
-      return problems.length
-        ? `Cannot enable the Airtable mirror until these env vars are set: ${problems.join(", ")}.`
-        : null;
-    },
-  }),
   define<"log" | "graph">({
     key: "email.transport",
     category: "Email",
@@ -175,10 +156,30 @@ export const SETTINGS: SettingDef<unknown>[] = [
     key: "branding.appName",
     category: "Branding",
     label: "Application name",
-    help: "Shown in the browser tab, on the sign-in screen, and in admin copy.",
+    help: "The product/platform name, shown in the browser tab, on the sign-in screen, and in admin copy. Distinct from the organization name below.",
     input: { type: "text" },
     schema: z.string().min(1),
     envDefault: () => "HAVEN Hub",
+    secret: false,
+  }),
+  define<string>({
+    key: "branding.orgName",
+    category: "Branding",
+    label: "Organization name",
+    help: "The clinic or organization name shown across the app: the footer, sign-in panel, applicant portal, welcome page, and 404 page.",
+    input: { type: "text" },
+    schema: z.string().min(1),
+    envDefault: () => "HAVEN Free Clinic",
+    secret: false,
+  }),
+  define<string>({
+    key: "branding.orgTagline",
+    category: "Branding",
+    label: "Organization tagline",
+    help: "Shown after the organization name (e.g. the parent institution). Leave blank to show just the name.",
+    input: { type: "text" },
+    schema: z.string(),
+    envDefault: () => "Yale University",
     secret: false,
   }),
   define<string>({
@@ -208,7 +209,9 @@ export const SETTINGS: SettingDef<unknown>[] = [
     help: "Small square icon shown in the browser tab. PNG, ICO, or WebP.",
     input: { type: "image" },
     schema: brandingAssetSchema,
-    envDefault: () => ({ contentType: "", version: 0 }),
+    // version bumped to 1 to cache-bust the new bundled default favicon
+    // (public/brand/haven-favicon.png) past browsers that cached the old ?v=0 URL.
+    envDefault: () => ({ contentType: "", version: 1 }),
     secret: false,
   }),
   define<"light" | "dark" | "system">({

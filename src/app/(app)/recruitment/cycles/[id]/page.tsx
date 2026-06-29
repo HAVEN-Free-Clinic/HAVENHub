@@ -3,26 +3,39 @@ import { notFound } from "next/navigation";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
-import { publishCycleAction, closeCycleAction, toggleRenewalsAction, setTrainingCycleAction, updateQuizSettingsAction } from "../../actions";
+import { publishCycleAction, closeCycleAction, toggleRenewalsAction, setTrainingCycleAction, updateQuizSettingsAction, setCycleDepartmentsAction } from "../../actions";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
 import { Field, Input } from "@/platform/ui/input";
 import { Alert } from "@/platform/ui/alert";
 import { buttonClasses } from "@/platform/ui/button";
 import { SubmitButton } from "@/platform/ui/submit-button";
+import { prisma } from "@/platform/db";
+import { Checkbox } from "@/platform/ui/checkbox";
 
 const statusTone = { DRAFT: "default", OPEN: "success", CLOSED: "warning" } as const;
 
 type PageProps = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; deptsaved?: string; deptwarn?: string }>;
 };
 
 export default async function CycleOverviewPage({ params, searchParams }: PageProps) {
   const { id } = await params;
-  const { error } = await searchParams;
+  const { error, deptsaved, deptwarn } = await searchParams;
   const cycle = await getCycle(id);
   if (!cycle) notFound();
+
+  const activeDepts = await prisma.department.findMany({ where: { isActive: true }, select: { code: true, name: true }, orderBy: { code: "asc" } });
+  const apps = await prisma.application.findMany({ where: { cycleId: id }, select: { departmentChoices: true } });
+  const counts = new Map<string, number>();
+  for (const a of apps) for (const c of a.departmentChoices) counts.set(c, (counts.get(c) ?? 0) + 1);
+  const activeCodes = new Set(activeDepts.map((d) => d.code));
+  const deptOptions = [
+    ...activeDepts.map((d) => ({ code: d.code, name: d.name, known: true })),
+    ...cycle.departments.filter((c) => !activeCodes.has(c)).map((c) => ({ code: c, name: null as string | null, known: false })),
+  ];
+  const selected = new Set(cycle.departments);
   const applyUrl = `/apply/${cycle.publicSlug}`;
   const navLink = buttonClasses("outline", "sm");
   return (
@@ -38,10 +51,14 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
         <Link href={`/recruitment/cycles/${id}/builder`} className={navLink}>Edit form</Link>
         <Link href={`/recruitment/cycles/${id}/applicants`} className={navLink}>View applicants</Link>
         <Link href={`/recruitment/cycles/${id}/decisions`} className={navLink}>Decisions</Link>
+        {cycle.track === "VOLUNTEER" && (
+          <Link href={`/recruitment/cycles/${id}/subcommittees`} className={navLink}>Subcommittees</Link>
+        )}
         {cycle.track === "DIRECTOR" && (
           <Link href={`/recruitment/cycles/${id}/interviews`} className={navLink}>Interviews</Link>
         )}
         <Link href={`/recruitment/cycles/${id}/onboarding`} className={navLink}>Onboarding</Link>
+        <Link href={`/recruitment/cycles/${id}/emails`} className={navLink}>Edit emails</Link>
       </div>
 
       <div className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
@@ -53,6 +70,25 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
         ) : (
           <p className="mt-1 text-sm text-muted-foreground">Publish the cycle to activate {applyUrl}</p>
         )}
+      </div>
+
+      <div className="space-y-3 rounded-2xl border border-border bg-surface p-5 shadow-sm">
+        <p className="text-xs font-medium uppercase tracking-wider text-subtle-foreground">Departments</p>
+        {deptsaved && <Alert tone="success">Departments updated.</Alert>}
+        {deptwarn && <Alert tone="warning">Saved. These removed departments still have applicants: {deptwarn}. Existing applications keep their choices, but you can no longer accept into a removed department.</Alert>}
+        <form action={setCycleDepartmentsAction.bind(null, id)} className="space-y-3">
+          <div className="grid gap-2 sm:grid-cols-2">
+            {deptOptions.map((d) => (
+              <label key={d.code} className="flex items-center gap-2 text-sm">
+                <Checkbox name="departments" value={d.code} defaultChecked={selected.has(d.code)} />
+                <span className="text-foreground">{d.code}{d.name ? ` - ${d.name}` : ""}</span>
+                <span className="text-xs text-subtle-foreground">{counts.get(d.code) ? `${counts.get(d.code)} applicant${counts.get(d.code) === 1 ? "" : "s"}` : ""}{!d.known ? " · not in department list" : ""}</span>
+              </label>
+            ))}
+            {deptOptions.length === 0 && <p className="text-sm text-subtle-foreground">No departments configured.</p>}
+          </div>
+          <SubmitButton size="sm" variant="outline" pendingLabel="Saving…">Save departments</SubmitButton>
+        </form>
       </div>
 
       <div className="flex flex-wrap items-center gap-3">

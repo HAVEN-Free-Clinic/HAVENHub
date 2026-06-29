@@ -57,13 +57,16 @@ export const MODULES: ModuleManifest[] = [
       "volunteers.manage_offboarding",
       "volunteers.manage_epic",
       "volunteers.issue_disciplinary",
+      "volunteers.verify_spanish",
     ],
     status: "active",
     nav: [
+      // Compliance / Offboarding / Disciplinary gate on volunteers.view (= module access).
       { label: "Compliance", href: "/volunteers" },
-      { label: "Master view", href: "/volunteers/master" },
+      { label: "Master view", href: "/volunteers/master", permission: "volunteers.manage_compliance" },
+      { label: "Spanish review", href: "/volunteers/spanish-review", permission: "volunteers.verify_spanish" },
       { label: "Offboarding", href: "/volunteers/offboarding" },
-      { label: "Epic requests", href: "/volunteers/epic" },
+      { label: "Epic requests", href: "/volunteers/epic", permission: "volunteers.manage_epic" },
       { label: "Disciplinary", href: "/volunteers/disciplinary" },
     ],
   },
@@ -81,7 +84,7 @@ export const MODULES: ModuleManifest[] = [
   {
     id: "admin",
     title: "Admin",
-    description: "People, terms, roles, sync health, audit log",
+    description: "People, terms, roles, audit log",
     icon: Settings,
     accessPermission: "admin.access",
     permissions: [
@@ -95,19 +98,23 @@ export const MODULES: ModuleManifest[] = [
       "admin.send_email_campaign",
       "admin.manage_settings",
       "admin.manage_departments",
+      "admin.manage_subcommittees",
     ],
     status: "active",
     nav: [
+      // Overview and ITCM gate on admin.access (= module access); the rest each
+      // require a distinct sub-permission, mirrored here from the page gates.
+      // Email and Notifications enforce admin.manage_sync (not the email perms).
       { label: "Overview", href: "/admin" },
-      { label: "People", href: "/admin/people" },
-      { label: "Terms", href: "/admin/terms" },
-      { label: "Roles", href: "/admin/roles" },
-      { label: "Departments", href: "/admin/departments" },
-      { label: "Audit", href: "/admin/audit" },
-      { label: "Sync", href: "/admin/sync" },
-      { label: "Email", href: "/admin/email" },
-      { label: "Notifications", href: "/admin/notifications" },
-      { label: "Settings", href: "/admin/settings" },
+      { label: "People", href: "/admin/people", permission: "admin.manage_people" },
+      { label: "Terms", href: "/admin/terms", permission: "admin.manage_terms" },
+      { label: "Roles", href: "/admin/roles", permission: "admin.manage_roles" },
+      { label: "Departments", href: "/admin/departments", permission: "admin.manage_departments" },
+      { label: "Subcommittees", href: "/admin/subcommittees", permission: "admin.manage_subcommittees" },
+      { label: "Audit", href: "/admin/audit", permission: "admin.view_audit" },
+      { label: "Email", href: "/admin/email", permission: "admin.manage_sync" },
+      { label: "Notifications", href: "/admin/notifications", permission: "admin.manage_sync" },
+      { label: "Settings", href: "/admin/settings", permission: "admin.manage_settings" },
       { label: "ITCM", href: "/admin/itcm" },
     ],
   },
@@ -130,9 +137,10 @@ export const MODULES: ModuleManifest[] = [
     permissions: ["learning.access", "learning.manage_courses", "learning.view_progress"],
     status: "active",
     nav: [
+      // My courses gates on learning.access (= module access).
       { label: "My courses", href: "/learning" },
-      { label: "Manage courses", href: "/learning/manage" },
-      { label: "Completion", href: "/learning/dashboard" },
+      { label: "Manage courses", href: "/learning/manage", permission: "learning.manage_courses" },
+      { label: "Completion", href: "/learning/dashboard", permission: "learning.view_progress" },
     ],
   },
   {

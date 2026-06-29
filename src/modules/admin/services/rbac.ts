@@ -12,7 +12,7 @@
  * the engine. Use with care -- it grants all permissions platform-wide.
  */
 
-import type { Role, RoleGrant, RoleAssignment, Person, Department, Term } from "@prisma/client";
+import type { Role, RoleGrant, RoleAssignment, Person, Department, Term, MembershipKind } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
@@ -343,22 +343,27 @@ export async function createAssignment(
     roleId: string;
     personId?: string;
     departmentId?: string;
+    kind?: MembershipKind;
     termId?: string;
   }
-): Promise<void> {
-  const hasPersonId = input.personId != null;
-  const hasDeptId = input.departmentId != null;
+): Promise<RoleAssignment> {
+  const targetCount =
+    (input.personId != null ? 1 : 0) +
+    (input.departmentId != null ? 1 : 0) +
+    (input.kind != null ? 1 : 0);
 
-  // XOR check app-side FIRST
-  if (!hasPersonId && !hasDeptId) {
+  if (targetCount === 0) {
     throw new AssignmentTargetError(
-      "exactly one of personId or departmentId must be set; neither was provided"
+      "exactly one of personId, departmentId, or kind must be set; none was provided"
     );
   }
-  if (hasPersonId && hasDeptId) {
+  if (targetCount > 1) {
     throw new AssignmentTargetError(
-      "exactly one of personId or departmentId must be set; both were provided"
+      "exactly one of personId, departmentId, or kind must be set; multiple were provided"
     );
+  }
+  if (input.kind != null && input.kind !== "DIRECTOR" && input.kind !== "VOLUNTEER") {
+    throw new AssignmentTargetError(`invalid membership kind: ${input.kind}`);
   }
 
   let assignment: RoleAssignment;
@@ -368,6 +373,7 @@ export async function createAssignment(
         roleId: input.roleId,
         personId: input.personId ?? null,
         departmentId: input.departmentId ?? null,
+        kind: input.kind ?? null,
         termId: input.termId ?? null,
       },
     });
@@ -399,9 +405,12 @@ export async function createAssignment(
       roleId: assignment.roleId,
       personId: assignment.personId,
       departmentId: assignment.departmentId,
+      kind: assignment.kind,
       termId: assignment.termId,
     },
   });
+
+  return assignment;
 }
 
 /**
@@ -455,6 +464,7 @@ export async function deleteAssignment(actorPersonId: string, id: string): Promi
       roleId: assignment.roleId,
       personId: assignment.personId,
       departmentId: assignment.departmentId,
+      kind: assignment.kind,
       termId: assignment.termId,
     },
   });

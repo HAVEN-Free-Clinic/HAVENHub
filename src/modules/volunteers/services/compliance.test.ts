@@ -44,6 +44,7 @@ import {
   CertificateNotFoundError,
   ComplianceForbiddenError,
 } from "./compliance";
+import { setPersonStatusField } from "@/platform/people";
 import { CompletionDateError } from "@/platform/compliance/completion-date";
 
 // ---------------------------------------------------------------------------
@@ -816,6 +817,23 @@ describe("masterCompliance", () => {
     const result = await masterCompliance({});
     expect(result.rows[0].verifiedByName).toBe("Bob Verifier");
   });
+
+  it("excludes a person offboarded through the admin people path (regression: issue #67)", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("ITCM");
+    const person = await createPerson("Offboarded Via Admin", "ova01");
+    await createMembership(person.id, term.id, dept.id, "VOLUNTEER");
+
+    // Sanity: they are on the roster while ACTIVE.
+    expect((await masterCompliance({})).rows).toHaveLength(1);
+
+    // Offboarding (the admin people page calls this same platform mutation) must
+    // also clear their ACTIVE memberships, so the Master Compliance roster
+    // ("all active clinic members") no longer counts them.
+    await setPersonStatusField("admin-actor", person.id, "OFFBOARDED");
+
+    expect((await masterCompliance({})).rows).toHaveLength(0);
+  });
 });
 
 describe("training clearance on compliance rows", () => {
@@ -905,20 +923,6 @@ describe("setCompletionDateAsManager", () => {
     });
     expect(log).not.toBeNull();
     expect(log?.actorPersonId).toBe(actor.id);
-  });
-
-  it("enqueues a Person mirror row for hipaaStatus", async () => {
-    const actor = await createPerson("Manager", "mgr001");
-    await grantPermission(actor.id, "volunteers.manage_compliance");
-    const owner = await createPerson("Volunteer", "vol001");
-    const cert = await createCert(owner.id, null);
-
-    await setCompletionDateAsManager(actor.id, cert.id, "2025-06-01");
-
-    const mirror = await prisma.outbox.findFirst({
-      where: { entityType: "Person", entityId: owner.id },
-    });
-    expect(mirror).not.toBeNull();
   });
 
   it("throws ComplianceForbiddenError for a non-manager actor", async () => {

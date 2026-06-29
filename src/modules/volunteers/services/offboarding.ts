@@ -220,6 +220,13 @@ export async function unflag(actorPersonId: string, personId: string): Promise<v
  * The membership removals commit first; if setPersonStatusField fails the
  * memberships are already REMOVED (safe failure mode -- the executor can retry).
  *
+ * setPersonStatusField now ALSO removes any remaining ACTIVE memberships when it
+ * flips a person to OFFBOARDED (so the admin people page can offboard
+ * consistently). The explicit removal here runs first and stays: it removes the
+ * memberships atomically with the flag deletion and yields the exact
+ * removedMemberships count for the offboard.execute audit; by the time
+ * setPersonStatusField runs there is nothing left for it to remove.
+ *
  * Throws OffboardForbiddenError when actor lacks volunteers.manage_offboarding.
  */
 export async function executeOffboard(actorPersonId: string, personId: string): Promise<void> {

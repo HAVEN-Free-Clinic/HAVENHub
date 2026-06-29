@@ -49,77 +49,11 @@ describe("loadConfig", () => {
     const config = loadConfig(base);
     expect(config.HAVEN_MGMT_BASE_ID).toBe("appkxTQ19GmaHgW1O");
     expect(config.AIRTABLE_PAT).toBeUndefined();
-    expect(config.AIRTABLE_MIRROR_ENABLED).toBe(false);
   });
 
   it("defaults SU26_SCHEDULE_TABLE_ID to the known table id", () => {
     const config = loadConfig(base);
     expect(config.SU26_SCHEDULE_TABLE_ID).toBe("tblqJlM85Em0AA767");
-  });
-
-  it("requires mirror base/table and PAT when the mirror is enabled", () => {
-    expect(() =>
-      loadConfig({ ...base, AIRTABLE_MIRROR_ENABLED: "true" })
-    ).toThrowError(/AIRTABLE_MIRROR_BASE_ID/);
-  });
-
-  it("accepts a fully-configured enabled mirror", () => {
-    const config = loadConfig({
-      ...base,
-      AIRTABLE_MIRROR_ENABLED: "true",
-      AIRTABLE_PAT: "pat-x",
-      AIRTABLE_MIRROR_BASE_ID: "appSandbox1234567",
-      AIRTABLE_MIRROR_PEOPLE_TABLE_ID: "tblSandbox1234567",
-    });
-    expect(config.AIRTABLE_MIRROR_ENABLED).toBe(true);
-  });
-
-  it("rejects a bad AIRTABLE_MIRROR_FIELD_MAP when mirror is enabled", () => {
-    expect(() =>
-      loadConfig({
-        ...base,
-        AIRTABLE_MIRROR_ENABLED: "true",
-        AIRTABLE_PAT: "pat-x",
-        AIRTABLE_MIRROR_BASE_ID: "appSandbox1234567",
-        AIRTABLE_MIRROR_PEOPLE_TABLE_ID: "tblSandbox1234567",
-        AIRTABLE_MIRROR_FIELD_MAP: "not-valid-json",
-      })
-    ).toThrowError(/AIRTABLE_MIRROR_FIELD_MAP/);
-  });
-
-  it("rejects an AIRTABLE_MIRROR_FIELD_MAP missing required keys when mirror is enabled", () => {
-    expect(() =>
-      loadConfig({
-        ...base,
-        AIRTABLE_MIRROR_ENABLED: "true",
-        AIRTABLE_PAT: "pat-x",
-        AIRTABLE_MIRROR_BASE_ID: "appSandbox1234567",
-        AIRTABLE_MIRROR_PEOPLE_TABLE_ID: "tblSandbox1234567",
-        AIRTABLE_MIRROR_FIELD_MAP: JSON.stringify({ name: "fldA", netId: "fldB" }),
-      })
-    ).toThrowError(/AIRTABLE_MIRROR_FIELD_MAP/);
-  });
-
-  it("accepts a fully-configured enabled mirror with a valid field map", () => {
-    const fieldMap = {
-      name: "fldnyPNurTfUTCI3M",
-      netId: "fldzDXBuegWh43qBe",
-      contactEmail: "flddaZKIRSx3xoss3",
-      phone: "fldKV9uyerHHBr9VB",
-      epicId: "fldYAk27EVKbK9GZn",
-      yaleAffiliation: "fldcqbmdOvL1ZwXgH",
-      gradYear: "fldVjHtbPzhGXeH75",
-    };
-    const config = loadConfig({
-      ...base,
-      AIRTABLE_MIRROR_ENABLED: "true",
-      AIRTABLE_PAT: "pat-x",
-      AIRTABLE_MIRROR_BASE_ID: "appSandbox1234567",
-      AIRTABLE_MIRROR_PEOPLE_TABLE_ID: "tblSandbox1234567",
-      AIRTABLE_MIRROR_FIELD_MAP: JSON.stringify(fieldMap),
-    });
-    expect(config.AIRTABLE_MIRROR_ENABLED).toBe(true);
-    expect(config.AIRTABLE_MIRROR_FIELD_MAP).toBe(JSON.stringify(fieldMap));
   });
 
   // --- Upload config ---
@@ -200,63 +134,6 @@ describe("loadConfig", () => {
     expect(() =>
       loadConfig({ ...base, COMPLIANCE_ESCALATION_THRESHOLD: "-1" })
     ).toThrowError(/COMPLIANCE_ESCALATION_THRESHOLD/);
-  });
-
-  // --- Airtable HIPAA field ---
-
-  it("leaves AIRTABLE_MIRROR_HIPAA_FIELD_ID undefined when not set", () => {
-    const config = loadConfig(base);
-    expect(config.AIRTABLE_MIRROR_HIPAA_FIELD_ID).toBeUndefined();
-  });
-
-  it("accepts AIRTABLE_MIRROR_HIPAA_FIELD_ID when set", () => {
-    const config = loadConfig({
-      ...base,
-      AIRTABLE_MIRROR_HIPAA_FIELD_ID: "fldHipaaAbc123",
-    });
-    expect(config.AIRTABLE_MIRROR_HIPAA_FIELD_ID).toBe("fldHipaaAbc123");
-  });
-
-  it("does not require AIRTABLE_MIRROR_HIPAA_FIELD_ID when mirror is enabled", () => {
-    // The attachment push is optional and skips silently when the field id is unset.
-    const config = loadConfig({
-      ...base,
-      AIRTABLE_MIRROR_ENABLED: "true",
-      AIRTABLE_PAT: "pat-x",
-      AIRTABLE_MIRROR_BASE_ID: "appSandbox1234567",
-      AIRTABLE_MIRROR_PEOPLE_TABLE_ID: "tblSandbox1234567",
-    });
-    expect(config.AIRTABLE_MIRROR_ENABLED).toBe(true);
-    expect(config.AIRTABLE_MIRROR_HIPAA_FIELD_ID).toBeUndefined();
-  });
-
-  // --- Airtable HIPAA compliance status field ---
-
-  it("leaves AIRTABLE_MIRROR_STATUS_FIELD_ID undefined when not set", () => {
-    const config = loadConfig(base);
-    expect(config.AIRTABLE_MIRROR_STATUS_FIELD_ID).toBeUndefined();
-  });
-
-  it("accepts AIRTABLE_MIRROR_STATUS_FIELD_ID when set", () => {
-    const config = loadConfig({
-      ...base,
-      AIRTABLE_MIRROR_STATUS_FIELD_ID: "fldaDo5T6mhX9IHhb",
-    });
-    expect(config.AIRTABLE_MIRROR_STATUS_FIELD_ID).toBe("fldaDo5T6mhX9IHhb");
-  });
-
-  it("does not require AIRTABLE_MIRROR_STATUS_FIELD_ID when mirror is enabled", () => {
-    // The status mirror is optional and skips silently when the field id is unset
-    // (the sandbox base has no such field; the live smoke is deferred to cutover).
-    const config = loadConfig({
-      ...base,
-      AIRTABLE_MIRROR_ENABLED: "true",
-      AIRTABLE_PAT: "pat-x",
-      AIRTABLE_MIRROR_BASE_ID: "appSandbox1234567",
-      AIRTABLE_MIRROR_PEOPLE_TABLE_ID: "tblSandbox1234567",
-    });
-    expect(config.AIRTABLE_MIRROR_ENABLED).toBe(true);
-    expect(config.AIRTABLE_MIRROR_STATUS_FIELD_ID).toBeUndefined();
   });
 
   // --- RHD table IDs ---

@@ -5,6 +5,14 @@ export type ModuleStatus = "active" | "coming-soon";
 export type ModuleNavItem = {
   label: string;
   href: string;
+  /**
+   * Fine-grained permission the destination page enforces, when it requires
+   * more than the module's accessPermission. MUST mirror the page's own
+   * requirePermission(...) call so the nav never shows a tab that would bounce
+   * the viewer. Omit when the page gates on module access only (the tab is then
+   * shown to anyone who can enter the module).
+   */
+  permission?: string;
 };
 
 export type ModuleManifest = {

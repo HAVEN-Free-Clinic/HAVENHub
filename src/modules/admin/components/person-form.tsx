@@ -26,7 +26,9 @@ type PersonFormProps = {
     | "epicId"
     | "yaleAffiliation"
     | "gradYear"
-    | "spanishSpeaking"
+    | "spanishSelfReported"
+    | "spanishVerified"
+    | "spanishVerifiedAt"
     | "licensedRN"
   >;
   /** Error string to display (e.g. "netId already belongs to another person"). */
@@ -104,21 +106,37 @@ export function PersonForm({ action, person, error, saved, children }: PersonFor
         </Field>
       </div>
 
-      <div className="flex flex-wrap gap-6">
-        <label className="flex items-center gap-2 text-sm text-foreground-soft">
-          <Checkbox
-            name="spanishSpeaking"
-            defaultChecked={person?.spanishSpeaking ?? false}
-          />
-          Spanish-speaking
-        </label>
-        <label className="flex items-center gap-2 text-sm text-foreground-soft">
-          <Checkbox
-            name="licensedRN"
-            defaultChecked={person?.licensedRN ?? false}
-          />
-          Licensed RN
-        </label>
+      <div className="space-y-4">
+        <div className="flex flex-wrap gap-6">
+          <label className="flex items-center gap-2 text-sm text-foreground-soft">
+            <Checkbox
+              name="spanishSelfReported"
+              defaultChecked={person?.spanishSelfReported ?? false}
+            />
+            Spanish-speaking (self-reported)
+          </label>
+          <label className="flex items-center gap-2 text-sm text-foreground-soft">
+            <Checkbox
+              name="licensedRN"
+              defaultChecked={person?.licensedRN ?? false}
+            />
+            Licensed RN
+          </label>
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="flex items-center gap-2 text-sm text-foreground-soft">
+            <Checkbox
+              name="spanishVerified"
+              defaultChecked={person?.spanishVerified ?? false}
+            />
+            Spanish verified (interpreting dept)
+          </label>
+          {person?.spanishVerifiedAt && (
+            <p className="text-xs text-subtle-foreground">
+              Verified on {new Date(person.spanishVerifiedAt).toLocaleDateString()}
+            </p>
+          )}
+        </div>
       </div>
 
       <div className="flex items-center gap-3 pt-2">

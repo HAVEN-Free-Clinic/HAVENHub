@@ -7,7 +7,7 @@ import { config } from "@/platform/config";
 import { RecruitmentAuthError } from "./review";
 import {
   createOrResendContract, getContractByToken, submitContract, listOnboarding,
-  ContractError, ContractValidationError,
+  ContractError, ContractValidationError, type ContractSubmission,
 } from "./onboarding";
 
 /** submitContract streams HIPAA files to UPLOAD_DIR/onboarding/<contractId>/.
@@ -119,7 +119,7 @@ describe("submitContract HIPAA date validation", () => {
     return { token: c.token };
   }
 
-  const base = {
+  const base: Omit<ContractSubmission, "hipaaCompletedAt" | "hipaaFile"> = {
     firstName: "A", lastName: "B", email: "a@b.com",
     agreementSignature: "A B", professionalismSignature: "A B",
     trainingSignature: "A B", initials: "AB",
@@ -130,7 +130,7 @@ describe("submitContract HIPAA date validation", () => {
     const { token } = await pendingContract();
     const nextYear = new Date().getUTCFullYear() + 1;
     await expect(
-      submitContract(token, { ...base, hipaaCompletedAt: `${nextYear}-01-01` } as any),
+      submitContract(token, { ...base, hipaaCompletedAt: `${nextYear}-01-01` }),
     ).rejects.toMatchObject({ fieldErrors: { hipaaCompletedAt: expect.any(String) } });
   });
 
@@ -138,21 +138,21 @@ describe("submitContract HIPAA date validation", () => {
     const { token } = await pendingContract();
     const old = new Date().getUTCFullYear() - 6;
     await expect(
-      submitContract(token, { ...base, hipaaCompletedAt: `${old}-01-01` } as any),
+      submitContract(token, { ...base, hipaaCompletedAt: `${old}-01-01` }),
     ).rejects.toBeInstanceOf(ContractValidationError);
   });
 
   it("rejects a malformed date", async () => {
     const { token } = await pendingContract();
     await expect(
-      submitContract(token, { ...base, hipaaCompletedAt: "06/01/2025" } as any),
+      submitContract(token, { ...base, hipaaCompletedAt: "06/01/2025" }),
     ).rejects.toBeInstanceOf(ContractValidationError);
   });
 
   it("stores a valid date normalized to noon UTC", async () => {
     const { token } = await pendingContract();
     const yyyy = new Date().getUTCFullYear() - 1;
-    const updated = await submitContract(token, { ...base, hipaaCompletedAt: `${yyyy}-06-01` } as any);
+    const updated = await submitContract(token, { ...base, hipaaCompletedAt: `${yyyy}-06-01` });
     expect(updated.hipaaCompletedAt?.toISOString()).toBe(`${yyyy}-06-01T12:00:00.000Z`);
   });
 });

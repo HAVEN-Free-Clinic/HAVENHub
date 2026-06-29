@@ -26,8 +26,8 @@
  * Because this runs every minute, an email queued "right now" goes out within
  * ~60s, and a scheduled campaign fires within ~60s of its time. To avoid the
  * double-send that two concurrent drains would cause (drainEmailQueue assumes a
- * single drainer -- no SELECT FOR UPDATE SKIP LOCKED), the daily nightly and
- * reminders crons no longer drain email, and only one external scheduler may
+ * single drainer -- no SELECT FOR UPDATE SKIP LOCKED), the daily reminders cron
+ * no longer drains email, and only one external scheduler may
  * call this route; this route owns delivery.
  */
 import { authorizeCron } from "@/platform/cron";

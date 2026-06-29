@@ -525,6 +525,17 @@ export async function upsertRhdClinic(
 // builderView types
 // ---------------------------------------------------------------------------
 
+/** Scheduling preferences a member gave during training intake (training quiz).
+ *  Surfaced to directors in the builder; never auto-applied to capacity math. */
+export type BuilderMemberIntake = {
+  /** Minimum shifts the member wants this term (free text, e.g. "4"). */
+  minShiftsWanted: string | null;
+  /** Free-text availability beyond their checked dates. */
+  additionalShiftAvailability: string | null;
+  /** Free-text note the member addressed to the directors. */
+  feedback: string | null;
+};
+
 export type BuilderMember = {
   membershipId: string;
   person: { id: string; name: string; spanishVerified: boolean; licensedRN: boolean };
@@ -533,6 +544,7 @@ export type BuilderMember = {
   overrideActive: boolean;
   acknowledgePending: boolean;
   legacyNote: string | null;
+  intake: BuilderMemberIntake;
 };
 
 export type BuilderAssignmentEntry = {
@@ -710,6 +722,24 @@ export async function builderView(
     };
   }
 
+  // Load each member's training intake (scheduling preferences from the training
+  // quiz), keyed by personId:track. A member's track is their membership kind, so
+  // a VOLUNTEER-kind member only ever shows VOLUNTEER-track intake.
+  const memberPersonIds = members.map((m) => m.person.id);
+  const trainingRows = memberPersonIds.length
+    ? await prisma.training.findMany({
+        where: { termId: term.id, personId: { in: memberPersonIds } },
+        select: {
+          personId: true,
+          track: true,
+          minShiftsWanted: true,
+          additionalShiftAvailability: true,
+          feedback: true,
+        },
+      })
+    : [];
+  const intakeByKey = new Map(trainingRows.map((t) => [`${t.personId}:${t.track}`, t]));
+
   // Build members list.
   const builderMembers: BuilderMember[] = members.map((m) => {
     const availability = resolveAvailability({
@@ -719,6 +749,8 @@ export async function builderView(
       directorDates: m.directorAvailabilityDates,
       directorSetAt: m.directorAvailabilitySetAt,
     });
+
+    const intakeRow = intakeByKey.get(`${m.person.id}:${m.kind}`);
 
     return {
       membershipId: m.id,
@@ -734,6 +766,11 @@ export async function builderView(
       acknowledgePending:
         m.availabilityUpdatedAt !== null && m.availabilityAcknowledgedAt === null,
       legacyNote: m.selfUpdatedAvailability ?? null,
+      intake: {
+        minShiftsWanted: intakeRow?.minShiftsWanted ?? null,
+        additionalShiftAvailability: intakeRow?.additionalShiftAvailability ?? null,
+        feedback: intakeRow?.feedback ?? null,
+      },
     };
   });
 

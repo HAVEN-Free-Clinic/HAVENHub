@@ -91,16 +91,16 @@ export function ClearanceCard({
     <div className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
       {/* Status banner */}
       {cleared ? (
-        <div className="flex items-center gap-4 border-b border-green-200 bg-green-50 px-5 py-4">
+        <div className="flex items-center gap-4 border-b border-border bg-muted px-5 py-4">
           <span className="grid h-12 w-12 shrink-0 place-items-center rounded-[13px] bg-success text-white">
             <ShieldCheck aria-hidden className="h-6 w-6" />
           </span>
           <div className="min-w-0">
             <p className="text-xs font-bold uppercase tracking-wider text-success">Cleared</p>
-            <p className="mt-0.5 text-[17px] font-bold tracking-tight text-slate-800">
+            <p className="mt-0.5 text-[17px] font-bold tracking-tight text-foreground">
               You&apos;re cleared to volunteer{forTerm}
             </p>
-            <p className="mt-0.5 text-[13px] leading-snug text-slate-700">
+            <p className="mt-0.5 text-[13px] leading-snug text-foreground-soft">
               {trainings.length > 0
                 ? "Your HIPAA certificate and training are on file, so you can be scheduled for shifts."
                 : "Your HIPAA certificate is on file, so you can be scheduled for shifts."}
@@ -108,16 +108,16 @@ export function ClearanceCard({
           </div>
         </div>
       ) : (
-        <div className="flex items-center gap-4 border-b border-amber-200 bg-amber-50 px-5 py-4">
-          <span className="grid h-12 w-12 shrink-0 place-items-center rounded-[13px] border border-amber-300 bg-white text-warning">
+        <div className="flex items-center gap-4 border-b border-border bg-muted px-5 py-4">
+          <span className="grid h-12 w-12 shrink-0 place-items-center rounded-[13px] bg-warning text-white">
             <AlertTriangle aria-hidden className="h-6 w-6" />
           </span>
           <div className="min-w-0">
             <p className="text-xs font-bold uppercase tracking-wider text-warning">Not yet cleared</p>
-            <p className="mt-0.5 text-[17px] font-bold tracking-tight text-slate-800">
+            <p className="mt-0.5 text-[17px] font-bold tracking-tight text-foreground">
               A few steps left{forTerm}
             </p>
-            <p className="mt-0.5 text-[13px] leading-snug text-slate-700">
+            <p className="mt-0.5 text-[13px] leading-snug text-foreground-soft">
               Finish the unchecked items below to be cleared for shifts.
             </p>
           </div>

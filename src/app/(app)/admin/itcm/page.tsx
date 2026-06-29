@@ -50,9 +50,9 @@ export default async function ItcmPage() {
           </div>
 
           {overdueCount > 0 && (
-            <div className="mt-6 flex items-center gap-3 rounded-xl border border-critical/20 bg-red-50 px-5 py-4">
+            <div className="mt-6 flex items-center gap-3 rounded-xl border border-border bg-surface px-5 py-4">
               <AlertTriangle className="h-5 w-5 text-critical shrink-0" aria-hidden />
-              <p className="text-sm font-medium text-critical">
+              <p className="text-sm font-medium text-foreground">
                 {overdueCount} {overdueCount === 1 ? "request has" : "requests have"} been open for more than 7 business days — follow up with the YNHH helpdesk.
               </p>
             </div>

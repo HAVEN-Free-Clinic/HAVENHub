@@ -6,6 +6,7 @@ import { Check, FileText, RotateCcw, ClipboardList } from "lucide-react";
 import type { TrainingTrack } from "@prisma/client";
 import { gradeQuizAction, type QuizActionResult } from "./actions";
 import type { MyTraining } from "@/modules/recruitment/services/training";
+import { Alert } from "@/platform/ui/alert";
 
 type Question = MyTraining["questions"][number];
 
@@ -85,13 +86,13 @@ export function TrainingQuiz({
     <form ref={formRef} onSubmit={handleSubmit}>
       {/* Fail result banner (pass/lock refresh the page instead) */}
       {graded && !graded.passed && (
-        <div className="mb-5 flex items-center gap-4 rounded-2xl border border-amber-300 bg-amber-50 p-5">
+        <div className="mb-5 flex items-center gap-4 rounded-2xl border border-border bg-surface p-5">
           <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-warning text-white">
             <RotateCcw aria-hidden className="h-5 w-5" />
           </span>
           <div>
-            <p className="text-[15px] font-bold text-warning">You scored {graded.percent}%</p>
-            <p className="mt-0.5 text-[13px] text-amber-900/80">
+            <p className="text-[15px] font-bold text-foreground">You scored {graded.percent}%</p>
+            <p className="mt-0.5 text-[13px] text-foreground-soft">
               You need {passPercent}% to pass. {attemptsLeft} attempt{attemptsLeft === 1 ? "" : "s"} left — review the
               highlighted answers and try again.
             </p>
@@ -100,9 +101,9 @@ export function TrainingQuiz({
       )}
 
       {error && (
-        <p role="alert" className="mb-5 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <Alert tone="error" className="mb-5">
           {error}
-        </p>
+        </Alert>
       )}
 
       {/* Quiz card */}

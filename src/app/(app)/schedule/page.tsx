@@ -23,7 +23,7 @@ import {
 } from "@/modules/schedule/services/requests";
 import { isoDateKey } from "@/modules/schedule/engine/map";
 import { displayDate } from "@/modules/schedule/engine/display";
-import { CheckCircle2, Clock } from "lucide-react";
+import { Clock } from "lucide-react";
 
 function fmtDate(d: Date | null | undefined): string {
   if (!d) return "-";
@@ -159,14 +159,12 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
         </Alert>
       )}
       {saved && (
-        <Alert tone="success" className="mb-6 flex items-center gap-2 font-medium">
-          <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden />
+        <Alert tone="success" className="mb-6 font-medium">
           Availability saved successfully.
         </Alert>
       )}
       {requested && (
-        <Alert tone="success" className="mb-6 flex items-center gap-2 font-medium">
-          <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden />
+        <Alert tone="success" className="mb-6 font-medium">
           Change request submitted. Your director will review it.
         </Alert>
       )}
@@ -213,9 +211,9 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
 
                         <div className="mt-2">
                           {pendingReq ? (
-                            <div className="flex flex-wrap items-center gap-3 rounded-xl bg-amber-50 border border-warning/30 px-3 py-2">
-                              <p className="text-sm text-warning flex-1 flex items-center gap-1.5">
-                                <Clock className="h-4 w-4 shrink-0" aria-hidden />
+                            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-muted px-3 py-2">
+                              <p className="text-sm text-foreground-soft flex-1 flex items-center gap-1.5">
+                                <Clock className="h-4 w-4 shrink-0 text-warning" aria-hidden />
                                 Change requested:{" "}
                                 {pendingReq.targetId
                                   ? `swap with ${pendingReq.target?.name ?? "unknown"} (${pendingReq.targetDate ? displayDate(isoDateKey(pendingReq.targetDate)) : "?"})`

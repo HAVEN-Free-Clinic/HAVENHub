@@ -422,7 +422,7 @@ export default async function HubPage() {
                 >
                   <span
                     className={`grid h-7 w-7 shrink-0 place-items-center rounded-lg ${
-                      line.ok ? "bg-green-50 text-success" : "bg-amber-50 text-warning"
+                      line.ok ? "bg-success text-white" : "bg-warning text-white"
                     }`}
                   >
                     {line.ok ? (

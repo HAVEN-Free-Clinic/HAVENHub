@@ -245,7 +245,7 @@ export async function AssignmentForm({
                   ) : a.kind ? (
                     <span className="flex items-center gap-2">
                       <Badge tone="brand">
-                        {a.kind === "DIRECTOR" ? "All Directors" : "All Volunteers"}
+                        {({ DIRECTOR: "All Directors", VOLUNTEER: "All Volunteers" } as const)[a.kind] ?? "Unknown"}
                       </Badge>
                     </span>
                   ) : (
@@ -397,7 +397,7 @@ export async function AssignmentForm({
       <Card className="space-y-4">
         <h3 className="text-sm font-semibold text-foreground-soft">Assign role to all members of a kind</h3>
         <p className="text-sm text-subtle-foreground">
-          Applies to every active member of the chosen kind in the selected term, including members added later.
+          Applies to every active member of the chosen kind in the selected term (or every term, if Global), including members added later.
         </p>
         <form action={assignKindAction} className="flex flex-wrap items-end gap-3">
           <Field label="Members">

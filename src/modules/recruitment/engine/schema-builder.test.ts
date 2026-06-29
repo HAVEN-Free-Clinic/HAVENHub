@@ -82,3 +82,16 @@ describe("requiredFileKeys", () => {
     expect(requiredFileKeys(withFiles, ctx)).toEqual(["resume"]); // MDIC not chosen
   });
 });
+
+it("excludes SUBCOMMITTEE_RANK from the generated scalar schema (handled in submissions)", () => {
+  const sections = [{
+    id: "s1", appliesTo: "BOTH" as const, departmentCode: null,
+    fields: [
+      { key: "subs", type: "SUBCOMMITTEE_RANK" as const, required: true, options: null, validation: { rankCount: 3 } },
+      { key: "name", type: "SHORT_TEXT" as const, required: true, options: null, validation: null },
+    ],
+  }];
+  const schema = buildApplicationSchema(sections, { applicantType: "NEW", selectedDepartmentCodes: [] });
+  const parsed = schema.parse({ name: "Ann" }); // no `subs` key needed
+  expect(parsed).toEqual({ name: "Ann" });
+});

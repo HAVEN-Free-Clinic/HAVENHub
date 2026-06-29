@@ -25,6 +25,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import {
   builderView,
+  canManageAnyScheduleDept,
   setAssignment,
   toggleTag,
   setAvailabilityOverride,
@@ -34,11 +35,13 @@ import {
   BuilderForbiddenError,
   BuilderValidationError,
 } from "@/modules/schedule/services/builder";
+import type { BuilderMemberIntake } from "@/modules/schedule/services/builder";
 import { createAttending, AttendingValidationError, AttendingForbiddenError } from "@/modules/schedule/services/attendings";
 import {
   listDepartmentRequests,
   approveRequest,
   denyRequest,
+  canManageRequestsForDept,
   RequestForbiddenError,
   RequestNotFoundError,
   RequestValidationError,
@@ -102,6 +105,11 @@ function buildHref(base: string, p: HrefParams): string {
 
 export default async function BuilderPage({ searchParams }: PageProps) {
   const session = await requireModuleAccess("schedule");
+  // The Builder is a management tool: only people who manage a schedule
+  // department (directorship, delegation, or schedule.edit_all) can do anything
+  // here. Plain schedule.view holders are sent to /no-access rather than shown
+  // an empty, do-nothing builder. Mutations are still scope-checked server-side.
+  if (!(await canManageAnyScheduleDept(session.personId))) redirect("/no-access");
   const sp = await searchParams;
 
   const deptParam = sp.dept ?? undefined;
@@ -137,7 +145,10 @@ export default async function BuilderPage({ searchParams }: PageProps) {
   const { selectedDepartment, clinicDates, selectedDateKey, currentClinicDateKey, members, assignmentsByDate, conflicts } = data;
   const dept = selectedDepartment!;
 
-  const requestRows = await listDepartmentRequests(session.personId, dept.id);
+  const canManageRequests = await canManageRequestsForDept(session.personId, dept.id);
+  const requestRows = canManageRequests
+    ? await listDepartmentRequests(session.personId, dept.id)
+    : [];
 
   function href(overrides: HrefParams): string {
     return buildHref("/schedule/builder", {
@@ -415,11 +426,11 @@ export default async function BuilderPage({ searchParams }: PageProps) {
       })
     : null;
 
-  function flagBadges(person: { spanishSpeaking: boolean; licensedRN: boolean }) {
-    if (!person.spanishSpeaking && !person.licensedRN) return null;
+  function flagBadges(person: { spanishVerified: boolean; licensedRN: boolean }) {
+    if (!person.spanishVerified && !person.licensedRN) return null;
     return (
       <>
-        {person.spanishSpeaking && <Badge tone="default">ES</Badge>}
+        {person.spanishVerified && <Badge tone="default">ES</Badge>}
         {person.licensedRN && <Badge tone="default">RN</Badge>}
       </>
     );
@@ -479,6 +490,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
             variant="assign"
           />
         </div>
+        <IntakeNotes intake={member.intake} onLightTint={available} />
       </div>
     );
   }
@@ -809,15 +821,64 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                   dateKey={selectedDateKey!}
                 />
               )}
-              <PendingRequests
-                rows={requestRows}
-                approveAction={approveRequestAction}
-                denyAction={denyRequestAction}
-              />
+              {canManageRequests && (
+                <PendingRequests
+                  rows={requestRows}
+                  approveAction={approveRequestAction}
+                  denyAction={denyRequestAction}
+                />
+              )}
             </div>
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Training-intake notes
+// ---------------------------------------------------------------------------
+
+/**
+ * Renders the scheduling preferences a member gave during training intake so
+ * directors can use them while building. Returns null when the member left
+ * everything blank. `onLightTint` switches to fixed slate colors for the green
+ * "available" assign card, which does not flip with the theme.
+ */
+function IntakeNotes({
+  intake,
+  onLightTint = false,
+  className = "",
+}: {
+  intake: BuilderMemberIntake;
+  onLightTint?: boolean;
+  className?: string;
+}) {
+  const { minShiftsWanted, additionalShiftAvailability, feedback } = intake;
+  if (!minShiftsWanted && !additionalShiftAvailability && !feedback) return null;
+
+  const border = onLightTint ? "border-success/20" : "border-border";
+  const body = onLightTint ? "text-slate-600" : "text-muted-foreground";
+  const label = onLightTint ? "text-slate-700" : "text-foreground";
+
+  return (
+    <div className={`mt-2 space-y-0.5 border-t ${border} pt-2 text-xs ${body} ${className}`}>
+      {minShiftsWanted && (
+        <p>
+          <span className={`font-semibold ${label}`}>Wants</span> {minShiftsWanted}+ shifts this term
+        </p>
+      )}
+      {additionalShiftAvailability && (
+        <p>
+          <span className={`font-semibold ${label}`}>Availability:</span> {additionalShiftAvailability}
+        </p>
+      )}
+      {feedback && (
+        <p>
+          <span className={`font-semibold ${label}`}>Note to directors:</span> {feedback}
+        </p>
+      )}
     </div>
   );
 }
@@ -876,6 +937,7 @@ function AvailabilityView({
             {member.legacyNote && (
               <p className="mb-3 text-xs text-subtle-foreground italic">{member.legacyNote}</p>
             )}
+            <IntakeNotes intake={member.intake} className="mb-3" />
             <form action={saveOverrideAction} className="mb-2">
               <input type="hidden" name="membershipId" value={member.membershipId} />
               <div className="flex flex-wrap gap-2 mb-3">

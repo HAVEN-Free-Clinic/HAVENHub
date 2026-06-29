@@ -29,8 +29,6 @@ export default async function AdminOverviewPage() {
     activeMembershipCount,
     roleCount,
     recentAuditCount,
-    outboxPendingCount,
-    outboxFailedCount,
     emailCounts,
   ] = await Promise.all([
     prisma.person.count({ where: { status: "ACTIVE" } }),
@@ -42,8 +40,6 @@ export default async function AdminOverviewPage() {
       : Promise.resolve(0),
     prisma.role.count(),
     prisma.auditLog.count({ where: { createdAt: { gte: sevenDaysAgo } } }),
-    prisma.outbox.count({ where: { status: "PENDING" } }),
-    prisma.outbox.count({ where: { status: "FAILED" } }),
     emailHealthCounts(),
   ]);
 
@@ -51,15 +47,15 @@ export default async function AdminOverviewPage() {
     { label: "People", href: "/admin/people" },
     { label: "Terms", href: "/admin/terms" },
     { label: "Roles", href: "/admin/roles" },
+    { label: "Subcommittees", href: "/admin/subcommittees" },
     { label: "Audit", href: "/admin/audit" },
-    { label: "Sync", href: "/admin/sync" },
   ];
 
   return (
     <div>
       <PageHeader
         title="Admin"
-        description={`${appName} operations: people, terms, roles, audit, and sync.`}
+        description={`${appName} operations: people, terms, roles, and audit.`}
         action={
           <div className="flex flex-wrap gap-2">
             {quickLinks.map((ql) => (
@@ -100,11 +96,6 @@ export default async function AdminOverviewPage() {
           label="Audit Events (7 days)"
           value={recentAuditCount}
           href="/admin/audit"
-        />
-        <StatCard
-          label={`Outbox (${outboxPendingCount} pending, ${outboxFailedCount} failed)`}
-          value={outboxPendingCount + outboxFailedCount}
-          href="/admin/sync"
         />
         <StatCard
           label={`Email (${emailCounts.queued} queued, ${emailCounts.failed} failed)`}

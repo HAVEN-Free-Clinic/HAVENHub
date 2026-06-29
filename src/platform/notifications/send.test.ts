@@ -102,6 +102,68 @@ describe("drainTeamsQueue", () => {
     expect(after?.lastError).toContain("not delivered");
   });
 
+  // -------------------------------------------------------------------------
+  // Issue #63: a single drain invocation must attempt each QUEUED row at most
+  // once, even when the backlog exceeds one batch and every send fails. The
+  // cron loop previously re-attempted requeued rows pass after pass within one
+  // tick, burning the retry budget.
+  // -------------------------------------------------------------------------
+
+  it("attempts each queued message at most once per invocation when every send fails", async () => {
+    // 27 rows > the default batch of 25 to exercise keyset paging.
+    for (let i = 0; i < 27; i++) {
+      const p = await prisma.person.create({
+        data: { name: `P${i}`, contactEmail: `p${i}@x.com`, entraObjectId: `e${i}` },
+      });
+      const row = await queueTeamsMessage(prisma, { personId: p.id, ...baseInput });
+      await prisma.teamsMessage.update({
+        where: { id: row.id },
+        data: { createdAt: new Date(Date.now() + i * 1000) },
+      });
+    }
+    const send = vi.fn().mockRejectedValue(new Error("graph 500"));
+    const transport: TeamsTransport = { send };
+
+    await drainTeamsQueue(transport);
+
+    // Every row attempted exactly once: one send call each, attempts == 1, all
+    // requeued (none prematurely escalated to FALLBACK).
+    expect(send).toHaveBeenCalledTimes(27);
+    const rows = await prisma.teamsMessage.findMany();
+    expect(rows).toHaveLength(27);
+    for (const row of rows) {
+      expect(row.attempts).toBe(1);
+      expect(row.status).toBe("QUEUED");
+    }
+  });
+
+  // Issue #74: a "both" Teams message records that its email was already queued
+  // up front. On permanent failure the drain must NOT queue the fallback again,
+  // and lastError must not claim the message was undelivered (it was, by email).
+  it("skips the fallback email on permanent failure when emailAlreadyQueued is set", async () => {
+    const p = await prisma.person.create({
+      data: { name: "Sam", contactEmail: "sam@x.com", entraObjectId: "e1" },
+    });
+    const row = await queueTeamsMessage(prisma, {
+      personId: p.id,
+      ...baseInput,
+      emailAlreadyQueued: true,
+    });
+    await prisma.teamsMessage.update({
+      where: { id: row.id },
+      data: { attempts: TEAMS_MAX_ATTEMPTS - 1 },
+    });
+    const transport: TeamsTransport = {
+      send: vi.fn().mockRejectedValue(new Error("graph 500")),
+    };
+    await drainTeamsQueue(transport);
+    const after = await prisma.teamsMessage.findUnique({ where: { id: row.id } });
+    expect(after?.status).toBe("FALLBACK");
+    // No duplicate email, and the error is the raw Teams failure (not "not delivered").
+    expect(await prisma.emailLog.count({ where: { personId: p.id } })).toBe(0);
+    expect(after?.lastError).toBe("graph 500");
+  });
+
   it("falls back to email when a send fails permanently", async () => {
     const p = await prisma.person.create({
       data: { name: "Sam", contactEmail: "sam@x.com", entraObjectId: "e1" },

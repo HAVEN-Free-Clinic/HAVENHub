@@ -22,12 +22,12 @@ import { cache } from "react";
 import type { HipaaCertificate } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
-import { enqueueMirror } from "@/platform/outbox";
 import { updatePersonFields } from "@/platform/people";
 import { getSetting } from "@/platform/settings/service";
 import { putObject } from "@/platform/storage";
 import { extractCompletionDate } from "@/platform/compliance/parser";
 import type { ParsedDate } from "@/platform/compliance/parser";
+import { notifyDatelessCertReview } from "@/platform/compliance/review-notifications";
 
 // ---------------------------------------------------------------------------
 // Typed error
@@ -221,10 +221,13 @@ type ParseFn = (bytes: Buffer) => Promise<ParsedDate | null>;
  *   1. Validate (mime, extension, size)
  *   2. For PDF files: attempt to parse the completion date from the bytes
  *      (try/catch -- parser errors do NOT fail the upload; result -> NONE)
- *   3. prisma.$transaction: create HipaaCertificate row + enqueueMirror
+ *   3. prisma.$transaction: create HipaaCertificate row
  *   4. AFTER commit: write bytes to UPLOAD_DIR/<cert.id>.pdf
- *   5. If disk write fails: delete the cert row (and its outbox row) and rethrow
+ *   5. If disk write fails: delete the cert row and rethrow
  *   6. Audit my-info.certificate_upload (fileName + size only; never bytes)
+ *   7. If no completion date was parsed, alert compliance managers so the
+ *      manual-verification queue is driven -- the member cannot set the date
+ *      themselves. Deduped: a re-upload into an already-pending state is silent.
  *
  * @param parse - Optional injected parser function (defaults to extractCompletionDate).
  *   Passed by tests to avoid real PDF I/O. Public call sites leave this undefined.
@@ -263,7 +266,20 @@ export async function saveCertificate(
     }
   }
 
-  // --- 3. Transaction: create row + enqueue mirror ---
+  // Dedup signal for the review notification (step 7): capture whether the
+  // member's CURRENT newest cert is already dateless BEFORE inserting the new
+  // row. A re-upload that re-fails parsing must not re-alert compliance managers.
+  const alreadyPending =
+    parsedDate === null &&
+    (
+      await prisma.hipaaCertificate.findFirst({
+        where: { personId },
+        orderBy: { uploadedAt: "desc" },
+        select: { completionDate: true },
+      })
+    )?.completionDate === null;
+
+  // --- 3. Transaction: create the certificate row ---
   const cert = await prisma.$transaction(async (tx) => {
     // The storedName is derived from the cert id; we need the id first.
     // Generate a placeholder and then derive; Prisma uses cuid by default.
@@ -289,46 +305,23 @@ export async function saveCertificate(
       data: { storedName },
     });
 
-    await enqueueMirror(tx, {
-      entityType: "HipaaCertificate",
-      entityId: updated.id,
-      changedFields: [],
-    });
-
-    // Enqueue a Person row so the drain recomputes the freshest hipaaStatus on
-    // the next drain cycle instead of waiting for the nightly refresh. Without
-    // this, a member who renews would stay "Not Compliant" in Airtable until
-    // the overnight job runs.
-    await enqueueMirror(tx, {
-      entityType: "Person",
-      entityId: personId,
-      changedFields: ["hipaaStatus"],
-    });
-
     return updated;
   });
 
-  // --- 3. Write bytes to storage (after tx commits) ---
+  // --- 4. Write bytes to storage (after tx commits) ---
   try {
     await putObject(cert.storedName, file.bytes, file.type);
   } catch (err) {
-    // --- 4. Storage write failed: clean up the DB row and its outbox row ---
-    // The outbox row was created in the transaction above; delete it too so the
-    // drain worker cannot pick up a cert row that has no file on disk.
+    // --- 5. Storage write failed: clean up the DB row so it is not orphaned ---
     try {
-      await prisma.$transaction([
-        prisma.outbox.deleteMany({
-          where: { entityType: "HipaaCertificate", entityId: cert.id },
-        }),
-        prisma.hipaaCertificate.delete({ where: { id: cert.id } }),
-      ]);
+      await prisma.hipaaCertificate.delete({ where: { id: cert.id } });
     } catch (cleanupErr) {
       console.error("[my-info] failed to clean up cert row after disk error", cert.id, cleanupErr);
     }
     throw err;
   }
 
-  // --- 5. Audit (fileName + size; never bytes) ---
+  // --- 6. Audit (fileName + size; never bytes) ---
   await recordAudit({
     actorPersonId: personId,
     action: "my-info.certificate_upload",
@@ -336,6 +329,21 @@ export async function saveCertificate(
     entityId: cert.id,
     after: { fileName: cert.fileName, size: cert.size },
   });
+
+  // --- 7. Dateless cert: alert compliance managers (the member cannot self-fix) ---
+  // The cert is already durably saved and audited; a notification hiccup must
+  // not surface to the member as a failed upload, so failures are logged only.
+  if (parsedDate === null && !alreadyPending) {
+    try {
+      const owner = await prisma.person.findUnique({
+        where: { id: personId },
+        select: { name: true },
+      });
+      await notifyDatelessCertReview(prisma, { id: personId, name: owner?.name ?? "A volunteer" });
+    } catch (err) {
+      console.error("[my-info] failed to notify compliance managers of dateless cert", cert.id, err);
+    }
+  }
 
   return cert;
 }

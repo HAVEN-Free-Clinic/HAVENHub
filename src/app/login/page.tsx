@@ -4,6 +4,7 @@ import { AuthError } from "next-auth";
 import { auth, signIn } from "@/platform/auth/auth";
 import { config } from "@/platform/config";
 import { getSetting } from "@/platform/settings/service";
+import { getOrgIdentity, formatOrgLine } from "@/platform/branding/org";
 import { HavenLogo } from "@/platform/ui/haven-logo";
 import { SignInButton } from "./sign-in-button";
 
@@ -38,7 +39,10 @@ export default async function LoginPage({
   }
   const session = await auth();
   if (session?.personId) redirect(safeCallbackUrl);
-  const appName = await getSetting<string>("branding.appName");
+  const [appName, org] = await Promise.all([
+    getSetting<string>("branding.appName"),
+    getOrgIdentity(),
+  ]);
   const errorMessage = error ? (ERROR_MESSAGES[error] ?? DEFAULT_ERROR) : null;
 
   return (
@@ -75,7 +79,7 @@ export default async function LoginPage({
           <p className="mt-2 text-sm text-white/80">
             Scheduling, volunteer management, and compliance in one place.
           </p>
-          <p className="mt-8 text-xs text-white/70">HAVEN Free Clinic · Yale University</p>
+          <p className="mt-8 text-xs text-white/70">{formatOrgLine(org)}</p>
         </div>
       </div>
 
@@ -83,7 +87,7 @@ export default async function LoginPage({
       <div className="flex flex-col gap-1.5 bg-brand px-6 py-5 text-white lg:hidden">
         <HavenLogo className="h-9 text-white" />
         <p className="text-sm text-white/80">
-          Scheduling, volunteering, and compliance for HAVEN Free Clinic.
+          Scheduling, volunteering, and compliance for {org.name}.
         </p>
       </div>
 

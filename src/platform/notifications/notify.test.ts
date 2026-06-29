@@ -3,6 +3,8 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import { notify } from "./notify";
+import { drainTeamsQueue, TEAMS_MAX_ATTEMPTS } from "./send";
+import type { TeamsTransport } from "./teams-transport";
 import * as channel from "./channel";
 
 const email = { subject: "Subj", html: "<p>email</p>" };
@@ -47,6 +49,34 @@ describe("notify", () => {
     expect(await prisma.emailLog.count()).toBe(1);
     expect(await prisma.teamsMessage.count()).toBe(1);
     expect(await prisma.notification.count({ where: { personId: p.id } })).toBe(1);
+  });
+
+  // Issue #74: for channel "both" notify() queues the email up front AND a Teams
+  // message carrying the same content as the email fallback. If Teams then fails
+  // permanently the drain must NOT queue the fallback email again -- the recipient
+  // already got it. Only channel "teams" (no up-front email) should fall back.
+  it("channel=both does not double-send the email when Teams fails permanently", async () => {
+    vi.spyOn(channel, "resolveChannel").mockResolvedValue("both");
+    const p = await makePerson({ entraObjectId: "e1", contactEmail: "sam@x.com" });
+    await notify(prisma, { type: "epic-onboarding", person: p, email, teams });
+    // notify queued exactly one email up front and one Teams message.
+    expect(await prisma.emailLog.count({ where: { personId: p.id } })).toBe(1);
+
+    // Drive the Teams message to its final attempt, then fail permanently.
+    const tm = await prisma.teamsMessage.findFirstOrThrow({ where: { personId: p.id } });
+    await prisma.teamsMessage.update({
+      where: { id: tm.id },
+      data: { attempts: TEAMS_MAX_ATTEMPTS - 1 },
+    });
+    const transport: TeamsTransport = {
+      send: vi.fn().mockRejectedValue(new Error("graph 500")),
+    };
+    await drainTeamsQueue(transport);
+
+    // Still exactly one email: the permanent-failure fallback was suppressed.
+    expect(await prisma.emailLog.count({ where: { personId: p.id } })).toBe(1);
+    const after = await prisma.teamsMessage.findUnique({ where: { id: tm.id } });
+    expect(after?.status).toBe("FALLBACK");
   });
 
   it("channel=teams with no identity falls back to email at queue time", async () => {

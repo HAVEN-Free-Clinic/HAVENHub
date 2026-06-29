@@ -1,6 +1,6 @@
 import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
-import { coursesForMember, type AssignableCourse } from "../engine/assignment";
+import { coursesForMember, type AssignableCourse, type MemberMembership } from "../engine/assignment";
 import { deriveStatus, rollupStatus } from "../engine/status";
 import type { ScoEntry } from "../engine/manifest";
 import { LearningAuthError } from "./errors";
@@ -11,31 +11,33 @@ async function activeTermId(): Promise<string | null> {
   return term?.id ?? null;
 }
 
-/** Department ids the person is an active volunteer of in the active term. */
-async function memberDepartmentIds(personId: string, termId: string): Promise<string[]> {
+/** The member's active memberships in the active term: department + kind. */
+async function memberMemberships(personId: string, termId: string): Promise<MemberMembership[]> {
   const memberships = await prisma.termMembership.findMany({
     where: { personId, termId, status: "ACTIVE" },
-    select: { departmentId: true },
+    select: { departmentId: true, kind: true },
   });
-  return memberships.map((m) => m.departmentId);
+  return memberships.map((m) => ({ departmentId: m.departmentId, kind: m.kind }));
 }
 
 /** Resolve the active-course ids assigned to this person right now. */
 async function assignedCourseIds(personId: string): Promise<string[]> {
   const termId = await activeTermId();
   if (!termId) return [];
-  const memberDepts = await memberDepartmentIds(personId, termId);
+  const memberships = await memberMemberships(personId, termId);
   const courses = await prisma.course.findMany({
     where: { isActive: true },
-    select: { id: true, isActive: true, assignToAll: true, departments: { select: { departmentId: true } } },
+    select: { id: true, isActive: true, assignToAll: true, audience: true, scormEntryHref: true, departments: { select: { departmentId: true } } },
   });
   const assignable: AssignableCourse[] = courses.map((c) => ({
     id: c.id,
     isActive: c.isActive,
     assignToAll: c.assignToAll,
     departmentIds: c.departments.map((d) => d.departmentId),
+    hasPackage: c.scormEntryHref != null,
+    audience: c.audience,
   }));
-  return coursesForMember({ courses: assignable, memberDepartmentIds: memberDepts });
+  return coursesForMember({ courses: assignable, memberships });
 }
 
 /** True when the course is currently assigned to this person (for the play route). */

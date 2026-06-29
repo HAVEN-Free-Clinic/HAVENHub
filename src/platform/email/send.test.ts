@@ -195,6 +195,88 @@ describe("drainEmailQueue", () => {
     expect(transport.calls).toEqual(["first@example.com", "second@example.com"]);
   });
 
+  // -------------------------------------------------------------------------
+  // Issue #63: a single drain invocation must attempt each QUEUED row at most
+  // once, even when the backlog is larger than one batch and every send fails.
+  // Previously the cron looped `while (processed > 0)` and processed counted
+  // failures, so a whole-tick transport outage re-attempted the same rows pass
+  // after pass until all 8 retries were burned and the queue mass-FAILED.
+  // -------------------------------------------------------------------------
+
+  it("drains a backlog larger than the batch size in one invocation", async () => {
+    // 27 rows > the default batch of 25: the old single-fetch drain left the
+    // overflow QUEUED; the fixed drain pages forward until the queue is empty.
+    for (let i = 0; i < 27; i++) {
+      await prisma.emailLog.create({
+        data: {
+          ...BASE_EMAIL,
+          toEmail: `user${i}@example.com`,
+          createdAt: new Date(Date.now() + i * 1000),
+        },
+      });
+    }
+    const transport = okTransport();
+
+    const processed = await drainEmailQueue(transport);
+
+    expect(processed).toBe(27);
+    expect(transport.calls).toHaveLength(27);
+    expect(await prisma.emailLog.count({ where: { status: "SENT" } })).toBe(27);
+    expect(await prisma.emailLog.count({ where: { status: "QUEUED" } })).toBe(0);
+  });
+
+  it("attempts each queued row at most once per invocation when every send fails", async () => {
+    // The regression: with a backlog over one batch and a fully-failing
+    // transport, the drain must touch every row exactly once (attempts == 1),
+    // NOT loop back and re-burn retries within the same invocation.
+    for (let i = 0; i < 27; i++) {
+      await prisma.emailLog.create({
+        data: {
+          ...BASE_EMAIL,
+          toEmail: `user${i}@example.com`,
+          createdAt: new Date(Date.now() + i * 1000),
+        },
+      });
+    }
+    const transport = failTransport("outage");
+
+    await drainEmailQueue(transport);
+
+    // Every row attempted exactly once: one send call each, attempts == 1.
+    expect(transport.calls).toHaveLength(27);
+    const rows = await prisma.emailLog.findMany();
+    expect(rows).toHaveLength(27);
+    for (const row of rows) {
+      expect(row.attempts).toBe(1);
+      expect(row.status).toBe("QUEUED");
+      expect(row.lastError).toBe("outage");
+    }
+  });
+
+  it("respects a custom batch size while still draining the whole queue once", async () => {
+    for (let i = 0; i < 5; i++) {
+      await prisma.emailLog.create({
+        data: {
+          ...BASE_EMAIL,
+          toEmail: `user${i}@example.com`,
+          createdAt: new Date(Date.now() + i * 1000),
+        },
+      });
+    }
+    const transport = failTransport("outage");
+
+    // batchSize of 2 forces three keyset pages; each row must still be
+    // attempted exactly once (no page re-fetches a just-failed row).
+    await drainEmailQueue(transport, 2);
+
+    expect(transport.calls).toHaveLength(5);
+    const rows = await prisma.emailLog.findMany();
+    for (const row of rows) {
+      expect(row.attempts).toBe(1);
+      expect(row.status).toBe("QUEUED");
+    }
+  });
+
   it("failure for one row does not prevent other rows from being sent", async () => {
     // Queue rows A, B, C with distinct addresses.
     await queueEmail(prisma, { ...BASE_EMAIL, to: "a@example.com" });

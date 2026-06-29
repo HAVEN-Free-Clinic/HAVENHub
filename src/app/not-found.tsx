@@ -1,7 +1,9 @@
 import Link from "next/link";
+import { getOrgIdentity, formatOrgLine } from "@/platform/branding/org";
 import { HavenLogo } from "@/platform/ui/haven-logo";
 
-export default function NotFound() {
+export default async function NotFound() {
+  const org = await getOrgIdentity();
   return (
     <main className="flex min-h-screen flex-col items-center justify-center bg-muted p-6">
       <div className="w-full max-w-md rounded-lg border border-border bg-surface p-8 shadow-sm">
@@ -21,7 +23,7 @@ export default function NotFound() {
           Back to Hub
         </Link>
       </div>
-      <p className="mt-6 text-xs text-subtle-foreground">HAVEN Free Clinic · Yale University</p>
+      <p className="mt-6 text-xs text-subtle-foreground">{formatOrgLine(org)}</p>
     </main>
   );
 }

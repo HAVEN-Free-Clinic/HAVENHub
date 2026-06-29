@@ -40,7 +40,8 @@ export default async function PersonDetailPage({ params, searchParams }: PagePro
         epicId: (formData.get("epicId") as string) || null,
         yaleAffiliation: (formData.get("yaleAffiliation") as string) || null,
         gradYear: (formData.get("gradYear") as string) || null,
-        spanishSpeaking: formData.get("spanishSpeaking") === "on",
+        spanishSelfReported: formData.get("spanishSelfReported") === "on",
+        spanishVerified: formData.get("spanishVerified") === "on",
         licensedRN: formData.get("licensedRN") === "on",
       });
     } catch (err) {
@@ -161,11 +162,14 @@ export default async function PersonDetailPage({ params, searchParams }: PagePro
         {person.status === "ACTIVE" ? (
           <form action={offboardAction}>
             <p className="mb-3 text-sm text-muted-foreground">
-              Offboarding removes this person from active access. Their data and
-              membership history are preserved. Status is not mirrored to Airtable
-              (the volunteer offboarding flow belongs to the Volunteers module).
+              Offboarding removes this person from active access and ends all of
+              their active memberships, so they no longer appear on any roster.
+              Their membership history is preserved.
             </p>
-            <ConfirmButton label="Offboard" confirmLabel="Confirm offboard?" />
+            <ConfirmButton
+              label="Offboard"
+              confirmLabel="Offboard? This ends all their active memberships."
+            />
           </form>
         ) : (
           <form action={reactivateAction}>

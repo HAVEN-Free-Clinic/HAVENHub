@@ -24,7 +24,9 @@ import { ClinicChannelCard } from "./clinic-channel-card";
 import { mySchedule } from "@/modules/schedule/services/schedule";
 import { listMyCertificates } from "@/modules/my-info/services/my-info";
 import { requiredTrainingTracks, resolveTrainingState } from "@/modules/recruitment/services/training";
+import { isInterviewPanelist } from "@/modules/recruitment/services/interviews";
 import { complianceStatus, certExpiresAt } from "@/platform/compliance/rules";
+import { getSetting } from "@/platform/settings/service";
 import { isoDateKey } from "@/platform/dates";
 
 // ---------------------------------------------------------------------------
@@ -37,6 +39,7 @@ const HUE_BY_MODULE: Record<string, string> = {
   "my-info": "info",
   volunteers: "volunteers",
   recruitment: "recruit",
+  "my-interviews": "recruit",
   admin: "admin",
   triage: "schedule",
   referrals: "info",
@@ -146,9 +149,11 @@ export default async function HubPage() {
   // One permission fetch per render; tiles filter in memory (never can() in a loop).
   const permissions = await getEffectivePermissions(person.personId);
 
-  const [schedule, certificates] = await Promise.all([
+  const [schedule, certificates, isPanelist, orgName] = await Promise.all([
     mySchedule(person.personId),
     listMyCertificates(person.personId),
+    isInterviewPanelist(person.personId),
+    getSetting<string>("branding.orgName"),
   ]);
   const { term, shifts } = schedule;
   const tracks = term ? await requiredTrainingTracks(person.personId, term.id) : [];
@@ -180,7 +185,7 @@ export default async function HubPage() {
   // --- Greeting context ---
   const firstName = person.name ? person.name.trim().split(/\s+/)[0] : null;
   const dept = next?.department.name ?? shifts[0]?.department.name ?? null;
-  const eyebrow = [term?.name, dept].filter(Boolean).join(" · ") || "HAVEN Free Clinic";
+  const eyebrow = [term?.name, dept].filter(Boolean).join(" · ") || orgName;
 
   // --- Compliance status (real data, same rules as My Info) ---
   const newestCert = certificates[0] ?? null;
@@ -196,7 +201,7 @@ export default async function HubPage() {
         : status === "EXPIRED"
           ? { ok: false, title: "HIPAA training expired", sub: "Upload a current certificate" }
           : status === "UNKNOWN_DATE"
-            ? { ok: false, title: "Add your HIPAA completion date", sub: "Certificate on file, date missing" }
+            ? { ok: false, title: "HIPAA completion date pending", sub: "A compliance manager will verify it; no action needed" }
             : { ok: false, title: "Upload your HIPAA certificate", sub: "Required for clinic clearance" };
 
   const statusLines: Array<{ ok: boolean; title: string; sub: string; href: string }> = [
@@ -205,7 +210,8 @@ export default async function HubPage() {
   ];
 
   // --- Quick actions (real links, access-filtered, capped at 4) ---
-  const hipaaShort = status === "COMPLIANT" ? "current" : "action needed";
+  const hipaaShort =
+    status === "COMPLIANT" ? "current" : status === "UNKNOWN_DATE" ? "pending review" : "action needed";
   const quickAll: Array<{ id: string; show: boolean; href: string; Icon: LucideIcon; label: string; sub: string }> = [
     {
       id: "schedule",
@@ -238,6 +244,17 @@ export default async function HubPage() {
       Icon: ClipboardList,
       label: "Recruitment",
       sub: "Cycles & review",
+    },
+    {
+      // Panelists are often directors with no recruitment.access, so they get no
+      // Recruitment tile or nav — this is their only home-screen path to the
+      // interview assignments page. Shown only when they actually have one.
+      id: "my-interviews",
+      show: isPanelist,
+      href: "/recruitment/interviews",
+      Icon: ClipboardList,
+      label: "My interviews",
+      sub: "Panel assignments",
     },
     {
       id: "admin",

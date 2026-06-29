@@ -4,6 +4,7 @@ import { resetDb } from "@/platform/test/db";
 import {
   listEmails,
   retryEmail,
+  retryAllFailedEmails,
   emailHealthCounts,
   EmailNotFoundError,
   EmailStateError,
@@ -282,6 +283,55 @@ describe("retryEmail", () => {
     await expect(retryEmail(ACTOR, "nonexistent-id")).rejects.toBeInstanceOf(
       EmailNotFoundError
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// retryAllFailedEmails (issue #63: bulk recovery)
+// ---------------------------------------------------------------------------
+
+describe("retryAllFailedEmails", () => {
+  beforeEach(resetDb);
+
+  it("requeues every FAILED row and leaves SENT/QUEUED rows untouched", async () => {
+    const f1 = await seedEmail({ status: "FAILED", attempts: 8, lastError: "boom" });
+    const f2 = await seedEmail({ status: "FAILED", attempts: 8, lastError: "boom" });
+    const sent = await seedEmail({ status: "SENT", sentAt: new Date() });
+    const queued = await seedEmail({ status: "QUEUED" });
+
+    const count = await retryAllFailedEmails(ACTOR);
+    expect(count).toBe(2);
+
+    for (const id of [f1.id, f2.id]) {
+      const row = await prisma.emailLog.findUniqueOrThrow({ where: { id } });
+      expect(row.status).toBe("QUEUED");
+      expect(row.attempts).toBe(0);
+      expect(row.lastError).toBeNull();
+    }
+    // Non-FAILED rows are not disturbed.
+    expect((await prisma.emailLog.findUniqueOrThrow({ where: { id: sent.id } })).status).toBe("SENT");
+    expect((await prisma.emailLog.findUniqueOrThrow({ where: { id: queued.id } })).status).toBe("QUEUED");
+  });
+
+  it("writes one email.retry_all audit row carrying the count", async () => {
+    await seedEmail({ status: "FAILED", attempts: 8 });
+    await seedEmail({ status: "FAILED", attempts: 8 });
+
+    await retryAllFailedEmails(ACTOR);
+
+    const audits = await prisma.auditLog.findMany({ where: { action: "email.retry_all" } });
+    expect(audits).toHaveLength(1);
+    expect(audits[0].actorPersonId).toBe(ACTOR);
+    expect(audits[0].entityType).toBe("EmailLog");
+    expect((audits[0].after as Record<string, unknown>).count).toBe(2);
+  });
+
+  it("returns 0 and writes no audit when there are no FAILED rows", async () => {
+    await seedEmail({ status: "QUEUED" });
+
+    const count = await retryAllFailedEmails(ACTOR);
+    expect(count).toBe(0);
+    expect(await prisma.auditLog.count({ where: { action: "email.retry_all" } })).toBe(0);
   });
 });
 

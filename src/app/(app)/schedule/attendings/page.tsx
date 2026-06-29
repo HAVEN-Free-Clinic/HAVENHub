@@ -1,13 +1,17 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { requireModuleAccess } from "@/platform/auth/session";
-import { listAttendings, CAPABILITY_KEYS, CAPABILITY_LABELS } from "@/modules/schedule/services/attendings";
+import { listAttendings, canManageAnyRhdDept, CAPABILITY_KEYS, CAPABILITY_LABELS } from "@/modules/schedule/services/attendings";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
 import { buttonClasses } from "@/platform/ui/button";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 
 export default async function AttendingsListPage() {
-  await requireModuleAccess("schedule");
+  // Attendings is RHD-manager-only (same scope mutations enforce). Non-managers
+  // are sent to /no-access rather than shown a roster they can't maintain.
+  const session = await requireModuleAccess("schedule");
+  if (!(await canManageAnyRhdDept(session.personId))) redirect("/no-access");
   const attendings = await listAttendings();
 
   return (

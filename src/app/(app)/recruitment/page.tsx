@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { requireModuleAccess } from "@/platform/auth/session";
 import { listCycles } from "@/modules/recruitment/services/cycles";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
@@ -12,6 +13,9 @@ const statusTone = {
 } as const;
 
 export default async function RecruitmentPage() {
+  // Sits above the cycles/ subtree layout, so it carries the recruitment.access
+  // gate itself (the root recruitment layout is now only a session check).
+  await requireModuleAccess("recruitment");
   const cycles = await listCycles();
   return (
     <div className="space-y-6">

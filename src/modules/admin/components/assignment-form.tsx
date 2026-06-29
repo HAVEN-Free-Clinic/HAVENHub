@@ -13,7 +13,7 @@
  */
 
 import type { ReactNode } from "react";
-import type { Role, RoleAssignment, Person, Department, Term } from "@prisma/client";
+import type { Role, RoleAssignment, Person, Department, Term, MembershipKind } from "@prisma/client";
 import { redirect } from "next/navigation";
 import { requirePermission } from "@/platform/auth/session";
 import {
@@ -178,9 +178,37 @@ export async function AssignmentForm({
     redirect(`${pageHref}?saved=1`);
   }
 
+  async function assignKindAction(formData: FormData) {
+    "use server";
+    const actor = await requirePermission("admin.manage_roles");
+    const kind = formData.get("kind") as string | null;
+    const roleId = formData.get("roleId") as string | null;
+    const termIdRaw = formData.get("termId") as string | null;
+    const termId = termIdRaw && termIdRaw !== "" ? termIdRaw : undefined;
+
+    if (!kind || !roleId) {
+      redirect(`${pageHref}?rbacError=${encodeURIComponent("Members and role are required.")}`);
+    }
+    if (kind !== "VOLUNTEER" && kind !== "DIRECTOR") {
+      redirect(`${pageHref}?rbacError=${encodeURIComponent("Invalid member kind.")}`);
+    }
+
+    try {
+      await createAssignment(actor.personId, { roleId: roleId!, kind: kind as MembershipKind, termId });
+    } catch (err) {
+      if (err instanceof AssignmentTargetError || err instanceof DuplicateAssignmentError) {
+        redirect(`${pageHref}?rbacError=${encodeURIComponent(err.message)}`);
+      }
+      throw err;
+    }
+    redirect(`${pageHref}?saved=1`);
+  }
+
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
+
+  const activeTermId = terms.find((t) => t.status === "ACTIVE")?.id ?? "";
 
   return (
     <section className="space-y-8">
@@ -213,6 +241,12 @@ export async function AssignmentForm({
                     <span className="flex items-center gap-2">
                       <Badge tone="brand">Dept</Badge>
                       {a.department.code}
+                    </span>
+                  ) : a.kind ? (
+                    <span className="flex items-center gap-2">
+                      <Badge tone="brand">
+                        {({ DIRECTOR: "All Directors", VOLUNTEER: "All Volunteers" } as const)[a.kind] ?? "Unknown"}
+                      </Badge>
                     </span>
                   ) : (
                     <span className="text-subtle-foreground">Unknown</span>
@@ -355,6 +389,44 @@ export async function AssignmentForm({
           </Field>
           <Button type="submit" variant="primary" size="sm">
             Assign department
+          </Button>
+        </form>
+      </Card>
+
+      {/* Create kind (cohort) assignment */}
+      <Card className="space-y-4">
+        <h3 className="text-sm font-semibold text-foreground-soft">Assign role to all members of a kind</h3>
+        <p className="text-sm text-subtle-foreground">
+          Applies to every active member of the chosen kind in the selected term (or every term, if Global), including members added later.
+        </p>
+        <form action={assignKindAction} className="flex flex-wrap items-end gap-3">
+          <Field label="Members">
+            <Select name="kind" className="w-44">
+              <option value="VOLUNTEER">All Volunteers</option>
+              <option value="DIRECTOR">All Directors</option>
+            </Select>
+          </Field>
+          <Field label="Role">
+            <Select name="roleId" className="w-44">
+              {roles.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Term">
+            <Select name="termId" defaultValue={activeTermId} className="w-36">
+              <option value="">Global</option>
+              {terms.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.code}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Button type="submit" variant="primary" size="sm">
+            Assign cohort
           </Button>
         </form>
       </Card>

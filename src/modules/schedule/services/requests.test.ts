@@ -946,3 +946,42 @@ describe("eligibleSwapPartners", () => {
     expect(ids).not.toContain(dir.id);
   });
 });
+
+// ---------------------------------------------------------------------------
+// manage_requests scope
+// ---------------------------------------------------------------------------
+
+describe("manage_requests scope", () => {
+  it("lets a non-director with schedule.manage_requests list a member department's requests", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("MRQ1");
+    const actor = await createPerson("ReqMgr");
+    await createMembership(actor.id, term.id, dept.id, "VOLUNTEER");
+    await grantPermission(actor.id, "schedule.manage_requests");
+
+    // Should not throw (returns [] when there are no requests).
+    await expect(listDepartmentRequests(actor.id, dept.id)).resolves.toEqual([]);
+  });
+
+  it("forbids a member without schedule.manage_requests", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("MRQ2");
+    const actor = await createPerson("PlainMember");
+    await createMembership(actor.id, term.id, dept.id, "VOLUNTEER");
+
+    await expect(listDepartmentRequests(actor.id, dept.id)).rejects.toBeInstanceOf(RequestForbiddenError);
+  });
+
+  it("schedule.edit_own_dept alone does NOT grant request decisions", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("MRQ3");
+    const actor = await createPerson("EditOnly");
+    await createMembership(actor.id, term.id, dept.id, "VOLUNTEER");
+    await grantPermission(actor.id, "schedule.edit_own_dept");
+
+    await expect(listDepartmentRequests(actor.id, dept.id)).rejects.toBeInstanceOf(RequestForbiddenError);
+  });
+});

@@ -16,6 +16,7 @@ import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
+import { prisma } from "@/platform/db";
 
 export default async function ApplicationDetailPage({ params, searchParams }: { params: Promise<{ id: string; applicationId: string }>; searchParams: Promise<{ error?: string }> }) {
   const { id, applicationId } = await params;
@@ -37,6 +38,11 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
     : app.cycle.departments.filter((d) => scope.departmentCodes.includes(d) && app.departmentChoices.includes(d));
   const accepted = new Set(acceptances.map((a) => a.departmentCode));
   const choices = eligible.filter((d) => !accepted.has(d));
+  const rankIds = [...new Set([...app.subcommitteeRanking, app.assignedSubcommitteeId].filter((x): x is string => Boolean(x)))];
+  const subRows = rankIds.length
+    ? await prisma.subcommittee.findMany({ where: { id: { in: rankIds } }, select: { id: true, name: true } })
+    : [];
+  const subName = new Map(subRows.map((s) => [s.id, s.name]));
   const existingInterviews = app.cycle.track === "DIRECTOR" ? await listApplicationInterviews(applicationId) : [];
   const interviewedDepts = new Set(existingInterviews.map((i) => i.departmentCode));
   const scheduleChoices = choices.filter((d) => !interviewedDepts.has(d));
@@ -79,6 +85,29 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
           </dl>
         </section>
       ))}
+
+      {(app.subcommitteeRanking.length > 0 || app.assignedSubcommitteeId) && (
+        <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Subcommittee</h2>
+          <dl className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div>
+              <dt className="text-xs text-subtle-foreground">Ranked preferences</dt>
+              <dd className="mt-0.5 text-sm text-foreground">
+                {app.subcommitteeRanking.length === 0
+                  ? "(none)"
+                  : app.subcommitteeRanking.map((sid, i) => `${i + 1}. ${subName.get(sid) ?? "(removed)"}`).join("  ·  ")}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-subtle-foreground">Assigned</dt>
+              <dd className="mt-0.5 text-sm text-foreground">
+                {app.assignedSubcommitteeId ? (subName.get(app.assignedSubcommitteeId) ?? "(removed)") : "Not assigned"}
+              </dd>
+            </div>
+          </dl>
+          <p className="mt-2 text-xs text-subtle-foreground">Assign from the cycle&apos;s Subcommittees view.</p>
+        </section>
+      )}
 
       {app.cycle.track === "VOLUNTEER" ? (
         <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
@@ -135,7 +164,7 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
                 <li key={iv.id}>
                   <Link
                     className="font-medium text-brand-fg hover:text-brand-hover"
-                    href={`/recruitment/cycles/${id}/interviews/${iv.id}`}
+                    href={`/recruitment/interviews/${iv.id}`}
                   >
                     Interview for {iv.departmentCode}
                   </Link>

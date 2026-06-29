@@ -159,12 +159,20 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
     compile: (cond) => (cond.op === "isFalse" ? { epicId: null } : { epicId: { not: null } }),
   },
   {
-    key: "spanishSpeaking",
-    label: "Spanish-speaking",
+    key: "spanishVerified",
+    label: "Spanish-speaking (verified)",
     group: "Attributes",
     kind: "boolean",
     operators: ["isTrue", "isFalse"],
-    compile: (cond) => ({ spanishSpeaking: cond.op === "isTrue" }),
+    compile: (cond) => ({ spanishVerified: cond.op === "isTrue" }),
+  },
+  {
+    key: "spanishSelfReported",
+    label: "Spanish-speaking (self-reported)",
+    group: "Attributes",
+    kind: "boolean",
+    operators: ["isTrue", "isFalse"],
+    compile: (cond) => ({ spanishSelfReported: cond.op === "isTrue" }),
   },
   {
     key: "licensedRN",

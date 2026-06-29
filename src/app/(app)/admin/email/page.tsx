@@ -14,6 +14,7 @@ import { requirePermission } from "@/platform/auth/session";
 import {
   listEmails,
   retryEmail,
+  retryAllFailedEmails,
   EMAIL_PAGE_SIZE,
   EmailNotFoundError,
   EmailStateError,
@@ -82,6 +83,7 @@ type PageProps = {
     error?: string;
     message?: string;
     retried?: string;
+    retriedAll?: string;
     connected?: string;
   }>;
 };
@@ -120,6 +122,8 @@ export default async function EmailPage({ searchParams }: PageProps) {
     : null;
 
   const retriedSuccess = sp.retried === "1";
+  const retriedAllCount = sp.retriedAll ? parseInt(sp.retriedAll, 10) : 0;
+  const retriedAllSuccess = retriedAllCount > 0;
   const connectedSuccess = sp.connected === "1";
 
   const [{ rows, total, counts }, mailConn, mailCred] = await Promise.all([
@@ -168,6 +172,14 @@ export default async function EmailPage({ searchParams }: PageProps) {
 
     revalidatePath("/admin/email");
     redirect("/admin/email?retried=1");
+  }
+
+  async function retryAllAction() {
+    "use server";
+    const actor = await requirePermission("admin.manage_sync");
+    const count = await retryAllFailedEmails(actor.personId);
+    revalidatePath("/admin/email");
+    redirect(`/admin/email?retriedAll=${count}`);
   }
 
   async function connectMailerAction() {
@@ -227,6 +239,11 @@ export default async function EmailPage({ searchParams }: PageProps) {
       {retriedSuccess && !errorMessage && (
         <Alert tone="success">Email re-queued.</Alert>
       )}
+      {retriedAllSuccess && !errorMessage && (
+        <Alert tone="success">
+          {retriedAllCount} failed {retriedAllCount === 1 ? "email" : "emails"} re-queued.
+        </Alert>
+      )}
       {connectedSuccess && !errorMessage && (
         <Alert tone="success">Mailbox connected.</Alert>
       )}
@@ -267,6 +284,22 @@ export default async function EmailPage({ searchParams }: PageProps) {
         />
         <StatCard label="Sent today" value={counts.sentToday} />
       </div>
+
+      {/* Bulk recovery: re-queue every FAILED row at once (e.g. after a
+          transient transport outage exhausted retries on many rows). */}
+      {counts.failed > 0 && (
+        <div className="flex justify-end">
+          <form action={retryAllAction}>
+            <ConfirmButton
+              size="sm"
+              label={`Retry all failed (${counts.failed})`}
+              confirmLabel={`Re-queue all ${counts.failed} failed ${
+                counts.failed === 1 ? "email" : "emails"
+              }?`}
+            />
+          </form>
+        </div>
+      )}
 
       {/* Filter bar (GET form) */}
       <form method="GET" className="flex flex-wrap items-end gap-3">

@@ -607,8 +607,15 @@ export default async function EpicQueuePage({ searchParams }: PageProps) {
                                   </Button>
                                 </>
                               ) : (
-                                /* RENEW: no epicId needed */
-                                <ConfirmButton label="Complete" confirmLabel="Complete this renewal?" />
+                                /* RENEW and DEACTIVATE: no epicId needed */
+                                <ConfirmButton
+                                  label="Complete"
+                                  confirmLabel={
+                                    row.kind === "DEACTIVATE"
+                                      ? "Mark this deactivation complete?"
+                                      : "Complete this renewal?"
+                                  }
+                                />
                               )}
                             </form>
 

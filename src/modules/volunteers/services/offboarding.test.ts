@@ -312,6 +312,31 @@ describe("executeOffboard", () => {
     });
     expect(statusAudit).not.toBeNull();
   });
+
+  it("offboarding a person with an epicId cancels open grants and queues a DEACTIVATE", async () => {
+    const term = await createTerm("ACTIVE");
+    const dept = await createDepartment("EPIC");
+    const actor = await createPerson("Exec");
+    await grantPermission(actor.id, "volunteers.manage_offboarding");
+
+    const person = await prisma.person.create({ data: { name: "Leaver", epicId: "E999", status: "ACTIVE" } });
+    await createMembership(person.id, term.id, dept.id, "VOLUNTEER", "ACTIVE");
+    const openReq = await prisma.epicRequest.create({
+      data: { personId: person.id, kind: "MODIFY", status: "PENDING", requestedById: actor.id },
+    });
+
+    await executeOffboard(actor.id, person.id);
+
+    const updated = await prisma.person.findUnique({ where: { id: person.id } });
+    expect(updated?.status).toBe("OFFBOARDED");
+
+    const grant = await prisma.epicRequest.findUnique({ where: { id: openReq.id } });
+    expect(grant?.status).toBe("CANCELLED");
+
+    const deact = await prisma.epicRequest.findMany({ where: { personId: person.id, kind: "DEACTIVATE" } });
+    expect(deact).toHaveLength(1);
+    expect(deact[0].status).toBe("PENDING");
+  });
 });
 
 // ---------------------------------------------------------------------------

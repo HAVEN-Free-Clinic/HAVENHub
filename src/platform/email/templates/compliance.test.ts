@@ -14,8 +14,10 @@ import { renderEmail } from "./renderEmail";
 import {
   complianceReminderContext,
   complianceEscalationContext,
+  complianceDateReviewContext,
   type ComplianceReminderParams,
   type ComplianceEscalationParams,
+  type ComplianceDateReviewParams,
 } from "./compliance";
 
 beforeEach(resetDb);
@@ -240,6 +242,41 @@ describe("compliance-escalation via renderEmail", () => {
     };
     const { html } = await renderEmail("compliance-escalation", complianceEscalationContext(params));
     expect(html).not.toContain("<script>");
+    expect(html).toContain("&lt;script&gt;");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// compliance-date-review (sent to compliance managers, not the volunteer)
+// ---------------------------------------------------------------------------
+
+describe("compliance-date-review via renderEmail", () => {
+  const base: ComplianceDateReviewParams = {
+    volunteerName: "Alice Smith",
+    reviewLink: "https://hub.example.org/volunteers/master",
+  };
+
+  it("subject names a needed completion date", async () => {
+    const { subject } = await renderEmail("compliance-date-review", complianceDateReviewContext(base));
+    expect(subject).toBe("[HAVEN] HIPAA certificate needs a completion date");
+  });
+
+  it("html contains the volunteer name", async () => {
+    const { html } = await renderEmail("compliance-date-review", complianceDateReviewContext(base));
+    expect(html).toContain("Alice Smith");
+  });
+
+  it("html links to the review page", async () => {
+    const { html } = await renderEmail("compliance-date-review", complianceDateReviewContext(base));
+    expect(html).toContain(`href="https://hub.example.org/volunteers/master"`);
+  });
+
+  it("HTML-escapes a malicious volunteerName", async () => {
+    const { html } = await renderEmail(
+      "compliance-date-review",
+      complianceDateReviewContext({ ...base, volunteerName: "<script>evil()</script>" }),
+    );
+    expect(html).not.toContain("<script>evil");
     expect(html).toContain("&lt;script&gt;");
   });
 });

@@ -12,7 +12,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requirePermission } from "@/platform/auth/session";
-import { listDepartmentsWithMembers, getEpicRequestHistory, closeTicket, updateServiceRequestNumber } from "@/modules/admin/services/itcm";
+import { listDepartmentsWithMembers, getEpicRequestHistory, listPendingDeactivations, listEpicAuthorizers, closeTicket, updateServiceRequestNumber } from "@/modules/admin/services/itcm";
 import { PageHeader } from "@/platform/ui/page-header";
 import { EpicRequestTabs } from "@/modules/admin/components/epic-request-tabs";
 
@@ -41,9 +41,11 @@ export default async function EpicRequestsPage({ searchParams }: PageProps) {
 const activeTab = tab === "tracker" ? "tracker" : tab === "history" ? "history" : "generate";
 
   // Load data for both tabs in parallel.
-  const [departments, history] = await Promise.all([
+  const [departments, history, pendingDeactivations, authorizers] = await Promise.all([
     listDepartmentsWithMembers(),
     getEpicRequestHistory(),
+    listPendingDeactivations(),
+    listEpicAuthorizers(),
   ]);
 
   return (
@@ -56,6 +58,8 @@ const activeTab = tab === "tracker" ? "tracker" : tab === "history" ? "history" 
         activeTab={activeTab}
         departments={departments}
         history={history}
+        pendingDeactivations={pendingDeactivations}
+        authorizers={authorizers}
         closeTicketAction={closeTicketAction}
         updateServiceRequestNumberAction={updateServiceRequestNumberAction}
       />

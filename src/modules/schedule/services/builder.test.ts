@@ -276,6 +276,29 @@ describe("manageableScheduleDepartmentIds", () => {
     const unique = new Set(ids);
     expect(ids.length).toBe(unique.size);
   });
+
+  it("includes member departments when the person holds schedule.edit_own_dept", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates, "ACTIVE");
+    const dept = await createDepartment("OWND");
+    const person = await createPerson("Coordinator");
+    await createMembership(person.id, term.id, dept.id, "VOLUNTEER");
+    await grantPermission(person.id, "schedule.edit_own_dept");
+
+    const ids = await manageableScheduleDepartmentIds(person.id);
+    expect(ids).toContain(dept.id);
+  });
+
+  it("does NOT include member departments without schedule.edit_own_dept", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates, "ACTIVE");
+    const dept = await createDepartment("NOPE");
+    const person = await createPerson("PlainVol");
+    await createMembership(person.id, term.id, dept.id, "VOLUNTEER");
+
+    const ids = await manageableScheduleDepartmentIds(person.id);
+    expect(ids).not.toContain(dept.id);
+  });
 });
 
 // ---------------------------------------------------------------------------

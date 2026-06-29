@@ -41,6 +41,7 @@ import {
   listDepartmentRequests,
   approveRequest,
   denyRequest,
+  canManageRequestsForDept,
   RequestForbiddenError,
   RequestNotFoundError,
   RequestValidationError,
@@ -144,7 +145,10 @@ export default async function BuilderPage({ searchParams }: PageProps) {
   const { selectedDepartment, clinicDates, selectedDateKey, currentClinicDateKey, members, assignmentsByDate, conflicts } = data;
   const dept = selectedDepartment!;
 
-  const requestRows = await listDepartmentRequests(session.personId, dept.id);
+  const canManageRequests = await canManageRequestsForDept(session.personId, dept.id);
+  const requestRows = canManageRequests
+    ? await listDepartmentRequests(session.personId, dept.id)
+    : [];
 
   function href(overrides: HrefParams): string {
     return buildHref("/schedule/builder", {
@@ -817,11 +821,13 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                   dateKey={selectedDateKey!}
                 />
               )}
-              <PendingRequests
-                rows={requestRows}
-                approveAction={approveRequestAction}
-                denyAction={denyRequestAction}
-              />
+              {canManageRequests && (
+                <PendingRequests
+                  rows={requestRows}
+                  approveAction={approveRequestAction}
+                  denyAction={denyRequestAction}
+                />
+              )}
             </div>
           </div>
         )}

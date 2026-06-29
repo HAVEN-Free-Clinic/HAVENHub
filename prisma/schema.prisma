@@ -293,16 +293,17 @@ model RoleGrant {
   @@unique([roleId, permission])
 }
 
-/// Exactly one of personId / departmentId is set. termId null = global scope.
+/// Exactly one of personId / departmentId / kind is set. termId null = global scope.
 /// DB-LEVEL GUARDS LIVE IN RAW SQL (see migrations): a COALESCE unique index
-/// (duplicate grants) and a CHECK constraint (target XOR). Guarded by
+/// (duplicate grants) and a CHECK constraint (target = exactly one). Guarded by
 /// src/platform/rbac/schema-guards.test.ts. Never resolve a prisma migrate
 /// diff by accepting a DROP of objects you do not recognize.
 model RoleAssignment {
-  id           String      @id @default(cuid())
+  id           String          @id @default(cuid())
   roleId       String
   personId     String?
   departmentId String?
+  kind         MembershipKind?
   termId       String?
   role         Role        @relation(fields: [roleId], references: [id], onDelete: Cascade)
   person       Person?     @relation(fields: [personId], references: [id], onDelete: Cascade)
@@ -311,6 +312,7 @@ model RoleAssignment {
 
   @@index([personId])
   @@index([departmentId])
+  @@index([kind])
   @@index([termId])
 }
 

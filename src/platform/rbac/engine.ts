@@ -26,6 +26,7 @@ export const getEffectivePermissions = cache(
       : [];
     const departmentIds = [...new Set(memberships.map((m) => m.departmentId))];
     const autoRoleNames = [...new Set(memberships.map((m) => MEMBERSHIP_KIND_ROLE[m.kind]))];
+    const membershipKinds = [...new Set(memberships.map((m) => m.kind))];
 
     const [assignments, autoRoles] = await Promise.all([
       prisma.roleAssignment.findMany({
@@ -41,6 +42,7 @@ export const getEffectivePermissions = cache(
               OR: [
                 { personId },
                 ...(departmentIds.length ? [{ departmentId: { in: departmentIds } }] : []),
+                ...(membershipKinds.length ? [{ kind: { in: membershipKinds } }] : []),
               ],
             },
           ],

@@ -21,7 +21,7 @@ export const SYSTEM_ROLES: SystemRole[] = [
     // learning.access: directors are assigned department/org-wide courses like
     // any active member, so they must be able to open them or the onboarding
     // gate locks them out of the app (issue #65).
-    grants: ["schedule.view", "schedule.edit_own_dept", "volunteers.view", "my-info.access", "learning.access"],
+    grants: ["schedule.view", "volunteers.view", "my-info.access", "learning.access"],
   },
   {
     name: "Volunteer",

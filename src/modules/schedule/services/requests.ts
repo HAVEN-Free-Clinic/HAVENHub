@@ -17,7 +17,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { isoDateKey } from "@/platform/dates";
-import { manageableDepartmentIds } from "@/platform/departments";
+import { manageableDepartmentIds, memberDepartmentIds } from "@/platform/departments";
 import { can } from "@/platform/rbac/engine";
 import {
   validateRequest,
@@ -110,16 +110,45 @@ async function buildScheduleRows(
 }
 
 /**
- * Checks that actor may manage the given department.
+ * Departments the actor may decide requests for: director membership +
+ * one-hop delegation, UNION member departments when the actor holds
+ * schedule.manage_requests, UNION all departments when schedule.edit_all.
+ */
+export async function manageableRequestDepartmentIds(personId: string): Promise<string[]> {
+  const [base, manageRequests, editAll] = await Promise.all([
+    manageableDepartmentIds(personId),
+    can(personId, "schedule.manage_requests"),
+    can(personId, "schedule.edit_all"),
+  ]);
+
+  const ids = new Set<string>(base);
+
+  if (manageRequests) {
+    for (const id of await memberDepartmentIds(personId)) ids.add(id);
+  }
+
+  if (editAll) {
+    const all = await prisma.department.findMany({ select: { id: true } });
+    for (const d of all) ids.add(d.id);
+  }
+
+  return [...ids];
+}
+
+/** True when the actor may decide requests for the given department. */
+export async function canManageRequestsForDept(
+  personId: string,
+  departmentId: string,
+): Promise<boolean> {
+  return (await manageableRequestDepartmentIds(personId)).includes(departmentId);
+}
+
+/**
+ * Checks that actor may decide requests for the given department.
  * Throws RequestForbiddenError if not.
  */
 async function scopeCheck(actorPersonId: string, departmentId: string): Promise<void> {
-  const [manageable, editAll] = await Promise.all([
-    manageableDepartmentIds(actorPersonId),
-    can(actorPersonId, "schedule.edit_all"),
-  ]);
-
-  if (!editAll && !manageable.includes(departmentId)) {
+  if (!(await canManageRequestsForDept(actorPersonId, departmentId))) {
     throw new RequestForbiddenError();
   }
 }

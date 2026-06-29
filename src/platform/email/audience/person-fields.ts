@@ -22,7 +22,7 @@ export type PersonFieldDef = {
  */
 export type PersonFieldView = Omit<PersonFieldDef, "compile">;
 
-const COMPLIANCE_VALUES = ["COMPLIANT", "EXPIRING_SOON", "EXPIRED", "UNKNOWN_DATE", "NO_CERTIFICATE"];
+const COMPLIANCE_VALUES = ["COMPLIANT", "EXPIRING_SOON", "EXPIRED", "PENDING_VERIFICATION", "UNKNOWN_DATE", "NO_CERTIFICATE"];
 
 const MATCH_NOBODY: Prisma.PersonWhereInput = { id: { in: [] } };
 

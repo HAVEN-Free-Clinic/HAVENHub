@@ -107,13 +107,13 @@ export async function runComplianceReminders(
   const allCerts = await prisma.hipaaCertificate.findMany({
     where: { personId: { in: personIds } },
     orderBy: [{ personId: "asc" }, { uploadedAt: "desc" }],
-    select: { personId: true, completionDate: true },
+    select: { personId: true, completionDate: true, verifiedAt: true },
   });
 
-  const certMap = new Map<string, { completionDate: Date | null }>();
+  const certMap = new Map<string, { completionDate: Date | null; verifiedAt: Date | null }>();
   for (const c of allCerts) {
     if (!certMap.has(c.personId)) {
-      certMap.set(c.personId, { completionDate: c.completionDate });
+      certMap.set(c.personId, { completionDate: c.completionDate, verifiedAt: c.verifiedAt });
     }
   }
 

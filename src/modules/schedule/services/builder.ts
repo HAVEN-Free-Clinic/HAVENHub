@@ -821,7 +821,7 @@ export async function builderView(
     const certs = memberEntry?.person.hipaaCertificates ?? [];
     const newestCert = certs.length > 0 ? certs[0] : null;
     const status = complianceStatus(
-      newestCert ? { completionDate: newestCert.completionDate } : null,
+      newestCert ? { completionDate: newestCert.completionDate, verifiedAt: newestCert.verifiedAt } : null,
       term.endDate,
       now
     );

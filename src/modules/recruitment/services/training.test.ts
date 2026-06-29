@@ -152,7 +152,7 @@ import { listTrainingRoster } from "./training";
 
 it("listTrainingRoster lists in-scope active volunteers with cert + training state", async () => {
   const { srr, vol, c1, dept } = await seedMember();
-  await prisma.hipaaCertificate.create({ data: { personId: vol.id, fileName: "c.pdf", storedName: "c.pdf", size: 1, mimeType: "application/pdf", completionDate: new Date() } });
+  await prisma.hipaaCertificate.create({ data: { personId: vol.id, fileName: "c.pdf", storedName: "c.pdf", size: 1, mimeType: "application/pdf", completionDate: new Date(), verifiedAt: new Date() } });
   const rows = await listTrainingRoster(c1.id, srr.id);
   const row = rows.find((r) => r.personId === vol.id)!;
   expect(row.departmentCode).toBe(dept.code);

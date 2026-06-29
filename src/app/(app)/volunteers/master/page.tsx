@@ -53,6 +53,7 @@ const STATUS_LABEL: Record<ComplianceStatus, string> = {
   COMPLIANT: "Compliant",
   EXPIRING_SOON: "Expiring Soon",
   EXPIRED: "Expired",
+  PENDING_VERIFICATION: "Needs verification",
   UNKNOWN_DATE: "Date Unknown",
   NO_CERTIFICATE: "No Certificate",
 };
@@ -63,6 +64,7 @@ const STATUS_TONE: Record<ComplianceStatus, Tone> = {
   COMPLIANT: "success",
   EXPIRING_SOON: "warning",
   EXPIRED: "critical",
+  PENDING_VERIFICATION: "warning",
   UNKNOWN_DATE: "default",
   NO_CERTIFICATE: "default",
 };
@@ -71,6 +73,7 @@ const ALL_STATUSES: ComplianceStatus[] = [
   "COMPLIANT",
   "EXPIRING_SOON",
   "EXPIRED",
+  "PENDING_VERIFICATION",
   "UNKNOWN_DATE",
   "NO_CERTIFICATE",
 ];

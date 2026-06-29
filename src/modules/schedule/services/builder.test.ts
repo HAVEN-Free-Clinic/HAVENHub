@@ -1153,6 +1153,7 @@ describe("builderView", () => {
         size: 100,
         mimeType: "application/pdf",
         completionDate: new Date("2026-01-01T12:00:00Z"),
+        verifiedAt: new Date(),
       },
     });
 
@@ -1270,6 +1271,7 @@ describe("builderView", () => {
         size: 100,
         mimeType: "application/pdf",
         completionDate: new Date("2026-01-01T12:00:00Z"),
+        verifiedAt: new Date(),
       },
     });
 

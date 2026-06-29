@@ -65,6 +65,7 @@ const READABLE_STATUS: Record<ComplianceStatus, string> = {
   EXPIRED: "expired",
   NO_CERTIFICATE: "no certificate on file",
   UNKNOWN_DATE: "completion date needed",
+  PENDING_VERIFICATION: "awaiting verification",
   COMPLIANT: "compliant",
 };
 
@@ -89,6 +90,9 @@ export function complianceReminderContext(p: ComplianceReminderParams): Record<s
     case "NO_CERTIFICATE":
     case "UNKNOWN_DATE":
       statusLine = "We do not have a current HIPAA certificate on file for you.";
+      break;
+    case "PENDING_VERIFICATION":
+      statusLine = "Your HIPAA certificate is on file and awaiting verification by a coordinator.";
       break;
     // unreachable: callers filter COMPLIANT before building a reminder context
     default:

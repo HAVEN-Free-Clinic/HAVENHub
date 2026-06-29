@@ -15,6 +15,7 @@ export interface NotificationType {
 export const NOTIFICATION_TYPES: NotificationType[] = [
   { key: "compliance-reminder", label: "HIPAA compliance reminder", defaultChannel: "email" },
   { key: "compliance-escalation", label: "HIPAA compliance escalation (directors)", defaultChannel: "email" },
+  { key: "compliance-date-review", label: "HIPAA certificate date review (compliance managers)", defaultChannel: "email" },
   { key: "epic-onboarding", label: "EPIC onboarding", defaultChannel: "email" },
   { key: "epic-activation", label: "EPIC activation", defaultChannel: "email" },
   { key: "epic-password-reset", label: "EPIC password reset", defaultChannel: "email" },

@@ -7,6 +7,7 @@ describe("notification registry", () => {
     const keys = NOTIFICATION_TYPES.map((t) => t.key).sort();
     expect(keys).toEqual(
       [
+        "compliance-date-review",
         "compliance-escalation",
         "compliance-reminder",
         "epic-activation",

@@ -717,26 +717,54 @@ export async function eligibleSwapPartners(
   if (actorAssignment.role === "SHADOW") return [];
 
   const actorRole = actorAssignment.role;
+  const requesterDates = term.clinicDates.filter((d) => isoDateKey(d) === requesterDateKey);
 
-  // Find all same-dept, same-role assignments on different dates, excluding actor
-  const partners = await prisma.shiftAssignment.findMany({
-    where: {
-      termId: term.id,
-      departmentId,
-      role: actorRole,
-      personId: { not: actorPersonId },
-      clinicDate: {
-        notIn: term.clinicDates.filter((d) => isoDateKey(d) === requesterDateKey),
+  const [partners, actorAssignments, othersOnRequesterDate] = await Promise.all([
+    // Same-dept, same-role assignments on different dates, excluding actor.
+    prisma.shiftAssignment.findMany({
+      where: {
+        termId: term.id,
+        departmentId,
+        role: actorRole,
+        personId: { not: actorPersonId },
+        clinicDate: { notIn: requesterDates },
       },
-    },
-    select: {
-      personId: true,
-      clinicDate: true,
-      person: { select: { name: true } },
-    },
-  });
+      select: {
+        personId: true,
+        clinicDate: true,
+        person: { select: { name: true } },
+      },
+    }),
+    // Every date the actor is already assigned in this department (any role).
+    prisma.shiftAssignment.findMany({
+      where: { termId: term.id, departmentId, personId: actorPersonId },
+      select: { clinicDate: true },
+    }),
+    // Anyone else holding an assignment on the requester's date (any role).
+    prisma.shiftAssignment.findMany({
+      where: {
+        termId: term.id,
+        departmentId,
+        personId: { not: actorPersonId },
+        clinicDate: { in: requesterDates },
+      },
+      select: { personId: true },
+    }),
+  ]);
+
+  // Mirror assertNoSwapCollision so the dropdown only offers swaps createRequest
+  // will accept. A partner is un-swappable when:
+  //   - the actor already works the partner's date (requesterOnTargetDate), or
+  //   - the partner also works the actor's requester date (targetOnRequesterDate).
+  const actorBusyDateKeys = new Set(actorAssignments.map((a) => isoDateKey(a.clinicDate)));
+  const partnerIdsOnRequesterDate = new Set(othersOnRequesterDate.map((a) => a.personId));
 
   return partners
+    .filter(
+      (p) =>
+        !actorBusyDateKeys.has(isoDateKey(p.clinicDate)) &&
+        !partnerIdsOnRequesterDate.has(p.personId),
+    )
     .map((p) => ({
       personId: p.personId,
       name: p.person.name,

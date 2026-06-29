@@ -1,7 +1,18 @@
 import { describe, expect, it } from "vitest";
+import type { ComplianceStatus } from "@/platform/compliance/rules";
 import { PERSON_FIELDS, PERSON_FIELD_VIEWS, personFieldWhere, parseTextList } from "./person-fields";
 
 const ctx = { activeTermId: "term1" };
+
+const complianceCtx = {
+  activeTermId: "term1",
+  complianceStatusByPerson: new Map<string, ComplianceStatus>([
+    ["p1", "COMPLIANT"],
+    ["p2", "EXPIRED"],
+    ["p3", "COMPLIANT"],
+    ["p4", "NO_CERTIFICATE"],
+  ]),
+};
 
 describe("person fields", () => {
   it("exposes a whitelist with options", () => {
@@ -29,10 +40,28 @@ describe("person fields", () => {
     });
   });
 
-  it("complianceStatus -> ComplianceReminder.lastStatus in values", () => {
-    expect(personFieldWhere({ field: "complianceStatus", op: "in", value: ["EXPIRED"] }, ctx)).toEqual({
-      complianceReminder: { lastStatus: { in: ["EXPIRED"] } },
+  it("complianceStatus -> ids of people whose live status is selected", () => {
+    expect(
+      personFieldWhere({ field: "complianceStatus", op: "in", value: ["COMPLIANT"] }, complianceCtx),
+    ).toEqual({ id: { in: ["p1", "p3"] } });
+  });
+
+  it("complianceStatus -> union across multiple selected statuses", () => {
+    expect(
+      personFieldWhere({ field: "complianceStatus", op: "in", value: ["EXPIRED", "NO_CERTIFICATE"] }, complianceCtx),
+    ).toEqual({ id: { in: ["p2", "p4"] } });
+  });
+
+  it("complianceStatus -> selecting no status matches nobody", () => {
+    expect(personFieldWhere({ field: "complianceStatus", op: "in", value: [] }, complianceCtx)).toEqual({
+      id: { in: [] },
     });
+  });
+
+  it("complianceStatus -> throws when the status map was not precomputed", () => {
+    expect(() =>
+      personFieldWhere({ field: "complianceStatus", op: "in", value: ["COMPLIANT"] }, ctx),
+    ).toThrow(/status map/i);
   });
 
   it("hasEpicId true/false", () => {

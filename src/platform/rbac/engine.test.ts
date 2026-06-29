@@ -32,7 +32,7 @@ async function fixture() {
     data: {
       name: "Director",
       isSystem: true,
-      grants: { create: [{ permission: "schedule.view" }, { permission: "schedule.edit_own_dept" }] },
+      grants: { create: [{ permission: "schedule.view" }, { permission: "volunteers.view" }] },
     },
   });
   const volunteerRole = await prisma.role.create({
@@ -66,7 +66,7 @@ describe("rbac engine", () => {
     await prisma.termMembership.create({
       data: { personId: person.id, termId: f.term.id, departmentId: f.vadm.id, kind: "DIRECTOR" },
     });
-    expect(await can(person.id, "schedule.edit_own_dept")).toBe(true);
+    expect(await can(person.id, "volunteers.view")).toBe(true);
     expect(await can(person.id, "recruitment.manage_cycle")).toBe(false);
   });
 
@@ -103,7 +103,7 @@ describe("rbac engine", () => {
         status: "REMOVED",
       },
     });
-    expect(await can(person.id, "schedule.edit_own_dept")).toBe(false);
+    expect(await can(person.id, "volunteers.view")).toBe(false);
   });
 
   it("returns the full effective permission set", async () => {
@@ -115,7 +115,7 @@ describe("rbac engine", () => {
     const perms = await getEffectivePermissions(person.id);
     expect(perms.has("schedule.view")).toBe(true);
     expect(perms.size).toBe(1);
-    expect(perms.has("schedule.edit_own_dept")).toBe(false);
+    expect(perms.has("volunteers.view")).toBe(false);
   });
 });
 

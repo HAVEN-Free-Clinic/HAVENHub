@@ -19,4 +19,12 @@ describe("system roles", () => {
   it("keeps learning.access on the Volunteer role", () => {
     expect(grantsFor("Volunteer")).toContain("learning.access");
   });
+
+  // Issue #82: edit_own_dept is now enforced as a member-department grant. It was
+  // a no-op on the auto-attached Director role; leaving it would silently widen
+  // directors' edit reach to their non-director memberships. Directors keep their
+  // scope via director membership, so the grant is removed.
+  it("does not grant the Director role schedule.edit_own_dept", () => {
+    expect(grantsFor("Director")).not.toContain("schedule.edit_own_dept");
+  });
 });

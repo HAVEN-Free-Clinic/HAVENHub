@@ -267,8 +267,7 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
             </Select>
           </Field>
 
-          
-            <Field label="Access end date">
+          <Field label="Access end date">
             <Input
               type="date"
               required
@@ -276,7 +275,6 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
               onChange={(e) => setEndDate(e.target.value)}
             />
           </Field>
-    
         </div>
 
         {selectedAuthorizer ? (

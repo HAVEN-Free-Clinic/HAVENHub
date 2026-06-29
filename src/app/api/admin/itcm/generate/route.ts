@@ -213,7 +213,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "No people selected" }, { status: 400 });
   }
 
-  // Deactivation requests default to today if no end date is provided.
   const isDeactivate = requestType === "deactivate_individual" || requestType === "bulk_deactivate";
 
   // Every request type — new, modify, renew, and deactivate — requires an
@@ -225,8 +224,8 @@ export async function POST(req: Request) {
     );
   }
 
-  const todayMMDDYYYY = new Date().toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
-  const effectiveEndDate = isDeactivate && !endDate?.trim() ? todayMMDDYYYY : endDate;
+  // The blank-date guard above means endDate is always present for every type.
+  const effectiveEndDate = endDate;
 
   // Load people from the database.
   const people = await getPeopleByIds(personIds);

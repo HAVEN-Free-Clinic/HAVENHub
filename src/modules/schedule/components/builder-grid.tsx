@@ -17,6 +17,7 @@ import { Badge } from "@/platform/ui/badge";
 import { displayDate } from "@/modules/schedule/engine/display";
 import { isoDateKey } from "@/platform/dates";
 import { rolesForDept } from "@/modules/schedule/engine/capacity";
+import { compareBuilderMembers } from "@/modules/schedule/services/builder";
 import type { BuilderMember, BuilderAssignmentEntry } from "@/modules/schedule/services/builder";
 
 // ---------------------------------------------------------------------------
@@ -271,10 +272,8 @@ export function BuilderGrid({
   assignAction,
   unassignAction,
 }: Props) {
-  // Sort members alphabetically.
-  const sorted = [...members].sort((a, b) =>
-    a.person.name.localeCompare(b.person.name),
-  );
+  // Directors first, then volunteers, alphabetical within each group.
+  const sorted = [...members].sort(compareBuilderMembers);
 
   if (sorted.length === 0) {
     return (

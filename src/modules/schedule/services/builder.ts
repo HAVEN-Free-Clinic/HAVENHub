@@ -556,6 +556,19 @@ export type BuilderMember = {
   intake: BuilderMemberIntake;
 };
 
+/** Just the fields {@link compareBuilderMembers} needs; any BuilderMember satisfies it. */
+type BuilderMemberOrder = Pick<BuilderMember, "kind"> & { person: { name: string } };
+
+/**
+ * Ordering for the builder's member lists: directors first, then volunteers,
+ * each group sorted alphabetically by name. Used by the Day view's
+ * "Available to assign" pool and the grid view so both surfaces match.
+ */
+export function compareBuilderMembers(a: BuilderMemberOrder, b: BuilderMemberOrder): number {
+  if (a.kind !== b.kind) return a.kind === "DIRECTOR" ? -1 : 1;
+  return a.person.name.localeCompare(b.person.name);
+}
+
 export type BuilderAssignmentEntry = {
   role: "VOLUNTEER" | "SHADOW" | "DIRECTOR";
   tags: { triage: boolean; walkin: boolean; cc: boolean; remote: boolean };

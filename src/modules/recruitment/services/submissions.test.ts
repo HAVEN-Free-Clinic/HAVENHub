@@ -8,7 +8,8 @@ import {
   submitApplication, listApplications, getApplication,
   CycleNotOpenError, DuplicateApplicationError, SubmissionValidationError,
 } from "./submissions";
-import { saveDraft } from "./drafts";
+import { saveDraft, uploadDraftFile, getDraft } from "./drafts";
+import { getObject } from "@/platform/storage";
 
 async function openVolunteerCycle() {
   const person = await prisma.person.create({ data: { name: "Lead", status: "ACTIVE" } });
@@ -128,6 +129,29 @@ it("rejects a file uploaded under an unknown/path-traversal field key", async ()
       files: { "../../../../tmp/evil": { fileName: "evil.sh", mimeType: "text/x-sh", bytes: Buffer.from("x") } },
     })
   ).rejects.toBeInstanceOf(SubmissionValidationError);
+});
+
+it("deletes the superseded draft file blob when a new file replaces it on submit", async () => {
+  // A draft holds an uploaded file; at submit the applicant supplies a fresh
+  // file for the same field. The new blob wins, so the old one must be deleted
+  // rather than left orphaned in storage.
+  const { cycle } = await openVolunteerCycle();
+  const identity = { email: "ann@yale.edu", personId: null };
+  await saveDraft("apply-v", identity, { answers: {} });
+  await uploadDraftFile("apply-v", identity, "resume", { fileName: "old.pdf", mimeType: "application/pdf", bytes: Buffer.from("old") });
+  const draft = await getDraft("apply-v", identity);
+  const oldStored = (draft!.answers.resume as { storedName: string }).storedName;
+  expect(await getObject(`recruitment/${cycle.id}/${oldStored}`)).not.toBeNull();
+
+  const app = await submitApplication("apply-v", {
+    applicantType: "NEW",
+    answers: { first_name: "Ann", last_name: "Lee", email: "ann@yale.edu", "1st_choice_department": "MDIC" },
+    files: { resume: { fileName: "new.pdf", mimeType: "application/pdf", bytes: Buffer.from("new") } },
+  });
+  const newStored = (app.answers as { resume: { storedName: string } }).resume.storedName;
+  expect(newStored).not.toBe(oldStored);
+  expect(await getObject(`recruitment/${cycle.id}/${newStored}`)).not.toBeNull();
+  expect(await getObject(`recruitment/${cycle.id}/${oldStored}`)).toBeNull();
 });
 
 it("lists and gets applications", async () => {

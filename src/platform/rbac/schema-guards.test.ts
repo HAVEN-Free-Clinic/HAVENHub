@@ -37,4 +37,31 @@ describe("db-level schema guards", () => {
       prisma.person.create({ data: { name: "B", contactEmail: "X@YALE.EDU" } })
     ).rejects.toThrow();
   });
+
+  it("rejects assignments with two targets set (3-way XOR)", async () => {
+    const { role, person } = await fixture();
+    const dept = await prisma.department.create({ data: { code: "XOR", name: "X" } });
+    await expect(
+      prisma.roleAssignment.create({
+        data: { roleId: role.id, personId: person.id, departmentId: dept.id },
+      })
+    ).rejects.toThrow();
+  });
+
+  it("rejects assignments with a kind and a person target both set (3-way XOR)", async () => {
+    const { role, person } = await fixture();
+    await expect(
+      prisma.roleAssignment.create({
+        data: { roleId: role.id, personId: person.id, kind: "VOLUNTEER" },
+      })
+    ).rejects.toThrow();
+  });
+
+  it("rejects duplicate kind-target assignments (unique_grant spans kind)", async () => {
+    const { role } = await fixture();
+    await prisma.roleAssignment.create({ data: { roleId: role.id, kind: "VOLUNTEER", termId: null } });
+    await expect(
+      prisma.roleAssignment.create({ data: { roleId: role.id, kind: "VOLUNTEER", termId: null } })
+    ).rejects.toThrow();
+  });
 });

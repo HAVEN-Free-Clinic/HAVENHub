@@ -19,8 +19,7 @@
  *     emailHistory       - caller gates to manage_epic holders
  *
  * updatePersonFields (from @/platform/people) is used for all epicId writes:
- * it diffs, audits person.update, and enqueues the mirror outbox entry. Do not
- * duplicate that logic here.
+ * it diffs and audits person.update. Do not duplicate that logic here.
  */
 
 import type { EpicRequest, EmailLog, YnhhTicket } from "@prisma/client";
@@ -460,8 +459,8 @@ export async function listTickets(): Promise<TicketRow[]> {
  * be PENDING or SUBMITTED (EpicStateError otherwise).
  *
  * For kind NEW or MODIFY an epicId argument is REQUIRED (EpicStateError when
- * missing or blank). The epicId is written via updatePersonFields which diffs,
- * audits person.update, and enqueues the mirror outbox.
+ * missing or blank). The epicId is written via updatePersonFields which diffs
+ * and audits person.update.
  *
  * For kind RENEW any provided epicId is IGNORED; the person's epicId is left
  * untouched.

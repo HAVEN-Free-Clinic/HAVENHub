@@ -161,36 +161,6 @@ describe("email.transport guard", () => {
   });
 });
 
-describe("airtable.mirrorEnabled guard", () => {
-  it("rejects enabling when AIRTABLE_PAT/base/people-table env vars are absent", async () => {
-    // Temporarily blank the Airtable credentials so the guard fires even when
-    // the local .env has them set.
-    const saved = {
-      AIRTABLE_PAT: configModule.config.AIRTABLE_PAT,
-      AIRTABLE_MIRROR_BASE_ID: configModule.config.AIRTABLE_MIRROR_BASE_ID,
-      AIRTABLE_MIRROR_PEOPLE_TABLE_ID: configModule.config.AIRTABLE_MIRROR_PEOPLE_TABLE_ID,
-    };
-    Object.assign(configModule.config, {
-      AIRTABLE_PAT: undefined,
-      AIRTABLE_MIRROR_BASE_ID: undefined,
-      AIRTABLE_MIRROR_PEOPLE_TABLE_ID: undefined,
-    });
-    try {
-      await expect(setSetting("airtable.mirrorEnabled", true, null)).rejects.toBeInstanceOf(
-        SettingValidationError
-      );
-      expect(await prisma.setting.findUnique({ where: { key: "airtable.mirrorEnabled" } })).toBeNull();
-    } finally {
-      Object.assign(configModule.config, saved);
-    }
-  });
-
-  it("allows disabling without prerequisites", async () => {
-    await setSetting("airtable.mirrorEnabled", false, null);
-    expect(await getSetting<boolean>("airtable.mirrorEnabled")).toBe(false);
-  });
-});
-
 describe("phase 2a branding settings", () => {
   it("resolves branding.appName default then DB override", async () => {
     expect(await getSetting<string>("branding.appName")).toBe("HAVEN Hub");

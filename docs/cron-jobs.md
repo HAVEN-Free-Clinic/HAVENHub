@@ -8,7 +8,7 @@ with `Authorization: Bearer $CRON_SECRET`.
 There are **two** trigger mechanisms, and most jobs use the external one:
 
 - **External scheduler ([cron-job.org](https://cron-job.org), free):** drives the
-  per-minute email tick and the daily compliance jobs. Vercel only executes
+  per-minute email tick and the daily compliance reminders. Vercel only executes
   `vercel.json` crons on a sufficiently-provisioned paid plan (on the Pro trial
   they register but never fire, see commit `7be5efd`), so these are scheduled
   externally to stay plan-independent and free.
@@ -24,7 +24,6 @@ in-repo error.
 | Path | Trigger | Cadence | UTC schedule | What it does | What breaks if it stops |
 | --- | --- | --- | --- | --- | --- |
 | `/api/cron/email` | External (cron-job.org) | every minute | `* * * * *` | Dispatches due campaigns, then drains the email + Teams notification queues. The **sole** drainer. | Queued email and Teams notifications never send. |
-| `/api/cron/nightly` | External (cron-job.org) | daily | `0 6 * * *` | Recomputes compliance statuses, drains the Airtable mirror outbox, reconciles People against Airtable. | Compliance statuses go stale and the Airtable mirror drifts. |
 | `/api/cron/reminders` | External (cron-job.org) | daily | `0 13 * * *` | Enqueues HIPAA compliance reminders and director escalations (delivery happens on the email tick). | HIPAA reminders and director escalations are never enqueued. |
 | `/api/cron/recruitment-drafts` | Vercel Cron (`vercel.json`) | daily | `0 4 * * *` | Sweeps abandoned onboarding drafts older than 30 days. | Stale draft rows accumulate. |
 
@@ -32,10 +31,10 @@ Notes:
 
 - **Exactly one** scheduler may call `/api/cron/email`. It assumes a single
   drainer (no `SELECT ... FOR UPDATE SKIP LOCKED`); a second concurrent caller
-  would double-send. For the same reason the nightly and reminders jobs only
-  **enqueue** email, they never drain it.
-- `nightly` and `reminders` are deliberately split from email delivery: their
-  enqueued mail is delivered by the per-minute email tick within ~60s.
+  would double-send. For the same reason the reminders job only **enqueues**
+  email, it never drains it.
+- `reminders` is deliberately split from email delivery: its enqueued mail is
+  delivered by the per-minute email tick within ~60s.
 - `recruitment-drafts` is the only job left as a Vercel Cron. If Vercel is not
   firing crons on the current plan, it can be moved to the external scheduler
   like the others (point cron-job.org at the path daily and drop it from the

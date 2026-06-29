@@ -2,8 +2,8 @@
  * Person mutation core (platform-level).
  *
  * This module owns the transactional create/update/status mutations for
- * Person, including the changed-field diff, the Airtable mirror enqueue, the
- * P2002 -> typed-conflict mapping, and the audit writes. It lives in the
+ * Person, including the changed-field diff, the P2002 -> typed-conflict
+ * mapping, and the audit writes. It lives in the
  * platform layer (not inside any module) so that both the admin module and the
  * member-facing my-info module can drive person mutations without one module
  * importing another.
@@ -20,15 +20,6 @@
 import type { Person } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
-import { enqueueMirror } from "@/platform/outbox";
-import { ALL_PEOPLE_FIELDS } from "@/platform/airtable/fields";
-
-// The set of Person field names that are mirrored to Airtable.
-// Derived from the keys of ALL_PEOPLE_FIELDS so that the list stays in sync
-// with the field registry automatically.
-export const MIRRORED_FIELDS = new Set(
-  Object.keys(ALL_PEOPLE_FIELDS) as Array<keyof typeof ALL_PEOPLE_FIELDS>
-);
 
 export class PersonConflictError extends Error {
   constructor(public field: string) {
@@ -111,12 +102,6 @@ export async function createPersonRecord(
         },
       });
 
-      await enqueueMirror(tx, {
-        entityType: "Person",
-        entityId: created.id,
-        changedFields: Array.from(MIRRORED_FIELDS),
-      });
-
       return created;
     });
 
@@ -187,14 +172,10 @@ export async function updatePersonFields(
     }
   }
 
-  // No-op: nothing changed, skip write, audit, and mirror.
+  // No-op: nothing changed, skip write and audit.
   if (changedKeys.length === 0) {
     return existing;
   }
-
-  const changedMirroredFields = changedKeys.filter((k) =>
-    MIRRORED_FIELDS.has(k as keyof typeof ALL_PEOPLE_FIELDS)
-  );
 
   const beforeSnapshot = Object.fromEntries(
     changedKeys.map((k) => [k, (existing as Record<string, unknown>)[k] ?? null])
@@ -219,14 +200,6 @@ export async function updatePersonFields(
       }
 
       const result = await tx.person.update({ where: { id: personId }, data: updateData });
-
-      if (changedMirroredFields.length > 0) {
-        await enqueueMirror(tx, {
-          entityType: "Person",
-          entityId: personId,
-          changedFields: changedMirroredFields,
-        });
-      }
 
       return result;
     });
@@ -256,8 +229,6 @@ export async function setPersonStatusField(
   personId: string,
   status: "ACTIVE" | "OFFBOARDED"
 ): Promise<Person> {
-  // Status is not a mirrored field. The offboarding checkbox flow in Airtable
-  // belongs to the Volunteers module later. We do not enqueue a mirror job here.
   const existingOrNull = await prisma.person.findUnique({ where: { id: personId } });
   if (!existingOrNull) throw new PersonNotFoundError(personId);
   const existing = existingOrNull;

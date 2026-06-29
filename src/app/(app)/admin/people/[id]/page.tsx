@@ -164,9 +164,7 @@ export default async function PersonDetailPage({ params, searchParams }: PagePro
             <p className="mb-3 text-sm text-muted-foreground">
               Offboarding removes this person from active access and ends all of
               their active memberships, so they no longer appear on any roster.
-              Their membership history is preserved. Status is not mirrored to
-              Airtable (the volunteer offboarding flow belongs to the Volunteers
-              module).
+              Their membership history is preserved.
             </p>
             <ConfirmButton
               label="Offboard"

@@ -32,7 +32,7 @@
  *   - closeTicket on already-closed ticket -> EpicStateError.
  *
  * completeRequest(actorPersonId, requestId, epicId?):
- *   - NEW: writes Person.epicId via updatePersonFields; Outbox row with epicId in changedFields.
+ *   - NEW: writes Person.epicId via updatePersonFields.
  *   - RENEW: leaves person untouched even when epicId passed.
  *   - NEW without epicId -> EpicStateError.
  *   - COMPLETED/CANCELLED status -> EpicStateError.
@@ -578,7 +578,7 @@ describe("closeTicket", () => {
 // ---------------------------------------------------------------------------
 
 describe("completeRequest", () => {
-  it("NEW: writes Person.epicId via updatePersonFields; Outbox row with epicId in changedFields", async () => {
+  it("NEW: writes Person.epicId via updatePersonFields", async () => {
     const actor = await createPerson("Manager", { netId: "mgr001" });
     await grantPermission(actor.id, "volunteers.manage_epic");
     const target = await createPerson("Alice", { netId: "aaa001" });
@@ -595,13 +595,6 @@ describe("completeRequest", () => {
     const updatedReq = await prisma.epicRequest.findUniqueOrThrow({ where: { id: req.id } });
     expect(updatedReq.status).toBe("COMPLETED");
     expect(updatedReq.completedAt).not.toBeNull();
-
-    // Outbox row should exist for the person mirror with epicId in changedFields.
-    const outbox = await prisma.outbox.findFirst({
-      where: { entityId: target.id },
-    });
-    expect(outbox).not.toBeNull();
-    expect(outbox?.changedFields).toContain("epicId");
 
     // Audit for epic.complete.
     const audit = await prisma.auditLog.findFirst({

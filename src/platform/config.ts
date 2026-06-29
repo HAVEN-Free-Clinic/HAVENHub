@@ -26,27 +26,6 @@ const schema = z
     SU26_SCHEDULE_TABLE_ID: z.string().default("tblqJlM85Em0AA767"),
     RHD_ATTENDINGS_TABLE_ID: z.string().default("tblxDJehirZSLFJna"),
     RHD_CLINICS_TABLE_ID: z.string().default("tbl0HrOcMHUQL0a6C"),
-    // Mirror: WRITES. Disabled by default; points at a sandbox base until FA26 cutover.
-    AIRTABLE_MIRROR_ENABLED: z
-      .string()
-      .default("false")
-      .transform((v) => v === "true"),
-    AIRTABLE_MIRROR_BASE_ID: z.string().optional(),
-    AIRTABLE_MIRROR_PEOPLE_TABLE_ID: z.string().optional(),
-    // Optional JSON field-ID map for targets whose field IDs differ from production defaults
-    // (e.g. the sandbox base). When set and the mirror is enabled, must parse to an object
-    // with exactly the seven keys: name, netId, contactEmail, phone, epicId, yaleAffiliation, gradYear.
-    AIRTABLE_MIRROR_FIELD_MAP: z.string().optional(),
-    // HIPAA certificate attachment push: the Airtable attachment field ID on the mirrored
-    // people table. Optional at all times -- even when the mirror is enabled. When unset,
-    // the certificate push step silently skips and logs a notice. This lets teams enable
-    // the mirror before an attachment field exists in their base.
-    AIRTABLE_MIRROR_HIPAA_FIELD_ID: z.string().optional(),
-    // HIPAA compliance status mirror: the Airtable singleSelect field ID on the mirrored
-    // people table. Optional at all times -- even when the mirror is enabled. When unset,
-    // the computed status is not written (the select is omitted from the payload). This lets
-    // teams enable the mirror before the status field exists in their base (the sandbox has none).
-    AIRTABLE_MIRROR_STATUS_FIELD_ID: z.string().optional(),
     // Email transport: "log" prints to stdout (default, safe for development/CI);
     // "graph" sends via Microsoft Graph delegated OAuth flow (requires the OAuth vars below).
     EMAIL_TRANSPORT: z.enum(["log", "graph"]).default("log"),
@@ -167,66 +146,6 @@ const schema = z
           path: [key],
           message: "required in production",
         });
-      }
-    }
-  })
-  .superRefine((env, ctx) => {
-    // superRefine runs post-transform: AIRTABLE_MIRROR_ENABLED is already a boolean here.
-    if (env.AIRTABLE_MIRROR_ENABLED === true) {
-      for (const key of [
-        "AIRTABLE_PAT",
-        "AIRTABLE_MIRROR_BASE_ID",
-        "AIRTABLE_MIRROR_PEOPLE_TABLE_ID",
-      ] as const) {
-        if (!env[key]) {
-          ctx.addIssue({
-            code: "custom",
-            path: [key],
-            message: "required when the mirror is enabled",
-          });
-        }
-      }
-      // Validate AIRTABLE_MIRROR_FIELD_MAP when set: must parse to an object with the seven keys.
-      if (env.AIRTABLE_MIRROR_FIELD_MAP !== undefined) {
-        const REQUIRED_FIELD_MAP_KEYS = [
-          "name",
-          "netId",
-          "contactEmail",
-          "phone",
-          "epicId",
-          "yaleAffiliation",
-          "gradYear",
-        ] as const;
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(env.AIRTABLE_MIRROR_FIELD_MAP);
-        } catch {
-          ctx.addIssue({
-            code: "custom",
-            path: ["AIRTABLE_MIRROR_FIELD_MAP"],
-            message: "must be valid JSON when set",
-          });
-          return;
-        }
-        if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-          ctx.addIssue({
-            code: "custom",
-            path: ["AIRTABLE_MIRROR_FIELD_MAP"],
-            message: "must be a JSON object",
-          });
-          return;
-        }
-        const obj = parsed as Record<string, unknown>;
-        const missing = REQUIRED_FIELD_MAP_KEYS.filter(
-          (k) => typeof obj[k] !== "string" || !(obj[k] as string).length
-        );
-        if (missing.length > 0) {
-          ctx.addIssue({
-            code: "custom",
-            path: ["AIRTABLE_MIRROR_FIELD_MAP"],
-            message: `must contain all seven field-id keys as non-empty strings; missing: ${missing.join(", ")}`,
-          });
-        }
       }
     }
   })

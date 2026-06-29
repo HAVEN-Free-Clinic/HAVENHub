@@ -163,26 +163,6 @@ describe("createPerson", () => {
     expect((logs[0].after as Record<string, unknown>).name).toBe("Audit Subject");
   });
 
-  it("enqueues a mirror outbox row in the same transaction (entityType Person, entityId = new id)", async () => {
-    const person = await createPerson(ACTOR, { name: "Mirror Test", netId: "mt1" });
-
-    const outboxRows = await prisma.outbox.findMany({ where: { entityId: person.id } });
-    expect(outboxRows).toHaveLength(1);
-    expect(outboxRows[0].entityType).toBe("Person");
-  });
-
-  it("rolls back the outbox row when the transaction fails (duplicate netId)", async () => {
-    await createPerson(ACTOR, { name: "First", netId: "dup1" });
-    const countBefore = await prisma.outbox.count();
-
-    await expect(
-      createPerson(ACTOR, { name: "Second", netId: "dup1" })
-    ).rejects.toThrow(PersonConflictError);
-
-    const countAfter = await prisma.outbox.count();
-    expect(countAfter).toBe(countBefore); // no outbox row leaked
-  });
-
   it("throws PersonConflictError with a field name on duplicate netId", async () => {
     await createPerson(ACTOR, { name: "First", netId: "uniq1", contactEmail: "first@example.com" });
 
@@ -242,7 +222,6 @@ describe("updatePerson", () => {
       contactEmail: "orig@example.com",
     });
     await prisma.auditLog.deleteMany(); // clear create audit
-    await prisma.outbox.deleteMany(); // clear create outbox
 
     await updatePerson(ACTOR, person.id, {
       name: "Updated Name",
@@ -260,26 +239,13 @@ describe("updatePerson", () => {
     expect((log.after as Record<string, unknown>).netId).toBeUndefined();
   });
 
-  it("enqueues mirror with only the changed mirrored field names", async () => {
-    const person = await createPerson(ACTOR, { name: "Mirror Diff", netId: "md1" });
-    await prisma.outbox.deleteMany(); // clear create outbox
-
-    await updatePerson(ACTOR, person.id, { name: "Mirror Diff Updated", netId: "md1" });
-
-    const outboxRows = await prisma.outbox.findMany({ where: { entityId: person.id } });
-    expect(outboxRows).toHaveLength(1);
-    expect(outboxRows[0].changedFields).toContain("name");
-    expect(outboxRows[0].changedFields).not.toContain("netId");
-  });
-
-  it("writes NO audit and NO outbox row when no fields change (no-op update)", async () => {
+  it("writes NO audit when no fields change (no-op update)", async () => {
     const person = await createPerson(ACTOR, {
       name: "Noop Person",
       netId: "noop1",
       contactEmail: "noop@example.com",
     });
     await prisma.auditLog.deleteMany();
-    await prisma.outbox.deleteMany();
 
     await updatePerson(ACTOR, person.id, {
       name: "Noop Person",
@@ -288,21 +254,7 @@ describe("updatePerson", () => {
     });
 
     const auditCount = await prisma.auditLog.count();
-    const outboxCount = await prisma.outbox.count();
     expect(auditCount).toBe(0);
-    expect(outboxCount).toBe(0);
-  });
-
-  it("does NOT enqueue mirror when an update changes nothing (no-op)", async () => {
-    const person = await createPerson(ACTOR, { name: "No Mirror", netId: "nm1" });
-    await prisma.outbox.deleteMany();
-
-    // Every supplied value equals the stored value, so there are no changed
-    // fields and therefore no mirror job.
-    await updatePerson(ACTOR, person.id, { name: "No Mirror", netId: "nm1" });
-
-    const outboxCount = await prisma.outbox.count();
-    expect(outboxCount).toBe(0);
   });
 
   it("normalizes netId and emails to lowercase on update", async () => {
@@ -349,16 +301,6 @@ describe("setPersonStatus", () => {
     const logs = await prisma.auditLog.findMany({ where: { entityId: person.id } });
     expect(logs).toHaveLength(1);
     expect(logs[0].action).toBe("person.reactivate");
-  });
-
-  it("does NOT enqueue a mirror outbox row when status changes", async () => {
-    const person = await createPerson(ACTOR, { name: "Status Only", netId: "so1" });
-    await prisma.outbox.deleteMany();
-
-    await setPersonStatus(ACTOR, person.id, "OFFBOARDED");
-
-    const outboxCount = await prisma.outbox.count();
-    expect(outboxCount).toBe(0);
   });
 
   it("returns the updated person with the new status", async () => {

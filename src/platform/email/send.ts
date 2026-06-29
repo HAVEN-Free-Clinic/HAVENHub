@@ -19,7 +19,7 @@ const MAX_ATTEMPTS = 8;
 /**
  * Append an email send job in the SAME transaction as the domain write, so a
  * rolled-back mutation never leaks a phantom send. Callers pass any Db handle
- * (PrismaClient or TransactionClient), exactly like enqueueMirror in outbox.ts.
+ * (PrismaClient or TransactionClient) so the job commits atomically with it.
  */
 export async function queueEmail(db: Db, input: QueueEmailInput): Promise<EmailLog> {
   return db.emailLog.create({
@@ -39,7 +39,7 @@ export async function queueEmail(db: Db, input: QueueEmailInput): Promise<EmailL
  * Drain the QUEUED email backlog, oldest-first. For each row, delegates to
  * transport.send(); on success stamps SENT + sentAt; on failure increments
  * attempts and sets lastError. When attempts reaches MAX_ATTEMPTS the row
- * becomes FAILED (same retry policy as drainOutbox in mirror.ts).
+ * becomes FAILED.
  *
  * Each QUEUED row is attempted AT MOST ONCE per invocation. The backlog is
  * walked with keyset pagination (createdAt,id) in batches of `batchSize`: a row
@@ -54,8 +54,7 @@ export async function queueEmail(db: Db, input: QueueEmailInput): Promise<EmailL
  * Returns the number of rows attempted this invocation (succeeded or not).
  *
  * Single-worker deployment assumed: no SELECT FOR UPDATE SKIP LOCKED, so two
- * concurrent drains would double-send. Same assumption as the mirror outbox
- * drain in mirror.ts.
+ * concurrent drains would double-send.
  */
 export async function drainEmailQueue(
   transport: EmailTransport,

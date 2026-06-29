@@ -89,7 +89,6 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
   const [error, setError] = useState<string | null>(null);
 
   const isBulk = requestType.startsWith("bulk");
-  const isNew = requestType.includes("new");
   const isDeactivate = requestType.startsWith("deactivate") || requestType === "bulk_deactivate";
 
   // The selected department's members for the person list.

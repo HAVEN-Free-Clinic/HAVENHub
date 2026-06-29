@@ -280,7 +280,6 @@ export async function POST(req: Request) {
   
 
   const isBulk = requestType.startsWith("bulk");
-  const isNew = requestType.includes("new");
 
   // Build person shape for individual requests.
   const firstPerson = people[0];

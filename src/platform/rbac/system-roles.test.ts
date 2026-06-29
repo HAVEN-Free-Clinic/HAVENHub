@@ -27,4 +27,10 @@ describe("system roles", () => {
   it("does not grant the Director role schedule.edit_own_dept", () => {
     expect(grantsFor("Director")).not.toContain("schedule.edit_own_dept");
   });
+
+  it("grants admin.manage_roster to Volunteer Operations Manager", () => {
+    const volOps = SYSTEM_ROLES.find((r) => r.name === "Volunteer Operations Manager");
+    expect(volOps).toBeDefined();
+    expect(volOps!.grants).toContain("admin.manage_roster");
+  });
 });

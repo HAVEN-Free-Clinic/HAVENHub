@@ -84,7 +84,7 @@ export const MODULES: ModuleManifest[] = [
   {
     id: "admin",
     title: "Admin",
-    description: "People, terms, roles, sync health, audit log",
+    description: "People, terms, roles, audit log",
     icon: Settings,
     accessPermission: "admin.access",
     permissions: [
@@ -112,7 +112,6 @@ export const MODULES: ModuleManifest[] = [
       { label: "Departments", href: "/admin/departments", permission: "admin.manage_departments" },
       { label: "Subcommittees", href: "/admin/subcommittees", permission: "admin.manage_subcommittees" },
       { label: "Audit", href: "/admin/audit", permission: "admin.view_audit" },
-      { label: "Sync", href: "/admin/sync", permission: "admin.manage_sync" },
       { label: "Email", href: "/admin/email", permission: "admin.manage_sync" },
       { label: "Notifications", href: "/admin/notifications", permission: "admin.manage_sync" },
       { label: "Settings", href: "/admin/settings", permission: "admin.manage_settings" },

@@ -925,20 +925,6 @@ describe("setCompletionDateAsManager", () => {
     expect(log?.actorPersonId).toBe(actor.id);
   });
 
-  it("enqueues a Person mirror row for hipaaStatus", async () => {
-    const actor = await createPerson("Manager", "mgr001");
-    await grantPermission(actor.id, "volunteers.manage_compliance");
-    const owner = await createPerson("Volunteer", "vol001");
-    const cert = await createCert(owner.id, null);
-
-    await setCompletionDateAsManager(actor.id, cert.id, "2025-06-01");
-
-    const mirror = await prisma.outbox.findFirst({
-      where: { entityType: "Person", entityId: owner.id },
-    });
-    expect(mirror).not.toBeNull();
-  });
-
   it("throws ComplianceForbiddenError for a non-manager actor", async () => {
     const actor = await createPerson("PlainDirector", "dir001"); // no manage_compliance grant
     const owner = await createPerson("Volunteer", "vol001");

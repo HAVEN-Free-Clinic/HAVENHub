@@ -128,25 +128,6 @@ export const SETTINGS: SettingDef<unknown>[] = [
     envDefault: () => config.TEAMS_CLINIC_GROUP_ID ?? "",
     secret: false,
   }),
-  define<boolean>({
-    key: "airtable.mirrorEnabled",
-    category: "Integrations",
-    label: "Airtable mirror enabled",
-    help: "When on, person changes are mirrored to Airtable. Requires AIRTABLE_PAT, mirror base ID, and people table ID in the environment.",
-    input: { type: "boolean" },
-    schema: z.boolean(),
-    envDefault: () => config.AIRTABLE_MIRROR_ENABLED,
-    secret: false,
-    validate: async (value, { config }) => {
-      if (value !== true) return null;
-      const problems: string[] = (
-        ["AIRTABLE_PAT", "AIRTABLE_MIRROR_BASE_ID", "AIRTABLE_MIRROR_PEOPLE_TABLE_ID"] as const
-      ).filter((k) => !config[k]);
-      return problems.length
-        ? `Cannot enable the Airtable mirror until these env vars are set: ${problems.join(", ")}.`
-        : null;
-    },
-  }),
   define<"log" | "graph">({
     key: "email.transport",
     category: "Email",

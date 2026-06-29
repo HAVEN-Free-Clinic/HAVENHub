@@ -14,7 +14,6 @@ import type { ComplianceStatus, TrainingState, OverallClearance } from "@/platfo
 import { canViewCertificate } from "@/platform/compliance/access";
 import { manageableDepartmentIds } from "@/platform/departments";
 import { can } from "@/platform/rbac/engine";
-import { enqueueMirror } from "@/platform/outbox";
 import { parseCompletionDate, CompletionDateError } from "@/platform/compliance/completion-date";
 
 export type { ComplianceStatus };
@@ -494,8 +493,8 @@ export async function verifyCertificate(
  *
  * Setting the date also verifies the cert (the actor read the PDF to get the
  * date), so completionDate, extraction=MANUAL, and the verified stamp are
- * written in one transaction alongside the Person mirror enqueue. Audits
- * "compliance.set_date" with before/after. The before snapshot captures the
+ * written together. Audits "compliance.set_date" with before/after. The before
+ * snapshot captures the
  * real prior state (including any existing completionDate) so overwrites are
  * fully traceable.
  *
@@ -540,22 +539,14 @@ export async function setCompletionDateAsManager(
     verifiedAt: cert.verifiedAt ?? null,
   };
 
-  await prisma.$transaction(async (tx) => {
-    await tx.hipaaCertificate.update({
-      where: { id: cert.id },
-      data: {
-        completionDate,
-        extraction: "MANUAL",
-        verifiedById: actorPersonId,
-        verifiedAt: now,
-      },
-    });
-
-    await enqueueMirror(tx, {
-      entityType: "Person",
-      entityId: cert.personId,
-      changedFields: ["hipaaStatus"],
-    });
+  await prisma.hipaaCertificate.update({
+    where: { id: cert.id },
+    data: {
+      completionDate,
+      extraction: "MANUAL",
+      verifiedById: actorPersonId,
+      verifiedAt: now,
+    },
   });
 
   await recordAudit({

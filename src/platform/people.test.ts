@@ -14,7 +14,7 @@ const ACTOR = "actor-person-id";
 describe("createPersonRecord", () => {
   beforeEach(resetDb);
 
-  it("normalizes netId and emails to lowercase and enqueues a mirror row in the same tx", async () => {
+  it("normalizes netId and emails to lowercase", async () => {
     const person = await createPersonRecord(ACTOR, {
       name: "Jack Carney",
       netId: "JDC239",
@@ -23,22 +23,14 @@ describe("createPersonRecord", () => {
 
     expect(person.netId).toBe("jdc239");
     expect(person.contactEmail).toBe("jack@example.com");
-
-    const outboxRows = await prisma.outbox.findMany({ where: { entityId: person.id } });
-    expect(outboxRows).toHaveLength(1);
-    expect(outboxRows[0].entityType).toBe("Person");
   });
 
-  it("rolls back the outbox row and throws PersonConflictError on duplicate netId", async () => {
+  it("throws PersonConflictError on duplicate netId", async () => {
     await createPersonRecord(ACTOR, { name: "First", netId: "dup1" });
-    const countBefore = await prisma.outbox.count();
 
     await expect(
       createPersonRecord(ACTOR, { name: "Second", netId: "dup1" })
     ).rejects.toBeInstanceOf(PersonConflictError);
-
-    const countAfter = await prisma.outbox.count();
-    expect(countAfter).toBe(countBefore); // no outbox row leaked
   });
 
   it("maps a lower()-expression-index violation to the plain column name", async () => {
@@ -65,14 +57,13 @@ describe("createPersonRecord", () => {
 describe("updatePersonFields", () => {
   beforeEach(resetDb);
 
-  it("writes NO audit and NO outbox row on a no-op (every present key unchanged)", async () => {
+  it("writes NO audit on a no-op (every present key unchanged)", async () => {
     const person = await createPersonRecord(ACTOR, {
       name: "Noop Person",
       netId: "noop1",
       contactEmail: "noop@example.com",
     });
     await prisma.auditLog.deleteMany();
-    await prisma.outbox.deleteMany();
 
     await updatePersonFields(ACTOR, person.id, {
       name: "Noop Person",
@@ -81,7 +72,6 @@ describe("updatePersonFields", () => {
     });
 
     expect(await prisma.auditLog.count()).toBe(0);
-    expect(await prisma.outbox.count()).toBe(0);
   });
 
   it("treats a null as a clear and audits only the changed key", async () => {
@@ -91,7 +81,6 @@ describe("updatePersonFields", () => {
       contactEmail: "clr@example.com",
     });
     await prisma.auditLog.deleteMany();
-    await prisma.outbox.deleteMany();
 
     const updated = await updatePersonFields(ACTOR, person.id, {
       name: "Clearable",
@@ -110,47 +99,20 @@ describe("updatePersonFields", () => {
   it("treats a case-only difference as no change after normalization (no-op)", async () => {
     const person = await createPersonRecord(ACTOR, { name: "Case", netId: "ct1" });
     await prisma.auditLog.deleteMany();
-    await prisma.outbox.deleteMany();
 
     const updated = await updatePersonFields(ACTOR, person.id, { name: "Case", netId: "CT1" });
 
     expect(updated.netId).toBe("ct1");
     expect(await prisma.auditLog.count()).toBe(0);
-    expect(await prisma.outbox.count()).toBe(0);
   });
 
-  it("enqueues mirror with only the fields that actually changed (precise changed-field set)", async () => {
-    const person = await createPersonRecord(ACTOR, {
-      name: "Mirror Diff",
-      netId: "md1",
-      phone: "111",
-    });
-    await prisma.outbox.deleteMany();
-
-    // Only `name` changes; netId and phone are passed unchanged and must not
-    // appear in the enqueued changedFields.
-    await updatePersonFields(ACTOR, person.id, {
-      name: "Mirror Diff Updated",
-      netId: "md1",
-      phone: "111",
-    });
-
-    const outboxRows = await prisma.outbox.findMany({ where: { entityId: person.id } });
-    expect(outboxRows).toHaveLength(1);
-    expect(outboxRows[0].changedFields).toEqual(["name"]);
-  });
-
-  it("rolls back the tx (no outbox leak) and throws PersonConflictError on a conflicting update", async () => {
+  it("throws PersonConflictError on a conflicting update", async () => {
     await createPersonRecord(ACTOR, { name: "Taken", netId: "taken1" });
     const person = await createPersonRecord(ACTOR, { name: "Mover", netId: "mover1" });
-    await prisma.outbox.deleteMany();
-    const countBefore = await prisma.outbox.count();
 
     await expect(
       updatePersonFields(ACTOR, person.id, { name: "Mover", netId: "taken1" })
     ).rejects.toBeInstanceOf(PersonConflictError);
-
-    expect(await prisma.outbox.count()).toBe(countBefore); // no leak
   });
 
   it("rejects with PersonNotFoundError when the id does not exist", async () => {
@@ -225,10 +187,9 @@ describe("updatePersonFields", () => {
 describe("setPersonStatusField", () => {
   beforeEach(resetDb);
 
-  it("audits person.offboard / person.reactivate and never enqueues a mirror", async () => {
+  it("audits person.offboard / person.reactivate", async () => {
     const person = await createPersonRecord(ACTOR, { name: "Status", netId: "st1" });
     await prisma.auditLog.deleteMany();
-    await prisma.outbox.deleteMany();
 
     await setPersonStatusField(ACTOR, person.id, "OFFBOARDED");
     let logs = await prisma.auditLog.findMany({ where: { entityId: person.id } });
@@ -240,8 +201,6 @@ describe("setPersonStatusField", () => {
     expect(reactivated.status).toBe("ACTIVE");
     logs = await prisma.auditLog.findMany({ where: { entityId: person.id } });
     expect(logs[0].action).toBe("person.reactivate");
-
-    expect(await prisma.outbox.count()).toBe(0);
   });
 
   it("rejects with PersonNotFoundError when the id does not exist", async () => {

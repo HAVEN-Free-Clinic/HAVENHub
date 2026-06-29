@@ -22,7 +22,6 @@ import { cache } from "react";
 import type { HipaaCertificate } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
-import { enqueueMirror } from "@/platform/outbox";
 import { updatePersonFields } from "@/platform/people";
 import { getSetting } from "@/platform/settings/service";
 import { putObject } from "@/platform/storage";
@@ -221,9 +220,9 @@ type ParseFn = (bytes: Buffer) => Promise<ParsedDate | null>;
  *   1. Validate (mime, extension, size)
  *   2. For PDF files: attempt to parse the completion date from the bytes
  *      (try/catch -- parser errors do NOT fail the upload; result -> NONE)
- *   3. prisma.$transaction: create HipaaCertificate row + enqueueMirror
+ *   3. prisma.$transaction: create HipaaCertificate row
  *   4. AFTER commit: write bytes to UPLOAD_DIR/<cert.id>.pdf
- *   5. If disk write fails: delete the cert row (and its outbox row) and rethrow
+ *   5. If disk write fails: delete the cert row and rethrow
  *   6. Audit my-info.certificate_upload (fileName + size only; never bytes)
  *
  * @param parse - Optional injected parser function (defaults to extractCompletionDate).
@@ -263,7 +262,7 @@ export async function saveCertificate(
     }
   }
 
-  // --- 3. Transaction: create row + enqueue mirror ---
+  // --- 3. Transaction: create the certificate row ---
   const cert = await prisma.$transaction(async (tx) => {
     // The storedName is derived from the cert id; we need the id first.
     // Generate a placeholder and then derive; Prisma uses cuid by default.
@@ -289,46 +288,23 @@ export async function saveCertificate(
       data: { storedName },
     });
 
-    await enqueueMirror(tx, {
-      entityType: "HipaaCertificate",
-      entityId: updated.id,
-      changedFields: [],
-    });
-
-    // Enqueue a Person row so the drain recomputes the freshest hipaaStatus on
-    // the next drain cycle instead of waiting for the nightly refresh. Without
-    // this, a member who renews would stay "Not Compliant" in Airtable until
-    // the overnight job runs.
-    await enqueueMirror(tx, {
-      entityType: "Person",
-      entityId: personId,
-      changedFields: ["hipaaStatus"],
-    });
-
     return updated;
   });
 
-  // --- 3. Write bytes to storage (after tx commits) ---
+  // --- 4. Write bytes to storage (after tx commits) ---
   try {
     await putObject(cert.storedName, file.bytes, file.type);
   } catch (err) {
-    // --- 4. Storage write failed: clean up the DB row and its outbox row ---
-    // The outbox row was created in the transaction above; delete it too so the
-    // drain worker cannot pick up a cert row that has no file on disk.
+    // --- 5. Storage write failed: clean up the DB row so it is not orphaned ---
     try {
-      await prisma.$transaction([
-        prisma.outbox.deleteMany({
-          where: { entityType: "HipaaCertificate", entityId: cert.id },
-        }),
-        prisma.hipaaCertificate.delete({ where: { id: cert.id } }),
-      ]);
+      await prisma.hipaaCertificate.delete({ where: { id: cert.id } });
     } catch (cleanupErr) {
       console.error("[my-info] failed to clean up cert row after disk error", cert.id, cleanupErr);
     }
     throw err;
   }
 
-  // --- 5. Audit (fileName + size; never bytes) ---
+  // --- 6. Audit (fileName + size; never bytes) ---
   await recordAudit({
     actorPersonId: personId,
     action: "my-info.certificate_upload",

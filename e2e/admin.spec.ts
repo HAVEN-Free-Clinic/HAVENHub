@@ -120,19 +120,6 @@ test("admin opens /admin/audit and sees at least one row and the entityType sele
   await expect(rows.first()).toBeVisible();
 });
 
-test("admin opens /admin/sync and sees mirror-disabled banner and Worker card", async ({ page }) => {
-  await devLogin(page, "j.carney@yale.edu");
-  await page.goto("/admin/sync");
-  // Page heading must be present.
-  await expect(page.getByRole("heading", { name: "Sync Health" })).toBeVisible();
-  // Mirror-disabled banner must be visible (dev env has AIRTABLE_MIRROR_ENABLED=false).
-  const banner = page.getByRole("status");
-  await expect(banner).toBeVisible();
-  await expect(banner).toContainText("Mirror is disabled");
-  // Worker card must be present (the card label is "Worker", exact match inside a stat card).
-  await expect(page.getByText("Worker", { exact: true })).toBeVisible();
-});
-
 test("email page renders heading, stat cards, and table or empty state", async ({ page }) => {
   await devLogin(page, "j.carney@yale.edu");
   await page.goto("/admin/email");

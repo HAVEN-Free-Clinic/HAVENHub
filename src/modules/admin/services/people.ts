@@ -2,7 +2,7 @@
  * Admin people service: search, get, create, update, setStatus.
  *
  * Queries (searchPeople / getPerson) live here. The mutation core (diff,
- * audit, mirror enqueue, typed errors, P2002 mapping) now lives in
+ * audit, typed errors, P2002 mapping) now lives in
  * `src/platform/people.ts` so it can be shared with the member-facing my-info
  * module without crossing module boundaries. This service is a thin delegation
  * layer over that core and re-exports the error classes and PersonInput so

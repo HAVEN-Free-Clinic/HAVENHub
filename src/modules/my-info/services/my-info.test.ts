@@ -336,7 +336,7 @@ describe("saveCertificate", () => {
     expect(cert.size).toBe(exactBytes);
   });
 
-  it("accepts a valid pdf: creates the DB row, writes the file to disk, creates the audit log, and enqueues TWO outbox rows (HipaaCertificate + Person for hipaaStatus)", async () => {
+  it("accepts a valid pdf: creates the DB row, writes the file to disk, and creates the audit log", async () => {
     const person = await createPerson();
     const file = makePdfFile();
 
@@ -365,23 +365,9 @@ describe("saveCertificate", () => {
     expect(after.size).toBe(file.bytes.length);
     // bytes must never appear in the audit log
     expect(JSON.stringify(after)).not.toContain("PDF");
-
-    // HipaaCertificate outbox row (mirrors the cert attachment)
-    const certOutboxRow = await prisma.outbox.findFirst({
-      where: { entityType: "HipaaCertificate", entityId: cert.id },
-    });
-    expect(certOutboxRow).not.toBeNull();
-    expect(certOutboxRow!.status).toBe("PENDING");
-
-    // Person outbox row (rides the next drain to recompute hipaaStatus so
-    // the member does not stay "Not Compliant" until the nightly refresh)
-    const personOutboxCount = await prisma.outbox.count({
-      where: { entityType: "Person", entityId: person.id },
-    });
-    expect(personOutboxCount).toBe(1);
   });
 
-  it("cleans up the DB row and outbox row if the disk write fails (transactional consistency)", async () => {
+  it("cleans up the DB row if the disk write fails (transactional consistency)", async () => {
     const person = await createPerson();
     const file = makePdfFile();
 
@@ -410,12 +396,6 @@ describe("saveCertificate", () => {
     // DB row must be gone
     const certCount = await prisma.hipaaCertificate.count({ where: { personId: person.id } });
     expect(certCount).toBe(0);
-
-    // Outbox row must also be gone
-    const outboxCount = await prisma.outbox.count({
-      where: { entityType: "HipaaCertificate" },
-    });
-    expect(outboxCount).toBe(0);
   });
 
   // ---- saveCertificate: parse injection ---------------------------------------

@@ -82,17 +82,11 @@ jobs:
       # development mode, so the email-only dev login is available.
       - run: npm run db:seed
       - run: npx playwright install --with-deps chromium
-      # Scoped to the modernized, self-contained recruitment specs (each creates
-      # its own cycle/applicants). The remaining e2e specs (admin/schedule/
-      # volunteers/my-info/login/recruitment-training) still depend on richer
-      # fixtures and predate UI changes; they are excluded until modernized so
-      # this job stays green. Expand this list as specs are brought current.
-      - run: >-
-          npx playwright test
-          e2e/recruitment.spec.ts
-          e2e/recruitment-onboarding.spec.ts
-          e2e/recruitment-review.spec.ts
-          e2e/recruitment-interviews.spec.ts
+      # Run the full e2e suite. Every spec self-seeds via the UI or the Prisma
+      # fixtures helper (e2e/fixtures.ts, per-spec create-and-cleanup) and asserts
+      # only against fixture-created state, so the suite is deterministic on this
+      # freshly seeded database.
+      - run: npx playwright test
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

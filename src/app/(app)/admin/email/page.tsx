@@ -105,7 +105,7 @@ type PageProps = {
 // ---------------------------------------------------------------------------
 
 export default async function EmailPage({ searchParams }: PageProps) {
-  const actor = await requirePermission("admin.manage_sync");
+  await requirePermission("admin.manage_sync");
   const sp = await searchParams;
 
   // Validate status param; drop if unrecognized.

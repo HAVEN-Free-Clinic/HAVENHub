@@ -28,6 +28,7 @@ import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { can } from "@/platform/rbac/engine";
 import { updatePersonFields, PersonNotFoundError } from "@/platform/people";
+import { getActiveTerm } from "@/platform/terms/active-term";
 import { notify } from "@/platform/notifications/notify";
 import { getSetting } from "@/platform/settings/service";
 import {
@@ -632,10 +633,7 @@ export async function sendEpicEmail(
   }
 
   // Resolve ACTIVE memberships in the ACTIVE term.
-  const activeTerm = await prisma.term.findFirst({
-    where: { status: "ACTIVE" },
-    orderBy: { startDate: "desc" },
-  });
+  const activeTerm = await getActiveTerm();
 
   let departmentNames: string[] = [];
   if (activeTerm) {

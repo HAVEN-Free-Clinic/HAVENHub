@@ -17,6 +17,7 @@
 
 import type { Person, Department } from "@prisma/client";
 import { prisma } from "@/platform/db";
+import { getActiveTerm } from "@/platform/terms/active-term";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -85,10 +86,7 @@ export function authorizerInitials(name: string): string {
  * disable generation rather than offer a stale name.
  */
 export async function listEpicAuthorizers(): Promise<EpicAuthorizer[]> {
-  const activeTerm = await prisma.term.findFirst({
-    where: { status: "ACTIVE" },
-    orderBy: { startDate: "desc" },
-  });
+  const activeTerm = await getActiveTerm();
   if (!activeTerm) return [];
 
   const memberships = await prisma.termMembership.findMany({
@@ -130,10 +128,7 @@ export async function listEpicAuthorizers(): Promise<EpicAuthorizer[]> {
  * populate the person selector on the Epic request page.
  */
 export async function listDepartmentsWithMembers(): Promise<DepartmentWithMembers[]> {
-  const activeTerm = await prisma.term.findFirst({
-    where: { status: "ACTIVE" },
-    orderBy: { startDate: "desc" },
-  });
+  const activeTerm = await getActiveTerm();
   if (!activeTerm) return [];
 
   const memberships = await prisma.termMembership.findMany({
@@ -199,10 +194,7 @@ export async function findMirrorPerson(
   // Reuse a term id the caller already resolved; otherwise look up the active term.
   let resolvedTermId = termId;
   if (!resolvedTermId) {
-    const activeTerm = await prisma.term.findFirst({
-      where: { status: "ACTIVE" },
-      orderBy: { startDate: "desc" },
-    });
+    const activeTerm = await getActiveTerm();
     if (!activeTerm) return null;
     resolvedTermId = activeTerm.id;
   }

@@ -28,6 +28,7 @@
 import { prisma } from "@/platform/db";
 import { getSetting } from "@/platform/settings/service";
 import { complianceStatus, certExpiresAt } from "@/platform/compliance/rules";
+import { getActiveTerm } from "@/platform/terms/active-term";
 import { notify } from "@/platform/notifications/notify";
 import { renderEmail } from "./templates/renderEmail";
 import {
@@ -72,10 +73,7 @@ export async function runComplianceReminders(
   };
 
   // 1. Resolve the active term. Bail out early when none exists.
-  const activeTerm = await prisma.term.findFirst({
-    where: { status: "ACTIVE" },
-    orderBy: { startDate: "desc" },
-  });
+  const activeTerm = await getActiveTerm();
   if (!activeTerm) return result;
 
   const termId = activeTerm.id;

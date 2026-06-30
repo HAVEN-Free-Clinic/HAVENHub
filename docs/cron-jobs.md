@@ -1,9 +1,10 @@
 # Background cron jobs
 
-HAVEN Hub has no long-running process. The background jobs that used to run on
-the worker's in-process pg-boss schedule (`worker/index.ts`) are now HTTP routes
-under `src/app/api/cron/*`, each triggered on a schedule by hitting its path
-with `Authorization: Bearer $CRON_SECRET`.
+HAVEN Hub has no long-running process. The background jobs that used to run on an
+in-process pg-boss worker are now HTTP routes under `src/app/api/cron/*`, each
+triggered on a schedule by hitting its path with `Authorization: Bearer
+$CRON_SECRET`. The worker has been removed, so these routes are the only place
+the queues are drained.
 
 There are **two** trigger mechanisms, and most jobs use the external one:
 

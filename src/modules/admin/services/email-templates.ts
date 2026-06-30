@@ -3,6 +3,11 @@ import { recordAudit } from "@/platform/audit";
 import { getDescriptor, listDescriptors, LAYOUT_KEY } from "@/platform/email/templates/registry";
 import type { TemplateDescriptor } from "@/platform/email/templates/types";
 import { validateTemplate } from "@/platform/email/render/validate";
+import {
+  resolveInheritedSender,
+  listSenderRules,
+  type ResolvedSender,
+} from "@/platform/email/sender-rules";
 
 export class TemplateValidationError extends Error {
   constructor(public readonly problems: string[]) {
@@ -34,6 +39,12 @@ export type TemplateForEdit = {
    * directly instead of wrapping.
    */
   layoutSource: string;
+  /** TEMPLATE-scope sender override for this key, or null when inheriting. */
+  senderFromEmail: string | null;
+  senderFromName: string | null;
+  /** What a blank override inherits (category rule or global default), for the placeholder. */
+  inheritedSender: ResolvedSender;
+  hasSenderOverride: boolean;
 };
 
 export async function getTemplateForEdit(key: string): Promise<TemplateForEdit> {
@@ -49,6 +60,10 @@ export async function getTemplateForEdit(key: string): Promise<TemplateForEdit> 
   const override = byKey.get(key) ?? null;
   const layoutSource = byKey.get(LAYOUT_KEY)?.body ?? layout.defaultBody;
 
+  const senderRules = await listSenderRules();
+  const templateRule = senderRules.find((r) => r.scope === "TEMPLATE" && r.target === key) ?? null;
+  const inheritedSender = await resolveInheritedSender(key);
+
   return {
     key: d.key,
     name: d.name,
@@ -61,6 +76,10 @@ export async function getTemplateForEdit(key: string): Promise<TemplateForEdit> 
     hasOverride: override !== null,
     isLayout,
     layoutSource,
+    senderFromEmail: templateRule?.fromEmail ?? null,
+    senderFromName: templateRule?.fromName ?? null,
+    inheritedSender,
+    hasSenderOverride: templateRule !== null,
   };
 }
 
@@ -123,15 +142,23 @@ export type TemplateSummary = {
   name: string;
   category: TemplateDescriptor["category"];
   hasOverride: boolean;
+  hasSenderOverride: boolean;
 };
 
 export async function listTemplateSummaries(): Promise<TemplateSummary[]> {
-  const overrides = await prisma.emailTemplate.findMany({ select: { key: true } });
+  const [overrides, senderRules] = await Promise.all([
+    prisma.emailTemplate.findMany({ select: { key: true } }),
+    listSenderRules(),
+  ]);
   const overridden = new Set(overrides.map((o) => o.key));
+  const senderOverridden = new Set(
+    senderRules.filter((r) => r.scope === "TEMPLATE").map((r) => r.target)
+  );
   return listDescriptors().map((d) => ({
     key: d.key,
     name: d.name,
     category: d.category,
     hasOverride: overridden.has(d.key),
+    hasSenderOverride: senderOverridden.has(d.key),
   }));
 }

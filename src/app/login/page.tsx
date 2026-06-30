@@ -5,6 +5,8 @@ import { auth, signIn } from "@/platform/auth/auth";
 import { config } from "@/platform/config";
 import { getSetting } from "@/platform/settings/service";
 import { getOrgIdentity, formatOrgLine } from "@/platform/branding/org";
+import { getSupportContact } from "@/platform/branding/support";
+import { SupportLink } from "@/platform/branding/support-link";
 import { HavenLogo } from "@/platform/ui/haven-logo";
 import { Input, Field } from "@/platform/ui/input";
 import { Button } from "@/platform/ui/button";
@@ -42,9 +44,10 @@ export default async function LoginPage({
   }
   const session = await auth();
   if (session?.personId) redirect(safeCallbackUrl);
-  const [appName, org] = await Promise.all([
+  const [appName, org, support] = await Promise.all([
     getSetting<string>("branding.appName"),
     getOrgIdentity(),
+    getSupportContact(),
   ]);
   const errorMessage = error ? (ERROR_MESSAGES[error] ?? DEFAULT_ERROR) : null;
 
@@ -136,16 +139,15 @@ export default async function LoginPage({
             </p>
           )}
 
-          {/* Persistent help affordance, available before any error occurs */}
-          <p className="mt-5 text-sm text-muted-foreground">
-            Trouble signing in?{" "}
-            <a
-              href="mailto:hfc.it@yale.edu"
-              className="font-medium text-brand-fg underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-            >
-              Contact the HAVEN IT team
-            </a>
-          </p>
+          {/* Persistent help affordance, available before any error occurs.
+              Hidden entirely when no support email is configured, so a
+              locked-out user is never shown a contact they cannot reach. */}
+          {support.email && (
+            <p className="mt-5 text-sm text-muted-foreground">
+              Trouble signing in?{" "}
+              <SupportLink email={support.email}>{support.label}</SupportLink>
+            </p>
+          )}
 
           {(config.NODE_ENV !== "production" || config.DEMO_MODE) && (
             <form

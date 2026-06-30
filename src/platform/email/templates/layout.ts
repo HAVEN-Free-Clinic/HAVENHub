@@ -68,6 +68,7 @@ export const layoutDescriptor: TemplateDescriptor = {
   key: "layout",
   name: "Shared layout wrapper",
   category: "layout",
+  group: "layout",
   variables: [
     {
       name: "body",

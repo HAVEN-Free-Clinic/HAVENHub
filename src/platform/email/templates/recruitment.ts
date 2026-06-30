@@ -15,6 +15,7 @@ export const recruitmentDescriptors: TemplateDescriptor[] = [
     key: "recruitment.acceptance",
     name: "Recruitment: acceptance",
     category: "transactional",
+    group: "recruitment",
     variables: [
       { name: "firstName", label: "Applicant first name", sampleValue: "Sam" },
       { name: "cycleTitle", label: "Cycle title", sampleValue: "Volunteer SU26" },
@@ -28,6 +29,7 @@ export const recruitmentDescriptors: TemplateDescriptor[] = [
     key: "recruitment.interview_invite",
     name: "Recruitment: interview invitation",
     category: "transactional",
+    group: "recruitment",
     variables: [
       { name: "firstName", label: "Applicant first name", sampleValue: "Sam" },
       { name: "departmentName", label: "Department name", sampleValue: "Student Run Health Department" },
@@ -42,6 +44,7 @@ export const recruitmentDescriptors: TemplateDescriptor[] = [
     key: "recruitment.interview_assignment",
     name: "Recruitment: interview panel assignment",
     category: "transactional",
+    group: "recruitment",
     variables: [
       { name: "panelistFirstName", label: "Panelist first name", sampleValue: "Sam" },
       { name: "candidateName", label: "Candidate name", sampleValue: "Jordan Lee" },
@@ -56,6 +59,7 @@ export const recruitmentDescriptors: TemplateDescriptor[] = [
     key: "recruitment.onboarding",
     name: "Recruitment: onboarding link",
     category: "transactional",
+    group: "recruitment",
     variables: [
       { name: "firstName", label: "Applicant first name", sampleValue: "Sam" },
       { name: "cycleTitle", label: "Cycle title", sampleValue: "Volunteer SU26" },
@@ -69,6 +73,7 @@ export const recruitmentDescriptors: TemplateDescriptor[] = [
     key: "recruitment.application_received",
     name: "Recruitment: application received",
     category: "transactional",
+    group: "recruitment",
     variables: [
       { name: "firstName", label: "Applicant first name", sampleValue: "Sam" },
       { name: "cycleTitle", label: "Cycle title", sampleValue: "Volunteer SU26" },
@@ -81,6 +86,7 @@ export const recruitmentDescriptors: TemplateDescriptor[] = [
     key: "recruitment.portal_link",
     name: "Recruitment: application link (magic link)",
     category: "transactional",
+    group: "recruitment",
     variables: [
       { name: "firstName", label: "Applicant first name", sampleValue: "Sam" },
       { name: "portalUrl", label: "Magic link URL", sampleValue: "https://hub.havenfreeclinic.com/apply/verify?token=abc" },

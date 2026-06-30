@@ -150,6 +150,7 @@ export const complianceDescriptors: TemplateDescriptor[] = [
     key: "compliance-reminder",
     name: "Compliance Reminder",
     category: "transactional",
+    group: "compliance",
     variables: [
       { name: "personName", label: "Volunteer name", sampleValue: "Jane Doe" },
       {
@@ -176,6 +177,7 @@ export const complianceDescriptors: TemplateDescriptor[] = [
     key: "compliance-escalation",
     name: "Compliance Escalation",
     category: "transactional",
+    group: "compliance",
     variables: [
       { name: "directorName", label: "Director name", sampleValue: "Dr. Smith" },
       { name: "volunteerName", label: "Volunteer name", sampleValue: "Jane Doe" },
@@ -193,6 +195,7 @@ export const complianceDescriptors: TemplateDescriptor[] = [
     key: "compliance-date-review",
     name: "Compliance Date Review",
     category: "transactional",
+    group: "compliance",
     variables: [
       { name: "volunteerName", label: "Volunteer name", sampleValue: "Jane Doe" },
       {

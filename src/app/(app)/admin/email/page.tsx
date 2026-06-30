@@ -13,6 +13,7 @@ import { cookies } from "next/headers";
 import { requirePermission } from "@/platform/auth/session";
 import {
   listEmails,
+  listEmailTemplates,
   retryEmail,
   retryAllFailedEmails,
   sendSenderTest,
@@ -48,14 +49,6 @@ import { Card } from "@/platform/ui/card";
 // ---------------------------------------------------------------------------
 
 const VALID_STATUSES: EmailStatus[] = ["QUEUED", "SENT", "FAILED"];
-
-const KNOWN_TEMPLATES = [
-  "epic-onboarding",
-  "epic-activation",
-  "epic-password-reset",
-  "compliance-reminder",
-  "compliance-escalation",
-] as const;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -116,13 +109,12 @@ export default async function EmailPage({ searchParams }: PageProps) {
       ? statusParam
       : undefined;
 
-  // Validate template param; drop if unrecognized.
-  const templateParam = sp.template;
-  const validatedTemplate =
-    templateParam &&
-    KNOWN_TEMPLATES.includes(templateParam as (typeof KNOWN_TEMPLATES)[number])
-      ? templateParam
-      : undefined;
+  // Accept any template value. EmailLog.template is an open string set
+  // (recruitment.*, campaign, ad-hoc, etc.), so there is no closed allowlist to
+  // validate against -- the exact-match query simply returns no rows for a value
+  // that was never logged. The dropdown is built from the values actually
+  // present in the log below (issue #99).
+  const validatedTemplate = sp.template?.trim() || undefined;
 
   const q = sp.q?.trim() || undefined;
   const page = Math.max(1, parseInt(sp.page ?? "1", 10) || 1);
@@ -143,14 +135,28 @@ export default async function EmailPage({ searchParams }: PageProps) {
   const senderTestedSuccess = sp.senderTested === "1";
   const senderErrorMessage = sp.senderError ? decodeURIComponent(sp.senderError) : null;
 
-  const [{ rows, total, counts }, mailConn, mailCred, senderRules, globalSender] =
-    await Promise.all([
-      listEmails({ status: validatedStatus, template: validatedTemplate, q, page }),
-      mailConnectionStatus(),
-      prisma.mailCredential.findUnique({ where: { id: "mailer" } }),
-      listSenderRules(),
-      getSetting<string>("email.sender"),
-    ]);
+  const [
+    { rows, total, counts },
+    templateValues,
+    mailConn,
+    mailCred,
+    senderRules,
+    globalSender,
+  ] = await Promise.all([
+    listEmails({ status: validatedStatus, template: validatedTemplate, q, page }),
+    listEmailTemplates(),
+    mailConnectionStatus(),
+    prisma.mailCredential.findUnique({ where: { id: "mailer" } }),
+    listSenderRules(),
+    getSetting<string>("email.sender"),
+  ]);
+
+  // Keep an active filter selectable even if it currently has no rows (e.g. a
+  // hand-typed value, or one whose rows were since retried/cleared).
+  const templateOptions =
+    validatedTemplate && !templateValues.includes(validatedTemplate)
+      ? [...templateValues, validatedTemplate].sort()
+      : templateValues;
 
   const categoryRuleByGroup = new Map(
     senderRules.filter((r) => r.scope === "CATEGORY").map((r) => [r.target, r])
@@ -447,7 +453,7 @@ export default async function EmailPage({ searchParams }: PageProps) {
             aria-label="Filter by template"
           >
             <option value="">All templates</option>
-            {KNOWN_TEMPLATES.map((t) => (
+            {templateOptions.map((t) => (
               <option key={t} value={t}>
                 {t}
               </option>

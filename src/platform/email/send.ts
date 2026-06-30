@@ -1,6 +1,7 @@
 import type { Prisma, PrismaClient, EmailLog } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import type { EmailTransport } from "./transport";
+import { resolveSenderForTemplate } from "./sender-rules";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -22,6 +23,7 @@ const MAX_ATTEMPTS = 8;
  * (PrismaClient or TransactionClient) so the job commits atomically with it.
  */
 export async function queueEmail(db: Db, input: QueueEmailInput): Promise<EmailLog> {
+  const sender = await resolveSenderForTemplate(input.template);
   return db.emailLog.create({
     data: {
       toEmail: input.to,
@@ -31,6 +33,8 @@ export async function queueEmail(db: Db, input: QueueEmailInput): Promise<EmailL
       personId: input.personId ?? null,
       triggeredById: input.triggeredById ?? null,
       campaignRunId: input.campaignRunId ?? null,
+      fromEmail: sender?.fromEmail ?? null,
+      fromName: sender?.fromName ?? null,
     },
   });
 }
@@ -85,7 +89,13 @@ export async function drainEmailQueue(
 
     for (const row of rows) {
       try {
-        await transport.send({ to: row.toEmail, subject: row.subject, html: row.html });
+        await transport.send({
+          to: row.toEmail,
+          subject: row.subject,
+          html: row.html,
+          from: row.fromEmail ?? undefined,
+          fromName: row.fromName ?? undefined,
+        });
         // At-least-once: a crash between send and this update re-sends the row
         // on the next drain pass.
         await prisma.emailLog.update({

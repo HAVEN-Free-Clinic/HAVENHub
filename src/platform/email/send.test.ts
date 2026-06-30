@@ -10,18 +10,22 @@ import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import { queueEmail, drainEmailQueue } from "./send";
 import type { EmailTransport } from "./transport";
+import { saveSenderRule } from "./sender-rules";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Build a stub transport whose send resolves immediately. */
-function okTransport(): EmailTransport & { calls: string[] } {
+/** Build a stub transport whose send resolves immediately, capturing from. */
+function okTransport(): EmailTransport & { calls: string[]; froms: (string | undefined)[] } {
   const calls: string[] = [];
+  const froms: (string | undefined)[] = [];
   return {
     calls,
+    froms,
     async send(msg) {
       calls.push(msg.to);
+      froms.push(msg.from);
     },
   };
 }
@@ -308,5 +312,43 @@ describe("drainEmailQueue", () => {
     expect(rowA.status).toBe("QUEUED");
     expect(rowA.attempts).toBe(1);
     expect(rowA.lastError).toBe("first fails");
+  });
+});
+
+describe("queueEmail sender snapshot", () => {
+  it("snapshots fromEmail/fromName from a matching CATEGORY rule", async () => {
+    await saveSenderRule(null, "CATEGORY", "recruitment", {
+      fromEmail: "recruit@yale.edu",
+      fromName: "HAVEN Recruitment",
+    });
+    await queueEmail(prisma, {
+      to: "a@example.com",
+      subject: "Hi",
+      html: "<p>Hi</p>",
+      template: "recruitment.acceptance",
+    });
+    const row = await prisma.emailLog.findFirstOrThrow();
+    expect(row.fromEmail).toBe("recruit@yale.edu");
+    expect(row.fromName).toBe("HAVEN Recruitment");
+  });
+
+  it("leaves fromEmail null when no rule matches", async () => {
+    await queueEmail(prisma, { ...BASE_EMAIL, to: "a@example.com" });
+    const row = await prisma.emailLog.findFirstOrThrow();
+    expect(row.fromEmail).toBeNull();
+    expect(row.fromName).toBeNull();
+  });
+
+  it("drain forwards the snapshotted from to the transport", async () => {
+    await saveSenderRule(null, "CATEGORY", "recruitment", { fromEmail: "recruit@yale.edu" });
+    await queueEmail(prisma, {
+      to: "a@example.com",
+      subject: "Hi",
+      html: "<p>Hi</p>",
+      template: "recruitment.acceptance",
+    });
+    const transport = okTransport();
+    await drainEmailQueue(transport);
+    expect(transport.froms).toEqual(["recruit@yale.edu"]);
   });
 });

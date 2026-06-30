@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import type { TrainingMethod } from "@prisma/client";
 import { Card } from "@/platform/ui/card";
+import { PageHeader } from "@/platform/ui/page-header";
 import { requirePersonSession } from "@/platform/auth/session";
 import { getAccessibleModules } from "@/platform/modules/access";
 import { getMyTraining, type MyTraining } from "@/modules/recruitment/services/training";
@@ -289,10 +290,10 @@ export default async function TrainingPage() {
   return (
     <div className="max-w-[760px]">
       <header className="mb-[22px]">
-        <h1 className="text-[26px] font-bold tracking-tight text-foreground">Training</h1>
-        <p className="mt-1.5 text-[14.5px] text-foreground-soft">
-          Complete your training to be cleared{trainings[0] ? ` for ${trainings[0].term.name}` : ""}.
-        </p>
+        <PageHeader
+          title="Training"
+          description={`Complete your training to be cleared${trainings[0] ? ` for ${trainings[0].term.name}` : ""}.`}
+        />
       </header>
 
       {trainings.length === 0 ? (

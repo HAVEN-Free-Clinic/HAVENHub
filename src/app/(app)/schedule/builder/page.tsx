@@ -136,7 +136,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
       <div>
         <div className="rounded-2xl bg-brand px-8 py-6 text-white mb-8">
           <p className="text-xs font-semibold uppercase tracking-widest text-white/60 mb-1">Schedule Builder</p>
-          <h1 className="text-2xl font-bold">No departments</h1>
+          <h1 className="text-2xl font-bold tracking-tight">No departments</h1>
           <p className="text-sm text-white/70 mt-1">You do not direct any departments this term.</p>
         </div>
       </div>
@@ -501,7 +501,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
         <p className="text-xs font-semibold uppercase tracking-widest text-white/60 mb-1">Schedule Builder</p>
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold">{selectedDisplay ?? "Select a date"}</h1>
+            <h1 className="text-2xl font-bold tracking-tight">{selectedDisplay ?? "Select a date"}</h1>
             <p className="text-sm text-white/70 mt-0.5 font-semibold uppercase tracking-widest">{dept.code} &middot; {dept.name}</p>
           </div>
           <div className="flex items-center gap-3">

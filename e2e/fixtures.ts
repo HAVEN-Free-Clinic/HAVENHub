@@ -147,6 +147,27 @@ export async function seedRhdAttending(
  * previous values on cleanup, making the fixture safe against both bare-seed
  * CI (where the fields are null) and environments where they are already set.
  */
+/**
+ * Seed an uncleared volunteer: ACTIVE person with a @yale.edu contactEmail
+ * (so dev login resolves them via the Yale-email step in resolvePersonForLogin)
+ * and an ACTIVE VADM TermMembership. No phone, no HIPAA cert, no training, no
+ * learning progress -- so the onboarding gate keeps them on /get-started.
+ *
+ * Person.status defaults to ACTIVE in the schema; no explicit field needed.
+ */
+export async function seedUnclearedVolunteer() {
+  const t = tag();
+  const term = await activeTerm();
+  const department = await dept("VADM");
+  const person = await prisma.person.create({
+    data: { name: `E2E Uncleared ${t}`, contactEmail: `uncleared-${t}@yale.edu` },
+  });
+  await prisma.termMembership.create({
+    data: { personId: person.id, termId: term.id, departmentId: department.id, kind: "VOLUNTEER", status: "ACTIVE" },
+  });
+  return { person, cleanup: () => cleanupPerson(person.id) };
+}
+
 export async function seedCapacityConfig(
   deptCode: string,
   quota: { idealHeadcount?: number | null; patientCapacityPerProvider?: number | null }

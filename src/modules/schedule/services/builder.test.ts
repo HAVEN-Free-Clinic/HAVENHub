@@ -1160,6 +1160,39 @@ describe("builderView", () => {
     expect(view.capacity.headcount).toBe(2);
   });
 
+  it("capacity math: counts cc assignments into ccStatus", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const dept = await createDepartment("JCTP", { idealHeadcount: 4 });
+    const director = await createPerson("Director");
+    const ccVol = await createPerson("Coordinator");
+    const regularVol = await createPerson("Regular");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(ccVol.id, term.id, dept.id, "VOLUNTEER");
+    await createMembership(regularVol.id, term.id, dept.id, "VOLUNTEER");
+
+    await createShift(term.id, dept.id, ccVol.id, dates[0], "VOLUNTEER", { cc: true });
+    await createShift(term.id, dept.id, regularVol.id, dates[0], "VOLUNTEER");
+
+    const view = await builderView(director.id, { departmentId: dept.id, dateKey: isoDateKey(dates[0]) });
+    expect(view.capacity.ccStatus).toBe("ok");
+  });
+
+  it("capacity math: ccStatus is missing when no one is tagged cc", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const dept = await createDepartment("JCTP", { idealHeadcount: 4 });
+    const director = await createPerson("Director");
+    const regularVol = await createPerson("Regular");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(regularVol.id, term.id, dept.id, "VOLUNTEER");
+
+    await createShift(term.id, dept.id, regularVol.id, dates[0], "VOLUNTEER");
+
+    const view = await builderView(director.id, { departmentId: dept.id, dateKey: isoDateKey(dates[0]) });
+    expect(view.capacity.ccStatus).toBe("missing");
+  });
+
   it("capacity math: self-reported-only (unverified) Spanish does not count", async () => {
     const dates = sixSaturdays();
     const term = await createTerm(dates);

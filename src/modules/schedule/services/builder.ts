@@ -657,7 +657,7 @@ export async function builderView(
 
   // Empty state when viewer manages nothing.
   const emptyMetrics = computeDayMetrics(
-    { onShift: 0, triage: 0, walkin: 0, shadow: 0, spanish: 0, patientsBooked: null },
+    { onShift: 0, triage: 0, walkin: 0, cc: 0, shadow: 0, spanish: 0, patientsBooked: null },
     { idealHeadcount: null, patientCapacityPerProvider: null }
   );
 
@@ -843,6 +843,7 @@ export async function builderView(
       onShift: onShiftPeople.length,
       triage: selectedAssignments.filter((a) => a.triage).length,
       walkin: selectedAssignments.filter((a) => a.walkin).length,
+      cc: selectedAssignments.filter((a) => a.cc).length,
       shadow: selectedAssignments.filter((a) => a.role === "SHADOW").length,
       spanish: spanishCount,
       patientsBooked: scheduleDay?.patientsBooked ?? null,

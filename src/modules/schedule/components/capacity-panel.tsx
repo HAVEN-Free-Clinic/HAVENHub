@@ -85,7 +85,7 @@ export function CapacityPanel({
         </Badge>
       </div>
 
-      {/* Role quota badges -- triage and/or walk-in only (cc has no DayMetrics field; skip silently) */}
+      {/* Role quota badges -- only the roles the department actually uses (triage/walk-in for SCTP, cc for JCTP) */}
       {roles.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {roles.includes("triage") && (
@@ -98,7 +98,11 @@ export function CapacityPanel({
               Walk-in: {quotaLabel(metrics.walkinStatus)}
             </Badge>
           )}
-          {/* "cc" is a valid MedRole but has no corresponding DayMetrics field; skipped */}
+          {roles.includes("cc") && (
+            <Badge tone={quotaTone(metrics.ccStatus)}>
+              CC: {quotaLabel(metrics.ccStatus)}
+            </Badge>
+          )}
         </div>
       )}
 

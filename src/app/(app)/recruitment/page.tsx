@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireModuleAccess } from "@/platform/auth/session";
 import { can } from "@/platform/rbac/engine";
-import { listCycles } from "@/modules/recruitment/services/cycles";
+import { listCycles, listArchivedCycles } from "@/modules/recruitment/services/cycles";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { Badge } from "@/platform/ui/badge";
@@ -11,6 +11,7 @@ const statusTone = {
   DRAFT: "default",
   OPEN: "success",
   CLOSED: "warning",
+  ARCHIVED: "default",
 } as const;
 
 export default async function RecruitmentPage() {
@@ -21,7 +22,7 @@ export default async function RecruitmentPage() {
   // recruitment.manage_cycles), so hide the affordance from reviewers who hold
   // recruitment.access but not manage_cycles -- they'd hit /no-access otherwise.
   const canManageCycles = await can(session.personId, "recruitment.manage_cycles");
-  const cycles = await listCycles();
+  const [cycles, archivedCycles] = await Promise.all([listCycles(), listArchivedCycles()]);
   return (
     <div className="space-y-6">
       <PageHeader
@@ -60,12 +61,46 @@ export default async function RecruitmentPage() {
           {cycles.length === 0 && (
             <TR>
               <TD colSpan={3} className="py-10 text-center text-subtle-foreground">
-                No cycles yet. Create one to get started.
+                {archivedCycles.length > 0 ? "No active cycles." : "No cycles yet. Create one to get started."}
               </TD>
             </TR>
           )}
         </tbody>
       </Table>
+
+      {archivedCycles.length > 0 && (
+        <details>
+          <summary className="cursor-pointer select-none text-sm font-medium text-foreground hover:text-brand-fg">
+            Archived ({archivedCycles.length})
+          </summary>
+          <div className="mt-3">
+            <Table>
+              <THead>
+                <tr>
+                  <TH>Title</TH>
+                  <TH>Track</TH>
+                  <TH>Status</TH>
+                </tr>
+              </THead>
+              <tbody>
+                {archivedCycles.map((c) => (
+                  <TR key={c.id}>
+                    <TD>
+                      <Link href={`/recruitment/cycles/${c.id}`} className="font-medium text-foreground hover:text-brand-fg">
+                        {c.title}
+                      </Link>
+                    </TD>
+                    <TD className="text-foreground-soft">{c.track}</TD>
+                    <TD>
+                      <Badge tone={statusTone[c.status as keyof typeof statusTone] ?? "default"}>{c.status}</Badge>
+                    </TD>
+                  </TR>
+                ))}
+              </tbody>
+            </Table>
+          </div>
+        </details>
+      )}
     </div>
   );
 }

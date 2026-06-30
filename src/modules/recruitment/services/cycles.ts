@@ -71,6 +71,16 @@ export async function listCycles(): Promise<RecruitmentCycle[]> {
   });
 }
 
+/** Archived (retired) cycles only, newest first. Kept separate from listCycles
+ *  so the active list stays clean; the index page renders these in a collapsed
+ *  "Archived" section. */
+export async function listArchivedCycles(): Promise<RecruitmentCycle[]> {
+  return prisma.recruitmentCycle.findMany({
+    where: { status: "ARCHIVED" },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
 export async function publishCycle(id: string, actorId: string): Promise<RecruitmentCycle> {
   const cycle = await getCycle(id);
   if (!cycle) throw new CyclePublishError("Cycle not found.");
@@ -108,6 +118,47 @@ export async function closeCycle(id: string, actorId: string): Promise<Recruitme
   if (cycle.status !== "OPEN") throw new CyclePublishError("Only an OPEN cycle can be closed.");
   const updated = await prisma.recruitmentCycle.update({ where: { id }, data: { status: "CLOSED" } });
   await recordAudit({ actorPersonId: actorId, action: "recruitment.cycle_close", entityType: "RecruitmentCycle", entityId: id });
+  return updated;
+}
+
+/** Reopen a CLOSED cycle (CLOSED -> OPEN), reversing an accidental or premature
+ *  close. A pure status flip: the cycle was already valid when first published,
+ *  so publish-time validation is not re-run. One exception: the application
+ *  window is a live soft gate, so if closesAt is already in the past we clear it,
+ *  otherwise the reopened public form would stay shut and reopen would appear to
+ *  do nothing. opensAt and a future closesAt are left as-is. */
+export async function reopenCycle(id: string, actorId: string): Promise<RecruitmentCycle> {
+  const cycle = await prisma.recruitmentCycle.findUnique({ where: { id } });
+  if (!cycle) throw new CyclePublishError("Cycle not found.");
+  if (cycle.status !== "CLOSED") throw new CyclePublishError("Only a CLOSED cycle can be reopened.");
+
+  const clearStaleClose = cycle.closesAt !== null && cycle.closesAt < new Date();
+  const updated = await prisma.recruitmentCycle.update({
+    where: { id },
+    data: { status: "OPEN", ...(clearStaleClose ? { closesAt: null } : {}) },
+  });
+  await recordAudit({
+    actorPersonId: actorId,
+    action: "recruitment.cycle_reopen",
+    entityType: "RecruitmentCycle",
+    entityId: id,
+    ...(clearStaleClose
+      ? { before: { closesAt: cycle.closesAt?.toISOString() ?? null }, after: { closesAt: null } }
+      : {}),
+  });
+  return updated;
+}
+
+/** Archive a CLOSED cycle (CLOSED -> ARCHIVED), the terminal retire step. Drops
+ *  the cycle out of listCycles and activates the ARCHIVED guards in
+ *  setCycleDepartments, releaseDecisions, and onboarding. Terminal: there is no
+ *  transition out of ARCHIVED. */
+export async function archiveCycle(id: string, actorId: string): Promise<RecruitmentCycle> {
+  const cycle = await prisma.recruitmentCycle.findUnique({ where: { id } });
+  if (!cycle) throw new CyclePublishError("Cycle not found.");
+  if (cycle.status !== "CLOSED") throw new CyclePublishError("Only a CLOSED cycle can be archived.");
+  const updated = await prisma.recruitmentCycle.update({ where: { id }, data: { status: "ARCHIVED" } });
+  await recordAudit({ actorPersonId: actorId, action: "recruitment.cycle_archive", entityType: "RecruitmentCycle", entityId: id });
   return updated;
 }
 

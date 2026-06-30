@@ -12,7 +12,7 @@
  * the engine. Use with care -- it grants all permissions platform-wide.
  */
 
-import type { Role, RoleGrant, RoleAssignment, Person, Department, Term, MembershipKind } from "@prisma/client";
+import type { Role, RoleGrant, RoleAssignment, Person, Department, Term, Track } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
@@ -343,7 +343,7 @@ export async function createAssignment(
     roleId: string;
     personId?: string;
     departmentId?: string;
-    kind?: MembershipKind;
+    kind?: Track;
     termId?: string;
   }
 ): Promise<RoleAssignment> {

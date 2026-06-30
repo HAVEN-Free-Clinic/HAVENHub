@@ -1,4 +1,4 @@
-import type { RecruitmentCycle, Prisma, TrainingMethod, TrainingTrack } from "@prisma/client";
+import type { RecruitmentCycle, Prisma, TrainingMethod, Track } from "@prisma/client";
 import { complianceStatus, overallClearance } from "@/platform/compliance/rules";
 import type { TrainingState, OverallClearance } from "@/platform/compliance/rules";
 import { prisma } from "@/platform/db";
@@ -28,7 +28,7 @@ export type QuizSubmission = QuizResultPublic & {
 };
 
 /** The term's designated training cycle for a track, or null. */
-export async function getTrainingCycleForTerm(termId: string, track: TrainingTrack): Promise<RecruitmentCycle | null> {
+export async function getTrainingCycleForTerm(termId: string, track: Track): Promise<RecruitmentCycle | null> {
   return prisma.recruitmentCycle.findFirst({ where: { termId, track, isTermTraining: true } });
 }
 
@@ -73,7 +73,7 @@ export async function updateQuizSettings(
 type Tx = Prisma.TransactionClient;
 
 /** PENDING unless the person has a COMPLETE Training row for the term and track. */
-export async function resolveTrainingState(personId: string, termId: string, track: TrainingTrack): Promise<TrainingState> {
+export async function resolveTrainingState(personId: string, termId: string, track: Track): Promise<TrainingState> {
   const row = await prisma.training.findUnique({ where: { personId_termId_track: { personId, termId, track } } });
   return row?.status === "COMPLETE" ? "COMPLETE" : "PENDING";
 }
@@ -81,9 +81,9 @@ export async function resolveTrainingState(personId: string, termId: string, tra
 /** The training tracks a person must complete this term: a track is required when
  *  the person holds an active membership of that kind AND the term has a designated
  *  training cycle for that track. Generalizes the volunteer-only check. */
-export async function requiredTrainingTracks(personId: string, termId: string): Promise<TrainingTrack[]> {
-  const pairs: [TrainingTrack, "VOLUNTEER" | "DIRECTOR"][] = [["VOLUNTEER", "VOLUNTEER"], ["DIRECTOR", "DIRECTOR"]];
-  const result: TrainingTrack[] = [];
+export async function requiredTrainingTracks(personId: string, termId: string): Promise<Track[]> {
+  const pairs: [Track, "VOLUNTEER" | "DIRECTOR"][] = [["VOLUNTEER", "VOLUNTEER"], ["DIRECTOR", "DIRECTOR"]];
+  const result: Track[] = [];
   for (const [track, kind] of pairs) {
     const hasMembership = await prisma.termMembership.count({ where: { personId, termId, kind, status: "ACTIVE" } });
     if (hasMembership === 0) continue;
@@ -96,7 +96,7 @@ export async function requiredTrainingTracks(personId: string, termId: string): 
  *  Shared by the attendance and quiz paths. Idempotent. */
 export async function completeTraining(
   db: Tx | typeof prisma,
-  args: { personId: string; termId: string; cycleId: string; track: TrainingTrack; via: TrainingMethod; actorId?: string }
+  args: { personId: string; termId: string; cycleId: string; track: Track; via: TrainingMethod; actorId?: string }
 ): Promise<void> {
   const now = new Date();
   const attendance = args.via === "ATTENDANCE";
@@ -118,7 +118,7 @@ export async function completeTraining(
 /** Record live-session attendance for a member (by personId) in the term and track.
  *  Director-scoped (the member must be in a department the actor manages) or
  *  review_all. Completes via ATTENDANCE. */
-export async function recordAttendance(personId: string, termId: string, track: TrainingTrack, actorId: string): Promise<void> {
+export async function recordAttendance(personId: string, termId: string, track: Track, actorId: string): Promise<void> {
   const cycle = await getTrainingCycleForTerm(termId, track);
   if (!cycle) throw new TrainingStateError("This term has no designated training cycle.");
 
@@ -160,7 +160,7 @@ async function quizQuestions(cycleId: string): Promise<GradedQuestion[]> {
 }
 
 export type MyTraining = {
-  track: TrainingTrack;
+  track: Track;
   trackLabel: string;
   term: { id: string; name: string };
   cycle: { id: string; title: string } | null;
@@ -175,7 +175,7 @@ export type MyTraining = {
   intake: TrainingIntake;
 };
 
-const TRACK_LABEL: Record<TrainingTrack, string> = {
+const TRACK_LABEL: Record<Track, string> = {
   VOLUNTEER: "Volunteer training",
   DIRECTOR: "Director training",
 };
@@ -224,7 +224,7 @@ export async function getMyTraining(personId: string): Promise<MyTraining[]> {
  *  attempt cap without a pass: locks. Prior attempts are never deleted. */
 export async function submitQuiz(
   personId: string,
-  input: { track: TrainingTrack; answers: Record<string, unknown>; intake: TrainingIntake }
+  input: { track: Track; answers: Record<string, unknown>; intake: TrainingIntake }
 ): Promise<QuizSubmission> {
   const term = await activeTermOrThrow();
   const cycle = await getTrainingCycleForTerm(term.id, input.track);
@@ -277,7 +277,7 @@ export async function submitQuiz(
 /** Clear a locked member so they can retake the quiz. Opens a fresh attempt
  *  window (lockResetAt = now); prior attempts stay in history. Director-scoped or
  *  review_all. */
-export async function resetTraining(personId: string, termId: string, track: TrainingTrack, actorId: string): Promise<void> {
+export async function resetTraining(personId: string, termId: string, track: Track, actorId: string): Promise<void> {
   const memberships = await prisma.termMembership.findMany({
     where: { personId, termId, kind: track, status: "ACTIVE" },
     include: { department: { select: { code: true } } },

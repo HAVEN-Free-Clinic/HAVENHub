@@ -41,9 +41,13 @@ enum TermStatus {
   ARCHIVED
 }
 
-enum MembershipKind {
-  DIRECTOR
+/// Participant track, shared across recruitment, training, and membership: a
+/// VOLUNTEER-track recruit trains on the volunteer track and joins as a
+/// VOLUNTEER-kind member (likewise DIRECTOR). One enum is the single source of
+/// truth so the three domains can never drift out of lock-step.
+enum Track {
   VOLUNTEER
+  DIRECTOR
 }
 
 enum MembershipStatus {
@@ -246,7 +250,7 @@ model TermMembership {
   personId                   String
   termId                     String
   departmentId               String
-  kind                       MembershipKind
+  kind                       Track
   status                     MembershipStatus @default(ACTIVE)
   /// Tier 3 (lowest): availability from the member's application, set at import
   /// or roster build. The fallback when no self update or director override exists.
@@ -304,7 +308,7 @@ model RoleAssignment {
   roleId       String
   personId     String?
   departmentId String?
-  kind         MembershipKind?
+  kind         Track?
   termId       String?
   role         Role        @relation(fields: [roleId], references: [id], onDelete: Cascade)
   person       Person?     @relation(fields: [personId], references: [id], onDelete: Cascade)
@@ -374,11 +378,6 @@ enum TeamsMessageStatus {
   /// recorded but NOT actually sent. Distinct from SENT so the monitor never
   /// implies real delivery in log mode. Retryable once graph is enabled.
   LOGGED
-}
-
-enum RecruitmentTrack {
-  VOLUNTEER
-  DIRECTOR
 }
 
 enum CycleStatus {
@@ -453,11 +452,6 @@ enum TrainingStatus {
 enum TrainingMethod {
   ATTENDANCE
   QUIZ
-}
-
-enum TrainingTrack {
-  VOLUNTEER
-  DIRECTOR
 }
 
 /// Flags a person for offboarding at the end of a given term. At most one flag
@@ -868,7 +862,7 @@ model RhdClinic {
 
 model RecruitmentCycle {
   id              String           @id @default(cuid())
-  track           RecruitmentTrack
+  track           Track
   termId          String
   title           String
   status          CycleStatus      @default(DRAFT)
@@ -1060,7 +1054,7 @@ model Training {
   personId                    String
   termId                      String
   cycleId                     String
-  track                       TrainingTrack   @default(VOLUNTEER)
+  track                       Track           @default(VOLUNTEER)
   status                      TrainingStatus  @default(PENDING)
   completedVia                TrainingMethod?
   completedAt                 DateTime?

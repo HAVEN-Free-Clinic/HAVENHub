@@ -7,7 +7,7 @@
  *  uploading its package from locking every assigned member out of the onboarding
  *  gate with a requirement they can never complete (the player has no SCO to
  *  finish). */
-import type { CourseAudience, MembershipKind } from "@prisma/client";
+import type { CourseAudience, Track } from "@prisma/client";
 
 export type AssignableCourse = {
   id: string;
@@ -21,10 +21,10 @@ export type AssignableCourse = {
 };
 
 /** One of the member's active memberships: the department and the kind held in it. */
-export type MemberMembership = { departmentId: string; kind: MembershipKind };
+export type MemberMembership = { departmentId: string; kind: Track };
 
 /** The membership kind a non-EVERYONE audience requires, or null for EVERYONE. */
-export function audienceToKind(audience: CourseAudience): MembershipKind | null {
+export function audienceToKind(audience: CourseAudience): Track | null {
   switch (audience) {
     case "DIRECTORS":
       return "DIRECTOR";
@@ -36,7 +36,7 @@ export function audienceToKind(audience: CourseAudience): MembershipKind | null 
 }
 
 /** True when a membership of this kind satisfies the course audience. */
-export function kindMatchesAudience(kind: MembershipKind, audience: CourseAudience): boolean {
+export function kindMatchesAudience(kind: Track, audience: CourseAudience): boolean {
   const required = audienceToKind(audience);
   return required === null || kind === required;
 }

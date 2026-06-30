@@ -1,4 +1,4 @@
-import type { MembershipKind } from "@prisma/client";
+import type { Track } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
 
@@ -15,7 +15,7 @@ export type PermissionHolder = {
  * (see engine.ts MEMBERSHIP_KIND_ROLE). They are never wired through
  * RoleAssignment, so this resolver folds them in directly.
  */
-const AUTO_ROLE_KIND: Record<string, MembershipKind> = {
+const AUTO_ROLE_KIND: Record<string, Track> = {
   Director: "DIRECTOR",
   Volunteer: "VOLUNTEER",
 };
@@ -54,7 +54,7 @@ export async function peopleWithAnyPermission(permissions: string[]): Promise<Pe
 
   const directPersonIds = new Set<string>();
   const departmentIds = new Set<string>();
-  const kinds = new Set<MembershipKind>();
+  const kinds = new Set<Track>();
   for (const a of assignments) {
     if (a.personId) directPersonIds.add(a.personId);
     if (a.departmentId) departmentIds.add(a.departmentId);

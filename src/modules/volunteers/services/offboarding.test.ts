@@ -22,9 +22,10 @@
  *   - flagged is null without the permission; populated with it.
  */
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
+import * as people from "@/platform/people";
 import {
   flagForOffboarding,
   unflag,
@@ -336,6 +337,46 @@ describe("executeOffboard", () => {
     const deact = await prisma.epicRequest.findMany({ where: { personId: person.id, kind: "DEACTIVATE" } });
     expect(deact).toHaveLength(1);
     expect(deact[0].status).toBe("PENDING");
+  });
+
+  it("if the status flip fails, the person stays flagged + on roster (recoverable, no invisible half-state)", async () => {
+    const term = await createTerm("ACTIVE");
+    const dept = await createDepartment("HALF");
+    const actor = await createPerson("Exec", "exec-half");
+    await grantPermission(actor.id, "volunteers.manage_offboarding");
+
+    const target = await createPerson("Target", "tgt-half");
+    await createMembership(target.id, term.id, dept.id, "VOLUNTEER", "ACTIVE");
+    await prisma.offboardFlag.create({
+      data: { personId: target.id, termId: term.id, flaggedById: actor.id },
+    });
+
+    // Simulate a DB crash during the status flip (the non-atomic second step).
+    const spy = vi
+      .spyOn(people, "setPersonStatusField")
+      .mockRejectedValueOnce(new Error("simulated crash during status flip"));
+
+    await expect(executeOffboard(actor.id, target.id)).rejects.toThrow();
+    spy.mockRestore();
+
+    // The destructive cleanup must not have run ahead of the status flip:
+    // the person remains ACTIVE, still on the roster, and STILL FLAGGED, so they
+    // stay visible in the offboarding queue and the executor can simply retry.
+    const person = await prisma.person.findUniqueOrThrow({ where: { id: target.id } });
+    expect(person.status).toBe("ACTIVE");
+
+    const memberships = await prisma.termMembership.findMany({ where: { personId: target.id } });
+    expect(memberships.every((m) => m.status === "ACTIVE")).toBe(true);
+
+    const flags = await prisma.offboardFlag.findMany({ where: { personId: target.id } });
+    expect(flags).toHaveLength(1);
+
+    // Retry now succeeds and converges to a fully-offboarded state.
+    await executeOffboard(actor.id, target.id);
+    const after = await prisma.person.findUniqueOrThrow({ where: { id: target.id } });
+    expect(after.status).toBe("OFFBOARDED");
+    const flagsAfter = await prisma.offboardFlag.findMany({ where: { personId: target.id } });
+    expect(flagsAfter).toHaveLength(0);
   });
 });
 

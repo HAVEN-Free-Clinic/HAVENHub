@@ -1,4 +1,4 @@
-import type { RecruitmentCycle, RecruitmentTrack } from "@prisma/client";
+import type { RecruitmentCycle, Track } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { isSectionVisible } from "../engine/visibility";
@@ -11,7 +11,7 @@ export class CyclePublishError extends Error {
 }
 
 export type CreateCycleInput = {
-  track: RecruitmentTrack;
+  track: Track;
   termId: string;
   title: string;
   publicSlug: string;

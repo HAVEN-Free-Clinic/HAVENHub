@@ -5,6 +5,9 @@ import { upload } from "@vercel/blob/client";
 import { Button } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
 import { Alert } from "@/platform/ui/alert";
+import { Checkbox } from "@/platform/ui/checkbox";
+import { Field } from "@/platform/ui/input";
+import { FormActions } from "@/platform/ui/form";
 import { uploadPackageAction, ingestUploadedPackageAction, type UploadState } from "../actions";
 
 const MAX_UPLOAD_BYTES = 75 * 1024 * 1024; // 75 MB
@@ -19,8 +22,7 @@ type FormProps = { courseId: string; hasPackage: boolean };
 function ResetProgressField({ checked, onChange }: { checked?: boolean; onChange?: (v: boolean) => void }) {
   return (
     <label className="flex items-start gap-2 text-sm text-subtle-foreground">
-      <input
-        type="checkbox"
+      <Checkbox
         name="resetProgress"
         className="mt-0.5"
         checked={onChange ? checked : undefined}
@@ -94,15 +96,25 @@ function BlobUploadForm({ courseId, hasPackage }: FormProps) {
   }
 
   return (
-    <Card pad={false} className="p-3">
-      <form onSubmit={onSubmit} className="space-y-2">
-        <input ref={fileRef} type="file" name="package" accept=".zip,application/zip" required className="block text-sm" />
-        <p className="text-xs text-subtle-foreground">{HINT}</p>
+    <Card pad={false} className="space-y-4 p-4">
+      <form onSubmit={onSubmit} className="space-y-4">
+        <Field label="SCORM package (.zip)" hint={HINT}>
+          <input
+            ref={fileRef}
+            type="file"
+            name="package"
+            accept=".zip,application/zip"
+            required
+            className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground-soft hover:file:bg-muted-strong"
+          />
+        </Field>
         {hasPackage && <ResetProgressField checked={resetProgress} onChange={setResetProgress} />}
         {error && <Alert tone="error">{error}</Alert>}
-        <Button type="submit" disabled={busy}>
-          {busy ? phase || "Working…" : hasPackage ? "Replace package" : "Upload package"}
-        </Button>
+        <FormActions>
+          <Button type="submit" disabled={busy}>
+            {busy ? phase || "Working…" : hasPackage ? "Replace package" : "Upload package"}
+          </Button>
+        </FormActions>
       </form>
     </Card>
   );
@@ -113,16 +125,25 @@ function ServerActionUploadForm({ courseId, hasPackage }: FormProps) {
   const [state, action, pending] = useActionState<UploadState, FormData>(uploadPackageAction, null);
 
   return (
-    <Card pad={false} className="p-3">
-      <form action={action} encType="multipart/form-data" className="space-y-2">
+    <Card pad={false} className="space-y-4 p-4">
+      <form action={action} encType="multipart/form-data" className="space-y-4">
         <input type="hidden" name="courseId" value={courseId} />
-        <input type="file" name="package" accept=".zip,application/zip" required className="block text-sm" />
-        <p className="text-xs text-subtle-foreground">{HINT}</p>
+        <Field label="SCORM package (.zip)" hint={HINT}>
+          <input
+            type="file"
+            name="package"
+            accept=".zip,application/zip"
+            required
+            className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground-soft hover:file:bg-muted-strong"
+          />
+        </Field>
         {hasPackage && <ResetProgressField />}
         {state?.error && <Alert tone="error">{state.error}</Alert>}
-        <Button type="submit" disabled={pending}>
-          {pending ? "Uploading…" : hasPackage ? "Replace package" : "Upload package"}
-        </Button>
+        <FormActions>
+          <Button type="submit" disabled={pending}>
+            {pending ? "Uploading…" : hasPackage ? "Replace package" : "Upload package"}
+          </Button>
+        </FormActions>
       </form>
     </Card>
   );

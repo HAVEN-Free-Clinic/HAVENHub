@@ -15,6 +15,8 @@ import { Badge } from "@/platform/ui/badge";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { AddPanelistForm } from "./add-panelist-form";
+import { Card } from "@/platform/ui/card";
+import { FormActions } from "@/platform/ui/form";
 
 const RECS = ["STRONG_YES", "YES", "MAYBE", "NO"];
 const decisionTone = { PENDING: "default", ACCEPT: "success", REJECT: "critical", WAITLIST: "warning" } as const;
@@ -67,7 +69,7 @@ export default async function InterviewDetail({ params, searchParams }: { params
 
       {canManage && (
         <>
-          <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+          <Card>
             <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Schedule</h2>
             <form action={scheduleAction.bind(null, interviewId)} className="mt-3 space-y-3">
               <Field label="Time">
@@ -79,7 +81,9 @@ export default async function InterviewDetail({ params, searchParams }: { params
               <Field label="Notes">
                 <Input name="notes" defaultValue={iv.notes ?? ""} />
               </Field>
-              <SubmitButton size="sm" pendingLabel="Saving…">Save</SubmitButton>
+              <FormActions>
+                <SubmitButton size="sm" pendingLabel="Saving…">Save</SubmitButton>
+              </FormActions>
             </form>
             <form action={sendInviteAction.bind(null, interviewId)} className="mt-4 flex items-center gap-3 border-t border-border-subtle pt-4">
               <SubmitButton size="sm" variant="outline" pendingLabel="Sending…">
@@ -87,9 +91,9 @@ export default async function InterviewDetail({ params, searchParams }: { params
               </SubmitButton>
               {iv.invitedAt && <span className="text-xs text-subtle-foreground">sent {iv.invitedAt.toLocaleString()}</span>}
             </form>
-          </section>
+          </Card>
 
-          <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+          <Card>
             <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Panel</h2>
             {iv.panelists.length > 0 ? (
               <ul className="mt-3 divide-y divide-border-subtle">
@@ -110,11 +114,11 @@ export default async function InterviewDetail({ params, searchParams }: { params
             )}
             <AddPanelistForm action={addPanelistAction.bind(null, interviewId)} candidates={candidates} />
             <p className="mt-2 text-xs text-subtle-foreground">Panel members can submit an evaluation from their My interviews page.</p>
-          </section>
+          </Card>
         </>
       )}
 
-      <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+      <Card>
         <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Evaluations ({summary.total})</h2>
         <p className="mt-1 text-xs text-subtle-foreground">
           Strong yes {summary.strongYes} · Yes {summary.yes} · Maybe {summary.maybe} · No {summary.no}
@@ -131,10 +135,10 @@ export default async function InterviewDetail({ params, searchParams }: { params
         ) : (
           <p className="mt-3 text-sm text-muted-foreground">No evaluations yet.</p>
         )}
-      </section>
+      </Card>
 
       {canManage && (
-        <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+        <Card>
           <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Decision</h2>
           {emailedAcceptance && (
             <div className="mt-3 space-y-3">
@@ -167,11 +171,11 @@ export default async function InterviewDetail({ params, searchParams }: { params
             <SubmitButton size="sm" pendingLabel="Recording…">Record decision</SubmitButton>
           </form>
           <p className="mt-2 text-xs text-subtle-foreground">Accept creates an acceptance, released from the Decisions page.</p>
-        </section>
+        </Card>
       )}
 
       {isPanelist && (
-        <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+        <Card>
           <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Your evaluation</h2>
           <form action={submitEvaluationAction.bind(null, interviewId)} className="mt-3 flex flex-wrap items-end gap-3">
             <div className="w-44">
@@ -195,7 +199,7 @@ export default async function InterviewDetail({ params, searchParams }: { params
             </div>
             <SubmitButton size="sm" pendingLabel="Submitting…">Submit</SubmitButton>
           </form>
-        </section>
+        </Card>
       )}
     </div>
   );

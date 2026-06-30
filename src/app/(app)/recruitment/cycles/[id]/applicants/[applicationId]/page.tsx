@@ -16,6 +16,7 @@ import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
+import { Card } from "@/platform/ui/card";
 import { prisma } from "@/platform/db";
 
 export default async function ApplicationDetailPage({ params, searchParams }: { params: Promise<{ id: string; applicationId: string }>; searchParams: Promise<{ error?: string }> }) {
@@ -67,7 +68,7 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
       />
 
       {sections.map((section) => (
-        <section key={section.id} className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+        <Card key={section.id}>
           <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">{section.title}</h2>
           <dl className="mt-3 grid gap-3 sm:grid-cols-2">
             {section.fields.map((f) => {
@@ -83,11 +84,11 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
               );
             })}
           </dl>
-        </section>
+        </Card>
       ))}
 
       {(app.subcommitteeRanking.length > 0 || app.assignedSubcommitteeId) && (
-        <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+        <Card>
           <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Subcommittee</h2>
           <dl className="mt-3 grid gap-3 sm:grid-cols-2">
             <div>
@@ -106,11 +107,11 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
             </div>
           </dl>
           <p className="mt-2 text-xs text-subtle-foreground">Assign from the cycle&apos;s Subcommittees view.</p>
-        </section>
+        </Card>
       )}
 
       {app.cycle.track === "VOLUNTEER" ? (
-        <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+        <Card>
           <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Decision</h2>
           {error && <Alert tone="error" className="mt-3">{error}</Alert>}
           {acceptances.length > 0 ? (
@@ -153,9 +154,9 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
               <SubmitButton size="sm" pendingLabel="Accepting…">Accept</SubmitButton>
             </form>
           )}
-        </section>
+        </Card>
       ) : (
-        <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+        <Card>
           <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Interview</h2>
           {error && <Alert tone="error" className="mt-3">{error}</Alert>}
           {existingInterviews.length > 0 && (
@@ -191,7 +192,7 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
           ) : existingInterviews.length === 0 ? (
             <p className="mt-3 text-sm text-muted-foreground">No eligible department to interview for in your scope.</p>
           ) : null}
-        </section>
+        </Card>
       )}
     </div>
   );

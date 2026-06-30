@@ -12,6 +12,8 @@ import { buttonClasses } from "@/platform/ui/button";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { prisma } from "@/platform/db";
 import { Checkbox } from "@/platform/ui/checkbox";
+import { Card } from "@/platform/ui/card";
+import { FormActions } from "@/platform/ui/form";
 
 const statusTone = { DRAFT: "default", OPEN: "success", CLOSED: "warning" } as const;
 
@@ -75,7 +77,7 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
         <Link href={`/recruitment/cycles/${id}/emails`} className={navLink}>Edit emails</Link>
       </div>
 
-      <div className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+      <Card>
         <p className="text-xs font-medium uppercase tracking-wider text-subtle-foreground">Public link</p>
         {cycle.status === "OPEN" ? (
           <div className="mt-1 space-y-1">
@@ -99,9 +101,9 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
         ) : (
           <p className="mt-1 text-sm text-muted-foreground">Publish the cycle to activate {applyUrl}</p>
         )}
-      </div>
+      </Card>
 
-      <div className="space-y-3 rounded-2xl border border-border bg-surface p-5 shadow-sm">
+      <Card className="space-y-3">
         <p className="text-xs font-medium uppercase tracking-wider text-subtle-foreground">Departments</p>
         {deptsaved && <Alert tone="success">Departments updated.</Alert>}
         {deptwarn && <Alert tone="warning">Saved. These removed departments still have applicants: {deptwarn}. Existing applications keep their choices, but you can no longer accept into a removed department.</Alert>}
@@ -116,12 +118,14 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
             ))}
             {deptOptions.length === 0 && <p className="text-sm text-subtle-foreground">No departments configured.</p>}
           </div>
-          <SubmitButton size="sm" variant="outline" pendingLabel="Saving…">Save departments</SubmitButton>
+          <FormActions>
+            <SubmitButton size="sm" variant="outline" pendingLabel="Saving…">Save departments</SubmitButton>
+          </FormActions>
         </form>
-      </div>
+      </Card>
 
       {(cycle.status === "DRAFT" || cycle.status === "OPEN") && (
-        <div className="space-y-3 rounded-2xl border border-border bg-surface p-5 shadow-sm">
+        <Card className="space-y-3">
           <p className="text-xs font-medium uppercase tracking-wider text-subtle-foreground">Application window</p>
           {windowsaved && <Alert tone="success">Application window updated.</Alert>}
           <p className="text-sm text-muted-foreground">
@@ -136,9 +140,11 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
                 <Input type="datetime-local" name="closesAt" defaultValue={toLocalInput(cycle.closesAt)} />
               </Field>
             </div>
-            <SubmitButton size="sm" variant="outline" pendingLabel="Saving…">Save window</SubmitButton>
+            <FormActions>
+              <SubmitButton size="sm" variant="outline" pendingLabel="Saving…">Save window</SubmitButton>
+            </FormActions>
           </form>
-        </div>
+        </Card>
       )}
 
       <div className="flex flex-wrap items-center gap-3">
@@ -162,7 +168,7 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
       </div>
 
       {(cycle.track === "VOLUNTEER" || cycle.track === "DIRECTOR") && (
-        <div className="space-y-4 rounded-2xl border border-border bg-surface p-5 shadow-sm">
+        <Card className="space-y-4">
           <p className="text-xs font-medium uppercase tracking-wider text-subtle-foreground">
             {cycle.track === "DIRECTOR" ? "Director training" : "Training"}
           </p>
@@ -188,7 +194,7 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
             </div>
             <SubmitButton size="sm" variant="outline" pendingLabel="Saving…">Save quiz settings</SubmitButton>
           </form>
-        </div>
+        </Card>
       )}
     </div>
   );

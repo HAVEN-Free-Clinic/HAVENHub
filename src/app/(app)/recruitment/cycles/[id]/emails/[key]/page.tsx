@@ -12,6 +12,7 @@ import { getSetting } from "@/platform/settings/service";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Button } from "@/platform/ui/button";
 import { Alert } from "@/platform/ui/alert";
+import { FormActions } from "@/platform/ui/form";
 // TemplateEditor lives in the admin route group. TypeScript resolves the path
 // correctly because [key] is a literal directory name on disk.
 import { TemplateEditor } from "@/app/(app)/admin/email/templates/[key]/preview";
@@ -77,9 +78,9 @@ export default async function EditCycleEmailPage({ params, searchParams }: Props
           layoutSource={t.layoutSource}
           brandColor={brandColor}
         />
-        <div className="mt-4 flex gap-2">
+        <FormActions className="mt-4">
           <Button type="submit">Save</Button>
-        </div>
+        </FormActions>
       </form>
       {t.hasOverride ? (
         <form action={resetAction}>

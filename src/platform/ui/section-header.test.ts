@@ -23,4 +23,11 @@ describe("SectionHeader", () => {
     const el = SectionHeader({ className: "mb-4", children: "X" });
     expect(el.props.className).toContain("mb-4");
   });
+
+  it("renders as an h3 when as='h3', keeping the level styling", () => {
+    const el = SectionHeader({ as: "h3", children: "Subsection" });
+    expect(el.type).toBe("h3");
+    expect(el.props.className).toContain("uppercase");
+    expect(el.props.children).toBe("Subsection");
+  });
 });

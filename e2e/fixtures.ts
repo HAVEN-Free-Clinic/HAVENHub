@@ -32,6 +32,9 @@ async function dept(code: string) {
 
 /** Remove a person and every row that references it (run before the person delete). */
 export async function cleanupPerson(personId: string): Promise<void> {
+  // Remove shift-level data first (FK deps before membership/person delete).
+  await prisma.shiftRequest.deleteMany({ where: { personId } }).catch(() => {});
+  await prisma.shiftAssignment.deleteMany({ where: { personId } }).catch(() => {});
   await prisma.hipaaCertificate.deleteMany({ where: { personId } });
   await prisma.notification.deleteMany({ where: { personId } });
   await prisma.termMembership.deleteMany({ where: { personId } });
@@ -135,5 +138,37 @@ export async function seedRhdAttending(
     attending,
     cleanup: () =>
       prisma.rhdAttending.delete({ where: { id: attending.id } }).then(() => {}).catch((e) => console.warn("[e2e cleanup] delete failed, row may be leaked:", e instanceof Error ? e.message : e)),
+  };
+}
+
+/**
+ * Temporarily sets `idealHeadcount` and/or `patientCapacityPerProvider` on a
+ * department so the capacity panel renders in the builder. Restores the
+ * previous values on cleanup, making the fixture safe against both bare-seed
+ * CI (where the fields are null) and environments where they are already set.
+ */
+export async function seedCapacityConfig(
+  deptCode: string,
+  quota: { idealHeadcount?: number | null; patientCapacityPerProvider?: number | null }
+) {
+  const department = await prisma.department.findUniqueOrThrow({ where: { code: deptCode } });
+  const before = {
+    idealHeadcount: department.idealHeadcount,
+    patientCapacityPerProvider: department.patientCapacityPerProvider,
+  };
+  await prisma.department.update({
+    where: { id: department.id },
+    data: {
+      idealHeadcount: quota.idealHeadcount ?? null,
+      patientCapacityPerProvider: quota.patientCapacityPerProvider ?? null,
+    },
+  });
+  return {
+    cleanup: async () => {
+      await prisma.department.update({
+        where: { id: department.id },
+        data: { idealHeadcount: before.idealHeadcount, patientCapacityPerProvider: before.patientCapacityPerProvider },
+      }).catch((e) => console.warn("[e2e cleanup] capacity reset failed:", e instanceof Error ? e.message : e));
+    },
   };
 }

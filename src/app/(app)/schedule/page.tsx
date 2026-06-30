@@ -24,18 +24,9 @@ import {
 } from "@/modules/schedule/services/requests";
 import { isoDateKey } from "@/modules/schedule/engine/map";
 import { displayDate } from "@/modules/schedule/engine/display";
+import { fmtDate } from "@/platform/dates";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Clock } from "lucide-react";
-
-function fmtDate(d: Date | null | undefined): string {
-  if (!d) return "-";
-  return d.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  });
-}
 
 type PageProps = {
   searchParams: Promise<{ error?: string; message?: string; saved?: string; requested?: string }>;

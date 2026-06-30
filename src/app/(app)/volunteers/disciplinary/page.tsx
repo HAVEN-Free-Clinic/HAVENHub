@@ -40,6 +40,7 @@ import {
 } from "@/modules/volunteers/services/disciplinary";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { fmtDate } from "@/platform/dates";
 import Link from "next/link";
 
 // ---------------------------------------------------------------------------
@@ -55,20 +56,6 @@ const ERROR_MESSAGES: Record<string, string> = {
   "person-not-found": "Person not found. Check the NetID or email and try again.",
   "validation": "Please check your input and try again.",
 };
-
-// ---------------------------------------------------------------------------
-// Date helpers (UTC)
-// ---------------------------------------------------------------------------
-
-function fmtDate(d: Date | null | undefined): string {
-  if (!d) return "-";
-  return d.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  });
-}
 
 // ---------------------------------------------------------------------------
 // Page props

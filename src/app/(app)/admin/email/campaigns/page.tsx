@@ -1,14 +1,10 @@
 import Link from "next/link";
 import { requirePermission } from "@/platform/auth/session";
 import { listCampaigns } from "@/platform/email/campaigns/service";
+import { isoDateKey } from "@/platform/dates";
 import { PageHeader } from "@/platform/ui/page-header";
 import { buttonClasses } from "@/platform/ui/button";
 import { cardClasses } from "@/platform/ui/card";
-
-function fmtDate(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
-}
 
 export default async function EmailCampaignsPage() {
   await requirePermission("admin.send_email_campaign");
@@ -52,7 +48,7 @@ export default async function EmailCampaignsPage() {
                 >
                   {c.name}
                 </Link>
-                <span className="ml-2 text-xs text-subtle-foreground">{fmtDate(c.createdAt)}</span>
+                <span className="ml-2 text-xs text-subtle-foreground">{isoDateKey(c.createdAt)}</span>
               </span>
               <span className="text-xs text-muted-foreground">{c.status}</span>
             </li>

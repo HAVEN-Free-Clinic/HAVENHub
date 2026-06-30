@@ -16,6 +16,7 @@ import {
 import { CompletionDateError } from "@/platform/compliance/completion-date";
 import type { ComplianceStatus } from "@/platform/compliance/rules";
 import { certExpiresAt } from "@/platform/compliance/rules";
+import { fmtDate } from "@/platform/dates";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
@@ -49,20 +50,6 @@ const STATUS_TONE: Record<ComplianceStatus, Tone> = {
   UNKNOWN_DATE: "default",
   NO_CERTIFICATE: "default",
 };
-
-// ---------------------------------------------------------------------------
-// Date formatting (UTC)
-// ---------------------------------------------------------------------------
-
-function fmtDate(d: Date | null | undefined): string {
-  if (!d) return "-";
-  return d.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  });
-}
 
 // ---------------------------------------------------------------------------
 // Count chips helper

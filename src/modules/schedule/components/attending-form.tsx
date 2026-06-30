@@ -5,6 +5,9 @@
 
 import type { RhdAttending } from "@prisma/client";
 import { Alert } from "@/platform/ui/alert";
+import { Card } from "@/platform/ui/card";
+import { Checkbox } from "@/platform/ui/checkbox";
+import { FormActions } from "@/platform/ui/form";
 import { Input, Field } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Button } from "@/platform/ui/button";
@@ -18,41 +21,45 @@ type AttendingFormProps = {
 
 export function AttendingForm({ action, attending, error }: AttendingFormProps) {
   return (
-    <form action={action} className="space-y-6">
-      {error && <Alert tone="error">{error}</Alert>}
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Schedule name">
-          <Input name="scheduleName" defaultValue={attending?.scheduleName ?? ""} required placeholder="Rivera" />
-        </Field>
-        <Field label="Full name">
-          <Input name="fullName" defaultValue={attending?.fullName ?? ""} required placeholder="Dr. Rivera" />
-        </Field>
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-3">
-        {CAPABILITY_KEYS.map((key) => (
-          <Field key={key} label={CAPABILITY_LABELS[key]}>
-            <Select name={key} defaultValue={(attending?.[key] as string) ?? "unknown"}>
-              <option value="yes">yes</option>
-              <option value="no">no</option>
-              <option value="unknown">unknown</option>
-            </Select>
+    <form action={action}>
+      <Card className="space-y-6">
+        {error && <Alert tone="error">{error}</Alert>}
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Schedule name">
+            <Input name="scheduleName" defaultValue={attending?.scheduleName ?? ""} required placeholder="Rivera" />
           </Field>
-        ))}
-      </div>
+          <Field label="Full name">
+            <Input name="fullName" defaultValue={attending?.fullName ?? ""} required placeholder="Dr. Rivera" />
+          </Field>
+        </div>
 
-      <Field label="Notes">
-        <Input name="notes" defaultValue={attending?.notes ?? ""} placeholder="Optional" />
-      </Field>
+        <div className="grid gap-4 sm:grid-cols-3">
+          {CAPABILITY_KEYS.map((key) => (
+            <Field key={key} label={CAPABILITY_LABELS[key]}>
+              <Select name={key} defaultValue={(attending?.[key] as string) ?? "unknown"}>
+                <option value="yes">yes</option>
+                <option value="no">no</option>
+                <option value="unknown">unknown</option>
+              </Select>
+            </Field>
+          ))}
+        </div>
 
-      {attending !== undefined && (
-        <label className="flex items-center gap-2 text-sm text-foreground-soft">
-          <input type="checkbox" name="isActive" defaultChecked={attending.isActive} className="h-4 w-4 rounded accent-brand" />
-          Active
-        </label>
-      )}
+        <Field label="Notes">
+          <Input name="notes" defaultValue={attending?.notes ?? ""} placeholder="Optional" />
+        </Field>
 
-      <Button type="submit" variant="primary">Save</Button>
+        {attending !== undefined && (
+          <label className="flex items-center gap-2 text-sm text-foreground-soft">
+            <Checkbox name="isActive" defaultChecked={attending.isActive} />
+            Active
+          </label>
+        )}
+
+        <FormActions>
+          <Button type="submit" variant="primary">Save</Button>
+        </FormActions>
+      </Card>
     </form>
   );
 }

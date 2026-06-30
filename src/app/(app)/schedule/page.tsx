@@ -4,6 +4,7 @@ import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
+import { FormActions } from "@/platform/ui/form";
 import { Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { redirect } from "next/navigation";
@@ -336,9 +337,11 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                         </div>
                       ))}
                     </div>
-                    <Button type="submit" className="mt-6">
-                      Save availability
-                    </Button>
+                    <FormActions className="mt-4">
+                      <Button type="submit">
+                        Save availability
+                      </Button>
+                    </FormActions>
                   </form>
                 </>
               )}

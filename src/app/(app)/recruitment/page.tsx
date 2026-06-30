@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { requireModuleAccess } from "@/platform/auth/session";
+import { can } from "@/platform/rbac/engine";
 import { listCycles } from "@/modules/recruitment/services/cycles";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
@@ -15,7 +16,11 @@ const statusTone = {
 export default async function RecruitmentPage() {
   // Sits above the cycles/ subtree layout, so it carries the recruitment.access
   // gate itself (the root recruitment layout is now only a session check).
-  await requireModuleAccess("recruitment");
+  const session = await requireModuleAccess("recruitment");
+  // Only cycle managers can actually create a cycle (createCycleAction enforces
+  // recruitment.manage_cycles), so hide the affordance from reviewers who hold
+  // recruitment.access but not manage_cycles -- they'd hit /no-access otherwise.
+  const canManageCycles = await can(session.personId, "recruitment.manage_cycles");
   const cycles = await listCycles();
   return (
     <div className="space-y-6">
@@ -23,9 +28,11 @@ export default async function RecruitmentPage() {
         title="Recruitment cycles"
         description="Application cycles for volunteers and directors."
         action={
-          <Link href="/recruitment/cycles/new" className={buttonClasses("primary", "sm")}>
-            New cycle
-          </Link>
+          canManageCycles ? (
+            <Link href="/recruitment/cycles/new" className={buttonClasses("primary", "sm")}>
+              New cycle
+            </Link>
+          ) : undefined
         }
       />
       <Table>

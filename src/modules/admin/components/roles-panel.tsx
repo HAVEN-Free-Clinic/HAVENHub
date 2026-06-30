@@ -33,6 +33,7 @@ import { Card } from "@/platform/ui/card";
 import { Input, Field } from "@/platform/ui/input";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
+import { FormActions } from "@/platform/ui/form";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -257,11 +258,11 @@ export async function RolesPanel({ roles, pageHref }: RolesPanelProps): Promise<
                 </div>
               </div>
 
-              <div className="pt-1">
+              <FormActions>
                 <Button type="submit" variant="outline" size="sm">
                   Save grants
                 </Button>
-              </div>
+              </FormActions>
             </form>
           </Card>
         );

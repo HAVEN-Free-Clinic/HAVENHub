@@ -1,5 +1,7 @@
 import { Button } from "@/platform/ui/button";
 import { Checkbox } from "@/platform/ui/checkbox";
+import { Card } from "@/platform/ui/card";
+import { FormActions } from "@/platform/ui/form";
 
 type Candidate = { id: string; code: string; name: string };
 
@@ -18,7 +20,8 @@ export function DelegationEditor({
 }) {
   const selected = new Set(selectedIds);
   return (
-    <form action={action} className="space-y-3">
+    <form action={action}>
+      <Card className="space-y-3">
       <p className="text-sm text-foreground-soft">
         Departments this one manages. A director here also oversees these (one hop).
       </p>
@@ -35,7 +38,10 @@ export function DelegationEditor({
           ))}
         </div>
       )}
-      <Button type="submit" variant="outline">Save delegations</Button>
+      <FormActions>
+        <Button type="submit" variant="outline">Save delegations</Button>
+      </FormActions>
+      </Card>
     </form>
   );
 }

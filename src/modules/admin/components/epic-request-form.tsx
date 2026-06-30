@@ -25,6 +25,7 @@ import { Input, Field } from "@/platform/ui/input";
 import { Card } from "@/platform/ui/card";
 import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
+import { Checkbox } from "@/platform/ui/checkbox";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -446,13 +447,15 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
               {[...selectedPeopleMap.values()].map((p) => (
                 <div key={p.id} className="flex items-center justify-between text-sm">
                   <span className="text-foreground">{p.name}</span>
-                  <button
+                  <Button
                     type="button"
+                    variant="ghost"
+                    size="sm"
                     onClick={() => togglePerson(p.id, p)}
-                    className="text-xs text-muted-foreground hover:text-foreground"
+                    className="text-xs p-0 h-auto"
                   >
                     Remove
-                  </button>
+                  </Button>
                 </div>
               ))}
             </div>
@@ -518,11 +521,9 @@ function PersonRow({
 }) {
   return (
     <label className="flex items-center gap-3 rounded-lg px-3 py-2 hover:bg-muted cursor-pointer">
-      <input
-        type="checkbox"
+      <Checkbox
         checked={selected}
         onChange={onToggle}
-        className="h-4 w-4 rounded accent-brand"
       />
       <span className="text-sm text-foreground">{person.name}</span>
       {person.netId && (

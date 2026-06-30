@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { Pencil, Check, X } from "lucide-react";
+import { Input } from "@/platform/ui/input";
+import { Button } from "@/platform/ui/button";
 
 export function TicketNumberField({
   ticketId,
@@ -27,54 +29,66 @@ export function TicketNumberField({
   if (editing) {
     return (
       <div className="flex items-center gap-1.5">
-        <input
+        <Input
           autoFocus
           value={value}
           onChange={(e) => setValue(e.target.value)}
           placeholder="e.g. RITM1234567"
-          className="rounded-md border border-border-strong px-2 py-1 text-xs w-32"
+          className="w-32 py-1 text-xs"
         />
-        <button
+        <Button
+          type="button"
+          variant="primary"
+          size="sm"
           onClick={handleSave}
           disabled={saving}
-          className="grid h-6 w-6 place-items-center rounded-md bg-brand text-white hover:bg-brand-hover disabled:opacity-50"
           aria-label="Save"
+          className="h-6 w-6 grid place-items-center p-0"
         >
           <Check className="h-3.5 w-3.5" aria-hidden />
-        </button>
-        <button
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
           onClick={() => {
             setEditing(false);
             setValue(serviceRequestNumber ?? "");
           }}
-          className="grid h-6 w-6 place-items-center rounded-md border border-border text-muted-foreground hover:bg-muted"
           aria-label="Cancel"
+          className="h-6 w-6 grid place-items-center p-0"
         >
           <X className="h-3.5 w-3.5" aria-hidden />
-        </button>
+        </Button>
       </div>
     );
   }
 
   if (serviceRequestNumber) {
     return (
-      <button
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
         onClick={() => setEditing(true)}
-        className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition"
+        className="gap-1.5 text-xs px-0 py-0 h-auto"
       >
         Service request: <span className="font-medium text-foreground-soft">{serviceRequestNumber}</span>
         <Pencil className="h-3 w-3" aria-hidden />
-      </button>
+      </Button>
     );
   }
 
   return (
-    <button
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
       onClick={() => setEditing(true)}
-      className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-border px-2 py-1 text-xs font-medium text-brand-fg hover:bg-brand-faint transition"
+      className="gap-1.5 border-dashed border-border text-brand-fg hover:bg-brand-faint text-xs"
     >
       <Pencil className="h-3 w-3" aria-hidden />
       Add ticket number
-    </button>
+    </Button>
   );
 }

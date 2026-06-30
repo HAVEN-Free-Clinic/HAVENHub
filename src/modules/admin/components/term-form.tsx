@@ -9,6 +9,8 @@ import type { Term } from "@prisma/client";
 import { Input, Field } from "@/platform/ui/input";
 import { Button } from "@/platform/ui/button";
 import { Alert } from "@/platform/ui/alert";
+import { Card } from "@/platform/ui/card";
+import { FormActions } from "@/platform/ui/form";
 
 function toDateInputValue(d: Date): string {
   // Return YYYY-MM-DD in UTC for the date input default value.
@@ -28,7 +30,8 @@ type TermFormProps = {
 
 export function TermForm({ action, term, error, saved }: TermFormProps) {
   return (
-    <form action={action} className="space-y-6">
+    <form action={action}>
+      <Card className="space-y-6">
       {error && <Alert tone="error">{error}</Alert>}
       {saved && <Alert tone="success">{saved}</Alert>}
 
@@ -70,11 +73,12 @@ export function TermForm({ action, term, error, saved }: TermFormProps) {
         </Field>
       </div>
 
-      <div className="flex items-center gap-3 pt-2">
+      <FormActions>
         <Button type="submit" variant="primary">
           Create term
         </Button>
-      </div>
+      </FormActions>
+      </Card>
     </form>
   );
 }

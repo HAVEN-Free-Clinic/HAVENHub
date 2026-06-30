@@ -12,6 +12,8 @@ import { Input, Field } from "@/platform/ui/input";
 import { Button } from "@/platform/ui/button";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Alert } from "@/platform/ui/alert";
+import { Card } from "@/platform/ui/card";
+import { FormActions } from "@/platform/ui/form";
 
 type PersonFormProps = {
   /** The server action to bind to the form's action prop. */
@@ -41,7 +43,8 @@ type PersonFormProps = {
 
 export function PersonForm({ action, person, error, saved, children }: PersonFormProps) {
   return (
-    <form action={action} className="space-y-6">
+    <form action={action}>
+      <Card className="space-y-6">
       {error && <Alert tone="error">{error}</Alert>}
       {saved && <Alert tone="success">{saved}</Alert>}
 
@@ -139,12 +142,13 @@ export function PersonForm({ action, person, error, saved, children }: PersonFor
         </div>
       </div>
 
-      <div className="flex items-center gap-3 pt-2">
+      <FormActions>
         <Button type="submit" variant="primary">
           Save
         </Button>
         {children}
-      </div>
+      </FormActions>
+      </Card>
     </form>
   );
 }

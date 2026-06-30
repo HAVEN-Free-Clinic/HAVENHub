@@ -70,7 +70,7 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
             <li key={n.id}>
               <form action={openAction}>
                 <input type="hidden" name="id" value={n.id} />
-                {/* eslint-disable-next-line no-restricted-syntax -- form-submit list-row button, full-width flex-col list-item layout incompatible with Button base classes */}
+                {/* eslint-disable-next-line no-restricted-syntax -- full-width flex-col list-row submit; py/layout overrides of Button base are unreliable without tailwind-merge */}
                 <button type="submit" className="flex w-full flex-col items-start gap-1 px-4 py-3 text-left transition-colors hover:bg-muted">
                   <span className="flex w-full items-center gap-2">
                     {!n.readAt && (

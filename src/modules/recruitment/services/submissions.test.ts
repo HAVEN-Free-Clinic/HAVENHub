@@ -98,6 +98,22 @@ it("rejects a missing required answer", async () => {
   ).rejects.toBeInstanceOf(SubmissionValidationError);
 });
 
+// Regression for the TestSprite TC030 finding ("incomplete application accepted").
+// openVolunteerCycle marks 1st_choice_department as required; omitting it must be
+// rejected with a field error. (TC030 was a false positive: it applied as a
+// signed-in user whose identity fields were pre-filled, against a fixture cycle
+// whose department field was optional, so that submission was genuinely complete.)
+it("rejects a NEW submission that omits the required department choice", async () => {
+  await openVolunteerCycle();
+  const err = await submitApplication("apply-v", {
+    applicantType: "NEW",
+    answers: { first_name: "No", last_name: "Dept", email: "nodept@yale.edu" },
+    files: {},
+  }).catch((e) => e);
+  expect(err).toBeInstanceOf(SubmissionValidationError);
+  expect((err as SubmissionValidationError).fieldErrors).toHaveProperty("1st_choice_department");
+});
+
 it("rejects submissions to a non-OPEN cycle", async () => {
   const person = await prisma.person.create({ data: { name: "L", status: "ACTIVE" } });
   const term = await prisma.term.create({ data: { code: "X", name: "X", startDate: new Date(), endDate: new Date() } });

@@ -1,6 +1,7 @@
 import { signOut } from "@/platform/auth/auth";
 import { getSetting } from "@/platform/settings/service";
 import { HavenLogo } from "@/platform/ui/haven-logo";
+import { Button } from "@/platform/ui/button";
 
 export default async function WelcomePage() {
   const orgName = await getSetting<string>("branding.orgName");
@@ -22,12 +23,7 @@ export default async function WelcomePage() {
             await signOut({ redirectTo: "/login" });
           }}
         >
-          <button
-            type="submit"
-            className="rounded-lg border border-border-strong px-4 py-2 text-sm font-medium text-foreground-soft transition-colors hover:bg-muted"
-          >
-            Sign out
-          </button>
+          <Button type="submit" variant="outline">Sign out</Button>
         </form>
       </div>
     </main>

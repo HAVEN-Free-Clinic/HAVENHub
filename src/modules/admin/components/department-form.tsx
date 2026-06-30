@@ -3,6 +3,8 @@ import { Input, Field } from "@/platform/ui/input";
 import { Button } from "@/platform/ui/button";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Alert } from "@/platform/ui/alert";
+import { Card } from "@/platform/ui/card";
+import { FormActions } from "@/platform/ui/form";
 
 type DepartmentFormProps = {
   action: (formData: FormData) => Promise<void>;
@@ -15,7 +17,8 @@ type DepartmentFormProps = {
 /** Create/edit form for a Department. Code is editable on create, read-only on edit. */
 export function DepartmentForm({ action, mode, department, error, saved }: DepartmentFormProps) {
   return (
-    <form action={action} className="space-y-6">
+    <form action={action}>
+      <Card className="space-y-6">
       {error && <Alert tone="error">{error}</Alert>}
       {saved && <Alert tone="success">Changes saved.</Alert>}
 
@@ -56,11 +59,12 @@ export function DepartmentForm({ action, mode, department, error, saved }: Depar
         Active
       </label>
 
-      <div className="flex items-center gap-3 pt-2">
+      <FormActions>
         <Button type="submit" variant="primary">
           {mode === "create" ? "Create department" : "Save changes"}
         </Button>
-      </div>
+      </FormActions>
+      </Card>
     </form>
   );
 }

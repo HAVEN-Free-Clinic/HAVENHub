@@ -11,11 +11,12 @@
 
 import type { EpicRequest } from "@prisma/client";
 import { Card } from "@/platform/ui/card";
-import { Input, Field } from "@/platform/ui/input";
+import { Input, Field, ReadonlyField } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
+import { FormActions } from "@/platform/ui/form";
 
 function formatDate(date: Date): string {
   return date.toLocaleDateString("en-US", {
@@ -48,14 +49,10 @@ export function EpicPanel({ epicId, openRequest, action, error, saved }: EpicPan
       {saved && <Alert tone="success">Epic request submitted.</Alert>}
 
       {/* Current Epic ID row */}
-      <div className="flex items-center gap-3">
-        <span className="text-xs font-medium text-muted-foreground w-20 shrink-0">Epic ID</span>
-        {epicId ? (
-          <span className="text-sm font-mono text-foreground-soft">{epicId}</span>
-        ) : (
-          <span className="text-sm text-subtle-foreground">None on file</span>
-        )}
-      </div>
+      <ReadonlyField
+        label="Epic ID"
+        value={epicId || "None on file"}
+      />
 
       {/* Open request status or request form */}
       {openRequest ? (
@@ -102,9 +99,11 @@ export function EpicPanel({ epicId, openRequest, action, error, saved }: EpicPan
               <Input name="notes" placeholder="Any details for the IT team" />
             </Field>
 
-            <SubmitButton variant="outline" size="sm" pendingLabel="Requesting…">
-              Request
-            </SubmitButton>
+            <FormActions>
+              <SubmitButton variant="outline" size="sm" pendingLabel="Requesting…">
+                Request
+              </SubmitButton>
+            </FormActions>
           </form>
         </div>
       )}

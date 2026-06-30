@@ -1,9 +1,11 @@
 "use client";
 import { useState } from "react";
 import { requestMagicLinkAction } from "./portal-actions";
-import { Input } from "@/platform/ui/input";
-import { Button } from "@/platform/ui/button";
+import { Input, Field } from "@/platform/ui/input";
+import { SubmitButton } from "@/platform/ui/submit-button";
 import { Alert } from "@/platform/ui/alert";
+import { Card } from "@/platform/ui/card";
+import { FormActions } from "@/platform/ui/form";
 
 export function SignInForm({ next }: { next?: string }) {
   const [sent, setSent] = useState(false);
@@ -29,12 +31,17 @@ export function SignInForm({ next }: { next?: string }) {
   }
 
   return (
-    <form onSubmit={onSubmit} className="space-y-2">
-      {next && <input type="hidden" name="next" value={next} />}
-      <label className="block text-sm font-medium text-foreground" htmlFor="portal-email">Email</label>
-      <Input id="portal-email" name="email" type="email" required placeholder="you@yale.edu" />
-      {error && <p className="text-xs text-critical">Enter a valid email address.</p>}
-      <Button type="submit" disabled={pending}>{pending ? "Sending…" : "Email me a link"}</Button>
+    <form onSubmit={onSubmit}>
+      <Card className="space-y-4">
+        {next && <input type="hidden" name="next" value={next} />}
+        {error && <Alert tone="error">Enter a valid email address.</Alert>}
+        <Field label="Email">
+          <Input id="portal-email" name="email" type="email" required placeholder="you@yale.edu" />
+        </Field>
+        <FormActions>
+          <SubmitButton disabled={pending}>{pending ? "Sending…" : "Email me a link"}</SubmitButton>
+        </FormActions>
+      </Card>
     </form>
   );
 }

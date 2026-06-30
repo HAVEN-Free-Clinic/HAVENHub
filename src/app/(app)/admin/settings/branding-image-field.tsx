@@ -1,4 +1,5 @@
-import { buttonClasses } from "@/platform/ui/button";
+import { Button } from "@/platform/ui/button";
+import { Field } from "@/platform/ui/input";
 import type { ResolvedSetting } from "@/platform/settings/service";
 
 /**
@@ -21,7 +22,7 @@ export function BrandingImageField({
 
   return (
     <div className="space-y-2">
-      <label className="block text-sm font-medium">{setting.label}</label>
+      <p className="text-sm font-medium">{setting.label}</p>
       <p className="text-xs text-muted-foreground">{setting.help}</p>
       {/* eslint-disable-next-line @next/next/no-img-element -- dynamic same-origin asset route, not a static import */}
       <img
@@ -29,24 +30,22 @@ export function BrandingImageField({
         alt={`${setting.label} preview`}
         className="h-12 max-w-[200px] rounded border bg-muted-strong object-contain p-1"
       />
-      <form action={uploadAction} encType="multipart/form-data" className="flex items-center gap-2">
+      <form action={uploadAction} encType="multipart/form-data" className="flex flex-wrap items-end gap-2">
         <input type="hidden" name="__asset" value={asset} />
-        <input
-          type="file"
-          name="file"
-          accept="image/png,image/jpeg,image/webp,image/x-icon"
-          className="text-sm"
-        />
-        <button type="submit" className={buttonClasses("primary", "sm")}>
-          Upload
-        </button>
+        <Field label="Choose image">
+          <input
+            type="file"
+            name="file"
+            accept="image/png,image/jpeg,image/webp,image/x-icon"
+            className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground-soft hover:file:bg-muted-strong"
+          />
+        </Field>
+        <Button type="submit" variant="primary" size="sm">Upload</Button>
       </form>
       {hasCustom && (
         <form action={removeAction}>
           <input type="hidden" name="__asset" value={asset} />
-          <button type="submit" className={buttonClasses("outline", "sm")}>
-            Use default
-          </button>
+          <Button type="submit" variant="outline" size="sm">Use default</Button>
         </form>
       )}
     </div>

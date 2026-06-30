@@ -9,10 +9,12 @@
  */
 
 import type { Person } from "@prisma/client";
-import { Input, Field } from "@/platform/ui/input";
+import { Input, Field, ReadonlyField } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { Alert } from "@/platform/ui/alert";
+import { Card } from "@/platform/ui/card";
+import { FormActions } from "@/platform/ui/form";
 
 const YALE_AFFILIATIONS = [
   "Yale College",
@@ -48,92 +50,78 @@ export function MyInfoForm({ action, person, error, saved }: MyInfoFormProps) {
   );
 
   return (
-    <form action={action} className="space-y-6">
-      {error && <Alert tone="error">{error}</Alert>}
-      {saved && <Alert tone="success">{saved}</Alert>}
+    <form action={action}>
+      <Card className="space-y-6">
+        {error && <Alert tone="error">{error}</Alert>}
+        {saved && <Alert tone="success">{saved}</Alert>}
 
-      {/* Read-only identity rows */}
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="flex flex-col gap-1">
-          <span className="text-xs font-medium text-muted-foreground">Name</span>
-          <p className="rounded-xl border border-border bg-muted px-3 py-2 text-sm text-foreground-soft">
-            {person.name || <span className="italic text-subtle-foreground">Not set</span>}
-          </p>
+        {/* Read-only identity rows (IT-managed) */}
+        <div className="grid gap-4 sm:grid-cols-2">
+          <ReadonlyField label="Name" value={person.name} />
+          <ReadonlyField
+            label="NetID"
+            value={person.netId}
+            hint="Contact the IT team to correct your name or NetID."
+          />
+          <ReadonlyField
+            label="Epic ID"
+            value={person.epicId}
+            hint="Contact the IT team to update your Epic ID."
+          />
         </div>
 
-        <div className="flex flex-col gap-1">
-          <span className="text-xs font-medium text-muted-foreground">NetID</span>
-          <p className="rounded-xl border border-border bg-muted px-3 py-2 text-sm text-foreground-soft">
-            {person.netId || <span className="italic text-subtle-foreground">Not set</span>}
-          </p>
-          <p className="text-xs text-subtle-foreground">
-            Contact the IT team to correct your name or NetID.
-          </p>
+        {/* Editable fields */}
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Phone">
+            <Input
+              name="phone"
+              type="tel"
+              defaultValue={person.phone ?? ""}
+              placeholder="203-555-0100"
+            />
+          </Field>
+
+          <Field label="Email">
+            <Input
+              name="contactEmail"
+              type="email"
+              defaultValue={person.contactEmail ?? ""}
+              placeholder="you@example.com"
+            />
+          </Field>
+
+          <Field label="Yale Affiliation">
+            <Select name="yaleAffiliation" defaultValue={currentAffiliation}>
+              <option value="">Not set</option>
+              {YALE_AFFILIATIONS.map((aff) => (
+                <option key={aff} value={aff}>
+                  {aff}
+                </option>
+              ))}
+              {currentAffiliation && !isKnownAffiliation && (
+                <option value={currentAffiliation}>{currentAffiliation}</option>
+              )}
+            </Select>
+          </Field>
+
+          <Field label="Grad Year">
+            <Input
+              name="gradYear"
+              defaultValue={person.gradYear ?? ""}
+              placeholder="2027"
+              inputMode="numeric"
+              maxLength={4}
+              pattern="\d{4}"
+            />
+          </Field>
         </div>
 
-        <div className="flex flex-col gap-1">
-          <span className="text-xs font-medium text-muted-foreground">Epic ID</span>
-          <p className="rounded-xl border border-border bg-muted px-3 py-2 text-sm text-foreground-soft">
-            {person.epicId || <span className="italic text-subtle-foreground">Not set</span>}
-          </p>
-          <p className="text-xs text-subtle-foreground">
-            Contact the IT team to update your Epic ID.
-          </p>
-        </div>
-      </div>
-
-      {/* Editable fields */}
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Phone">
-          <Input
-            name="phone"
-            type="tel"
-            defaultValue={person.phone ?? ""}
-            placeholder="203-555-0100"
-          />
-        </Field>
-
-        <Field label="Email">
-          <Input
-            name="contactEmail"
-            type="email"
-            defaultValue={person.contactEmail ?? ""}
-            placeholder="you@example.com"
-          />
-        </Field>
-
-        <Field label="Yale Affiliation">
-          <Select name="yaleAffiliation" defaultValue={currentAffiliation}>
-            <option value="">Not set</option>
-            {YALE_AFFILIATIONS.map((aff) => (
-              <option key={aff} value={aff}>
-                {aff}
-              </option>
-            ))}
-            {/* If the stored value isn't in the list, show it as a selectable option */}
-            {currentAffiliation && !isKnownAffiliation && (
-              <option value={currentAffiliation}>{currentAffiliation}</option>
-            )}
-          </Select>
-        </Field>
-
-        <Field label="Grad Year">
-          <Input
-            name="gradYear"
-            defaultValue={person.gradYear ?? ""}
-            placeholder="2027"
-            inputMode="numeric"
-            maxLength={4}
-            pattern="\d{4}"
-          />
-        </Field>
-      </div>
-
-      <div className="pt-2">
-        <SubmitButton variant="primary" pendingLabel="Saving…">
-          Save
-        </SubmitButton>
-      </div>
+        <FormActions>
+          <SubmitButton variant="primary" pendingLabel="Saving…">
+            Save
+          </SubmitButton>
+        </FormActions>
+      </Card>
     </form>
   );
 }

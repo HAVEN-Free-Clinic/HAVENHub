@@ -5,6 +5,7 @@ import { useId, type HTMLAttributes } from "react";
 import { appendChoice, renameChoice, type Choice } from "@/modules/recruitment/engine/options";
 import { Input } from "@/platform/ui/input";
 import { Button } from "@/platform/ui/button";
+import { Radio } from "@/platform/ui/radio";
 import { SortableList } from "./sortable-list";
 
 export function OptionsEditor({
@@ -36,8 +37,8 @@ export function OptionsEditor({
             <GripVertical className="h-4 w-4" aria-hidden />
           </button>
           {markCorrect && (
-            <input type="radio" name={radioName} aria-label="Correct answer"
-              className="h-4 w-4 accent-brand" checked={markCorrect.value === item.value}
+            <Radio name={radioName} aria-label="Correct answer"
+              checked={markCorrect.value === item.value}
               disabled={disabled} onChange={() => markCorrect.onPick(item.value)} />
           )}
           <Input defaultValue={item.label} disabled={disabled} aria-label="Option label"

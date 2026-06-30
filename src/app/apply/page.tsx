@@ -4,7 +4,7 @@ import { getApplicantIdentity } from "@/modules/recruitment/services/portal-auth
 import { getApplicantStatus } from "@/modules/recruitment/services/portal-status";
 import { applicantSignOutAction } from "./portal-actions";
 import { SignInForm } from "./sign-in-form";
-import { buttonClasses } from "@/platform/ui/button";
+import { buttonClasses, Button } from "@/platform/ui/button";
 import { Alert } from "@/platform/ui/alert";
 import { getSetting } from "@/platform/settings/service";
 import { safeNextPath, PORTAL_HOME } from "@/modules/recruitment/services/portal-next";
@@ -49,7 +49,7 @@ export default async function PortalHome({ searchParams }: { searchParams: Promi
     <main className="mx-auto max-w-2xl px-6 py-10 space-y-8">
       <div className="flex items-center justify-between gap-4">
         <h1 className="text-2xl font-bold tracking-tight">Your applications</h1>
-        <form action={applicantSignOutAction}><button className="text-sm text-muted-foreground hover:text-foreground">Sign out</button></form>
+        <form action={applicantSignOutAction}><Button type="submit" variant="ghost" size="sm">Sign out</Button></form>
       </div>
       <p className="text-sm text-muted-foreground">Signed in as {identity.email}.</p>
 

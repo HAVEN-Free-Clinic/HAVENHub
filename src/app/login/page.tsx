@@ -6,6 +6,9 @@ import { config } from "@/platform/config";
 import { getSetting } from "@/platform/settings/service";
 import { getOrgIdentity, formatOrgLine } from "@/platform/branding/org";
 import { HavenLogo } from "@/platform/ui/haven-logo";
+import { Input, Field } from "@/platform/ui/input";
+import { Button } from "@/platform/ui/button";
+import { FormActions } from "@/platform/ui/form";
 import { SignInButton } from "./sign-in-button";
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -165,26 +168,21 @@ export default async function LoginPage({
                 }
               }}
             >
-              <label
-                className="text-xs font-medium uppercase tracking-wide text-subtle-foreground"
-                htmlFor="email"
-              >
+              <p className="text-xs font-medium uppercase tracking-wide text-subtle-foreground">
                 Local development
-              </label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                required
-                placeholder="j.carney@yale.edu"
-                className="mt-2 w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15"
-              />
-              <button
-                type="submit"
-                className="mt-3 w-full rounded-lg border border-border-strong px-4 py-2 text-sm font-medium text-foreground-soft transition-colors hover:bg-muted"
-              >
-                Dev sign in
-              </button>
+              </p>
+              <Field label="Email">
+                <Input
+                  name="email"
+                  type="email"
+                  required
+                  placeholder="j.carney@yale.edu"
+                  className="mt-1"
+                />
+              </Field>
+              <FormActions>
+                <Button type="submit" variant="outline" className="w-full">Dev sign in</Button>
+              </FormActions>
             </form>
           )}
         </div>

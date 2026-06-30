@@ -2,12 +2,13 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requirePermission } from "@/platform/auth/session";
 import { PageHeader } from "@/platform/ui/page-header";
-import { buttonClasses } from "@/platform/ui/button";
+import { Button } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Alert } from "@/platform/ui/alert";
 import { Select } from "@/platform/ui/select";
-import { Input, Textarea } from "@/platform/ui/input";
+import { Input, Textarea, Field } from "@/platform/ui/input";
+import { FormActions } from "@/platform/ui/form";
 import { listCategories } from "@/platform/settings/registry";
 import {
   getCategory,
@@ -148,59 +149,50 @@ export default async function SettingsPage({ searchParams }: PageProps) {
                   <>
                     <form action={updateAction} className="space-y-2">
                       <input type="hidden" name="__key" value={s.key} />
-                      <label htmlFor={s.key} className="block text-sm font-medium">
-                        {s.label}
-                      </label>
-                      <p className="text-xs text-muted-foreground">{s.help}</p>
-                      {s.input.type === "boolean" ? (
-                        <Checkbox
-                          id={s.key}
-                          name={s.key}
-                          defaultChecked={Boolean(s.value)}
-                        />
-                      ) : s.input.type === "select" ? (
-                        <Select id={s.key} name={s.key} defaultValue={String(s.value)}>
-                          {s.input.options.map((o) => (
-                            <option key={o.value} value={o.value}>
-                              {o.label}
-                            </option>
-                          ))}
-                        </Select>
-                      ) : s.input.type === "textarea" ? (
-                        <Textarea id={s.key} name={s.key} defaultValue={String(s.value)} />
-                      ) : s.input.type === "color" ? (
-                        <Input
-                          id={s.key}
-                          name={s.key}
-                          type="color"
-                          defaultValue={String(s.value)}
-                          className="h-9 w-16 p-1"
-                        />
-                      ) : (
-                        <Input
-                          id={s.key}
-                          name={s.key}
-                          type={s.input.type === "number" ? "number" : "text"}
-                          defaultValue={String(s.value)}
-                          min={s.input.type === "number" ? s.input.min : undefined}
-                          max={s.input.type === "number" ? s.input.max : undefined}
-                        />
-                      )}
-                      <div className="flex items-center gap-2 pt-1">
-                        <button type="submit" className={buttonClasses("primary", "sm")}>
-                          Save
-                        </button>
+                      <Field label={s.label} hint={s.help}>
+                        {s.input.type === "boolean" ? (
+                          <Checkbox
+                            name={s.key}
+                            defaultChecked={Boolean(s.value)}
+                          />
+                        ) : s.input.type === "select" ? (
+                          <Select name={s.key} defaultValue={String(s.value)}>
+                            {s.input.options.map((o) => (
+                              <option key={o.value} value={o.value}>
+                                {o.label}
+                              </option>
+                            ))}
+                          </Select>
+                        ) : s.input.type === "textarea" ? (
+                          <Textarea name={s.key} defaultValue={String(s.value)} />
+                        ) : s.input.type === "color" ? (
+                          <Input
+                            name={s.key}
+                            type="color"
+                            defaultValue={String(s.value)}
+                            className="h-9 w-16 p-1"
+                          />
+                        ) : (
+                          <Input
+                            name={s.key}
+                            type={s.input.type === "number" ? "number" : "text"}
+                            defaultValue={String(s.value)}
+                            min={s.input.type === "number" ? s.input.min : undefined}
+                            max={s.input.type === "number" ? s.input.max : undefined}
+                          />
+                        )}
+                      </Field>
+                      <FormActions>
+                        <Button type="submit" variant="primary" size="sm">Save</Button>
                         {s.isOverridden && (
                           <span className="text-xs text-warning">Currently overriding the default</span>
                         )}
-                      </div>
+                      </FormActions>
                     </form>
                     {s.isOverridden && (
                       <form action={resetAction} className="pt-2">
                         <input type="hidden" name="__key" value={s.key} />
-                        <button type="submit" className={buttonClasses("outline", "sm")}>
-                          Reset to default
-                        </button>
+                        <Button type="submit" variant="outline" size="sm">Reset to default</Button>
                       </form>
                     )}
                   </>

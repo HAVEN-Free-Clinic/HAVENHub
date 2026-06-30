@@ -111,6 +111,7 @@ export async function getApplicantIdentity(): Promise<ApplicantIdentity | null> 
 
 import { queueEmail } from "@/platform/email/send";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
+import { getSetting } from "@/platform/settings/service";
 
 const RATE_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 const RATE_MAX = 3;
@@ -125,7 +126,12 @@ export async function requestMagicLink(email: string): Promise<void> {
   if (recent >= RATE_MAX) return;
 
   const raw = await issueMagicToken(emailLower);
-  const url = `${config.APP_BASE_URL}/apply/verify?token=${encodeURIComponent(raw)}`;
+  // Resolve the public base URL through the admin-configurable setting (a trusted
+  // deploy/admin value, never the request Host header), matching every other
+  // outbound-email link. Using config.APP_BASE_URL directly here meant the magic
+  // link alone ignored a configured custom domain and emitted the raw env value.
+  const baseUrl = await getSetting<string>("app.baseUrl");
+  const url = `${baseUrl}/apply/verify?token=${encodeURIComponent(raw)}`;
   const mail = await renderEmail("recruitment.portal_link", { firstName: "there", portalUrl: url });
   await queueEmail(prisma, { to: emailLower, subject: mail.subject, html: mail.html, template: "recruitment.portal_link" });
 }

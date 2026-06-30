@@ -93,11 +93,11 @@ function GridFilledButton({
   if (armed) {
     return (
       <>
-        {/* eslint-disable-next-line no-restricted-syntax -- grid-cell action button, not a standard Button */}
         <button
           type="submit"
           disabled={pending}
           aria-label={`Confirm remove. ${ariaLabel ?? label}`}
+          // eslint-disable-next-line no-restricted-syntax -- grid-cell action button, not a standard Button
           className="flex h-9 w-full min-w-[40px] touch-manipulation items-center justify-center rounded-lg border border-critical/30 bg-red-50 text-critical transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
           title="Click again to remove"
         >
@@ -111,7 +111,6 @@ function GridFilledButton({
 
   return (
     <>
-      {/* eslint-disable-next-line no-restricted-syntax -- grid-cell action button, not a standard Button */}
       <button
         type="button"
         disabled={pending}
@@ -120,6 +119,7 @@ function GridFilledButton({
           arm();
         }}
         aria-label={ariaLabel ?? label}
+        // eslint-disable-next-line no-restricted-syntax -- grid-cell action button, not a standard Button
         className="flex h-9 w-full min-w-[40px] touch-manipulation flex-col items-center justify-center rounded-lg border border-border-strong bg-muted-strong text-foreground-soft hover:bg-red-50 hover:border-critical/30 hover:text-critical transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
         title={ariaLabel ?? label}
       >
@@ -166,11 +166,11 @@ function SubmitButton({
     // Empty grid cell: compact "+" to assign.
     return (
       <>
-        {/* eslint-disable-next-line no-restricted-syntax -- grid-cell action button, not a standard Button */}
         <button
           type="submit"
           disabled={pending}
           aria-label={ariaLabel ?? label}
+          // eslint-disable-next-line no-restricted-syntax -- grid-cell action button, not a standard Button
           className="flex h-9 w-full min-w-[40px] touch-manipulation items-center justify-center rounded-lg border border-dashed border-border-strong text-subtle-foreground hover:border-brand hover:text-brand-fg transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
         >
           {pending ? "..." : "+"}
@@ -205,6 +205,7 @@ function SubmitButton({
     <button
       type="submit"
       disabled={pending}
+      // eslint-disable-next-line no-restricted-syntax -- submit button styled via buttonClasses from platform/ui; useFormStatus requires a raw button element
       className={cls}
       aria-pressed={pressed}
       aria-label={ariaLabel}

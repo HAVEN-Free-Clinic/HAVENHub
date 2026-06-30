@@ -14,10 +14,11 @@
 
 import type { HipaaCertificate } from "@prisma/client";
 import { Card } from "@/platform/ui/card";
-import { Input, Field } from "@/platform/ui/input";
+import { Field } from "@/platform/ui/input";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
+import { FormActions } from "@/platform/ui/form";
 import { CertificateViewer } from "@/modules/my-info/components/certificate-viewer";
 import { certExpiresAt } from "@/platform/compliance/rules";
 import type { ComplianceStatus } from "@/platform/compliance/rules";
@@ -129,20 +130,20 @@ export function HipaaPanel({
             Certificate uploaded successfully.
           </Alert>
         )}
-        <form action={uploadAction} className="flex items-end gap-3">
-          <div className="flex-1">
-            <Field label="HIPAA certificate (PDF)" hint="PDF only.">
-              <Input
-                type="file"
-                name="certificate"
-                accept="application/pdf"
-                className="cursor-pointer"
-              />
-            </Field>
-          </div>
-          <SubmitButton variant="outline" size="sm" pendingLabel="Uploading…">
-            Upload certificate
-          </SubmitButton>
+        <form action={uploadAction}>
+          <Field label="HIPAA certificate (PDF)" hint="PDF only.">
+            <input
+              type="file"
+              name="certificate"
+              accept="application/pdf"
+              className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground-soft hover:file:bg-muted-strong"
+            />
+          </Field>
+          <FormActions>
+            <SubmitButton variant="outline" size="sm" pendingLabel="Uploading…">
+              Upload certificate
+            </SubmitButton>
+          </FormActions>
         </form>
       </div>
 

@@ -134,7 +134,7 @@ export function ReadinessPanel({
 
       {/* Readiness readout */}
       <div className="flex flex-col gap-3 border-t border-border-subtle pt-3">
-        <SectionHeader>Readiness</SectionHeader>
+        <SectionHeader as="h3">Readiness</SectionHeader>
 
         {/* Closed badge */}
         {readiness.closed && (

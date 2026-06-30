@@ -72,7 +72,7 @@ export function EpicPanel({ epicId, openRequest, action, error, saved }: EpicPan
         </div>
       ) : (
         <div>
-          <SectionHeader className="mb-2">Request Epic Access</SectionHeader>
+          <SectionHeader as="h3" className="mb-2">Request Epic Access</SectionHeader>
 
           {error && (
             <Alert tone="error" className="mb-3">

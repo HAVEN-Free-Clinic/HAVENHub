@@ -84,7 +84,7 @@ export function HipaaPanel({
     <Card className="space-y-6">
       {/* Latest certificate */}
       <div>
-        <SectionHeader className="mb-2">Current Certificate</SectionHeader>
+        <SectionHeader as="h3" className="mb-2">Current Certificate</SectionHeader>
         {latest ? (
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2 text-sm text-foreground-soft">
@@ -120,7 +120,7 @@ export function HipaaPanel({
 
       {/* Upload form */}
       <div>
-        <SectionHeader className="mb-2">Upload New Certificate</SectionHeader>
+        <SectionHeader as="h3" className="mb-2">Upload New Certificate</SectionHeader>
         {error && (
           <Alert tone="error" className="mb-3">
             {error}
@@ -151,7 +151,7 @@ export function HipaaPanel({
       {/* History */}
       {history.length > 0 && (
         <div>
-          <SectionHeader className="mb-2">History</SectionHeader>
+          <SectionHeader as="h3" className="mb-2">History</SectionHeader>
           <ul className="space-y-1.5">
             {history.map((cert) => (
               <li key={cert.id} className="flex items-center gap-3 text-sm text-foreground-soft">

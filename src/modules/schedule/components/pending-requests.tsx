@@ -119,7 +119,7 @@ export function PendingRequests({
       {/* Decided rows (collapsed muted list) */}
       {decidedRows.length > 0 && (
         <div className="border-t border-border-subtle pt-2 flex flex-col gap-1">
-          <SectionHeader>Recent decisions</SectionHeader>
+          <SectionHeader as="h3">Recent decisions</SectionHeader>
           {decidedRows.map(({ request, requesterName, decidedByName }) => (
             <p key={request.id} className="text-xs text-subtle-foreground">
               {requesterName}: {" "}

@@ -19,28 +19,28 @@ export function SubcommitteeForm({ action, mode, subcommittee, error, saved }: S
   return (
     <form action={action}>
       <Card className="space-y-6">
-      {error && <Alert tone="error">{error}</Alert>}
-      {saved && <Alert tone="success">Changes saved.</Alert>}
+        {error && <Alert tone="error">{error}</Alert>}
+        {saved && <Alert tone="success">Changes saved.</Alert>}
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Name">
-          <Input name="name" defaultValue={subcommittee?.name ?? ""} required placeholder="Community Outreach" />
-        </Field>
-        <Field label="Order" hint="Lower shows first. Optional.">
-          <Input name="order" type="number" min="0" defaultValue={String(subcommittee?.order ?? 0)} />
-        </Field>
-      </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Name">
+            <Input name="name" defaultValue={subcommittee?.name ?? ""} required placeholder="Community Outreach" />
+          </Field>
+          <Field label="Order" hint="Lower shows first. Optional.">
+            <Input name="order" type="number" min="0" defaultValue={String(subcommittee?.order ?? 0)} />
+          </Field>
+        </div>
 
-      <label className="flex items-center gap-2 text-sm">
-        <Checkbox name="isActive" defaultChecked={subcommittee?.isActive ?? true} />
-        Active
-      </label>
+        <label className="flex items-center gap-2 text-sm">
+          <Checkbox name="isActive" defaultChecked={subcommittee?.isActive ?? true} />
+          Active
+        </label>
 
-      <FormActions>
-        <Button type="submit" variant="primary">
-          {mode === "create" ? "Create subcommittee" : "Save changes"}
-        </Button>
-      </FormActions>
+        <FormActions>
+          <Button type="submit" variant="primary">
+            {mode === "create" ? "Create subcommittee" : "Save changes"}
+          </Button>
+        </FormActions>
       </Card>
     </form>
   );

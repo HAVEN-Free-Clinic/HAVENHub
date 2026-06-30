@@ -139,6 +139,19 @@ export async function reopenCycle(id: string, actorId: string): Promise<Recruitm
   return updated;
 }
 
+/** Archive a CLOSED cycle (CLOSED -> ARCHIVED), the terminal retire step. Drops
+ *  the cycle out of listCycles and activates the ARCHIVED guards in
+ *  setCycleDepartments, releaseDecisions, and onboarding. Terminal: there is no
+ *  transition out of ARCHIVED. */
+export async function archiveCycle(id: string, actorId: string): Promise<RecruitmentCycle> {
+  const cycle = await prisma.recruitmentCycle.findUnique({ where: { id } });
+  if (!cycle) throw new CyclePublishError("Cycle not found.");
+  if (cycle.status !== "CLOSED") throw new CyclePublishError("Only a CLOSED cycle can be archived.");
+  const updated = await prisma.recruitmentCycle.update({ where: { id }, data: { status: "ARCHIVED" } });
+  await recordAudit({ actorPersonId: actorId, action: "recruitment.cycle_archive", entityType: "RecruitmentCycle", entityId: id });
+  return updated;
+}
+
 export async function setAcceptsRenewals(id: string, value: boolean, actorId: string): Promise<RecruitmentCycle> {
   const cycle = await prisma.recruitmentCycle.findUnique({ where: { id } });
   if (!cycle) throw new CyclePublishError("Cycle not found.");

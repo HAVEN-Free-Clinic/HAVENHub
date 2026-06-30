@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import {
-  createCycle, publishCycle, closeCycle, listCycles, CyclePublishError, setCycleDepartments, setApplicationWindow, reopenCycle,
+  createCycle, publishCycle, closeCycle, listCycles, CyclePublishError, setCycleDepartments, setApplicationWindow, reopenCycle, archiveCycle,
 } from "./cycles";
 
 async function seedTermAndPerson() {
@@ -268,5 +268,62 @@ describe("reopenCycle", () => {
   it("rejects a missing cycle", async () => {
     const { person } = await seedTermAndPerson();
     await expect(reopenCycle("missing", person.id)).rejects.toBeInstanceOf(CyclePublishError);
+  });
+});
+
+describe("archiveCycle", () => {
+  async function closedCycle(slug: string) {
+    const { person, term } = await seedTermAndPerson();
+    const cycle = await createCycle({
+      track: "DIRECTOR", termId: term.id, title: "A", publicSlug: slug,
+      departments: [], acceptsRenewals: false, createdById: person.id,
+    });
+    await publishCycle(cycle.id, person.id);
+    await closeCycle(cycle.id, person.id);
+    return { person, cycle };
+  }
+
+  it("archives a CLOSED cycle", async () => {
+    const { person, cycle } = await closedCycle("archive-basic");
+    const archived = await archiveCycle(cycle.id, person.id);
+    expect(archived.status).toBe("ARCHIVED");
+  });
+
+  it("writes a recruitment.cycle_archive audit entry", async () => {
+    const { person, cycle } = await closedCycle("archive-audit");
+    await archiveCycle(cycle.id, person.id);
+    const audit = await prisma.auditLog.findFirst({ where: { entityId: cycle.id, action: "recruitment.cycle_archive" } });
+    expect(audit).not.toBeNull();
+  });
+
+  it("drops the archived cycle out of listCycles", async () => {
+    const { person, cycle } = await closedCycle("archive-listed");
+    await archiveCycle(cycle.id, person.id);
+    const all = await listCycles();
+    expect(all.find((c) => c.id === cycle.id)).toBeUndefined();
+  });
+
+  it("rejects archiving a DRAFT cycle", async () => {
+    const { person, term } = await seedTermAndPerson();
+    const cycle = await createCycle({
+      track: "DIRECTOR", termId: term.id, title: "D", publicSlug: "archive-draft",
+      departments: [], acceptsRenewals: false, createdById: person.id,
+    });
+    await expect(archiveCycle(cycle.id, person.id)).rejects.toBeInstanceOf(CyclePublishError);
+  });
+
+  it("rejects archiving an OPEN cycle", async () => {
+    const { person, term } = await seedTermAndPerson();
+    const cycle = await createCycle({
+      track: "DIRECTOR", termId: term.id, title: "O", publicSlug: "archive-open",
+      departments: [], acceptsRenewals: false, createdById: person.id,
+    });
+    await publishCycle(cycle.id, person.id);
+    await expect(archiveCycle(cycle.id, person.id)).rejects.toBeInstanceOf(CyclePublishError);
+  });
+
+  it("rejects a missing cycle", async () => {
+    const { person } = await seedTermAndPerson();
+    await expect(archiveCycle("missing", person.id)).rejects.toBeInstanceOf(CyclePublishError);
   });
 });

@@ -13,7 +13,7 @@
  */
 
 import type { ReactNode } from "react";
-import type { Role, RoleAssignment, Person, Department, Term, MembershipKind } from "@prisma/client";
+import type { Role, RoleAssignment, Person, Department, Term, Track } from "@prisma/client";
 import { redirect } from "next/navigation";
 import { requirePermission } from "@/platform/auth/session";
 import {
@@ -187,7 +187,7 @@ export async function AssignmentForm({
     }
 
     try {
-      await createAssignment(actor.personId, { roleId: roleId!, kind: kind as MembershipKind, termId });
+      await createAssignment(actor.personId, { roleId: roleId!, kind: kind as Track, termId });
     } catch (err) {
       if (err instanceof AssignmentTargetError || err instanceof DuplicateAssignmentError) {
         redirect(`${pageHref}?rbacError=${encodeURIComponent(err.message)}`);

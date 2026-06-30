@@ -3,7 +3,7 @@
 import { useRef, useState, useTransition, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Check, FileText, RotateCcw, ClipboardList } from "lucide-react";
-import type { TrainingTrack } from "@prisma/client";
+import type { Track } from "@prisma/client";
 import { gradeQuizAction, type QuizActionResult } from "./actions";
 import type { MyTraining } from "@/modules/recruitment/services/training";
 import { Card } from "@/platform/ui/card";
@@ -27,7 +27,7 @@ export function TrainingQuiz({
   attemptsUsed: initialAttemptsUsed,
   intake,
 }: {
-  track: TrainingTrack;
+  track: Track;
   questions: Question[];
   passPercent: number;
   maxAttempts: number;

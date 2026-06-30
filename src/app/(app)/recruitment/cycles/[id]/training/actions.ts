@@ -4,7 +4,7 @@ import { requirePersonSession } from "@/platform/auth/session";
 import { recordAttendance, resetTraining, TrainingStateError } from "@/modules/recruitment/services/training";
 import { RecruitmentAuthError } from "@/modules/recruitment/services/review";
 import { prisma } from "@/platform/db";
-import type { TrainingTrack } from "@prisma/client";
+import type { Track } from "@prisma/client";
 
 function bounce(cycleId: string, params: { msg?: string; err?: string }) {
   const q = new URLSearchParams();
@@ -13,7 +13,7 @@ function bounce(cycleId: string, params: { msg?: string; err?: string }) {
   return `/recruitment/cycles/${cycleId}/training?${q.toString()}`;
 }
 
-async function termAndTrackOfCycle(cycleId: string): Promise<{ termId: string; track: TrainingTrack }> {
+async function termAndTrackOfCycle(cycleId: string): Promise<{ termId: string; track: Track }> {
   const c = await prisma.recruitmentCycle.findUniqueOrThrow({ where: { id: cycleId }, select: { termId: true, track: true } });
   return { termId: c.termId, track: c.track };
 }

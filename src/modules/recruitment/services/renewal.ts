@@ -1,5 +1,5 @@
 // src/modules/recruitment/services/renewal.ts
-import type { MembershipKind } from "@prisma/client";
+import type { Track } from "@prisma/client";
 import { prisma } from "@/platform/db";
 
 export type RenewalContext = {
@@ -20,7 +20,7 @@ export type RenewalContext = {
  * Person.contactEmail. Departments are the codes from the person's active
  * memberships of that kind in their most-recent term (by term.startDate).
  */
-export async function getRenewalContext(personId: string, sessionEmail: string | null, kind: MembershipKind): Promise<RenewalContext> {
+export async function getRenewalContext(personId: string, sessionEmail: string | null, kind: Track): Promise<RenewalContext> {
   const person = await prisma.person.findUnique({
     where: { id: personId },
     include: {

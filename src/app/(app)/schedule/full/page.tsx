@@ -1,5 +1,6 @@
 import { requireModuleAccess } from "@/platform/auth/session";
 import { Badge } from "@/platform/ui/badge";
+import { cardClasses } from "@/platform/ui/card";
 import { fullSchedule } from "@/modules/schedule/services/schedule";
 import { isoDateKey } from "@/modules/schedule/engine/map";
 import { displayDate } from "@/modules/schedule/engine/display";
@@ -83,7 +84,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
               {departments.map(({ department, directors, volunteers, shadows, conflicts }) => (
                 <section
                   key={department.id}
-                  className="rounded-2xl bg-surface overflow-hidden shadow-sm border border-border"
+                  className={`${cardClasses({ pad: false })} overflow-hidden`}
                 >
                   {/* Card header */}
                   <div className="bg-brand px-4 py-3 flex items-center justify-between">

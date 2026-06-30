@@ -131,7 +131,7 @@ function PathCards({ my }: { my: MyTraining }) {
     <>
       <SectionHead>Two ways to complete</SectionHead>
       <div className="mb-2 grid grid-cols-1 gap-3.5 sm:grid-cols-2">
-        <div className="relative rounded-2xl border border-brand/40 bg-surface p-[18px] ring-1 ring-inset ring-brand/20">
+        <div className="relative rounded-2xl border border-brand/40 bg-surface p-[18px] shadow-sm ring-1 ring-inset ring-brand/20">
           <span className="absolute right-3.5 top-3.5 rounded-full bg-brand-faint px-2 py-0.5 text-[10.5px] font-bold uppercase tracking-wide text-brand-fg">
             Recommended
           </span>

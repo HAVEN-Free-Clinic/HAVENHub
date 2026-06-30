@@ -62,7 +62,7 @@ export function MembershipsCard({
 
       {/* Volunteer withdraw button */}
       {hasVolunteer && (
-        <form action={withdrawAction}>
+        <form action={withdrawAction} className="mt-4">
           <FormActions>
             <ConfirmButton
               label="I am not volunteering this term"

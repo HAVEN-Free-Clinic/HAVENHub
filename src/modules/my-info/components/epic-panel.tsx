@@ -51,8 +51,7 @@ export function EpicPanel({ epicId, openRequest, action, error, saved }: EpicPan
       {/* Current Epic ID row */}
       <ReadonlyField
         label="Epic ID"
-        value={epicId}
-        hint="Contact the IT team to update your Epic ID."
+        value={epicId || "None on file"}
       />
 
       {/* Open request status or request form */}

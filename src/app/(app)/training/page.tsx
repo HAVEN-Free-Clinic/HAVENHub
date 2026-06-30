@@ -94,7 +94,7 @@ function ClearanceHero({ my }: { my: MyTraining }) {
           <SectionHeader>Not open yet</SectionHeader>
           <p className="mt-0.5 text-[19px] font-bold tracking-tight text-foreground">Training opens soon</p>
           <p className="mt-1 text-[13.5px] leading-snug text-foreground-soft">
-            Volunteer training for {term} isn&apos;t open yet. You&apos;ll get an email when it&apos;s ready — check back
+            Volunteer training for {term} isn&apos;t open yet. You&apos;ll get an email when it&apos;s ready, check back
             here to complete it.
           </p>
         </div>
@@ -113,7 +113,7 @@ function ClearanceHero({ my }: { my: MyTraining }) {
           Complete training to be cleared for {term}
         </p>
         <p className="mt-1 text-[13.5px] leading-snug text-foreground-soft">
-          Finish one of the two paths below. Most volunteers attend the live session — the makeup quiz is here if you
+          Finish one of the two paths below. Most volunteers attend the live session; the makeup quiz is here if you
           miss it.
         </p>
       </div>
@@ -147,7 +147,7 @@ function PathCards({ my }: { my: MyTraining }) {
             </div>
           </div>
           <p className="text-[13px] leading-relaxed text-foreground-soft">
-            Join the in-person orientation. Your director marks your attendance and you&apos;re cleared automatically —
+            Join the in-person orientation. Your director marks your attendance and you&apos;re cleared automatically,
             no quiz needed.
           </p>
           <p className="mt-3 flex items-center gap-2 border-t border-border pt-3 text-[12.5px] font-semibold text-foreground">
@@ -219,7 +219,7 @@ function LockedDetail() {
         tone="brand"
         icon={<PlayCircle aria-hidden className="h-4 w-4" />}
         title="Or attend the live session"
-        sub="Your director records attendance — clears training instantly"
+        sub="Your director records attendance and clears training instantly"
       />
       <div className="mt-[18px]">
         <BackToHub />

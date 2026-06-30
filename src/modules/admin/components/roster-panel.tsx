@@ -368,7 +368,7 @@ export async function RosterPanel({
                   {/* Directors list */}
                   {directors.length > 0 && (
                     <div>
-                      <SectionHeader className="mb-2">Directors</SectionHeader>
+                      <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">Directors</p>
                       <div className="space-y-1.5">
                         {directors.map((person) => {
                           const membershipId = membershipIdMap.get(
@@ -392,7 +392,7 @@ export async function RosterPanel({
                   {/* Volunteers list */}
                   {volunteers.length > 0 && (
                     <div>
-                      <SectionHeader className="mb-2">Volunteers</SectionHeader>
+                      <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">Volunteers</p>
                       <div className="space-y-1.5">
                         {volunteers.map((person) => {
                           const membershipId = membershipIdMap.get(

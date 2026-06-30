@@ -37,7 +37,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
         <p className="text-xs font-semibold uppercase tracking-widest text-white/60 mb-1">Full Schedule</p>
         <h1 className="text-2xl font-bold tracking-tight">{selectedDisplay ?? "Select a date"}</h1>
         {selectedDate && departments.length > 0 && (
-          <p className="text-sm text-white/70">
+          <p className="mt-1 text-sm text-white/70">
             {totalDirectors} director{totalDirectors !== 1 ? "s" : ""} &middot;{" "}
             {totalVolunteers} volunteer{totalVolunteers !== 1 ? "s" : ""} &middot;{" "}
             {totalShadows} shadow{totalShadows !== 1 ? "s" : ""} &middot;{" "}

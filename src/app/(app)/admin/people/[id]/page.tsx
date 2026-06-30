@@ -30,8 +30,6 @@ export default async function PersonDetailPage({ params, searchParams }: PagePro
 
   const canManageRoster = await can(session.personId, "admin.manage_roster");
 
-  const airtableLinked = !!person.airtableRecordId;
-
   async function updateAction(formData: FormData) {
     "use server";
     const actorSession = await requirePermission("admin.manage_people");
@@ -83,10 +81,7 @@ export default async function PersonDetailPage({ params, searchParams }: PagePro
     redirect(`/admin/people/${id}`);
   }
 
-  const description = [
-    person.netId ? `NetID ${person.netId}` : null,
-    airtableLinked ? "Linked to Airtable" : "Not linked to Airtable",
-  ]
+  const description = [person.netId ? `NetID ${person.netId}` : null]
     .filter(Boolean)
     .join(" · ");
 

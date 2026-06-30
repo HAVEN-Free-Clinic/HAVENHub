@@ -67,6 +67,23 @@ const eslintConfig = [
     },
   },
 
+  // Spec §5: no styled raw controls in app/modules -- use platform/ui primitives.
+  // Files under src/platform/ui are excluded (they ARE the primitives).
+  {
+    files: ["src/app/**/*.tsx", "src/modules/**/*.tsx"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            "JSXOpeningElement[name.name=/^(button|input|select|textarea)$/] > JSXAttribute[name.name='className']",
+          message:
+            "Use the shared UI primitives (Button/Input/Select/Textarea/Checkbox/Radio from @/platform/ui) instead of a styled raw control. If a raw element is genuinely required, add an eslint-disable-next-line no-restricted-syntax with a one-line reason. See docs/ui-house-style.md.",
+        },
+      ],
+    },
+  },
+
   // Resolved-path enforcement (catches relative-path evasion the specifier
   // globs above miss, e.g. `../my-info/internal` from inside a module).
   // eslint-config-next already registers the `import` plugin instance globally,

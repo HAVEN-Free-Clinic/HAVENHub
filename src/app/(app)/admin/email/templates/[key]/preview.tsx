@@ -107,18 +107,12 @@ export function TemplateEditor(props: {
         <div className="mt-4 flex items-center justify-between">
           <label className="text-sm font-medium text-foreground-soft">Message body</label>
           <div className="inline-flex overflow-hidden rounded-lg border border-border text-xs">
-            <button
-              type="button"
-              onClick={() => switchMode("rich")}
-              className={`px-2 py-1 ${mode === "rich" ? "bg-brand text-white" : "bg-surface text-foreground-soft"}`}
-            >
+            {/* eslint-disable-next-line no-restricted-syntax -- segmented editor-mode toggle, active state applied inline */}
+            <button type="button" onClick={() => switchMode("rich")} className={`px-2 py-1 ${mode === "rich" ? "bg-brand text-white" : "bg-surface text-foreground-soft"}`}>
               Formatted
             </button>
-            <button
-              type="button"
-              onClick={() => switchMode("source")}
-              className={`px-2 py-1 ${mode === "source" ? "bg-brand text-white" : "bg-surface text-foreground-soft"}`}
-            >
+            {/* eslint-disable-next-line no-restricted-syntax -- segmented editor-mode toggle, active state applied inline */}
+            <button type="button" onClick={() => switchMode("source")} className={`px-2 py-1 ${mode === "source" ? "bg-brand text-white" : "bg-surface text-foreground-soft"}`}>
               HTML
             </button>
           </div>
@@ -147,23 +141,16 @@ export function TemplateEditor(props: {
           <div className="mt-3">
             <div className="text-xs font-medium text-muted-foreground">Insert a variable:</div>
             <div className="mt-1 flex flex-wrap gap-1">
-              {props.variables.map((v) => (
-                <button
-                  key={v.name}
-                  type="button"
-                  title={v.label}
-                  onClick={() => insertToken(`{{ ${v.name} }}`)}
-                  className="rounded-lg border border-border bg-muted px-2 py-1 font-mono text-xs text-foreground-soft hover:bg-muted-strong"
-                >
-                  {`{{ ${v.name} }}`}
-                </button>
-              ))}
-              <button
-                type="button"
-                title="Conditional block — shows the inner content only when the variable has a value"
-                onClick={() => insertToken("{{#if VARIABLE}}\n\n{{/if}}")}
-                className="rounded-lg border border-border bg-muted px-2 py-1 font-mono text-xs text-foreground-soft hover:bg-muted-strong"
-              >
+              {props.variables.map((v) => {
+                return (
+                  // eslint-disable-next-line no-restricted-syntax -- editor variable-insert token chip
+                  <button key={v.name} type="button" title={v.label} onClick={() => insertToken(`{{ ${v.name} }}`)} className="rounded-lg border border-border bg-muted px-2 py-1 font-mono text-xs text-foreground-soft hover:bg-muted-strong">
+                    {`{{ ${v.name} }}`}
+                  </button>
+                );
+              })}
+              {/* eslint-disable-next-line no-restricted-syntax -- editor variable-insert token chip */}
+              <button type="button" title="Conditional block: shows the inner content only when the variable has a value" onClick={() => insertToken("{{#if VARIABLE}}\n\n{{/if}}")} className="rounded-lg border border-border bg-muted px-2 py-1 font-mono text-xs text-foreground-soft hover:bg-muted-strong">
                 {`{{#if}}…{{/if}}`}
               </button>
             </div>
@@ -211,37 +198,47 @@ function Toolbar({ editor }: { editor: Editor | null }) {
 
   return (
     <div className="flex flex-wrap items-center gap-1 border-b border-border p-1">
+      {/* eslint-disable-next-line no-restricted-syntax -- editor toolbar toggle, active state applied via btn() helper */}
       <button type="button" className={btn(editor.isActive("bold"))} onClick={() => editor.chain().focus().toggleBold().run()}>
         <strong>B</strong>
       </button>
+      {/* eslint-disable-next-line no-restricted-syntax -- editor toolbar toggle, active state applied via btn() helper */}
       <button type="button" className={btn(editor.isActive("italic"))} onClick={() => editor.chain().focus().toggleItalic().run()}>
         <em>I</em>
       </button>
       <span className="mx-1 h-5 w-px bg-border" />
+      {/* eslint-disable-next-line no-restricted-syntax -- editor toolbar toggle, active state applied via btn() helper */}
       <button type="button" className={btn(editor.isActive("heading", { level: 2 }))} onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}>
         H2
       </button>
+      {/* eslint-disable-next-line no-restricted-syntax -- editor toolbar toggle, active state applied via btn() helper */}
       <button type="button" className={btn(editor.isActive("heading", { level: 3 }))} onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}>
         H3
       </button>
       <span className="mx-1 h-5 w-px bg-border" />
+      {/* eslint-disable-next-line no-restricted-syntax -- editor toolbar toggle, active state applied via btn() helper */}
       <button type="button" className={btn(editor.isActive("bulletList"))} onClick={() => editor.chain().focus().toggleBulletList().run()}>
         • List
       </button>
+      {/* eslint-disable-next-line no-restricted-syntax -- editor toolbar toggle, active state applied via btn() helper */}
       <button type="button" className={btn(editor.isActive("orderedList"))} onClick={() => editor.chain().focus().toggleOrderedList().run()}>
         1. List
       </button>
+      {/* eslint-disable-next-line no-restricted-syntax -- editor toolbar toggle, active state applied via btn() helper */}
       <button type="button" className={btn(editor.isActive("blockquote"))} onClick={() => editor.chain().focus().toggleBlockquote().run()}>
         &ldquo; Quote
       </button>
       <span className="mx-1 h-5 w-px bg-border" />
+      {/* eslint-disable-next-line no-restricted-syntax -- editor toolbar toggle, active state applied via btn() helper */}
       <button type="button" className={btn(editor.isActive("link"))} onClick={setLink}>
         Link
       </button>
       <span className="mx-1 h-5 w-px bg-border" />
+      {/* eslint-disable-next-line no-restricted-syntax -- editor toolbar toggle, active state applied via btn() helper */}
       <button type="button" className={btn(false)} onClick={() => editor.chain().focus().undo().run()}>
         Undo
       </button>
+      {/* eslint-disable-next-line no-restricted-syntax -- editor toolbar toggle, active state applied via btn() helper */}
       <button type="button" className={btn(false)} onClick={() => editor.chain().focus().redo().run()}>
         Redo
       </button>

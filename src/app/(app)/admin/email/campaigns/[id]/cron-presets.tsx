@@ -16,12 +16,8 @@ export function CronPresets() {
     <div className="space-y-1.5">
       <div className="flex flex-wrap gap-1.5">
         {PRESETS.map((p) => (
-          <button
-            key={p.value}
-            type="button"
-            onClick={() => setCronExpr(p.value)}
-            className="rounded-lg border border-dashed border-border-strong px-3 py-1.5 text-sm text-foreground-soft hover:border-border-strong hover:text-foreground"
-          >
+          // eslint-disable-next-line no-restricted-syntax -- preset selector chip (dashed border, not a standard Button); border/padding overrides unreliable without tailwind-merge
+          <button key={p.value} type="button" onClick={() => setCronExpr(p.value)} className="rounded-lg border border-dashed border-border-strong px-3 py-1.5 text-sm text-foreground-soft hover:border-border-strong hover:text-foreground">
             {p.label}
           </button>
         ))}

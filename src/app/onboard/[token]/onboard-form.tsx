@@ -172,12 +172,8 @@ export function OnboardForm({ token, prefill }: { token: string; prefill: Prefil
           </div>
           <div>
             <Field label="HIPAA certificate (PDF)" required>
-              <input
-                name="hipaaFile"
-                type="file"
-                accept="application/pdf,image/*"
-                className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground-soft hover:file:bg-muted-strong"
-              />
+              {/* eslint-disable-next-line no-restricted-syntax -- native file input, no file primitive exists */}
+              <input name="hipaaFile" type="file" accept="application/pdf,image/*" className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground-soft hover:file:bg-muted-strong" />
             </Field>
             {err("hipaaFile") && <p className="mt-1 text-xs text-critical">{err("hipaaFile")}</p>}
           </div>

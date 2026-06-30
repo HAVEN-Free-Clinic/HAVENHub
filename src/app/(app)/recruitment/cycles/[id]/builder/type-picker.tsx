@@ -44,9 +44,8 @@ export function TypePicker({
                 const meta = FIELD_TYPE_META[t];
                 const Icon = meta.icon;
                 return (
-                  <button key={t} type="button" role="menuitem"
-                    onClick={() => { onPick(t); setOpen(false); }}
-                    className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-foreground hover:bg-muted">
+                  // eslint-disable-next-line no-restricted-syntax -- popover dropdown menu item with role="menuitem"
+                  <button key={t} type="button" role="menuitem" onClick={() => { onPick(t); setOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-foreground hover:bg-muted">
                     <Icon className="h-4 w-4 text-subtle-foreground" aria-hidden /> {meta.label}
                   </button>
                 );

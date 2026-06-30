@@ -22,25 +22,25 @@ export function DelegationEditor({
   return (
     <form action={action}>
       <Card className="space-y-3">
-      <p className="text-sm text-foreground-soft">
-        Departments this one manages. A director here also oversees these (one hop).
-      </p>
-      {candidates.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No other active departments to delegate to.</p>
-      ) : (
-        <div className="grid gap-1 sm:grid-cols-2">
-          {candidates.map((c) => (
-            <label key={c.id} className="flex items-center gap-2 text-sm">
-              <Checkbox name="managed" value={c.id} defaultChecked={selected.has(c.id)} />
-              <span className="font-medium">{c.code}</span>
-              <span className="text-muted-foreground">{c.name}</span>
-            </label>
-          ))}
-        </div>
-      )}
-      <FormActions>
-        <Button type="submit" variant="outline">Save delegations</Button>
-      </FormActions>
+        <p className="text-sm text-foreground-soft">
+          Departments this one manages. A director here also oversees these (one hop).
+        </p>
+        {candidates.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No other active departments to delegate to.</p>
+        ) : (
+          <div className="grid gap-1 sm:grid-cols-2">
+            {candidates.map((c) => (
+              <label key={c.id} className="flex items-center gap-2 text-sm">
+                <Checkbox name="managed" value={c.id} defaultChecked={selected.has(c.id)} />
+                <span className="font-medium">{c.code}</span>
+                <span className="text-muted-foreground">{c.name}</span>
+              </label>
+            ))}
+          </div>
+        )}
+        <FormActions>
+          <Button type="submit" variant="outline">Save delegations</Button>
+        </FormActions>
       </Card>
     </form>
   );

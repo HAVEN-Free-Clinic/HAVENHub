@@ -1,4 +1,5 @@
 import type { ComponentProps } from "react";
+import { cardClasses } from "./card";
 
 function cx(...parts: (string | undefined | false | null)[]): string {
   return parts.filter(Boolean).join(" ");
@@ -7,7 +8,7 @@ function cx(...parts: (string | undefined | false | null)[]): string {
 /** Scrollable container card wrapping the table element. */
 export function Table({ className, ...rest }: ComponentProps<"table">) {
   return (
-    <div className="rounded-2xl border border-border bg-surface overflow-x-auto shadow-sm">
+    <div className={cx(cardClasses({ pad: false }), "overflow-x-auto")}>
       <table
         {...rest}
         className={cx("w-full text-sm", className)}

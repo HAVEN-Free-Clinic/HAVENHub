@@ -45,109 +45,109 @@ export function PersonForm({ action, person, error, saved, children }: PersonFor
   return (
     <form action={action}>
       <Card className="space-y-6">
-      {error && <Alert tone="error">{error}</Alert>}
-      {saved && <Alert tone="success">{saved}</Alert>}
+        {error && <Alert tone="error">{error}</Alert>}
+        {saved && <Alert tone="success">{saved}</Alert>}
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Full Name">
-          <Input
-            name="name"
-            defaultValue={person?.name ?? ""}
-            required
-            placeholder="Jane Smith"
-          />
-        </Field>
-
-        <Field label="NetID">
-          <Input
-            name="netId"
-            defaultValue={person?.netId ?? ""}
-            placeholder="jds234"
-          />
-        </Field>
-
-        <Field label="Email">
-          <Input
-            name="contactEmail"
-            type="email"
-            defaultValue={person?.contactEmail ?? ""}
-            placeholder="jane.smith@example.com"
-          />
-        </Field>
-
-        <Field label="Phone">
-          <Input
-            name="phone"
-            type="tel"
-            defaultValue={person?.phone ?? ""}
-            placeholder="203-555-0100"
-          />
-        </Field>
-
-        <Field label="Epic ID">
-          <Input
-            name="epicId"
-            defaultValue={person?.epicId ?? ""}
-            placeholder="E12345"
-          />
-        </Field>
-
-        <Field label="Yale Affiliation">
-          <Input
-            name="yaleAffiliation"
-            defaultValue={person?.yaleAffiliation ?? ""}
-            placeholder="Medical Student"
-          />
-        </Field>
-
-        <Field label="Grad Year">
-          <Input
-            name="gradYear"
-            defaultValue={person?.gradYear ?? ""}
-            placeholder="2027"
-          />
-        </Field>
-      </div>
-
-      <div className="space-y-4">
-        <div className="flex flex-wrap gap-6">
-          <label className="flex items-center gap-2 text-sm text-foreground-soft">
-            <Checkbox
-              name="spanishSelfReported"
-              defaultChecked={person?.spanishSelfReported ?? false}
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Full Name">
+            <Input
+              name="name"
+              defaultValue={person?.name ?? ""}
+              required
+              placeholder="Jane Smith"
             />
-            Spanish-speaking (self-reported)
-          </label>
-          <label className="flex items-center gap-2 text-sm text-foreground-soft">
-            <Checkbox
-              name="licensedRN"
-              defaultChecked={person?.licensedRN ?? false}
+          </Field>
+
+          <Field label="NetID">
+            <Input
+              name="netId"
+              defaultValue={person?.netId ?? ""}
+              placeholder="jds234"
             />
-            Licensed RN
-          </label>
+          </Field>
+
+          <Field label="Email">
+            <Input
+              name="contactEmail"
+              type="email"
+              defaultValue={person?.contactEmail ?? ""}
+              placeholder="jane.smith@example.com"
+            />
+          </Field>
+
+          <Field label="Phone">
+            <Input
+              name="phone"
+              type="tel"
+              defaultValue={person?.phone ?? ""}
+              placeholder="203-555-0100"
+            />
+          </Field>
+
+          <Field label="Epic ID">
+            <Input
+              name="epicId"
+              defaultValue={person?.epicId ?? ""}
+              placeholder="E12345"
+            />
+          </Field>
+
+          <Field label="Yale Affiliation">
+            <Input
+              name="yaleAffiliation"
+              defaultValue={person?.yaleAffiliation ?? ""}
+              placeholder="Medical Student"
+            />
+          </Field>
+
+          <Field label="Grad Year">
+            <Input
+              name="gradYear"
+              defaultValue={person?.gradYear ?? ""}
+              placeholder="2027"
+            />
+          </Field>
         </div>
-        <div className="flex flex-col gap-1">
-          <label className="flex items-center gap-2 text-sm text-foreground-soft">
-            <Checkbox
-              name="spanishVerified"
-              defaultChecked={person?.spanishVerified ?? false}
-            />
-            Spanish verified (interpreting dept)
-          </label>
-          {person?.spanishVerifiedAt && (
-            <p className="text-xs text-subtle-foreground">
-              Verified on {new Date(person.spanishVerifiedAt).toLocaleDateString()}
-            </p>
-          )}
-        </div>
-      </div>
 
-      <FormActions>
-        <Button type="submit" variant="primary">
-          Save
-        </Button>
-        {children}
-      </FormActions>
+        <div className="space-y-4">
+          <div className="flex flex-wrap gap-6">
+            <label className="flex items-center gap-2 text-sm text-foreground-soft">
+              <Checkbox
+                name="spanishSelfReported"
+                defaultChecked={person?.spanishSelfReported ?? false}
+              />
+              Spanish-speaking (self-reported)
+            </label>
+            <label className="flex items-center gap-2 text-sm text-foreground-soft">
+              <Checkbox
+                name="licensedRN"
+                defaultChecked={person?.licensedRN ?? false}
+              />
+              Licensed RN
+            </label>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="flex items-center gap-2 text-sm text-foreground-soft">
+              <Checkbox
+                name="spanishVerified"
+                defaultChecked={person?.spanishVerified ?? false}
+              />
+              Spanish verified (interpreting dept)
+            </label>
+            {person?.spanishVerifiedAt && (
+              <p className="text-xs text-subtle-foreground">
+                Verified on {new Date(person.spanishVerifiedAt).toLocaleDateString()}
+              </p>
+            )}
+          </div>
+        </div>
+
+        <FormActions>
+          <Button type="submit" variant="primary">
+            Save
+          </Button>
+          {children}
+        </FormActions>
       </Card>
     </form>
   );

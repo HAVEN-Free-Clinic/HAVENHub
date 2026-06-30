@@ -81,10 +81,8 @@ export default async function GetStartedPage() {
           }}
         >
           Wrong account?{" "}
-          <button
-            type="submit"
-            className="font-semibold text-brand-fg underline-offset-2 hover:underline"
-          >
+          {/* eslint-disable-next-line no-restricted-syntax -- inline text-link submit within prose, no link-style Button variant exists */}
+          <button type="submit" className="font-semibold text-brand-fg underline-offset-2 hover:underline">
             Sign out
           </button>
         </form>

@@ -24,6 +24,7 @@ import {
 } from "@/modules/schedule/services/requests";
 import { isoDateKey } from "@/modules/schedule/engine/map";
 import { displayDate } from "@/modules/schedule/engine/display";
+import { Checkbox } from "@/platform/ui/checkbox";
 import { Clock } from "lucide-react";
 
 function fmtDate(d: Date | null | undefined): string {
@@ -322,12 +323,10 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                               const checked = availability.dates.some((ad) => isoDateKey(ad) === key);
                               return (
                                 <label key={key} className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs cursor-pointer transition-colors whitespace-nowrap ${checked ? "border-brand bg-brand/5 text-brand-fg font-semibold" : "border-border bg-brand/5 text-brand-fg hover:border-brand/40"}`}>
-                                  <input
-                                    type="checkbox"
+                                  <Checkbox
                                     name="dates"
                                     value={key}
                                     defaultChecked={checked}
-                                    className="h-4 w-4 rounded border-border text-brand focus:ring-brand focus:ring-1 accent-brand"
                                   />
                                   {displayDate(key)}
                                 </label>

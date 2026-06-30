@@ -33,12 +33,8 @@ export function BrandingImageField({
       <form action={uploadAction} encType="multipart/form-data" className="flex flex-wrap items-end gap-2">
         <input type="hidden" name="__asset" value={asset} />
         <Field label="Choose image">
-          <input
-            type="file"
-            name="file"
-            accept="image/png,image/jpeg,image/webp,image/x-icon"
-            className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground-soft hover:file:bg-muted-strong"
-          />
+          {/* eslint-disable-next-line no-restricted-syntax -- native file input, no file primitive exists */}
+          <input type="file" name="file" accept="image/png,image/jpeg,image/webp,image/x-icon" className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground-soft hover:file:bg-muted-strong" />
         </Field>
         <Button type="submit" variant="primary" size="sm">Upload</Button>
       </form>

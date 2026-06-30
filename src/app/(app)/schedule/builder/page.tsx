@@ -55,6 +55,7 @@ import { PendingRequests } from "@/modules/schedule/components/pending-requests"
 import { displayDate } from "@/modules/schedule/engine/display";
 import { rolesForDept } from "@/modules/schedule/engine/capacity";
 import { isoDateKey } from "@/platform/dates";
+import { Checkbox } from "@/platform/ui/checkbox";
 import { AlertTriangle } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -941,12 +942,10 @@ function AvailabilityView({
                   const checked = availKeys.has(key);
                   return (
                     <label key={key} className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs cursor-pointer transition-colors whitespace-nowrap ${checked ? "border-brand bg-brand/5 text-brand-fg font-semibold" : "border-border text-muted-foreground hover:border-border-strong"}`}>
-                      <input
-                        type="checkbox"
+                      <Checkbox
                         name="dates"
                         value={key}
                         defaultChecked={checked}
-                        className="h-3 w-3 rounded accent-brand"
                       />
                       {displayDate(key)}
                     </label>

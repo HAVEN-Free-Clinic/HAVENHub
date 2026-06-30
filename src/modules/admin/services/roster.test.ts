@@ -19,8 +19,10 @@ import {
   addMembership,
   removeMembership,
   copyRosterFromTerm,
+  changeMembershipKind,
   MembershipNotFoundError,
   MembershipForeignKeyError,
+  DirectorHasShiftAssignmentsError,
   RosterCopyError,
 } from "./roster";
 import { TermNotFoundError } from "./terms";
@@ -668,5 +670,98 @@ describe("RosterCopyError", () => {
     expect(err).toBeInstanceOf(RosterCopyError);
     expect(err.message).toContain("target term is archived");
     expect(err.name).toBe("RosterCopyError");
+  });
+});
+
+describe("changeMembershipKind", () => {
+  beforeEach(resetDb);
+
+  it("flips VOLUNTEER to DIRECTOR: target row ACTIVE, old row REMOVED, one audit", async () => {
+    const term = await seedTerm("SU26", "ACTIVE");
+    const dept = await seedDepartment("DEPT");
+    const person = await seedPerson("Alice");
+    const m = await seedMembership({ personId: person.id, termId: term.id, departmentId: dept.id, kind: "VOLUNTEER" });
+
+    await changeMembershipKind(ACTOR, { membershipId: m.id, toKind: "DIRECTOR" });
+
+    const director = await prisma.termMembership.findFirst({
+      where: { personId: person.id, termId: term.id, departmentId: dept.id, kind: "DIRECTOR" },
+    });
+    const volunteer = await prisma.termMembership.findUnique({ where: { id: m.id } });
+    expect(director!.status).toBe("ACTIVE");
+    expect(volunteer!.status).toBe("REMOVED");
+
+    const logs = await prisma.auditLog.findMany({ where: { action: "roster.change_kind" } });
+    expect(logs).toHaveLength(1);
+    expect((logs[0].before as Record<string, unknown>).kind).toBe("VOLUNTEER");
+    expect((logs[0].after as Record<string, unknown>).kind).toBe("DIRECTOR");
+  });
+
+  it("is a no-op when the membership is already the target kind (no audit)", async () => {
+    const term = await seedTerm("SU26", "ACTIVE");
+    const dept = await seedDepartment("DEPT");
+    const person = await seedPerson("Alice");
+    const m = await seedMembership({ personId: person.id, termId: term.id, departmentId: dept.id, kind: "DIRECTOR" });
+
+    const before = await prisma.auditLog.count();
+    await changeMembershipKind(ACTOR, { membershipId: m.id, toKind: "DIRECTOR" });
+    expect(await prisma.auditLog.count()).toBe(before);
+  });
+
+  it("revives a previously REMOVED target-kind row instead of colliding", async () => {
+    const term = await seedTerm("SU26", "ACTIVE");
+    const dept = await seedDepartment("DEPT");
+    const person = await seedPerson("Alice");
+    const vol = await seedMembership({ personId: person.id, termId: term.id, departmentId: dept.id, kind: "VOLUNTEER" });
+    await seedMembership({ personId: person.id, termId: term.id, departmentId: dept.id, kind: "DIRECTOR", status: "REMOVED" });
+
+    await changeMembershipKind(ACTOR, { membershipId: vol.id, toKind: "DIRECTOR" });
+
+    const director = await prisma.termMembership.findFirst({
+      where: { personId: person.id, termId: term.id, departmentId: dept.id, kind: "DIRECTOR" },
+    });
+    expect(director!.status).toBe("ACTIVE");
+  });
+
+  it("throws MembershipNotFoundError for an unknown id", async () => {
+    await expect(
+      changeMembershipKind(ACTOR, { membershipId: "nope", toKind: "DIRECTOR" })
+    ).rejects.toBeInstanceOf(MembershipNotFoundError);
+  });
+
+  it("blocks DIRECTOR to VOLUNTEER when director shift assignments exist that term/dept", async () => {
+    const term = await seedTerm("SU26", "ACTIVE");
+    const dept = await seedDepartment("DEPT");
+    const person = await seedPerson("Alice");
+    const m = await seedMembership({ personId: person.id, termId: term.id, departmentId: dept.id, kind: "DIRECTOR" });
+    await prisma.shiftAssignment.create({
+      data: {
+        termId: term.id,
+        departmentId: dept.id,
+        personId: person.id,
+        clinicDate: new Date("2026-06-06T12:00:00Z"),
+        role: "DIRECTOR",
+      },
+    });
+
+    await expect(
+      changeMembershipKind(ACTOR, { membershipId: m.id, toKind: "VOLUNTEER" })
+    ).rejects.toBeInstanceOf(DirectorHasShiftAssignmentsError);
+
+    // Unchanged: still a DIRECTOR, no audit.
+    const reloaded = await prisma.termMembership.findUnique({ where: { id: m.id } });
+    expect(reloaded!.kind).toBe("DIRECTOR");
+    expect(reloaded!.status).toBe("ACTIVE");
+    expect(await prisma.auditLog.count()).toBe(0);
+  });
+});
+
+describe("DirectorHasShiftAssignmentsError", () => {
+  it("is an instance of Error and carries the membership id", () => {
+    const err = new DirectorHasShiftAssignmentsError("abc-123");
+    expect(err).toBeInstanceOf(Error);
+    expect(err).toBeInstanceOf(DirectorHasShiftAssignmentsError);
+    expect(err.membershipId).toBe("abc-123");
+    expect(err.name).toBe("DirectorHasShiftAssignmentsError");
   });
 });

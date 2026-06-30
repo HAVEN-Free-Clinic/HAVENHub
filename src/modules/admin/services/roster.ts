@@ -43,6 +43,13 @@ export class MembershipForeignKeyError extends Error {
   }
 }
 
+export class DirectorHasShiftAssignmentsError extends Error {
+  constructor(public membershipId: string) {
+    super(`Membership ${membershipId} has director shift assignments; resolve them before changing role`);
+    this.name = "DirectorHasShiftAssignmentsError";
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Queries
 // ---------------------------------------------------------------------------
@@ -191,6 +198,71 @@ export async function removeMembership(
     entityId: membershipId,
     before: { status: membership.status },
     after: { status: "REMOVED" },
+  });
+}
+
+/**
+ * Changes a membership's kind (DIRECTOR <-> VOLUNTEER) for its term+department.
+ * Because kind is part of the unique key, this revives/creates the target-kind
+ * row ACTIVE and soft-removes the old row, transactionally. No-op when already
+ * that kind. Refuses to demote a DIRECTOR who still holds DIRECTOR shift
+ * assignments in that department/term (builder.ts forbids director shift roles
+ * for non-directors), so the caller resolves those first.
+ */
+export async function changeMembershipKind(
+  actorPersonId: string,
+  input: { membershipId: string; toKind: "DIRECTOR" | "VOLUNTEER" }
+): Promise<void> {
+  const membership = await prisma.termMembership.findUnique({
+    where: { id: input.membershipId },
+  });
+  if (!membership) throw new MembershipNotFoundError(input.membershipId);
+  if (membership.kind === input.toKind) return;
+
+  if (membership.kind === "DIRECTOR" && input.toKind === "VOLUNTEER") {
+    const directorShifts = await prisma.shiftAssignment.count({
+      where: {
+        personId: membership.personId,
+        termId: membership.termId,
+        departmentId: membership.departmentId,
+        role: "DIRECTOR",
+      },
+    });
+    if (directorShifts > 0) throw new DirectorHasShiftAssignmentsError(input.membershipId);
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.termMembership.upsert({
+      where: {
+        personId_termId_departmentId_kind: {
+          personId: membership.personId,
+          termId: membership.termId,
+          departmentId: membership.departmentId,
+          kind: input.toKind,
+        },
+      },
+      update: { status: "ACTIVE" },
+      create: {
+        personId: membership.personId,
+        termId: membership.termId,
+        departmentId: membership.departmentId,
+        kind: input.toKind,
+        status: "ACTIVE",
+      },
+    });
+    await tx.termMembership.update({
+      where: { id: membership.id },
+      data: { status: "REMOVED" },
+    });
+  });
+
+  await recordAudit({
+    actorPersonId,
+    action: "roster.change_kind",
+    entityType: "TermMembership",
+    entityId: membership.id,
+    before: { kind: membership.kind },
+    after: { kind: input.toKind },
   });
 }
 

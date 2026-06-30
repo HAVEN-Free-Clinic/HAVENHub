@@ -7,7 +7,10 @@ export async function requestMagicLinkAction(formData: FormData): Promise<{ ok: 
   const email = String(formData.get("email") ?? "").trim();
   // Basic shape check; the email service normalizes + rate-limits.
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return { ok: false };
-  await requestMagicLink(email);
+  // Carry the deep-link the applicant was headed to (e.g. /apply/<slug>) so the
+  // emailed verify link returns them there; requestMagicLink sanitizes it.
+  const next = String(formData.get("next") ?? "").trim() || null;
+  await requestMagicLink(email, next);
   return { ok: true };
 }
 

@@ -153,6 +153,7 @@ export const epicDescriptors: TemplateDescriptor[] = [
     key: "epic-onboarding",
     name: "Epic Onboarding",
     category: "transactional",
+    group: "epic",
     variables: [
       { name: "subject", label: "Full subject line (pre-computed from kind + personName)", sampleValue: "[HAVEN] Epic Account Request for Jane Doe" },
       { name: "personName", label: "Volunteer name", sampleValue: "Jane Doe" },
@@ -178,6 +179,7 @@ export const epicDescriptors: TemplateDescriptor[] = [
     key: "epic-activation",
     name: "Epic Activation",
     category: "transactional",
+    group: "epic",
     variables: [
       { name: "personName", label: "Volunteer name", sampleValue: "Jane Doe" },
       { name: "epicIdDisplay", label: "Epic/Network ID (or 'pending assignment')", sampleValue: "JDOE" },
@@ -221,6 +223,7 @@ ${EPIC_DOWNLOAD_AND_NOTES_HTML}
     key: "epic-password-reset",
     name: "Epic Password Reset",
     category: "transactional",
+    group: "epic",
     variables: [
       { name: "personName", label: "Volunteer name", sampleValue: "Jane Doe" },
       { name: "epicIdDisplay", label: "Epic/Network ID (or 'pending assignment')", sampleValue: "JDOE" },

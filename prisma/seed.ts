@@ -146,6 +146,23 @@ async function main() {
     }
   }
 
+  // Baseline access by membership kind. Replaces the engine's old hardcoded
+  // auto-attach: a global kind-target assignment grants the Director/Volunteer
+  // role to every active member of that kind, in any term. Idempotent.
+  for (const [roleName, kind] of [
+    ["Director", "DIRECTOR"],
+    ["Volunteer", "VOLUNTEER"],
+  ] as const) {
+    const role = await prisma.role.findUnique({ where: { name: roleName } });
+    if (!role) continue;
+    const existing = await prisma.roleAssignment.findFirst({
+      where: { roleId: role.id, kind, termId: null, personId: null, departmentId: null },
+    });
+    if (!existing) {
+      await prisma.roleAssignment.create({ data: { roleId: role.id, kind, termId: null } });
+    }
+  }
+
   const su26 = await prisma.term.upsert({
     where: { code: "SU26" },
     // clinicDates/dates intentionally not re-upserted; reset the DB to change them.

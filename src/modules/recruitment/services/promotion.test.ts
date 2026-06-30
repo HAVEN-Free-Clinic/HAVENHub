@@ -5,7 +5,7 @@ import { RecruitmentAuthError } from "./review";
 import { promoteContracts } from "./promotion";
 import { spanishReviewWhere } from "@/platform/spanish-review";
 
-async function seedSubmitted(opts: { netId?: string; email?: string; epicNeeded?: boolean; existingEpicId?: string } = {}) {
+async function seedSubmitted(opts: { netId?: string; email?: string; epicNeeded?: boolean; existingEpicId?: string; applicantType?: "NEW" | "RENEWAL" | "TRANSFER"; transferFromDepartments?: string[] } = {}) {
   const term = await prisma.term.create({ data: { code: "FA26", name: "Fall", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
   const srhd = await prisma.department.create({ data: { code: "SRHD", name: "SRHD" } });
   const srr = await prisma.person.create({ data: { name: "SRR", status: "ACTIVE" } });
@@ -13,7 +13,7 @@ async function seedSubmitted(opts: { netId?: string; email?: string; epicNeeded?
   await prisma.roleAssignment.create({ data: { personId: srr.id, roleId: role.id } });
   const cycle = await prisma.recruitmentCycle.create({ data: { track: "VOLUNTEER", termId: term.id, title: "V", publicSlug: "v", departments: ["SRHD"], createdById: srr.id, status: "OPEN" } });
   const applicant = await prisma.applicant.create({ data: { cycleId: cycle.id, firstName: "Ada", lastName: "Lovelace", email: opts.email ?? "ada@yale.edu", emailLower: (opts.email ?? "ada@yale.edu").toLowerCase(), netId: opts.netId ?? "al99" } });
-  const application = await prisma.application.create({ data: { cycleId: cycle.id, applicantId: applicant.id, answers: {}, applicantType: "NEW", departmentChoices: ["SRHD"] } });
+  const application = await prisma.application.create({ data: { cycleId: cycle.id, applicantId: applicant.id, answers: {}, applicantType: opts.applicantType ?? "NEW", departmentChoices: ["SRHD"], transferFromDepartments: opts.transferFromDepartments ?? [] } });
   const acceptance = await prisma.acceptance.create({ data: { applicationId: application.id, departmentCode: "SRHD", approvedById: srr.id } });
   const contract = await prisma.onboardingContract.create({ data: {
     acceptanceId: acceptance.id, token: `t-${Math.random()}`, status: "SUBMITTED",
@@ -116,4 +116,12 @@ it("maps spanishSelfReported + licensedRN onto the Person, leaves verified false
 
   const queue = await prisma.person.findMany({ where: spanishReviewWhere(), select: { id: true } });
   expect(queue.map((r) => r.id)).toContain(person.id);
+});
+
+it("promotes a TRANSFER applicant into the accepted department, not their prior one", async () => {
+  const { term, srhd, srr, contract } = await seedSubmitted({ applicantType: "TRANSFER", transferFromDepartments: ["MDIC"] });
+  const res = await promoteContracts([contract.id], srr.id);
+  expect(res).toEqual({ created: 1, reactivated: 0, skipped: 0 });
+  const person = await prisma.person.findFirstOrThrow({ where: { netId: "al99" } });
+  expect(await prisma.termMembership.count({ where: { personId: person.id, termId: term.id, departmentId: srhd.id, kind: "VOLUNTEER" } })).toBe(1);
 });

@@ -6,6 +6,10 @@ export type EmailMessage = {
   to: string;
   subject: string;
   html: string;
+  /** Override the sending mailbox (Send-As). Defaults to the transport's sender. */
+  from?: string;
+  /** Optional display name paired with `from`. */
+  fromName?: string;
 };
 
 /** Minimal contract every transport must satisfy. */
@@ -23,7 +27,8 @@ export interface EmailTransport {
  */
 export class LogTransport implements EmailTransport {
   async send(message: EmailMessage): Promise<void> {
-    console.log(`[email] to=${message.to} subject=${message.subject}`);
+    const from = message.from ?? "(default sender)";
+    console.log(`[email] from=${from} to=${message.to} subject=${message.subject}`);
   }
 }
 
@@ -58,7 +63,21 @@ export class GraphTransport implements EmailTransport {
 
   async send(message: EmailMessage): Promise<void> {
     const token = await this.getToken();
-    const url = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(this.sender)}/sendMail`;
+    const sender = message.from?.trim() || this.sender;
+    const url = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(sender)}/sendMail`;
+
+    const graphMessage: Record<string, unknown> = {
+      subject: message.subject,
+      body: { contentType: "HTML", content: message.html },
+      toRecipients: [{ emailAddress: { address: message.to } }],
+    };
+    // A display name requires an explicit from block; without one the mailbox's
+    // own configured display name is used.
+    if (message.fromName && message.fromName.trim()) {
+      graphMessage.from = {
+        emailAddress: { address: sender, name: message.fromName.trim() },
+      };
+    }
 
     const res = await this.fetchImpl(url, {
       method: "POST",
@@ -66,14 +85,7 @@ export class GraphTransport implements EmailTransport {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        message: {
-          subject: message.subject,
-          body: { contentType: "HTML", content: message.html },
-          toRecipients: [{ emailAddress: { address: message.to } }],
-        },
-        saveToSentItems: true,
-      }),
+      body: JSON.stringify({ message: graphMessage, saveToSentItems: true }),
     });
 
     if (!res.ok) {

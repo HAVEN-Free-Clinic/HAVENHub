@@ -60,9 +60,10 @@ export async function uploadPackageAction(_prev: UploadState, formData: FormData
   if (file.size > MAX_UPLOAD_BYTES) {
     return { error: "That package is too large (max 75 MB)." };
   }
+  const resetProgress = formData.get("resetProgress") === "on";
   try {
     const bytes = Buffer.from(await file.arrayBuffer());
-    await ingestScormPackage(courseId, bytes, person.personId);
+    await ingestScormPackage(courseId, bytes, person.personId, { resetProgress });
   } catch (err) {
     // Surface authoring mistakes (bad zip, no manifest, no launchable resource)
     // to the manager. Thrown Server Action errors are redacted in production, so
@@ -97,6 +98,7 @@ function safeUploadPathname(pathname: string, courseId: string): string {
 export async function ingestUploadedPackageAction(input: {
   courseId: string;
   pathname: string;
+  resetProgress?: boolean;
 }): Promise<UploadState> {
   const person = await requirePermission("learning.manage_courses");
 
@@ -111,7 +113,7 @@ export async function ingestUploadedPackageAction(input: {
   try {
     const bytes = await getObject(key);
     if (!bytes) return { error: "Could not read the uploaded package from storage." };
-    await ingestScormPackage(input.courseId, bytes, person.personId);
+    await ingestScormPackage(input.courseId, bytes, person.personId, { resetProgress: !!input.resetProgress });
   } catch (err) {
     if (err instanceof LearningValidationError) return { error: err.message };
     throw err;

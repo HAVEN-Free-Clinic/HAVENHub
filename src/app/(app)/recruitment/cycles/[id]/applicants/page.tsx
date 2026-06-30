@@ -8,6 +8,7 @@ import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { Badge } from "@/platform/ui/badge";
+import { applicantTypeLabel } from "@/modules/recruitment/engine/visibility";
 
 function decision(depts: string[]): { label: string; tone: "default" | "success" | "critical" } {
   if (depts.length === 0) return { label: "None", tone: "default" };
@@ -56,7 +57,7 @@ export default async function ApplicantsPage({ params }: { params: Promise<{ id:
                   </Link>
                 </TD>
                 <TD className="text-foreground-soft">{a.applicant.email}</TD>
-                <TD className="text-foreground-soft">{a.applicantType}</TD>
+                <TD className="text-foreground-soft">{applicantTypeLabel(a.applicantType)}</TD>
                 <TD className="text-foreground-soft">{a.departmentChoices.join(", ")}</TD>
                 <TD>
                   <Badge tone={d.tone}>{d.label}</Badge>

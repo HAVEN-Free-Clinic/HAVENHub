@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import { getDraft, saveDraft, DraftError, uploadDraftFile, sweepAbandonedDrafts } from "./drafts";
+import { setApplicationWindow } from "./cycles";
 
 beforeEach(async () => { await resetDb(); });
 afterEach(async () => { await resetDb(); });
@@ -42,6 +43,26 @@ async function seedDraft(cycleId: string, email: string, status: "DRAFT" | "SUBM
   await prisma.application.updateMany({ where: { applicantId: ap.id }, data: { updatedAt } });
   return ap;
 }
+
+it("blocks saveDraft once the cycle's closesAt has passed, even while OPEN", async () => {
+  const cycle = await openCycle("win-past-close");
+  await setApplicationWindow(cycle.id, { opensAt: null, closesAt: DAYS_AGO(1) }, cycle.createdById);
+  await expect(saveDraft("win-past-close", ID, { answers: { first_name: "Reed" } })).rejects.toBeInstanceOf(DraftError);
+});
+
+it("blocks saveDraft before the cycle's opensAt, even while OPEN", async () => {
+  const cycle = await openCycle("win-future-open");
+  const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  await setApplicationWindow(cycle.id, { opensAt: tomorrow, closesAt: null }, cycle.createdById);
+  await expect(saveDraft("win-future-open", ID, { answers: { first_name: "Reed" } })).rejects.toBeInstanceOf(DraftError);
+});
+
+it("allows saveDraft inside the window", async () => {
+  const cycle = await openCycle("win-inside");
+  await setApplicationWindow(cycle.id, { opensAt: DAYS_AGO(1), closesAt: new Date(Date.now() + 24 * 60 * 60 * 1000) }, cycle.createdById);
+  await saveDraft("win-inside", ID, { answers: { first_name: "Reed" } });
+  expect((await getDraft("win-inside", ID))?.answers).toEqual({ first_name: "Reed" });
+});
 
 it("creates a draft on first save and updates it on the next", async () => {
   await openCycle();

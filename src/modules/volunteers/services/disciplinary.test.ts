@@ -37,7 +37,10 @@
  *
  * strikeCount(personId):
  *   - Person with 3 actions shows strikeCount 3.
- *   - Rows' strikes field matches strikeCount.
+ *   - Central rows' strikes field matches strikeCount (all actions).
+ *   - Director rows' strikes field counts only actions visible to that
+ *     director (non-confidential OR issued by them) so confidential records
+ *     raised by others do not leak via the count.
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
@@ -731,7 +734,7 @@ describe("strikes", () => {
     }
   });
 
-  it("strikes are visibility-independent: director who can see only 1 of 3 actions still sees strikes=3 on the visible row", async () => {
+  it("director's strike count excludes confidential actions issued by others", async () => {
     const term = await createTerm();
     const dept = await createDepartment("ITCM");
     const central = await createPerson("Central", "ctr001");
@@ -763,8 +766,51 @@ describe("strikes", () => {
     const result = await listActions(director.id, {});
     // Director sees only the 1 non-confidential row
     expect(result.rows).toHaveLength(1);
-    // But strikes reflects the total count of all 3 actions for this person
-    expect(result.rows[0].strikes).toBe(3);
+    // Strikes must reflect only the actions the director is permitted to see;
+    // the 2 confidential rows raised by others must not leak into the count.
+    expect(result.rows[0].strikes).toBe(1);
+  });
+
+  it("director's strike count includes confidential actions they issued themselves", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("ITCM");
+    const central = await createPerson("Central", "ctr001");
+    const director = await createPerson("Director", "dir001");
+    const target = await createPerson("Repeat Vol", "rv001");
+
+    await grantPermission(central.id, "volunteers.issue_disciplinary");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(target.id, term.id, dept.id, "VOLUNTEER");
+
+    // Central issues 1 confidential action the director cannot see.
+    await issueCentral(central.id, target.id, {
+      description: "Hidden from director",
+      confidential: true,
+    });
+    // Director issues their own confidential + non-confidential (both visible to them).
+    await issueAction(director.id, {
+      personId: target.id,
+      occurredAt: new Date("2026-04-02"),
+      category: DISCIPLINARY_CATEGORIES[0],
+      description: "My confidential",
+      confidential: true,
+    });
+    await issueAction(director.id, {
+      personId: target.id,
+      occurredAt: new Date("2026-04-03"),
+      category: DISCIPLINARY_CATEGORIES[0],
+      description: "My non-confidential",
+      confidential: false,
+    });
+
+    const result = await listActions(director.id, {});
+    // Director sees their own 2 rows, not central's hidden confidential one.
+    expect(result.rows).toHaveLength(2);
+    // Strikes counts the 2 visible-to-director actions (including their own
+    // confidential one), excluding the confidential row issued by central.
+    for (const row of result.rows) {
+      expect(row.strikes).toBe(2);
+    }
   });
 });
 

@@ -10,8 +10,27 @@ import { uploadPackageAction, ingestUploadedPackageAction, type UploadState } fr
 const MAX_UPLOAD_BYTES = 75 * 1024 * 1024; // 75 MB
 const HINT =
   "Export from eXeLearning as SCORM 1.2, then upload the .zip. Uploading replaces any existing package.";
+const RESET_LABEL =
+  "Reset everyone's progress for this course. Learners who already completed it will need to retake the new content. Leave unchecked to keep their existing completion.";
 
 type FormProps = { courseId: string; hasPackage: boolean };
+
+/** Checkbox shown only when replacing a package: choose whether to clear progress. */
+function ResetProgressField({ checked, onChange }: { checked?: boolean; onChange?: (v: boolean) => void }) {
+  return (
+    <label className="flex items-start gap-2 text-sm text-subtle-foreground">
+      <input
+        type="checkbox"
+        name="resetProgress"
+        className="mt-0.5"
+        checked={onChange ? checked : undefined}
+        defaultChecked={onChange ? undefined : false}
+        onChange={onChange ? (e) => onChange(e.target.checked) : undefined}
+      />
+      <span>{RESET_LABEL}</span>
+    </label>
+  );
+}
 
 /**
  * SCORM package upload. On Vercel (Blob configured) the browser uploads the .zip
@@ -35,6 +54,7 @@ function BlobUploadForm({ courseId, hasPackage }: FormProps) {
   const [busy, setBusy] = useState(false);
   const [phase, setPhase] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [resetProgress, setResetProgress] = useState(false);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -58,7 +78,7 @@ function BlobUploadForm({ courseId, hasPackage }: FormProps) {
         onUploadProgress: (p) => setPhase(`Uploading… ${Math.round(p.percentage)}%`),
       });
       setPhase("Processing…");
-      const res = await ingestUploadedPackageAction({ courseId, pathname: result.pathname });
+      const res = await ingestUploadedPackageAction({ courseId, pathname: result.pathname, resetProgress });
       if (res?.error) {
         setError(res.error);
         return;
@@ -78,6 +98,7 @@ function BlobUploadForm({ courseId, hasPackage }: FormProps) {
       <form onSubmit={onSubmit} className="space-y-2">
         <input ref={fileRef} type="file" name="package" accept=".zip,application/zip" required className="block text-sm" />
         <p className="text-xs text-subtle-foreground">{HINT}</p>
+        {hasPackage && <ResetProgressField checked={resetProgress} onChange={setResetProgress} />}
         {error && <Alert tone="error">{error}</Alert>}
         <Button type="submit" disabled={busy}>
           {busy ? phase || "Working…" : hasPackage ? "Replace package" : "Upload package"}
@@ -97,6 +118,7 @@ function ServerActionUploadForm({ courseId, hasPackage }: FormProps) {
         <input type="hidden" name="courseId" value={courseId} />
         <input type="file" name="package" accept=".zip,application/zip" required className="block text-sm" />
         <p className="text-xs text-subtle-foreground">{HINT}</p>
+        {hasPackage && <ResetProgressField />}
         {state?.error && <Alert tone="error">{state.error}</Alert>}
         <Button type="submit" disabled={pending}>
           {pending ? "Uploading…" : hasPackage ? "Replace package" : "Upload package"}

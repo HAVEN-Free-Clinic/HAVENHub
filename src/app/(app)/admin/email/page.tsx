@@ -15,12 +15,21 @@ import {
   listEmails,
   retryEmail,
   retryAllFailedEmails,
+  sendSenderTest,
   EMAIL_PAGE_SIZE,
   EmailNotFoundError,
   EmailStateError,
 } from "@/modules/admin/services/email";
 import { buildAuthorizeUrl, mailConnectionStatus, teamsScopesGranted } from "@/platform/email/oauth";
-import type { EmailStatus } from "@prisma/client";
+import {
+  SENDER_CATEGORIES,
+  listSenderRules,
+  saveSenderRule,
+  clearSenderRule,
+  SenderRuleValidationError,
+} from "@/platform/email/sender-rules";
+import { getSetting } from "@/platform/settings/service";
+import type { EmailStatus, EmailSenderScope } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
@@ -85,6 +94,9 @@ type PageProps = {
     retried?: string;
     retriedAll?: string;
     connected?: string;
+    senderSaved?: string;
+    senderError?: string;
+    senderTested?: string;
   }>;
 };
 
@@ -126,16 +138,22 @@ export default async function EmailPage({ searchParams }: PageProps) {
   const retriedAllSuccess = retriedAllCount > 0;
   const connectedSuccess = sp.connected === "1";
 
-  const [{ rows, total, counts }, mailConn, mailCred] = await Promise.all([
-    listEmails({
-      status: validatedStatus,
-      template: validatedTemplate,
-      q,
-      page,
-    }),
-    mailConnectionStatus(),
-    prisma.mailCredential.findUnique({ where: { id: "mailer" } }),
-  ]);
+  const senderSavedSuccess = sp.senderSaved === "1";
+  const senderTestedSuccess = sp.senderTested === "1";
+  const senderErrorMessage = sp.senderError ? decodeURIComponent(sp.senderError) : null;
+
+  const [{ rows, total, counts }, mailConn, mailCred, senderRules, globalSender] =
+    await Promise.all([
+      listEmails({ status: validatedStatus, template: validatedTemplate, q, page }),
+      mailConnectionStatus(),
+      prisma.mailCredential.findUnique({ where: { id: "mailer" } }),
+      listSenderRules(),
+      getSetting<string>("email.sender"),
+    ]);
+
+  const categoryRuleByGroup = new Map(
+    senderRules.filter((r) => r.scope === "CATEGORY").map((r) => [r.target, r])
+  );
 
   const needsTeamsReconnect = mailCred != null && !teamsScopesGranted(mailCred.scope);
 
@@ -180,6 +198,52 @@ export default async function EmailPage({ searchParams }: PageProps) {
     const count = await retryAllFailedEmails(actor.personId);
     revalidatePath("/admin/email");
     redirect(`/admin/email?retriedAll=${count}`);
+  }
+
+  async function saveSenderAction(formData: FormData) {
+    "use server";
+    const a = await requirePermission("admin.manage_sync");
+    const scope = formData.get("scope") as EmailSenderScope;
+    const target = (formData.get("target") as string | null) ?? "";
+    const fromEmail = ((formData.get("fromEmail") as string | null) ?? "").trim();
+    const fromName = ((formData.get("fromName") as string | null) ?? "").trim();
+
+    try {
+      if (fromEmail === "") {
+        await clearSenderRule(a.personId, scope, target);
+      } else {
+        await saveSenderRule(a.personId, scope, target, { fromEmail, fromName });
+      }
+    } catch (err) {
+      if (err instanceof SenderRuleValidationError) {
+        redirect(`/admin/email?senderError=${encodeURIComponent(err.message)}`);
+      }
+      throw err;
+    }
+    revalidatePath("/admin/email");
+    redirect("/admin/email?senderSaved=1");
+  }
+
+  async function testSenderAction(formData: FormData) {
+    "use server";
+    const a = await requirePermission("admin.manage_sync");
+    const fromEmail = ((formData.get("fromEmail") as string | null) ?? "").trim();
+    const fromName = ((formData.get("fromName") as string | null) ?? "").trim();
+    const person = await prisma.person.findUnique({
+      where: { id: a.personId },
+      select: { contactEmail: true },
+    });
+    const toEmail = person?.contactEmail ?? "";
+    if (fromEmail === "" || toEmail === "") {
+      redirect(`/admin/email?senderError=${encodeURIComponent("A from address and a recipient are required to send a test.")}`);
+    }
+    try {
+      await sendSenderTest(a.personId, { toEmail, fromEmail, fromName: fromName || null });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Test send failed.";
+      redirect(`/admin/email?senderError=${encodeURIComponent(message)}`);
+    }
+    redirect("/admin/email?senderTested=1");
   }
 
   async function connectMailerAction() {
@@ -247,6 +311,13 @@ export default async function EmailPage({ searchParams }: PageProps) {
       {connectedSuccess && !errorMessage && (
         <Alert tone="success">Mailbox connected.</Alert>
       )}
+      {senderSavedSuccess && !errorMessage && (
+        <Alert tone="success">Sender address saved.</Alert>
+      )}
+      {senderTestedSuccess && !errorMessage && (
+        <Alert tone="success">Test message sent. Check the inbox to confirm.</Alert>
+      )}
+      {senderErrorMessage && <Alert tone="error">{senderErrorMessage}</Alert>}
 
       {/* Mailer connection panel */}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-surface p-5">
@@ -273,6 +344,57 @@ export default async function EmailPage({ searchParams }: PageProps) {
           Teams direct messages need an additional permission. Reconnect the mailbox to grant it.
         </Alert>
       )}
+
+      {/* Per-category send-from addresses */}
+      <div className="rounded-2xl border border-border bg-surface p-5 space-y-4">
+        <div>
+          <p className="text-sm font-medium text-foreground-soft">Send-from addresses</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Choose the address each category of email sends from. Leave blank to use the
+            global default ({globalSender}). The connected mailbox must have Send-As rights
+            on any address you enter. Use Send test to confirm.
+          </p>
+        </div>
+        {SENDER_CATEGORIES.map((cat) => {
+          const rule = categoryRuleByGroup.get(cat.group);
+          return (
+            <form
+              key={cat.group}
+              action={saveSenderAction}
+              className="flex flex-wrap items-end gap-3 border-t border-border pt-4"
+            >
+              <input type="hidden" name="scope" value="CATEGORY" />
+              <input type="hidden" name="target" value={cat.group} />
+              <div className="w-40">
+                <p className="text-sm font-medium">{cat.label}</p>
+              </div>
+              <div className="w-64">
+                <Input
+                  name="fromEmail"
+                  type="email"
+                  defaultValue={rule?.fromEmail ?? ""}
+                  placeholder={globalSender}
+                  aria-label={`${cat.label} from address`}
+                />
+              </div>
+              <div className="w-48">
+                <Input
+                  name="fromName"
+                  defaultValue={rule?.fromName ?? ""}
+                  placeholder="Display name (optional)"
+                  aria-label={`${cat.label} display name`}
+                />
+              </div>
+              <Button type="submit" variant="outline" size="sm">
+                Save
+              </Button>
+              <Button type="submit" formAction={testSenderAction} variant="ghost" size="sm">
+                Send test
+              </Button>
+            </form>
+          );
+        })}
+      </div>
 
       {/* Health stat cards */}
       <div className="grid gap-4 sm:grid-cols-3">

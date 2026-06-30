@@ -2,7 +2,7 @@
 import { useMemo, useRef, useState } from "react";
 import { submitPublicApplication, type SubmitResult } from "./actions";
 import { saveDraftAction, uploadDraftFileAction } from "./draft-actions";
-import { isSectionVisible } from "@/modules/recruitment/engine/visibility";
+import { isSectionVisible, type ApplicantType } from "@/modules/recruitment/engine/visibility";
 import { Alert } from "@/platform/ui/alert";
 import { Button, buttonClasses } from "@/platform/ui/button";
 import { Select } from "@/platform/ui/select";
@@ -19,27 +19,29 @@ type Def = { slug: string; title: string; track: "VOLUNTEER" | "DIRECTOR"; accep
 type Prefill = { values: Record<string, string>; lockedKeys: string[] };
 
 export function ApplyForm({
-  def, signedIn = false, signedInName = null, eligible = false, prefill, currentDepartments = [], initialApplicantType = "NEW",
+  def, signedIn = false, signedInName = null, eligible = false, isReturning = false, prefill, currentDepartments = [], initialApplicantType = "NEW",
   initialAnswers = {}, initialApplicantTypeFromDraft, initialRenewalDepartment = null,
 }: {
   def: Def;
   signedIn?: boolean;
   signedInName?: string | null;
   eligible?: boolean;
+  isReturning?: boolean;
   prefill?: Prefill;
   currentDepartments?: string[];
-  initialApplicantType?: "NEW" | "RENEWAL";
+  initialApplicantType?: ApplicantType;
   initialAnswers?: Record<string, unknown>;
-  initialApplicantTypeFromDraft?: "NEW" | "RENEWAL";
+  initialApplicantTypeFromDraft?: ApplicantType;
   initialRenewalDepartment?: string | null;
 }) {
   // Draft type takes precedence over the URL ?type param when present.
   const seedType = initialApplicantTypeFromDraft ?? initialApplicantType;
 
-  // A returning visitor whose account has no current membership is moved to the
-  // New flow on arrival, with a note.
-  const autoIneligible = seedType === "RENEWAL" && signedIn && !eligible;
-  const [applicantType, setApplicantType] = useState<"NEW" | "RENEWAL">(autoIneligible ? "NEW" : seedType);
+  // A returning seed type the visitor cannot use here is corrected to New, with a note.
+  const renewalUnavailable = seedType === "RENEWAL" && signedIn && !eligible;
+  const transferUnavailable = seedType === "TRANSFER" && (!signedIn || !isReturning);
+  const autoIneligible = renewalUnavailable || transferUnavailable;
+  const [applicantType, setApplicantType] = useState<ApplicantType>(autoIneligible ? "NEW" : seedType);
   const [ineligibleNote, setIneligibleNote] = useState(autoIneligible);
   // Seed the renewal department from the saved draft when it is still one the
   // applicant belongs to, so conditional department sections re-render on resume.
@@ -79,16 +81,14 @@ export function ApplyForm({
   const renewalGate = applicantType === "RENEWAL" && !signedIn;
   const roleNoun = def.track === "DIRECTOR" ? "director" : "volunteer";
   const applicantOptions = [
-    { value: "NEW" as const, label: "New applicant", desc: "First time applying" },
-    { value: "RENEWAL" as const, label: `Returning ${roleNoun}`, desc: "Renewing in my current department" },
-  ];
+    { value: "NEW" as const, label: "New applicant", desc: "First time applying", show: true },
+    { value: "RENEWAL" as const, label: "Renewing in my current department", desc: `Continue as a ${roleNoun} in a department you are already in`, show: !signedIn || eligible },
+    { value: "TRANSFER" as const, label: "Transferring to a new department", desc: `Return as a ${roleNoun} in a different department`, show: signedIn && isReturning },
+  ].filter((o) => o.show);
 
-  function chooseType(v: "NEW" | "RENEWAL") {
-    if (v === "RENEWAL" && signedIn && !eligible) {
-      setApplicantType("NEW");
-      setIneligibleNote(true);
-      return;
-    }
+  function chooseType(v: ApplicantType) {
+    if (v === "RENEWAL" && signedIn && !eligible) { setApplicantType("NEW"); setIneligibleNote(true); return; }
+    if (v === "TRANSFER" && signedIn && !isReturning) { setApplicantType("NEW"); setIneligibleNote(true); return; }
     setIneligibleNote(false);
     setApplicantType(v);
   }
@@ -134,6 +134,8 @@ export function ApplyForm({
     () => applicantType === "RENEWAL" ? (renewalDept ? [renewalDept] : []) : (deptChoice ? [deptChoice] : []),
     [applicantType, renewalDept, deptChoice]
   );
+  const transferIntoCurrent =
+    applicantType === "TRANSFER" && deptChoice !== "" && currentDepartments.includes(deptChoice);
   const visible = useMemo(
     () => def.sections.filter((s) => isSectionVisible({ id: s.id, appliesTo: s.appliesTo, departmentCode: s.departmentCode }, { applicantType, selectedDepartmentCodes })),
     [def.sections, applicantType, selectedDepartmentCodes]
@@ -141,6 +143,7 @@ export function ApplyForm({
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (transferIntoCurrent) return;
     setSubmitting(true);
     const fd = new FormData(e.currentTarget);
     fd.set("__applicantType", applicantType);
@@ -167,7 +170,7 @@ export function ApplyForm({
       {def.acceptsRenewals && (
         <fieldset className="space-y-3">
           <legend className="text-sm font-medium text-foreground">Are you a new or returning {roleNoun}?</legend>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-2">
             {applicantOptions.map((opt) => {
               const active = applicantType === opt.value;
               return (
@@ -221,7 +224,7 @@ export function ApplyForm({
         </div>
       ) : (
         <>
-          {signedIn && applicantType === "RENEWAL" && eligible && signedInName && (
+          {signedIn && (applicantType === "RENEWAL" ? eligible : applicantType === "TRANSFER" ? isReturning : false) && signedInName && (
             <p className="text-sm text-muted-foreground">Signed in as {signedInName}.</p>
           )}
 
@@ -252,7 +255,13 @@ export function ApplyForm({
             </fieldset>
           ))}
 
-          <Button type="submit" disabled={submitting}>{submitting ? "Submitting..." : "Submit application"}</Button>
+          {transferIntoCurrent && (
+            <Alert tone="warning">
+              You are already a {roleNoun} in {deptChoice}. Choose &ldquo;Renewing in my current department&rdquo; to come back to it.
+            </Alert>
+          )}
+
+          <Button type="submit" disabled={submitting || transferIntoCurrent}>{submitting ? "Submitting..." : "Submit application"}</Button>
         </>
       )}
     </form>

@@ -128,6 +128,11 @@ export async function runComplianceReminders(
     (await getSetting<number>("compliance.reminderIntervalDays")) * 24 * 60 * 60 * 1000;
   const threshold = await getSetting<number>("compliance.escalationThreshold");
 
+  // Resolved once for the run: the hub base URL (for the My Info call-to-action
+  // and Teams deep link) and the brand color (for the CTA button).
+  const baseUrl = await getSetting<string>("app.baseUrl");
+  const brandColor = await getSetting<string>("branding.brandColor");
+
   // 5 + 6 + 7. Process each candidate.
   for (const person of persons) {
     const cert = certMap.get(person.id) ?? null;
@@ -182,7 +187,13 @@ export async function runComplianceReminders(
 
     const renderedReminder = await renderEmail(
       "compliance-reminder",
-      complianceReminderContext({ personName: person.name, status, expiresAt }),
+      complianceReminderContext({
+        personName: person.name,
+        status,
+        expiresAt,
+        appUrl: baseUrl,
+        brandColor,
+      }),
     );
     await notify(prisma, {
       type: "compliance-reminder",
@@ -195,7 +206,7 @@ export async function runComplianceReminders(
       teams: {
         title: "HIPAA compliance reminder",
         summary: "Your HIPAA training needs attention. Please review your compliance status.",
-        link: `${await getSetting<string>("app.baseUrl")}/get-started`,
+        link: `${baseUrl}/get-started`,
       },
     });
 

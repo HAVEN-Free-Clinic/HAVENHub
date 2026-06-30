@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
-import { publishCycleAction, closeCycleAction, toggleRenewalsAction, setTrainingCycleAction, updateQuizSettingsAction, setCycleDepartmentsAction } from "../../actions";
+import { publishCycleAction, closeCycleAction, toggleRenewalsAction, setTrainingCycleAction, updateQuizSettingsAction, setCycleDepartmentsAction, setApplicationWindowAction } from "../../actions";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
 import { Field, Input } from "@/platform/ui/input";
@@ -15,14 +15,21 @@ import { Checkbox } from "@/platform/ui/checkbox";
 
 const statusTone = { DRAFT: "default", OPEN: "success", CLOSED: "warning" } as const;
 
+/** Format a stored instant for a <input type="datetime-local"> default value
+ *  (local wall-clock, "YYYY-MM-DDTHH:mm"). Mirrors the interview scheduler so the
+ *  format here and the `new Date(raw)` parse in setApplicationWindowAction agree. */
+function toLocalInput(d: Date | null): string {
+  return d ? new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16) : "";
+}
+
 type PageProps = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ error?: string; deptsaved?: string; deptwarn?: string }>;
+  searchParams: Promise<{ error?: string; deptsaved?: string; deptwarn?: string; windowsaved?: string }>;
 };
 
 export default async function CycleOverviewPage({ params, searchParams }: PageProps) {
   const { id } = await params;
-  const { error, deptsaved, deptwarn } = await searchParams;
+  const { error, deptsaved, deptwarn, windowsaved } = await searchParams;
   const cycle = await getCycle(id);
   if (!cycle) notFound();
 
@@ -38,6 +45,13 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
   const selected = new Set(cycle.departments);
   const applyUrl = `/apply/${cycle.publicSlug}`;
   const navLink = buttonClasses("outline", "sm");
+  // The opensAt/closesAt window is a soft gate *inside* the OPEN status: the public
+  // form only accepts applications while now is in [opensAt, closesAt]. Reflect that
+  // here so the admin view matches what an applicant actually sees (issue #106).
+  const now = new Date();
+  const beforeOpen = cycle.status === "OPEN" && cycle.opensAt !== null && cycle.opensAt > now;
+  const afterClose = cycle.status === "OPEN" && cycle.closesAt !== null && cycle.closesAt < now;
+  const liveByWindow = cycle.status === "OPEN" && !beforeOpen && !afterClose;
   return (
     <div className="max-w-2xl space-y-6">
       <SetBreadcrumb trail={cycleTrail({ cycleId: id, cycleTitle: cycle.title })} />
@@ -64,9 +78,24 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
       <div className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
         <p className="text-xs font-medium uppercase tracking-wider text-subtle-foreground">Public link</p>
         {cycle.status === "OPEN" ? (
-          <a className="mt-1 inline-block text-sm font-medium text-brand-fg hover:text-brand-hover" href={applyUrl}>
-            {applyUrl}
-          </a>
+          <div className="mt-1 space-y-1">
+            {liveByWindow ? (
+              <a className="inline-block text-sm font-medium text-brand-fg hover:text-brand-hover" href={applyUrl}>
+                {applyUrl}
+              </a>
+            ) : (
+              <p className="text-sm text-muted-foreground">{applyUrl}</p>
+            )}
+            {beforeOpen && (
+              <p className="text-xs text-subtle-foreground">Scheduled to open {cycle.opensAt!.toLocaleString()}. Not accepting applications yet.</p>
+            )}
+            {afterClose && (
+              <p className="text-xs text-subtle-foreground">Application window closed {cycle.closesAt!.toLocaleString()}. No longer accepting applications.</p>
+            )}
+            {liveByWindow && cycle.closesAt && (
+              <p className="text-xs text-subtle-foreground">Accepting applications until {cycle.closesAt.toLocaleString()}.</p>
+            )}
+          </div>
         ) : (
           <p className="mt-1 text-sm text-muted-foreground">Publish the cycle to activate {applyUrl}</p>
         )}
@@ -90,6 +119,27 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
           <SubmitButton size="sm" variant="outline" pendingLabel="Saving…">Save departments</SubmitButton>
         </form>
       </div>
+
+      {(cycle.status === "DRAFT" || cycle.status === "OPEN") && (
+        <div className="space-y-3 rounded-2xl border border-border bg-surface p-5 shadow-sm">
+          <p className="text-xs font-medium uppercase tracking-wider text-subtle-foreground">Application window</p>
+          {windowsaved && <Alert tone="success">Application window updated.</Alert>}
+          <p className="text-sm text-muted-foreground">
+            Optional. While the cycle is open, the public form only accepts applications inside this window. Leave a field blank for no bound, or clear both to accept whenever the cycle is open. Times use the server timezone.
+          </p>
+          <form action={setApplicationWindowAction.bind(null, id)} className="space-y-3">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Opens" hint="Blank means open as soon as the cycle is published.">
+                <Input type="datetime-local" name="opensAt" defaultValue={toLocalInput(cycle.opensAt)} />
+              </Field>
+              <Field label="Closes" hint="Blank means stay open until the cycle is closed.">
+                <Input type="datetime-local" name="closesAt" defaultValue={toLocalInput(cycle.closesAt)} />
+              </Field>
+            </div>
+            <SubmitButton size="sm" variant="outline" pendingLabel="Saving…">Save window</SubmitButton>
+          </form>
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-3">
         {cycle.status === "DRAFT" && (

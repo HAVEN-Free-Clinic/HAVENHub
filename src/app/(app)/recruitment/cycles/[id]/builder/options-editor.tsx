@@ -37,7 +37,7 @@ export function OptionsEditor({
             <GripVertical className="h-4 w-4" aria-hidden />
           </button>
           {markCorrect && (
-            <Radio name={radioName} aria-label="Correct answer" label=""
+            <Radio name={radioName} aria-label="Correct answer"
               checked={markCorrect.value === item.value}
               disabled={disabled} onChange={() => markCorrect.onPick(item.value)} />
           )}

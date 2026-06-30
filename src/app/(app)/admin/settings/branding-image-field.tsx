@@ -1,5 +1,5 @@
 import { Button } from "@/platform/ui/button";
-import { Input, Field } from "@/platform/ui/input";
+import { Field } from "@/platform/ui/input";
 import type { ResolvedSetting } from "@/platform/settings/service";
 
 /**
@@ -33,11 +33,11 @@ export function BrandingImageField({
       <form action={uploadAction} encType="multipart/form-data" className="flex flex-wrap items-end gap-2">
         <input type="hidden" name="__asset" value={asset} />
         <Field label="Choose image">
-          <Input
+          <input
             type="file"
             name="file"
             accept="image/png,image/jpeg,image/webp,image/x-icon"
-            className="text-sm"
+            className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground-soft hover:file:bg-muted-strong"
           />
         </Field>
         <Button type="submit" variant="primary" size="sm">Upload</Button>

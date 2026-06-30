@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ReadonlyField } from "./input";
+import { ReadonlyField, Field } from "./input";
 
 describe("ReadonlyField", () => {
   it("renders the label as muted text and the value as static foreground text", () => {
@@ -25,5 +25,24 @@ describe("ReadonlyField", () => {
     const hint = el.props.children[2];
     expect(hint.props.children).toBe("Contact IT");
     expect(hint.props.className).toContain("text-subtle-foreground");
+  });
+});
+
+describe("Field", () => {
+  it("renders a required marker when required is true", () => {
+    const el = Field({ label: "Name", required: true, children: null });
+    const labelEl = el.props.children[0];
+    const labelSpan = labelEl.props.children[0];
+    const [, marker] = labelSpan.props.children;
+    expect(marker).toBeTruthy();
+    expect(marker.props.className).toContain("text-critical");
+  });
+
+  it("does not render a required marker by default", () => {
+    const el = Field({ label: "Name", children: null });
+    const labelEl = el.props.children[0];
+    const labelSpan = labelEl.props.children[0];
+    const [, marker] = labelSpan.props.children;
+    expect(marker).toBeFalsy();
   });
 });

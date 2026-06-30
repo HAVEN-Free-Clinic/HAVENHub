@@ -25,7 +25,7 @@ export default async function NewCampaignPage() {
         description="Give your campaign a name to get started."
       />
 
-      <form action={createAction}>
+      <form action={createAction} className="max-w-sm">
         <Card className="space-y-6">
           <Field label="Campaign name">
             <Input

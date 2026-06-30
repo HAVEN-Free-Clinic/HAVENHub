@@ -13,6 +13,13 @@ describe("Radio", () => {
     expect(input.props.className).toContain("outline-brand");
     expect(span.props.children).toBe("Yes");
   });
+
+  it("renders no label span when label is omitted", () => {
+    const el = Radio({ name: "answer", value: "yes" });
+    const children = el.props.children;
+    const second = Array.isArray(children) ? children[1] : undefined;
+    expect(second).toBeFalsy();
+  });
 });
 
 describe("RadioGroup", () => {

@@ -33,16 +33,21 @@ export function Textarea({
 export function Field({
   label,
   hint,
+  required,
   children,
 }: {
   label: string;
   hint?: string;
+  required?: boolean;
   children: ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-1">
       <label className="flex flex-col gap-1">
-        <span className="text-xs font-medium text-muted-foreground">{label}</span>
+        <span className="text-xs font-medium text-muted-foreground">
+          {label}
+          {required && <span className="text-critical" aria-hidden="true"> *</span>}
+        </span>
         {children}
       </label>
       {hint && <p className="text-xs text-subtle-foreground">{hint}</p>}

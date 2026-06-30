@@ -78,7 +78,7 @@ export default async function EditCycleEmailPage({ params, searchParams }: Props
           layoutSource={t.layoutSource}
           brandColor={brandColor}
         />
-        <FormActions className="mt-4">
+        <FormActions className="mt-2">
           <Button type="submit">Save</Button>
         </FormActions>
       </form>

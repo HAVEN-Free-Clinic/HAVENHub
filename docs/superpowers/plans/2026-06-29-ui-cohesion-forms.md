@@ -24,11 +24,11 @@
 ## File Structure
 
 **New files:**
-- `src/platform/ui/radio.tsx` + `src/platform/ui/radio.test.ts` — `Radio`, `RadioGroup`.
-- `src/platform/ui/form.tsx` + `src/platform/ui/form.test.ts` — `FormSection`, `FormActions`.
+- `src/platform/ui/radio.tsx` + `src/platform/ui/radio.test.ts`: `Radio`, `RadioGroup`.
+- `src/platform/ui/form.tsx` + `src/platform/ui/form.test.ts`: `FormSection`, `FormActions`.
 
 **Modified primitive file:**
-- `src/platform/ui/input.tsx` (+ new `src/platform/ui/input.test.ts`) — add `ReadonlyField` beside `Field`.
+- `src/platform/ui/input.tsx` (+ new `src/platform/ui/input.test.ts`): add `ReadonlyField` beside `Field`.
 
 **Migrated form files:** grouped by module in Tasks 5 to 12 (full inventory in each task). The three infra `<form>` files (`platform/ui/app-shell.tsx`, `combobox.tsx`, `submit-button.tsx`) are NOT touched.
 
@@ -56,7 +56,7 @@ After each file: confirm no `name`/`action`/`defaultValue` changed (diff review)
 - Test: `src/platform/ui/input.test.ts` (new)
 
 **Interfaces:**
-- Produces: `ReadonlyField({ label: string; value: ReactNode; hint?: string }): ReactElement` — a static (non-interactive, non-tab-stop) label+value display row with an optional hint. Empty `value` shows an italic "Not set" placeholder.
+- Produces: `ReadonlyField({ label: string; value: ReactNode; hint?: string }): ReactElement`: a static (non-interactive, non-tab-stop) label+value display row with an optional hint. Empty `value` shows an italic "Not set" placeholder.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -157,8 +157,8 @@ git commit -m "feat(ui): add ReadonlyField static display primitive"
 **Interfaces:**
 - Consumes: nothing from earlier tasks.
 - Produces:
-  - `Radio({ label: ReactNode } & ComponentProps<"input">): ReactElement` — a `<label>` wrapping a real `input[type=radio]` with the brand outline focus ring (matches `Checkbox`).
-  - `RadioGroup({ legend?: string; children: ReactNode; className?: string }): ReactElement` — `div[role=radiogroup]` with an optional legend.
+  - `Radio({ label: ReactNode } & ComponentProps<"input">): ReactElement`: a `<label>` wrapping a real `input[type=radio]` with the brand outline focus ring (matches `Checkbox`).
+  - `RadioGroup({ legend?: string; children: ReactNode; className?: string }): ReactElement`: `div[role=radiogroup]` with an optional legend.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -277,8 +277,8 @@ git commit -m "feat(ui): add Radio and RadioGroup primitives"
 
 **Interfaces:**
 - Produces:
-  - `FormSection({ title?: string; description?: string; children: ReactNode }): ReactElement` — a border-reset `<fieldset>` with an optional uppercase `<legend>` and optional description, `space-y-4` body.
-  - `FormActions({ children: ReactNode; align?: "start" | "end"; className?: string }): ReactElement` — a flex row footer for buttons, `pt-2`, optional right-align.
+  - `FormSection({ title?: string; description?: string; children: ReactNode }): ReactElement`: a border-reset `<fieldset>` with an optional uppercase `<legend>` and optional description, `space-y-4` body.
+  - `FormActions({ children: ReactNode; align?: "start" | "end"; className?: string }): ReactElement`: a flex row footer for buttons, `pt-2`, optional right-align.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -527,10 +527,10 @@ git commit -m "refactor(my-info): card the profile form and use ReadonlyField fo
 ## Task 5: Migrate my-info remaining components
 
 **Files (apply the Migration Recipe to each):**
-- Modify: `src/modules/my-info/components/epic-panel.tsx` — has a raw control + form; card the request form, route the control through `Field`+`Select`/`Input`, footer via `FormActions`. Replace any read-only Epic ID display with `ReadonlyField`.
-- Modify: `src/modules/my-info/components/hipaa-panel.tsx` — card the upload form; the file input stays a native `<input type="file">` (no file primitive) but wrap it in `Field` and keep its `name`. Submit area to `FormActions`.
-- Modify: `src/modules/my-info/components/certificate-viewer.tsx` — replace raw `<button>`s with `<Button variant=...>` (import from `@/platform/ui/button`); keep onClick handlers and labels.
-- Modify: `src/modules/my-info/components/memberships-card.tsx` — its `<form>` is a withdraw action button; ensure the action button uses `<SubmitButton>`/`<ConfirmButton>` and the surrounding surface uses `<Card>` if it hand-rolls one.
+- Modify: `src/modules/my-info/components/epic-panel.tsx`: has a raw control + form; card the request form, route the control through `Field`+`Select`/`Input`, footer via `FormActions`. Replace any read-only Epic ID display with `ReadonlyField`.
+- Modify: `src/modules/my-info/components/hipaa-panel.tsx`: card the upload form; the file input stays a native `<input type="file">` (no file primitive) but wrap it in `Field` and keep its `name`. Submit area to `FormActions`.
+- Modify: `src/modules/my-info/components/certificate-viewer.tsx`: replace raw `<button>`s with `<Button variant=...>` (import from `@/platform/ui/button`); keep onClick handlers and labels.
+- Modify: `src/modules/my-info/components/memberships-card.tsx`: its `<form>` is a withdraw action button; ensure the action button uses `<SubmitButton>`/`<ConfirmButton>` and the surrounding surface uses `<Card>` if it hand-rolls one.
 
 - [ ] **Step 1: Apply the recipe to each file above**
 
@@ -573,18 +573,18 @@ git commit -m "refactor(my-info): migrate epic, hipaa, certificate, memberships 
 ## Task 6: Migrate admin module components
 
 **Files (apply the Migration Recipe):**
-- `src/modules/admin/components/person-form.tsx` — already primitive-heavy; card it, convert any read-only rows to `ReadonlyField`, footer to `FormActions`.
+- `src/modules/admin/components/person-form.tsx`: already primitive-heavy; card it, convert any read-only rows to `ReadonlyField`, footer to `FormActions`.
 - `src/modules/admin/components/department-form.tsx`
 - `src/modules/admin/components/term-form.tsx`
 - `src/modules/admin/components/subcommittee-form.tsx`
-- `src/modules/admin/components/assignment-form.tsx` — note: the embedded search box is an inline utility; keep it inline (not carded) but route its input through `Input`/`Field`.
+- `src/modules/admin/components/assignment-form.tsx`: note: the embedded search box is an inline utility; keep it inline (not carded) but route its input through `Input`/`Field`.
 - `src/modules/admin/components/delegation-editor.tsx`
 - `src/modules/admin/components/clinic-dates-editor.tsx`
 - `src/modules/admin/components/roles-panel.tsx`
 - `src/modules/admin/components/roster-panel.tsx`
 - `src/modules/admin/components/person-memberships-panel.tsx`
-- `src/modules/admin/components/epic-request-form.tsx` — has hand-rolled checkbox(es): convert to `<Checkbox>`.
-- `src/modules/admin/components/ticket-number-field.tsx` — raw `<input>` + raw `<button>`s: route input through `Input` (or keep compact but use the `rounded-lg` token), buttons to `<Button size="sm">`.
+- `src/modules/admin/components/epic-request-form.tsx`: has hand-rolled checkbox(es): convert to `<Checkbox>`.
+- `src/modules/admin/components/ticket-number-field.tsx`: raw `<input>` + raw `<button>`s: route input through `Input` (or keep compact but use the `rounded-lg` token), buttons to `<Button size="sm">`.
 
 - [ ] **Step 1: Apply the recipe to each file**
 
@@ -616,19 +616,19 @@ git commit -m "refactor(admin): migrate admin component forms to canonical patte
 ## Task 7: Migrate admin pages
 
 **Files (apply the Migration Recipe):**
-- `src/app/(app)/admin/settings/page.tsx` — each setting is already in a `Card`; replace ad-hoc `text-sm font-medium` labels with `Field`, route raw controls through `Input`/`Select`/`Textarea`, replace direct `buttonClasses(...)` on raw `<button>` with `<Button>`. Submit areas to `FormActions`.
-- `src/app/(app)/admin/settings/branding-image-field.tsx` — raw input + button: `Field`+`Input` (file input pattern from Task 5), `<Button>`.
+- `src/app/(app)/admin/settings/page.tsx`: each setting is already in a `Card`; replace ad-hoc `text-sm font-medium` labels with `Field`, route raw controls through `Input`/`Select`/`Textarea`, replace direct `buttonClasses(...)` on raw `<button>` with `<Button>`. Submit areas to `FormActions`.
+- `src/app/(app)/admin/settings/branding-image-field.tsx`: raw input + button: `Field`+`Input` (file input pattern from Task 5), `<Button>`.
 - `src/app/(app)/admin/people/[id]/page.tsx`
 - `src/app/(app)/admin/people/page.tsx` (search/filter form: keep inline, primitive controls only)
 - `src/app/(app)/admin/terms/[id]/page.tsx`
-- `src/app/(app)/admin/notifications/page.tsx` — raw controls to primitives.
+- `src/app/(app)/admin/notifications/page.tsx`: raw controls to primitives.
 - `src/app/(app)/admin/audit/page.tsx` (filter form: inline, primitives)
 - `src/app/(app)/admin/email/page.tsx`
 - `src/app/(app)/admin/email/campaigns/new/page.tsx`
 - `src/app/(app)/admin/email/campaigns/[id]/page.tsx`
-- `src/app/(app)/admin/email/campaigns/[id]/audience-builder.tsx` — hand-rolled checkbox/radio + raw controls: convert to `Checkbox`/`Radio`/`Input`.
+- `src/app/(app)/admin/email/campaigns/[id]/audience-builder.tsx`: hand-rolled checkbox/radio + raw controls: convert to `Checkbox`/`Radio`/`Input`.
 - `src/app/(app)/admin/email/templates/[key]/page.tsx`
-- `src/app/(app)/admin/email/templates/[key]/preview.tsx` — raw control(s) to primitives.
+- `src/app/(app)/admin/email/templates/[key]/preview.tsx`: raw control(s) to primitives.
 
 - [ ] **Step 1: Apply the recipe to each file**
 
@@ -664,7 +664,7 @@ git commit -m "refactor(admin): migrate admin page forms to canonical pattern"
 - `src/app/(app)/recruitment/cycles/new/page.tsx`
 - `src/app/(app)/recruitment/cycles/[id]/builder/field-card.tsx`
 - `src/app/(app)/recruitment/cycles/[id]/builder/section-card.tsx`
-- `src/app/(app)/recruitment/cycles/[id]/builder/options-editor.tsx` — hand-rolled checkbox/radio + raw inputs: convert to `Checkbox`/`Radio`/`Input`.
+- `src/app/(app)/recruitment/cycles/[id]/builder/options-editor.tsx`: hand-rolled checkbox/radio + raw inputs: convert to `Checkbox`/`Radio`/`Input`.
 - `src/app/(app)/recruitment/cycles/[id]/builder/quiz/quiz-builder.tsx`
 - `src/app/(app)/recruitment/cycles/[id]/onboarding/page.tsx`
 - `src/app/(app)/recruitment/cycles/[id]/training/page.tsx`
@@ -709,7 +709,7 @@ git commit -m "refactor(recruitment): migrate cycle, builder, and interview form
 **Files (apply the Migration Recipe):**
 - `src/app/(app)/learning/manage/page.tsx`
 - `src/app/(app)/learning/manage/[courseId]/page.tsx`
-- `src/app/(app)/learning/manage/[courseId]/UploadPackageForm.tsx` — hand-rolled checkbox (the resetProgress replace checkbox) + file input + raw controls: convert checkbox to `<Checkbox>`, file input via the Task 5 file pattern, card the form, footer to `FormActions`. Preserve the `resetProgress` checkbox `name` and its "shown only on replace" conditional.
+- `src/app/(app)/learning/manage/[courseId]/UploadPackageForm.tsx`: hand-rolled checkbox (the resetProgress replace checkbox) + file input + raw controls: convert checkbox to `<Checkbox>`, file input via the Task 5 file pattern, card the form, footer to `FormActions`. Preserve the `resetProgress` checkbox `name` and its "shown only on replace" conditional.
 - `src/app/(app)/learning/dashboard/page.tsx`
 
 - [ ] **Step 1: Apply the recipe to each file**
@@ -742,12 +742,12 @@ git commit -m "refactor(learning): migrate manage and upload forms to canonical 
 ## Task 10: Migrate schedule forms
 
 **Files (apply the Migration Recipe, forms only):**
-- `src/modules/schedule/components/attending-form.tsx` — hand-rolled checkbox + raw controls: convert to `Checkbox`/primitives, card if it is a primary form.
+- `src/modules/schedule/components/attending-form.tsx`: hand-rolled checkbox + raw controls: convert to `Checkbox`/primitives, card if it is a primary form.
 - `src/modules/schedule/components/capacity-panel.tsx`
 - `src/modules/schedule/components/pending-requests.tsx`
 - `src/modules/schedule/components/readiness-panel.tsx`
-- `src/app/(app)/schedule/page.tsx` — hand-rolled checkbox + raw controls in the page-level forms only. The shift cards and hero are surfaces (Phase 2); do not card them here.
-- `src/app/(app)/schedule/builder/page.tsx` — form parts only (filters/inputs). `builder-cell.tsx` raw buttons are Phase 4; do not touch them here.
+- `src/app/(app)/schedule/page.tsx`: hand-rolled checkbox + raw controls in the page-level forms only. The shift cards and hero are surfaces (Phase 2); do not card them here.
+- `src/app/(app)/schedule/builder/page.tsx`: form parts only (filters/inputs). `builder-cell.tsx` raw buttons are Phase 4; do not touch them here.
 
 - [ ] **Step 1: Apply the recipe to the form parts only**
 
@@ -785,7 +785,7 @@ git commit -m "refactor(schedule): migrate schedule form controls to canonical p
 - `src/app/(app)/volunteers/offboarding/page.tsx`
 - `src/app/(app)/volunteers/spanish-review/page.tsx`
 - `src/app/(app)/volunteers/epic/page.tsx`
-- `src/app/(app)/volunteers/epic/select-all-checkbox.tsx` — hand-rolled checkbox: convert to `<Checkbox>`, preserve its select-all onClick/indeterminate behavior.
+- `src/app/(app)/volunteers/epic/select-all-checkbox.tsx`: hand-rolled checkbox: convert to `<Checkbox>`, preserve its select-all onClick/indeterminate behavior.
 
 - [ ] **Step 1: Apply the recipe to each file**
 
@@ -819,11 +819,11 @@ git commit -m "refactor(volunteers): migrate volunteer forms to canonical patter
 These are the highest-divergence forms. Card the primary public forms; keep the login dev box inline but on primitives.
 
 **Files:**
-- `src/app/apply/[slug]/apply-form.tsx` — replace the custom `FieldPreview` component and hand-rolled radios with `Field`+`Input`/`Textarea`/`Select` and `RadioGroup`/`Radio`; card the form; footer to `FormActions`. Preserve every field `name` and the dynamic field rendering keyed by the form schema.
-- `src/app/apply/sign-in-form.tsx` — replace hand-rolled label + raw input with `Field`+`Input`; submit via `<SubmitButton>`. This is a small form; card it for a finished look (it is a primary action, not a filter).
+- `src/app/apply/[slug]/apply-form.tsx`: replace the custom `FieldPreview` component and hand-rolled radios with `Field`+`Input`/`Textarea`/`Select` and `RadioGroup`/`Radio`; card the form; footer to `FormActions`. Preserve every field `name` and the dynamic field rendering keyed by the form schema.
+- `src/app/apply/sign-in-form.tsx`: replace hand-rolled label + raw input with `Field`+`Input`; submit via `<SubmitButton>`. This is a small form; card it for a finished look (it is a primary action, not a filter).
 - `src/app/apply/page.tsx`
-- `src/app/onboard/[token]/onboard-form.tsx` — replace the custom `field()` helper and hand-rolled checkboxes with `Field`+`Input` and `<Checkbox>`; group with `FormSection`; card the form. Preserve field `name`s and the contract-capture wiring.
-- `src/app/login/page.tsx` — the dev-mode box: route its raw `<input>`/`<button>` through `Input`/`Button` and use `Field` labels; keep it inline (not carded), preserve the dev login action.
+- `src/app/onboard/[token]/onboard-form.tsx`: replace the custom `field()` helper and hand-rolled checkboxes with `Field`+`Input` and `<Checkbox>`; group with `FormSection`; card the form. Preserve field `name`s and the contract-capture wiring.
+- `src/app/login/page.tsx`: the dev-mode box: route its raw `<input>`/`<button>` through `Input`/`Button` and use `Field` labels; keep it inline (not carded), preserve the dev login action.
 - `src/app/get-started/page.tsx`
 - `src/app/welcome/page.tsx`
 

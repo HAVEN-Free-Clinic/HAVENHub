@@ -12,7 +12,7 @@ export function Radio({
   label,
   className,
   ...rest
-}: { label: ReactNode } & ComponentProps<"input">) {
+}: { label?: ReactNode } & ComponentProps<"input">) {
   return (
     <label className="flex items-center gap-2 text-sm">
       <input
@@ -25,7 +25,7 @@ export function Radio({
           className,
         )}
       />
-      <span>{label}</span>
+      {label != null && <span>{label}</span>}
     </label>
   );
 }

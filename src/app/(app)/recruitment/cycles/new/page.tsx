@@ -42,7 +42,7 @@ export default async function NewCyclePage({ searchParams }: PageProps) {
               ))}
             </Select>
           </Field>
-          <Field label="Public slug" hint="Optional — auto-generated from the title if left blank.">
+          <Field label="Public slug" hint="Optional, auto-generated from the title if left blank.">
             <Input name="publicSlug" placeholder="auto from title" />
           </Field>
           <Field label="Departments" hint="Comma-separated department codes, e.g. SRHD, MDIC.">

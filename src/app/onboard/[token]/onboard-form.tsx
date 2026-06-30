@@ -41,19 +41,19 @@ export function OnboardForm({ token, prefill }: { token: string; prefill: Prefil
 
         <FormSection title="Your information">
           <div>
-            <Field label="First name">
+            <Field label="First name" required>
               <Input name="firstName" defaultValue={prefill.firstName} required />
             </Field>
             {err("firstName") && <p className="mt-1 text-xs text-critical">{err("firstName")}</p>}
           </div>
           <div>
-            <Field label="Last name">
+            <Field label="Last name" required>
               <Input name="lastName" defaultValue={prefill.lastName} required />
             </Field>
             {err("lastName") && <p className="mt-1 text-xs text-critical">{err("lastName")}</p>}
           </div>
           <div>
-            <Field label="Email">
+            <Field label="Email" required>
               <Input name="email" type="email" defaultValue={prefill.email} required />
             </Field>
             {err("email") && <p className="mt-1 text-xs text-critical">{err("email")}</p>}
@@ -98,25 +98,25 @@ export function OnboardForm({ token, prefill }: { token: string; prefill: Prefil
 
         <FormSection title="Acknowledgements">
           <div>
-            <Field label="Volunteer agreement (type your full name)">
+            <Field label="Volunteer agreement (type your full name)" required>
               <Input name="agreementSignature" required />
             </Field>
             {err("agreementSignature") && <p className="mt-1 text-xs text-critical">{err("agreementSignature")}</p>}
           </div>
           <div>
-            <Field label="Professionalism policy (type your full name)">
+            <Field label="Professionalism policy (type your full name)" required>
               <Input name="professionalismSignature" required />
             </Field>
             {err("professionalismSignature") && <p className="mt-1 text-xs text-critical">{err("professionalismSignature")}</p>}
           </div>
           <div>
-            <Field label="Training acknowledgement (type your full name)">
+            <Field label="Training acknowledgement (type your full name)" required>
               <Input name="trainingSignature" required />
             </Field>
             {err("trainingSignature") && <p className="mt-1 text-xs text-critical">{err("trainingSignature")}</p>}
           </div>
           <div>
-            <Field label="Initials">
+            <Field label="Initials" required>
               <Input name="initials" required />
             </Field>
             {err("initials") && <p className="mt-1 text-xs text-critical">{err("initials")}</p>}
@@ -134,7 +134,7 @@ export function OnboardForm({ token, prefill }: { token: string; prefill: Prefil
           </label>
           {hasEpic && (
             <div>
-              <Field label="Existing EPIC ID">
+              <Field label="Existing EPIC ID" required>
                 <Input name="existingEpicId" required />
               </Field>
               {err("existingEpicId") && <p className="mt-1 text-xs text-critical">{err("existingEpicId")}</p>}
@@ -165,14 +165,19 @@ export function OnboardForm({ token, prefill }: { token: string; prefill: Prefil
 
         <FormSection title="HIPAA">
           <div>
-            <Field label="HIPAA completion date">
+            <Field label="HIPAA completion date" required>
               <Input name="hipaaCompletedAt" type="date" required min={minHipaa} max={maxHipaa} />
             </Field>
             {err("hipaaCompletedAt") && <p className="mt-1 text-xs text-critical">{err("hipaaCompletedAt")}</p>}
           </div>
           <div>
-            <Field label="HIPAA certificate (PDF)">
-              <Input name="hipaaFile" type="file" accept="application/pdf,image/*" className="cursor-pointer" />
+            <Field label="HIPAA certificate (PDF)" required>
+              <input
+                name="hipaaFile"
+                type="file"
+                accept="application/pdf,image/*"
+                className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground-soft hover:file:bg-muted-strong"
+              />
             </Field>
             {err("hipaaFile") && <p className="mt-1 text-xs text-critical">{err("hipaaFile")}</p>}
           </div>

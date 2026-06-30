@@ -2,6 +2,9 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
   testDir: "e2e",
+  // Limit concurrency so the Next.js dev server is not overwhelmed.
+  // The dev server compiles on demand and cannot handle many parallel requests.
+  workers: 2,
   use: { baseURL: "http://localhost:3100" },
   webServer: {
     command: "npm run dev -- --port 3100",

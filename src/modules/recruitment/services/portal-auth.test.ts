@@ -91,6 +91,32 @@ it("builds the magic link from the configurable app.baseUrl setting, not the raw
   expect(mail.html).not.toContain("http://localhost:3000/apply/verify");
 });
 
+it("threads a safe deep-link next into the magic-link verify URL", async () => {
+  // An applicant who started /apply/<slug> while signed out should land back on
+  // that form after clicking the emailed link, so the verify URL must carry next.
+  await requestMagicLink("reed@yale.edu", "/apply/spring-2026?type=renewal");
+
+  const mail = await prisma.emailLog.findFirstOrThrow({ where: { template: "recruitment.portal_link" } });
+  expect(mail.html).toContain("/apply/verify?token=");
+  expect(mail.html).toContain(`next=${encodeURIComponent("/apply/spring-2026?type=renewal")}`);
+});
+
+it("strips an unsafe next from the magic-link verify URL (no open redirect)", async () => {
+  await requestMagicLink("reed@yale.edu", "//evil.com");
+
+  const mail = await prisma.emailLog.findFirstOrThrow({ where: { template: "recruitment.portal_link" } });
+  expect(mail.html).not.toContain("evil.com");
+  expect(mail.html).not.toContain("next=");
+});
+
+it("omits next entirely when no deep-link target is given", async () => {
+  await requestMagicLink("reed@yale.edu");
+
+  const mail = await prisma.emailLog.findFirstOrThrow({ where: { template: "recruitment.portal_link" } });
+  expect(mail.html).toContain("/apply/verify?token=");
+  expect(mail.html).not.toContain("next=");
+});
+
 // ---------------------------------------------------------------------------
 // getApplicantIdentity: SSO session wins, cookie-only path, neither -> null
 // ---------------------------------------------------------------------------

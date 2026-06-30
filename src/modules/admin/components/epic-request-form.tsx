@@ -26,6 +26,7 @@ import { Card } from "@/platform/ui/card";
 import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
 import { Checkbox } from "@/platform/ui/checkbox";
+import { SectionHeader } from "@/platform/ui/section-header";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -209,7 +210,7 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
     <div className="space-y-8">
       {/* ── Step 1: Configuration ── */}
       <Card pad={false} className="p-6 space-y-5">
-        <h2 className="text-base font-semibold text-foreground">1. Configure request</h2>
+        <SectionHeader level="title">1. Configure request</SectionHeader>
 
         <div className="grid gap-4 sm:grid-cols-3">
           <Field label="Authorizer">
@@ -303,9 +304,7 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
 
       {/* ── Step 2: Person selection ── */}
       <Card pad={false} className="p-6 space-y-5">
-        <h2 className="text-base font-semibold text-foreground">
-          2. Select {isBulk ? "people" : "person"}
-        </h2>
+        <SectionHeader level="title">2. Select {isBulk ? "people" : "person"}</SectionHeader>
 
         {isDeactivate ? (
           <div className="space-y-1">
@@ -465,7 +464,7 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
 
       {/* ── Step 3: Generate ── */}
       <Card pad={false} className="p-6 space-y-5">
-        <h2 className="text-base font-semibold text-foreground">3. Generate</h2>
+        <SectionHeader level="title">3. Generate</SectionHeader>
 
         {error && <Alert tone="error">{error}</Alert>}
 

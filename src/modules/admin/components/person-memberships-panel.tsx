@@ -29,6 +29,7 @@ import { Select } from "@/platform/ui/select";
 import { Alert } from "@/platform/ui/alert";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
+import { SectionHeader } from "@/platform/ui/section-header";
 
 type Props = {
   personId: string;
@@ -127,7 +128,7 @@ export async function PersonMembershipsPanel({
 
   return (
     <section className="space-y-6">
-      <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Memberships</h2>
+      <SectionHeader>Memberships</SectionHeader>
       {rosterError && <Alert tone="error">{rosterError}</Alert>}
 
       {activeTerm ? (

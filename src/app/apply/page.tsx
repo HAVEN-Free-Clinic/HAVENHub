@@ -9,6 +9,7 @@ import { Alert } from "@/platform/ui/alert";
 import { Card, cardClasses } from "@/platform/ui/card";
 import { getSetting } from "@/platform/settings/service";
 import { safeNextPath, PORTAL_HOME } from "@/modules/recruitment/services/portal-next";
+import { SectionHeader } from "@/platform/ui/section-header";
 
 export const dynamic = "force-dynamic";
 
@@ -56,7 +57,7 @@ export default async function PortalHome({ searchParams }: { searchParams: Promi
 
       {myApps.length > 0 && (
         <section className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Your applications</h2>
+          <SectionHeader>Your applications</SectionHeader>
           <ul className="space-y-2">
             {myApps.map((a) => (
               <li key={a.slug}>
@@ -78,7 +79,7 @@ export default async function PortalHome({ searchParams }: { searchParams: Promi
       )}
 
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Open applications</h2>
+        <SectionHeader>Open applications</SectionHeader>
         {openCycles.length === 0 && <p className="text-sm text-subtle-foreground">No applications are open right now.</p>}
         <ul className="space-y-2">
           {openCycles.map((c) => (

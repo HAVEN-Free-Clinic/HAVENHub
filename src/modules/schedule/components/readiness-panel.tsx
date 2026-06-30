@@ -16,6 +16,7 @@ import { Select } from "@/platform/ui/select";
 import { PROCEDURE_KEYS } from "@/modules/schedule/engine/rhd";
 import type { BuilderRhd } from "@/modules/schedule/services/builder";
 import type { ProcedureKey, ProcedureStatus } from "@/modules/schedule/engine/rhd";
+import { SectionHeader } from "@/platform/ui/section-header";
 
 // ---------------------------------------------------------------------------
 // Label maps
@@ -133,9 +134,7 @@ export function ReadinessPanel({
 
       {/* Readiness readout */}
       <div className="flex flex-col gap-3 border-t border-border-subtle pt-3">
-        <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-          Readiness
-        </h3>
+        <SectionHeader>Readiness</SectionHeader>
 
         {/* Closed badge */}
         {readiness.closed && (

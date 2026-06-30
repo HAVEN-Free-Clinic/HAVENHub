@@ -14,6 +14,7 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
 import { Alert } from "@/platform/ui/alert";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
+import { SectionHeader } from "@/platform/ui/section-header";
 import { ClinicDatesEditor } from "@/modules/admin/components/clinic-dates-editor";
 import { RosterPanel } from "@/modules/admin/components/roster-panel";
 
@@ -178,9 +179,7 @@ export default async function TermDetailPage({ params, searchParams }: PageProps
       {/* Lifecycle section */}
       {canManageTerms && (
         <section>
-          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-            Lifecycle
-          </h2>
+          <SectionHeader className="mb-4">Lifecycle</SectionHeader>
           {term.status === "ACTIVE" ? (
             <form action={archiveAction}>
               <p className="mb-3 text-sm text-muted-foreground">
@@ -201,9 +200,7 @@ export default async function TermDetailPage({ params, searchParams }: PageProps
       {/* Clinic dates section */}
       {canManageTerms && (
         <section>
-          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-            Clinic dates
-          </h2>
+          <SectionHeader className="mb-4">Clinic dates</SectionHeader>
           <p className="mb-4 text-sm text-muted-foreground">
             {term.clinicDates.length} date(s) scheduled. All dates are stored and rendered in UTC.
           </p>

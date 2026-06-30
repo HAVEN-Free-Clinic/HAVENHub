@@ -13,6 +13,7 @@ import { Badge } from "@/platform/ui/badge";
 import { can } from "@/platform/rbac/engine";
 import { PersonMembershipsPanel } from "@/modules/admin/components/person-memberships-panel";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
+import { SectionHeader } from "@/platform/ui/section-header";
 
 type PageProps = {
   params: Promise<{ id: string }>;
@@ -105,9 +106,7 @@ export default async function PersonDetailPage({ params, searchParams }: PagePro
 
       {/* Edit form */}
       <section>
-        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-          Details
-        </h2>
+        <SectionHeader className="mb-4">Details</SectionHeader>
         <PersonForm
           action={updateAction}
           person={person}
@@ -125,9 +124,7 @@ export default async function PersonDetailPage({ params, searchParams }: PagePro
 
       {/* Status section */}
       <section>
-        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-          Status
-        </h2>
+        <SectionHeader className="mb-4">Status</SectionHeader>
         {person.status === "ACTIVE" ? (
           <form action={offboardAction}>
             <p className="mb-3 text-sm text-muted-foreground">

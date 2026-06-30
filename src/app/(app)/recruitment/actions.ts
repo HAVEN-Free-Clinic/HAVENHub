@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requirePermission } from "@/platform/auth/session";
 import {
-  createCycle, publishCycle, closeCycle, setAcceptsRenewals, setCycleDepartments, CyclePublishError,
+  createCycle, publishCycle, closeCycle, setAcceptsRenewals, setCycleDepartments, setApplicationWindow, CyclePublishError,
 } from "@/modules/recruitment/services/cycles";
 import { setTrainingCycle, updateQuizSettings, TrainingStateError } from "@/modules/recruitment/services/training";
 import { RecruitmentAuthError } from "@/modules/recruitment/services/review";
@@ -81,6 +81,26 @@ export async function setCycleDepartmentsAction(cycleId: string, formData: FormD
     throw err;
   }
   redirect(`/recruitment/cycles/${cycleId}?${warn ? `deptwarn=${encodeURIComponent(warn)}` : "deptsaved=1"}`);
+}
+
+export async function setApplicationWindowAction(cycleId: string, formData: FormData) {
+  const person = await requirePermission("recruitment.manage_cycles");
+  const rawOpens = String(formData.get("opensAt") ?? "").trim();
+  const rawCloses = String(formData.get("closesAt") ?? "").trim();
+  const opensAt = rawOpens ? new Date(rawOpens) : null;
+  const closesAt = rawCloses ? new Date(rawCloses) : null;
+  if ((opensAt && Number.isNaN(opensAt.getTime())) || (closesAt && Number.isNaN(closesAt.getTime()))) {
+    redirect(`/recruitment/cycles/${cycleId}?error=${encodeURIComponent("Enter valid dates for the application window.")}`);
+  }
+  try {
+    await setApplicationWindow(cycleId, { opensAt, closesAt }, person.personId);
+  } catch (err) {
+    if (err instanceof CyclePublishError) {
+      redirect(`/recruitment/cycles/${cycleId}?error=${encodeURIComponent(err.message)}`);
+    }
+    throw err;
+  }
+  redirect(`/recruitment/cycles/${cycleId}?windowsaved=1`);
 }
 
 export async function setTrainingCycleAction(cycleId: string, value: boolean) {

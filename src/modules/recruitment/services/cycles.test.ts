@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import {
-  createCycle, publishCycle, closeCycle, listCycles, CyclePublishError, setCycleDepartments,
+  createCycle, publishCycle, closeCycle, listCycles, CyclePublishError, setCycleDepartments, setApplicationWindow,
 } from "./cycles";
 
 async function seedTermAndPerson() {
@@ -136,5 +136,62 @@ describe("setCycleDepartments", () => {
     expect(audit).not.toBeNull();
     expect((audit!.before as { departments: string[] }).departments).toEqual(["SRHD"]);
     expect((audit!.after as { departments: string[] }).departments).toEqual(["SRHD", "MDIC"]);
+  });
+});
+
+describe("setApplicationWindow", () => {
+  async function draftCycle(slug: string) {
+    const { person, term } = await seedTermAndPerson();
+    const cycle = await createCycle({
+      track: "VOLUNTEER", termId: term.id, title: "V", publicSlug: slug,
+      departments: [], acceptsRenewals: false, createdById: person.id,
+    });
+    return { person, cycle };
+  }
+
+  it("sets the open and close dates on a draft cycle", async () => {
+    const { person, cycle } = await draftCycle("win-draft");
+    const opensAt = new Date("2026-07-01T13:00:00.000Z");
+    const closesAt = new Date("2026-07-15T13:00:00.000Z");
+    const updated = await setApplicationWindow(cycle.id, { opensAt, closesAt }, person.id);
+    expect(updated.opensAt?.getTime()).toBe(opensAt.getTime());
+    expect(updated.closesAt?.getTime()).toBe(closesAt.getTime());
+  });
+
+  it("sets the window on an open cycle and clears it back to null", async () => {
+    const { person, cycle } = await draftCycle("win-open");
+    await publishCycle(cycle.id, person.id);
+    await setApplicationWindow(cycle.id, { opensAt: new Date("2026-07-01T13:00:00.000Z"), closesAt: new Date("2026-07-15T13:00:00.000Z") }, person.id);
+    const cleared = await setApplicationWindow(cycle.id, { opensAt: null, closesAt: null }, person.id);
+    expect(cleared.opensAt).toBeNull();
+    expect(cleared.closesAt).toBeNull();
+  });
+
+  it("rejects an open date later than the close date", async () => {
+    const { person, cycle } = await draftCycle("win-inverted");
+    await expect(
+      setApplicationWindow(cycle.id, { opensAt: new Date("2026-07-15T13:00:00.000Z"), closesAt: new Date("2026-07-01T13:00:00.000Z") }, person.id),
+    ).rejects.toBeInstanceOf(CyclePublishError);
+  });
+
+  it("rejects a missing cycle", async () => {
+    const { person } = await seedTermAndPerson();
+    await expect(setApplicationWindow("missing", { opensAt: null, closesAt: null }, person.id)).rejects.toBeInstanceOf(CyclePublishError);
+  });
+
+  it("rejects setting a window on a closed cycle", async () => {
+    const { person, cycle } = await draftCycle("win-closed");
+    await publishCycle(cycle.id, person.id);
+    await closeCycle(cycle.id, person.id);
+    await expect(setApplicationWindow(cycle.id, { opensAt: null, closesAt: null }, person.id)).rejects.toBeInstanceOf(CyclePublishError);
+  });
+
+  it("records an audit entry with the before and after window", async () => {
+    const { person, cycle } = await draftCycle("win-audit");
+    const closesAt = new Date("2026-07-15T13:00:00.000Z");
+    await setApplicationWindow(cycle.id, { opensAt: null, closesAt }, person.id);
+    const audit = await prisma.auditLog.findFirst({ where: { entityId: cycle.id, action: "recruitment.cycle_set_window" } });
+    expect(audit).not.toBeNull();
+    expect((audit!.after as { closesAt: string | null }).closesAt).toBe(closesAt.toISOString());
   });
 });

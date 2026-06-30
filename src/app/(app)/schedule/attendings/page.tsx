@@ -5,6 +5,7 @@ import { listAttendings, canManageAnyRhdDept, CAPABILITY_KEYS, CAPABILITY_LABELS
 import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
 import { buttonClasses } from "@/platform/ui/button";
+import { Card } from "@/platform/ui/card";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 
 export default async function AttendingsListPage() {
@@ -23,9 +24,9 @@ export default async function AttendingsListPage() {
         </Link>
       </div>
       {attendings.length === 0 ? (
-        <div className="rounded-2xl border border-border bg-surface px-6 py-10 text-center text-sm text-muted-foreground">
+        <Card pad={false} className="px-6 py-10 text-center text-sm text-muted-foreground">
           No attendings yet.
-        </div>
+        </Card>
       ) : (
         <Table>
           <THead>

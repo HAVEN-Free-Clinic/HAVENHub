@@ -3,6 +3,7 @@ import { requirePermission } from "@/platform/auth/session";
 import { listCampaigns } from "@/platform/email/campaigns/service";
 import { PageHeader } from "@/platform/ui/page-header";
 import { buttonClasses } from "@/platform/ui/button";
+import { cardClasses } from "@/platform/ui/card";
 
 function fmtDate(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -41,7 +42,7 @@ export default async function EmailCampaignsPage() {
           </Link>
         </div>
       ) : (
-        <ul className="divide-y rounded-2xl border border-border bg-surface">
+        <ul className={`${cardClasses({ pad: false })} divide-y`}>
           {campaigns.map((c) => (
             <li key={c.id} className="flex items-center justify-between px-5 py-3">
               <span>

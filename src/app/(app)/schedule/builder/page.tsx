@@ -627,7 +627,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
 
               {/* HIPAA banner */}
               {data.banner.length > 0 && (
-                <div role="status" className="mb-4 rounded-xl border border-border bg-surface px-4 py-3 text-sm text-foreground-soft">
+                <Card size="compact" pad={false} role="status" className="mb-4 px-4 py-3 text-sm text-foreground-soft">
                   <p className="font-semibold mb-1 flex items-center gap-1.5 text-foreground">
                     <AlertTriangle className="h-4 w-4 shrink-0 text-warning" aria-hidden />
                     HIPAA issues on this date
@@ -639,7 +639,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                       ))
                     )}
                   </ul>
-                </div>
+                </Card>
               )}
 
               {/* Directors */}
@@ -655,7 +655,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                       const m = memberByPersonId.get(pid);
                       const name = m?.person.name ?? pid;
                       return (
-                        <div key={pid} className="rounded-2xl border border-border bg-surface shadow-sm px-3 py-2 flex items-center justify-between">
+                        <Card key={pid} pad={false} className="px-3 py-2 flex items-center justify-between">
                           <span className="flex flex-wrap items-center gap-2">
                             <span className="text-sm font-bold text-foreground">{name}</span>
                             {m?.person && flagBadges(m.person)}
@@ -666,7 +666,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                             <input type="hidden" name="personId" value={pid} />
                             <ConfirmButton label="Remove" confirmLabel="Remove this director?" />
                           </form>
-                        </div>
+                        </Card>
                       );
                     })}
                   </div>
@@ -689,7 +689,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                       const tags = assignment.tags;
                       const personConflicts = conflicts[pid] ?? [];
                       return (
-                        <div key={pid} className="rounded-2xl border border-border bg-surface shadow-sm px-3 py-2">
+                        <Card key={pid} pad={false} className="px-3 py-2">
                           <div className="flex flex-wrap items-center gap-2 text-sm">
                             <span className="font-medium text-foreground">{name}</span>
                             {m?.person && flagBadges(m.person)}
@@ -718,7 +718,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                             <Input name="reason" aria-label="Removal reason" placeholder="Reason (optional)" className="flex-1 min-w-32 py-1 text-xs" />
                             <ConfirmButton label="Remove" confirmLabel="Remove this volunteer?" />
                           </form>
-                        </div>
+                        </Card>
                       );
                     })}
                   </div>
@@ -738,7 +738,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                       const m = memberByPersonId.get(pid);
                       const name = m?.person.name ?? pid;
                       return (
-                        <div key={pid} className="rounded-2xl border border-border bg-surface shadow-sm px-3 py-2 flex items-center justify-between">
+                        <Card key={pid} pad={false} className="px-3 py-2 flex items-center justify-between">
                           <span className="flex flex-wrap items-center gap-2">
                             <span className="text-sm font-medium text-foreground-soft">{name}</span>
                             {m?.person && flagBadges(m.person)}
@@ -749,7 +749,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                             <input type="hidden" name="personId" value={pid} />
                             <ConfirmButton label="Remove" confirmLabel="Remove this shadow?" />
                           </form>
-                        </div>
+                        </Card>
                       );
                     })}
                   </div>

@@ -14,6 +14,7 @@ import { Select } from "@/platform/ui/select";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Button } from "@/platform/ui/button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
+import { Card } from "@/platform/ui/card";
 
 export type BuilderField = PreviewFieldDef & { id: string; correctValue: string | null };
 
@@ -52,7 +53,7 @@ export function FieldCard({
   }
 
   return (
-    <div className="group rounded-xl border border-border bg-surface p-3 shadow-sm">
+    <Card size="compact" className="group">
       <div className="flex items-start gap-2">
         <button
           type="button"
@@ -154,6 +155,6 @@ export function FieldCard({
           )}
         </div>
       )}
-    </div>
+    </Card>
   );
 }

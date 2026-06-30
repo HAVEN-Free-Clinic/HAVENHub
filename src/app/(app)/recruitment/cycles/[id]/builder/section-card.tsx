@@ -12,6 +12,7 @@ import { Select } from "@/platform/ui/select";
 import { Button } from "@/platform/ui/button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Alert } from "@/platform/ui/alert";
+import { Card } from "@/platform/ui/card";
 
 export type BuilderSection = {
   id: string;
@@ -78,7 +79,7 @@ export function SectionCard({
       </div>
 
       {showSettings && (
-        <div className="mt-3 grid gap-3 rounded-xl border border-border-subtle bg-surface p-3 sm:grid-cols-2">
+        <Card size="compact" className="mt-3 grid gap-3 sm:grid-cols-2">
           <Field label="Title">
             <Input defaultValue={section.title} onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== section.title) saveSection({ title: v }); }} />
           </Field>
@@ -95,7 +96,7 @@ export function SectionCard({
           <Field label="Department code" hint="Supplement only.">
             <Input defaultValue={section.departmentCode ?? ""} disabled={!editable} onBlur={(e) => { const v = e.target.value.trim(); if (v !== (section.departmentCode ?? "")) saveSection({ departmentCode: v || null }); }} />
           </Field>
-        </div>
+        </Card>
       )}
 
       <div className="mt-3 space-y-2">

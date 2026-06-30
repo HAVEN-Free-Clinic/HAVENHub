@@ -5,6 +5,7 @@ import { prisma } from "@/platform/db";
 import { listCycleEmails } from "@/modules/recruitment/services/cycle-emails";
 import { PageHeader } from "@/platform/ui/page-header";
 import { buttonClasses } from "@/platform/ui/button";
+import { cardClasses } from "@/platform/ui/card";
 
 export default async function CycleEmailsPage({ params }: { params: Promise<{ id: string }> }) {
   await requirePermission("recruitment.manage_cycles");
@@ -20,7 +21,7 @@ export default async function CycleEmailsPage({ params }: { params: Promise<{ id
       />
       <ul className="space-y-2">
         {emails.map((e) => (
-          <li key={e.key} className="flex items-center justify-between rounded-xl border border-border bg-surface px-4 py-3">
+          <li key={e.key} className={`flex items-center justify-between px-4 py-3 ${cardClasses({ size: "compact", pad: false })}`}>
             <span>
               <span className="block text-sm font-medium text-foreground">{e.name}</span>
               <span className="block text-xs text-muted-foreground">

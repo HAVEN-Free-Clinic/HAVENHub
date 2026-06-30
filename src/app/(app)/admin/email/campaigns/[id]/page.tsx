@@ -23,6 +23,7 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { Button } from "@/platform/ui/button";
 import { Input, Field } from "@/platform/ui/input";
 import { Alert } from "@/platform/ui/alert";
+import { Card } from "@/platform/ui/card";
 import { TemplateEditor } from "../../templates/[key]/preview";
 import { AudienceBuilder } from "./audience-builder";
 import { CronPresets } from "./cron-presets";
@@ -317,10 +318,10 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
       {/* Read-only summary for any non-draft campaign (sent / scheduled / recurring / cancelled) */}
       {!isDraft && (
         <div className="space-y-4">
-          <div className="rounded-2xl border border-border bg-surface p-5 space-y-2">
+          <Card className="space-y-2">
             <p className="text-sm font-medium text-foreground-soft">Subject</p>
             <p className="text-sm text-foreground-soft">{campaign.subject || <em className="text-subtle-foreground">No subject</em>}</p>
-          </div>
+          </Card>
         </div>
       )}
 

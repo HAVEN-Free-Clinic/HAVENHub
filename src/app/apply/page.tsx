@@ -6,6 +6,7 @@ import { applicantSignOutAction } from "./portal-actions";
 import { SignInForm } from "./sign-in-form";
 import { buttonClasses, Button } from "@/platform/ui/button";
 import { Alert } from "@/platform/ui/alert";
+import { Card, cardClasses } from "@/platform/ui/card";
 import { getSetting } from "@/platform/settings/service";
 import { safeNextPath, PORTAL_HOME } from "@/modules/recruitment/services/portal-next";
 
@@ -60,15 +61,15 @@ export default async function PortalHome({ searchParams }: { searchParams: Promi
             {myApps.map((a) => (
               <li key={a.slug}>
                 {a.canContinue ? (
-                  <Link href={`/apply/${a.slug}`} className="flex items-center justify-between rounded-xl border border-border bg-surface px-4 py-3 hover:bg-muted">
+                  <Link href={`/apply/${a.slug}`} className={`${cardClasses({ size: "compact", pad: false })} flex items-center justify-between px-4 py-3 hover:bg-muted`}>
                     <span><span className="block text-sm font-medium text-foreground">{a.cycleTitle}</span><span className="block text-xs text-muted-foreground">{a.detail}</span></span>
                     <span className="text-sm text-brand-fg">Continue</span>
                   </Link>
                 ) : (
-                  <div className="flex items-center justify-between rounded-xl border border-border bg-surface px-4 py-3">
+                  <Card size="compact" pad={false} className="flex items-center justify-between px-4 py-3">
                     <span><span className="block text-sm font-medium text-foreground">{a.cycleTitle}</span><span className="block text-xs text-muted-foreground">{a.detail}</span></span>
                     <span className="text-sm font-medium text-foreground">{a.headline}</span>
-                  </div>
+                  </Card>
                 )}
               </li>
             ))}
@@ -82,7 +83,7 @@ export default async function PortalHome({ searchParams }: { searchParams: Promi
         <ul className="space-y-2">
           {openCycles.map((c) => (
             <li key={c.publicSlug}>
-              <Link href={`/apply/${c.publicSlug}`} className="flex items-center justify-between rounded-xl border border-border bg-surface px-4 py-3 text-sm hover:bg-muted">
+              <Link href={`/apply/${c.publicSlug}`} className={`${cardClasses({ size: "compact", pad: false })} flex items-center justify-between px-4 py-3 text-sm hover:bg-muted`}>
                 <span className="font-medium text-foreground">{c.title}</span>
                 <span className="text-brand-fg">Start application</span>
               </Link>

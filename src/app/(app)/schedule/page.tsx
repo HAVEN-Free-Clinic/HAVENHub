@@ -197,7 +197,7 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                     const swapPartners = swapPartnersByKey.get(cardKey) ?? [];
 
                     return (
-                      <div key={cardKey} className="rounded-2xl border border-border bg-surface shadow-sm px-5 py-4">
+                      <Card key={cardKey} pad={false} className="px-5 py-4">
                         <div className="flex flex-wrap items-center gap-2 mb-2">
                           <span className="text-base font-bold text-foreground tabular-nums">{fmtDate(shift.clinicDate)}</span>
                           <span className="text-xs font-bold uppercase tracking-widest text-subtle-foreground">{shift.department.code}</span>
@@ -272,7 +272,7 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                             </details>
                           )}
                         </div>
-                      </div>
+                      </Card>
                     );
                   })}
                 </div>

@@ -5,6 +5,7 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { buttonClasses } from "@/platform/ui/button";
 import { Badge } from "@/platform/ui/badge";
 import { businessDaysSince } from "@/platform/dates";
+import { Card } from "@/platform/ui/card";
 
 export default async function ItcmPage() {
   const activeTerm = await prisma.term.findFirst({
@@ -30,7 +31,7 @@ export default async function ItcmPage() {
         description={`IT & Communications tools for ${activeTerm?.name ?? "the active term"}.`}
       />
 
-      <div className="rounded-2xl border border-border bg-surface shadow-sm overflow-hidden">
+      <Card pad={false} className="overflow-hidden">
         <div className="px-10 pt-10 pb-8 border-b border-border">
           <div className="flex items-start gap-6">
             <div className="w-16 h-16 rounded-xl flex items-center justify-center shrink-0 bg-brand-faint">
@@ -50,12 +51,12 @@ export default async function ItcmPage() {
           </div>
 
           {overdueCount > 0 && (
-            <div className="mt-6 flex items-center gap-3 rounded-xl border border-border bg-surface px-5 py-4">
+            <Card size="compact" pad={false} className="mt-6 flex items-center gap-3 px-5 py-4">
               <AlertTriangle className="h-5 w-5 text-critical shrink-0" aria-hidden />
               <p className="text-sm font-medium text-foreground">
                 {overdueCount} {overdueCount === 1 ? "request has" : "requests have"} been open for more than 7 business days — follow up with the YNHH helpdesk.
               </p>
-            </div>
+            </Card>
           )}
         </div>
 
@@ -75,7 +76,7 @@ export default async function ItcmPage() {
             View tracker
           </Link>
         </div>
-      </div>
+      </Card>
     </div>
   );
 }

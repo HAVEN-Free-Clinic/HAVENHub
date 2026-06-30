@@ -6,6 +6,7 @@ import { Check, FileText, RotateCcw, ClipboardList } from "lucide-react";
 import type { TrainingTrack } from "@prisma/client";
 import { gradeQuizAction, type QuizActionResult } from "./actions";
 import type { MyTraining } from "@/modules/recruitment/services/training";
+import { Card } from "@/platform/ui/card";
 import { Alert } from "@/platform/ui/alert";
 import { Input, Textarea } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
@@ -89,7 +90,7 @@ export function TrainingQuiz({
     <form ref={formRef} onSubmit={handleSubmit}>
       {/* Fail result banner (pass/lock refresh the page instead) */}
       {graded && !graded.passed && (
-        <div className="mb-5 flex items-center gap-4 rounded-2xl border border-border bg-surface p-5">
+        <Card className="mb-5 flex items-center gap-4">
           <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-warning text-white">
             <RotateCcw aria-hidden className="h-5 w-5" />
           </span>
@@ -100,7 +101,7 @@ export function TrainingQuiz({
               highlighted answers and try again.
             </p>
           </div>
-        </div>
+        </Card>
       )}
 
       {error && (
@@ -110,7 +111,7 @@ export function TrainingQuiz({
       )}
 
       {/* Quiz card */}
-      <div className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
+      <Card pad={false} className="overflow-hidden">
         <div className="flex items-center justify-between gap-4 border-b border-border px-[22px] py-[18px]">
           <div className="flex items-center gap-3">
             <span className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-[10px] bg-brand-faint text-brand-fg">
@@ -199,10 +200,10 @@ export function TrainingQuiz({
             </Button>
           )}
         </div>
-      </div>
+      </Card>
 
       {/* Intake */}
-      <div className="mt-[22px] overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
+      <Card pad={false} className="mt-[22px] overflow-hidden">
         <div className="flex items-center gap-3 border-b border-border px-[22px] py-[18px]">
           <span className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-[10px] bg-brand-faint text-brand-fg">
             <ClipboardList aria-hidden className="h-[19px] w-[19px]" />
@@ -238,7 +239,7 @@ export function TrainingQuiz({
             />
           </Field>
         </div>
-      </div>
+      </Card>
     </form>
   );
 }

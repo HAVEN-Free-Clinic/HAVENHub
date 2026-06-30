@@ -12,6 +12,7 @@ import {
   MessagesSquare,
 } from "lucide-react";
 import type { TrainingMethod } from "@prisma/client";
+import { Card } from "@/platform/ui/card";
 import { requirePersonSession } from "@/platform/auth/session";
 import { getAccessibleModules } from "@/platform/modules/access";
 import { getMyTraining, type MyTraining } from "@/modules/recruitment/services/training";
@@ -37,7 +38,7 @@ function ClearanceHero({ my }: { my: MyTraining }) {
 
   if (my.state === "COMPLETE") {
     return (
-      <div className="mb-6 flex items-center gap-[18px] rounded-2xl border border-border bg-surface px-[22px] py-5 shadow-sm">
+      <Card pad={false} className="mb-6 flex items-center gap-[18px] px-[22px] py-5">
         <span className="grid h-[52px] w-[52px] shrink-0 place-items-center rounded-[13px] bg-success text-white">
           <Award aria-hidden className="h-[26px] w-[26px]" />
         </span>
@@ -54,13 +55,13 @@ function ClearanceHero({ my }: { my: MyTraining }) {
             Completed {fmtDate(my.completedAt)}
           </span>
         )}
-      </div>
+      </Card>
     );
   }
 
   if (my.locked) {
     return (
-      <div className="mb-6 flex items-center gap-[18px] rounded-2xl border border-border bg-surface px-[22px] py-5 shadow-sm">
+      <Card pad={false} className="mb-6 flex items-center gap-[18px] px-[22px] py-5">
         <span className="grid h-[52px] w-[52px] shrink-0 place-items-center rounded-[13px] bg-critical text-white">
           <Lock aria-hidden className="h-6 w-6" />
         </span>
@@ -77,13 +78,13 @@ function ClearanceHero({ my }: { my: MyTraining }) {
         <span className="shrink-0 whitespace-nowrap rounded-full border border-border bg-muted px-3 py-1.5 text-[12.5px] font-semibold text-foreground-soft">
           Action needed
         </span>
-      </div>
+      </Card>
     );
   }
 
   if (!my.cycle) {
     return (
-      <div className="mb-6 flex items-center gap-[18px] rounded-2xl border border-border bg-surface px-[22px] py-5 shadow-sm">
+      <Card pad={false} className="mb-6 flex items-center gap-[18px] px-[22px] py-5">
         <span className="grid h-[52px] w-[52px] shrink-0 place-items-center rounded-[13px] bg-muted-strong text-muted-foreground">
           <Clock aria-hidden className="h-6 w-6" />
         </span>
@@ -95,12 +96,12 @@ function ClearanceHero({ my }: { my: MyTraining }) {
             here to complete it.
           </p>
         </div>
-      </div>
+      </Card>
     );
   }
 
   return (
-    <div className="mb-6 flex items-center gap-[18px] rounded-2xl border border-border bg-surface px-[22px] py-5 shadow-sm">
+    <Card pad={false} className="mb-6 flex items-center gap-[18px] px-[22px] py-5">
       <span className="grid h-[52px] w-[52px] shrink-0 place-items-center rounded-[13px] bg-warning text-white">
         <AlertTriangle aria-hidden className="h-6 w-6" />
       </span>
@@ -117,7 +118,7 @@ function ClearanceHero({ my }: { my: MyTraining }) {
       <span className="shrink-0 whitespace-nowrap rounded-full border border-border bg-muted px-3 py-1.5 text-[12.5px] font-semibold text-foreground-soft">
         Due before your first shift
       </span>
-    </div>
+    </Card>
   );
 }
 
@@ -130,7 +131,7 @@ function PathCards({ my }: { my: MyTraining }) {
     <>
       <SectionHead>Two ways to complete</SectionHead>
       <div className="mb-2 grid grid-cols-1 gap-3.5 sm:grid-cols-2">
-        <div className="relative rounded-2xl border border-brand/40 bg-surface p-[18px] ring-1 ring-inset ring-brand/20">
+        <div className="relative rounded-2xl border border-brand/40 bg-surface p-[18px] shadow-sm ring-1 ring-inset ring-brand/20">
           <span className="absolute right-3.5 top-3.5 rounded-full bg-brand-faint px-2 py-0.5 text-[10.5px] font-bold uppercase tracking-wide text-brand-fg">
             Recommended
           </span>
@@ -153,7 +154,7 @@ function PathCards({ my }: { my: MyTraining }) {
           </p>
         </div>
 
-        <div className="relative rounded-2xl border border-border bg-surface p-[18px]">
+        <Card pad={false} className="relative p-[18px]">
           <div className="mb-3 flex items-center gap-3">
             <span className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-[10px] bg-brand-faint text-brand-fg">
               <FileText aria-hidden className="h-5 w-5" />
@@ -171,7 +172,7 @@ function PathCards({ my }: { my: MyTraining }) {
             <CheckCircle2 aria-hidden className="h-[15px] w-[15px] shrink-0 text-brand-fg" /> Need {my.passPercent}% to pass ·{" "}
             {my.maxAttempts} attempts
           </p>
-        </div>
+        </Card>
       </div>
     </>
   );
@@ -183,7 +184,7 @@ function PathCards({ my }: { my: MyTraining }) {
 
 function CompleteDetail({ accessibleSchedule }: { accessibleSchedule: boolean }) {
   return (
-    <div className="rounded-2xl border border-border bg-surface p-[22px] shadow-sm">
+    <Card pad={false} className="p-[22px]">
       <h3 className="mb-3.5 text-xs font-bold uppercase tracking-wider text-muted-foreground">What this unlocks</h3>
       <DetailRow tone="success" title="Eligible for shift scheduling" sub="You can now be assigned to clinic shifts" />
       <DetailRow tone="success" title="Training requirement met" sub="Shows as cleared on your volunteer compliance" />
@@ -198,13 +199,13 @@ function CompleteDetail({ accessibleSchedule }: { accessibleSchedule: boolean })
         )}
         <BackToHub />
       </div>
-    </div>
+    </Card>
   );
 }
 
 function LockedDetail() {
   return (
-    <div className="rounded-2xl border border-border bg-surface p-[22px] shadow-sm">
+    <Card pad={false} className="p-[22px]">
       <h3 className="mb-3.5 text-xs font-bold uppercase tracking-wider text-muted-foreground">Next steps</h3>
       <DetailRow
         tone="brand"
@@ -221,7 +222,7 @@ function LockedDetail() {
       <div className="mt-[18px]">
         <BackToHub />
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -295,9 +296,9 @@ export default async function TrainingPage() {
       </header>
 
       {trainings.length === 0 ? (
-        <div className="rounded-2xl border border-border bg-surface px-[22px] py-5 text-[14px] text-foreground-soft shadow-sm">
+        <Card pad={false} className="px-[22px] py-5 text-[14px] text-foreground-soft">
           You have no training requirements this term.
-        </div>
+        </Card>
       ) : (
         trainings.map((my) => {
           const pending = my.cycle && my.state !== "COMPLETE" && !my.locked;

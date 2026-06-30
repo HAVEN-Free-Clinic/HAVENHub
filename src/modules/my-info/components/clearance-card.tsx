@@ -8,6 +8,7 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { Badge } from "@/platform/ui/badge";
+import { Card } from "@/platform/ui/card";
 import type {
   ComplianceStatus,
   OverallClearance,
@@ -88,7 +89,7 @@ export function ClearanceCard({
   const anyTrainingIncomplete = trainings.some((t) => !t.met);
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
+    <Card pad={false} className="overflow-hidden">
       {/* Status banner */}
       {cleared ? (
         <div className="flex items-center gap-4 border-b border-border bg-muted px-5 py-4">
@@ -147,6 +148,6 @@ export function ClearanceCard({
           </Link>
         </div>
       )}
-    </div>
+    </Card>
   );
 }

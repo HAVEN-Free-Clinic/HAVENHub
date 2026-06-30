@@ -10,6 +10,7 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { StatCard } from "@/platform/ui/stat-card";
 import { Alert } from "@/platform/ui/alert";
 import { SubmitButton } from "@/platform/ui/submit-button";
+import { cardClasses } from "@/platform/ui/card";
 
 export default async function DecisionsPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ sent?: string; skipped?: string; error?: string }> }) {
   const { id } = await params;
@@ -48,7 +49,7 @@ export default async function DecisionsPage({ params, searchParams }: { params: 
         {conflicts.length === 0 ? (
           <p className="mt-2 text-sm text-muted-foreground">No conflicts.</p>
         ) : (
-          <ul className="mt-3 divide-y divide-border-subtle rounded-2xl border border-border bg-surface">
+          <ul className={`mt-3 divide-y divide-border-subtle ${cardClasses({ pad: false })}`}>
             {conflicts.map((c) => (
               <li key={c.applicationId} className="px-4 py-2.5 text-sm text-foreground-soft">
                 <Link

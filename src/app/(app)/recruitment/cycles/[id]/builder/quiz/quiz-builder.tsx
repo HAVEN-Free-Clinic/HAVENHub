@@ -10,6 +10,7 @@ import { Field, Input } from "@/platform/ui/input";
 import { Button } from "@/platform/ui/button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Alert } from "@/platform/ui/alert";
+import { Card } from "@/platform/ui/card";
 
 export type QuizQuestion = { id: string; label: string; options: Choice[]; correctValue: string | null };
 export type QuizSection = { id: string; title: string; questions: QuizQuestion[] };
@@ -48,17 +49,17 @@ export function QuizBuilder({
     <div className="space-y-4">
       {!editable && <Alert tone="warning">This cycle is published. Quiz edits that change scoring are limited.</Alert>}
 
-      <div className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
+      <Card pad={false} className="overflow-hidden">
         <div className="h-2 bg-brand" aria-hidden />
         <div className="p-5"><h1 className="text-lg font-semibold text-foreground">{cycleTitle}</h1><p className="text-sm text-muted-foreground">Training quiz</p></div>
-      </div>
+      </Card>
 
       {sections.map((section) => (
         <section key={section.id} className="rounded-2xl border border-border bg-muted/30 p-4">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">{section.title}</h2>
           <div className="mt-3 space-y-4">
             {section.questions.map((q) => (
-              <div key={q.id} className="rounded-xl border border-border bg-surface p-3">
+              <Card key={q.id} size="compact">
                 <Field label="Question">
                   <Input defaultValue={q.label} onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== q.label) saveQuestion(q.id, { label: v }); }} />
                 </Field>
@@ -74,7 +75,7 @@ export function QuizBuilder({
                     <ConfirmButton label="Remove question" size="sm" disabled={!editable} />
                   </form>
                 </div>
-              </div>
+              </Card>
             ))}
             {section.questions.length === 0 && <p className="text-sm text-subtle-foreground">No questions yet.</p>}
             <Button type="button" variant="outline" size="sm" disabled={!editable} onClick={() => addQuestion(section.id)}>

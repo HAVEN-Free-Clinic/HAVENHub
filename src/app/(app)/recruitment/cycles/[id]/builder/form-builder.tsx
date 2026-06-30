@@ -9,6 +9,7 @@ import type { ApplicantScope } from "@prisma/client";
 import { addSectionAction, reorderSectionsAction } from "./actions";
 import { Alert } from "@/platform/ui/alert";
 import { Button } from "@/platform/ui/button";
+import { Card } from "@/platform/ui/card";
 
 export function FormBuilder({
   cycleId, cycleTitle, editable, status, departments, subcommittees, sections,
@@ -50,13 +51,13 @@ export function FormBuilder({
       )}
       {reorderError && <Alert tone="error">{reorderError}</Alert>}
 
-      <div className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
+      <Card pad={false} className="overflow-hidden">
         <div className="h-2 bg-brand" aria-hidden />
         <div className="p-5">
           <h1 className="text-lg font-semibold text-foreground">{cycleTitle}</h1>
           <p className="text-sm text-muted-foreground">Application form</p>
         </div>
-      </div>
+      </Card>
 
       <SortableList
         items={sections}

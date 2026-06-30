@@ -150,7 +150,7 @@ export function TemplateEditor(props: {
                 );
               })}
               {/* eslint-disable-next-line no-restricted-syntax -- editor variable-insert token chip */}
-              <button type="button" title="Conditional block — shows the inner content only when the variable has a value" onClick={() => insertToken("{{#if VARIABLE}}\n\n{{/if}}")} className="rounded-lg border border-border bg-muted px-2 py-1 font-mono text-xs text-foreground-soft hover:bg-muted-strong">
+              <button type="button" title="Conditional block: shows the inner content only when the variable has a value" onClick={() => insertToken("{{#if VARIABLE}}\n\n{{/if}}")} className="rounded-lg border border-border bg-muted px-2 py-1 font-mono text-xs text-foreground-soft hover:bg-muted-strong">
                 {`{{#if}}…{{/if}}`}
               </button>
             </div>

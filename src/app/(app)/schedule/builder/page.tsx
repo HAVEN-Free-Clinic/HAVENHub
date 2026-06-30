@@ -943,7 +943,6 @@ function AvailabilityView({
                   return (
                     <label key={key} className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs cursor-pointer transition-colors whitespace-nowrap ${checked ? "border-brand bg-brand/5 text-brand-fg font-semibold" : "border-border text-muted-foreground hover:border-border-strong"}`}>
                       <Checkbox
-                        className="h-3 w-3"
                         name="dates"
                         value={key}
                         defaultChecked={checked}

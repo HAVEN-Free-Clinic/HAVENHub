@@ -25,7 +25,7 @@ All primitives live under `src/platform/ui/`. Import from the aliased path `@/pl
 | `Field` | `@/platform/ui/input` | Wraps a control with an accessible label and optional hint. The label element wraps the child so no `id`/`htmlFor` pair is needed. |
 | `ReadonlyField` | `@/platform/ui/input` | Non-editable display row (computed values, IT-managed fields). Renders as styled plain text, not a disabled input. |
 | `Select` | `@/platform/ui/select` | Native `<select>` styled to match Input. |
-| `Checkbox` | `@/platform/ui/checkbox` | Brand-tinted checkbox with a visible focus ring consistent with Input/Select. |
+| `Checkbox` | `@/platform/ui/checkbox` | Brand-tinted checkbox with a visible focus ring consistent with buttons. |
 | `Radio` | `@/platform/ui/radio` | Brand-tinted radio, rendered inside a `<label>` for click-area and accessibility. |
 | `RadioGroup` | `@/platform/ui/radio` | Container for a set of `Radio` options. Accepts an optional `legend` string. |
 
@@ -84,13 +84,13 @@ Form controls use `border-border-strong` at rest. Cards use `border-border`. Do 
 
 There are exactly two focus-ring patterns in this codebase. Use the right one for the context.
 
-**Surface / interactive pattern** (buttons, links, icon-buttons, grid-cell buttons):
+**Surface / interactive pattern** (buttons, links, icon-buttons, grid-cell buttons, Checkbox, Radio):
 
 ```
 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand
 ```
 
-**Form-control pattern** (Input, Select, Checkbox, Radio):
+**Form-control pattern** (Input, Select, Textarea):
 
 ```
 focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15

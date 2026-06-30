@@ -170,7 +170,7 @@ export function ApplyForm({
       {def.acceptsRenewals && (
         <fieldset className="space-y-3">
           <legend className="text-sm font-medium text-foreground">Are you a new or returning {roleNoun}?</legend>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-2">
             {applicantOptions.map((opt) => {
               const active = applicantType === opt.value;
               return (

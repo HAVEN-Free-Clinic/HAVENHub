@@ -162,6 +162,7 @@ A small set of UI patterns cannot use the primitives and must remain raw element
 | Native file inputs | `<input type="file">` styled with `file:*` pseudo-element classes |
 | Drag handles | dnd-kit drag-handle buttons that receive `attributes`/`listeners` spreads from the sensor |
 | Grid-cell buttons | Schedule builder compact-grid cells that use `buttonClasses` but require layout overrides |
+| Tabs | `role="tab"` buttons in a tab bar |
 | Popover menu items | `role="menuitem"` buttons inside a custom dropdown |
 
 For any of these, add a suppress comment on the line **directly before** the `className` attribute:
@@ -190,14 +191,6 @@ For a multi-line element put the comment inside the attribute list, immediately 
 ```
 
 The comment must be on the line **immediately above** the `className` attribute. Placing it above the `<button` tag will not suppress the error when `className` is on a different line, and will produce an "unused eslint-disable directive" warning.
-
-To suppress an entire block, use:
-
-```tsx
-{/* eslint-disable no-restricted-syntax */}
-<button className="...">...</button>
-{/* eslint-enable no-restricted-syntax */}
-```
 
 ---
 

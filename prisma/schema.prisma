@@ -545,7 +545,6 @@ enum EmailCampaignStatus {
   DRAFT
   SCHEDULED
   ACTIVE
-  SENDING
   SENT
   CANCELLED
 }
@@ -576,7 +575,6 @@ model EmailCampaignRun {
   campaign       EmailCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   runAt          DateTime      @default(now())
   recipientCount Int           @default(0)
-  status         String        @default("SENT")
   emails         EmailLog[]    @relation("emailLogCampaignRun")
 
   @@index([campaignId])

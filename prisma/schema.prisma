@@ -938,7 +938,7 @@ model Application {
   // For a TRANSFER applicant: a snapshot of the department codes they were an
   // active member of at submit time (where they are coming from). Empty for
   // NEW and RENEWAL.
-  transferFromDepartments String[]
+  transferFromDepartments String[] @default([])
   // ordered subcommittee IDs the applicant ranked (1st -> Nth); hoisted from the
   // SUBCOMMITTEE_RANK field answer at submit, like departmentChoices.
   subcommitteeRanking      String[]

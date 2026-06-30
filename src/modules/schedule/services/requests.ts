@@ -24,6 +24,7 @@ import {
   planApply,
 } from "../engine/requests";
 import type { ScheduleRowForValidation } from "../engine/requests";
+import { getActiveTerm } from "@/platform/terms/active-term";
 
 // ---------------------------------------------------------------------------
 // Typed errors
@@ -67,14 +68,6 @@ export type RequestRow = {
 // ---------------------------------------------------------------------------
 // Private helpers
 // ---------------------------------------------------------------------------
-
-/** Returns the active term or null. */
-async function getActiveTerm() {
-  return prisma.term.findFirst({
-    where: { status: "ACTIVE" },
-    orderBy: { startDate: "desc" },
-  });
-}
 
 /**
  * Builds ScheduleRowForValidation[] for a (term, department) pair by loading

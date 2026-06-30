@@ -32,6 +32,7 @@ import { recordAudit } from "@/platform/audit";
 import { can } from "@/platform/rbac/engine";
 import { manageableDepartmentIds } from "@/platform/departments";
 import { setPersonStatusField } from "@/platform/people";
+import { getActiveTerm } from "@/platform/terms/active-term";
 
 // ---------------------------------------------------------------------------
 // Typed errors
@@ -76,16 +77,6 @@ export type DepartmentOffboarding = {
 // ---------------------------------------------------------------------------
 // Internal: scope check
 // ---------------------------------------------------------------------------
-
-/**
- * Returns the active term or null. Centralised so callers do not re-query.
- */
-async function getActiveTerm() {
-  return prisma.term.findFirst({
-    where: { status: "ACTIVE" },
-    orderBy: { startDate: "desc" },
-  });
-}
 
 /**
  * Returns true when the actor may flag/unflag the target person.

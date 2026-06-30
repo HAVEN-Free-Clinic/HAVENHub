@@ -18,7 +18,7 @@ import type { Person, Term } from "@prisma/client";
 import { redirect } from "next/navigation";
 import { requirePermission } from "@/platform/auth/session";
 import { prisma } from "@/platform/db";
-import { termRoster, addMembership, removeMembership, copyRosterFromTerm, MembershipForeignKeyError, MembershipNotFoundError, RosterCopyError } from "@/modules/admin/services/roster";
+import { termRoster, addMembership, removeMembership, copyRosterFromTerm, membershipHasDirectorShifts, MembershipForeignKeyError, MembershipNotFoundError, RosterCopyError } from "@/modules/admin/services/roster";
 import { searchPeople } from "@/modules/admin/services/people";
 import { listTerms, TermNotFoundError } from "@/modules/admin/services/terms";
 import { Badge } from "@/platform/ui/badge";
@@ -155,6 +155,11 @@ export async function RosterPanel({
     const membershipId = formData.get("membershipId") as string | null;
     if (!membershipId) {
       redirect(`${termDetailHref}?rosterError=${encodeURIComponent("Missing membership ID.")}`);
+    }
+    if (await membershipHasDirectorShifts(membershipId)) {
+      redirect(
+        `${termDetailHref}?rosterError=${encodeURIComponent("This member has director shift assignments this term. Remove or reassign those shifts before removing their director role.")}`
+      );
     }
     try {
       await removeMembership(actorSession.personId, membershipId);

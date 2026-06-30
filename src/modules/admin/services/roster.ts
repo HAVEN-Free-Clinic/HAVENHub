@@ -201,6 +201,17 @@ export async function removeMembership(
   });
 }
 
+/** Count of DIRECTOR-role shift assignments a person holds in a term/department. */
+async function countDirectorShiftAssignments(
+  personId: string,
+  termId: string,
+  departmentId: string
+): Promise<number> {
+  return prisma.shiftAssignment.count({
+    where: { personId, termId, departmentId, role: "DIRECTOR" },
+  });
+}
+
 /**
  * Changes a membership's kind (DIRECTOR <-> VOLUNTEER) for its term+department.
  * Because kind is part of the unique key, this revives/creates the target-kind
@@ -220,14 +231,11 @@ export async function changeMembershipKind(
   if (membership.kind === input.toKind) return;
 
   if (membership.kind === "DIRECTOR" && input.toKind === "VOLUNTEER") {
-    const directorShifts = await prisma.shiftAssignment.count({
-      where: {
-        personId: membership.personId,
-        termId: membership.termId,
-        departmentId: membership.departmentId,
-        role: "DIRECTOR",
-      },
-    });
+    const directorShifts = await countDirectorShiftAssignments(
+      membership.personId,
+      membership.termId,
+      membership.departmentId
+    );
     if (directorShifts > 0) throw new DirectorHasShiftAssignmentsError(input.membershipId);
   }
 
@@ -264,6 +272,26 @@ export async function changeMembershipKind(
     before: { kind: membership.kind },
     after: { kind: input.toKind },
   });
+}
+
+/**
+ * True when removing or demoting this membership would orphan director shift
+ * assignments: the membership is a DIRECTOR and the person holds DIRECTOR-role
+ * shift assignments in its term and department. Read-only. The assignment-editor
+ * panels call this to block removal, mirroring the changeMembershipKind demotion
+ * guard. removeMembership itself stays unguarded because offboarding and
+ * volunteer self-leave depend on it.
+ */
+export async function membershipHasDirectorShifts(membershipId: string): Promise<boolean> {
+  const membership = await prisma.termMembership.findUnique({ where: { id: membershipId } });
+  if (!membership || membership.kind !== "DIRECTOR") return false;
+  return (
+    (await countDirectorShiftAssignments(
+      membership.personId,
+      membership.termId,
+      membership.departmentId
+    )) > 0
+  );
 }
 
 /**

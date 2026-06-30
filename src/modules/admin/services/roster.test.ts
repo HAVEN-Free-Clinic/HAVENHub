@@ -20,6 +20,7 @@ import {
   removeMembership,
   copyRosterFromTerm,
   changeMembershipKind,
+  membershipHasDirectorShifts,
   MembershipNotFoundError,
   MembershipForeignKeyError,
   DirectorHasShiftAssignmentsError,
@@ -763,5 +764,52 @@ describe("DirectorHasShiftAssignmentsError", () => {
     expect(err).toBeInstanceOf(DirectorHasShiftAssignmentsError);
     expect(err.membershipId).toBe("abc-123");
     expect(err.name).toBe("DirectorHasShiftAssignmentsError");
+  });
+});
+
+describe("membershipHasDirectorShifts", () => {
+  beforeEach(resetDb);
+
+  it("returns true for a DIRECTOR with director shift assignments in that term/dept", async () => {
+    const term = await seedTerm("SU26", "ACTIVE");
+    const dept = await seedDepartment("DEPT");
+    const person = await seedPerson("Dir");
+    const m = await seedMembership({ personId: person.id, termId: term.id, departmentId: dept.id, kind: "DIRECTOR" });
+    await prisma.shiftAssignment.create({
+      data: { termId: term.id, departmentId: dept.id, personId: person.id, clinicDate: new Date("2026-06-06T12:00:00Z"), role: "DIRECTOR" },
+    });
+    expect(await membershipHasDirectorShifts(m.id)).toBe(true);
+  });
+
+  it("returns false for a DIRECTOR with no director shifts", async () => {
+    const term = await seedTerm("SU26", "ACTIVE");
+    const dept = await seedDepartment("DEPT");
+    const person = await seedPerson("Dir");
+    const m = await seedMembership({ personId: person.id, termId: term.id, departmentId: dept.id, kind: "DIRECTOR" });
+    expect(await membershipHasDirectorShifts(m.id)).toBe(false);
+  });
+
+  it("returns false for a VOLUNTEER membership", async () => {
+    const term = await seedTerm("SU26", "ACTIVE");
+    const dept = await seedDepartment("DEPT");
+    const person = await seedPerson("Vol");
+    const m = await seedMembership({ personId: person.id, termId: term.id, departmentId: dept.id, kind: "VOLUNTEER" });
+    expect(await membershipHasDirectorShifts(m.id)).toBe(false);
+  });
+
+  it("ignores director shifts in a different department", async () => {
+    const term = await seedTerm("SU26", "ACTIVE");
+    const deptA = await seedDepartment("AAAA");
+    const deptB = await seedDepartment("BBBB");
+    const person = await seedPerson("Dir");
+    const m = await seedMembership({ personId: person.id, termId: term.id, departmentId: deptA.id, kind: "DIRECTOR" });
+    await prisma.shiftAssignment.create({
+      data: { termId: term.id, departmentId: deptB.id, personId: person.id, clinicDate: new Date("2026-06-06T12:00:00Z"), role: "DIRECTOR" },
+    });
+    expect(await membershipHasDirectorShifts(m.id)).toBe(false);
+  });
+
+  it("returns false for an unknown membership id", async () => {
+    expect(await membershipHasDirectorShifts("nope")).toBe(false);
   });
 });

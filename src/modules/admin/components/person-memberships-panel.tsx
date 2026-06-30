@@ -16,6 +16,7 @@ import {
   addMembership,
   removeMembership,
   changeMembershipKind,
+  membershipHasDirectorShifts,
   MembershipForeignKeyError,
   MembershipNotFoundError,
   DirectorHasShiftAssignmentsError,
@@ -108,6 +109,11 @@ export async function PersonMembershipsPanel({
     const actor = await requirePermission("admin.manage_roster");
     const membershipId = formData.get("membershipId") as string | null;
     if (!membershipId) redirect(`${baseHref}?rosterError=${encodeURIComponent("Missing membership ID.")}`);
+    if (await membershipHasDirectorShifts(membershipId!)) {
+      redirect(
+        `${baseHref}?rosterError=${encodeURIComponent("This member has director shift assignments this term. Remove or reassign those shifts before removing their director role.")}`
+      );
+    }
     try {
       await removeMembership(actor.personId, membershipId!);
     } catch (err) {

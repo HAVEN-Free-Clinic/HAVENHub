@@ -394,7 +394,7 @@ it("routes a TRANSFER into a different in-cycle department and snapshots the ori
   expect(applicant.email).toBe("tess@yale.edu");
 });
 
-it("allows a TRANSFER from a department not offered by this cycle and enforces the new-applicant supplement", async () => {
+it("allows a TRANSFER from a department not offered by this cycle (broader eligibility)", async () => {
   await openVolunteerCycle();
   const person = await makeVolunteer("EXEC"); // EXEC is not one of the cycle's ["SRHD","MDIC"]
   const app = await submitApplication("apply-v", {
@@ -407,6 +407,20 @@ it("allows a TRANSFER from a department not offered by this cycle and enforces t
   expect(app.applicantType).toBe("TRANSFER");
   expect(app.departmentChoices).toEqual(["SRHD"]);
   expect(app.transferFromDepartments).toEqual(["EXEC"]);
+});
+
+it("rejects a TRANSFER that omits the target department's new-applicant supplement", async () => {
+  await openVolunteerCycle();
+  const person = await makeVolunteer("EXEC"); // origin outside the cycle
+  const err = await submitApplication("apply-v", {
+    applicantType: "TRANSFER",
+    answers: { first_name: "Ned", last_name: "Ew", email: "ned@yale.edu", "1st_choice_department": "SRHD" }, // srhd_essay deliberately omitted
+    files: {},
+    sessionPersonId: person.id,
+    sessionEmail: "ned@yale.edu",
+  }).catch((e) => e);
+  expect(err).toBeInstanceOf(SubmissionValidationError);
+  expect((err as SubmissionValidationError).fieldErrors).toHaveProperty("srhd_essay");
 });
 
 it("rejects a TRANSFER whose target is the person's current department (nudge to renew)", async () => {

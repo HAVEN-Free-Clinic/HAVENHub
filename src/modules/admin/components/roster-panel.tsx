@@ -151,7 +151,7 @@ export async function RosterPanel({
 
   async function removeAction(formData: FormData) {
     "use server";
-    const actorSession = await requirePermission("admin.manage_terms");
+    const actorSession = await requirePermission("admin.manage_roster");
     const membershipId = formData.get("membershipId") as string | null;
     if (!membershipId) {
       redirect(`${termDetailHref}?rosterError=${encodeURIComponent("Missing membership ID.")}`);
@@ -171,7 +171,7 @@ export async function RosterPanel({
 
   async function addAction(formData: FormData) {
     "use server";
-    const actorSession = await requirePermission("admin.manage_terms");
+    const actorSession = await requirePermission("admin.manage_roster");
     const personId = formData.get("personId") as string | null;
     const departmentId = formData.get("departmentId") as string | null;
     const kindRaw = formData.get("kind");
@@ -206,7 +206,7 @@ export async function RosterPanel({
 
   async function copyRosterAction(formData: FormData) {
     "use server";
-    const actorSession = await requirePermission("admin.manage_terms");
+    const actorSession = await requirePermission("admin.manage_roster");
     const fromTermId = formData.get("fromTermId") as string | null;
     const kindsRaw = formData.getAll("kinds") as string[];
     const allDepartments = formData.get("allDepartments") === "on";

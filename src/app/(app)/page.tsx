@@ -20,6 +20,7 @@ import { MODULES } from "@/platform/modules/registry";
 import { canAccessModule } from "@/platform/modules/access";
 import type { ModuleManifest } from "@/platform/modules/types";
 import { TimeGreeting } from "@/platform/ui/time-greeting";
+import { Card, cardClasses } from "@/platform/ui/card";
 import { ClinicChannelCard } from "./clinic-channel-card";
 import { mySchedule } from "@/modules/schedule/services/schedule";
 import { listMyCertificates } from "@/modules/my-info/services/my-info";
@@ -111,7 +112,7 @@ function ModuleTile({ m }: { m: ModuleManifest }) {
       href={`/${m.id}`}
       aria-label={`Open ${m.title}`}
       style={hueStyle(m.id)}
-      className="group relative flex items-start gap-4 overflow-hidden rounded-2xl border border-border bg-surface p-[18px] transition hover:-translate-y-0.5 hover:border-border-strong hover:shadow-md"
+      className={cardClasses({ interactive: true, pad: false }) + " group relative flex items-start gap-4 overflow-hidden p-[18px]"}
     >
       <span
         className="grid h-11 w-11 shrink-0 place-items-center rounded-xl"
@@ -341,7 +342,7 @@ export default async function HubPage() {
               </div>
             </div>
           ) : (
-            <div className="rounded-2xl border border-border bg-surface p-6">
+            <Card pad={false} className="p-6">
               <span className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-subtle-foreground">
                 <CalendarDays aria-hidden className="h-3.5 w-3.5" /> Your schedule
               </span>
@@ -361,7 +362,7 @@ export default async function HubPage() {
                   </Link>
                 </div>
               )}
-            </div>
+            </Card>
           )}
 
           {/* Quick actions */}
@@ -374,7 +375,7 @@ export default async function HubPage() {
                     key={q.id}
                     href={q.href}
                     style={hueStyle(q.id)}
-                    className="flex items-center gap-3 rounded-xl border border-border bg-surface p-3.5 transition hover:-translate-y-0.5 hover:border-border-strong hover:shadow-md"
+                    className={cardClasses({ size: "compact", interactive: true, pad: false }) + " flex items-center gap-3 p-3.5"}
                   >
                     <span
                       className="grid h-9 w-9 shrink-0 place-items-center rounded-lg"
@@ -411,7 +412,7 @@ export default async function HubPage() {
             <ClinicChannelCard />
           </Suspense>
 
-          <div className="rounded-2xl border border-border bg-surface p-5">
+          <Card>
             <h3 className="text-xs font-bold uppercase tracking-wider text-subtle-foreground">Your status</h3>
             <div className="mt-2">
               {statusLines.map((line) => (
@@ -439,7 +440,7 @@ export default async function HubPage() {
                 </Link>
               ))}
             </div>
-          </div>
+          </Card>
         </aside>
       </div>
     </>

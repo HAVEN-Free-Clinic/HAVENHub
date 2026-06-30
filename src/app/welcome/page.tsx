@@ -2,12 +2,13 @@ import { signOut } from "@/platform/auth/auth";
 import { getSetting } from "@/platform/settings/service";
 import { HavenLogo } from "@/platform/ui/haven-logo";
 import { Button } from "@/platform/ui/button";
+import { Card } from "@/platform/ui/card";
 
 export default async function WelcomePage() {
   const orgName = await getSetting<string>("branding.orgName");
   return (
     <main className="flex min-h-screen items-center justify-center bg-muted p-6">
-      <div className="w-full max-w-md rounded-2xl border border-border bg-surface p-8 shadow-sm">
+      <Card pad={false} className="w-full max-w-md p-8">
         <HavenLogo className="h-10 text-brand-fg" />
         <h1 className="mt-4 text-2xl font-bold tracking-tight">Welcome to {orgName}</h1>
         <p className="mt-3 text-sm leading-relaxed text-foreground-soft">
@@ -25,7 +26,7 @@ export default async function WelcomePage() {
         >
           <Button type="submit" variant="outline">Sign out</Button>
         </form>
-      </div>
+      </Card>
     </main>
   );
 }

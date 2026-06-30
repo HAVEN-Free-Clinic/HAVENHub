@@ -224,6 +224,15 @@ describe("reopenCycle", () => {
     expect(audit).not.toBeNull();
   });
 
+  it("records the cleared closesAt in the reopen audit before/after", async () => {
+    const past = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const { person, cycle } = await closedCycle("reopen-audit-payload", { closesAt: past });
+    await reopenCycle(cycle.id, person.id);
+    const audit = await prisma.auditLog.findFirst({ where: { entityId: cycle.id, action: "recruitment.cycle_reopen" } });
+    expect((audit!.before as { closesAt: string | null }).closesAt).toBe(past.toISOString());
+    expect((audit!.after as { closesAt: string | null }).closesAt).toBeNull();
+  });
+
   it("clears a closesAt that is already in the past on reopen", async () => {
     const past = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const { person, cycle } = await closedCycle("reopen-stale", { closesAt: past });
@@ -262,6 +271,12 @@ describe("reopenCycle", () => {
       departments: [], acceptsRenewals: false, createdById: person.id,
     });
     await publishCycle(cycle.id, person.id);
+    await expect(reopenCycle(cycle.id, person.id)).rejects.toBeInstanceOf(CyclePublishError);
+  });
+
+  it("rejects reopening an ARCHIVED cycle (terminal state)", async () => {
+    const { person, cycle } = await closedCycle("reopen-archived");
+    await prisma.recruitmentCycle.update({ where: { id: cycle.id }, data: { status: "ARCHIVED" } });
     await expect(reopenCycle(cycle.id, person.id)).rejects.toBeInstanceOf(CyclePublishError);
   });
 
@@ -319,6 +334,12 @@ describe("archiveCycle", () => {
       departments: [], acceptsRenewals: false, createdById: person.id,
     });
     await publishCycle(cycle.id, person.id);
+    await expect(archiveCycle(cycle.id, person.id)).rejects.toBeInstanceOf(CyclePublishError);
+  });
+
+  it("rejects archiving an already-ARCHIVED cycle (terminal state)", async () => {
+    const { person, cycle } = await closedCycle("archive-archived");
+    await archiveCycle(cycle.id, person.id);
     await expect(archiveCycle(cycle.id, person.id)).rejects.toBeInstanceOf(CyclePublishError);
   });
 

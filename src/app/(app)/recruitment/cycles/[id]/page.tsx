@@ -182,7 +182,7 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
           </>
         )}
         {cycle.status === "ARCHIVED" && (
-          <p className="text-sm text-subtle-foreground">This cycle is archived and read-only.</p>
+          <p className="text-sm text-subtle-foreground">Archived. Removed from the active cycle list.</p>
         )}
         {(cycle.status === "DRAFT" || cycle.status === "OPEN") && (
           <form action={toggleRenewalsAction.bind(null, id, !cycle.acceptsRenewals)}>

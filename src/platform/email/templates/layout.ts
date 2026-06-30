@@ -9,6 +9,8 @@ import type { TemplateDescriptor } from "./types";
  *   as Apple Mail and Gmail.
  * - `{{{ body }}}` is the raw (unescaped) slot where the per-email body is injected.
  *   `{{ subject }}` is available for the document title.
+ * - `{{ brandColor }}` is the resolved `branding.brandColor` setting, injected at
+ *   render time so the header band and link color track the admin's brand color.
  *
  * Admins can fully edit this in /admin/email/templates (key "layout"); editing it
  * re-skins every platform email at once.
@@ -28,7 +30,7 @@ const DEFAULT_LAYOUT = `<!DOCTYPE html>
   .email-content p { margin: 0 0 14px; }
   .email-content ul, .email-content ol { margin: 0 0 14px; padding-left: 22px; }
   .email-content li { margin: 0 0 6px; }
-  .email-content a { color: #00356b; text-decoration: underline; }
+  .email-content a { color: {{ brandColor }}; text-decoration: underline; }
   .email-content blockquote { margin: 0 0 14px; padding: 8px 16px; border-left: 3px solid #cbd5e1; color: #475569; }
   .email-content hr { border: none; border-top: 1px solid #e2e8f0; margin: 22px 0; }
   .email-content strong { font-weight: 600; }
@@ -40,7 +42,7 @@ const DEFAULT_LAYOUT = `<!DOCTYPE html>
     <td align="center" style="padding: 24px 12px;">
       <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width: 600px; max-width: 100%; background-color: #ffffff; border-radius: 8px; overflow: hidden; border: 1px solid #e2e8f0;">
         <tr>
-          <td style="background-color: #00356b; padding: 20px 32px;">
+          <td style="background-color: {{ brandColor }}; padding: 20px 32px;">
             <span style="font-family: 'Hanken Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 18px; font-weight: 700; color: #ffffff; letter-spacing: 0.3px;">HAVEN Free Clinic</span>
           </td>
         </tr>
@@ -76,6 +78,7 @@ export const layoutDescriptor: TemplateDescriptor = {
         "<h2>Welcome to HAVEN</h2><p>Hi Sam,</p><p>This is what a formatted message looks like. You can use <strong>bold text</strong>, <a href=\"https://example.com\">links</a>, and lists:</p><ul><li>First item</li><li>Second item</li></ul><p>Thanks,<br>The HAVEN Team</p>",
     },
     { name: "subject", label: "Email subject", sampleValue: "Welcome to HAVEN" },
+    { name: "brandColor", label: "Primary brand color (hex)", sampleValue: "#00356b" },
   ],
   defaultSubject: "{{ subject }}",
   defaultBody: DEFAULT_LAYOUT,

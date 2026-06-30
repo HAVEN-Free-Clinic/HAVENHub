@@ -29,7 +29,7 @@ function validate(data: AvsData): string[] {
   return errs;
 }
 
-export function AvsTool() {
+export function AvsTool({ brandColor }: { brandColor: string }) {
   const [data, dispatch] = useReducer(avsReducer, initialAvsData);
   const [errors, setErrors] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -48,7 +48,7 @@ export function AvsTool() {
     setBusy(true);
     try {
       const summary = buildSummary(data, data.preferredLang);
-      const blob = await pdf(<AvsDocument summary={summary} />).toBlob();
+      const blob = await pdf(<AvsDocument summary={summary} brandColor={brandColor} />).toBlob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;

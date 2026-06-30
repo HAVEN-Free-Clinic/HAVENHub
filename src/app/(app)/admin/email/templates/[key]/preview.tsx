@@ -18,6 +18,7 @@ export function TemplateEditor(props: {
   initialBody: string;
   isLayout: boolean;
   layoutSource: string;
+  brandColor: string;
 }) {
   const [subject, setSubject] = useState(props.initialSubject);
   const [body, setBody] = useState(props.initialBody);
@@ -42,8 +43,12 @@ export function TemplateEditor(props: {
   const sample = useMemo(() => {
     const ctx: Record<string, unknown> = {};
     for (const v of props.variables) ctx[v.name] = v.sampleValue;
+    // The layout's {{ brandColor }} is injected at render time, not a per-template
+    // variable, so seed it with the resolved setting; the preview band and links
+    // then match what recipients actually see.
+    ctx.brandColor = props.brandColor;
     return ctx;
-  }, [props.variables]);
+  }, [props.variables, props.brandColor]);
 
   const previewSubject = renderTemplate(subject, sample);
   // For a normal template, wrap the rendered body inside the (effective) layout.

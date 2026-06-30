@@ -3,6 +3,7 @@ import { recordAudit } from "@/platform/audit";
 import { getDescriptor, listDescriptors, LAYOUT_KEY } from "@/platform/email/templates/registry";
 import type { TemplateDescriptor } from "@/platform/email/templates/types";
 import { validateTemplate } from "@/platform/email/render/validate";
+import { getSetting } from "@/platform/settings/service";
 
 export class TemplateValidationError extends Error {
   constructor(public readonly problems: string[]) {
@@ -34,6 +35,11 @@ export type TemplateForEdit = {
    * directly instead of wrapping.
    */
   layoutSource: string;
+  /**
+   * Resolved `branding.brandColor`, injected into the preview's layout context so
+   * the preview header band + links match the live `{{ brandColor }}` render.
+   */
+  brandColor: string;
 };
 
 export async function getTemplateForEdit(key: string): Promise<TemplateForEdit> {
@@ -48,6 +54,7 @@ export async function getTemplateForEdit(key: string): Promise<TemplateForEdit> 
   const byKey = new Map(overrides.map((o) => [o.key, o]));
   const override = byKey.get(key) ?? null;
   const layoutSource = byKey.get(LAYOUT_KEY)?.body ?? layout.defaultBody;
+  const brandColor = await getSetting<string>("branding.brandColor");
 
   return {
     key: d.key,
@@ -61,6 +68,7 @@ export async function getTemplateForEdit(key: string): Promise<TemplateForEdit> 
     hasOverride: override !== null,
     isLayout,
     layoutSource,
+    brandColor,
   };
 }
 

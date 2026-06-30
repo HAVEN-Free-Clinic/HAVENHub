@@ -41,6 +41,7 @@ import { Pagination } from "@/platform/ui/pagination";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Alert } from "@/platform/ui/alert";
 import { StatCard } from "@/platform/ui/stat-card";
+import { Card } from "@/platform/ui/card";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -320,7 +321,7 @@ export default async function EmailPage({ searchParams }: PageProps) {
       {senderErrorMessage && <Alert tone="error">{senderErrorMessage}</Alert>}
 
       {/* Mailer connection panel */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-surface p-5">
+      <Card className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-sm font-medium text-foreground-soft">Mailer connection</p>
           {mailConn.connected ? (
@@ -338,7 +339,7 @@ export default async function EmailPage({ searchParams }: PageProps) {
             {mailConn.connected ? "Reconnect" : "Connect mailbox"}
           </Button>
         </form>
-      </div>
+      </Card>
       {needsTeamsReconnect && (
         <Alert tone="warning">
           Teams direct messages need an additional permission. Reconnect the mailbox to grant it.
@@ -346,7 +347,7 @@ export default async function EmailPage({ searchParams }: PageProps) {
       )}
 
       {/* Per-category send-from addresses */}
-      <div className="rounded-2xl border border-border bg-surface p-5 space-y-4">
+      <Card className="space-y-4">
         <div>
           <p className="text-sm font-medium text-foreground-soft">Send-from addresses</p>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -394,7 +395,7 @@ export default async function EmailPage({ searchParams }: PageProps) {
             </form>
           );
         })}
-      </div>
+      </Card>
 
       {/* Health stat cards */}
       <div className="grid gap-4 sm:grid-cols-3">

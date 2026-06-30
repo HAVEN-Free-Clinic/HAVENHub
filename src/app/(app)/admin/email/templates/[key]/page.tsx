@@ -13,7 +13,7 @@ import { prisma } from "@/platform/db";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Button } from "@/platform/ui/button";
 import { Alert } from "@/platform/ui/alert";
-import { Card } from "@/platform/ui/card";
+import { Card, cardClasses } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
 import { Input } from "@/platform/ui/input";
 import { TemplateEditor } from "./preview";
@@ -137,7 +137,7 @@ export default async function EditTemplatePage({ params, searchParams }: Props) 
         </form>
       ) : null}
 
-      <form action={saveSenderAction} className="space-y-3 rounded-2xl border border-border bg-surface p-5">
+      <form action={saveSenderAction} className={`${cardClasses()} space-y-3`}>
         <div>
           <p className="text-sm font-medium text-foreground-soft">Send from</p>
           <p className="mt-1 text-sm text-muted-foreground">

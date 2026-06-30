@@ -302,7 +302,7 @@ export async function RosterPanel({
 
       {/* Search results panel */}
       {addq && addq.trim() && (
-        <div className="rounded-2xl border border-border bg-surface">
+        <Card pad={false}>
           <div className="border-b border-border-subtle px-4 py-3">
             <p className="text-sm font-medium text-foreground-soft">
               {searchResults.length === 0
@@ -348,7 +348,7 @@ export async function RosterPanel({
               ))}
             </div>
           )}
-        </div>
+        </Card>
       )}
 
       {/* Department cards */}

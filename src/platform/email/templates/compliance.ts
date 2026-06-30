@@ -86,29 +86,45 @@ const READABLE_STATUS: Record<ComplianceStatus, string> = {
  * interpolation.
  */
 export function complianceReminderContext(p: ComplianceReminderParams): Record<string, unknown> {
+  // The member can resolve EXPIRING_SOON / EXPIRED / NO_CERTIFICATE by uploading
+  // a fresh certificate. UNKNOWN_DATE and PENDING_VERIFICATION are waiting on a
+  // coordinator (to set the completion date / verify it), so the member has no
+  // reliable self-serve fix; we reassure them instead of directing a re-upload.
+  const UPLOAD_ACTION = "Please upload or renew your certificate in My Info.";
+
   let statusLine: string;
+  let actionLine: string;
   switch (p.status) {
     case "EXPIRING_SOON":
       statusLine = `Your HIPAA certification expires on ${fmtDate(p.expiresAt)}.`;
+      actionLine = UPLOAD_ACTION;
       break;
     case "EXPIRED":
       statusLine = `Your HIPAA certification expired on ${fmtDate(p.expiresAt)}.`;
+      actionLine = UPLOAD_ACTION;
       break;
     case "NO_CERTIFICATE":
-    case "UNKNOWN_DATE":
       statusLine = "We do not have a current HIPAA certificate on file for you.";
+      actionLine = UPLOAD_ACTION;
+      break;
+    case "UNKNOWN_DATE":
+      // The certificate IS on file; only the parsed completion date is missing,
+      // which only a coordinator can supply. Do not tell the member they have no
+      // cert or to re-upload.
+      statusLine =
+        "Your HIPAA certificate is on file, and our compliance team is confirming the completion date.";
+      actionLine =
+        "No action is needed from you right now. A coordinator will record the completion date before your certificate counts toward your clearance.";
       break;
     case "PENDING_VERIFICATION":
       statusLine = "Your HIPAA certificate is on file and awaiting verification by a coordinator.";
+      actionLine =
+        "No action is needed from you right now. A coordinator will verify your certificate before it counts toward your clearance.";
       break;
     // unreachable: callers filter COMPLIANT before building a reminder context
     default:
       throw new Error(`Unexpected reminder status: ${p.status}`);
   }
-  const actionLine =
-    p.status === "PENDING_VERIFICATION"
-      ? "No action is needed from you right now. A coordinator will verify your certificate before it counts toward your clearance."
-      : "Please upload or renew your certificate in My Info.";
 
   return {
     personName: p.personName,

@@ -88,14 +88,26 @@ describe("compliance-reminder via renderEmail", () => {
     expect(html).toContain("do not have");
   });
 
-  it("UNKNOWN_DATE: html contains 'do not have'", async () => {
+  it("UNKNOWN_DATE: html says the certificate is on file (not 'do not have')", async () => {
     const params: ComplianceReminderParams = {
       personName: "Carol White",
       status: "UNKNOWN_DATE",
       expiresAt: null,
     };
     const { html } = await renderEmail("compliance-reminder", complianceReminderContext(params));
-    expect(html).toContain("do not have");
+    expect(html).toContain("certificate is on file");
+    expect(html).not.toContain("do not have");
+  });
+
+  it("UNKNOWN_DATE: html says 'No action is needed' and does not tell the member to re-upload", async () => {
+    const params: ComplianceReminderParams = {
+      personName: "Carol White",
+      status: "UNKNOWN_DATE",
+      expiresAt: null,
+    };
+    const { html } = await renderEmail("compliance-reminder", complianceReminderContext(params));
+    expect(html).toContain("No action is needed");
+    expect(html).not.toContain("upload or renew");
   });
 
   it("html contains the escaped person name", async () => {

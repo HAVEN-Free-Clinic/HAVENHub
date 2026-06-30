@@ -64,7 +64,7 @@ describe("compliance templates via renderEmail (body inside branded layout)", ()
     );
   });
 
-  it("compliance-reminder UNKNOWN_DATE matches pre-refactor output", async () => {
+  it("compliance-reminder UNKNOWN_DATE reassures that the certificate is on file (no re-upload ask)", async () => {
     const out = await renderEmail(
       "compliance-reminder",
       complianceReminderContext({
@@ -75,7 +75,7 @@ describe("compliance templates via renderEmail (body inside branded layout)", ()
     );
     expect(out.subject).toBe("[HAVEN] HIPAA certification reminder");
     expect(out.html).toContain(
-      "<p>Hello Jane Doe,</p>\n\n<p>We do not have a current HIPAA certificate on file for you.</p>\n\n<p>Please upload or renew your certificate in My Info.</p>\n\n<p>Thank you,<br>HAVEN Free Clinic</p>",
+      "<p>Hello Jane Doe,</p>\n\n<p>Your HIPAA certificate is on file, and our compliance team is confirming the completion date.</p>\n\n<p>No action is needed from you right now. A coordinator will record the completion date before your certificate counts toward your clearance.</p>\n\n<p>Thank you,<br>HAVEN Free Clinic</p>",
     );
   });
 

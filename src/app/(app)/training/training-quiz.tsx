@@ -7,6 +7,9 @@ import type { TrainingTrack } from "@prisma/client";
 import { gradeQuizAction, type QuizActionResult } from "./actions";
 import type { MyTraining } from "@/modules/recruitment/services/training";
 import { Alert } from "@/platform/ui/alert";
+import { Input, Textarea } from "@/platform/ui/input";
+import { Select } from "@/platform/ui/select";
+import { Button } from "@/platform/ui/button";
 
 type Question = MyTraining["questions"][number];
 
@@ -187,21 +190,13 @@ export function TrainingQuiz({
                   : `Answer all ${questions.length} questions to submit.`}
           </span>
           {reviewing ? (
-            <button
-              type="button"
-              onClick={tryAgain}
-              className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2.5 text-[13.5px] font-semibold text-white shadow-sm transition hover:bg-brand-hover"
-            >
+            <Button type="button" onClick={tryAgain}>
               <RotateCcw aria-hidden className="h-4 w-4" /> Try again
-            </button>
+            </Button>
           ) : (
-            <button
-              type="submit"
-              disabled={!allAnswered || pending}
-              className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2.5 text-[13.5px] font-semibold text-white shadow-sm transition hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-brand"
-            >
+            <Button type="submit" disabled={!allAnswered || pending}>
               <Check aria-hidden className="h-4 w-4" /> Submit quiz
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -219,28 +214,27 @@ export function TrainingQuiz({
         </div>
         <div className="grid grid-cols-1 gap-3.5 p-[22px] sm:grid-cols-2">
           <Field label="Minimum shifts wanted this term">
-            <select name="minShiftsWanted" defaultValue={intake.minShiftsWanted ?? "4"} className={fieldInputClass}>
+            <Select name="minShiftsWanted" defaultValue={intake.minShiftsWanted ?? "4"}>
               {[2, 3, 4, 5, 6, 8].map((n) => (
                 <option key={n} value={String(n)}>
                   {n} shifts
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>
           <Field label="Additional shift availability" optional full>
-            <input
+            <Input
               name="additionalShiftAvailability"
               defaultValue={intake.additionalShiftAvailability ?? ""}
               placeholder="e.g. Available most Saturday mornings, some weekday evenings"
-              className={fieldInputClass}
             />
           </Field>
           <Field label="Feedback or questions" optional full>
-            <textarea
+            <Textarea
               name="feedback"
               defaultValue={intake.feedback ?? ""}
               placeholder="Anything you'd like the directors to know?"
-              className={`${fieldInputClass} min-h-[78px] resize-y`}
+              className="min-h-[78px] resize-y"
             />
           </Field>
         </div>
@@ -252,9 +246,6 @@ export function TrainingQuiz({
 // ---------------------------------------------------------------------------
 // Presentation helpers
 // ---------------------------------------------------------------------------
-
-const fieldInputClass =
-  "w-full rounded-[10px] border border-border-strong bg-surface px-3 py-2.5 text-sm text-foreground transition focus:border-brand focus:outline-none focus:ring-[3px] focus:ring-brand-faint";
 
 function Field({
   label,

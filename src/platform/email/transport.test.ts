@@ -126,6 +126,49 @@ describe("GraphTransport", () => {
     await expect(transport.send(msg)).rejects.toThrow("no credential");
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it("sends as message.from when provided, overriding the default sender", async () => {
+    const fetchMock = vi.fn(async () => new Response("", { status: 202 }));
+    const transport = new GraphTransport({
+      getAccessToken: fakeGetAccessToken,
+      sender: "hfc.it@yale.edu",
+      fetchImpl: fetchMock as typeof fetch,
+    });
+    await transport.send({ ...msg, from: "recruit@yale.edu" });
+
+    const [url] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(String(url)).toContain(encodeURIComponent("recruit@yale.edu"));
+    expect(String(url)).not.toContain(encodeURIComponent("hfc.it@yale.edu"));
+  });
+
+  it("includes a from block with the display name when fromName is set", async () => {
+    const fetchMock = vi.fn(async () => new Response("", { status: 202 }));
+    const transport = new GraphTransport({
+      getAccessToken: fakeGetAccessToken,
+      sender: "hfc.it@yale.edu",
+      fetchImpl: fetchMock as typeof fetch,
+    });
+    await transport.send({ ...msg, from: "recruit@yale.edu", fromName: "HAVEN Recruitment" });
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const parsed = JSON.parse(String(init.body));
+    expect(parsed.message.from.emailAddress.address).toBe("recruit@yale.edu");
+    expect(parsed.message.from.emailAddress.name).toBe("HAVEN Recruitment");
+  });
+
+  it("omits the from block when no fromName is given", async () => {
+    const fetchMock = vi.fn(async () => new Response("", { status: 202 }));
+    const transport = new GraphTransport({
+      getAccessToken: fakeGetAccessToken,
+      sender: "hfc.it@yale.edu",
+      fetchImpl: fetchMock as typeof fetch,
+    });
+    await transport.send({ ...msg, from: "recruit@yale.edu" });
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const parsed = JSON.parse(String(init.body));
+    expect(parsed.message.from).toBeUndefined();
+  });
 });
 
 // ---------------------------------------------------------------------------

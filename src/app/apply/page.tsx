@@ -7,24 +7,30 @@ import { SignInForm } from "./sign-in-form";
 import { buttonClasses, Button } from "@/platform/ui/button";
 import { Alert } from "@/platform/ui/alert";
 import { getSetting } from "@/platform/settings/service";
+import { safeNextPath, PORTAL_HOME } from "@/modules/recruitment/services/portal-next";
 
 export const dynamic = "force-dynamic";
 
-export default async function PortalHome({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
-  const { error } = await searchParams;
+export default async function PortalHome({ searchParams }: { searchParams: Promise<{ error?: string; next?: string }> }) {
+  const { error, next } = await searchParams;
   const identity = await getApplicantIdentity();
 
   if (!identity) {
     const orgName = await getSetting<string>("branding.orgName");
+    // The deep-link an applicant was headed to before being bounced here (e.g.
+    // /apply/<slug>). Thread it through both auth paths so post-sign-in lands on
+    // that form; safeNextPath() blocks any open-redirect target.
+    const safeNext = safeNextPath(next);
+    const deepLink = safeNext === PORTAL_HOME ? undefined : safeNext;
     return (
       <main className="mx-auto max-w-md px-6 py-16 space-y-6">
         <h1 className="text-2xl font-bold tracking-tight">{orgName} Application Portal</h1>
         {error === "link" && <Alert tone="error">That link has expired or was already used. Request a new one below.</Alert>}
         <p className="text-sm text-muted-foreground">Sign in to start, continue, or check the status of an application.</p>
-        <a href="/login?callbackUrl=/apply" className={buttonClasses("primary", "md")}>Sign in with Yale</a>
+        <a href={`/login?callbackUrl=${encodeURIComponent(safeNext)}`} className={buttonClasses("primary", "md")}>Sign in with Yale</a>
         <div className="border-t border-border-subtle pt-6">
           <p className="mb-2 text-sm text-muted-foreground">Or get a one-time link by email:</p>
-          <SignInForm />
+          <SignInForm next={deepLink} />
         </div>
       </main>
     );

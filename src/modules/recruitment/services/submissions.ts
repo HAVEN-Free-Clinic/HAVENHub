@@ -95,15 +95,18 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
   const now = new Date();
   const open = cycle.status === "OPEN" && (!cycle.opensAt || cycle.opensAt <= now) && (!cycle.closesAt || cycle.closesAt >= now);
   if (!open) throw new CycleNotOpenError();
-  if (input.applicantType === "RENEWAL" && !cycle.acceptsRenewals) throw new CycleNotOpenError("This cycle does not accept renewals.");
+  if ((input.applicantType === "RENEWAL" || input.applicantType === "TRANSFER") && !cycle.acceptsRenewals) {
+    throw new CycleNotOpenError("This cycle does not accept returning applicants.");
+  }
 
-  // Renewals must be signed in and a current volunteer. The server re-verifies
-  // here regardless of the client UI, and links the submission to the person.
   let applicantPersonId: string | null = null;
   // The departments the renewing person currently belongs to, within this cycle.
   // A renewal can only be in one of these, so the department cannot be changed.
   let renewalAllowedDepartments: string[] = [];
-  if (input.applicantType === "RENEWAL") {
+  // For a TRANSFER: where the person is coming from (their active departments).
+  let transferFromDepartments: string[] = [];
+  const isReturning = input.applicantType === "RENEWAL" || input.applicantType === "TRANSFER";
+  if (isReturning) {
     const roleNoun = cycle.track === "DIRECTOR" ? "director" : "volunteer";
     if (!input.sessionPersonId || !input.sessionEmail) {
       throw new SubmissionValidationError(`Please sign in with Yale to apply as a returning ${roleNoun}.`);
@@ -113,7 +116,13 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
       throw new SubmissionValidationError(`We do not see a current ${roleNoun} membership for your account.`);
     }
     applicantPersonId = renewalCtx.personId;
-    renewalAllowedDepartments = renewalCtx.currentDepartments.filter((d) => cycle.departments.includes(d));
+    if (input.applicantType === "RENEWAL") {
+      renewalAllowedDepartments = renewalCtx.currentDepartments.filter((d) => cycle.departments.includes(d));
+    } else {
+      // TRANSFER: the target department comes from the department-choice field,
+      // like a new applicant; we only snapshot the origin for reviewer context.
+      transferFromDepartments = renewalCtx.currentDepartments;
+    }
     // Use the verified session email as the answer too, so schema validation
     // (and any EMAIL field) sees the authoritative value, not the client's.
     input.answers = { ...input.answers, email: input.sessionEmail };
@@ -141,6 +150,18 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
     const deptField = cycle.sections.flatMap((s) => s.fields).find((f) => f.type === DEPT_CHOICE_KEY_TYPE);
     const raw = deptField ? input.answers[deptField.key] : undefined;
     selectedDepartmentCodes = Array.isArray(raw) ? (raw as string[]) : raw ? [String(raw)] : [];
+    if (input.applicantType === "TRANSFER") {
+      // A transfer may not target a department the person already belongs to;
+      // that is a renewal, not a transfer.
+      const stayingPut = selectedDepartmentCodes.filter((d) => transferFromDepartments.includes(d));
+      if (stayingPut.length > 0) {
+        const key = deptField?.key ?? "renewalDepartment";
+        throw new SubmissionValidationError(
+          `You are already in ${stayingPut.join(", ")}. Choose "Renewing in my current department" to come back to it.`,
+          { [key]: "already a member" },
+        );
+      }
+    }
   }
 
   const ctx = { applicantType: input.applicantType, selectedDepartmentCodes };
@@ -153,9 +174,9 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
     throw new SubmissionValidationError("Please fix the highlighted fields.", fieldErrors);
   }
 
-  // For renewals the email is the verified session address (also the dedup key);
+  // For returning applicants the email is the verified session address (also the dedup key);
   // the client-submitted value is ignored so it cannot be spoofed.
-  const email = (input.applicantType === "RENEWAL" ? input.sessionEmail! : String(input.answers.email ?? "")).trim();
+  const email = (isReturning ? input.sessionEmail! : String(input.answers.email ?? "")).trim();
   const emailLower = email.toLowerCase();
   const firstName = String(input.answers.first_name ?? "").trim();
   const lastName = String(input.answers.last_name ?? "").trim();
@@ -229,6 +250,7 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
         answers: answersWithFiles as never,
         applicantType: input.applicantType, departmentChoices: selectedDepartmentCodes, subcommitteeRanking,
         renewalDepartment: input.applicantType === "RENEWAL" ? input.renewalDepartment! : null,
+        transferFromDepartments,
         status: "SUBMITTED" as const, submittedAt: new Date(),
       };
       const app = existingApp

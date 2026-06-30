@@ -1,4 +1,5 @@
 import { prisma } from "@/platform/db";
+import { requirePermission } from "@/platform/auth/session";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { recruitmentTrail } from "@/modules/recruitment/breadcrumbs";
 import { createCycleAction } from "../../actions";
@@ -15,6 +16,11 @@ type PageProps = {
 };
 
 export default async function NewCyclePage({ searchParams }: PageProps) {
+  // Gate the form on the same permission createCycleAction enforces. Without this
+  // a recruitment.access-only user (e.g. an SRR reviewer) could open and fill the
+  // form, then get silently bounced to /no-access on submit. Gating here lands
+  // them on the friendly /no-access page up front instead.
+  await requirePermission("recruitment.manage_cycles");
   const { error } = await searchParams;
   const terms = await prisma.term.findMany({ orderBy: { startDate: "desc" } });
   return (

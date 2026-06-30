@@ -9,6 +9,9 @@
 import type { EmailLog, EmailStatus, Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
+import { GraphTransport, LogTransport } from "@/platform/email/transport";
+import { getAccessToken as defaultGetAccessToken } from "@/platform/email/oauth";
+import { getSetting } from "@/platform/settings/service";
 
 // ---------------------------------------------------------------------------
 // Typed errors
@@ -210,4 +213,46 @@ export async function retryAllFailedEmails(actorPersonId: string): Promise<numbe
   });
 
   return count;
+}
+
+// ---------------------------------------------------------------------------
+// sendSenderTest
+// ---------------------------------------------------------------------------
+
+/**
+ * Send a one-off test email AS `fromEmail`, directly (NOT via the queue), so any
+ * Graph rejection (malformed address or missing Send-As rights) surfaces
+ * synchronously to the admin. In log mode it just logs. Records an audit entry.
+ *
+ * `opts` is for testing only; production callers omit it.
+ */
+export async function sendSenderTest(
+  actorPersonId: string,
+  input: { toEmail: string; fromEmail: string; fromName?: string | null },
+  opts?: { getAccessToken?: () => Promise<string>; fetchImpl?: typeof fetch }
+): Promise<void> {
+  const transportKind = await getSetting<"log" | "graph">("email.transport");
+  const transport =
+    transportKind === "graph"
+      ? new GraphTransport({
+          getAccessToken: opts?.getAccessToken ?? defaultGetAccessToken,
+          sender: input.fromEmail,
+          fetchImpl: opts?.fetchImpl,
+        })
+      : new LogTransport();
+
+  await transport.send({
+    to: input.toEmail,
+    subject: "HAVEN Hub sender test",
+    html: `<p>This is a test message confirming HAVEN Hub can send from ${input.fromEmail}.</p>`,
+    from: input.fromEmail,
+    fromName: input.fromName ?? undefined,
+  });
+
+  await recordAudit({
+    actorPersonId,
+    action: "email.sender_test",
+    entityType: "EmailSenderRule",
+    after: { toEmail: input.toEmail, fromEmail: input.fromEmail },
+  });
 }

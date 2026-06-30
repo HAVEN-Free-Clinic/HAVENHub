@@ -104,6 +104,7 @@ model Person {
   /// Email log rows this person triggered (may differ from the recipient).
   emailLogsTriggered        EmailLog[]           @relation("emailLogTriggeredBy")
   emailTemplatesUpdated                 EmailTemplate[]         @relation("emailTemplateUpdatedBy")
+  emailSenderRules                      EmailSenderRule[]       @relation("emailSenderRuleUpdatedBy")
   recruitmentCycleEmailsUpdated         RecruitmentCycleEmail[] @relation("recruitmentCycleEmailUpdatedBy")
   campaignsCreated          EmailCampaign[]      @relation("campaignCreatedBy")
   complianceReminder        ComplianceReminder?
@@ -405,6 +406,7 @@ enum ApplicantScope {
 enum ApplicantType {
   NEW
   RENEWAL
+  TRANSFER
 }
 
 enum ApplicationStatus {
@@ -590,6 +592,10 @@ model EmailLog {
   subject       String
   html          String
   template      String
+  /// Snapshot of the resolved sender at enqueue time. Null means use the global default sender.
+  fromEmail     String?
+  /// Optional display name paired with fromEmail.
+  fromName      String?
   /// Person the email was addressed to (optional; may be null for non-person recipients).
   personId      String?
   /// Person who triggered the email (e.g. the director who performed an action). SetNull on delete.
@@ -622,6 +628,28 @@ model EmailTemplate {
   updatedBy   Person?  @relation("emailTemplateUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+enum EmailSenderScope {
+  CATEGORY
+  TEMPLATE
+}
+
+/// Per-scope sender override. A CATEGORY row targets all templates in a named group;
+/// a TEMPLATE row targets a single descriptor key.
+model EmailSenderRule {
+  id          String           @id @default(cuid())
+  scope       EmailSenderScope
+  /// Group name when scope=CATEGORY; template descriptor key when scope=TEMPLATE.
+  target      String
+  fromEmail   String
+  fromName    String?
+  updatedById String?
+  updatedBy   Person?          @relation("emailSenderRuleUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@unique([scope, target])
 }
 
 /// Per-cycle override of a recruitment email. A row exists only when a cycle
@@ -934,6 +962,10 @@ model Application {
   applicantType     ApplicantType     @default(NEW)
   departmentChoices String[]
   renewalDepartment String?
+  // For a TRANSFER applicant: a snapshot of the department codes they were an
+  // active member of at submit time (where they are coming from). Empty for
+  // NEW and RENEWAL.
+  transferFromDepartments String[] @default([])
   // ordered subcommittee IDs the applicant ranked (1st -> Nth); hoisted from the
   // SUBCOMMITTEE_RANK field answer at submit, like departmentChoices.
   subcommitteeRanking      String[]

@@ -1,11 +1,13 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
+import { _resetSettingsCache } from "@/platform/settings/service";
 import {
   listEmails,
   retryEmail,
   retryAllFailedEmails,
   emailHealthCounts,
+  sendSenderTest,
   EmailNotFoundError,
   EmailStateError,
 } from "./email";
@@ -356,5 +358,40 @@ describe("EmailStateError", () => {
     expect(err).toBeInstanceOf(EmailStateError);
     expect(err.message).toBe("Only failed emails can be retried.");
     expect(err.name).toBe("EmailStateError");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// sendSenderTest
+// ---------------------------------------------------------------------------
+
+describe("sendSenderTest", () => {
+  beforeEach(async () => {
+    await resetDb();
+    _resetSettingsCache();
+  });
+
+  it("in log mode it does not throw and records an audit entry", async () => {
+    const spy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      await sendSenderTest("actor1", { toEmail: "me@yale.edu", fromEmail: "recruit@yale.edu" });
+    } finally {
+      spy.mockRestore();
+    }
+    const audit = await prisma.auditLog.findFirst({ where: { action: "email.sender_test" } });
+    expect(audit).not.toBeNull();
+  });
+
+  it("in graph mode it throws when Graph responds non-OK", async () => {
+    await prisma.setting.create({ data: { key: "email.transport", value: "graph" } });
+    _resetSettingsCache();
+    const fetchMock = vi.fn(async () => new Response("denied", { status: 403 }));
+    await expect(
+      sendSenderTest(
+        "actor1",
+        { toEmail: "me@yale.edu", fromEmail: "recruit@yale.edu" },
+        { getAccessToken: () => Promise.resolve("tok"), fetchImpl: fetchMock as typeof fetch }
+      )
+    ).rejects.toThrow(/403/);
   });
 });

@@ -27,6 +27,12 @@ beforeEach(resetDb);
 // ---------------------------------------------------------------------------
 
 describe("compliance-reminder via renderEmail", () => {
+  // Actionable statuses link the member into HAVEN Hub (/my-info) via an inline
+  // link + a brand-colored CTA button.
+  const APP_URL = "https://hub.example.org";
+  const BRAND = "#00356b";
+  const CTA_URL = `${APP_URL}/my-info`;
+
   it("subject is exactly '[HAVEN] HIPAA certification reminder'", async () => {
     const params: ComplianceReminderParams = {
       personName: "Alice Smith",
@@ -88,14 +94,26 @@ describe("compliance-reminder via renderEmail", () => {
     expect(html).toContain("do not have");
   });
 
-  it("UNKNOWN_DATE: html contains 'do not have'", async () => {
+  it("UNKNOWN_DATE: html says the certificate is on file (not 'do not have')", async () => {
     const params: ComplianceReminderParams = {
       personName: "Carol White",
       status: "UNKNOWN_DATE",
       expiresAt: null,
     };
     const { html } = await renderEmail("compliance-reminder", complianceReminderContext(params));
-    expect(html).toContain("do not have");
+    expect(html).toContain("certificate is on file");
+    expect(html).not.toContain("do not have");
+  });
+
+  it("UNKNOWN_DATE: html says 'No action is needed' and does not tell the member to re-upload", async () => {
+    const params: ComplianceReminderParams = {
+      personName: "Carol White",
+      status: "UNKNOWN_DATE",
+      expiresAt: null,
+    };
+    const { html } = await renderEmail("compliance-reminder", complianceReminderContext(params));
+    expect(html).toContain("No action is needed");
+    expect(html).not.toContain("upload or renew");
   });
 
   it("html contains the escaped person name", async () => {
@@ -108,14 +126,22 @@ describe("compliance-reminder via renderEmail", () => {
     expect(html).toContain("Alice Smith");
   });
 
-  it("html contains the My Info call to action", async () => {
+  it("actionable status links 'HAVEN Hub' to My Info and renders a brand-colored CTA button", async () => {
     const params: ComplianceReminderParams = {
       personName: "Alice Smith",
       status: "EXPIRING_SOON",
       expiresAt: new Date("2026-07-04T00:00:00Z"),
+      appUrl: APP_URL,
+      brandColor: BRAND,
     };
     const { html } = await renderEmail("compliance-reminder", complianceReminderContext(params));
-    expect(html).toContain("My Info");
+    // Inline link in the sentence
+    expect(html).toContain(`<a href="${CTA_URL}">HAVEN Hub</a>`);
+    // Brand-colored CTA button to the same place
+    expect(html).toContain("Open HAVEN Hub");
+    expect(html).toContain(`background-color: ${BRAND};`);
+    // The old dead "in My Info" text is gone
+    expect(html).not.toContain("in My Info");
   });
 
   it("HTML-escapes a malicious personName", async () => {
@@ -158,16 +184,21 @@ describe("compliance-reminder via renderEmail", () => {
     const { html } = await renderEmail("compliance-reminder", complianceReminderContext(params));
     expect(html).toContain("No action is needed");
     expect(html).not.toContain("upload or renew");
+    // No-action statuses do not get the CTA button.
+    expect(html).not.toContain("Open HAVEN Hub");
   });
 
-  it("EXPIRED: html still contains 'Please upload or renew your certificate in My Info.'", async () => {
+  it("EXPIRED: still asks the member to upload or renew, now linked into HAVEN Hub", async () => {
     const params: ComplianceReminderParams = {
       personName: "Bob Jones",
       status: "EXPIRED",
       expiresAt: new Date("2025-01-15T00:00:00Z"),
+      appUrl: APP_URL,
+      brandColor: BRAND,
     };
     const { html } = await renderEmail("compliance-reminder", complianceReminderContext(params));
-    expect(html).toContain("Please upload or renew your certificate in My Info.");
+    expect(html).toContain("Please upload or renew your certificate in");
+    expect(html).toContain(`<a href="${CTA_URL}">HAVEN Hub</a>`);
   });
 });
 

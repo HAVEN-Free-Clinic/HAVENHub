@@ -13,7 +13,7 @@ export type SubmitResult =
 
 export async function submitPublicApplication(slug: string, formData: FormData): Promise<SubmitResult> {
   const rawType = String(formData.get("__applicantType") ?? "NEW");
-  const applicantType: ApplicantType = rawType === "RENEWAL" ? "RENEWAL" : "NEW";
+  const applicantType: ApplicantType = rawType === "RENEWAL" ? "RENEWAL" : rawType === "TRANSFER" ? "TRANSFER" : "NEW";
   const renewalDepartment = String(formData.get("__renewalDepartment") ?? "") || undefined;
 
   const answers: Record<string, unknown> = {};

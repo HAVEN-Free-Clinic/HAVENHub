@@ -375,6 +375,93 @@ it("binds a NEW submission to the resolved identity email, ignoring a tampered f
   expect(applicant.email).toBe("ann@yale.edu"); // identity wins, not the form value
 });
 
+it("routes a TRANSFER into a different in-cycle department and snapshots the origin", async () => {
+  await openVolunteerCycle();
+  const person = await makeVolunteer("SRHD");
+  const app = await submitApplication("apply-v", {
+    applicantType: "TRANSFER",
+    answers: { first_name: "Tess", last_name: "Fer", email: "tess@yale.edu", "1st_choice_department": "MDIC" },
+    files: {},
+    sessionPersonId: person.id,
+    sessionEmail: "tess@yale.edu",
+  });
+  expect(app.applicantType).toBe("TRANSFER");
+  expect(app.departmentChoices).toEqual(["MDIC"]);
+  expect(app.transferFromDepartments).toEqual(["SRHD"]);
+  expect(app.renewalDepartment).toBeNull();
+  const applicant = await prisma.applicant.findFirstOrThrow({ where: { id: app.applicantId } });
+  expect(applicant.applicantPersonId).toBe(person.id);
+  expect(applicant.email).toBe("tess@yale.edu");
+});
+
+it("allows a TRANSFER from a department not offered by this cycle (broader eligibility)", async () => {
+  await openVolunteerCycle();
+  const person = await makeVolunteer("EXEC"); // EXEC is not one of the cycle's ["SRHD","MDIC"]
+  const app = await submitApplication("apply-v", {
+    applicantType: "TRANSFER",
+    answers: { first_name: "Ned", last_name: "Ew", email: "ned@yale.edu", "1st_choice_department": "SRHD", srhd_essay: "ready to switch" },
+    files: {},
+    sessionPersonId: person.id,
+    sessionEmail: "ned@yale.edu",
+  });
+  expect(app.applicantType).toBe("TRANSFER");
+  expect(app.departmentChoices).toEqual(["SRHD"]);
+  expect(app.transferFromDepartments).toEqual(["EXEC"]);
+});
+
+it("rejects a TRANSFER that omits the target department's new-applicant supplement", async () => {
+  await openVolunteerCycle();
+  const person = await makeVolunteer("EXEC"); // origin outside the cycle
+  const err = await submitApplication("apply-v", {
+    applicantType: "TRANSFER",
+    answers: { first_name: "Ned", last_name: "Ew", email: "ned@yale.edu", "1st_choice_department": "SRHD" }, // srhd_essay deliberately omitted
+    files: {},
+    sessionPersonId: person.id,
+    sessionEmail: "ned@yale.edu",
+  }).catch((e) => e);
+  expect(err).toBeInstanceOf(SubmissionValidationError);
+  expect((err as SubmissionValidationError).fieldErrors).toHaveProperty("srhd_essay");
+});
+
+it("rejects a TRANSFER whose target is the person's current department (nudge to renew)", async () => {
+  await openVolunteerCycle();
+  const person = await makeVolunteer("SRHD");
+  const err = await submitApplication("apply-v", {
+    applicantType: "TRANSFER",
+    answers: { first_name: "Sam", last_name: "Stay", email: "sam@yale.edu", "1st_choice_department": "SRHD", srhd_essay: "x" },
+    files: {},
+    sessionPersonId: person.id,
+    sessionEmail: "sam@yale.edu",
+  }).catch((e) => e);
+  expect(err).toBeInstanceOf(SubmissionValidationError);
+  expect((err as SubmissionValidationError).fieldErrors).toHaveProperty("1st_choice_department");
+});
+
+it("rejects a TRANSFER when the signed-in person has no active membership", async () => {
+  await openVolunteerCycle();
+  const person = await prisma.person.create({ data: { name: "Stranger", status: "ACTIVE" } });
+  await expect(
+    submitApplication("apply-v", {
+      applicantType: "TRANSFER",
+      answers: { first_name: "St", last_name: "Ranger", email: "stranger@yale.edu", "1st_choice_department": "MDIC" },
+      files: {},
+      sessionPersonId: person.id,
+      sessionEmail: "stranger@yale.edu",
+    })
+  ).rejects.toBeInstanceOf(SubmissionValidationError);
+});
+
+it("rejects a TRANSFER with no session", async () => {
+  await openVolunteerCycle();
+  await expect(
+    submitApplication("apply-v", {
+      applicantType: "TRANSFER",
+      answers: { first_name: "An", last_name: "On", email: "anon@yale.edu", "1st_choice_department": "MDIC" },
+      files: {},
+    })
+  ).rejects.toBeInstanceOf(SubmissionValidationError);
+});
+
 it("links an applicant to a person and blocks a second per cycle, but allows anonymous applicants", async () => {
   const { cycle } = await openVolunteerCycle();
   const person = await prisma.person.create({ data: { name: "Reed", status: "ACTIVE" } });

@@ -274,7 +274,9 @@ export async function deleteAction(actorPersonId: string, id: string): Promise<v
  * or DisciplinaryForbiddenError is thrown.
  *
  * Page size 25. Sorted newest occurredAt first.
- * Strikes are the total count of all actions for each person (not filtered).
+ * Strikes count the actions visible to the viewer: the full total for central
+ * viewers, and only non-confidential-or-self-issued actions for directors, so
+ * the column never reveals confidential records a director may not see.
  */
 export async function listActions(
   viewerPersonId: string,
@@ -372,7 +374,12 @@ export async function listActions(
     prisma.disciplinaryAction.count({ where }),
   ]);
 
-  const strikeCounts = await loadStrikeCounts(rows.map((r) => r.personId));
+  // Count strikes through the same visibility predicate as the rows so the
+  // Strikes column does not leak confidential actions raised by others.
+  const strikeCounts = await loadStrikeCounts(
+    rows.map((r) => r.personId),
+    directorVisibility(viewerPersonId)
+  );
 
   return {
     rows: rows.map((r) => ({
@@ -433,16 +440,25 @@ async function buildCentralWhere(
   return where;
 }
 
+/**
+ * Visibility predicate for non-central viewers: a director may see a row only
+ * if it is NOT confidential OR they issued it themselves. Shared between the
+ * row query (buildDirectorWhere) and the strike count (loadStrikeCounts) so the
+ * Strikes column never reveals confidential actions raised by others.
+ */
+function directorVisibility(viewerPersonId: string): Prisma.DisciplinaryActionWhereInput {
+  return { OR: [{ confidential: false }, { issuedById: viewerPersonId }] };
+}
+
 /** Build Prisma where clause for non-central viewers. */
 function buildDirectorWhere(
   viewerPersonId: string,
   scopedPersonIds: string[],
   q: { q?: string; category?: string }
 ): Prisma.DisciplinaryActionWhereInput {
-  // Visibility: NOT confidential OR issuedById === viewer.
   const where: Prisma.DisciplinaryActionWhereInput = {
     personId: { in: scopedPersonIds },
-    OR: [{ confidential: false }, { issuedById: viewerPersonId }],
+    ...directorVisibility(viewerPersonId),
   };
 
   if (q.category) where.category = q.category;
@@ -457,13 +473,20 @@ function buildDirectorWhere(
 /**
  * Returns a Map<personId, count> for the given person ids.
  * One groupBy query; no N+1.
+ *
+ * Pass `visibility` to scope the count to the rows the viewer is permitted to
+ * see (e.g. the director visibility predicate). Central viewers pass nothing
+ * and get the unfiltered total.
  */
-async function loadStrikeCounts(personIds: string[]): Promise<Map<string, number>> {
+async function loadStrikeCounts(
+  personIds: string[],
+  visibility?: Prisma.DisciplinaryActionWhereInput
+): Promise<Map<string, number>> {
   if (personIds.length === 0) return new Map();
 
   const groups = await prisma.disciplinaryAction.groupBy({
     by: ["personId"],
-    where: { personId: { in: personIds } },
+    where: { personId: { in: personIds }, ...visibility },
     _count: { _all: true },
   });
 

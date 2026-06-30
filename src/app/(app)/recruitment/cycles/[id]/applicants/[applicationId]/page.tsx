@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getApplication } from "@/modules/recruitment/services/submissions";
-import { visibleSections } from "@/modules/recruitment/engine/visibility";
+import { visibleSections, applicantTypeLabel } from "@/modules/recruitment/engine/visibility";
 import { requirePersonSession } from "@/platform/auth/session";
 import { reviewScope, listAcceptances } from "@/modules/recruitment/services/review";
 import { can } from "@/platform/rbac/engine";
@@ -64,7 +64,13 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
       />
       <PageHeader
         title={`${app.applicant.firstName} ${app.applicant.lastName}`}
-        description={`${app.applicant.email} · ${app.applicantType}${app.renewalDepartment ? ` · renewing in ${app.renewalDepartment}` : ""}`}
+        description={`${app.applicant.email} · ${applicantTypeLabel(app.applicantType)}${
+          app.renewalDepartment ? ` · renewing in ${app.renewalDepartment}` : ""
+        }${
+          app.applicantType === "TRANSFER" && app.transferFromDepartments.length > 0
+            ? ` · returning member, previously ${app.transferFromDepartments.join(", ")}`
+            : ""
+        }`}
       />
 
       {sections.map((section) => (

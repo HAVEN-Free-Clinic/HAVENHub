@@ -7,7 +7,7 @@ import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
 
-export function SignInForm() {
+export function SignInForm({ next }: { next?: string }) {
   const [sent, setSent] = useState(false);
   const [error, setError] = useState(false);
   const [pending, setPending] = useState(false);
@@ -33,6 +33,7 @@ export function SignInForm() {
   return (
     <form onSubmit={onSubmit}>
       <Card className="space-y-4">
+        {next && <input type="hidden" name="next" value={next} />}
         {error && <Alert tone="error">Enter a valid email address.</Alert>}
         <Field label="Email">
           <Input id="portal-email" name="email" type="email" required placeholder="you@yale.edu" />

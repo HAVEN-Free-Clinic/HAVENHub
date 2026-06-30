@@ -2,6 +2,7 @@
 import { prisma } from "@/platform/db";
 import { getSetting } from "@/platform/settings/service";
 import type { ApplicantIdentity } from "./portal-auth";
+import type { ApplicantType } from "@/modules/recruitment/engine/visibility";
 import { persistFiles, cleanupFiles, validateUploadedFile, type UploadedFile } from "./upload";
 import type { FieldValidation } from "../engine/schema-builder";
 
@@ -32,7 +33,7 @@ function mergeDraftAnswers(
 export type DraftView = {
   applicationId: string;
   status: "DRAFT" | "SUBMITTED";
-  applicantType: "NEW" | "RENEWAL";
+  applicantType: ApplicantType;
   renewalDepartment: string | null;
   answers: Record<string, unknown>;
 };
@@ -76,7 +77,7 @@ export async function getDraft(slug: string, identity: ApplicantIdentity): Promi
 export async function saveDraft(
   slug: string,
   identity: ApplicantIdentity,
-  input: { answers: Record<string, unknown>; applicantType?: "NEW" | "RENEWAL"; renewalDepartment?: string | null },
+  input: { answers: Record<string, unknown>; applicantType?: ApplicantType; renewalDepartment?: string | null },
 ): Promise<void> {
   const row = await findRow(slug, identity);
   if (!row) throw new DraftError("Cycle not found.");

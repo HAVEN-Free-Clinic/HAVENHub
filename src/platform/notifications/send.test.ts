@@ -82,7 +82,11 @@ describe("drainTeamsQueue", () => {
     expect(after1?.attempts).toBe(TEAMS_MAX_ATTEMPTS - 1);
   });
 
-  it("marks FALLBACK with 'not delivered' in lastError when person has no contactEmail", async () => {
+  // Issue #102: a permanent Teams failure that lands NO email fallback (the
+  // recipient has no contactEmail) is genuinely undelivered, so it is FAILED --
+  // not FALLBACK, which is reserved for "Teams abandoned but email delivered
+  // it". This is what makes the admin "Failed" health card reachable.
+  it("marks FAILED (not FALLBACK) when permanently failed with no email fallback", async () => {
     const p = await prisma.person.create({
       data: { name: "NoEmail", contactEmail: null, entraObjectId: "e-no-email" },
     });
@@ -96,7 +100,7 @@ describe("drainTeamsQueue", () => {
     };
     await drainTeamsQueue(transport);
     const after = await prisma.teamsMessage.findUnique({ where: { id: row.id } });
-    expect(after?.status).toBe("FALLBACK");
+    expect(after?.status).toBe("FAILED");
     const emailCount = await prisma.emailLog.count({ where: { personId: p.id } });
     expect(emailCount).toBe(0);
     expect(after?.lastError).toContain("not delivered");

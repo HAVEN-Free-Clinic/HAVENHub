@@ -361,8 +361,14 @@ enum EmailStatus {
 enum TeamsMessageStatus {
   QUEUED
   SENT
+  /// Permanent Teams failure (>= TEAMS_MAX_ATTEMPTS) with NO email fallback: the
+  /// notification was not delivered by any channel. Contrast FALLBACK, where the
+  /// email fallback delivered it. Set by drainTeamsQueue; retryable from the
+  /// admin dashboard and surfaced on the "Failed" health card.
   FAILED
-  /// Teams delivery was abandoned and the message was re-queued as email instead.
+  /// Teams delivery was abandoned but the message WAS delivered via the email
+  /// fallback (queued on permanent failure, or already queued up front for
+  /// channel "both"). A degraded-but-delivered outcome -- contrast FAILED.
   FALLBACK
   /// The log transport ran (email.transport is not "graph"): the message was
   /// recorded but NOT actually sent. Distinct from SENT so the monitor never

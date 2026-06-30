@@ -54,11 +54,12 @@ function fmtDateTime(d: Date | null): string {
   return `${year}-${month}-${day} ${hours}:${minutes} UTC`;
 }
 
-type BadgeTone = "default" | "success" | "critical";
+type BadgeTone = "default" | "success" | "warning" | "critical";
 
 function statusTone(status: TeamsMessageStatus): BadgeTone {
   if (status === "SENT") return "success";
-  if (status === "FAILED") return "critical";
+  if (status === "FAILED") return "critical"; // undelivered by any channel
+  if (status === "FALLBACK") return "warning"; // delivered via email, not Teams
   return "default";
 }
 
@@ -213,14 +214,14 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
       <div className="grid gap-4 sm:grid-cols-4">
         <StatCard label="Queued" value={counts.queued} />
         <StatCard
-          label="Failed"
+          label="Failed (undelivered)"
           value={counts.failed}
           tone={counts.failed > 0 ? "critical" : "default"}
         />
         <StatCard
-          label="Fallback"
+          label="Fallback (emailed)"
           value={counts.fallback}
-          tone={counts.fallback > 0 ? "critical" : "default"}
+          tone={counts.fallback > 0 ? "warning" : "default"}
         />
         <StatCard
           label="Logged (not sent)"

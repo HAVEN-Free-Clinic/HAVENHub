@@ -42,7 +42,10 @@ export async function queueTeamsMessage(db: Db, input: QueueTeamsInput): Promise
 /**
  * Drain the QUEUED Teams message backlog, oldest-first. On success: SENT +
  * sentAt, caching the chat id. On failure: increment attempts (requeue) until
- * TEAMS_MAX_ATTEMPTS, then queue the stored email fallback and mark FALLBACK.
+ * TEAMS_MAX_ATTEMPTS. On permanent failure the stored email fallback is queued
+ * and the row is marked FALLBACK (Teams abandoned, but email delivered it); if
+ * no email fallback lands (no contactEmail) the row is marked FAILED --
+ * undelivered by any channel, surfaced on the admin "Failed" health card.
  *
  * Each QUEUED row is attempted AT MOST ONCE per invocation, walked with keyset
  * pagination (createdAt,id) in batches of `batchSize`: a requeued row sits
@@ -129,9 +132,14 @@ export async function drainTeamsQueue(
           const lastError = emailLands
             ? message
             : `${message} | no contactEmail: email fallback skipped, message not delivered`.slice(0, 500);
+          // FALLBACK iff the email actually lands (queued here, or already up
+          // front for channel "both"): the notification was delivered, just not
+          // via Teams. With no email fallback the message is undelivered by any
+          // channel -> FAILED, which lights the admin "Failed" card and is
+          // retryable from the dashboard.
           await prisma.teamsMessage.update({
             where: { id: row.id },
-            data: { attempts, lastError, status: "FALLBACK" },
+            data: { attempts, lastError, status: emailLands ? "FALLBACK" : "FAILED" },
           });
         } else {
           await prisma.teamsMessage.update({

@@ -8,7 +8,7 @@ import { gradeQuizAction, type QuizActionResult } from "./actions";
 import type { MyTraining } from "@/modules/recruitment/services/training";
 import { Card } from "@/platform/ui/card";
 import { Alert } from "@/platform/ui/alert";
-import { Input, Textarea } from "@/platform/ui/input";
+import { Field, Input, Textarea } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Button } from "@/platform/ui/button";
 
@@ -223,21 +223,25 @@ export function TrainingQuiz({
               ))}
             </Select>
           </Field>
-          <Field label="Additional shift availability" optional full>
-            <Input
-              name="additionalShiftAvailability"
-              defaultValue={intake.additionalShiftAvailability ?? ""}
-              placeholder="e.g. Available most Saturday mornings, some weekday evenings"
-            />
-          </Field>
-          <Field label="Feedback or questions" optional full>
-            <Textarea
-              name="feedback"
-              defaultValue={intake.feedback ?? ""}
-              placeholder="Anything you'd like the directors to know?"
-              className="min-h-[78px] resize-y"
-            />
-          </Field>
+          <div className="sm:col-span-2">
+            <Field label="Additional shift availability" hint="Optional">
+              <Input
+                name="additionalShiftAvailability"
+                defaultValue={intake.additionalShiftAvailability ?? ""}
+                placeholder="e.g. Available most Saturday mornings, some weekday evenings"
+              />
+            </Field>
+          </div>
+          <div className="sm:col-span-2">
+            <Field label="Feedback or questions" hint="Optional">
+              <Textarea
+                name="feedback"
+                defaultValue={intake.feedback ?? ""}
+                placeholder="Anything you'd like the directors to know?"
+                className="min-h-[78px] resize-y"
+              />
+            </Field>
+          </div>
         </div>
       </Card>
     </form>
@@ -247,28 +251,6 @@ export function TrainingQuiz({
 // ---------------------------------------------------------------------------
 // Presentation helpers
 // ---------------------------------------------------------------------------
-
-function Field({
-  label,
-  optional,
-  full,
-  children,
-}: {
-  label: string;
-  optional?: boolean;
-  full?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className={full ? "sm:col-span-2" : undefined}>
-      <label className="mb-1.5 block text-[12.5px] font-semibold text-foreground-soft">
-        {label}
-        {optional && <span className="font-normal text-subtle-foreground"> (optional)</span>}
-      </label>
-      {children}
-    </div>
-  );
-}
 
 function optionClass({
   sel,

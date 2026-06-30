@@ -55,6 +55,25 @@ export class BuilderValidationError extends Error {
 export const RHD_CODES = new Set(["SCTS", "JCTS", "CCRH"]);
 
 // ---------------------------------------------------------------------------
+// Input allow-lists
+// ---------------------------------------------------------------------------
+
+/**
+ * Roles a scheduler may assign (mirrors the ShiftRole DB enum). The action
+ * reads `role` from FormData with a bare cast, so the service re-checks the
+ * value against this allow-list before any write -- a crafted out-of-set value
+ * raises BuilderValidationError (the friendly path) instead of letting the DB
+ * throw an opaque PrismaClientValidationError.
+ */
+export const SHIFT_ROLES = ["VOLUNTEER", "SHADOW", "DIRECTOR"] as const;
+
+/**
+ * Boolean tag columns toggleable on a ShiftAssignment. Guarded the same way as
+ * SHIFT_ROLES so a bad `tag` never reaches `data: { [tag]: value }`.
+ */
+export const SHIFT_TAGS = ["triage", "walkin", "cc", "remote"] as const;
+
+// ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
 
@@ -149,6 +168,12 @@ export async function setAssignment(
   }
 ): Promise<void> {
   await scopeCheck(actor, opts.departmentId);
+
+  // Reject a role outside the allow-list before any DB work. role === null is the
+  // valid unassign case.
+  if (opts.role !== null && !SHIFT_ROLES.includes(opts.role)) {
+    throw new BuilderValidationError("Invalid role.");
+  }
 
   const term = await getActiveTerm();
   if (!term) throw new BuilderValidationError("No active term.");
@@ -267,6 +292,11 @@ export async function toggleTag(
   }
 ): Promise<void> {
   await scopeCheck(actor, opts.departmentId);
+
+  // Reject a tag outside the allow-list before it can reach `data: { [tag]: ... }`.
+  if (!SHIFT_TAGS.includes(opts.tag)) {
+    throw new BuilderValidationError("Invalid tag.");
+  }
 
   const term = await getActiveTerm();
   if (!term) throw new BuilderValidationError("No active term.");

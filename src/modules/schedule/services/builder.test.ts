@@ -541,6 +541,28 @@ describe("setAssignment", () => {
       setAssignment(person.id, { departmentId: dept.id, dateKey: "2026-06-06", personId: person.id, role: "VOLUNTEER" })
     ).rejects.toBeInstanceOf(BuilderValidationError);
   });
+
+  it("rejects an out-of-set role with BuilderValidationError (not a raw Prisma error)", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const dept = await createDepartment("PCAR");
+    const director = await createPerson("Director");
+    const volunteer = await createPerson("Volunteer");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(volunteer.id, term.id, dept.id, "VOLUNTEER");
+
+    // A crafted POST can deliver a role outside the allow-list; the bare cast in
+    // the action would pass it straight through. The service must reject it as a
+    // validation error so the action's friendly error path fires.
+    await expect(
+      setAssignment(director.id, {
+        departmentId: dept.id,
+        dateKey: isoDateKey(dates[0]),
+        personId: volunteer.id,
+        role: "ADMIN" as "VOLUNTEER",
+      })
+    ).rejects.toBeInstanceOf(BuilderValidationError);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -598,6 +620,29 @@ describe("toggleTag", () => {
     await expect(
       toggleTag(outsider.id, { departmentId: dept.id, dateKey: isoDateKey(dates[0]), personId: volunteer.id, tag: "triage" })
     ).rejects.toBeInstanceOf(BuilderForbiddenError);
+  });
+
+  it("rejects an out-of-set tag with BuilderValidationError (not a raw Prisma error)", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const dept = await createDepartment("SCTP");
+    const director = await createPerson("Director");
+    const volunteer = await createPerson("Volunteer");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(volunteer.id, term.id, dept.id, "VOLUNTEER");
+    await createShift(term.id, dept.id, volunteer.id, dates[0], "VOLUNTEER");
+
+    // A crafted tag would become `data: { [badTag]: true }` in a Prisma update,
+    // throwing PrismaClientValidationError. The service must reject it up front
+    // so a bad value never reaches the query (and the friendly path fires).
+    await expect(
+      toggleTag(director.id, {
+        departmentId: dept.id,
+        dateKey: isoDateKey(dates[0]),
+        personId: volunteer.id,
+        tag: "deleteMany" as "triage",
+      })
+    ).rejects.toBeInstanceOf(BuilderValidationError);
   });
 
   it("audits tag toggle", async () => {

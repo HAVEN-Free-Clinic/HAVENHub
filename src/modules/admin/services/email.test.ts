@@ -4,6 +4,7 @@ import { resetDb } from "@/platform/test/db";
 import { _resetSettingsCache } from "@/platform/settings/service";
 import {
   listEmails,
+  listEmailTemplates,
   retryEmail,
   retryAllFailedEmails,
   emailHealthCounts,
@@ -154,6 +155,35 @@ describe("listEmails - filters", () => {
     // counts are global
     expect(result.counts.queued).toBe(2);
     expect(result.counts.failed).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// listEmailTemplates (issue #99: filter options derived from logged values)
+// ---------------------------------------------------------------------------
+
+describe("listEmailTemplates", () => {
+  beforeEach(resetDb);
+
+  it("returns the distinct template values actually present, sorted", async () => {
+    await seedEmail({ template: "recruitment.acceptance" });
+    await seedEmail({ template: "recruitment.acceptance" });
+    await seedEmail({ template: "campaign" });
+    await seedEmail({ template: "compliance-reminder" });
+    await seedEmail({ template: "epic-onboarding" });
+
+    const templates = await listEmailTemplates();
+
+    expect(templates).toEqual([
+      "campaign",
+      "compliance-reminder",
+      "epic-onboarding",
+      "recruitment.acceptance",
+    ]);
+  });
+
+  it("returns an empty array when the log is empty", async () => {
+    expect(await listEmailTemplates()).toEqual([]);
   });
 });
 

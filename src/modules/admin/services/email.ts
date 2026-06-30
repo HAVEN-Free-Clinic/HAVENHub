@@ -135,6 +135,27 @@ export async function listEmails(query: ListEmailsQuery): Promise<{
 }
 
 // ---------------------------------------------------------------------------
+// listEmailTemplates
+// ---------------------------------------------------------------------------
+
+/**
+ * Return the distinct `template` values actually present in EmailLog, sorted.
+ *
+ * The monitoring page builds its template filter from this so every option
+ * matches real data: recruitment and campaign emails (the highest-volume
+ * categories during a cycle) are no longer omitted by a hardcoded allowlist
+ * (issue #99). An empty log yields an empty list.
+ */
+export async function listEmailTemplates(): Promise<string[]> {
+  const rows = await prisma.emailLog.findMany({
+    distinct: ["template"],
+    select: { template: true },
+    orderBy: { template: "asc" },
+  });
+  return rows.map((r) => r.template);
+}
+
+// ---------------------------------------------------------------------------
 // retryEmail
 // ---------------------------------------------------------------------------
 

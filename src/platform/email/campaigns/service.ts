@@ -169,9 +169,9 @@ export async function executeRun(
 
   const runId = await prisma.$transaction(async (tx) => {
     // Guard against double-dispatch: re-read inside the transaction so two
-    // worker instances racing can't both proceed past this point.
-    // (Single-worker deployments are already safe via pg-boss SKIP LOCKED,
-    // but this makes the service itself robust regardless of job-queue config.)
+    // concurrent dispatch attempts -- overlapping cron ticks, or a manual
+    // "send now" racing the per-minute drainer -- can't both proceed past this
+    // point. The status flip below commits atomically with the run.
     const current = await tx.emailCampaign.findUniqueOrThrow({ where: { id: campaignId } });
     if (current.status === "SENT" || current.status === "CANCELLED") {
       throw new Error("Campaign already dispatched");

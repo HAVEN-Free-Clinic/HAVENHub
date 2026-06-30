@@ -3,8 +3,10 @@
  * hitting this path every minute with `Authorization: Bearer $CRON_SECRET`, not
  * by Vercel Cron -- Vercel only executes crons on a fully-active paid plan, so
  * we drive it externally to stay plan-independent. There must be exactly ONE
- * scheduler pointed here (see note below); `crons` is intentionally absent from
- * vercel.json so Vercel does not also fire it.
+ * scheduler pointed here (see note below). vercel.json may carry non-draining
+ * Vercel crons (today: recruitment-drafts), but this email route -- the SOLE
+ * queue drainer -- must never be added to vercel.json `crons`, or Vercel would
+ * fire it in parallel with the external scheduler and double-drain.
  *
  * This is the SOLE drainer of the outbound email queue, restoring the
  * background worker's per-minute EMAIL_QUEUE + CAMPAIGN_DISPATCH cadence on

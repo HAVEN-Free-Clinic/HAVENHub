@@ -60,8 +60,22 @@ async function requireManager(actorId: string): Promise<void> {
  * Unzip a SCORM 1.2 package, validate its manifest, store every file under
  * scorm/<courseId>/, and record the launch href + version on the course.
  * Replacing: the existing scorm/<courseId>/ tree is deleted first.
+ *
+ * When `resetProgress` is set (the admin's choice on a replace), every learner's
+ * CourseProgress and ScoProgress for this course is deleted in the same
+ * transaction as the manifest update. This is the only way to keep completion
+ * honest across a content swap: the new package's SCO ids generally differ from
+ * the old one's, so prior per-SCO rows would otherwise be orphaned and the
+ * course-level COMPLETE rollup would persist for content the learner never took
+ * (falsely clearing the onboarding/training gate). Left false, prior progress is
+ * preserved unchanged.
  */
-export async function ingestScormPackage(courseId: string, zipBytes: Buffer, actorId: string): Promise<void> {
+export async function ingestScormPackage(
+  courseId: string,
+  zipBytes: Buffer,
+  actorId: string,
+  opts: { resetProgress?: boolean } = {}
+): Promise<void> {
   await requireManager(actorId);
   const course = await prisma.course.findUnique({ where: { id: courseId } });
   if (!course) throw new LearningValidationError("Course not found.");
@@ -100,7 +114,7 @@ export async function ingestScormPackage(courseId: string, zipBytes: Buffer, act
     await putObject(`scorm/${courseId}/${rel}`, Buffer.from(bytes), contentTypeFor(rel));
   }
 
-  await prisma.course.update({
+  const updateCourse = prisma.course.update({
     where: { id: courseId },
     data: {
       scormEntryHref: parsed.entryHref,
@@ -110,11 +124,32 @@ export async function ingestScormPackage(courseId: string, zipBytes: Buffer, act
     },
   });
 
+  // Wipe progress in the same transaction as the manifest update so we never end
+  // up with new content but stale completion (or vice versa) if a write fails.
+  let resetLearners = 0;
+  if (opts.resetProgress) {
+    const [cleared] = await prisma.$transaction([
+      prisma.courseProgress.deleteMany({ where: { courseId } }),
+      prisma.scoProgress.deleteMany({ where: { courseId } }),
+      updateCourse,
+    ]);
+    resetLearners = cleared.count;
+  } else {
+    await updateCourse;
+  }
+
   await recordAudit({
     actorPersonId: actorId,
     action: "learning.package_upload",
     entityType: "Course",
     entityId: courseId,
-    after: { entryHref: parsed.entryHref, version: parsed.version, fileCount: files.length, scoCount: parsed.scos.length },
+    after: {
+      entryHref: parsed.entryHref,
+      version: parsed.version,
+      fileCount: files.length,
+      scoCount: parsed.scos.length,
+      resetProgress: !!opts.resetProgress,
+      resetLearners,
+    },
   });
 }

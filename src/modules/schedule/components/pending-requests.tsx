@@ -9,6 +9,7 @@
 
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
+import { cardClasses } from "@/platform/ui/card";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Input } from "@/platform/ui/input";
 import { displayDate } from "@/modules/schedule/engine/display";
@@ -39,7 +40,7 @@ export function PendingRequests({
 
   if (rows.length === 0) {
     return (
-      <section className="rounded-2xl border border-border bg-surface px-4 py-3">
+      <section className={`${cardClasses({ pad: false })} px-4 py-3`}>
         <h2 className="text-sm font-semibold text-foreground-soft mb-2">Pending Requests</h2>
         <p className="text-sm text-subtle-foreground">No requests.</p>
       </section>
@@ -47,7 +48,7 @@ export function PendingRequests({
   }
 
   return (
-    <section className="rounded-2xl border border-border bg-surface px-4 py-3 flex flex-col gap-3">
+    <section className={`${cardClasses({ pad: false })} px-4 py-3 flex flex-col gap-3`}>
       <h2 className="text-sm font-semibold text-foreground-soft">
         Pending Requests
         {pendingRows.length > 0 && (

@@ -9,6 +9,7 @@
 
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
+import { cardClasses } from "@/platform/ui/card";
 import { Input, Field } from "@/platform/ui/input";
 import { rolesForDept } from "@/modules/schedule/engine/capacity";
 import type { DayMetrics, Quota } from "@/modules/schedule/engine/capacity";
@@ -71,7 +72,7 @@ export function CapacityPanel({
   const roles = rolesForDept(deptCode);
 
   return (
-    <section className="rounded-2xl border border-border bg-surface px-4 py-3 flex flex-col gap-3">
+    <section className={`${cardClasses({ pad: false })} px-4 py-3 flex flex-col gap-3`}>
       <h2 className="text-sm font-semibold text-foreground-soft">Capacity</h2>
 
       {/* Headcount */}

@@ -10,6 +10,7 @@
 import Link from "next/link";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
+import { cardClasses } from "@/platform/ui/card";
 import { Input, Field } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { PROCEDURE_KEYS } from "@/modules/schedule/engine/rhd";
@@ -72,7 +73,7 @@ export function ReadinessPanel({
   const { readiness, attendingOptions, clinic } = rhd;
 
   return (
-    <section className="rounded-2xl border border-border bg-surface px-4 py-3 flex flex-col gap-4">
+    <section className={`${cardClasses({ pad: false })} px-4 py-3 flex flex-col gap-4`}>
       <h2 className="text-sm font-semibold text-foreground-soft">RHD Clinic Readiness</h2>
 
       {/* Clinic config form */}

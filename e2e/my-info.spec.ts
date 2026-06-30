@@ -1,11 +1,5 @@
 import { expect, test } from "@playwright/test";
-
-async function devLogin(page: import("@playwright/test").Page, email: string) {
-  await page.goto("/login");
-  await page.fill('input[name="email"]', email);
-  await page.click('button:has-text("Dev sign in")');
-  await page.waitForURL((url) => url.pathname === "/");
-}
+import { devLogin } from "./auth";
 
 test("admin login: hub My Info tile links to /my-info and page renders read-only rows and HIPAA section", async ({ page }) => {
   await devLogin(page, "j.carney@yale.edu");

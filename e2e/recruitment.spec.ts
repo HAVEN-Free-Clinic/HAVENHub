@@ -1,7 +1,10 @@
 import { expect, test } from "@playwright/test";
 import { applicantSessionCookie } from "./portal-cookie";
 
-test.setTimeout(120_000);
+// This is the heaviest spec (build a form via TypePicker, publish, then apply via
+// the portal). On a cold CI dev server those routes compile on first hit, so allow
+// extra headroom on top of the per-spec default.
+test.setTimeout(180_000);
 
 async function devLogin(page: import("@playwright/test").Page, email: string) {
   await page.goto("/login");

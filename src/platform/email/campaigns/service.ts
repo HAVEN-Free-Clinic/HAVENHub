@@ -33,6 +33,19 @@ export class CampaignConfirmationError extends Error {
   }
 }
 
+/**
+ * Thrown when executeRun's atomic claim matches zero rows -- another overlapping
+ * pass already dispatched the campaign (or it left the eligible state, e.g. was
+ * cancelled) between selection and the claim. Distinct from a genuine failure so
+ * dispatchDueCampaigns can treat a lost claim as a benign dedup, not an error.
+ */
+export class CampaignAlreadyDispatchedError extends Error {
+  constructor() {
+    super("Campaign already dispatched");
+    this.name = "CampaignAlreadyDispatchedError";
+  }
+}
+
 export async function createDraft(actorId: string | null, name: string) {
   return prisma.emailCampaign.create({
     data: {
@@ -191,7 +204,7 @@ export async function executeRun(
       data: opts.statusUpdate,
     });
     if (claimed.count !== 1) {
-      throw new Error("Campaign already dispatched");
+      throw new CampaignAlreadyDispatchedError();
     }
 
     const run = await tx.emailCampaignRun.create({ data: { campaignId, recipientCount: deduped.length } });

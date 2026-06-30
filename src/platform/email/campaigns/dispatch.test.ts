@@ -60,7 +60,11 @@ describe("dispatchDueCampaigns", () => {
     await scheduleCampaign(null, c.id, { scheduleType: "SCHEDULED", scheduledAt: new Date("2026-06-10T12:00:00Z") });
 
     const now = new Date("2026-06-10T12:00:30Z");
-    await Promise.all([dispatchDueCampaigns(now), dispatchDueCampaigns(now)]);
+    const summaries = await Promise.all([dispatchDueCampaigns(now), dispatchDueCampaigns(now)]);
+    // Exactly one pass claims and runs; the other is a benign dedup, not an
+    // error -- it must not inflate the cron tick's error count.
+    expect(summaries.reduce((n, s) => n + s.executed, 0)).toBe(1);
+    expect(summaries.reduce((n, s) => n + s.errors, 0)).toBe(0);
 
     const runs = await prisma.emailCampaignRun.findMany({ where: { campaignId: c.id } });
     expect(runs.length).toBe(1);
@@ -77,7 +81,9 @@ describe("dispatchDueCampaigns", () => {
     await scheduleCampaign(null, c.id, { scheduleType: "RECURRING", cronExpr: "0 13 * * *" }, new Date("2026-06-10T12:00:00Z"));
 
     const now = new Date("2026-06-10T13:00:30Z");
-    await Promise.all([dispatchDueCampaigns(now), dispatchDueCampaigns(now)]);
+    const summaries = await Promise.all([dispatchDueCampaigns(now), dispatchDueCampaigns(now)]);
+    expect(summaries.reduce((n, s) => n + s.executed, 0)).toBe(1);
+    expect(summaries.reduce((n, s) => n + s.errors, 0)).toBe(0);
 
     const runs = await prisma.emailCampaignRun.findMany({ where: { campaignId: c.id } });
     expect(runs.length).toBe(1);

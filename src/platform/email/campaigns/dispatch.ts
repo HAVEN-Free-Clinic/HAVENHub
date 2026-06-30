@@ -1,5 +1,5 @@
 import { prisma } from "@/platform/db";
-import { executeRun } from "./service";
+import { executeRun, CampaignAlreadyDispatchedError } from "./service";
 import { nextCronAfter } from "./cron";
 
 export type DispatchSummary = { executed: number; errors: number };
@@ -38,6 +38,12 @@ export async function dispatchDueCampaigns(now: Date): Promise<DispatchSummary> 
       }
       executed++;
     } catch (err) {
+      if (err instanceof CampaignAlreadyDispatchedError) {
+        // Another overlapping pass already claimed this campaign. The atomic
+        // claim did its job; this is a benign dedup, not a failure, so don't
+        // count it as an error or log it as one.
+        continue;
+      }
       errors++;
       console.error("[campaign-dispatch] run failed", campaign.id, err);
     }

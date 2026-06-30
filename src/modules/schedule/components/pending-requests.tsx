@@ -15,6 +15,7 @@ import { Input } from "@/platform/ui/input";
 import { displayDate } from "@/modules/schedule/engine/display";
 import { isoDateKey } from "@/platform/dates";
 import type { RequestRow } from "@/modules/schedule/services/requests";
+import { SectionHeader } from "@/platform/ui/section-header";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -118,9 +119,7 @@ export function PendingRequests({
       {/* Decided rows (collapsed muted list) */}
       {decidedRows.length > 0 && (
         <div className="border-t border-border-subtle pt-2 flex flex-col gap-1">
-          <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-            Recent decisions
-          </h3>
+          <SectionHeader>Recent decisions</SectionHeader>
           {decidedRows.map(({ request, requesterName, decidedByName }) => (
             <p key={request.id} className="text-xs text-subtle-foreground">
               {requesterName}: {" "}

@@ -143,14 +143,14 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
       {/* Hero banner */}
       <div className="rounded-2xl bg-brand px-8 py-6 text-white mb-8">
         <p className="text-xs font-semibold uppercase tracking-widest text-white/60 mb-1">{term?.name ?? "Active Term"}</p>
-        <h1 className="text-2xl font-bold mb-1">My Schedule</h1>
+        <h1 className="text-2xl font-bold tracking-tight">My Schedule</h1>
         {shifts.length > 0 ? (
-          <p className="text-sm text-white/70">
+          <p className="mt-1 text-sm text-white/70">
             {shifts.length} shift{shifts.length !== 1 ? "s" : ""} this term &middot;{" "}
             {[...new Set(shifts.map((s) => s.department.name))].join(", ")}
           </p>
         ) : (
-          <p className="text-sm text-white/70">No shifts assigned yet</p>
+          <p className="mt-1 text-sm text-white/70">No shifts assigned yet</p>
         )}
       </div>
 

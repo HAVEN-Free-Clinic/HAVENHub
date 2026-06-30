@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { requireModuleAccess } from "@/platform/auth/session";
 import { PageHeader } from "@/platform/ui/page-header";
+import { SectionHeader } from "@/platform/ui/section-header";
 import {
   getMyInfo,
   listMyCertificates,
@@ -171,9 +172,7 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
       <div className="mt-8 space-y-10">
         {/* Profile form */}
         <section>
-          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-            Profile
-          </h2>
+          <SectionHeader className="mb-4">Profile</SectionHeader>
           <MyInfoForm
             action={updateAction}
             person={myInfo.person}
@@ -184,9 +183,7 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
 
         {/* Memberships */}
         <section>
-          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-            Memberships
-          </h2>
+          <SectionHeader className="mb-4">Memberships</SectionHeader>
           <MembershipsCard
             memberships={myInfo.memberships}
             withdrawAction={withdrawAction}
@@ -196,9 +193,7 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
 
         {/* HIPAA certificate */}
         <section>
-          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-            HIPAA Certificate
-          </h2>
+          <SectionHeader className="mb-4">HIPAA Certificate</SectionHeader>
           <HipaaPanel
             certificates={certificates}
             uploadAction={uploadAction}
@@ -210,9 +205,7 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
 
         {/* Clearance */}
         <section>
-          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-            Clearance
-          </h2>
+          <SectionHeader className="mb-4">Clearance</SectionHeader>
           <ClearanceCard
             clearance={clearance}
             certStatus={status}
@@ -223,9 +216,7 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
 
         {/* Epic access */}
         <section>
-          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-            Epic Access
-          </h2>
+          <SectionHeader className="mb-4">Epic Access</SectionHeader>
           <EpicPanel
             epicId={epicPanel.epicId}
             openRequest={epicPanel.openRequest}

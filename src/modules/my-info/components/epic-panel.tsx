@@ -17,6 +17,7 @@ import { SubmitButton } from "@/platform/ui/submit-button";
 import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
 import { FormActions } from "@/platform/ui/form";
+import { SectionHeader } from "@/platform/ui/section-header";
 
 function formatDate(date: Date): string {
   return date.toLocaleDateString("en-US", {
@@ -42,7 +43,7 @@ export function EpicPanel({ epicId, openRequest, action, error, saved }: EpicPan
   return (
     <Card className="space-y-4">
       <div>
-        <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Epic Access</h3>
+        <SectionHeader>Epic Access</SectionHeader>
         <p className="mt-0.5 text-xs text-subtle-foreground">Managed by the IT team.</p>
       </div>
 
@@ -71,7 +72,7 @@ export function EpicPanel({ epicId, openRequest, action, error, saved }: EpicPan
         </div>
       ) : (
         <div>
-          <h4 className="mb-2 text-sm font-semibold uppercase tracking-wider text-muted-foreground">Request Epic Access</h4>
+          <SectionHeader className="mb-2">Request Epic Access</SectionHeader>
 
           {error && (
             <Alert tone="error" className="mb-3">

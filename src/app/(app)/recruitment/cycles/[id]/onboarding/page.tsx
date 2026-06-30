@@ -12,6 +12,7 @@ import { Badge } from "@/platform/ui/badge";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Alert } from "@/platform/ui/alert";
 import { SubmitButton } from "@/platform/ui/submit-button";
+import { SectionHeader } from "@/platform/ui/section-header";
 
 type Tone = "default" | "brand" | "success" | "warning";
 
@@ -106,7 +107,7 @@ export default async function OnboardingPage({ params, searchParams }: { params:
       </form>
 
       <form action={promoteAction.bind(null, id)} className="space-y-3 border-t border-border pt-6">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Promote submitted contracts</h2>
+        <SectionHeader>Promote submitted contracts</SectionHeader>
         {promotable.length === 0 ? (
           <p className="text-sm text-muted-foreground">No submitted contracts ready to promote.</p>
         ) : (

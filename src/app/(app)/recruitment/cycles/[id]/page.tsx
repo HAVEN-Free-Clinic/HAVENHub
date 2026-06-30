@@ -14,6 +14,7 @@ import { prisma } from "@/platform/db";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
+import { SectionHeader } from "@/platform/ui/section-header";
 
 const statusTone = { DRAFT: "default", OPEN: "success", CLOSED: "warning" } as const;
 
@@ -78,7 +79,7 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
       </div>
 
       <Card>
-        <p className="text-xs font-medium uppercase tracking-wider text-subtle-foreground">Public link</p>
+        <SectionHeader>Public link</SectionHeader>
         {cycle.status === "OPEN" ? (
           <div className="mt-1 space-y-1">
             {liveByWindow ? (
@@ -104,7 +105,7 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
       </Card>
 
       <Card className="space-y-3">
-        <p className="text-xs font-medium uppercase tracking-wider text-subtle-foreground">Departments</p>
+        <SectionHeader>Departments</SectionHeader>
         {deptsaved && <Alert tone="success">Departments updated.</Alert>}
         {deptwarn && <Alert tone="warning">Saved. These removed departments still have applicants: {deptwarn}. Existing applications keep their choices, but you can no longer accept into a removed department.</Alert>}
         <form action={setCycleDepartmentsAction.bind(null, id)} className="space-y-3">
@@ -126,7 +127,7 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
 
       {(cycle.status === "DRAFT" || cycle.status === "OPEN") && (
         <Card className="space-y-3">
-          <p className="text-xs font-medium uppercase tracking-wider text-subtle-foreground">Application window</p>
+          <SectionHeader>Application window</SectionHeader>
           {windowsaved && <Alert tone="success">Application window updated.</Alert>}
           <p className="text-sm text-muted-foreground">
             Optional. While the cycle is open, the public form only accepts applications inside this window. Leave a field blank for no bound, or clear both to accept whenever the cycle is open. Times use the server timezone.
@@ -169,9 +170,7 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
 
       {(cycle.track === "VOLUNTEER" || cycle.track === "DIRECTOR") && (
         <Card className="space-y-4">
-          <p className="text-xs font-medium uppercase tracking-wider text-subtle-foreground">
-            {cycle.track === "DIRECTOR" ? "Director training" : "Training"}
-          </p>
+          <SectionHeader>{cycle.track === "DIRECTOR" ? "Director training" : "Training"}</SectionHeader>
           <div className="flex flex-wrap gap-2">
             <Link href={`/recruitment/cycles/${id}/builder/quiz`} className={navLink}>Edit quiz</Link>
             <Link href={`/recruitment/cycles/${id}/training`} className={navLink}>Training roster</Link>

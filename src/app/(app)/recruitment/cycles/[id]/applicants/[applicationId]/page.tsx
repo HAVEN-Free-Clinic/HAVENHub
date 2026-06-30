@@ -17,6 +17,7 @@ import { Badge } from "@/platform/ui/badge";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Card } from "@/platform/ui/card";
+import { SectionHeader } from "@/platform/ui/section-header";
 import { prisma } from "@/platform/db";
 
 export default async function ApplicationDetailPage({ params, searchParams }: { params: Promise<{ id: string; applicationId: string }>; searchParams: Promise<{ error?: string }> }) {
@@ -75,7 +76,7 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
 
       {sections.map((section) => (
         <Card key={section.id}>
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">{section.title}</h2>
+          <SectionHeader>{section.title}</SectionHeader>
           <dl className="mt-3 grid gap-3 sm:grid-cols-2">
             {section.fields.map((f) => {
               const val = answers[f.key];
@@ -95,7 +96,7 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
 
       {(app.subcommitteeRanking.length > 0 || app.assignedSubcommitteeId) && (
         <Card>
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Subcommittee</h2>
+          <SectionHeader>Subcommittee</SectionHeader>
           <dl className="mt-3 grid gap-3 sm:grid-cols-2">
             <div>
               <dt className="text-xs text-subtle-foreground">Ranked preferences</dt>
@@ -118,7 +119,7 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
 
       {app.cycle.track === "VOLUNTEER" ? (
         <Card>
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Decision</h2>
+          <SectionHeader>Decision</SectionHeader>
           {error && <Alert tone="error" className="mt-3">{error}</Alert>}
           {acceptances.length > 0 ? (
             <ul className="mt-3 divide-y divide-border-subtle">
@@ -163,7 +164,7 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
         </Card>
       ) : (
         <Card>
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Interview</h2>
+          <SectionHeader>Interview</SectionHeader>
           {error && <Alert tone="error" className="mt-3">{error}</Alert>}
           {existingInterviews.length > 0 && (
             <ul className="mt-3 space-y-1 text-sm">

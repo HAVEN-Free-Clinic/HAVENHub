@@ -29,6 +29,7 @@ import { Select } from "@/platform/ui/select";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Alert } from "@/platform/ui/alert";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
+import { SectionHeader } from "@/platform/ui/section-header";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -50,14 +51,6 @@ type RosterPanelProps = {
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
-
-function SectionHeading({ children }: { children: ReactNode }) {
-  return (
-    <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-      {children}
-    </h2>
-  );
-}
 
 function MemberChip({
   person,
@@ -265,7 +258,7 @@ export async function RosterPanel({
 
   return (
     <section className="space-y-8">
-      <SectionHeading>Roster</SectionHeading>
+      <SectionHeader className="mb-4">Roster</SectionHeader>
 
       {/* Error and status messages */}
       {rosterError && <Alert tone="error">{rosterError}</Alert>}
@@ -375,9 +368,7 @@ export async function RosterPanel({
                   {/* Directors list */}
                   {directors.length > 0 && (
                     <div>
-                      <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                        Directors
-                      </p>
+                      <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">Directors</p>
                       <div className="space-y-1.5">
                         {directors.map((person) => {
                           const membershipId = membershipIdMap.get(
@@ -401,9 +392,7 @@ export async function RosterPanel({
                   {/* Volunteers list */}
                   {volunteers.length > 0 && (
                     <div>
-                      <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                        Volunteers
-                      </p>
+                      <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">Volunteers</p>
                       <div className="space-y-1.5">
                         {volunteers.map((person) => {
                           const membershipId = membershipIdMap.get(

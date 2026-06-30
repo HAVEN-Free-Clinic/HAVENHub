@@ -22,6 +22,7 @@ import { FormActions } from "@/platform/ui/form";
 import { CertificateViewer } from "@/modules/my-info/components/certificate-viewer";
 import { certExpiresAt } from "@/platform/compliance/rules";
 import type { ComplianceStatus } from "@/platform/compliance/rules";
+import { SectionHeader } from "@/platform/ui/section-header";
 
 function formatDate(date: Date): string {
   return date.toLocaleDateString("en-US", {
@@ -83,7 +84,7 @@ export function HipaaPanel({
     <Card className="space-y-6">
       {/* Latest certificate */}
       <div>
-        <h3 className="mb-2 text-sm font-semibold uppercase tracking-wider text-muted-foreground">Current Certificate</h3>
+        <SectionHeader className="mb-2">Current Certificate</SectionHeader>
         {latest ? (
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2 text-sm text-foreground-soft">
@@ -119,7 +120,7 @@ export function HipaaPanel({
 
       {/* Upload form */}
       <div>
-        <h3 className="mb-2 text-sm font-semibold uppercase tracking-wider text-muted-foreground">Upload New Certificate</h3>
+        <SectionHeader className="mb-2">Upload New Certificate</SectionHeader>
         {error && (
           <Alert tone="error" className="mb-3">
             {error}
@@ -150,7 +151,7 @@ export function HipaaPanel({
       {/* History */}
       {history.length > 0 && (
         <div>
-          <h3 className="mb-2 text-sm font-semibold uppercase tracking-wider text-muted-foreground">History</h3>
+          <SectionHeader className="mb-2">History</SectionHeader>
           <ul className="space-y-1.5">
             {history.map((cert) => (
               <li key={cert.id} className="flex items-center gap-3 text-sm text-foreground-soft">

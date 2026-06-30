@@ -8,6 +8,7 @@ import { scheduleAction, addPanelistAction, removePanelistAction, sendInviteActi
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { interviewDetailTrail } from "@/modules/recruitment/breadcrumbs";
 import { PageHeader } from "@/platform/ui/page-header";
+import { SectionHeader } from "@/platform/ui/section-header";
 import { Field, Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Alert } from "@/platform/ui/alert";
@@ -70,7 +71,7 @@ export default async function InterviewDetail({ params, searchParams }: { params
       {canManage && (
         <>
           <Card>
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Schedule</h2>
+            <SectionHeader>Schedule</SectionHeader>
             <form action={scheduleAction.bind(null, interviewId)} className="mt-3 space-y-3">
               <Field label="Time">
                 <Input type="datetime-local" name="scheduledAt" defaultValue={scheduledValue} />
@@ -94,7 +95,7 @@ export default async function InterviewDetail({ params, searchParams }: { params
           </Card>
 
           <Card>
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Panel</h2>
+            <SectionHeader>Panel</SectionHeader>
             {iv.panelists.length > 0 ? (
               <ul className="mt-3 divide-y divide-border-subtle">
                 {iv.panelists.map((p) => (
@@ -119,7 +120,7 @@ export default async function InterviewDetail({ params, searchParams }: { params
       )}
 
       <Card>
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Evaluations ({summary.total})</h2>
+        <SectionHeader>Evaluations ({summary.total})</SectionHeader>
         <p className="mt-1 text-xs text-subtle-foreground">
           Strong yes {summary.strongYes} · Yes {summary.yes} · Maybe {summary.maybe} · No {summary.no}
         </p>
@@ -139,7 +140,7 @@ export default async function InterviewDetail({ params, searchParams }: { params
 
       {canManage && (
         <Card>
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Decision</h2>
+          <SectionHeader>Decision</SectionHeader>
           {emailedAcceptance && (
             <div className="mt-3 space-y-3">
               <Alert tone="warning">
@@ -176,7 +177,7 @@ export default async function InterviewDetail({ params, searchParams }: { params
 
       {isPanelist && (
         <Card>
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Your evaluation</h2>
+          <SectionHeader>Your evaluation</SectionHeader>
           <form action={submitEvaluationAction.bind(null, interviewId)} className="mt-3 flex flex-wrap items-end gap-3">
             <div className="w-44">
               <Field label="Recommendation">

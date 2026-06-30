@@ -13,6 +13,8 @@ import {
 } from "lucide-react";
 import type { TrainingMethod } from "@prisma/client";
 import { Card } from "@/platform/ui/card";
+import { PageHeader } from "@/platform/ui/page-header";
+import { SectionHeader } from "@/platform/ui/section-header";
 import { requirePersonSession } from "@/platform/auth/session";
 import { getAccessibleModules } from "@/platform/modules/access";
 import { getMyTraining, type MyTraining } from "@/modules/recruitment/services/training";
@@ -89,10 +91,10 @@ function ClearanceHero({ my }: { my: MyTraining }) {
           <Clock aria-hidden className="h-6 w-6" />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Not open yet</p>
+          <SectionHeader>Not open yet</SectionHeader>
           <p className="mt-0.5 text-[19px] font-bold tracking-tight text-foreground">Training opens soon</p>
           <p className="mt-1 text-[13.5px] leading-snug text-foreground-soft">
-            Volunteer training for {term} isn&apos;t open yet. You&apos;ll get an email when it&apos;s ready — check back
+            Volunteer training for {term} isn&apos;t open yet. You&apos;ll get an email when it&apos;s ready, check back
             here to complete it.
           </p>
         </div>
@@ -111,7 +113,7 @@ function ClearanceHero({ my }: { my: MyTraining }) {
           Complete training to be cleared for {term}
         </p>
         <p className="mt-1 text-[13.5px] leading-snug text-foreground-soft">
-          Finish one of the two paths below. Most volunteers attend the live session — the makeup quiz is here if you
+          Finish one of the two paths below. Most volunteers attend the live session; the makeup quiz is here if you
           miss it.
         </p>
       </div>
@@ -129,7 +131,7 @@ function ClearanceHero({ my }: { my: MyTraining }) {
 function PathCards({ my }: { my: MyTraining }) {
   return (
     <>
-      <SectionHead>Two ways to complete</SectionHead>
+      <SectionHeader level="title" className="mb-3.5 mt-7">Two ways to complete</SectionHeader>
       <div className="mb-2 grid grid-cols-1 gap-3.5 sm:grid-cols-2">
         <div className="relative rounded-2xl border border-brand/40 bg-surface p-[18px] shadow-sm ring-1 ring-inset ring-brand/20">
           <span className="absolute right-3.5 top-3.5 rounded-full bg-brand-faint px-2 py-0.5 text-[10.5px] font-bold uppercase tracking-wide text-brand-fg">
@@ -140,12 +142,12 @@ function PathCards({ my }: { my: MyTraining }) {
               <PlayCircle aria-hidden className="h-5 w-5" />
             </span>
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Path 1</p>
+              <SectionHeader>Path 1</SectionHeader>
               <p className="mt-px text-[15px] font-bold leading-tight text-foreground">Attend the live session</p>
             </div>
           </div>
           <p className="text-[13px] leading-relaxed text-foreground-soft">
-            Join the in-person orientation. Your director marks your attendance and you&apos;re cleared automatically —
+            Join the in-person orientation. Your director marks your attendance and you&apos;re cleared automatically,
             no quiz needed.
           </p>
           <p className="mt-3 flex items-center gap-2 border-t border-border pt-3 text-[12.5px] font-semibold text-foreground">
@@ -160,7 +162,7 @@ function PathCards({ my }: { my: MyTraining }) {
               <FileText aria-hidden className="h-5 w-5" />
             </span>
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Path 2</p>
+              <SectionHeader>Path 2</SectionHeader>
               <p className="mt-px text-[15px] font-bold leading-tight text-foreground">Take the makeup quiz</p>
             </div>
           </div>
@@ -185,7 +187,7 @@ function PathCards({ my }: { my: MyTraining }) {
 function CompleteDetail({ accessibleSchedule }: { accessibleSchedule: boolean }) {
   return (
     <Card pad={false} className="p-[22px]">
-      <h3 className="mb-3.5 text-xs font-bold uppercase tracking-wider text-muted-foreground">What this unlocks</h3>
+      <SectionHeader className="mb-3.5">What this unlocks</SectionHeader>
       <DetailRow tone="success" title="Eligible for shift scheduling" sub="You can now be assigned to clinic shifts" />
       <DetailRow tone="success" title="Training requirement met" sub="Shows as cleared on your volunteer compliance" />
       <div className="mt-[18px] flex flex-wrap gap-2.5">
@@ -206,7 +208,7 @@ function CompleteDetail({ accessibleSchedule }: { accessibleSchedule: boolean })
 function LockedDetail() {
   return (
     <Card pad={false} className="p-[22px]">
-      <h3 className="mb-3.5 text-xs font-bold uppercase tracking-wider text-muted-foreground">Next steps</h3>
+      <SectionHeader className="mb-3.5">Next steps</SectionHeader>
       <DetailRow
         tone="brand"
         icon={<MessagesSquare aria-hidden className="h-4 w-4" />}
@@ -217,7 +219,7 @@ function LockedDetail() {
         tone="brand"
         icon={<PlayCircle aria-hidden className="h-4 w-4" />}
         title="Or attend the live session"
-        sub="Your director records attendance — clears training instantly"
+        sub="Your director records attendance and clears training instantly"
       />
       <div className="mt-[18px]">
         <BackToHub />
@@ -229,14 +231,6 @@ function LockedDetail() {
 // ---------------------------------------------------------------------------
 // Small shared bits
 // ---------------------------------------------------------------------------
-
-function SectionHead({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="mb-3.5 mt-7 flex items-baseline justify-between">
-      <h2 className="text-base font-bold tracking-tight text-foreground">{children}</h2>
-    </div>
-  );
-}
 
 function DetailRow({
   tone,
@@ -289,10 +283,10 @@ export default async function TrainingPage() {
   return (
     <div className="max-w-[760px]">
       <header className="mb-[22px]">
-        <h1 className="text-[26px] font-bold tracking-tight text-foreground">Training</h1>
-        <p className="mt-1.5 text-[14.5px] text-foreground-soft">
-          Complete your training to be cleared{trainings[0] ? ` for ${trainings[0].term.name}` : ""}.
-        </p>
+        <PageHeader
+          title="Training"
+          description={`Complete your training to be cleared${trainings[0] ? ` for ${trainings[0].term.name}` : ""}.`}
+        />
       </header>
 
       {trainings.length === 0 ? (
@@ -304,12 +298,12 @@ export default async function TrainingPage() {
           const pending = my.cycle && my.state !== "COMPLETE" && !my.locked;
           return (
             <section key={my.track} className="mb-9">
-              <h2 className="mb-3 text-base font-bold tracking-tight text-foreground">{my.trackLabel}</h2>
+              <SectionHeader level="title" className="mb-3">{my.trackLabel}</SectionHeader>
               <ClearanceHero my={my} />
               {pending && (
                 <>
                   <PathCards my={my} />
-                  <SectionHead>Makeup quiz</SectionHead>
+                  <SectionHeader level="title" className="mb-3.5 mt-7">Makeup quiz</SectionHeader>
                   <TrainingQuiz
                     track={my.track}
                     questions={my.questions}

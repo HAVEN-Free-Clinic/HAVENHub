@@ -92,52 +92,58 @@ function GridFilledButton({
 
   if (armed) {
     return (
-      <button
-        type="submit"
-        disabled={pending}
-        aria-label={`Confirm remove. ${ariaLabel ?? label}`}
-        className="flex h-9 w-full min-w-[40px] touch-manipulation items-center justify-center rounded-lg border border-critical/30 bg-red-50 text-critical transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-fg"
-        title="Click again to remove"
-      >
-        <span className="text-xs font-semibold leading-none">
-          {pending ? "..." : "Remove?"}
-        </span>
-      </button>
+      <>
+        {/* eslint-disable-next-line no-restricted-syntax -- grid-cell action button, not a standard Button */}
+        <button
+          type="submit"
+          disabled={pending}
+          aria-label={`Confirm remove. ${ariaLabel ?? label}`}
+          className="flex h-9 w-full min-w-[40px] touch-manipulation items-center justify-center rounded-lg border border-critical/30 bg-red-50 text-critical transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+          title="Click again to remove"
+        >
+          <span className="text-xs font-semibold leading-none">
+            {pending ? "..." : "Remove?"}
+          </span>
+        </button>
+      </>
     );
   }
 
   return (
-    <button
-      type="button"
-      disabled={pending}
-      onClick={(e) => {
-        e.preventDefault();
-        arm();
-      }}
-      aria-label={ariaLabel ?? label}
-      className="flex h-9 w-full min-w-[40px] touch-manipulation flex-col items-center justify-center rounded-lg border border-border-strong bg-muted-strong text-foreground-soft hover:bg-red-50 hover:border-critical/30 hover:text-critical transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-fg"
-      title={ariaLabel ?? label}
-    >
-      {pending ? (
-        <span className="text-xs">...</span>
-      ) : (
-        <>
-          <span className="text-xs font-semibold leading-none">{label}</span>
-          {activeTags.length > 0 && (
-            <span className="mt-0.5 inline-flex gap-0.5">
-              {activeTags.map((t) => (
-                <span
-                  key={t}
-                  className="rounded-sm bg-brand-faint px-0.5 text-[10px] font-medium text-brand-fg leading-tight"
-                >
-                  {TAG_SHORT[t]}
-                </span>
-              ))}
-            </span>
-          )}
-        </>
-      )}
-    </button>
+    <>
+      {/* eslint-disable-next-line no-restricted-syntax -- grid-cell action button, not a standard Button */}
+      <button
+        type="button"
+        disabled={pending}
+        onClick={(e) => {
+          e.preventDefault();
+          arm();
+        }}
+        aria-label={ariaLabel ?? label}
+        className="flex h-9 w-full min-w-[40px] touch-manipulation flex-col items-center justify-center rounded-lg border border-border-strong bg-muted-strong text-foreground-soft hover:bg-red-50 hover:border-critical/30 hover:text-critical transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+        title={ariaLabel ?? label}
+      >
+        {pending ? (
+          <span className="text-xs">...</span>
+        ) : (
+          <>
+            <span className="text-xs font-semibold leading-none">{label}</span>
+            {activeTags.length > 0 && (
+              <span className="mt-0.5 inline-flex gap-0.5">
+                {activeTags.map((t) => (
+                  <span
+                    key={t}
+                    className="rounded-sm bg-brand-faint px-0.5 text-[10px] font-medium text-brand-fg leading-tight"
+                  >
+                    {TAG_SHORT[t]}
+                  </span>
+                ))}
+              </span>
+            )}
+          </>
+        )}
+      </button>
+    </>
   );
 }
 
@@ -159,14 +165,17 @@ function SubmitButton({
   if (variant === "grid") {
     // Empty grid cell: compact "+" to assign.
     return (
-      <button
-        type="submit"
-        disabled={pending}
-        aria-label={ariaLabel ?? label}
-        className="flex h-9 w-full min-w-[40px] touch-manipulation items-center justify-center rounded-lg border border-dashed border-border-strong text-subtle-foreground hover:border-brand hover:text-brand-fg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-fg"
-      >
-        {pending ? "..." : "+"}
-      </button>
+      <>
+        {/* eslint-disable-next-line no-restricted-syntax -- grid-cell action button, not a standard Button */}
+        <button
+          type="submit"
+          disabled={pending}
+          aria-label={ariaLabel ?? label}
+          className="flex h-9 w-full min-w-[40px] touch-manipulation items-center justify-center rounded-lg border border-dashed border-border-strong text-subtle-foreground hover:border-brand hover:text-brand-fg transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+        >
+          {pending ? "..." : "+"}
+        </button>
+      </>
     );
   }
 

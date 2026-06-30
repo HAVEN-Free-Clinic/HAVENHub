@@ -35,7 +35,7 @@ export async function cleanupPerson(personId: string): Promise<void> {
   await prisma.hipaaCertificate.deleteMany({ where: { personId } });
   await prisma.notification.deleteMany({ where: { personId } });
   await prisma.termMembership.deleteMany({ where: { personId } });
-  await prisma.person.delete({ where: { id: personId } }).catch(() => {});
+  await prisma.person.delete({ where: { id: personId } }).catch((e) => console.warn("[e2e cleanup] delete failed, row may be leaked:", e instanceof Error ? e.message : e));
 }
 
 export async function seedComplianceMember(
@@ -94,7 +94,7 @@ export async function seedNotification(
   });
   return {
     id: row.id,
-    cleanup: () => prisma.notification.delete({ where: { id: row.id } }).then(() => {}).catch(() => {}),
+    cleanup: () => prisma.notification.delete({ where: { id: row.id } }).then(() => {}).catch((e) => console.warn("[e2e cleanup] delete failed, row may be leaked:", e instanceof Error ? e.message : e)),
   };
 }
 
@@ -116,7 +116,7 @@ export async function seedCourseWithPackage(
   return {
     course,
     cleanup: () =>
-      prisma.course.delete({ where: { id: course.id } }).then(() => {}).catch(() => {}),
+      prisma.course.delete({ where: { id: course.id } }).then(() => {}).catch((e) => console.warn("[e2e cleanup] delete failed, row may be leaked:", e instanceof Error ? e.message : e)),
   };
 }
 
@@ -134,6 +134,6 @@ export async function seedRhdAttending(
   return {
     attending,
     cleanup: () =>
-      prisma.rhdAttending.delete({ where: { id: attending.id } }).then(() => {}).catch(() => {}),
+      prisma.rhdAttending.delete({ where: { id: attending.id } }).then(() => {}).catch((e) => console.warn("[e2e cleanup] delete failed, row may be leaked:", e instanceof Error ? e.message : e)),
   };
 }

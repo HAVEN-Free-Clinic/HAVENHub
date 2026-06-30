@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import {
-  createCycle, publishCycle, closeCycle, listCycles, CyclePublishError, setCycleDepartments, setApplicationWindow,
+  createCycle, publishCycle, closeCycle, listCycles, CyclePublishError, setCycleDepartments, setApplicationWindow, reopenCycle,
 } from "./cycles";
 
 async function seedTermAndPerson() {
@@ -193,5 +193,80 @@ describe("setApplicationWindow", () => {
     const audit = await prisma.auditLog.findFirst({ where: { entityId: cycle.id, action: "recruitment.cycle_set_window" } });
     expect(audit).not.toBeNull();
     expect((audit!.after as { closesAt: string | null }).closesAt).toBe(closesAt.toISOString());
+  });
+});
+
+describe("reopenCycle", () => {
+  async function closedCycle(slug: string, overrides: { opensAt?: Date | null; closesAt?: Date | null } = {}) {
+    const { person, term } = await seedTermAndPerson();
+    const cycle = await createCycle({
+      track: "DIRECTOR", termId: term.id, title: "R", publicSlug: slug,
+      departments: [], acceptsRenewals: false, createdById: person.id,
+    });
+    await publishCycle(cycle.id, person.id);
+    await closeCycle(cycle.id, person.id);
+    if (Object.keys(overrides).length > 0) {
+      await prisma.recruitmentCycle.update({ where: { id: cycle.id }, data: overrides });
+    }
+    return { person, cycle };
+  }
+
+  it("reopens a CLOSED cycle back to OPEN", async () => {
+    const { person, cycle } = await closedCycle("reopen-basic");
+    const reopened = await reopenCycle(cycle.id, person.id);
+    expect(reopened.status).toBe("OPEN");
+  });
+
+  it("writes a recruitment.cycle_reopen audit entry", async () => {
+    const { person, cycle } = await closedCycle("reopen-audit");
+    await reopenCycle(cycle.id, person.id);
+    const audit = await prisma.auditLog.findFirst({ where: { entityId: cycle.id, action: "recruitment.cycle_reopen" } });
+    expect(audit).not.toBeNull();
+  });
+
+  it("clears a closesAt that is already in the past on reopen", async () => {
+    const past = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const { person, cycle } = await closedCycle("reopen-stale", { closesAt: past });
+    const reopened = await reopenCycle(cycle.id, person.id);
+    expect(reopened.status).toBe("OPEN");
+    expect(reopened.closesAt).toBeNull();
+  });
+
+  it("leaves a future closesAt untouched on reopen", async () => {
+    const future = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const { person, cycle } = await closedCycle("reopen-future", { closesAt: future });
+    const reopened = await reopenCycle(cycle.id, person.id);
+    expect(reopened.closesAt?.getTime()).toBe(future.getTime());
+  });
+
+  it("leaves opensAt untouched on reopen", async () => {
+    const opens = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const { person, cycle } = await closedCycle("reopen-opens", { opensAt: opens });
+    const reopened = await reopenCycle(cycle.id, person.id);
+    expect(reopened.opensAt?.getTime()).toBe(opens.getTime());
+  });
+
+  it("rejects reopening a DRAFT cycle", async () => {
+    const { person, term } = await seedTermAndPerson();
+    const cycle = await createCycle({
+      track: "DIRECTOR", termId: term.id, title: "D", publicSlug: "reopen-draft",
+      departments: [], acceptsRenewals: false, createdById: person.id,
+    });
+    await expect(reopenCycle(cycle.id, person.id)).rejects.toBeInstanceOf(CyclePublishError);
+  });
+
+  it("rejects reopening an OPEN cycle", async () => {
+    const { person, term } = await seedTermAndPerson();
+    const cycle = await createCycle({
+      track: "DIRECTOR", termId: term.id, title: "O", publicSlug: "reopen-open",
+      departments: [], acceptsRenewals: false, createdById: person.id,
+    });
+    await publishCycle(cycle.id, person.id);
+    await expect(reopenCycle(cycle.id, person.id)).rejects.toBeInstanceOf(CyclePublishError);
+  });
+
+  it("rejects a missing cycle", async () => {
+    const { person } = await seedTermAndPerson();
+    await expect(reopenCycle("missing", person.id)).rejects.toBeInstanceOf(CyclePublishError);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isSectionVisible, visibleSections, type SectionVisibilityInput } from "./visibility";
+import { isSectionVisible, visibleSections, applicantTypeLabel, type SectionVisibilityInput } from "./visibility";
 
 const S = (over: Partial<SectionVisibilityInput>): SectionVisibilityInput => ({
   id: "s",
@@ -27,6 +27,11 @@ describe("isSectionVisible", () => {
     expect(isSectionVisible(sec, { applicantType: "NEW", selectedDepartmentCodes: ["SRHD"] })).toBe(false);
     expect(isSectionVisible(sec, { applicantType: "RENEWAL", selectedDepartmentCodes: ["SRHD"] })).toBe(true);
   });
+  it("TRANSFER sees NEW sections and BOTH, but not RENEWAL-only", () => {
+    expect(isSectionVisible(S({ appliesTo: "NEW" }), { applicantType: "TRANSFER", selectedDepartmentCodes: [] })).toBe(true);
+    expect(isSectionVisible(S({}), { applicantType: "TRANSFER", selectedDepartmentCodes: [] })).toBe(true);
+    expect(isSectionVisible(S({ appliesTo: "RENEWAL" }), { applicantType: "TRANSFER", selectedDepartmentCodes: [] })).toBe(false);
+  });
 });
 
 describe("visibleSections", () => {
@@ -34,5 +39,13 @@ describe("visibleSections", () => {
     const sections = [S({ id: "a" }), S({ id: "b", appliesTo: "NEW" }), S({ id: "c", departmentCode: "MDIC" })];
     const out = visibleSections(sections, { applicantType: "RENEWAL", selectedDepartmentCodes: ["MDIC"] });
     expect(out.map((s) => s.id)).toEqual(["a", "c"]);
+  });
+});
+
+describe("applicantTypeLabel", () => {
+  it("labels each applicant type", () => {
+    expect(applicantTypeLabel("NEW")).toBe("New");
+    expect(applicantTypeLabel("RENEWAL")).toBe("Renewal");
+    expect(applicantTypeLabel("TRANSFER")).toBe("Transfer");
   });
 });

@@ -4,6 +4,7 @@ import { auth } from "@/platform/auth/auth";
 import { getRenewalContext, resolveRenewalPrefill } from "@/modules/recruitment/services/renewal";
 import { getApplicantIdentity } from "@/modules/recruitment/services/portal-auth";
 import { getDraft } from "@/modules/recruitment/services/drafts";
+import type { ApplicantType } from "@/modules/recruitment/engine/visibility";
 import { ApplyForm } from "./apply-form";
 
 export default async function ApplyPage({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<{ type?: string }> }) {
@@ -63,18 +64,20 @@ export default async function ApplyPage({ params, searchParams }: { params: Prom
   let eligible = false;
   let currentDepartments: string[] = [];
   let prefill: { values: Record<string, string>; lockedKeys: string[] } | undefined;
+  let isReturning = false;
   if (session?.personId) {
     signedIn = true;
     signedInName = session.user?.name ?? null;
     const ctx = await getRenewalContext(session.personId, session.user?.email ?? null, cycle.track);
     currentDepartments = ctx.currentDepartments.filter((d) => cycle.departments.includes(d));
-    // Eligible to renew here only if a current department is offered by this cycle.
-    // Otherwise there is nothing to renew into, so route them to the New flow.
+    // Renewal needs a current department offered by this cycle. Transfer only
+    // needs an active membership in the track (their department may be elsewhere).
     eligible = ctx.eligible && currentDepartments.length > 0;
+    isReturning = ctx.eligible;
     const fields = cycle.sections.flatMap((s) => s.fields).map((f) => ({ key: f.key, type: f.type }));
     prefill = resolveRenewalPrefill(fields, ctx);
   }
-  const initialApplicantType: "NEW" | "RENEWAL" = type === "renewal" ? "RENEWAL" : "NEW";
+  const initialApplicantType: ApplicantType = type === "renewal" ? "RENEWAL" : type === "transfer" ? "TRANSFER" : "NEW";
 
   return (
     <main className="mx-auto max-w-2xl px-6 py-10">
@@ -83,7 +86,7 @@ export default async function ApplyPage({ params, searchParams }: { params: Prom
         Complete the fields below to submit your application. Required fields are marked with{" "}
         <span className="font-medium text-critical">*</span>.
       </p>
-      <ApplyForm def={def} signedIn={signedIn} signedInName={signedInName} eligible={eligible} prefill={prefill} currentDepartments={currentDepartments} initialApplicantType={initialApplicantType} initialAnswers={draft?.answers ?? {}} initialApplicantTypeFromDraft={draft?.applicantType} initialRenewalDepartment={draft?.renewalDepartment ?? null} />
+      <ApplyForm def={def} signedIn={signedIn} signedInName={signedInName} eligible={eligible} isReturning={isReturning} prefill={prefill} currentDepartments={currentDepartments} initialApplicantType={initialApplicantType} initialAnswers={draft?.answers ?? {}} initialApplicantTypeFromDraft={draft?.applicantType} initialRenewalDepartment={draft?.renewalDepartment ?? null} />
     </main>
   );
 }

@@ -155,15 +155,8 @@ export function TrainingQuiz({
                       key={o.value}
                       className={optionClass({ sel, reviewing, isCorrect, isWrong })}
                     >
-                      <input
-                        type="radio"
-                        name={`q:${q.key}`}
-                        value={o.value}
-                        checked={sel}
-                        disabled={reviewing || pending}
-                        onChange={() => choose(q.key, o.value)}
-                        className="sr-only"
-                      />
+                      {/* eslint-disable-next-line no-restricted-syntax -- visually-hidden radio inside custom styled label, sr-only class required for option styling */}
+                      <input type="radio" name={`q:${q.key}`} value={o.value} checked={sel} disabled={reviewing || pending} onChange={() => choose(q.key, o.value)} className="sr-only" />
                       <span className={dotClass({ sel, isCorrect })}>
                         <span className={dotFillClass({ sel, isCorrect })} />
                       </span>

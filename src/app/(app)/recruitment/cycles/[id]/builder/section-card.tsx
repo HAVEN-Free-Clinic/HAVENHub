@@ -58,14 +58,8 @@ export function SectionCard({
   return (
     <section className="rounded-2xl border border-border bg-muted/30 p-4">
       <div className="flex items-start gap-2">
-        <button
-          type="button"
-          className="mt-1 cursor-grab text-subtle-foreground disabled:cursor-not-allowed"
-          disabled={!editable}
-          aria-label="Drag to reorder section"
-          {...(handle.attributes as HTMLAttributes<HTMLButtonElement>)}
-          {...((handle.listeners ?? {}) as HTMLAttributes<HTMLButtonElement>)}
-        >
+        {/* eslint-disable-next-line no-restricted-syntax -- DnD drag-handle button, needs raw attribute/listener spread for dnd-kit */}
+        <button type="button" className="mt-1 cursor-grab text-subtle-foreground disabled:cursor-not-allowed" disabled={!editable} aria-label="Drag to reorder section" {...(handle.attributes as HTMLAttributes<HTMLButtonElement>)} {...((handle.listeners ?? {}) as HTMLAttributes<HTMLButtonElement>)}>
           <GripVertical className="h-4 w-4" aria-hidden />
         </button>
         <div className="flex-1">

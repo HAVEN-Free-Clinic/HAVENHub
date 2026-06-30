@@ -123,18 +123,12 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
       <div className="flex items-center gap-3">
         <span className="text-sm text-foreground-soft">Match</span>
         <div className="inline-flex overflow-hidden rounded-lg border border-border text-xs">
-          <button
-            type="button"
-            onClick={() => setMatch("ALL")}
-            className={`px-3 py-1.5 ${match === "ALL" ? "bg-brand text-white" : "bg-surface text-foreground-soft hover:bg-muted"}`}
-          >
+          {/* eslint-disable-next-line no-restricted-syntax -- segmented match-mode toggle, active state applied inline */}
+          <button type="button" onClick={() => setMatch("ALL")} className={`px-3 py-1.5 ${match === "ALL" ? "bg-brand text-white" : "bg-surface text-foreground-soft hover:bg-muted"}`}>
             ALL conditions
           </button>
-          <button
-            type="button"
-            onClick={() => setMatch("ANY")}
-            className={`px-3 py-1.5 ${match === "ANY" ? "bg-brand text-white" : "bg-surface text-foreground-soft hover:bg-muted"}`}
-          >
+          {/* eslint-disable-next-line no-restricted-syntax -- segmented match-mode toggle, active state applied inline */}
+          <button type="button" onClick={() => setMatch("ANY")} className={`px-3 py-1.5 ${match === "ANY" ? "bg-brand text-white" : "bg-surface text-foreground-soft hover:bg-muted"}`}>
             ANY condition
           </button>
         </div>

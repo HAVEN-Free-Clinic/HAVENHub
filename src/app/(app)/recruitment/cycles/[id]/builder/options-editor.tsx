@@ -30,10 +30,8 @@ export function OptionsEditor({
     <div className="space-y-2">
       <SortableList items={items} onReorder={reorder} disabled={disabled} renderItem={(item, handle) => (
         <div className="flex items-center gap-2 py-1">
-          <button type="button" className="cursor-grab text-subtle-foreground disabled:cursor-not-allowed"
-            disabled={disabled} aria-label="Drag to reorder option"
-            {...(handle.attributes as HTMLAttributes<HTMLButtonElement>)}
-            {...((handle.listeners ?? {}) as HTMLAttributes<HTMLButtonElement>)}>
+          {/* eslint-disable-next-line no-restricted-syntax -- DnD drag-handle button, needs raw attribute/listener spread for dnd-kit */}
+          <button type="button" className="cursor-grab text-subtle-foreground disabled:cursor-not-allowed" disabled={disabled} aria-label="Drag to reorder option" {...(handle.attributes as HTMLAttributes<HTMLButtonElement>)} {...((handle.listeners ?? {}) as HTMLAttributes<HTMLButtonElement>)}>
             <GripVertical className="h-4 w-4" aria-hidden />
           </button>
           {markCorrect && (

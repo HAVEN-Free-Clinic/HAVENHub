@@ -13,12 +13,8 @@ export function SignInButton() {
   const { pending } = useFormStatus();
 
   return (
-    <button
-      type="submit"
-      disabled={pending}
-      aria-busy={pending}
-      className="flex w-full items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-brand-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-not-allowed disabled:opacity-80"
-    >
+    // eslint-disable-next-line no-restricted-syntax -- full-width branded OAuth submit with Spinner, custom padding and opacity differ from Button primitive
+    <button type="submit" disabled={pending} aria-busy={pending} className="flex w-full items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-brand-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-not-allowed disabled:opacity-80">
       {pending && <Spinner size="sm" />}
       {pending ? "Signing in…" : "Sign in with Yale"}
     </button>

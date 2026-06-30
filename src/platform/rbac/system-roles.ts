@@ -36,6 +36,6 @@ export const SYSTEM_ROLES: SystemRole[] = [
   {
     name: "Volunteer Operations Manager",
     description: "Offboarding, Epic requests, and disciplinary across the clinic",
-    grants: ["volunteers.view", "volunteers.manage_offboarding", "volunteers.manage_epic", "volunteers.issue_disciplinary"],
+    grants: ["volunteers.view", "volunteers.manage_offboarding", "volunteers.manage_epic", "volunteers.issue_disciplinary", "admin.manage_roster"],
   },
 ];

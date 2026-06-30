@@ -10,21 +10,24 @@ import {
 import { PersonForm } from "@/modules/admin/components/person-form";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
-import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
+import { can } from "@/platform/rbac/engine";
+import { PersonMembershipsPanel } from "@/modules/admin/components/person-memberships-panel";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 
 type PageProps = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ error?: string; saved?: string }>;
+  searchParams: Promise<{ error?: string; saved?: string; rosterError?: string }>;
 };
 
 export default async function PersonDetailPage({ params, searchParams }: PageProps) {
-  await requirePermission("admin.manage_people");
+  const session = await requirePermission("admin.manage_people");
   const { id } = await params;
-  const { error, saved } = await searchParams;
+  const { error, saved, rosterError } = await searchParams;
 
   const person = await getPerson(id);
   if (!person) notFound();
+
+  const canManageRoster = await can(session.personId, "admin.manage_roster");
 
   const airtableLinked = !!person.airtableRecordId;
 
@@ -113,46 +116,12 @@ export default async function PersonDetailPage({ params, searchParams }: PagePro
         />
       </section>
 
-      {/* Memberships table */}
-      {person.memberships.length > 0 && (
-        <section>
-          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-            Memberships
-          </h2>
-          <Table>
-            <THead>
-              <TR>
-                <TH>Term</TH>
-                <TH>Department</TH>
-                <TH>Kind</TH>
-                <TH>Status</TH>
-              </TR>
-            </THead>
-            <tbody>
-              {person.memberships.map((m) => (
-                <TR key={m.id}>
-                  <TD>{m.term.code}</TD>
-                  <TD>{m.department.code}</TD>
-                  <TD>
-                    {m.kind === "DIRECTOR" ? (
-                      <Badge tone="brand">Director</Badge>
-                    ) : (
-                      <Badge tone="default">Volunteer</Badge>
-                    )}
-                  </TD>
-                  <TD>
-                    {m.status === "ACTIVE" ? (
-                      <Badge tone="success">Active</Badge>
-                    ) : (
-                      <Badge tone="default">Removed</Badge>
-                    )}
-                  </TD>
-                </TR>
-              ))}
-            </tbody>
-          </Table>
-        </section>
-      )}
+      <PersonMembershipsPanel
+        personId={id}
+        canManage={canManageRoster}
+        baseHref={`/admin/people/${id}`}
+        rosterError={rosterError}
+      />
 
       {/* Status section */}
       <section>

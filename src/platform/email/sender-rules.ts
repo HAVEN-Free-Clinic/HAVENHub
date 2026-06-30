@@ -49,7 +49,9 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // Cache
 // ---------------------------------------------------------------------------
 
-let cache: Map<string, SenderRuleView> | null = null;
+const TTL_MS = 30_000;
+
+let cache: { map: Map<string, SenderRuleView>; expiresAt: number } | null = null;
 
 function cacheKey(scope: EmailSenderScope, target: string): string {
   return `${scope}:${target}`;
@@ -61,7 +63,7 @@ export function _resetSenderRulesCache(): void {
 }
 
 async function loadCache(): Promise<Map<string, SenderRuleView>> {
-  if (cache) return cache;
+  if (cache && cache.expiresAt > Date.now()) return cache.map;
   const rows = await prisma.emailSenderRule.findMany();
   const map = new Map<string, SenderRuleView>();
   for (const r of rows) {
@@ -72,7 +74,7 @@ async function loadCache(): Promise<Map<string, SenderRuleView>> {
       fromName: r.fromName,
     });
   }
-  cache = map;
+  cache = { map, expiresAt: Date.now() + TTL_MS };
   return map;
 }
 

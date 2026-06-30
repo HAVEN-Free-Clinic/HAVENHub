@@ -16,16 +16,19 @@ import { saveSenderRule } from "./sender-rules";
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Build a stub transport whose send resolves immediately, capturing from. */
-function okTransport(): EmailTransport & { calls: string[]; froms: (string | undefined)[] } {
+/** Build a stub transport whose send resolves immediately, capturing from and fromName. */
+function okTransport(): EmailTransport & { calls: string[]; froms: (string | undefined)[]; fromNames: (string | undefined)[] } {
   const calls: string[] = [];
   const froms: (string | undefined)[] = [];
+  const fromNames: (string | undefined)[] = [];
   return {
     calls,
     froms,
+    fromNames,
     async send(msg) {
       calls.push(msg.to);
       froms.push(msg.from);
+      fromNames.push(msg.fromName);
     },
   };
 }
@@ -350,5 +353,6 @@ describe("queueEmail sender snapshot", () => {
     const transport = okTransport();
     await drainEmailQueue(transport);
     expect(transport.froms).toEqual(["recruit@yale.edu"]);
+    expect(transport.fromNames).toEqual([undefined]);
   });
 });

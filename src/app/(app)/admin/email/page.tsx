@@ -15,11 +15,11 @@ import {
   listEmails,
   retryEmail,
   retryAllFailedEmails,
+  sendSenderTest,
   EMAIL_PAGE_SIZE,
   EmailNotFoundError,
   EmailStateError,
 } from "@/modules/admin/services/email";
-import { sendSenderTest } from "@/modules/admin/services/email";
 import { buildAuthorizeUrl, mailConnectionStatus, teamsScopesGranted } from "@/platform/email/oauth";
 import {
   SENDER_CATEGORIES,
@@ -155,12 +155,6 @@ export default async function EmailPage({ searchParams }: PageProps) {
     senderRules.filter((r) => r.scope === "CATEGORY").map((r) => [r.target, r])
   );
 
-  const actorPerson = await prisma.person.findUnique({
-    where: { id: actor.personId },
-    select: { contactEmail: true },
-  });
-  const actorEmail = actorPerson?.contactEmail ?? "";
-
   const needsTeamsReconnect = mailCred != null && !teamsScopesGranted(mailCred.scope);
 
   const pageCount = Math.max(1, Math.ceil(total / EMAIL_PAGE_SIZE));
@@ -235,7 +229,11 @@ export default async function EmailPage({ searchParams }: PageProps) {
     const a = await requirePermission("admin.manage_sync");
     const fromEmail = ((formData.get("fromEmail") as string | null) ?? "").trim();
     const fromName = ((formData.get("fromName") as string | null) ?? "").trim();
-    const toEmail = ((formData.get("toEmail") as string | null) ?? "").trim();
+    const person = await prisma.person.findUnique({
+      where: { id: a.personId },
+      select: { contactEmail: true },
+    });
+    const toEmail = person?.contactEmail ?? "";
     if (fromEmail === "" || toEmail === "") {
       redirect(`/admin/email?senderError=${encodeURIComponent("A from address and a recipient are required to send a test.")}`);
     }
@@ -367,7 +365,6 @@ export default async function EmailPage({ searchParams }: PageProps) {
             >
               <input type="hidden" name="scope" value="CATEGORY" />
               <input type="hidden" name="target" value={cat.group} />
-              <input type="hidden" name="toEmail" value={actorEmail} />
               <div className="w-40">
                 <p className="text-sm font-medium">{cat.label}</p>
               </div>

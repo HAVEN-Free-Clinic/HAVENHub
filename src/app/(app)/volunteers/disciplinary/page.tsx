@@ -26,6 +26,8 @@ import { Select } from "@/platform/ui/select";
 import { Button, buttonClasses } from "@/platform/ui/button";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Alert } from "@/platform/ui/alert";
+import { Card } from "@/platform/ui/card";
+import { FormActions } from "@/platform/ui/form";
 import {
   issueAction,
   deleteAction,
@@ -273,112 +275,118 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
       {/* Issue form */}
       <section className="mt-8">
         <h2 className="mb-3 text-base font-semibold">Record Disciplinary Action</h2>
-        <form action={issueActionForm} className="flex flex-wrap items-end gap-3">
+        <form action={issueActionForm}>
+          <Card>
+            <div className="flex flex-wrap items-end gap-3">
 
-          {/* Person picker: free input for central, select for directors */}
-          {issuable.all ? (
-            <div className="w-56">
-              <Field label="NetID or email">
-                <Input
-                  name="personKey"
-                  placeholder="netid or email@yale.edu"
-                  required
-                />
-              </Field>
+              {/* Person picker: free input for central, select for directors */}
+              {issuable.all ? (
+                <div className="w-56">
+                  <Field label="NetID or email">
+                    <Input
+                      name="personKey"
+                      placeholder="netid or email@yale.edu"
+                      required
+                    />
+                  </Field>
+                </div>
+              ) : (
+                <div className="w-64">
+                  <Field label="Person">
+                    <Select name="personId" required>
+                      <option value="">Select person...</option>
+                      {issuable.people.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name ?? p.id}
+                          {p.departmentNames.length > 0 ? ` (${p.departmentNames.join(", ")})` : ""}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                </div>
+              )}
+
+              {/* Date */}
+              <div className="w-44">
+                <Field label="Date of incident">
+                  <Input type="date" name="occurredAt" required />
+                </Field>
+              </div>
+
+              {/* Category */}
+              <div className="w-52">
+                <Field label="Category">
+                  <Select name="category" required>
+                    <option value="">Select category...</option>
+                    {DISCIPLINARY_CATEGORIES.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              </div>
+
+              {/* Description */}
+              <div className="w-full">
+                <Field label="Description *">
+                  <Textarea
+                    name="description"
+                    rows={3}
+                    required
+                    placeholder="Describe the incident..."
+                  />
+                </Field>
+              </div>
+
+              {/* Follow-up actions */}
+              <div className="w-full">
+                <Field label="Follow-up actions">
+                  <Textarea
+                    name="followUpActions"
+                    rows={2}
+                    placeholder="Optional follow-up actions..."
+                  />
+                </Field>
+              </div>
+
+              {/* Policy reference */}
+              <div className="w-56">
+                <Field label="Policy reference">
+                  <Input name="policyReference" placeholder="Optional" />
+                </Field>
+              </div>
+
+              {/* Notes */}
+              <div className="flex-1 min-w-48">
+                <Field label="Notes">
+                  <Textarea
+                    name="notes"
+                    rows={2}
+                    placeholder="Optional internal notes..."
+                  />
+                </Field>
+              </div>
+
+              {/* Checkboxes */}
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-2 text-sm text-foreground-soft cursor-pointer">
+                  <Checkbox name="confidential" />
+                  Confidential
+                </label>
+                <label className="flex items-center gap-2 text-sm text-foreground-soft cursor-pointer">
+                  <Checkbox name="patientInvolved" />
+                  Patient involved
+                </label>
+              </div>
             </div>
-          ) : (
-            <div className="w-64">
-              <Field label="Person">
-                <Select name="personId" required>
-                  <option value="">Select person...</option>
-                  {issuable.people.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name ?? p.id}
-                      {p.departmentNames.length > 0 ? ` (${p.departmentNames.join(", ")})` : ""}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-            </div>
-          )}
 
-          {/* Date */}
-          <div className="w-44">
-            <Field label="Date of incident">
-              <Input type="date" name="occurredAt" required />
-            </Field>
-          </div>
-
-          {/* Category */}
-          <div className="w-52">
-            <Field label="Category">
-              <Select name="category" required>
-                <option value="">Select category...</option>
-                {DISCIPLINARY_CATEGORIES.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-          </div>
-
-          {/* Description */}
-          <div className="w-full">
-            <Field label="Description *">
-              <Textarea
-                name="description"
-                rows={3}
-                required
-                placeholder="Describe the incident..."
-              />
-            </Field>
-          </div>
-
-          {/* Follow-up actions */}
-          <div className="w-full">
-            <Field label="Follow-up actions">
-              <Textarea
-                name="followUpActions"
-                rows={2}
-                placeholder="Optional follow-up actions..."
-              />
-            </Field>
-          </div>
-
-          {/* Policy reference */}
-          <div className="w-56">
-            <Field label="Policy reference">
-              <Input name="policyReference" placeholder="Optional" />
-            </Field>
-          </div>
-
-          {/* Notes */}
-          <div className="flex-1 min-w-48">
-            <Field label="Notes">
-              <Textarea
-                name="notes"
-                rows={2}
-                placeholder="Optional internal notes..."
-              />
-            </Field>
-          </div>
-
-          {/* Checkboxes */}
-          <div className="flex items-center gap-4">
-            <label className="flex items-center gap-2 text-sm text-foreground-soft cursor-pointer">
-              <Checkbox name="confidential" />
-              Confidential
-            </label>
-            <label className="flex items-center gap-2 text-sm text-foreground-soft cursor-pointer">
-              <Checkbox name="patientInvolved" />
-              Patient involved
-            </label>
-          </div>
-
-          <Button type="submit" variant="outline" size="sm">
-            Record action
-          </Button>
+            <FormActions>
+              <Button type="submit" variant="outline" size="sm">
+                Record action
+              </Button>
+            </FormActions>
+          </Card>
         </form>
       </section>
 

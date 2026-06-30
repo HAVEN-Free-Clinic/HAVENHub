@@ -105,18 +105,24 @@ export async function seedNotification(
 }
 
 export async function seedCourseWithPackage(
-  opts: { title?: string; assignToAll?: boolean } = {}
+  opts: { title?: string; deptCode?: string } = {}
 ) {
   const t = tag();
+  // Scope to one department (not assignToAll). An org-wide packaged course is
+  // auto-assigned to every member (coursesForMember), which would briefly gate
+  // dev.volunteer/dev.director on the onboarding learning task and flake the
+  // login-based specs. The admin (Jack, ITCM director) is still assigned via the dept.
+  const department = await dept(opts.deptCode ?? "ITCM");
   const course = await prisma.course.create({
     data: {
       title: opts.title ?? `E2E Course ${t}`,
       isActive: true,
-      assignToAll: opts.assignToAll ?? true,
+      assignToAll: false,
       // Marks the course as having an ingested package so it is assignable/openable.
       scormEntryHref: "index.html",
       scormVersion: "1.2",
       scormUploadedAt: new Date(),
+      departments: { create: [{ departmentId: department.id }] },
     },
   });
   return {

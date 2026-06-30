@@ -4,7 +4,7 @@
 
 **Goal:** Bring the Playwright `e2e/` suite to comprehensive, layered coverage (smoke + RBAC on every page, one deep journey per critical flow) and run the whole suite in CI.
 
-**Architecture:** Shared infra first — one `devLogin` helper (`e2e/auth.ts`) and a Prisma-backed fixtures module (`e2e/fixtures.ts`) that creates per-spec, uniquely-tagged, self-cleaning data the seed does not provide. Existing failing specs are then unblocked with fixtures; new smoke + journey specs are added; finally CI runs the entire directory.
+**Architecture:** Shared infra first - one `devLogin` helper (`e2e/auth.ts`) and a Prisma-backed fixtures module (`e2e/fixtures.ts`) that creates per-spec, uniquely-tagged, self-cleaning data the seed does not provide. Existing failing specs are then unblocked with fixtures; new smoke + journey specs are added; finally CI runs the entire directory.
 
 **Tech Stack:** Playwright (`@playwright/test`), Next.js 16 dev server on :3100, Prisma (`@prisma/client`), PostgreSQL.
 
@@ -13,8 +13,8 @@
 - **No em-dashes** in any prose, comment, or string. Use other punctuation.
 - **Product name** is "HAVEN Hub" (two words) in UI/prose; identifiers stay `havenhub`.
 - **Never run** `prisma migrate`, `vitest`, or `db:seed` against the repo `.env` DATABASE_URL outside CI (it points at shared Neon prod). Local e2e runs use the worktree-local `.env` pointed at local Postgres (`localhost:5434`).
-- **No `resetDb` in e2e** — the dev server holds the live connection. Every fixture creates uniquely-tagged rows and removes exactly what it created.
-- **Playwright config does NOT auto-load `.env`** — helpers read secrets/URLs from `process.env` with a `.env` fallback (mirror `e2e/portal-cookie.ts`).
+- **No `resetDb` in e2e** - the dev server holds the live connection. Every fixture creates uniquely-tagged rows and removes exactly what it created.
+- **Playwright config does NOT auto-load `.env`** - helpers read secrets/URLs from `process.env` with a `.env` fallback (mirror `e2e/portal-cookie.ts`).
 - **Seeded identities:** `j.carney@yale.edu` (Platform Admin + ITCM director + Compliance/Vol-Ops manager on EXEC/SRR/ITCM), `dev.director@yale.edu` (VADM director), `dev.volunteer@yale.edu` (VADM volunteer). Active term `SU26`.
 - Dev login is email-only (`button:has-text("Dev sign in")`) and lands on `/`.
 - `/apply/[slug]` requires a forged `applicant_session` cookie (`e2e/portal-cookie.ts`).
@@ -23,7 +23,7 @@
 
 ---
 
-### Task 1: Shared infra — `e2e/auth.ts` + `e2e/fixtures.ts`
+### Task 1: Shared infra - `e2e/auth.ts` + `e2e/fixtures.ts`
 
 **Files:**
 - Create: `e2e/auth.ts`
@@ -232,10 +232,10 @@ test("infra: admin login + fixture create/cleanup round trip", async ({ page }) 
 });
 ```
 
-- [ ] **Step 4: Run it (expect PASS — proves login, the e2e Prisma client, and cleanup all work)**
+- [ ] **Step 4: Run it (expect PASS - proves login, the e2e Prisma client, and cleanup all work)**
 
 Run: `npx playwright test e2e/_infra.spec.ts`
-Expected: 1 passed. If the fixture import fails on a missing model field, reconcile against `prisma/schema.prisma` before continuing — every later task depends on `fixtures.ts`.
+Expected: 1 passed. If the fixture import fails on a missing model field, reconcile against `prisma/schema.prisma` before continuing - every later task depends on `fixtures.ts`.
 
 - [ ] **Step 5: Commit**
 
@@ -396,7 +396,7 @@ Expected: 0 failures across all pre-existing specs. (The `_infra` spec is remove
 
 ---
 
-### Task 5: Breadth — `e2e/smoke.spec.ts` route + RBAC matrix
+### Task 5: Breadth - `e2e/smoke.spec.ts` route + RBAC matrix
 
 One data-driven spec hitting every `(app)` page: loads for the allowed role, is denied for the wrong one.
 
@@ -454,7 +454,7 @@ for (const r of ROUTES) {
 - [ ] **Step 3: Run; correct any allowed/denied mismatch against the actual guard**
 
 Run: `npx playwright test e2e/smoke.spec.ts`
-Expected: all pass. A failure means the assumed role was wrong — fix the `ROUTES` row to match the guard, not the app.
+Expected: all pass. A failure means the assumed role was wrong - fix the `ROUTES` row to match the guard, not the app.
 
 - [ ] **Step 4: Commit**
 
@@ -465,7 +465,7 @@ git commit -m "test(e2e): route + RBAC smoke matrix over every app page"
 
 ---
 
-### Task 6: Journey — clinic/AVS PDF generation
+### Task 6: Journey - clinic/AVS PDF generation
 
 **Files:**
 - Create: `e2e/clinic-avs.spec.ts`
@@ -510,7 +510,7 @@ git commit -m "test(e2e): clinic AVS generate + download journey"
 
 ---
 
-### Task 7: Journey — learning course completion
+### Task 7: Journey - learning course completion
 
 **Files:**
 - Create: `e2e/learning.spec.ts`
@@ -566,7 +566,7 @@ git commit -m "test(e2e): learning catalog + manage journey"
 
 ---
 
-### Task 8: Journey — notifications inbox
+### Task 8: Journey - notifications inbox
 
 **Files:**
 - Create: `e2e/notifications.spec.ts`
@@ -613,7 +613,7 @@ git commit -m "test(e2e): notifications inbox + mark-read journey"
 
 ---
 
-### Task 9: Journey — admin email campaign
+### Task 9: Journey - admin email campaign
 
 **Files:**
 - Create: `e2e/email-campaigns.spec.ts`
@@ -657,7 +657,7 @@ git commit -m "test(e2e): admin email campaign create + preview journey"
 
 ---
 
-### Task 10: Journey — get-started onboarding gate
+### Task 10: Journey - get-started onboarding gate
 
 **Files:**
 - Create: `e2e/get-started.spec.ts`

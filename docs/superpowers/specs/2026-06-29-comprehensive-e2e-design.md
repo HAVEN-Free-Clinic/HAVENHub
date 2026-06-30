@@ -1,4 +1,4 @@
-# Comprehensive e2e test coverage — design
+# Comprehensive e2e test coverage - design
 
 Date: 2026-06-29
 Branch: `test/comprehensive-e2e` (based on `test/e2e-in-ci`, the tip of the open e2e stack PRs #153/#155/#156)
@@ -23,7 +23,7 @@ Existing specs (`e2e/`):
 
 - **Green and in the scoped CI job:** `recruitment`, `recruitment-onboarding`, `recruitment-review`,
   `recruitment-interviews` (PRs #153/#155/#156). `recruitment-training` exists but was in the
-  failing set — to be confirmed/fixed in Phase 1.
+  failing set - to be confirmed/fixed in Phase 1.
 - **Exist but fail against the seed-only CI DB:** `admin`, `schedule`, `volunteers`, `my-info`,
   `login`, `theme`. A fresh-seed full-suite run was 26 pass / 18 fail; every failure was in
   these files.
@@ -43,12 +43,12 @@ because they assume **data the seed never creates**:
   HIPAA certificates**, Epic config, and disciplinary setup. The seed has Jack as the only ITCM
   person (a director, no cert rows).
 - `schedule` capacity / RHD-readiness / attendings tests need **capacity config**, an **RHD
-  department (SCTS)**, and **attendings** — none seeded.
+  department (SCTS)**, and **attendings** - none seeded.
 
 Secondary cause: some selector drift from UI changes (same class of breakage already fixed in
 the recruitment specs: the `TypePicker` builder and the `/apply` portal gate).
 
-## Architecture — shared infrastructure
+## Architecture - shared infrastructure
 
 Built once, reused by every spec.
 
@@ -74,40 +74,40 @@ A typed helper that creates the data the seed does not, directly via Prisma.
   - `ingestTestScormCourse()` → a learning course with a package so it is assignable/openable.
   - `seedEpicConfig()` / `seedEpicRequest(personId)` → the Epic request surface.
 - Every created row is uniquely tagged (the existing `Date.now()` suffix pattern) so specs never
-  collide on the **live** CI database. There is no `resetDb` — the dev server holds the
-  connection — so each spec removes exactly what it created in `afterEach`/`afterAll` via the
+  collide on the **live** CI database. There is no `resetDb` - the dev server holds the
+  connection - so each spec removes exactly what it created in `afterEach`/`afterAll` via the
   returned `cleanup()`.
 
 This is the only mechanism that can reach UI-unreachable surfaces (SCORM ingest, system
 notifications, certs), and it removes the seed-data assumptions that break the existing specs.
 
-## Phase 1 — make the existing suite green
+## Phase 1 - make the existing suite green
 
 For `admin`, `schedule`, `volunteers`, `my-info`, `login`, `theme`, and `recruitment-training`:
 feed each spec the data it assumes via `fixtures.ts`, fix any drifted selectors, and keep the
 existing deep journeys. Switch their local `devLogin` copies to `e2e/auth.ts`. End state: the
 entire existing suite passes against a fresh seed.
 
-## Phase 2 — breadth: smoke + RBAC matrix
+## Phase 2 - breadth: smoke + RBAC matrix
 
 `e2e/smoke.spec.ts` iterates a table of `{ route, allowedRole, deniedRole }` over **every**
 `(app)` page. For each route it asserts: loads for the allowed role (no error boundary; expected
 heading visible) and redirects / lands on `no-access` for the denied role. This is the
 "catches crashes everywhere" layer and immediately covers the zero-coverage pages.
 
-## Phase 3 — depth: one key journey per uncovered surface
+## Phase 3 - depth: one key journey per uncovered surface
 
 Using `fixtures.ts`:
 
-- **clinic/AVS** — fill the form, generate, assert the PDF download fires (EN + ES).
-- **learning** — fixture-ingest a course → open it → mark complete → dashboard reflects it.
-- **notifications** — fixture a notification → bell badge + `/notifications` row → mark read.
-- **admin/email/campaigns** — create a campaign with an audience condition → preview / test-send
+- **clinic/AVS** - fill the form, generate, assert the PDF download fires (EN + ES).
+- **learning** - fixture-ingest a course → open it → mark complete → dashboard reflects it.
+- **notifications** - fixture a notification → bell badge + `/notifications` row → mark read.
+- **admin/email/campaigns** - create a campaign with an audience condition → preview / test-send
   to sample "Sam".
-- **get-started gate** — a fresh un-cleared person is held at `/get-started`; clearing the steps
+- **get-started gate** - a fresh un-cleared person is held at `/get-started`; clearing the steps
   (profile / HIPAA / training / learning) releases them to the hub.
 
-## Phase 4 — CI
+## Phase 4 - CI
 
 In `.github/workflows/ci.yml`, replace the scoped 4-spec list in the `e2e` job with the whole
 `e2e/` directory. Add Playwright `workers`/sharding only if wall-clock requires it. Keep the
@@ -115,8 +115,8 @@ In `.github/workflows/ci.yml`, replace the scoped 4-spec list in the `e2e` job w
 
 ## Out of scope / YAGNI
 
-- No separate CI workflow — the new specs join the existing `e2e` job.
-- No `resetDb` for e2e — incompatible with the live dev-server connection; per-spec
+- No separate CI workflow - the new specs join the existing `e2e` job.
+- No `resetDb` for e2e - incompatible with the live dev-server connection; per-spec
   create-and-cleanup instead.
 - No deep journeys beyond one per surface (the layered philosophy); extra depth can follow later.
 - `testsprite_tests/` artifacts stay untracked and are never committed.
@@ -132,6 +132,6 @@ In `.github/workflows/ci.yml`, replace the scoped 4-spec list in the `e2e` job w
 
 ## Related
 
-- `e2e/portal-cookie.ts` (forged applicant session) — the `.env` fallback pattern `fixtures.ts`
+- `e2e/portal-cookie.ts` (forged applicant session) - the `.env` fallback pattern `fixtures.ts`
   reuses.
 - Memory: `e2e-not-in-ci-portal-gate`, `local-db-neon-hazard`, `vitest-test-db-isolation`.

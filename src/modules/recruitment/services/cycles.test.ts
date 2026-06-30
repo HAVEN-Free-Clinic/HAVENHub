@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import {
-  createCycle, publishCycle, closeCycle, listCycles, CyclePublishError, setCycleDepartments, setApplicationWindow, reopenCycle, archiveCycle,
+  createCycle, publishCycle, closeCycle, listCycles, listArchivedCycles, CyclePublishError, setCycleDepartments, setApplicationWindow, reopenCycle, archiveCycle,
 } from "./cycles";
 
 async function seedTermAndPerson() {
@@ -76,6 +76,38 @@ describe("closeCycle / listCycles", () => {
     expect(closed.status).toBe("CLOSED");
     const all = await listCycles();
     expect(all.find((c) => c.id === cycle.id)?.status).toBe("CLOSED");
+  });
+});
+
+describe("listArchivedCycles", () => {
+  async function makeClosed(termId: string, personId: string, slug: string) {
+    const cycle = await createCycle({
+      track: "DIRECTOR", termId, title: slug, publicSlug: slug,
+      departments: [], acceptsRenewals: false, createdById: personId,
+    });
+    await publishCycle(cycle.id, personId);
+    await closeCycle(cycle.id, personId);
+    return cycle;
+  }
+
+  it("returns only archived cycles and excludes active (non-archived) ones", async () => {
+    const { person, term } = await seedTermAndPerson();
+    const active = await makeClosed(term.id, person.id, "arch-active");
+    const a1 = await makeClosed(term.id, person.id, "arch-one");
+    await archiveCycle(a1.id, person.id);
+    const a2 = await makeClosed(term.id, person.id, "arch-two");
+    await archiveCycle(a2.id, person.id);
+
+    const archived = await listArchivedCycles();
+    expect(archived.map((c) => c.id).sort()).toEqual([a1.id, a2.id].sort());
+    expect(archived.every((c) => c.status === "ARCHIVED")).toBe(true);
+    expect(archived.some((c) => c.id === active.id)).toBe(false);
+  });
+
+  it("returns an empty array when nothing is archived", async () => {
+    const { person, term } = await seedTermAndPerson();
+    await makeClosed(term.id, person.id, "arch-none");
+    expect(await listArchivedCycles()).toEqual([]);
   });
 });
 

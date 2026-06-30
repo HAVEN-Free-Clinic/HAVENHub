@@ -71,6 +71,16 @@ export async function listCycles(): Promise<RecruitmentCycle[]> {
   });
 }
 
+/** Archived (retired) cycles only, newest first. Kept separate from listCycles
+ *  so the active list stays clean; the index page renders these in a collapsed
+ *  "Archived" section. */
+export async function listArchivedCycles(): Promise<RecruitmentCycle[]> {
+  return prisma.recruitmentCycle.findMany({
+    where: { status: "ARCHIVED" },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
 export async function publishCycle(id: string, actorId: string): Promise<RecruitmentCycle> {
   const cycle = await getCycle(id);
   if (!cycle) throw new CyclePublishError("Cycle not found.");

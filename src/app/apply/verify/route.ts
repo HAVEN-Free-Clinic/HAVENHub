@@ -1,20 +1,15 @@
 // src/app/apply/verify/route.ts
 import { NextResponse } from "next/server";
 import { verifyMagicToken, signApplicantCookie, APPLICANT_COOKIE } from "@/modules/recruitment/services/portal-auth";
+import { safeNextPath } from "@/modules/recruitment/services/portal-next";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function safeNext(raw: string | null): string {
-  // Only allow a same-origin, slash-rooted path (no open redirect).
-  if (raw && /^\/[^/\\]/.test(raw)) return raw;
-  return "/apply";
-}
-
 export async function GET(req: Request): Promise<Response> {
   const url = new URL(req.url);
   const token = url.searchParams.get("token");
-  const next = safeNext(url.searchParams.get("next"));
+  const next = safeNextPath(url.searchParams.get("next"));
   const email = token ? await verifyMagicToken(token) : null;
   if (!email) {
     return NextResponse.redirect(new URL("/apply?error=link", req.url));

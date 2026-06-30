@@ -25,6 +25,16 @@ describe("module registry", () => {
     }
   });
 
+  it("does not expose the dead 'recruitment.review' permission (issue #92)", () => {
+    // recruitment.review is never passed to can()/requirePermission anywhere;
+    // reviewer access is driven solely by recruitment.review_all (SRR) and
+    // active-term DIRECTOR department scope. A grantable-but-unchecked permission
+    // is misleading in the role editor, so it must not be declared. review_all stays.
+    const all = MODULES.flatMap((m) => m.permissions);
+    expect(all).not.toContain("recruitment.review");
+    expect(all).toContain("recruitment.review_all");
+  });
+
   it("registers all known modules", () => {
     expect(MODULES.map((m) => m.id).sort()).toEqual(
       [

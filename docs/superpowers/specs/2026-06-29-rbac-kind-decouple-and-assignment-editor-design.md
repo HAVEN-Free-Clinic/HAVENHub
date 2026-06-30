@@ -110,7 +110,7 @@ Notes:
 
 #### Term roster panel re-gate
 
-- The roster mutation server actions on `/admin/terms/[id]` (add, remove, copy) move from `admin.manage_terms` to `admin.manage_roster`, and a Change-role action backed by `changeMembershipKind` is added.
+- The roster mutation server actions on `/admin/terms/[id]` (add, remove, copy) move from `admin.manage_terms` to `admin.manage_roster`. (Implementation note, 2026-06-29: the Change-role action was descoped from the term panel and lives only on the person-page editor, which is the primary surface; the term panel keeps add/remove/copy. Both surfaces block removing a director who still holds director shift assignments this term.)
 - The term detail page becomes viewable with `admin.manage_terms` OR `admin.manage_roster` (`page.tsx:32`). Term-CRUD controls and their actions still require `admin.manage_terms`; only the roster panel is active for a `manage_roster`-only holder. Platform Admin holds both via the wildcard.
 
 ## Data flow and edge cases

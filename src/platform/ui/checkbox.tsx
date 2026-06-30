@@ -1,8 +1,5 @@
 import type { ComponentProps } from "react";
-
-function cx(...parts: (string | undefined | false | null)[]): string {
-  return parts.filter(Boolean).join(" ");
-}
+import { cx } from "./cx";
 
 /**
  * Brand-tinted checkbox with the same visible focus ring as Input/Select, so

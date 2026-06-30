@@ -1,8 +1,5 @@
 import type { ComponentProps, ReactNode } from "react";
-
-function cx(...parts: (string | undefined | false | null)[]): string {
-  return parts.filter(Boolean).join(" ");
-}
+import { cx } from "./cx";
 
 const controlBase =
   "rounded-lg border border-border-strong px-3 py-2 text-sm w-full outline-none " +

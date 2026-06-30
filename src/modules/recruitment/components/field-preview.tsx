@@ -2,10 +2,7 @@ import { Input, Textarea } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { asPrefillList, isPrefillChecked, prefillString } from "./field-prefill";
-
-function cx(...parts: (string | undefined | false | null)[]): string {
-  return parts.filter(Boolean).join(" ");
-}
+import { cx } from "@/platform/ui/cx";
 
 export type PreviewFieldDef = {
   key: string;

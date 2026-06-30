@@ -1,4 +1,4 @@
-import { cx } from "./button";
+import { cx } from "./cx";
 
 type Size = "sm" | "md" | "lg";
 

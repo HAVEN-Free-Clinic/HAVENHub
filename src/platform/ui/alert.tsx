@@ -6,10 +6,7 @@ import {
   XCircle,
   type LucideIcon,
 } from "lucide-react";
-
-function cx(...parts: (string | undefined | false | null)[]): string {
-  return parts.filter(Boolean).join(" ");
-}
+import { cx } from "./cx";
 
 type Tone = "error" | "success" | "warning" | "info";
 

@@ -1,4 +1,5 @@
 import type { ComponentProps } from "react";
+import { cx } from "./cx";
 
 type Tone = "default" | "brand" | "success" | "warning" | "critical";
 
@@ -15,10 +16,6 @@ const dotClasses: Record<Tone, string | null> = {
   warning: "bg-warning",
   critical: "bg-critical",
 };
-
-function cx(...parts: (string | undefined | false | null)[]): string {
-  return parts.filter(Boolean).join(" ");
-}
 
 type BadgeProps = ComponentProps<"span"> & {
   tone?: Tone;

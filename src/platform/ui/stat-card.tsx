@@ -1,10 +1,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { cardClasses } from "./card";
-
-function cx(...parts: (string | undefined | false | null)[]): string {
-  return parts.filter(Boolean).join(" ");
-}
+import { cx } from "./cx";
 
 type Tone = "default" | "brand" | "success" | "warning" | "critical";
 

@@ -1,4 +1,5 @@
 import type { ComponentProps } from "react";
+import { cx } from "./cx";
 
 type Variant = "primary" | "outline" | "danger" | "ghost";
 type Size = "sm" | "md";
@@ -18,10 +19,6 @@ const sizeClasses: Record<Size, string> = {
   md: "px-4 py-2",
   sm: "px-3 py-1.5",
 };
-
-export function cx(...parts: (string | undefined | false | null)[]): string {
-  return parts.filter(Boolean).join(" ");
-}
 
 export function buttonClasses(
   variant: Variant = "primary",

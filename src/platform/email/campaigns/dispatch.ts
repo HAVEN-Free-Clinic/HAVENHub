@@ -18,10 +18,23 @@ export async function dispatchDueCampaigns(now: Date): Promise<DispatchSummary> 
   for (const campaign of due) {
     try {
       if (campaign.status === "SCHEDULED") {
-        await executeRun(campaign.id, { actorId: null, statusUpdate: { status: "SENT", lastRunAt: now, nextRunAt: null } });
+        // The SCHEDULED -> SENT flip is the claim token: a lapping pass re-reads
+        // the row as SENT and matches zero rows.
+        await executeRun(campaign.id, {
+          actorId: null,
+          claimWhere: { status: "SCHEDULED" },
+          statusUpdate: { status: "SENT", lastRunAt: now, nextRunAt: null },
+        });
       } else {
+        // A recurring campaign stays ACTIVE, so nextRunAt is the claim token:
+        // advancing it past `now` makes a lapping pass's `nextRunAt <= now`
+        // predicate match zero rows.
         const next = campaign.cronExpr ? nextCronAfter(campaign.cronExpr, now) : null;
-        await executeRun(campaign.id, { actorId: null, statusUpdate: { lastRunAt: now, nextRunAt: next } });
+        await executeRun(campaign.id, {
+          actorId: null,
+          claimWhere: { status: "ACTIVE", nextRunAt: { lte: now } },
+          statusUpdate: { lastRunAt: now, nextRunAt: next },
+        });
       }
       executed++;
     } catch (err) {

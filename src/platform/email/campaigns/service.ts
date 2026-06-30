@@ -141,7 +141,16 @@ export async function testSend(actorId: string | null, id: string, toEmail: stri
 
 export async function executeRun(
   campaignId: string,
-  opts: { actorId: string | null; statusUpdate: Prisma.EmailCampaignUpdateInput; recipients?: Recipient[] },
+  opts: {
+    actorId: string | null;
+    // The precondition that makes the campaign eligible for THIS dispatch (e.g.
+    // status DRAFT for "send now", status ACTIVE + nextRunAt due for a recurring
+    // tick). Applied together with statusUpdate as a single conditional UPDATE so
+    // overlapping passes can't both proceed -- see the claim inside the tx below.
+    claimWhere: Prisma.EmailCampaignWhereInput;
+    statusUpdate: Prisma.EmailCampaignUpdateManyMutationInput;
+    recipients?: Recipient[];
+  },
 ): Promise<{ runId: string; recipientCount: number }> {
   const campaign = await prisma.emailCampaign.findUniqueOrThrow({ where: { id: campaignId } });
 
@@ -168,12 +177,20 @@ export async function executeRun(
   const layoutSource = await loadLayoutSource();
 
   const runId = await prisma.$transaction(async (tx) => {
-    // Guard against double-dispatch: re-read inside the transaction so two
-    // concurrent dispatch attempts -- overlapping cron ticks, or a manual
-    // "send now" racing the per-minute drainer -- can't both proceed past this
-    // point. The status flip below commits atomically with the run.
-    const current = await tx.emailCampaign.findUniqueOrThrow({ where: { id: campaignId } });
-    if (current.status === "SENT" || current.status === "CANCELLED") {
+    // Guard against double-dispatch with an atomic claim: apply the status
+    // transition up front as a conditional updateMany gated on claimWhere. This
+    // compiles to a single `UPDATE ... WHERE`, and Postgres serializes
+    // concurrent writers on the row -- so of two overlapping passes (lapping
+    // cron ticks, or a "send now" racing the per-minute drainer) the first
+    // commits the transition and the second re-evaluates claimWhere against the
+    // updated row, matches zero rows, and aborts here, before creating a run or
+    // enqueuing anything. The whole transaction commits atomically, so if the
+    // enqueue below throws, the claim rolls back and the campaign stays eligible.
+    const claimed = await tx.emailCampaign.updateMany({
+      where: { id: campaignId, ...opts.claimWhere },
+      data: opts.statusUpdate,
+    });
+    if (claimed.count !== 1) {
       throw new Error("Campaign already dispatched");
     }
 
@@ -189,7 +206,6 @@ export async function executeRun(
         personId: recipient.recordId, triggeredById: opts.actorId, campaignRunId: run.id,
       });
     }
-    await tx.emailCampaign.update({ where: { id: campaignId }, data: opts.statusUpdate });
     return run.id;
   });
 
@@ -223,7 +239,12 @@ export async function sendCampaignNow(
   if (deduped.length > CAMPAIGN_CONFIRM_THRESHOLD && opts.confirmCount !== deduped.length) {
     throw new CampaignConfirmationError(deduped.length);
   }
-  return executeRun(id, { actorId, statusUpdate: { status: "SENT" }, recipients: deduped });
+  return executeRun(id, {
+    actorId,
+    claimWhere: { status: "DRAFT" },
+    statusUpdate: { status: "SENT" },
+    recipients: deduped,
+  });
 }
 
 export type ScheduleInput =

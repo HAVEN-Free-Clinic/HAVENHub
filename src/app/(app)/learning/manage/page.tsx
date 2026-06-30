@@ -15,7 +15,7 @@ export default async function ManageCoursesPage() {
     <>
       <PageHeader title="Manage courses" description="Create courses and upload their SCORM packages." />
       <div className="mt-6 max-w-2xl space-y-6">
-        <Card className="space-y-4">
+        <Card>
           <form action={createCourseAction} className="flex gap-2">
             <Input name="title" placeholder="New course title" required className="flex-1" />
             <Button type="submit">Create</Button>

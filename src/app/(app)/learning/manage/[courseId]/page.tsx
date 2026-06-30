@@ -34,7 +34,7 @@ export default async function EditCoursePage({ params }: { params: Promise<{ cou
             not count toward onboarding. Upload a package below to make it visible and required.
           </Alert>
         )}
-        <Card className="space-y-4">
+        <Card>
           <form action={updateCourseAction}>
             <input type="hidden" name="courseId" value={course.id} />
             <div className="space-y-4">

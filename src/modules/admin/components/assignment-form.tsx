@@ -32,6 +32,7 @@ import { Input, Field } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
+import { SectionHeader } from "@/platform/ui/section-header";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -58,14 +59,6 @@ type AssignmentFormProps = {
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
-
-function SectionHeading({ children }: { children: ReactNode }) {
-  return (
-    <h2 className="mb-4 text-base font-semibold tracking-tight text-foreground">
-      {children}
-    </h2>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Main component
@@ -212,7 +205,7 @@ export async function AssignmentForm({
 
   return (
     <section className="space-y-8">
-      <SectionHeading>Assignments</SectionHeading>
+      <SectionHeader level="title" className="mb-4">Assignments</SectionHeader>
 
       {/* Assignments table */}
       {assignments.length === 0 ? (

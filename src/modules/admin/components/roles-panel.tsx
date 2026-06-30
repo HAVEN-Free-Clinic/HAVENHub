@@ -34,6 +34,7 @@ import { Input, Field } from "@/platform/ui/input";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { FormActions } from "@/platform/ui/form";
+import { SectionHeader } from "@/platform/ui/section-header";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -53,14 +54,6 @@ type RolesPanelProps = {
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
-
-function SectionHeading({ children }: { children: ReactNode }) {
-  return (
-    <h2 className="mb-4 text-base font-semibold tracking-tight text-foreground">
-      {children}
-    </h2>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Main component
@@ -148,7 +141,7 @@ export async function RolesPanel({ roles, pageHref }: RolesPanelProps): Promise<
 
   return (
     <section className="space-y-6">
-      <SectionHeading>Roles</SectionHeading>
+      <SectionHeader level="title" className="mb-4">Roles</SectionHeader>
 
       {/* Create-role inline form */}
       <Card>
@@ -219,9 +212,7 @@ export async function RolesPanel({ roles, pageHref }: RolesPanelProps): Promise<
               {/* Module permission groups */}
               {MODULES.filter((m) => m.permissions.length > 0).map((mod) => (
                 <div key={mod.id} className="space-y-2">
-                  <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                    {mod.title}
-                  </p>
+                  <SectionHeader>{mod.title}</SectionHeader>
                   <div className="flex flex-wrap gap-x-6 gap-y-1.5">
                     {mod.permissions.map((perm) => (
                       <label
@@ -242,9 +233,7 @@ export async function RolesPanel({ roles, pageHref }: RolesPanelProps): Promise<
 
               {/* Platform group: wildcard */}
               <div className="space-y-2">
-                <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  Platform
-                </p>
+                <SectionHeader>Platform</SectionHeader>
                 <div className="flex flex-wrap gap-x-6 gap-y-1.5">
                   <label className="flex items-center gap-2 text-sm text-foreground-soft">
                     <Checkbox

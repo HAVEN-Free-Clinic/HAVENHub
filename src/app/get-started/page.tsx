@@ -2,7 +2,6 @@ import { redirect } from "next/navigation";
 import { requirePersonSession } from "@/platform/auth/session";
 import { signOut } from "@/platform/auth/auth";
 import { HavenLogo } from "@/platform/ui/haven-logo";
-import { Button } from "@/platform/ui/button";
 import { getOnboardingStatus } from "@/modules/onboarding/services/onboarding";
 import { OnboardingChecklist } from "./onboarding-checklist";
 
@@ -82,13 +81,12 @@ export default async function GetStartedPage() {
           }}
         >
           Wrong account?{" "}
-          <Button
+          <button
             type="submit"
-            variant="ghost"
-            className="h-auto p-0 font-semibold text-brand-fg underline-offset-2 hover:underline"
+            className="font-semibold text-brand-fg underline-offset-2 hover:underline"
           >
             Sign out
-          </Button>
+          </button>
         </form>
       </section>
     </main>

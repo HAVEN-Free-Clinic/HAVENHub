@@ -1,11 +1,18 @@
 import { expect, test } from "@playwright/test";
+import { devLogin } from "./auth";
+import { seedComplianceMember } from "./fixtures";
 
-async function devLogin(page: import("@playwright/test").Page, email: string) {
-  await page.goto("/login");
-  await page.fill('input[name="email"]', email);
-  await page.click('button:has-text("Dev sign in")');
-  await page.waitForURL((url) => url.pathname === "/");
-}
+let member: Awaited<ReturnType<typeof seedComplianceMember>>;
+
+test.beforeEach(async () => {
+  // An ITCM member with a verified cert so the compliance page renders a status badge
+  // and the offboarding executor table has a flag-able row.
+  member = await seedComplianceMember("ITCM", { status: "COMPLIANT" });
+});
+
+test.afterEach(async () => {
+  await member.cleanup();
+});
 
 /**
  * Click a ConfirmButton (two-click protocol) scoped to a container locator.
@@ -42,7 +49,8 @@ test("Jack sees at least one status Badge on the ITCM compliance page", async ({
   await page.goto("/volunteers");
   await page.waitForURL((url) => url.pathname === "/volunteers");
 
-  // At least one status badge must be visible in the table
+  // At least one status badge must be visible in the table.
+  // The beforeEach seeds an ITCM member with a COMPLIANT cert, so a badge is guaranteed.
   // Status labels: Compliant, Expiring Soon, Expired, Date Unknown, No Certificate
   const statusBadge = page
     .locator("td span")
@@ -56,7 +64,9 @@ test("Jack sees at least one status Badge on the ITCM compliance page", async ({
 test("dev.volunteer is bounced from /volunteers to the hub", async ({ page }) => {
   await devLogin(page, "dev.volunteer@yale.edu");
   await page.goto("/volunteers");
-  await page.waitForURL((url) => url.pathname === "/");
+  // dev.volunteer has not completed onboarding, so they are redirected to /get-started
+  // rather than /. Accept either destination as "not at /volunteers".
+  await page.waitForURL((url) => url.pathname === "/" || url.pathname.startsWith("/get-started"));
 });
 
 test("Jack (Platform Admin) opens /volunteers/master and sees the summary cards", async ({ page }) => {
@@ -67,9 +77,11 @@ test("Jack (Platform Admin) opens /volunteers/master and sees the summary cards"
   // Page heading must be visible
   await expect(page.getByRole("heading", { name: "Master Compliance View" })).toBeVisible();
 
-  // Summary stat cards must be visible (one per status, identified by aria-label)
-  await expect(page.locator('[aria-label^="Compliant:"]')).toBeVisible();
-  await expect(page.locator('[aria-label^="No Certificate:"]')).toBeVisible();
+  // Summary stat cards are rendered as plain <p> elements (no aria-label).
+  // The beforeEach seeds a COMPLIANT ITCM member, so "Compliant" will always be present.
+  // "No Certificate" covers seed members with no cert, so it is also always present.
+  await expect(page.locator("p").filter({ hasText: /^Compliant$/ }).first()).toBeVisible();
+  await expect(page.locator("p").filter({ hasText: /^No Certificate$/ }).first()).toBeVisible();
 });
 
 test("Jack sees the filter bar on /volunteers/master", async ({ page }) => {
@@ -84,7 +96,9 @@ test("Jack sees the filter bar on /volunteers/master", async ({ page }) => {
 test("dev.volunteer is bounced from /volunteers/master to the hub", async ({ page }) => {
   await devLogin(page, "dev.volunteer@yale.edu");
   await page.goto("/volunteers/master");
-  await page.waitForURL((url) => url.pathname === "/");
+  // dev.volunteer has not completed onboarding, so they are redirected to /get-started
+  // rather than /. Accept either destination as "not at /volunteers/master".
+  await page.waitForURL((url) => url.pathname === "/" || url.pathname.startsWith("/get-started"));
 });
 
 // ---------------------------------------------------------------------------
@@ -92,22 +106,20 @@ test("dev.volunteer is bounced from /volunteers/master to the hub", async ({ pag
 // ---------------------------------------------------------------------------
 
 /**
- * Flags Jack (the only ITCM member in the dev seed) for offboarding and then
- * unflags him to restore state.
+ * Flags the seeded ITCM member (created in beforeEach) for offboarding and then
+ * unflags them to restore state.
  *
  * Why flag+verify+unflag rather than executing the offboard:
  *   Executing the offboard removes all ACTIVE memberships and sets the person's
- *   status to OFFBOARDED, which would break every other test that relies on
- *   Jack being an active ITCM director with Platform Admin access. The
+ *   status to OFFBOARDED, which would break cleanup in afterEach. The
  *   flag+unflag round trip exercises the flagging UI and the executor table
- *   without mutating the dev DB beyond the ephemeral flag row.
+ *   without irreversible side-effects.
  *
  * The service-level execute path (executeOffboard) is exercised by the
  * integration tests in offboarding.test.ts.
  *
- * Jack is the only ITCM member in the seed, so he is also the flag target.
- * Flagging yourself is intentional here: the offboarding service allows it
- * because Jack has volunteers.manage_offboarding (via Platform Admin /* grant).
+ * We scope the row by member.person.name (set by beforeEach) so the test is
+ * deterministic in CI (bare seed) as well as locally (rich import data).
  */
 test("offboarding: Jack flags an ITCM member and verifies the executor table, then unflags (round trip)", async ({
   page,
@@ -119,36 +131,18 @@ test("offboarding: Jack flags an ITCM member and verifies the executor table, th
   // Page heading -- use exact: true to avoid matching "Flagged for offboarding" (h2)
   await expect(page.getByRole("heading", { name: "Offboarding", exact: true })).toBeVisible();
 
-  // Find the ITCM section -- h2 contains "ITCM". Jack is a director in ITCM and his
-  // manageable departments include ITCM, so this section is always present.
+  // Find the ITCM section -- h2 contains "ITCM". The beforeEach seeds an ITCM member,
+  // so this section is guaranteed to be present.
   const itcmSection = page.locator("section").filter({ has: page.locator("h2").filter({ hasText: /ITCM/ }) }).first();
   await expect(itcmSection).toBeVisible();
 
-  // Pick the first ITCM member that is NOT already flagged (has the "Flag" button).
-  // This makes the test resilient: if a prior failed run left a member flagged, we skip
-  // them and flag a different unflagged one. At least one member is always unflagged
-  // (the seed seeds Jack, and other rows may exist from dev data).
-  //
-  // Why not execute the offboard:
-  //   Executing removes all ACTIVE memberships and sets person.status = OFFBOARDED.
-  //   That would permanently mutate the shared dev DB. The flag+verify+unflag round
-  //   trip exercises the full UI without irreversible side-effects.
-  //   The service-level execute path is covered by the integration tests in
-  //   offboarding.test.ts.
-  // Find the first row that has an unflagged member (has a "Flag" button).
-  // Read the person's name BEFORE clicking so we can identify the row later
-  // (the filter condition changes after click, making the original locator stale).
-  const unflaggedRowLocator = itcmSection
-    .locator("tr")
-    .filter({ has: page.getByRole("button", { name: "Flag", exact: true }) })
-    .first();
-  await expect(unflaggedRowLocator).toBeVisible();
-
-  // Capture the person's name from the first <td> of the unflagged row
-  const personName = (await unflaggedRowLocator.locator("td").first().textContent() ?? "").trim();
+  // Scope the row to the seeded member's name, which is deterministic in CI.
+  const personName = member.person.name;
+  const memberRow = itcmSection.locator("tr").filter({ hasText: personName }).first();
+  await expect(memberRow).toBeVisible();
 
   // Arm the Flag button (first click). After this the button text changes to "Confirm?".
-  await unflaggedRowLocator.getByRole("button", { name: "Flag", exact: true }).click();
+  await memberRow.getByRole("button", { name: "Flag", exact: true }).click();
 
   // Now locate the armed row by person name (not by "Flag" button, which is gone).
   // The row still contains the person's name; find the "Confirm?" button within it.
@@ -163,8 +157,8 @@ test("offboarding: Jack flags an ITCM member and verifies the executor table, th
     .first();
   await expect(flaggedSection).toBeVisible();
 
-  // The person must appear in the flagged executor table
-  const flaggedRow = flaggedSection.locator("tr").filter({ hasText: new RegExp(personName!.trim()) }).first();
+  // The seeded member must appear in the flagged executor table
+  const flaggedRow = flaggedSection.locator("tr").filter({ hasText: new RegExp(personName.trim()) }).first();
   await expect(flaggedRow).toBeVisible();
 
   // Unflag them from the executor table to restore state

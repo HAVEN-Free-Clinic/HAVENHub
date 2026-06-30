@@ -3,7 +3,8 @@ import { notFound } from "next/navigation";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
-import { publishCycleAction, closeCycleAction, toggleRenewalsAction, setTrainingCycleAction, updateQuizSettingsAction, setCycleDepartmentsAction, setApplicationWindowAction } from "../../actions";
+import { publishCycleAction, closeCycleAction, reopenCycleAction, archiveCycleAction, toggleRenewalsAction, setTrainingCycleAction, updateQuizSettingsAction, setCycleDepartmentsAction, setApplicationWindowAction } from "../../actions";
+import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
 import { Field, Input } from "@/platform/ui/input";
@@ -15,7 +16,7 @@ import { Checkbox } from "@/platform/ui/checkbox";
 import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
 
-const statusTone = { DRAFT: "default", OPEN: "success", CLOSED: "warning" } as const;
+const statusTone = { DRAFT: "default", OPEN: "success", CLOSED: "warning", ARCHIVED: "default" } as const;
 
 /** Format a stored instant for a <input type="datetime-local"> default value
  *  (local wall-clock, "YYYY-MM-DDTHH:mm"). Mirrors the interview scheduler so the
@@ -107,21 +108,33 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
         <p className="text-xs font-medium uppercase tracking-wider text-subtle-foreground">Departments</p>
         {deptsaved && <Alert tone="success">Departments updated.</Alert>}
         {deptwarn && <Alert tone="warning">Saved. These removed departments still have applicants: {deptwarn}. Existing applications keep their choices, but you can no longer accept into a removed department.</Alert>}
-        <form action={setCycleDepartmentsAction.bind(null, id)} className="space-y-3">
-          <div className="grid gap-2 sm:grid-cols-2">
-            {deptOptions.map((d) => (
-              <label key={d.code} className="flex items-center gap-2 text-sm">
-                <Checkbox name="departments" value={d.code} defaultChecked={selected.has(d.code)} />
-                <span className="text-foreground">{d.code}{d.name ? ` - ${d.name}` : ""}</span>
-                <span className="text-xs text-subtle-foreground">{counts.get(d.code) ? `${counts.get(d.code)} applicant${counts.get(d.code) === 1 ? "" : "s"}` : ""}{!d.known ? " · not in department list" : ""}</span>
-              </label>
-            ))}
-            {deptOptions.length === 0 && <p className="text-sm text-subtle-foreground">No departments configured.</p>}
+        {cycle.status === "ARCHIVED" ? (
+          <div className="flex flex-wrap gap-2">
+            {cycle.departments.length === 0 ? (
+              <p className="text-sm text-subtle-foreground">No departments.</p>
+            ) : (
+              cycle.departments.map((c) => (
+                <span key={c} className="rounded-lg border border-border px-2 py-1 text-sm text-foreground">{c}</span>
+              ))
+            )}
           </div>
-          <FormActions>
-            <SubmitButton size="sm" variant="outline" pendingLabel="Saving…">Save departments</SubmitButton>
-          </FormActions>
-        </form>
+        ) : (
+          <form action={setCycleDepartmentsAction.bind(null, id)} className="space-y-3">
+            <div className="grid gap-2 sm:grid-cols-2">
+              {deptOptions.map((d) => (
+                <label key={d.code} className="flex items-center gap-2 text-sm">
+                  <Checkbox name="departments" value={d.code} defaultChecked={selected.has(d.code)} />
+                  <span className="text-foreground">{d.code}{d.name ? ` - ${d.name}` : ""}</span>
+                  <span className="text-xs text-subtle-foreground">{counts.get(d.code) ? `${counts.get(d.code)} applicant${counts.get(d.code) === 1 ? "" : "s"}` : ""}{!d.known ? " · not in department list" : ""}</span>
+                </label>
+              ))}
+              {deptOptions.length === 0 && <p className="text-sm text-subtle-foreground">No departments configured.</p>}
+            </div>
+            <FormActions>
+              <SubmitButton size="sm" variant="outline" pendingLabel="Saving…">Save departments</SubmitButton>
+            </FormActions>
+          </form>
+        )}
       </Card>
 
       {(cycle.status === "DRAFT" || cycle.status === "OPEN") && (
@@ -157,6 +170,19 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
           <form action={closeCycleAction.bind(null, id)}>
             <SubmitButton size="sm" variant="outline" pendingLabel="Closing…">Close</SubmitButton>
           </form>
+        )}
+        {cycle.status === "CLOSED" && (
+          <>
+            <form action={reopenCycleAction.bind(null, id)}>
+              <SubmitButton size="sm" variant="outline" pendingLabel="Reopening…">Reopen</SubmitButton>
+            </form>
+            <form action={archiveCycleAction.bind(null, id)}>
+              <ConfirmButton label="Archive" confirmLabel="Archive this cycle?" size="sm" />
+            </form>
+          </>
+        )}
+        {cycle.status === "ARCHIVED" && (
+          <p className="text-sm text-subtle-foreground">This cycle is archived and read-only.</p>
         )}
         {(cycle.status === "DRAFT" || cycle.status === "OPEN") && (
           <form action={toggleRenewalsAction.bind(null, id, !cycle.acceptsRenewals)}>

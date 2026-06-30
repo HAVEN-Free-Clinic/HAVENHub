@@ -7,7 +7,7 @@ import Link from "@tiptap/extension-link";
 import Placeholder from "@tiptap/extension-placeholder";
 import { renderTemplate } from "@/platform/email/render/render";
 import type { VariableDef } from "@/platform/email/templates/types";
-import { Input } from "@/platform/ui/input";
+import { Input, Textarea, Field } from "@/platform/ui/input";
 
 type Mode = "rich" | "source";
 
@@ -95,14 +95,14 @@ export function TemplateEditor(props: {
       <EditorStyles />
       {/* Editor column */}
       <div>
-        <label className="block text-sm font-medium text-foreground-soft">Subject</label>
-        <Input
-          name="subject"
-          value={subject}
-          onChange={(e) => setSubject(e.target.value)}
-          placeholder="e.g. Welcome to HAVEN!"
-          className="mt-1"
-        />
+        <Field label="Subject">
+          <Input
+            name="subject"
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+            placeholder="e.g. Welcome to HAVEN!"
+          />
+        </Field>
 
         <div className="mt-4 flex items-center justify-between">
           <label className="text-sm font-medium text-foreground-soft">Message body</label>
@@ -130,13 +130,13 @@ export function TemplateEditor(props: {
             <EditorContent editor={editor} />
           </div>
         ) : (
-          <textarea
+          <Textarea
             ref={sourceRef}
             value={body}
             onChange={(e) => setBody(e.target.value)}
             rows={16}
             placeholder="<p>Your message…</p>"
-            className="mt-1 w-full rounded-lg border border-border-strong bg-surface px-3 py-2 font-mono text-xs outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15"
+            className="mt-1 font-mono text-xs"
           />
         )}
 

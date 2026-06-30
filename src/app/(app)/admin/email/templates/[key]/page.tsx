@@ -10,6 +10,8 @@ import {
 import { PageHeader } from "@/platform/ui/page-header";
 import { Button } from "@/platform/ui/button";
 import { Alert } from "@/platform/ui/alert";
+import { Card } from "@/platform/ui/card";
+import { FormActions } from "@/platform/ui/form";
 import { TemplateEditor } from "./preview";
 
 type Props = {
@@ -61,18 +63,20 @@ export default async function EditTemplatePage({ params, searchParams }: Props) 
       {error ? <Alert tone="error">{error}</Alert> : null}
 
       <form action={saveAction}>
-        <TemplateEditor
-          templateKey={t.key}
-          variables={t.variables}
-          initialSubject={t.subject}
-          initialBody={t.body}
-          isLayout={t.isLayout}
-          layoutSource={t.layoutSource}
-          brandColor={t.brandColor}
-        />
-        <div className="mt-4 flex gap-2">
-          <Button type="submit">Save</Button>
-        </div>
+        <Card className="space-y-6">
+          <TemplateEditor
+            templateKey={t.key}
+            variables={t.variables}
+            initialSubject={t.subject}
+            initialBody={t.body}
+            isLayout={t.isLayout}
+            layoutSource={t.layoutSource}
+            brandColor={t.brandColor}
+          />
+          <FormActions>
+            <Button type="submit">Save</Button>
+          </FormActions>
+        </Card>
       </form>
 
       {t.hasOverride ? (

@@ -21,7 +21,7 @@ import type { Audience } from "@/platform/email/audience/types";
 import { prisma } from "@/platform/db";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Button } from "@/platform/ui/button";
-import { Input } from "@/platform/ui/input";
+import { Input, Field } from "@/platform/ui/input";
 import { Alert } from "@/platform/ui/alert";
 import { TemplateEditor } from "../../templates/[key]/preview";
 import { AudienceBuilder } from "./audience-builder";
@@ -275,18 +275,15 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
             <h2 className="text-base font-semibold text-foreground">1. Compose</h2>
 
             {/* Campaign name */}
-            <div>
-              <label className="block text-sm font-medium text-foreground-soft" htmlFor="campaign-name">
-                Campaign name
-              </label>
-              <Input
-                id="campaign-name"
-                name="name"
-                type="text"
-                defaultValue={campaign.name}
-                required
-                className="mt-1 max-w-sm"
-              />
+            <div className="max-w-sm">
+              <Field label="Campaign name">
+                <Input
+                  name="name"
+                  type="text"
+                  defaultValue={campaign.name}
+                  required
+                />
+              </Field>
             </div>
 
             {/* Template editor (subject + body) */}
@@ -348,20 +345,16 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
             </form>
 
             {/* Live send */}
-            <form action={sendAction} className="flex items-center gap-2">
-              <div>
-                <label className="block text-xs text-muted-foreground" htmlFor="confirmCount">
-                  Confirm count (required for &gt;25 recipients)
-                </label>
+            <form action={sendAction} className="flex items-end gap-2">
+              <Field label="Confirm count (required for >25 recipients)">
                 <Input
-                  id="confirmCount"
                   name="confirmCount"
                   type="number"
                   min={1}
                   placeholder="e.g. 42"
-                  className="mt-0.5 w-24"
+                  className="w-24"
                 />
-              </div>
+              </Field>
               <SubmitButton variant="danger" pendingLabel="Sending...">
                 Send now
               </SubmitButton>
@@ -421,18 +414,14 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
           <div className="space-y-2">
             <p className="text-sm font-medium text-foreground-soft">Schedule for later</p>
             <form action={scheduleLaterAction} className="flex flex-wrap items-end gap-3">
-              <div>
-                <label className="block text-xs text-muted-foreground" htmlFor="scheduledAt">
-                  Send at
-                </label>
+              <Field label="Send at">
                 <Input
-                  id="scheduledAt"
                   name="scheduledAt"
                   type="datetime-local"
                   required
-                  className="mt-0.5 w-auto"
+                  className="w-auto"
                 />
-              </div>
+              </Field>
               <Button type="submit">Schedule</Button>
             </form>
           </div>
@@ -441,12 +430,9 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
           <div className="space-y-2">
             <p className="text-sm font-medium text-foreground-soft">Recurring</p>
             <form action={scheduleRecurringAction} className="flex flex-wrap items-end gap-3">
-              <div>
-                <label className="block text-xs text-muted-foreground" htmlFor="cronExpr">
-                  Cron expression
-                </label>
+              <Field label="Cron expression">
                 <CronPresets />
-              </div>
+              </Field>
               <Button type="submit">Start recurring</Button>
             </form>
             <p className="text-xs text-muted-foreground">

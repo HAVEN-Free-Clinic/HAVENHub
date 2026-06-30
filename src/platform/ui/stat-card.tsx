@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { cardClasses } from "./card";
 
 function cx(...parts: (string | undefined | false | null)[]): string {
   return parts.filter(Boolean).join(" ");
@@ -49,7 +50,7 @@ export function StatCard({ label, value, href, tone = "default", children }: Sta
     </>
   );
 
-  const base = "block rounded-2xl border border-border bg-surface p-5 shadow-sm";
+  const base = cx("block", cardClasses());
 
   if (href) {
     return (

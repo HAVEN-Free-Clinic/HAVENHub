@@ -183,6 +183,20 @@ export const SETTINGS: SettingDef<unknown>[] = [
     secret: false,
   }),
   define<string>({
+    key: "branding.supportEmail",
+    category: "Branding",
+    label: "Support contact email",
+    help: "Inbox shown to locked-out, signed-out users (the sign-in, 404, and welcome pages link to it). Distinct from the outbound email sender. Leave blank to hide the support link entirely.",
+    input: { type: "text" },
+    // A valid address, or blank to drop the support link. refine (not a union)
+    // keeps the admin-facing error message a single clean line.
+    schema: z.string().refine((v) => v === "" || z.string().email().safeParse(v).success, {
+      message: "Must be a valid email address, or blank to hide the support link.",
+    }),
+    envDefault: () => "hfc.it@yale.edu",
+    secret: false,
+  }),
+  define<string>({
     key: "branding.brandColor",
     category: "Branding",
     label: "Primary brand color",

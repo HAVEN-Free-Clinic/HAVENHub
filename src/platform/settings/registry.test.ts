@@ -30,6 +30,22 @@ describe("settings registry", () => {
   });
 });
 
+describe("branding.supportEmail setting", () => {
+  const def = SETTINGS.find((s) => s.key === "branding.supportEmail");
+
+  it("is registered under Branding", () => {
+    expect(def).toBeDefined();
+    expect(def!.category).toBe("Branding");
+  });
+
+  it("accepts a valid email, accepts blank, and rejects anything else", () => {
+    expect(def!.schema.safeParse("hfc.it@yale.edu").success).toBe(true);
+    expect(def!.schema.safeParse("").success).toBe(true);
+    expect(def!.schema.safeParse("not-an-email").success).toBe(false);
+    expect(def!.schema.safeParse("   ").success).toBe(false);
+  });
+});
+
 describe("ui.defaultTheme setting", () => {
   const def = SETTINGS.find((s) => s.key === "ui.defaultTheme");
 

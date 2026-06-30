@@ -12,13 +12,25 @@ export type VisibilityContext = {
   selectedDepartmentCodes: string[];
 };
 
+/** A department TRANSFER answers the same questions as a new applicant, so for
+ *  section visibility it is scoped to NEW. NEW and RENEWAL map to themselves. */
+export function scopeForApplicantType(type: ApplicantType): Exclude<ApplicantScope, "BOTH"> {
+  return type === "TRANSFER" ? "NEW" : type;
+}
+
+/** Human label for an applicant type, used in review screens. */
+export function applicantTypeLabel(type: ApplicantType): string {
+  return type === "RENEWAL" ? "Renewal" : type === "TRANSFER" ? "Transfer" : "New";
+}
+
 /** A section shows iff its applicant-type scope matches AND (it is not a
  *  department supplement, or its department is among the chosen ones). */
 export function isSectionVisible(
   section: SectionVisibilityInput,
   ctx: VisibilityContext
 ): boolean {
-  const typeMatch = section.appliesTo === "BOTH" || section.appliesTo === ctx.applicantType;
+  const scope = scopeForApplicantType(ctx.applicantType);
+  const typeMatch = section.appliesTo === "BOTH" || section.appliesTo === scope;
   if (!typeMatch) return false;
   if (section.departmentCode === null) return true;
   return ctx.selectedDepartmentCodes.includes(section.departmentCode);

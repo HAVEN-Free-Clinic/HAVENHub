@@ -5,7 +5,7 @@ import { Input } from "@/platform/ui/input";
 import { Button } from "@/platform/ui/button";
 import { Alert } from "@/platform/ui/alert";
 
-export function SignInForm() {
+export function SignInForm({ next }: { next?: string }) {
   const [sent, setSent] = useState(false);
   const [error, setError] = useState(false);
   const [pending, setPending] = useState(false);
@@ -30,6 +30,7 @@ export function SignInForm() {
 
   return (
     <form onSubmit={onSubmit} className="space-y-2">
+      {next && <input type="hidden" name="next" value={next} />}
       <label className="block text-sm font-medium text-foreground" htmlFor="portal-email">Email</label>
       <Input id="portal-email" name="email" type="email" required placeholder="you@yale.edu" />
       {error && <p className="text-xs text-critical">Enter a valid email address.</p>}

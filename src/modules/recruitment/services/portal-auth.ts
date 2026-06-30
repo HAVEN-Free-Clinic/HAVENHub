@@ -111,13 +111,18 @@ export async function getApplicantIdentity(): Promise<ApplicantIdentity | null> 
 
 import { queueEmail } from "@/platform/email/send";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
+import { getSetting } from "@/platform/settings/service";
+import { safeNextPath, PORTAL_HOME } from "./portal-next";
 
 const RATE_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 const RATE_MAX = 3;
 
 /** Issue a magic-link token and email it, unless the email has already been
- *  sent RATE_MAX links in the last window (silently skip to avoid spam). */
-export async function requestMagicLink(email: string): Promise<void> {
+ *  sent RATE_MAX links in the last window (silently skip to avoid spam).
+ *  `next` is the deep-link the applicant was headed to before signing in; when
+ *  it is a safe same-origin path it is threaded into the verify URL so the
+ *  post-sign-in redirect lands on that form rather than the portal home. */
+export async function requestMagicLink(email: string, next?: string | null): Promise<void> {
   const emailLower = email.trim().toLowerCase();
   const recent = await prisma.applicantPortalToken.count({
     where: { emailLower, createdAt: { gt: new Date(Date.now() - RATE_WINDOW_MS) } },
@@ -125,7 +130,17 @@ export async function requestMagicLink(email: string): Promise<void> {
   if (recent >= RATE_MAX) return;
 
   const raw = await issueMagicToken(emailLower);
-  const url = `${config.APP_BASE_URL}/apply/verify?token=${encodeURIComponent(raw)}`;
+  // Resolve the public base URL through the admin-configurable setting (a trusted
+  // deploy/admin value, never the request Host header), matching every other
+  // outbound-email link. Using config.APP_BASE_URL directly here meant the magic
+  // link alone ignored a configured custom domain and emitted the raw env value.
+  const baseUrl = await getSetting<string>("app.baseUrl");
+  // Only append next when it resolves to a real deep link (not the home default),
+  // keeping the common "sign in from the portal home" link clean. The verify
+  // route re-validates before redirecting, so this is defence in depth.
+  const safeNext = next ? safeNextPath(next) : PORTAL_HOME;
+  const nextParam = safeNext === PORTAL_HOME ? "" : `&next=${encodeURIComponent(safeNext)}`;
+  const url = `${baseUrl}/apply/verify?token=${encodeURIComponent(raw)}${nextParam}`;
   const mail = await renderEmail("recruitment.portal_link", { firstName: "there", portalUrl: url });
   await queueEmail(prisma, { to: emailLower, subject: mail.subject, html: mail.html, template: "recruitment.portal_link" });
 }

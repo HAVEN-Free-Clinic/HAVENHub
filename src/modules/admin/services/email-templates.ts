@@ -8,6 +8,7 @@ import {
   listSenderRules,
   type ResolvedSender,
 } from "@/platform/email/sender-rules";
+import { getSetting } from "@/platform/settings/service";
 
 export class TemplateValidationError extends Error {
   constructor(public readonly problems: string[]) {
@@ -45,6 +46,11 @@ export type TemplateForEdit = {
   /** What a blank override inherits (category rule or global default), for the placeholder. */
   inheritedSender: ResolvedSender;
   hasSenderOverride: boolean;
+  /**
+   * Resolved `branding.brandColor`, injected into the preview's layout context so
+   * the preview header band + links match the live `{{ brandColor }}` render.
+   */
+  brandColor: string;
 };
 
 export async function getTemplateForEdit(key: string): Promise<TemplateForEdit> {
@@ -59,6 +65,7 @@ export async function getTemplateForEdit(key: string): Promise<TemplateForEdit> 
   const byKey = new Map(overrides.map((o) => [o.key, o]));
   const override = byKey.get(key) ?? null;
   const layoutSource = byKey.get(LAYOUT_KEY)?.body ?? layout.defaultBody;
+  const brandColor = await getSetting<string>("branding.brandColor");
 
   const senderRules = await listSenderRules();
   const templateRule = senderRules.find((r) => r.scope === "TEMPLATE" && r.target === key) ?? null;
@@ -80,6 +87,7 @@ export async function getTemplateForEdit(key: string): Promise<TemplateForEdit> 
     senderFromName: templateRule?.fromName ?? null,
     inheritedSender,
     hasSenderOverride: templateRule !== null,
+    brandColor,
   };
 }
 

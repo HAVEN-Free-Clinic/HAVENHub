@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
-import { _resetSettingsCache } from "@/platform/settings/service";
+import { _resetSettingsCache, setSetting } from "@/platform/settings/service";
 import { prisma } from "@/platform/db";
 import { saveSenderRule } from "@/platform/email/sender-rules";
 import {
@@ -61,6 +61,17 @@ describe("email-templates service", () => {
 
   it("throws on an unknown key", async () => {
     await expect(getTemplateForEdit("nope")).rejects.toThrow(/Unknown email template/);
+  });
+
+  it("exposes the default brand color for the preview when unset", async () => {
+    const t = await getTemplateForEdit("compliance-reminder");
+    expect(t.brandColor).toBe("#00356b");
+  });
+
+  it("exposes the configured brand color for the preview", async () => {
+    await setSetting("branding.brandColor", "#0a7d3c", null);
+    const t = await getTemplateForEdit("compliance-reminder");
+    expect(t.brandColor).toBe("#0a7d3c");
   });
 });
 

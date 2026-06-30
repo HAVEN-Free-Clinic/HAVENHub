@@ -118,6 +118,7 @@ export default async function EditTemplatePage({ params, searchParams }: Props) 
           initialBody={t.body}
           isLayout={t.isLayout}
           layoutSource={t.layoutSource}
+          brandColor={t.brandColor}
         />
         <div className="mt-4 flex gap-2">
           <Button type="submit">Save</Button>

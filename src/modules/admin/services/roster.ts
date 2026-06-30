@@ -43,6 +43,13 @@ export class MembershipForeignKeyError extends Error {
   }
 }
 
+export class DirectorHasShiftAssignmentsError extends Error {
+  constructor(public membershipId: string) {
+    super(`Membership ${membershipId} has director shift assignments; resolve them before changing role`);
+    this.name = "DirectorHasShiftAssignmentsError";
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Queries
 // ---------------------------------------------------------------------------
@@ -192,6 +199,99 @@ export async function removeMembership(
     before: { status: membership.status },
     after: { status: "REMOVED" },
   });
+}
+
+/** Count of DIRECTOR-role shift assignments a person holds in a term/department. */
+async function countDirectorShiftAssignments(
+  personId: string,
+  termId: string,
+  departmentId: string
+): Promise<number> {
+  return prisma.shiftAssignment.count({
+    where: { personId, termId, departmentId, role: "DIRECTOR" },
+  });
+}
+
+/**
+ * Changes a membership's kind (DIRECTOR <-> VOLUNTEER) for its term+department.
+ * Because kind is part of the unique key, this revives/creates the target-kind
+ * row ACTIVE and soft-removes the old row, transactionally. No-op when already
+ * that kind. Refuses to demote a DIRECTOR who still holds DIRECTOR shift
+ * assignments in that department/term (builder.ts forbids director shift roles
+ * for non-directors), so the caller resolves those first.
+ */
+export async function changeMembershipKind(
+  actorPersonId: string,
+  input: { membershipId: string; toKind: "DIRECTOR" | "VOLUNTEER" }
+): Promise<void> {
+  const membership = await prisma.termMembership.findUnique({
+    where: { id: input.membershipId },
+  });
+  if (!membership) throw new MembershipNotFoundError(input.membershipId);
+  if (membership.kind === input.toKind) return;
+
+  if (membership.kind === "DIRECTOR" && input.toKind === "VOLUNTEER") {
+    const directorShifts = await countDirectorShiftAssignments(
+      membership.personId,
+      membership.termId,
+      membership.departmentId
+    );
+    if (directorShifts > 0) throw new DirectorHasShiftAssignmentsError(input.membershipId);
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.termMembership.upsert({
+      where: {
+        personId_termId_departmentId_kind: {
+          personId: membership.personId,
+          termId: membership.termId,
+          departmentId: membership.departmentId,
+          kind: input.toKind,
+        },
+      },
+      update: { status: "ACTIVE" },
+      create: {
+        personId: membership.personId,
+        termId: membership.termId,
+        departmentId: membership.departmentId,
+        kind: input.toKind,
+        status: "ACTIVE",
+      },
+    });
+    await tx.termMembership.update({
+      where: { id: membership.id },
+      data: { status: "REMOVED" },
+    });
+  });
+
+  await recordAudit({
+    actorPersonId,
+    action: "roster.change_kind",
+    entityType: "TermMembership",
+    entityId: membership.id,
+    before: { kind: membership.kind },
+    after: { kind: input.toKind },
+  });
+}
+
+/**
+ * True when removing or demoting this membership would orphan director shift
+ * assignments: the membership is a DIRECTOR and the person holds DIRECTOR-role
+ * shift assignments in its term and department. Read-only. The assignment-editor
+ * panels call this to block removal, mirroring the changeMembershipKind demotion
+ * guard. removeMembership itself stays unguarded because offboarding and
+ * volunteer self-leave depend on it.
+ */
+export async function membershipHasDirectorShifts(membershipId: string): Promise<boolean> {
+  const membership = await prisma.termMembership.findUnique({ where: { id: membershipId } });
+  if (!membership || membership.kind !== "DIRECTOR") return false;
+  return (
+    (await countDirectorShiftAssignments(
+      membership.personId,
+      membership.termId,
+      membership.departmentId
+    )) > 0
+  );
 }
 
 /**

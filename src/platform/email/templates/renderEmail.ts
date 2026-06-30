@@ -1,5 +1,6 @@
 import { prisma } from "@/platform/db";
 import { renderTemplate } from "@/platform/email/render/render";
+import { getSetting } from "@/platform/settings/service";
 import { getDescriptor, LAYOUT_KEY } from "./registry";
 
 export type RenderedEmail = { subject: string; html: string };
@@ -30,9 +31,15 @@ export async function renderEmail(
   const subject = renderTemplate(subjectSource, context);
   const renderedBody = renderTemplate(bodySource, context);
 
+  // The layout's header band + link color track the admin's brand color. Inject
+  // it first so an explicit caller-supplied `brandColor` (rare) still wins.
+  const brandColor = await getSetting<string>("branding.brandColor");
+
   // When rendering the layout descriptor itself, the caller's `body` is authoritative.
   const layoutContext =
-    key === LAYOUT_KEY ? context : { ...context, body: renderedBody, subject };
+    key === LAYOUT_KEY
+      ? { brandColor, ...context }
+      : { brandColor, ...context, body: renderedBody, subject };
   const layoutSource = byKey.get(LAYOUT_KEY)?.body ?? layout.defaultBody;
   const html = renderTemplate(layoutSource, layoutContext);
 
@@ -54,6 +61,7 @@ export async function renderInlineEmail(
   const subject = renderTemplate(input.subject, context);
   const renderedBody = renderTemplate(input.body, context);
   const src = layoutSource ?? (await loadLayoutSource());
-  const html = renderTemplate(src, { ...context, body: renderedBody, subject });
+  const brandColor = await getSetting<string>("branding.brandColor");
+  const html = renderTemplate(src, { brandColor, ...context, body: renderedBody, subject });
   return { subject, html };
 }

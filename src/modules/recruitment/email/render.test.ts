@@ -1,6 +1,7 @@
 import { beforeEach, afterEach, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
+import { setSetting } from "@/platform/settings/service";
 import { createCycle } from "@/modules/recruitment/services/cycles";
 import { renderCycleEmail, resolveCycleEmail, CYCLE_EMAIL_KEYS } from "./render";
 
@@ -53,6 +54,20 @@ it("rejects a non-cycle key and an unknown key", async () => {
   await expect(resolveCycleEmail(cycle.id, "recruitment.portal_link")).rejects.toThrow();
   // @ts-expect-error unknown key
   await expect(resolveCycleEmail(cycle.id, "nope")).rejects.toThrow();
+});
+
+it("wraps the layout in the default Yale blue when brandColor is unset", async () => {
+  const cycle = await makeCycle();
+  const { html } = await renderCycleEmail(cycle.id, "recruitment.acceptance", { firstName: "Ann", cycleTitle: "V", departmentName: "SRHD" });
+  expect(html).toContain("#00356b");
+});
+
+it("honors the configured branding.brandColor in the cycle email layout", async () => {
+  const cycle = await makeCycle();
+  await setSetting("branding.brandColor", "#0a7d3c", null);
+  const { html } = await renderCycleEmail(cycle.id, "recruitment.acceptance", { firstName: "Ann", cycleTitle: "V", departmentName: "SRHD" });
+  expect(html).toContain("#0a7d3c");
+  expect(html).not.toContain("#00356b");
 });
 
 it("exposes exactly the four cycle-scoped keys", () => {

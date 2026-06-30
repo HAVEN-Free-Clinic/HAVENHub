@@ -16,12 +16,18 @@ import { SYSTEM_ROLES } from "./system-roles";
  */
 async function seedDirectorOnlyMember() {
   const director = SYSTEM_ROLES.find((r) => r.name === "Director")!;
-  await prisma.role.create({
+  const role = await prisma.role.create({
     data: {
       name: director.name,
       isSystem: true,
       grants: { create: director.grants.map((permission) => ({ permission })) },
     },
+  });
+  // Baseline Director access is provisioned as a global kind-target assignment
+  // (see prisma/seed.ts and the backfill migration), not auto-attached in code.
+  // Mirror that so this test exercises what production actually provisions.
+  await prisma.roleAssignment.create({
+    data: { roleId: role.id, kind: "DIRECTOR", termId: null },
   });
   const term = await prisma.term.create({
     data: { code: "SU26", name: "Summer 2026", status: "ACTIVE", startDate: new Date("2026-01-01"), endDate: new Date("2026-12-31") },

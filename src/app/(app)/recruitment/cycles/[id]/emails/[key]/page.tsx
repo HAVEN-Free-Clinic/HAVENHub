@@ -8,6 +8,7 @@ import {
   CycleEmailValidationError,
 } from "@/modules/recruitment/services/cycle-emails";
 import { CYCLE_EMAIL_KEYS, type CycleEmailKey } from "@/modules/recruitment/email/render";
+import { getSetting } from "@/platform/settings/service";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Button } from "@/platform/ui/button";
 import { Alert } from "@/platform/ui/alert";
@@ -31,6 +32,7 @@ export default async function EditCycleEmailPage({ params, searchParams }: Props
   const decodedKey = decodeURIComponent(key);
   if (!isCycleKey(decodedKey)) notFound();
   const t = await getCycleEmailForEdit(id, decodedKey);
+  const brandColor = await getSetting<string>("branding.brandColor");
   const base = `/recruitment/cycles/${id}/emails/${key}`;
 
   async function saveAction(formData: FormData) {
@@ -73,6 +75,7 @@ export default async function EditCycleEmailPage({ params, searchParams }: Props
           initialBody={t.body}
           isLayout={false}
           layoutSource={t.layoutSource}
+          brandColor={brandColor}
         />
         <div className="mt-4 flex gap-2">
           <Button type="submit">Save</Button>

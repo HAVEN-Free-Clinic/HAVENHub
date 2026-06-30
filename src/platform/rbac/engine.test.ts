@@ -45,6 +45,15 @@ async function fixture() {
     },
   });
 
+  // Baseline access is now provisioned as kind-target assignments (decouple),
+  // mirroring prisma/seed.ts and the backfill migration. No code auto-attach.
+  await prisma.roleAssignment.create({
+    data: { roleId: directorRole.id, kind: "DIRECTOR", termId: null },
+  });
+  await prisma.roleAssignment.create({
+    data: { roleId: volunteerRole.id, kind: "VOLUNTEER", termId: null },
+  });
+
   return { term, oldTerm, itcm, vadm, adminRole, directorRole, volunteerRole, recruiterRole };
 }
 
@@ -60,7 +69,7 @@ describe("rbac engine", () => {
     expect(await can(person.id, "anything.at_all")).toBe(true);
   });
 
-  it("auto-attaches Director role from active-term membership kind", async () => {
+  it("grants Director baseline via the kind-target assignment", async () => {
     const f = await fixture();
     const person = await prisma.person.create({ data: { name: "Dir" } });
     await prisma.termMembership.create({
@@ -68,6 +77,17 @@ describe("rbac engine", () => {
     });
     expect(await can(person.id, "volunteers.view")).toBe(true);
     expect(await can(person.id, "recruitment.manage_cycle")).toBe(false);
+  });
+
+  it("grants nothing from membership kind alone once the kind assignment is removed", async () => {
+    const f = await fixture();
+    await prisma.roleAssignment.deleteMany({ where: { kind: "DIRECTOR" } });
+    const person = await prisma.person.create({ data: { name: "Dir no-assign" } });
+    await prisma.termMembership.create({
+      data: { personId: person.id, termId: f.term.id, departmentId: f.vadm.id, kind: "DIRECTOR" },
+    });
+    // Proves the hardcoded auto-attach is gone: kind alone confers no access.
+    expect(await can(person.id, "volunteers.view")).toBe(false);
   });
 
   it("grants department-assigned roles to active members of that department", async () => {

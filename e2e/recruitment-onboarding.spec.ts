@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { applicantSessionCookie } from "./portal-cookie";
 
 test.setTimeout(120_000);
 
@@ -10,12 +11,17 @@ async function devLogin(page: import("@playwright/test").Page, email: string) {
 }
 
 // NOTE: the public /onboard/[token] submit + bulk promote are covered by integration
-// tests (onboarding.test.ts, promotion.test.ts). The e2e cannot read the emailed token,
-// so it verifies the admin flow end to end: accept -> send onboarding link -> status "Sent".
+// tests (onboarding.test.ts, promotion.test.ts). This e2e verifies the admin flow:
+// accept -> send onboarding link -> status "Sent".
+//
+// Modernized: the application is submitted through the portal as a verified
+// applicant (forged applicant_session cookie; see portal-cookie). The admin picks
+// the department at accept time (the applicant's own department choice is not
+// required for an admin reviewer), so the builder DEPARTMENT_CHOICE step was dropped.
 test("onboarding: accept then send onboarding link", async ({ page, context }) => {
   await devLogin(page, "j.carney@yale.edu");
 
-  // --- Build + publish a volunteer cycle with DEPARTMENT_CHOICE ---
+  // --- Build + publish a single-department volunteer cycle ---
   await page.goto("/recruitment/cycles/new");
   await page.fill('input[name="title"]', "Onboard E2E");
   const slug = `onboard-e2e-${Date.now()}`;
@@ -25,32 +31,19 @@ test("onboarding: accept then send onboarding link", async ({ page, context }) =
   await page.waitForURL((url) => url.pathname.includes("/builder"));
   const cycleId = page.url().split("/cycles/")[1].split("/")[0];
 
-  // Add DEPARTMENT_CHOICE to the "Your information" section (mirrors recruitment-review.spec.ts)
-  const identitySection = page
-    .locator("section")
-    .filter({ has: page.locator("h2").filter({ hasText: "Your information" }) })
-    .first();
-  const identityAddForm = identitySection.locator('form:has(select[name="type"])');
-  await identityAddForm.locator('input[name="label"]').fill("1st choice department");
-  await identityAddForm.locator('select[name="type"]').selectOption("DEPARTMENT_CHOICE");
-  await identityAddForm.locator('button:has-text("Add field")').click();
-  await expect(
-    identitySection.locator("li").filter({ hasText: "1st choice department" })
-  ).toBeVisible();
-
-  // Publish the cycle
   await page.goto(`/recruitment/cycles/${cycleId}`);
   await page.click('button:has-text("Publish")');
   await expect(page.locator("span").filter({ hasText: "OPEN" })).toBeVisible();
 
-  // --- Submit a public application (unauthenticated) ---
+  // --- Submit a public application as a verified portal applicant ---
+  const applicantEmail = `e2e-ona-${Date.now()}@yale.edu`;
   const ctx = await context.browser()!.newContext();
+  await ctx.addCookies([applicantSessionCookie(applicantEmail)]);
   const apply = await ctx.newPage();
   await apply.goto(`/apply/${slug}`);
   await apply.fill('input[name="first_name"]', "Ona");
   await apply.fill('input[name="last_name"]', "Boarder");
-  await apply.fill('input[name="email"]', "ona@yale.edu");
-  await apply.locator('select[name="1st_choice_department"]').selectOption("SRHD");
+  await apply.fill('input[name="email"]', applicantEmail);
   await apply.click('button:has-text("Submit application")');
   await expect(apply.getByText(/your application was received/i)).toBeVisible();
   await ctx.close();

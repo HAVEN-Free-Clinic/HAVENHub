@@ -87,6 +87,20 @@ export async function requirePermission(permission: string): Promise<PersonSessi
 }
 
 /**
+ * Like requirePermission, but passes when the person holds ANY of the listed
+ * permissions. Denied users land on /no-access -- a friendly explanation --
+ * rather than being silently bounced to the hub. Used where one page serves two
+ * audiences (e.g. the term page: term admins and roster managers).
+ */
+export async function requireAnyPermission(permissions: string[]): Promise<PersonSession> {
+  const person = await requirePersonSession();
+  for (const permission of permissions) {
+    if (await can(person.personId, permission)) return person;
+  }
+  redirect("/no-access");
+}
+
+/**
  * Module route guard driven by the registry. Looks up the manifest and gates
  * on its accessPermission: when the module declares none, any signed-in matched
  * person may enter (requirePersonSession); otherwise the permission is required.

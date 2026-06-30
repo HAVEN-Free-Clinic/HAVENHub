@@ -10,6 +10,7 @@ import { issueMagicToken, verifyMagicToken, requestMagicLink } from "./portal-au
 import { signApplicantCookie, readApplicantCookie, getApplicantIdentity, APPLICANT_COOKIE } from "./portal-auth";
 import { auth } from "@/platform/auth/auth";
 import { cookies } from "next/headers";
+import { setSetting } from "@/platform/settings/service";
 
 beforeEach(async () => { await resetDb(); });
 afterEach(async () => {
@@ -75,6 +76,45 @@ it("queues a magic-link email containing a verify URL and rate-limits", async ()
   await requestMagicLink("reed@yale.edu");
   const after = await prisma.emailLog.count();
   expect(after).toBeLessThanOrEqual(3); // capped, not 4+
+});
+
+it("builds the magic link from the configurable app.baseUrl setting, not the raw env default", async () => {
+  // Admin has set the public base URL (e.g. the custom domain) in settings.
+  // Every other outbound-email link honors this; the magic link must too.
+  await setSetting("app.baseUrl", "https://hub.havenfreeclinic.org", null);
+
+  await requestMagicLink("applicant@yale.edu");
+
+  const mail = await prisma.emailLog.findFirstOrThrow({ where: { template: "recruitment.portal_link" } });
+  expect(mail.html).toContain("https://hub.havenfreeclinic.org/apply/verify?token=");
+  // It must not fall back to the deploy-time env default for the verify link.
+  expect(mail.html).not.toContain("http://localhost:3000/apply/verify");
+});
+
+it("threads a safe deep-link next into the magic-link verify URL", async () => {
+  // An applicant who started /apply/<slug> while signed out should land back on
+  // that form after clicking the emailed link, so the verify URL must carry next.
+  await requestMagicLink("reed@yale.edu", "/apply/spring-2026?type=renewal");
+
+  const mail = await prisma.emailLog.findFirstOrThrow({ where: { template: "recruitment.portal_link" } });
+  expect(mail.html).toContain("/apply/verify?token=");
+  expect(mail.html).toContain(`next=${encodeURIComponent("/apply/spring-2026?type=renewal")}`);
+});
+
+it("strips an unsafe next from the magic-link verify URL (no open redirect)", async () => {
+  await requestMagicLink("reed@yale.edu", "//evil.com");
+
+  const mail = await prisma.emailLog.findFirstOrThrow({ where: { template: "recruitment.portal_link" } });
+  expect(mail.html).not.toContain("evil.com");
+  expect(mail.html).not.toContain("next=");
+});
+
+it("omits next entirely when no deep-link target is given", async () => {
+  await requestMagicLink("reed@yale.edu");
+
+  const mail = await prisma.emailLog.findFirstOrThrow({ where: { template: "recruitment.portal_link" } });
+  expect(mail.html).toContain("/apply/verify?token=");
+  expect(mail.html).not.toContain("next=");
 });
 
 // ---------------------------------------------------------------------------

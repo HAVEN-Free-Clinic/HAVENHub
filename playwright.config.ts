@@ -7,6 +7,7 @@ export default defineConfig({
     command: "npm run dev -- --port 3100",
     url: "http://localhost:3100/api/health",
     reuseExistingServer: true,
-    timeout: 60_000,
+    // CI cold-starts the dev server and compiles on first request, so allow headroom.
+    timeout: 120_000,
   },
 });

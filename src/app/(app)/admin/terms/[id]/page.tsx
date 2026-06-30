@@ -1,5 +1,6 @@
 import { notFound, redirect } from "next/navigation";
-import { requirePermission } from "@/platform/auth/session";
+import { requirePermission, requireAnyPermission } from "@/platform/auth/session";
+import { can } from "@/platform/rbac/engine";
 import {
   activateTerm,
   archiveTerm,
@@ -29,7 +30,8 @@ type PageProps = {
 };
 
 export default async function TermDetailPage({ params, searchParams }: PageProps) {
-  await requirePermission("admin.manage_terms");
+  const session = await requireAnyPermission(["admin.manage_terms", "admin.manage_roster"]);
+  const canManageTerms = await can(session.personId, "admin.manage_terms");
   const { id } = await params;
   const { error, saved, addq, copied, skipped, rosterError } = await searchParams;
 
@@ -174,41 +176,45 @@ export default async function TermDetailPage({ params, searchParams }: PageProps
       {saved === "1" && <Alert tone="success">Saved.</Alert>}
 
       {/* Lifecycle section */}
-      <section>
-        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-          Lifecycle
-        </h2>
-        {term.status === "ACTIVE" ? (
-          <form action={archiveAction}>
-            <p className="mb-3 text-sm text-muted-foreground">
-              Archiving this term will leave no active term. The engine handles the
-              no-active-term state gracefully.
-            </p>
-            <ConfirmButton label="Archive" confirmLabel="Archive this term? Confirm?" />
-          </form>
-        ) : (
-          <form action={activateAction}>
-            <p className="mb-3 text-sm text-muted-foreground">{activateLabel}</p>
-            <ConfirmButton label="Activate" confirmLabel={activateConfirmLabel} />
-          </form>
-        )}
-      </section>
+      {canManageTerms && (
+        <section>
+          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+            Lifecycle
+          </h2>
+          {term.status === "ACTIVE" ? (
+            <form action={archiveAction}>
+              <p className="mb-3 text-sm text-muted-foreground">
+                Archiving this term will leave no active term. The engine handles the
+                no-active-term state gracefully.
+              </p>
+              <ConfirmButton label="Archive" confirmLabel="Archive this term? Confirm?" />
+            </form>
+          ) : (
+            <form action={activateAction}>
+              <p className="mb-3 text-sm text-muted-foreground">{activateLabel}</p>
+              <ConfirmButton label="Activate" confirmLabel={activateConfirmLabel} />
+            </form>
+          )}
+        </section>
+      )}
 
       {/* Clinic dates section */}
-      <section>
-        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-          Clinic dates
-        </h2>
-        <p className="mb-4 text-sm text-muted-foreground">
-          {term.clinicDates.length} date(s) scheduled. All dates are stored and rendered in UTC.
-        </p>
-        <ClinicDatesEditor
-          termId={id}
-          clinicDates={term.clinicDates}
-          saturdayIsos={saturdayIsos}
-          updateAction={clinicDatesAction}
-        />
-      </section>
+      {canManageTerms && (
+        <section>
+          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+            Clinic dates
+          </h2>
+          <p className="mb-4 text-sm text-muted-foreground">
+            {term.clinicDates.length} date(s) scheduled. All dates are stored and rendered in UTC.
+          </p>
+          <ClinicDatesEditor
+            termId={id}
+            clinicDates={term.clinicDates}
+            saturdayIsos={saturdayIsos}
+            updateAction={clinicDatesAction}
+          />
+        </section>
+      )}
 
       {/* Roster panel */}
       <RosterPanel

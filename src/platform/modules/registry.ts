@@ -99,6 +99,7 @@ export const MODULES: ModuleManifest[] = [
       "admin.manage_settings",
       "admin.manage_departments",
       "admin.manage_subcommittees",
+      "admin.manage_roster",
     ],
     status: "active",
     nav: [

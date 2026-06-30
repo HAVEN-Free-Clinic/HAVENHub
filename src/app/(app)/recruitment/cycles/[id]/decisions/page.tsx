@@ -11,6 +11,7 @@ import { StatCard } from "@/platform/ui/stat-card";
 import { Alert } from "@/platform/ui/alert";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { cardClasses } from "@/platform/ui/card";
+import { SectionHeader } from "@/platform/ui/section-header";
 
 export default async function DecisionsPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ sent?: string; skipped?: string; error?: string }> }) {
   const { id } = await params;
@@ -45,7 +46,7 @@ export default async function DecisionsPage({ params, searchParams }: { params: 
       </div>
 
       <section>
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Conflicts to resolve</h2>
+        <SectionHeader>Conflicts to resolve</SectionHeader>
         {conflicts.length === 0 ? (
           <p className="mt-2 text-sm text-muted-foreground">No conflicts.</p>
         ) : (

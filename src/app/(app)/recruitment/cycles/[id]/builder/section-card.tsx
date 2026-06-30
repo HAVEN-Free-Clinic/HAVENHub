@@ -13,6 +13,7 @@ import { Button } from "@/platform/ui/button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
+import { SectionHeader } from "@/platform/ui/section-header";
 
 export type BuilderSection = {
   id: string;
@@ -68,7 +69,7 @@ export function SectionCard({
           <GripVertical className="h-4 w-4" aria-hidden />
         </button>
         <div className="flex-1">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">{section.title}</h2>
+          <SectionHeader>{section.title}</SectionHeader>
           <p className="text-xs text-subtle-foreground">{scope}{section.departmentCode ? ` · ${section.departmentCode}` : ""}</p>
           {section.description && <p className="mt-1 text-sm text-muted-foreground">{section.description}</p>}
         </div>

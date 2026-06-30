@@ -11,6 +11,7 @@ import { Button } from "@/platform/ui/button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
+import { SectionHeader } from "@/platform/ui/section-header";
 
 export type QuizQuestion = { id: string; label: string; options: Choice[]; correctValue: string | null };
 export type QuizSection = { id: string; title: string; questions: QuizQuestion[] };
@@ -56,7 +57,7 @@ export function QuizBuilder({
 
       {sections.map((section) => (
         <section key={section.id} className="rounded-2xl border border-border bg-muted/30 p-4">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">{section.title}</h2>
+          <SectionHeader>{section.title}</SectionHeader>
           <div className="mt-3 space-y-4">
             {section.questions.map((q) => (
               <Card key={q.id} size="compact">

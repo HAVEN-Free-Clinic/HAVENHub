@@ -133,12 +133,8 @@ export function HipaaPanel({
         )}
         <form action={uploadAction}>
           <Field label="HIPAA certificate (PDF)" hint="PDF only.">
-            <input
-              type="file"
-              name="certificate"
-              accept="application/pdf"
-              className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground-soft hover:file:bg-muted-strong"
-            />
+            {/* eslint-disable-next-line no-restricted-syntax -- native file input with file-button pseudo-element styling (file:* classes); no file primitive exists */}
+            <input type="file" name="certificate" accept="application/pdf" className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground-soft hover:file:bg-muted-strong" />
           </Field>
           <FormActions>
             <SubmitButton variant="outline" size="sm" pendingLabel="Uploading…">

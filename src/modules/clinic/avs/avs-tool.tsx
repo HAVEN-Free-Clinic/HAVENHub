@@ -1,6 +1,6 @@
 "use client";
 
-import { useReducer, useState } from "react";
+import { Fragment, useReducer, useState } from "react";
 import { pdf } from "@react-pdf/renderer";
 import { Alert } from "@/platform/ui/alert";
 import { Button } from "@/platform/ui/button";
@@ -274,19 +274,10 @@ function ChipGroup({
         {list.map((o) => {
           const on = selected.includes(o.key);
           return (
-            <button
-              key={o.key}
-              type="button"
-              onClick={() => onToggle(o.key)}
-              aria-pressed={on}
-              className={
-                on
-                  ? "rounded-lg border border-brand bg-brand/10 px-3 py-1.5 text-sm font-medium text-brand-fg"
-                  : "rounded-lg border border-border bg-surface px-3 py-1.5 text-sm text-muted-foreground hover:border-brand/40"
-              }
-            >
-              {o.en}
-            </button>
+            <Fragment key={o.key}>
+              {/* eslint-disable-next-line no-restricted-syntax -- segmented toggle chip with aria-pressed; two mutually-exclusive visual states that conflict with Button primitive base classes */}
+              <button type="button" onClick={() => onToggle(o.key)} aria-pressed={on} className={on ? "rounded-lg border border-brand bg-brand/10 px-3 py-1.5 text-sm font-medium text-brand-fg" : "rounded-lg border border-border bg-surface px-3 py-1.5 text-sm text-muted-foreground hover:border-brand/40"}>{o.en}</button>
+            </Fragment>
           );
         })}
       </div>

@@ -13,10 +13,11 @@
  */
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense } from "react";
+import { Fragment, Suspense } from "react";
 import { EpicRequestForm } from "./epic-request-form";
 import { businessDaysSince } from "@/platform/dates";
 import { Badge } from "@/platform/ui/badge";
+import { Button } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
 import type { DepartmentWithMembers, EpicAuthorizer, EpicRequestHistoryRow, PendingDeactivation } from "@/modules/admin/services/itcm";
 import { TicketNumberField } from "./ticket-number-field";
@@ -52,17 +53,10 @@ function TabNav({ activeTab }: { activeTab: Tab }) {
   return (
     <div className="flex gap-4 border-b border-border mb-8">
       {(["generate", "tracker", "history"] as Tab[]).map((tab) => (
-        <button
-          key={tab}
-          onClick={() => goTo(tab)}
-          className={`pb-3 text-sm font-semibold border-b-2 transition-colors ${
-            activeTab === tab
-              ? "border-brand text-brand-fg"
-              : "border-transparent text-muted-foreground hover:text-foreground-soft"
-          }`}
-        >
-          {labels[tab]}
-        </button>
+        <Fragment key={tab}>
+          {/* eslint-disable-next-line no-restricted-syntax -- tab control with border-b-2 active-state indicator; segmented toggle pattern */}
+          <button onClick={() => goTo(tab)} className={`pb-3 text-sm font-semibold border-b-2 transition-colors ${activeTab === tab ? "border-brand text-brand-fg" : "border-transparent text-muted-foreground hover:text-foreground-soft"}`}>{labels[tab]}</button>
+        </Fragment>
       ))}
     </div>
   );
@@ -116,12 +110,9 @@ function TrackerTable({
               </div>
               <div className="flex items-center gap-2">
                 <Badge tone="warning">Open</Badge>
-                <button
-                  onClick={() => closeTicketAction(ticket.id)}
-                  className="rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-brand-hover"
-                >
+                <Button size="sm" onClick={() => closeTicketAction(ticket.id)}>
                   Mark complete
-                </button>
+                </Button>
               </div>
             </div>
 

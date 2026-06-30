@@ -125,7 +125,7 @@ export const MODULES: ModuleManifest[] = [
     description: "Run recruitment cycles, build applications, review submissions",
     icon: ClipboardList,
     accessPermission: "recruitment.access",
-    permissions: ["recruitment.access", "recruitment.manage_cycles", "recruitment.review", "recruitment.review_all"],
+    permissions: ["recruitment.access", "recruitment.manage_cycles", "recruitment.review_all"],
     status: "active",
     nav: [{ label: "Cycles", href: "/recruitment" }],
   },

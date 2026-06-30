@@ -33,6 +33,7 @@ import { Select } from "@/platform/ui/select";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { SectionHeader } from "@/platform/ui/section-header";
+import { buildTermOptions } from "./term-options";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -59,6 +60,29 @@ type AssignmentFormProps = {
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
+
+/**
+ * Term scope picker for a role assignment. Options come from buildTermOptions so
+ * the dropdown only offers scopes the RBAC engine honors (Global + active term),
+ * flags PLANNING terms as not-yet-active, and drops ARCHIVED terms entirely.
+ */
+function TermSelect({
+  terms,
+  defaultValue,
+}: {
+  terms: Pick<Term, "id" | "code" | "status">[];
+  defaultValue?: string;
+}) {
+  return (
+    <Select name="termId" defaultValue={defaultValue} className="w-36">
+      {buildTermOptions(terms).map((o) => (
+        <option key={o.value || "global"} value={o.value}>
+          {o.label}
+        </option>
+      ))}
+    </Select>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Main component
@@ -327,14 +351,7 @@ export async function AssignmentForm({
                         </Select>
                       </Field>
                       <Field label="Term">
-                        <Select name="termId" className="w-36">
-                          <option value="">Global</option>
-                          {terms.map((t) => (
-                            <option key={t.id} value={t.id}>
-                              {t.code}
-                            </option>
-                          ))}
-                        </Select>
+                        <TermSelect terms={terms} />
                       </Field>
                       <Button type="submit" variant="primary" size="sm" className="self-end">
                         Assign
@@ -371,14 +388,7 @@ export async function AssignmentForm({
             </Select>
           </Field>
           <Field label="Term">
-            <Select name="termId" className="w-36">
-              <option value="">Global</option>
-              {terms.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.code}
-                </option>
-              ))}
-            </Select>
+            <TermSelect terms={terms} />
           </Field>
           <Button type="submit" variant="primary" size="sm">
             Assign department
@@ -409,14 +419,7 @@ export async function AssignmentForm({
             </Select>
           </Field>
           <Field label="Term">
-            <Select name="termId" defaultValue={activeTermId} className="w-36">
-              <option value="">Global</option>
-              {terms.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.code}
-                </option>
-              ))}
-            </Select>
+            <TermSelect terms={terms} defaultValue={activeTermId} />
           </Field>
           <Button type="submit" variant="primary" size="sm">
             Assign cohort

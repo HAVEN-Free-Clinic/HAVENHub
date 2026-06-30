@@ -120,6 +120,40 @@ export async function setAcceptsRenewals(id: string, value: boolean, actorId: st
   return updated;
 }
 
+/** Set (or clear) the application window for a cycle. The window is a soft gate
+ *  *within* the OPEN status: when set, the public form only accepts applications
+ *  while now falls inside [opensAt, closesAt]; a null bound is open-ended. It is
+ *  evaluated live on every public read (apply pages, saveDraft, submit, the
+ *  abandoned-draft sweep), so no scheduler is needed -- setting the dates auto-
+ *  opens/closes the form. Allowed on a draft or open cycle (mirrors
+ *  setAcceptsRenewals); a closed or archived cycle is already past the point
+ *  where the window could matter. Passing opensAt after closesAt is rejected. */
+export async function setApplicationWindow(
+  id: string,
+  window: { opensAt: Date | null; closesAt: Date | null },
+  actorId: string
+): Promise<RecruitmentCycle> {
+  const cycle = await prisma.recruitmentCycle.findUnique({ where: { id } });
+  if (!cycle) throw new CyclePublishError("Cycle not found.");
+  if (cycle.status !== "DRAFT" && cycle.status !== "OPEN") {
+    throw new CyclePublishError("The application window can only be set on a draft or open cycle.");
+  }
+  const { opensAt, closesAt } = window;
+  if (opensAt && closesAt && opensAt > closesAt) {
+    throw new CyclePublishError("The open date must be on or before the close date.");
+  }
+  const updated = await prisma.recruitmentCycle.update({ where: { id }, data: { opensAt, closesAt } });
+  await recordAudit({
+    actorPersonId: actorId,
+    action: "recruitment.cycle_set_window",
+    entityType: "RecruitmentCycle",
+    entityId: id,
+    before: { opensAt: cycle.opensAt?.toISOString() ?? null, closesAt: cycle.closesAt?.toISOString() ?? null },
+    after: { opensAt: opensAt?.toISOString() ?? null, closesAt: closesAt?.toISOString() ?? null },
+  });
+  return updated;
+}
+
 export type RemovedDepartmentImpact = { code: string; applicantCount: number };
 
 /** Replace a cycle's department list (add or remove). Allowed on any non-archived

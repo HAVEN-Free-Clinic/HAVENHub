@@ -33,8 +33,11 @@ async function dept(code: string) {
 /** Remove a person and every row that references it (run before the person delete). */
 export async function cleanupPerson(personId: string): Promise<void> {
   // Remove shift-level data first (FK deps before membership/person delete).
-  await prisma.shiftRequest.deleteMany({ where: { personId } }).catch(() => {});
-  await prisma.shiftAssignment.deleteMany({ where: { personId } }).catch(() => {});
+  // ShiftRequest has no personId: a person appears as requesterId (cascades), targetId
+  // (SetNull), or decidedById (Restrict). Clear requester/target rows explicitly so
+  // cleanup is deterministic; fixture members never decide requests, so decidedById is moot.
+  await prisma.shiftRequest.deleteMany({ where: { OR: [{ requesterId: personId }, { targetId: personId }] } });
+  await prisma.shiftAssignment.deleteMany({ where: { personId } });
   await prisma.hipaaCertificate.deleteMany({ where: { personId } });
   await prisma.notification.deleteMany({ where: { personId } });
   await prisma.termMembership.deleteMany({ where: { personId } });

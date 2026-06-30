@@ -171,15 +171,18 @@ async function main() {
     update: {},
     create: { name: "Jack Carney", contactEmail: "j.carney@yale.edu" },
   });
+  // Dev director and volunteer carry a phone so the onboarding "profile" task is
+  // complete; paired with the verified HIPAA cert seeded below, they clear the
+  // onboarding gate and are usable (loginable past /get-started) out of the box.
   const director = await prisma.person.upsert({
     where: { contactEmail: "dev.director@yale.edu" },
-    update: {},
-    create: { name: "Dev Director", contactEmail: "dev.director@yale.edu", netId: "dd123" },
+    update: { phone: "203-555-0131" },
+    create: { name: "Dev Director", contactEmail: "dev.director@yale.edu", netId: "dd123", phone: "203-555-0131" },
   });
   const volunteer = await prisma.person.upsert({
     where: { contactEmail: "dev.volunteer@yale.edu" },
-    update: {},
-    create: { name: "Dev Volunteer", contactEmail: "dev.volunteer@yale.edu", netId: "dv456" },
+    update: { phone: "203-555-0142" },
+    create: { name: "Dev Volunteer", contactEmail: "dev.volunteer@yale.edu", netId: "dv456", phone: "203-555-0142" },
   });
 
   const membership = (personId: string, departmentId: string, kind: "DIRECTOR" | "VOLUNTEER") =>
@@ -199,6 +202,30 @@ async function main() {
   await membership(jack.id, itcm.id, "DIRECTOR");
   await membership(director.id, vadm.id, "DIRECTOR");
   await membership(volunteer.id, vadm.id, "VOLUNTEER");
+
+  // A verified, currently-valid HIPAA cert clears the onboarding "hipaa" task for
+  // the dev director and volunteer. Idempotent: skip if the person already has one.
+  // (Jack is a Platform Admin and bypasses the gate via the exempt permission.)
+  const ensureHipaaCert = async (personId: string) => {
+    const existing = await prisma.hipaaCertificate.findFirst({ where: { personId } });
+    if (existing) return;
+    await prisma.hipaaCertificate.create({
+      data: {
+        personId,
+        fileName: "seed-hipaa.pdf",
+        storedName: `seed-${personId}.pdf`,
+        size: 1024,
+        mimeType: "application/pdf",
+        completionDate: new Date(),
+        verifiedAt: new Date(),
+      },
+    });
+  };
+  // Jack is exempt from the gate, but a cert gives his /my-info HIPAA panel a real
+  // compliance status to display (matches what the production completion-date backfill produces).
+  await ensureHipaaCert(jack.id);
+  await ensureHipaaCert(director.id);
+  await ensureHipaaCert(volunteer.id);
 
   const existingAssignment = await prisma.roleAssignment.findFirst({
     where: { roleId: adminRole.id, personId: jack.id, termId: null },

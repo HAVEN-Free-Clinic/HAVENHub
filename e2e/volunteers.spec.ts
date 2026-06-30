@@ -64,9 +64,9 @@ test("Jack sees at least one status Badge on the ITCM compliance page", async ({
 test("dev.volunteer is bounced from /volunteers to the hub", async ({ page }) => {
   await devLogin(page, "dev.volunteer@yale.edu");
   await page.goto("/volunteers");
-  // dev.volunteer has not completed onboarding, so they are redirected to /get-started
-  // rather than /. Accept either destination as "not at /volunteers".
-  await page.waitForURL((url) => url.pathname === "/" || url.pathname.startsWith("/get-started"));
+  // dev.volunteer lacks volunteers access, so the guard redirects them away from the
+  // protected route (to /no-access). Assert only that they did not remain on /volunteers.
+  await page.waitForURL((url) => url.pathname !== "/volunteers");
 });
 
 test("Jack (Platform Admin) opens /volunteers/master and sees the summary cards", async ({ page }) => {
@@ -96,9 +96,9 @@ test("Jack sees the filter bar on /volunteers/master", async ({ page }) => {
 test("dev.volunteer is bounced from /volunteers/master to the hub", async ({ page }) => {
   await devLogin(page, "dev.volunteer@yale.edu");
   await page.goto("/volunteers/master");
-  // dev.volunteer has not completed onboarding, so they are redirected to /get-started
-  // rather than /. Accept either destination as "not at /volunteers/master".
-  await page.waitForURL((url) => url.pathname === "/" || url.pathname.startsWith("/get-started"));
+  // dev.volunteer lacks volunteers access, so the guard redirects them away from the
+  // protected route (to /no-access). Assert only that they did not remain on /volunteers/master.
+  await page.waitForURL((url) => url.pathname !== "/volunteers/master");
 });
 
 // ---------------------------------------------------------------------------

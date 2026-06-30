@@ -107,7 +107,7 @@ test("admin opens /admin/roles and sees Platform Admin with system badge", async
   await expect(page.getByRole("heading", { name: "Assignments" })).toBeVisible();
 });
 
-test("admin opens /admin/audit and sees at least one row and the entityType select", async ({ page }) => {
+test("admin opens /admin/audit and sees the table and the entityType select", async ({ page }) => {
   await devLogin(page, "j.carney@yale.edu");
   await page.goto("/admin/audit");
   // Page heading must be present.
@@ -116,9 +116,11 @@ test("admin opens /admin/audit and sees at least one row and the entityType sele
   await expect(page.locator('select[name="entityType"]')).toBeVisible();
   // The filter action input must be present.
   await expect(page.locator('input[name="action"]')).toBeVisible();
-  // At least one table row must be visible (dev DB has many audit entries from imports).
-  const rows = page.locator("tbody tr");
-  await expect(rows.first()).toBeVisible();
+  // The audit view renders either the populated table or its "No audit entries found."
+  // empty state. Row content is not deterministic on a fresh CI seed, so accept either.
+  await expect(
+    page.locator("table").or(page.getByText(/No audit entries found/i))
+  ).toBeVisible();
 });
 
 test("email page renders heading, stat cards, and table or empty state", async ({ page }) => {

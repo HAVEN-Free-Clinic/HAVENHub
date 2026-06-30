@@ -4,6 +4,7 @@ import { auth } from "@/platform/auth/auth";
 import { getRenewalContext, resolveRenewalPrefill } from "@/modules/recruitment/services/renewal";
 import { getApplicantIdentity } from "@/modules/recruitment/services/portal-auth";
 import { getDraft } from "@/modules/recruitment/services/drafts";
+import type { ApplicantType } from "@/modules/recruitment/engine/visibility";
 import { ApplyForm } from "./apply-form";
 
 export default async function ApplyPage({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<{ type?: string }> }) {
@@ -74,7 +75,7 @@ export default async function ApplyPage({ params, searchParams }: { params: Prom
     const fields = cycle.sections.flatMap((s) => s.fields).map((f) => ({ key: f.key, type: f.type }));
     prefill = resolveRenewalPrefill(fields, ctx);
   }
-  const initialApplicantType: "NEW" | "RENEWAL" = type === "renewal" ? "RENEWAL" : "NEW";
+  const initialApplicantType: ApplicantType = type === "renewal" ? "RENEWAL" : "NEW";
 
   return (
     <main className="mx-auto max-w-2xl px-6 py-10">

@@ -1,4 +1,4 @@
-export type ApplicantType = "NEW" | "RENEWAL";
+export type ApplicantType = "NEW" | "RENEWAL" | "TRANSFER";
 export type ApplicantScope = "NEW" | "RENEWAL" | "BOTH";
 
 export type SectionVisibilityInput = {

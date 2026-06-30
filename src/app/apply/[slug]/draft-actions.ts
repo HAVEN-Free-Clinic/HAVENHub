@@ -2,10 +2,11 @@
 "use server";
 import { getApplicantIdentity } from "@/modules/recruitment/services/portal-auth";
 import { saveDraft, uploadDraftFile, DraftError } from "@/modules/recruitment/services/drafts";
+import type { ApplicantType } from "@/modules/recruitment/engine/visibility";
 
 export async function saveDraftAction(
   slug: string,
-  payload: { answers: Record<string, unknown>; applicantType?: "NEW" | "RENEWAL"; renewalDepartment?: string | null },
+  payload: { answers: Record<string, unknown>; applicantType?: ApplicantType; renewalDepartment?: string | null },
 ): Promise<{ ok: boolean }> {
   const identity = await getApplicantIdentity();
   if (!identity) return { ok: false };

@@ -2,7 +2,7 @@
 import { useMemo, useRef, useState } from "react";
 import { submitPublicApplication, type SubmitResult } from "./actions";
 import { saveDraftAction, uploadDraftFileAction } from "./draft-actions";
-import { isSectionVisible } from "@/modules/recruitment/engine/visibility";
+import { isSectionVisible, type ApplicantType } from "@/modules/recruitment/engine/visibility";
 import { Alert } from "@/platform/ui/alert";
 import { Button, buttonClasses } from "@/platform/ui/button";
 import { Select } from "@/platform/ui/select";
@@ -28,9 +28,9 @@ export function ApplyForm({
   eligible?: boolean;
   prefill?: Prefill;
   currentDepartments?: string[];
-  initialApplicantType?: "NEW" | "RENEWAL";
+  initialApplicantType?: ApplicantType;
   initialAnswers?: Record<string, unknown>;
-  initialApplicantTypeFromDraft?: "NEW" | "RENEWAL";
+  initialApplicantTypeFromDraft?: ApplicantType;
   initialRenewalDepartment?: string | null;
 }) {
   // Draft type takes precedence over the URL ?type param when present.
@@ -39,7 +39,7 @@ export function ApplyForm({
   // A returning visitor whose account has no current membership is moved to the
   // New flow on arrival, with a note.
   const autoIneligible = seedType === "RENEWAL" && signedIn && !eligible;
-  const [applicantType, setApplicantType] = useState<"NEW" | "RENEWAL">(autoIneligible ? "NEW" : seedType);
+  const [applicantType, setApplicantType] = useState<ApplicantType>(autoIneligible ? "NEW" : seedType);
   const [ineligibleNote, setIneligibleNote] = useState(autoIneligible);
   // Seed the renewal department from the saved draft when it is still one the
   // applicant belongs to, so conditional department sections re-render on resume.

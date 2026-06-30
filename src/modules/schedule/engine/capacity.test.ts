@@ -9,7 +9,7 @@ import { describe, it, expect } from "vitest";
 import { computeDayMetrics, rolesForDept } from "./capacity";
 
 describe("computeDayMetrics", () => {
-  const base = { onShift: 10, triage: 1, walkin: 1, shadow: 2, spanish: 3, patientsBooked: null };
+  const base = { onShift: 10, triage: 1, walkin: 1, cc: 1, shadow: 2, spanish: 3, patientsBooked: null };
 
   it("flags headcount under/at/over against ideal", () => {
     expect(computeDayMetrics(base, { idealHeadcount: 11, patientCapacityPerProvider: 3 }).headcountStatus).toBe("under");
@@ -22,6 +22,12 @@ describe("computeDayMetrics", () => {
     const m = computeDayMetrics({ ...base, triage: 0, walkin: 2 }, { idealHeadcount: 11, patientCapacityPerProvider: 3 });
     expect(m.triageStatus).toBe("missing");
     expect(m.walkinStatus).toBe("excess");
+  });
+
+  it("flags cc coverage like triage/walk-in", () => {
+    expect(computeDayMetrics({ ...base, cc: 0 }, { idealHeadcount: 11, patientCapacityPerProvider: 3 }).ccStatus).toBe("missing");
+    expect(computeDayMetrics({ ...base, cc: 1 }, { idealHeadcount: 11, patientCapacityPerProvider: 3 }).ccStatus).toBe("ok");
+    expect(computeDayMetrics({ ...base, cc: 2 }, { idealHeadcount: 11, patientCapacityPerProvider: 3 }).ccStatus).toBe("excess");
   });
 
   it("computes capacity and reschedule pressure", () => {

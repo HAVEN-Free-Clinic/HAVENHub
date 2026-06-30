@@ -46,7 +46,7 @@ export default async function NewPersonPage({ searchParams }: PageProps) {
     <div className="space-y-6">
       <PageHeader
         title="Add person"
-        description={`Create a new person in ${appName}. They will not be linked to Airtable until a sync is run.`}
+        description={`Create a new person in ${appName}.`}
       />
       <PersonForm action={createAction} error={error} />
     </div>

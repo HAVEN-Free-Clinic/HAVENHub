@@ -135,17 +135,35 @@ export async function runImport(reader: AirtableReader, options: ImportOptions):
     });
   }
 
+  // Ensure the SU26 term exists, but never force it ACTIVE on an idempotent
+  // re-run. Forcing status here resurrected SU26 as a *second* ACTIVE term if
+  // staff had since activated a later term (e.g. FA26) through /admin/terms,
+  // breaking the single-active-term invariant that activateTerm maintains.
+  // Instead create it in PLANNING and auto-activate only on a fresh cutover --
+  // i.e. when no other term is already ACTIVE -- which preserves the original
+  // "import sets up the active term" behavior without ever producing two.
   const term = await prisma.term.upsert({
     where: { code: "SU26" },
-    update: { status: "ACTIVE" },
+    update: {},
     create: {
       code: "SU26",
       name: "Summer 2026",
       startDate: new Date("2026-05-30T12:00:00Z"),
       endDate: new Date("2026-09-26T12:00:00Z"),
-      status: "ACTIVE",
+      status: "PLANNING",
     },
   });
+
+  if (term.status !== "ACTIVE") {
+    const otherActive = await prisma.term.findFirst({
+      where: { status: "ACTIVE", id: { not: term.id } },
+    });
+    // Only activate when nothing else is active; otherwise leave SU26 as-is so an
+    // operator can swap to it deliberately through activateTerm.
+    if (!otherActive) {
+      await prisma.term.update({ where: { id: term.id }, data: { status: "ACTIVE" } });
+    }
+  }
 
   let membershipCount = 0;
   for (const membership of roster.memberships) {

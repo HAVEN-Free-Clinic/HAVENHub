@@ -252,10 +252,6 @@ export async function RosterPanel({
     redirect(`${termDetailHref}?copied=${result.copied}&skipped=${result.skipped}`);
   }
 
-  // ---------------------------------------------------------------------------
-  // Render
-  // ---------------------------------------------------------------------------
-
   return (
     <section className="space-y-8">
       <SectionHeader className="mb-4">Roster</SectionHeader>

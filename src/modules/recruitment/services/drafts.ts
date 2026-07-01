@@ -1,4 +1,3 @@
-// src/modules/recruitment/services/drafts.ts
 import { prisma } from "@/platform/db";
 import { getSetting } from "@/platform/settings/service";
 import type { ApplicantIdentity } from "./portal-auth";

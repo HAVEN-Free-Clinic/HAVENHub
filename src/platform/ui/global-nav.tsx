@@ -22,7 +22,7 @@ const NAV_GAP = 4;
 function linkClasses(active: boolean): string {
   return active
     ? "rounded-lg px-2.5 py-1.5 text-sm font-medium text-brand-fg bg-brand-faint"
-    : "rounded-lg px-2.5 py-1.5 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors";
+    : "rounded-lg px-2.5 py-1.5 text-sm font-medium text-foreground-soft hover:text-foreground hover:bg-muted transition-colors";
 }
 
 export function GlobalNav({ items }: { items: NavModule[] }) {

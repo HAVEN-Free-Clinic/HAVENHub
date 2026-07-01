@@ -145,10 +145,6 @@ async function delegate(managerId: string, managedId: string) {
 
 beforeEach(resetDb);
 
-// ---------------------------------------------------------------------------
-// departmentCompliance
-// ---------------------------------------------------------------------------
-
 describe("departmentCompliance", () => {
   it("returns empty array when viewer has no director memberships", async () => {
     const term = await createTerm();
@@ -442,10 +438,6 @@ describe("departmentCompliance", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// verifyCertificate
-// ---------------------------------------------------------------------------
-
 describe("verifyCertificate", () => {
   it("stamps verifiedById and verifiedAt on the certificate", async () => {
     const actor = await createPerson("Director", "dir001");
@@ -632,10 +624,6 @@ describe("verifyCertificate scope enforcement", () => {
     expect(updated.verifiedById).toBe(actor.id);
   });
 });
-
-// ---------------------------------------------------------------------------
-// masterCompliance
-// ---------------------------------------------------------------------------
 
 describe("masterCompliance", () => {
   it("returns empty result with zeroed summary when there is no active term", async () => {
@@ -936,10 +924,6 @@ describe("PENDING_VERIFICATION gate", () => {
     expect(afterMember.overallClearance).toBe("NOT_CLEARED"); // training still pending
   });
 });
-
-// ---------------------------------------------------------------------------
-// setCompletionDateAsManager
-// ---------------------------------------------------------------------------
 
 describe("setCompletionDateAsManager", () => {
   it("sets the date, marks MANUAL, and stamps verified in one action", async () => {

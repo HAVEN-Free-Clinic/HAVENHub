@@ -115,10 +115,6 @@ async function actorCanManageTarget(
   return membership !== null;
 }
 
-// ---------------------------------------------------------------------------
-// issueAction
-// ---------------------------------------------------------------------------
-
 /**
  * Records a disciplinary action against a person.
  *
@@ -201,10 +197,6 @@ export async function issueAction(
   return action;
 }
 
-// ---------------------------------------------------------------------------
-// deleteAction
-// ---------------------------------------------------------------------------
-
 /**
  * Permanently deletes a disciplinary action.
  *
@@ -245,10 +237,6 @@ export async function deleteAction(actorPersonId: string, id: string): Promise<v
     },
   });
 }
-
-// ---------------------------------------------------------------------------
-// listActions
-// ---------------------------------------------------------------------------
 
 /**
  * Returns a paginated list of disciplinary actions visible to the viewer.
@@ -484,10 +472,6 @@ async function loadStrikeCounts(
   return new Map(groups.map((g) => [g.personId, g._count._all]));
 }
 
-// ---------------------------------------------------------------------------
-// issuablePeople
-// ---------------------------------------------------------------------------
-
 /**
  * Returns the set of people against whom the actor may issue a disciplinary
  * action via the UI form.
@@ -560,10 +544,6 @@ export async function issuablePeople(actorPersonId: string): Promise<{
 
   return { all: false, people };
 }
-
-// ---------------------------------------------------------------------------
-// strikeCount
-// ---------------------------------------------------------------------------
 
 /**
  * Returns the total count of DisciplinaryAction rows for a person.

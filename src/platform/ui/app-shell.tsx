@@ -63,7 +63,7 @@ export async function AppShell({
               <HavenLogo className="h-8 text-brand-fg" />
             </Link>
             {termLabel && (
-              <span className="ml-1 rounded-full bg-brand-faint px-2.5 py-0.5 text-xs font-medium text-brand-fg">
+              <span className="border-l border-border-strong pl-2.5 text-xs font-medium text-foreground-soft">
                 {termLabel}
               </span>
             )}
@@ -95,7 +95,7 @@ export async function AppShell({
             >
               <button
                 type="submit"
-                className="rounded-md border border-border px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:border-border-strong hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                className="rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground-soft transition-colors hover:border-border-strong hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
               >
                 Sign out
               </button>

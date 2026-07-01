@@ -68,10 +68,6 @@ async function seedTerm(code: string, status: "ACTIVE" | "PLANNING" | "ARCHIVED"
   });
 }
 
-// ---------------------------------------------------------------------------
-// listRoles
-// ---------------------------------------------------------------------------
-
 describe("listRoles", () => {
   beforeEach(resetDb);
 
@@ -94,10 +90,6 @@ describe("listRoles", () => {
     expect(roles).toHaveLength(0);
   });
 });
-
-// ---------------------------------------------------------------------------
-// createRole
-// ---------------------------------------------------------------------------
 
 describe("createRole", () => {
   beforeEach(resetDb);
@@ -133,10 +125,6 @@ describe("createRole", () => {
     await expect(createRole(ACTOR, "  Trimmed  ", null)).rejects.toBeInstanceOf(RoleConflictError);
   });
 });
-
-// ---------------------------------------------------------------------------
-// setRoleGrants
-// ---------------------------------------------------------------------------
 
 describe("setRoleGrants", () => {
   beforeEach(resetDb);
@@ -222,10 +210,6 @@ describe("setRoleGrants", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// deleteRole
-// ---------------------------------------------------------------------------
-
 describe("deleteRole", () => {
   beforeEach(resetDb);
 
@@ -280,10 +264,6 @@ describe("deleteRole", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// listAssignments
-// ---------------------------------------------------------------------------
-
 describe("listAssignments", () => {
   beforeEach(resetDb);
 
@@ -309,10 +289,6 @@ describe("listAssignments", () => {
     expect(assignments).toHaveLength(0);
   });
 });
-
-// ---------------------------------------------------------------------------
-// createAssignment
-// ---------------------------------------------------------------------------
 
 describe("createAssignment", () => {
   beforeEach(resetDb);
@@ -453,10 +429,6 @@ describe("createAssignment", () => {
     ).rejects.toBeInstanceOf(DuplicateAssignmentError);
   });
 });
-
-// ---------------------------------------------------------------------------
-// deleteAssignment
-// ---------------------------------------------------------------------------
 
 describe("deleteAssignment", () => {
   beforeEach(resetDb);

@@ -27,10 +27,6 @@ const msg: EmailMessage = {
 
 const fakeGetAccessToken = () => Promise.resolve("test-token");
 
-// ---------------------------------------------------------------------------
-// LogTransport
-// ---------------------------------------------------------------------------
-
 describe("LogTransport", () => {
   it("logs to console and resolves", async () => {
     const spy = vi.spyOn(console, "log").mockImplementation(() => undefined);
@@ -46,10 +42,6 @@ describe("LogTransport", () => {
     }
   });
 });
-
-// ---------------------------------------------------------------------------
-// GraphTransport
-// ---------------------------------------------------------------------------
 
 describe("GraphTransport", () => {
   it("sends to the correct Graph URL with the encoded sender", async () => {

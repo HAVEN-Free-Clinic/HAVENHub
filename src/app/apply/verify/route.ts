@@ -1,4 +1,3 @@
-// src/app/apply/verify/route.ts
 import { NextResponse } from "next/server";
 import { verifyMagicToken, signApplicantCookie, APPLICANT_COOKIE } from "@/modules/recruitment/services/portal-auth";
 import { safeNextPath } from "@/modules/recruitment/services/portal-next";

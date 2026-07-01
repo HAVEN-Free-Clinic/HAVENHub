@@ -1,4 +1,3 @@
-// src/platform/notifications/inbox.test.ts
 import { describe, it, expect, beforeEach } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";

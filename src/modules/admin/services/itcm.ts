@@ -116,10 +116,6 @@ export async function listEpicAuthorizers(): Promise<EpicAuthorizer[]> {
   return [...byId.values()];
 }
 
-// ---------------------------------------------------------------------------
-// listDepartmentsWithMembers
-// ---------------------------------------------------------------------------
-
 /**
  * Returns all active departments with their active-term members.
  *
@@ -169,10 +165,6 @@ export async function listDepartmentsWithMembers(): Promise<DepartmentWithMember
   return [...byDept.values()];
 }
 
-// ---------------------------------------------------------------------------
-// findMirrorPerson
-// ---------------------------------------------------------------------------
-
 /**
  * Finds a reference person for the "Epic ID to mirror" field.
  *
@@ -215,10 +207,6 @@ export async function findMirrorPerson(
   if (!membership?.person.epicId) return null;
   return { name: membership.person.name, epicId: membership.person.epicId };
 }
-
-// ---------------------------------------------------------------------------
-// getPeopleByIds
-// ---------------------------------------------------------------------------
 
 /**
  * Returns full person records for a set of person ids.
@@ -295,11 +283,6 @@ export async function getEpicRequestHistory(): Promise<EpicRequestHistoryRow[]> 
   }));
 }
 
-
-// ---------------------------------------------------------------------------
-// closeTicket
-// ---------------------------------------------------------------------------
-
 /**
  * Marks a YNHH ticket as closed, stamping closedAt with the current time.
  * Closed tickets move out of the active Tracker view and into History --
@@ -315,12 +298,6 @@ export async function closeTicket(ticketId: string) {
     },
   });
 }
-
-
-
-// ---------------------------------------------------------------------------
-// updateServiceRequestNumber
-// ---------------------------------------------------------------------------
 
 /** Sets or updates the YNHH service request number on a ticket. */
 export async function updateServiceRequestNumber(ticketId: string, serviceRequestNumber: string) {
@@ -390,10 +367,6 @@ export async function listPendingDeactivations(): Promise<PendingDeactivation[]>
   }
   return [...byPerson.values()];
 }
-
-// ---------------------------------------------------------------------------
-// reconcileDeactivationRequests
-// ---------------------------------------------------------------------------
 
 /**
  * Links the selected people's deactivation requests to a YNHH ticket when an

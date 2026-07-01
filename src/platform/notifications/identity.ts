@@ -1,4 +1,3 @@
-// src/platform/notifications/identity.ts
 import { prisma } from "@/platform/db";
 import { getAccessToken } from "@/platform/email/oauth";
 

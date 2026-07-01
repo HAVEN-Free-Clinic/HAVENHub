@@ -59,11 +59,6 @@ export type FullScheduleDepartment = {
   conflicts: Map<string, string[]>;
 };
 
-
-// ---------------------------------------------------------------------------
-// mySchedule
-// ---------------------------------------------------------------------------
-
 /**
  * Returns the current person's schedule context for the active term.
  *
@@ -149,10 +144,6 @@ export async function mySchedule(personId: string): Promise<{
 
   return { term, shifts, availability, legacyNote, clinicDates: term.clinicDates, pendingRequests };
 }
-
-// ---------------------------------------------------------------------------
-// fullSchedule
-// ---------------------------------------------------------------------------
 
 /**
  * Returns the clinic-wide schedule for a selected date.
@@ -314,10 +305,6 @@ export async function fullSchedule(
 
   return { term, clinicDates, selectedDate, departments };
 }
-
-// ---------------------------------------------------------------------------
-// updateMyAvailability
-// ---------------------------------------------------------------------------
 
 /**
  * Updates the actor's self-availability for the active term.

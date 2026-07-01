@@ -63,13 +63,7 @@ const BASE_EMAIL = {
   template: "test-template",
 };
 
-// ---------------------------------------------------------------------------
-
 beforeEach(resetDb);
-
-// ---------------------------------------------------------------------------
-// queueEmail
-// ---------------------------------------------------------------------------
 
 describe("queueEmail", () => {
   it("inserts an EmailLog row with QUEUED status", async () => {
@@ -110,10 +104,6 @@ describe("queueEmail", () => {
     expect(count).toBe(0);
   });
 });
-
-// ---------------------------------------------------------------------------
-// drainEmailQueue
-// ---------------------------------------------------------------------------
 
 describe("drainEmailQueue", () => {
   it("marks a QUEUED row SENT with sentAt set and returns 1", async () => {

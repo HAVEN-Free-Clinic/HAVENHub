@@ -145,10 +145,6 @@ async function scopeCheck(actorPersonId: string, departmentId: string): Promise<
   }
 }
 
-// ---------------------------------------------------------------------------
-// assertNoSwapCollision
-// ---------------------------------------------------------------------------
-
 /**
  * Guards against same-date-other-role collisions that the engine's validateRequest
  * does not cover.
@@ -193,10 +189,6 @@ async function assertNoSwapCollision(
     throw new RequestValidationError("Partner is not eligible");
   }
 }
-
-// ---------------------------------------------------------------------------
-// createRequest
-// ---------------------------------------------------------------------------
 
 /**
  * Creates a PENDING shift drop or swap request for the actor.
@@ -341,10 +333,6 @@ export async function createRequest(
   return created;
 }
 
-// ---------------------------------------------------------------------------
-// cancelRequest
-// ---------------------------------------------------------------------------
-
 /**
  * Cancels a PENDING shift request.
  *
@@ -379,10 +367,6 @@ export async function cancelRequest(
     entityId: requestId,
   });
 }
-
-// ---------------------------------------------------------------------------
-// listDepartmentRequests
-// ---------------------------------------------------------------------------
 
 /**
  * Lists shift requests for a department in the active term.
@@ -443,10 +427,6 @@ export async function listDepartmentRequests(
 
   return [...pendingRows.map(toRow), ...decidedRows.map(toRow)];
 }
-
-// ---------------------------------------------------------------------------
-// approveRequest
-// ---------------------------------------------------------------------------
 
 /**
  * Approves a PENDING shift request.
@@ -626,10 +606,6 @@ export async function approveRequest(
   });
 }
 
-// ---------------------------------------------------------------------------
-// denyRequest
-// ---------------------------------------------------------------------------
-
 /**
  * Denies a PENDING shift request.
  *
@@ -676,10 +652,6 @@ export async function denyRequest(
     after: { note: newNote },
   });
 }
-
-// ---------------------------------------------------------------------------
-// eligibleSwapPartners
-// ---------------------------------------------------------------------------
 
 /**
  * Returns eligible swap partners for the actor in a given department.

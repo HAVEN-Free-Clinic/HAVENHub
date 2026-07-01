@@ -150,10 +150,6 @@ async function grantPermission(personId: string, permission: string) {
 
 beforeEach(resetDb);
 
-// ---------------------------------------------------------------------------
-// createEpicRequest
-// ---------------------------------------------------------------------------
-
 describe("createEpicRequest", () => {
   it("self-create NEW happy path; audit row with kind in after", async () => {
     const person = await createPerson("Alice", { netId: "aaa001" });
@@ -263,10 +259,6 @@ describe("createEpicRequest", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// myEpicPanel
-// ---------------------------------------------------------------------------
-
 describe("myEpicPanel", () => {
   it("returns epicId and open PENDING request", async () => {
     const person = await createPerson("Alice", { netId: "aaa001", epicId: "E99" });
@@ -308,10 +300,6 @@ describe("myEpicPanel", () => {
     expect(panel.openRequest).toBeNull();
   });
 });
-
-// ---------------------------------------------------------------------------
-// listEpicRequests
-// ---------------------------------------------------------------------------
 
 describe("listEpicRequests", () => {
   it("returns filtered rows, correct counts, person + ticket fields", async () => {
@@ -375,10 +363,6 @@ describe("listEpicRequests", () => {
     expect(page2.rows).toHaveLength(1);
   });
 });
-
-// ---------------------------------------------------------------------------
-// createTicket
-// ---------------------------------------------------------------------------
 
 describe("createTicket", () => {
   it("happy path: ticket created, requests moved to SUBMITTED, audited", async () => {
@@ -572,10 +556,6 @@ describe("closeTicket", () => {
     await expect(closeTicket(noPerms.id, "some-ticket-id")).rejects.toBeInstanceOf(EpicForbiddenError);
   });
 });
-
-// ---------------------------------------------------------------------------
-// completeRequest
-// ---------------------------------------------------------------------------
 
 describe("completeRequest", () => {
   it("NEW: writes Person.epicId via updatePersonFields", async () => {
@@ -799,10 +779,6 @@ describe("completeRequest", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// cancelRequest
-// ---------------------------------------------------------------------------
-
 describe("cancelRequest", () => {
   it("appends reason to existing notes and sets CANCELLED", async () => {
     const actor = await createPerson("Manager", { netId: "mgr001" });
@@ -883,10 +859,6 @@ describe("cancelRequest", () => {
     );
   });
 });
-
-// ---------------------------------------------------------------------------
-// sendEpicEmail
-// ---------------------------------------------------------------------------
 
 describe("sendEpicEmail", () => {
   it("queues EmailLog row with right template/to/personId/triggeredById", async () => {
@@ -991,10 +963,6 @@ describe("sendEpicEmail", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// emailHistory
-// ---------------------------------------------------------------------------
-
 describe("emailHistory", () => {
   it("groups by personId, includes only epic templates, newest first", async () => {
     const p1 = await createPerson("Alice", { netId: "aaa001" });
@@ -1095,10 +1063,6 @@ describe("emailHistory", () => {
 
 // ---------------------------------------------------------------------------
 // listTickets
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// updateRequestDetails
 // ---------------------------------------------------------------------------
 
 describe("updateRequestDetails", () => {

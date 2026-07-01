@@ -1,4 +1,3 @@
-// src/app/(app)/recruitment/cycles/[id]/builder/page.tsx
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowRight } from "lucide-react";

@@ -142,10 +142,6 @@ export default async function TermDetailPage({ params, searchParams }: PageProps
     redirect(`/admin/terms/${id}`);
   }
 
-  // ---------------------------------------------------------------------------
-  // Render
-  // ---------------------------------------------------------------------------
-
   const statusBadge =
     term.status === "ACTIVE" ? (
       <Badge tone="brand">Active</Badge>

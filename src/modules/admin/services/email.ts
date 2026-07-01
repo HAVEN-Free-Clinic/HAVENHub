@@ -46,10 +46,6 @@ export type EmailHealthCounts = {
 
 export const EMAIL_PAGE_SIZE = 25;
 
-// ---------------------------------------------------------------------------
-// emailHealthCounts
-// ---------------------------------------------------------------------------
-
 /**
  * Return aggregate status counts across the entire EmailLog table.
  *
@@ -75,10 +71,6 @@ export async function emailHealthCounts(now?: Date): Promise<EmailHealthCounts> 
 
   return { queued, failed, sentToday };
 }
-
-// ---------------------------------------------------------------------------
-// listEmails
-// ---------------------------------------------------------------------------
 
 /** Input shape for listEmails pagination and filtering. */
 export type ListEmailsQuery = {
@@ -134,10 +126,6 @@ export async function listEmails(query: ListEmailsQuery): Promise<{
   return { rows, total, counts };
 }
 
-// ---------------------------------------------------------------------------
-// listEmailTemplates
-// ---------------------------------------------------------------------------
-
 /**
  * Return the distinct `template` values actually present in EmailLog, sorted.
  *
@@ -154,10 +142,6 @@ export async function listEmailTemplates(): Promise<string[]> {
   });
   return rows.map((r) => r.template);
 }
-
-// ---------------------------------------------------------------------------
-// retryEmail
-// ---------------------------------------------------------------------------
 
 /**
  * Reset a FAILED email to QUEUED so the next drain pass will re-attempt it.
@@ -201,10 +185,6 @@ export async function retryEmail(actorPersonId: string, emailId: string): Promis
   });
 }
 
-// ---------------------------------------------------------------------------
-// retryAllFailedEmails
-// ---------------------------------------------------------------------------
-
 /**
  * Bulk-reset every FAILED email to QUEUED so the next drain pass re-attempts
  * them. Intended for recovery after a transient transport outage that exhausted
@@ -235,10 +215,6 @@ export async function retryAllFailedEmails(actorPersonId: string): Promise<numbe
 
   return count;
 }
-
-// ---------------------------------------------------------------------------
-// sendSenderTest
-// ---------------------------------------------------------------------------
 
 /**
  * Send a one-off test email AS `fromEmail`, directly (NOT via the queue), so any

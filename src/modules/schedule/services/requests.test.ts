@@ -125,10 +125,6 @@ async function delegate(managerDepartmentId: string, managedDepartmentId: string
 
 beforeEach(resetDb);
 
-// ---------------------------------------------------------------------------
-// createRequest
-// ---------------------------------------------------------------------------
-
 describe("createRequest", () => {
   it("drop request: creates a PENDING ShiftRequest and writes an audit row", async () => {
     const dates = sixSaturdays();
@@ -338,10 +334,6 @@ describe("createRequest", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// cancelRequest
-// ---------------------------------------------------------------------------
-
 describe("cancelRequest", () => {
   it("requester can cancel their own PENDING request", async () => {
     const dates = sixSaturdays();
@@ -407,10 +399,6 @@ describe("cancelRequest", () => {
     await expect(cancelRequest(actor.id, "nonexistent-id")).rejects.toBeInstanceOf(RequestNotFoundError);
   });
 });
-
-// ---------------------------------------------------------------------------
-// listDepartmentRequests
-// ---------------------------------------------------------------------------
 
 describe("listDepartmentRequests", () => {
   it("returns PENDING first (createdAt asc) then decided (most recent first, max 10)", async () => {
@@ -798,10 +786,6 @@ describe("approveRequest", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// denyRequest
-// ---------------------------------------------------------------------------
-
 describe("denyRequest", () => {
   it("sets status DENIED, appends note, records decidedBy/At", async () => {
     const dates = sixSaturdays();
@@ -874,10 +858,6 @@ describe("denyRequest", () => {
     await expect(denyRequest(director.id, req.id)).rejects.toBeInstanceOf(RequestValidationError);
   });
 });
-
-// ---------------------------------------------------------------------------
-// eligibleSwapPartners
-// ---------------------------------------------------------------------------
 
 describe("eligibleSwapPartners", () => {
   it("returns same-role, same-dept volunteers on different dates, sorted by dateKey then name", async () => {

@@ -70,10 +70,6 @@ const STATUS_ORDER: Record<ComplianceStatus, number> = {
   COMPLIANT: 5,
 };
 
-// ---------------------------------------------------------------------------
-// departmentCompliance
-// ---------------------------------------------------------------------------
-
 /**
  * Returns compliance data for all departments the viewer manages: departments
  * where they hold an ACTIVE DIRECTOR membership in the active term, plus the
@@ -225,10 +221,6 @@ export async function departmentCompliance(
 
   return result;
 }
-
-// ---------------------------------------------------------------------------
-// masterCompliance
-// ---------------------------------------------------------------------------
 
 export type MasterQuery = {
   status?: ComplianceStatus;
@@ -431,10 +423,6 @@ export async function masterCompliance(
   return { rows, total, page, pageCount, summary };
 }
 
-// ---------------------------------------------------------------------------
-// verifyCertificate
-// ---------------------------------------------------------------------------
-
 /**
  * Stamp a HIPAA certificate as verified.
  *
@@ -475,10 +463,6 @@ export async function verifyCertificate(
     after: { certId, ownerPersonId: cert.personId },
   });
 }
-
-// ---------------------------------------------------------------------------
-// setCompletionDateAsManager
-// ---------------------------------------------------------------------------
 
 /**
  * Set a HIPAA certificate's completion date as a compliance manager or admin.

@@ -1,4 +1,3 @@
-// src/app/(app)/recruitment/cycles/[id]/builder/field-card.tsx
 "use client";
 import { useState, useTransition, type HTMLAttributes } from "react";
 import { Copy, GripVertical, Pencil, Check, AlertCircle } from "lucide-react";

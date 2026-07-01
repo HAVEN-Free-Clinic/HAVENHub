@@ -1,4 +1,3 @@
-// src/platform/notifications/teams-transport.test.ts
 import { describe, it, expect, vi } from "vitest";
 import { GraphTeamsTransport, LogTeamsTransport } from "./teams-transport";
 

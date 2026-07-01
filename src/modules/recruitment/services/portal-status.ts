@@ -1,4 +1,3 @@
-// src/modules/recruitment/services/portal-status.ts
 import { prisma } from "@/platform/db";
 import type { ApplicantIdentity } from "./portal-auth";
 

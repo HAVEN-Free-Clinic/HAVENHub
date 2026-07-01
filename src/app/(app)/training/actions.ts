@@ -8,7 +8,7 @@ import {
   QuizLockedError,
 } from "@/modules/recruitment/services/training";
 
-/** Serializable result the client quiz awaits — graded in place, no redirect. */
+/** Serializable result the client quiz awaits (graded in place, no redirect). */
 export type QuizActionResult =
   | {
       status: "graded";

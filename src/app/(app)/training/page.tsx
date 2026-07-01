@@ -32,7 +32,7 @@ function fmtDate(d: Date): string {
 }
 
 // ---------------------------------------------------------------------------
-// Clearance hero — the one thing that matters: am I cleared for the term?
+// Clearance hero: the one thing that matters: am I cleared for the term?
 // ---------------------------------------------------------------------------
 
 function ClearanceHero({ my }: { my: MyTraining }) {

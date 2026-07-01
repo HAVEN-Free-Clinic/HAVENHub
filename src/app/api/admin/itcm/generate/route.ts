@@ -13,7 +13,7 @@
  * with the same role who already has an epicId. Directors mirror directors,
  * volunteers mirror volunteers.
  *
- * Auth: signed-in person with the "admin.access" permission — only platform
+ * Auth: signed-in person with the "admin.access" permission; only platform
  * admins and ITCM directors reach this route.
  */
 
@@ -138,7 +138,7 @@ async function generateSpreadsheet(args: {
   });
 
   // Add data rows. Each row carries its own mirror Epic ID since bulk requests
-  // can span multiple departments — there is no single shared mirror anymore.
+  // can span multiple departments; there is no single shared mirror anymore.
   for (const p of people) {
     const row = ws.addRow([
       p.lastName, p.firstName, "", p.email, "",
@@ -172,7 +172,7 @@ async function generateSpreadsheet(args: {
 // ---------------------------------------------------------------------------
 
 export async function POST(req: Request) {
-  // Auth check — only signed-in admin.access holders can generate Epic forms.
+  // Auth check: only signed-in admin.access holders can generate Epic forms.
   // (Same primitives as other API routes; requirePermission is page-only since
   // it redirects on failure.) The resolved person is also the tracking actor.
   const session = await auth();
@@ -215,7 +215,7 @@ export async function POST(req: Request) {
 
   const isDeactivate = requestType === "deactivate_individual" || requestType === "bulk_deactivate";
 
-  // Every request type — new, modify, renew, and deactivate — requires an
+  // Every request type (new, modify, renew, and deactivate) requires an
   // access/effective date from the admin so a blank date never reaches YNHH.
   if (!endDate?.trim()) {
     return NextResponse.json(
@@ -243,7 +243,7 @@ export async function POST(req: Request) {
   });
 
   // Find a mirror Epic ID per selected person, based on THEIR OWN department
-  // and role — bulk requests can now span multiple departments, so there is
+  // and role; bulk requests can now span multiple departments, so there is
   // no single global mirror; each spreadsheet row gets its own.
   const mirrorByPersonId = new Map<string, { name: string; epicId: string } | null>();
   if (activeTerm) {
@@ -294,7 +294,7 @@ export async function POST(req: Request) {
     yaleAffiliation: firstPerson.yaleAffiliation ?? "",
   };
 
-  // Generate PDF. Bulk requests pass no single mirror — itcm-pdf.ts should
+  // Generate PDF. Bulk requests pass no single mirror; itcm-pdf.ts should
   // print "See spreadsheet" for "person with similar job functions" instead.
   const pdfBytes = await generatePdf({
     requestType,

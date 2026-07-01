@@ -242,16 +242,16 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
           isSent
             ? "This campaign has already been sent."
             : isScheduled
-              ? "Scheduled — waiting to send."
+              ? "Scheduled. Waiting to send."
               : isActive
-                ? "Recurring — sends on a schedule."
+                ? "Recurring. Sends on a schedule."
                 : campaign.status === "CANCELLED"
                   ? "Cancelled."
                   : "Draft"
         }
       />
 
-      {/* Flash banners — saved / sent / scheduled / cancelled only */}
+      {/* Flash banners: saved / sent / scheduled / cancelled only */}
       {errorMessage && <Alert tone="error">{errorMessage}</Alert>}
       {sp.saved === "1" && !errorMessage && (
         <Alert tone="success">Campaign saved.</Alert>
@@ -268,7 +268,7 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
         <Alert tone="info">Schedule cancelled.</Alert>
       )}
 
-      {/* Main save form — editable only while a draft */}
+      {/* Main save form: editable only while a draft */}
       {isDraft && (
         <form action={saveAction} className="space-y-8">
           {/* Section 1: Compose */}
@@ -325,7 +325,7 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
         </div>
       )}
 
-      {/* Section 3: Review & send — drafts only */}
+      {/* Section 3: Review & send (drafts only) */}
       {isDraft && (
         <div id="review" className="space-y-4 border-t border-border pt-6">
           <h2 className="text-base font-semibold text-foreground">3. Review &amp; send</h2>
@@ -406,7 +406,7 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
         </div>
       )}
 
-      {/* Timing section — DRAFT only */}
+      {/* Timing section: DRAFT only */}
       {isDraft && (
         <div className="space-y-5 border-t border-border pt-6">
           <h2 className="text-base font-semibold text-foreground">Timing</h2>

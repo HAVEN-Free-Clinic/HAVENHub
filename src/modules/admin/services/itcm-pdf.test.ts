@@ -123,7 +123,7 @@ describe("generatePdf", () => {
 
   // The template ships duplicate field objects: a widget on the page plus an
   // orphan copy in the AcroForm field tree. pdf-lib's form API mutates the
-  // orphan, but viewers render the on-page widget — so the fix must reach the
+  // orphan, but viewers render the on-page widget, so the fix must reach the
   // widget in the page /Annots. That widget must (a) be in the checked state and
   // (b) draw its mark as a font-free vector path, because the template's
   // glyph-based mark (subsetted ZapfDingbats) is invisible in Adobe Acrobat.

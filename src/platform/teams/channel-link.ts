@@ -42,7 +42,7 @@ function nyDateInt(d: Date): number {
 
 /**
  * Pick the earliest clinic date whose NY calendar date is >= today's NY calendar
- * date. The input may be in any order — it is sorted internally. Returns null
+ * date. The input may be in any order; it is sorted internally. Returns null
  * when there is no upcoming clinic date.
  */
 export function selectCurrentClinicDate(

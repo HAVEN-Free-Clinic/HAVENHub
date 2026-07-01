@@ -45,7 +45,7 @@ async function seedQueued(n: number): Promise<void> {
   }
 }
 
-describe("GET /api/cron/email — retry-budget protection (issue #63)", () => {
+describe("GET /api/cron/email: retry-budget protection (issue #63)", () => {
   beforeEach(async () => {
     await resetDb();
     vi.clearAllMocks();

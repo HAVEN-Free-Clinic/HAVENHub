@@ -1,6 +1,27 @@
 import coreWebVitals from "eslint-config-next/core-web-vitals";
 import nextTypescript from "eslint-config-next/typescript";
 
+const noEmDash = {
+  meta: { type: "problem", docs: { description: "Ban the em-dash character; it reads as AI-generated." }, schema: [] },
+  create(context) {
+    const src = context.sourceCode ?? context.getSourceCode();
+    return {
+      Program(node) {
+        const text = src.getText();
+        const DASH = "—";
+        for (let i = text.indexOf(DASH); i !== -1; i = text.indexOf(DASH, i + 1)) {
+          context.report({
+            node,
+            loc: src.getLocFromIndex(i),
+            message:
+              "Em-dash reads as AI-generated; use a comma, colon, parentheses, or hyphen. Add an eslint-disable-next-line local/no-em-dash with a reason if genuinely required.",
+          });
+        }
+      },
+    };
+  },
+};
+
 const MODULE_IDS = [
   "schedule",
   "my-info",
@@ -82,6 +103,14 @@ const eslintConfig = [
         },
       ],
     },
+  },
+
+  // Ban the em-dash character (U+2014) in all src files. Catches it in comments
+  // AND strings because the rule scans raw source text, not the AST.
+  {
+    files: ["src/**/*.{ts,tsx}"],
+    plugins: { local: { rules: { "no-em-dash": noEmDash } } },
+    rules: { "local/no-em-dash": "error" },
   },
 
   // Resolved-path enforcement (catches relative-path evasion the specifier

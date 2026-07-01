@@ -25,7 +25,7 @@ export function Textarea({
  *
  * The label *wraps* the control (implicit association) so screen readers and
  * label-click focus work without threading an `id`/`htmlFor` pair through every
- * caller — this keeps Field usable from both server and client components.
+ * caller; this keeps Field usable from both server and client components.
  */
 export function Field({
   label,

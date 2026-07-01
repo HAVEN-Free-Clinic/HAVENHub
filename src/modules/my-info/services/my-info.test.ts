@@ -530,7 +530,7 @@ describe("saveCertificate compliance-manager notification", () => {
   it("notifies again when the member's prior newest cert had a completion date", async () => {
     const manager = await createComplianceManager();
     const volunteer = await createPerson({ name: "Val Volunteer" });
-    // A prior, dated cert (e.g. expired) — a fresh dateless upload is a new pending case.
+    // A prior, dated cert (e.g. expired); a fresh dateless upload is a new pending case.
     await prisma.hipaaCertificate.create({
       data: {
         personId: volunteer.id,

@@ -63,7 +63,7 @@ function timeGreeting(now = new Date()): string {
   return "Good evening";
 }
 
-/** "Saturday, June 13" — clinic dates are stored at noon UTC, so format in UTC. */
+/** "Saturday, June 13" (clinic dates are stored at noon UTC, so format in UTC). */
 function fmtLongDate(d: Date): string {
   return d.toLocaleDateString("en-US", {
     weekday: "long",
@@ -250,7 +250,7 @@ export default async function HubPage() {
     },
     {
       // Panelists are often directors with no recruitment.access, so they get no
-      // Recruitment tile or nav — this is their only home-screen path to the
+      // Recruitment tile or nav; this is their only home-screen path to the
       // interview assignments page. Shown only when they actually have one.
       id: "my-interviews",
       show: isPanelist,

@@ -11,7 +11,7 @@
  *   - getPeopleByIds: returns full person records for a set of ids,
  *     used to build the spreadsheet rows for bulk requests.
  *
- * Permission checks are NOT this service's concern — the page gates via
+ * Permission checks are NOT this service's concern; the page gates via
  * requirePermission("admin.access"). Services trust their callers.
  */
 
@@ -45,7 +45,7 @@ export type DepartmentWithMembers = {
  * person's record (no hardcoded directory to keep in sync).
  */
 export type EpicAuthorizer = {
-  /** Person id — the stable key the form submits and the route re-resolves. */
+  /** Person id: the stable key the form submits and the route re-resolves. */
   id: string;
   name: string;
   /** First+last name initials, used for PDF filenames and email subjects. */
@@ -223,7 +223,7 @@ export async function findMirrorPerson(
 /**
  * Returns full person records for a set of person ids.
  *
- * Used to build spreadsheet rows for bulk requests — the page collects
+ * Used to build spreadsheet rows for bulk requests; the page collects
  * selected person ids and passes them here to get name, email, netId, epicId.
  */
 export async function getPeopleByIds(ids: string[]): Promise<Person[]> {

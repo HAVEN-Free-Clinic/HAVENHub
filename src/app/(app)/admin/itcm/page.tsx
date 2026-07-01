@@ -54,7 +54,7 @@ export default async function ItcmPage() {
             <Card size="compact" pad={false} className="mt-6 flex items-center gap-3 px-5 py-4">
               <AlertTriangle className="h-5 w-5 text-critical shrink-0" aria-hidden />
               <p className="text-sm font-medium text-foreground">
-                {overdueCount} {overdueCount === 1 ? "request has" : "requests have"} been open for more than 7 business days — follow up with the YNHH helpdesk.
+                {overdueCount} {overdueCount === 1 ? "request has" : "requests have"} been open for more than 7 business days. Follow up with the YNHH helpdesk.
               </p>
             </Card>
           )}

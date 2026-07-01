@@ -44,7 +44,7 @@ export function SetBreadcrumb({ trail }: { trail: Crumb[] }) {
   // Depend on the stable `setOverride` setter, NOT the whole context value.
   // The provider value object is recreated whenever `override` changes, so
   // depending on `ctx` here would re-run the effect every time it sets the
-  // override — an infinite setState-in-effect loop ("Maximum update depth").
+  // override, which causes an infinite setState-in-effect loop ("Maximum update depth").
   const setOverride = useContext(Ctx)?.setOverride;
   const path = usePathname();
   // Serialize so the effect re-runs when the trail contents change.

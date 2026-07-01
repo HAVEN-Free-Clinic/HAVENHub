@@ -325,7 +325,7 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
             {departments.map((d) => (
               <div key={d.department.id} className="space-y-3">
                 <p className="text-sm font-semibold text-foreground">
-                  {d.department.code} — {d.department.name}
+                  {d.department.code}: {d.department.name}
                 </p>
                 {d.directors.length > 0 && (
                   <div>
@@ -378,10 +378,10 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
                   setSelectedPeopleMap(new Map());
                 }}
               >
-                <option value="">— choose a department —</option>
+                <option value="">Choose a department</option>
                 {departments.map((d) => (
                   <option key={d.department.id} value={d.department.id}>
-                    {d.department.code} — {d.department.name}
+                    {d.department.code}: {d.department.name}
                   </option>
                 ))}
               </Select>

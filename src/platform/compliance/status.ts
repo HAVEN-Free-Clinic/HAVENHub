@@ -7,7 +7,7 @@ import { complianceStatus, type ComplianceStatus } from "./rules";
  * Mirrors the reminder engine's rule (reminders.ts): take the newest
  * certificate by uploadedAt and apply {@link complianceStatus} against the
  * active term's end date. Persons with no certificate resolve to
- * NO_CERTIFICATE, so the returned map covers the entire Person table — never
+ * NO_CERTIFICATE, so the returned map covers the entire Person table, never
  * the stale, engine-derived subset that ComplianceReminder rows represent.
  *
  * @param termEnd  End date of the active term, or null when none is active.

@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 import Link from "next/link";
-import { Check, UserRoundPen, ShieldCheck, GraduationCap, BookOpen, type LucideIcon } from "lucide-react";
+import { Check, UserRoundPen, ShieldCheck, GraduationCap, BookOpen, HardHat, type LucideIcon } from "lucide-react";
 import { Badge } from "@/platform/ui/badge";
 import { buttonClasses } from "@/platform/ui/button";
 import type { OnboardingTask } from "@/modules/onboarding/services/onboarding";
@@ -12,6 +12,7 @@ const ICON: Record<OnboardingTaskKey, LucideIcon> = {
   training: GraduationCap,
   directorTraining: GraduationCap,
   learning: BookOpen,
+  ehs: HardHat,
 };
 
 /** Each task tile gets one quiet module hue. */
@@ -21,6 +22,7 @@ const HUE: Record<OnboardingTaskKey, string> = {
   training: "recruit",
   directorTraining: "schedule",
   learning: "admin",
+  ehs: "info",
 };
 
 function hueStyle(key: OnboardingTaskKey): CSSProperties {

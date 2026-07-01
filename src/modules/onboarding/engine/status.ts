@@ -1,7 +1,7 @@
 import type { ComplianceStatus, TrainingState } from "@/platform/compliance/rules";
 
 /** The onboarding requirements a member clears for the active term. */
-export type OnboardingTaskKey = "profile" | "hipaa" | "training" | "directorTraining" | "learning";
+export type OnboardingTaskKey = "profile" | "hipaa" | "training" | "directorTraining" | "learning" | "ehs";
 
 /** Per-task resolution. NOT_REQUIRED means the task does not apply (e.g. no
  *  courses assigned) and is treated as satisfied for gating. */
@@ -36,6 +36,14 @@ export function deriveLearningTaskState(courses: { status: "NOT_STARTED" | "IN_P
   return "INCOMPLETE";
 }
 
+/** EHS clears when every active EHS training is complete; none active means not required. */
+export function deriveEhsTaskState(items: { complete: boolean }[]): OnboardingTaskState {
+  if (items.length === 0) return "NOT_REQUIRED";
+  if (items.every((i) => i.complete)) return "COMPLETE";
+  if (items.some((i) => i.complete)) return "IN_PROGRESS";
+  return "INCOMPLETE";
+}
+
 /** COMPLETE and NOT_REQUIRED both satisfy the gate. */
 export function isSatisfied(state: OnboardingTaskState): boolean {
   return state === "COMPLETE" || state === "NOT_REQUIRED";
@@ -45,4 +53,14 @@ export function isSatisfied(state: OnboardingTaskState): boolean {
 export function summarize(states: OnboardingTaskState[]): { completedCount: number; totalCount: number; onboarded: boolean } {
   const completedCount = states.filter(isSatisfied).length;
   return { completedCount, totalCount: states.length, onboarded: completedCount === states.length };
+}
+
+/** Split the two gating decisions: `onboarded` (blocking tasks only, drives the
+ *  app gate) vs `cleared` (all tasks incl non-blocking EHS, drives the clearance card). */
+export function computeGating(
+  tasks: { state: OnboardingTaskState; blocking: boolean }[]
+): { onboarded: boolean; cleared: boolean } {
+  const onboarded = tasks.filter((t) => t.blocking).every((t) => isSatisfied(t.state));
+  const cleared = tasks.every((t) => isSatisfied(t.state));
+  return { onboarded, cleared };
 }

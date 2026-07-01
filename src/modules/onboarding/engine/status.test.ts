@@ -4,8 +4,10 @@ import {
   deriveHipaaTaskState,
   deriveTrainingTaskState,
   deriveLearningTaskState,
+  deriveEhsTaskState,
   isSatisfied,
   summarize,
+  computeGating,
 } from "./status";
 
 describe("deriveProfileTaskState", () => {
@@ -59,6 +61,21 @@ describe("deriveLearningTaskState", () => {
   });
 });
 
+describe("deriveEhsTaskState", () => {
+  it("is NOT_REQUIRED when no active EHS trainings exist", () => {
+    expect(deriveEhsTaskState([])).toBe("NOT_REQUIRED");
+  });
+  it("is COMPLETE when all items are complete", () => {
+    expect(deriveEhsTaskState([{ complete: true }, { complete: true }])).toBe("COMPLETE");
+  });
+  it("is IN_PROGRESS when some but not all are complete", () => {
+    expect(deriveEhsTaskState([{ complete: true }, { complete: false }])).toBe("IN_PROGRESS");
+  });
+  it("is INCOMPLETE when none are complete", () => {
+    expect(deriveEhsTaskState([{ complete: false }, { complete: false }])).toBe("INCOMPLETE");
+  });
+});
+
 describe("isSatisfied", () => {
   it("treats COMPLETE and NOT_REQUIRED as satisfied", () => {
     expect(isSatisfied("COMPLETE")).toBe(true);
@@ -79,5 +96,40 @@ describe("summarize", () => {
   });
   it("treats an empty task list as onboarded (the dormant, no-active-term case)", () => {
     expect(summarize([])).toEqual({ completedCount: 0, totalCount: 0, onboarded: true });
+  });
+});
+
+describe("computeGating", () => {
+  it("keeps onboarded true when a non-blocking task is INCOMPLETE", () => {
+    const tasks = [
+      { state: "COMPLETE" as const, blocking: true },
+      { state: "COMPLETE" as const, blocking: true },
+      { state: "INCOMPLETE" as const, blocking: false },
+    ];
+    expect(computeGating(tasks)).toEqual({ onboarded: true, cleared: false });
+  });
+
+  it("sets both true when all tasks including non-blocking are satisfied", () => {
+    const tasks = [
+      { state: "COMPLETE" as const, blocking: true },
+      { state: "COMPLETE" as const, blocking: false },
+    ];
+    expect(computeGating(tasks)).toEqual({ onboarded: true, cleared: true });
+  });
+
+  it("sets both false when a blocking task is INCOMPLETE", () => {
+    const tasks = [
+      { state: "INCOMPLETE" as const, blocking: true },
+      { state: "COMPLETE" as const, blocking: false },
+    ];
+    expect(computeGating(tasks)).toEqual({ onboarded: false, cleared: false });
+  });
+
+  it("NOT_REQUIRED tasks always satisfy regardless of blocking flag", () => {
+    const tasks = [
+      { state: "COMPLETE" as const, blocking: true },
+      { state: "NOT_REQUIRED" as const, blocking: false },
+    ];
+    expect(computeGating(tasks)).toEqual({ onboarded: true, cleared: true });
   });
 });

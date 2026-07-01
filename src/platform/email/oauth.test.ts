@@ -49,10 +49,6 @@ beforeEach(async () => {
   __resetTokenCache();
 });
 
-// ---------------------------------------------------------------------------
-// buildAuthorizeUrl
-// ---------------------------------------------------------------------------
-
 describe("buildAuthorizeUrl", () => {
   // buildAuthorizeUrl throws when the OAuth app is unconfigured, so provide
   // test values for the client id and tenant (restored after).
@@ -137,10 +133,6 @@ describe("buildAuthorizeUrl", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// teamsScopesGranted
-// ---------------------------------------------------------------------------
-
 describe("teamsScopesGranted", () => {
   it("returns false for null", () => {
     expect(teamsScopesGranted(null)).toBe(false);
@@ -162,10 +154,6 @@ describe("teamsScopesGranted", () => {
     expect(teamsScopesGranted("Mail.Send Chat.Create ChatMessage.Send")).toBe(true);
   });
 });
-
-// ---------------------------------------------------------------------------
-// exchangeCode
-// ---------------------------------------------------------------------------
 
 describe("exchangeCode", () => {
   it("upserts a MailCredential row with the returned refresh token", async () => {
@@ -275,10 +263,6 @@ describe("exchangeCode", () => {
     await expect(exchangeCode("bad-code", fetchStub as typeof fetch)).rejects.toThrow(/400/);
   });
 });
-
-// ---------------------------------------------------------------------------
-// getAccessToken
-// ---------------------------------------------------------------------------
 
 describe("getAccessToken", () => {
   it("throws MailNotConnectedError when no MailCredential row exists", async () => {
@@ -460,10 +444,6 @@ describe("getAccessToken -- 60-second skew boundary", () => {
     expect(fetchSecond).toHaveBeenCalledTimes(1);
   });
 });
-
-// ---------------------------------------------------------------------------
-// mailConnectionStatus
-// ---------------------------------------------------------------------------
 
 describe("mailConnectionStatus", () => {
   it("returns connected=false when no credential row exists", async () => {

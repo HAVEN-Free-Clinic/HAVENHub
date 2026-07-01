@@ -144,10 +144,6 @@ async function issueCentral(
 
 beforeEach(resetDb);
 
-// ---------------------------------------------------------------------------
-// issueAction
-// ---------------------------------------------------------------------------
-
 describe("issueAction", () => {
   it("director issues for own-dept member; action created; audit row exists", async () => {
     const term = await createTerm();
@@ -350,10 +346,6 @@ describe("issueAction", () => {
     expect(action.patientInvolved).toBe(false);
   });
 });
-
-// ---------------------------------------------------------------------------
-// deleteAction
-// ---------------------------------------------------------------------------
 
 describe("deleteAction", () => {
   it("central can delete; audit before snapshot matches the full row", async () => {
@@ -707,10 +699,6 @@ describe("listActions - filters", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// strikes
-// ---------------------------------------------------------------------------
-
 describe("strikes", () => {
   it("person with 3 actions shows strikes=3 in listActions rows and strikeCount", async () => {
     const term = await createTerm();
@@ -813,10 +801,6 @@ describe("strikes", () => {
     }
   });
 });
-
-// ---------------------------------------------------------------------------
-// issuablePeople
-// ---------------------------------------------------------------------------
 
 describe("issuablePeople", () => {
   it("central -> { all: true, people: [] }", async () => {

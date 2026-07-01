@@ -39,10 +39,6 @@ async function seedEmail(overrides: {
   });
 }
 
-// ---------------------------------------------------------------------------
-// listEmails
-// ---------------------------------------------------------------------------
-
 describe("listEmails - pagination and ordering", () => {
   beforeEach(resetDb);
 
@@ -187,10 +183,6 @@ describe("listEmailTemplates", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// emailHealthCounts
-// ---------------------------------------------------------------------------
-
 describe("emailHealthCounts", () => {
   beforeEach(resetDb);
 
@@ -247,10 +239,6 @@ describe("emailHealthCounts", () => {
     expect(counts.sentToday).toBe(0);
   });
 });
-
-// ---------------------------------------------------------------------------
-// retryEmail
-// ---------------------------------------------------------------------------
 
 describe("retryEmail", () => {
   beforeEach(resetDb);
@@ -390,10 +378,6 @@ describe("EmailStateError", () => {
     expect(err.name).toBe("EmailStateError");
   });
 });
-
-// ---------------------------------------------------------------------------
-// sendSenderTest
-// ---------------------------------------------------------------------------
 
 describe("sendSenderTest", () => {
   beforeEach(async () => {

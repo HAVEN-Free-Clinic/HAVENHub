@@ -14,10 +14,6 @@ import {
   type AssignmentMutation,
 } from "./requests";
 
-// ---------------------------------------------------------------------------
-// validateRequest
-// ---------------------------------------------------------------------------
-
 const rows: ScheduleRowForValidation[] = [
   { date: "2026-05-30", directorIds: ["dA"], volunteerIds: ["vA", "vB"] },
   { date: "2026-06-06", directorIds: ["dB"], volunteerIds: ["vA"] },

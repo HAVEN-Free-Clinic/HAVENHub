@@ -190,10 +190,6 @@ function setVectorCheckOnWidget(pdfDoc: PDFDocument, widget: PDFDict) {
   widget.set(PDFName.of("V"), onValue);
 }
 
-// ---------------------------------------------------------------------------
-// PDF generator
-// ---------------------------------------------------------------------------
-
 export async function generatePdf(args: {
   requestType: RequestType;
   authorizer: Authorizer;

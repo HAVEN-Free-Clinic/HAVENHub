@@ -38,10 +38,6 @@ function authorizeEndpoint(): string {
   return `https://login.microsoftonline.com/${encodeURIComponent(tenant)}/oauth2/v2.0/authorize`;
 }
 
-// ---------------------------------------------------------------------------
-// MailNotConnectedError
-// ---------------------------------------------------------------------------
-
 export class MailNotConnectedError extends Error {
   constructor() {
     super(
@@ -69,10 +65,6 @@ let tokenCache: TokenCache | null = null;
 export function __resetTokenCache(): void {
   tokenCache = null;
 }
-
-// ---------------------------------------------------------------------------
-// buildAuthorizeUrl
-// ---------------------------------------------------------------------------
 
 /**
  * Build the Microsoft authorize URL for the one-time admin consent.
@@ -128,10 +120,6 @@ function extractAccount(idToken: string | undefined | null): string | null {
     return null;
   }
 }
-
-// ---------------------------------------------------------------------------
-// exchangeCode
-// ---------------------------------------------------------------------------
 
 /**
  * Exchange an authorization code for tokens and persist the refresh token.
@@ -199,10 +187,6 @@ export async function exchangeCode(
     },
   });
 }
-
-// ---------------------------------------------------------------------------
-// getAccessToken
-// ---------------------------------------------------------------------------
 
 /**
  * Return a valid access token, using the module-level cache when possible.
@@ -276,10 +260,6 @@ export async function getAccessToken(
 
   return json.access_token;
 }
-
-// ---------------------------------------------------------------------------
-// mailConnectionStatus
-// ---------------------------------------------------------------------------
 
 /**
  * Return the current mail connection status for the admin UI.

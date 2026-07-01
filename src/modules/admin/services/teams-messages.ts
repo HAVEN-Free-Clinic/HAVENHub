@@ -39,10 +39,6 @@ export type TeamsMessageWithPerson = TeamsMessage & {
 
 export const TEAMS_PAGE_SIZE = 25;
 
-// ---------------------------------------------------------------------------
-// listTeamsMessages
-// ---------------------------------------------------------------------------
-
 /** List Teams messages with optional status/type/recipient filters, paginated. */
 export async function listTeamsMessages(params: {
   status?: TeamsMessageStatus;
@@ -72,10 +68,6 @@ export async function listTeamsMessages(params: {
 
   return { rows, total, page };
 }
-
-// ---------------------------------------------------------------------------
-// retryTeamsMessage
-// ---------------------------------------------------------------------------
 
 /**
  * Reset a FAILED, FALLBACK, or LOGGED Teams message back to QUEUED for another

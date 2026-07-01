@@ -101,10 +101,6 @@ async function delegate(managerDepartmentId: string, managedDepartmentId: string
 
 beforeEach(resetDb);
 
-// ---------------------------------------------------------------------------
-// flagForOffboarding
-// ---------------------------------------------------------------------------
-
 describe("flagForOffboarding", () => {
   it("director flags own-dept member; flag row created; audit row exists", async () => {
     const term = await createTerm();
@@ -210,10 +206,6 @@ describe("flagForOffboarding", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// unflag
-// ---------------------------------------------------------------------------
-
 describe("unflag", () => {
   it("deletes the flag and second unflag throws OffboardNotFoundError", async () => {
     const term = await createTerm();
@@ -245,10 +237,6 @@ describe("unflag", () => {
     await expect(unflag(actor.id, target.id)).rejects.toBeInstanceOf(OffboardNotFoundError);
   });
 });
-
-// ---------------------------------------------------------------------------
-// executeOffboard
-// ---------------------------------------------------------------------------
 
 describe("executeOffboard", () => {
   it("without permission -> OffboardForbiddenError", async () => {
@@ -379,10 +367,6 @@ describe("executeOffboard", () => {
     expect(flagsAfter).toHaveLength(0);
   });
 });
-
-// ---------------------------------------------------------------------------
-// offboardingView
-// ---------------------------------------------------------------------------
 
 describe("offboardingView", () => {
   it("returns director's departments with members and their flags", async () => {

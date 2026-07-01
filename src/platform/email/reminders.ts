@@ -48,10 +48,6 @@ export type ReminderRunResult = {
   skipped: number;
 };
 
-// ---------------------------------------------------------------------------
-// runComplianceReminders
-// ---------------------------------------------------------------------------
-
 /**
  * Run one cycle of the compliance reminder engine.
  *

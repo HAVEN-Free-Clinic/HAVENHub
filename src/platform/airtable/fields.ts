@@ -26,3 +26,21 @@ export const SU26_ROSTER_FIELDS = {
 export const ALL_PEOPLE_ATTACHMENT_FIELDS = {
   hipaaCertificate: "fld1k09CQVK2VSIJM",
 } as const;
+
+/** Compliance table id (tblxmEYGZ1ZKqSeK4). Lives in the same base as All People. */
+export const COMPLIANCE_TABLE_ID = "tblxmEYGZ1ZKqSeK4";
+
+/** Compliance table "Names" link field: array of linked All People record ids. */
+export const COMPLIANCE_NAMES_LINK_FIELD = "fldcaF7NQu6JObuq6";
+
+/** Compliance table (tblxmEYGZ1ZKqSeK4) EHS checkbox fields, keyed by field id,
+ *  mapped to the seeded EhsTraining.name they correspond to. */
+export const EHS_CHECKBOX_FIELDS: { fieldId: string; trainingName: string }[] = [
+  { fieldId: "fld3gfbuD5rASyD8Z", trainingName: "Added to EHS?" },
+  { fieldId: "fldQgdujeCMk5dVVH", trainingName: "Chemical - Hazard Communication" },
+  { fieldId: "fldWwugy9nikSiLtZ", trainingName: "Biological - TB Awareness" },
+  { fieldId: "fldZ3NCYwqVTCXBs7", trainingName: "BBP Clinical" },
+  { fieldId: "fldm7ZbNyYVf07VSp", trainingName: "BBP Student" },
+  { fieldId: "fld8KiByAuWEUKnoj", trainingName: "TB Baseline Screening" },
+  { fieldId: "fld56ALUQbZUfCpWi", trainingName: "Physical Safety - Respiration" },
+];

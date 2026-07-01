@@ -284,15 +284,18 @@ describe("compliance-escalation via renderEmail", () => {
     expect(html).toContain("completion date needed");
   });
 
-  it("html contains readable status 'compliant' for COMPLIANT", async () => {
+  it("COMPLIANT status with EHS gap renders EHS-only copy, not HIPAA-complaint copy", async () => {
     const params: ComplianceEscalationParams = {
       directorName: "Dr. Director",
       volunteerName: "Alice Smith",
       departmentName: "Outreach",
       status: "COMPLIANT",
+      ehsMissing: ["BBP Clinical"],
     };
     const { html } = await renderEmail("compliance-escalation", complianceEscalationContext(params));
-    expect(html).toContain("compliant");
+    expect(html).not.toContain("not HIPAA compliant");
+    expect(html).toContain("outstanding required EHS training");
+    expect(html).toContain("BBP Clinical");
   });
 
   it("HTML-escapes a malicious directorName", async () => {

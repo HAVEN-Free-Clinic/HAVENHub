@@ -64,12 +64,10 @@ export async function backfillEhsCompletions(
       continue;
     }
 
-    // Stale Prisma client: addedToEhs not in the generated PersonSelect yet;
-    // double-assert through unknown so the select is passed through at runtime.
-    const person = (await prisma.person.findUnique({
+    const person = await prisma.person.findUnique({
       where: { airtableRecordId: linkedId },
-      select: { id: true, addedToEhs: true } as unknown as { id: true },
-    })) as { id: string; addedToEhs: boolean } | null;
+      select: { id: true, addedToEhs: true },
+    });
     if (!person) {
       report.unmatchedPeople++;
       continue;
@@ -78,8 +76,7 @@ export async function backfillEhsCompletions(
     // Sync the "Added to EHS?" flag when Airtable says true and the local record is false.
     if (record.fields[ADDED_TO_EHS_FIELD] === true && !person.addedToEhs) {
       if (!options.dryRun) {
-        // Stale Prisma client: addedToEhs not in PersonUpdateInput yet.
-        await prisma.person.update({ where: { id: person.id }, data: { addedToEhs: true } as unknown as Parameters<typeof prisma.person.update>[0]["data"] });
+        await prisma.person.update({ where: { id: person.id }, data: { addedToEhs: true } });
         await recordAudit({
           actorPersonId: null,
           action: "ehs.added_to_ehs_import",

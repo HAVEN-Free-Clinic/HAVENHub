@@ -6,7 +6,7 @@ import { _resetSenderRulesCache } from "@/platform/email/sender-rules";
 export async function resetDb() {
   // CASCADE handles FK ordering. (RESTART IDENTITY would be a no-op: all PKs are cuid text.)
   await prisma.$executeRawUnsafe(
-    `TRUNCATE "CourseProgress", "CourseDepartment", "Course",
+    `TRUNCATE "EhsCompletion", "EhsTraining", "CourseProgress", "CourseDepartment", "Course",
               "QuizAttempt", "Training", "Evaluation", "InterviewPanelist", "Interview", "OnboardingContract", "Acceptance", "Application", "Applicant", "Subcommittee", "FormField", "FormSection", "RecruitmentCycleEmail", "RecruitmentCycle",
               "ShiftRequest", "ScheduleDay", "RhdClinic", "RhdAttending",
               "ShiftAssignment", "HipaaCertificate", "RoleAssignment", "RoleGrant", "Role", "TermMembership",

@@ -16,14 +16,16 @@
   --color-canvas: #eef1f5;
 
   /* Semantic neutral roles. Light values equal today's slate/white hex so the
-     existing UI is visually unchanged; the .dark block below overrides them. */
+     existing UI is visually unchanged; the .dark block below overrides them.
+     Exception: muted-/subtle-foreground are nudged off the exact slate steps so
+     they clear WCAG AA as text on the canvas bg (see per-line notes). */
   --color-surface: #ffffff;          /* was bg-white (neutral surfaces) */
   --color-muted: #f8fafc;            /* slate-50  */
   --color-muted-strong: #f1f5f9;     /* slate-100 */
   --color-foreground: #0f172a;       /* slate-900 */
   --color-foreground-soft: #334155;  /* slate-700 */
-  --color-muted-foreground: #64748b; /* slate-500 */
-  --color-subtle-foreground: #94a3b8;/* slate-400 */
+  --color-muted-foreground: #526076; /* slate-500 lifted for AA on the canvas bg (5.6:1); plain slate-500 was 4.20:1 there */
+  --color-subtle-foreground: #5f6e85;/* slate-400 lifted for AA text (4.6:1 on canvas); plain slate-400 failed everywhere (2.3-2.6:1) */
   --color-border: #e2e8f0;           /* slate-200 */
   --color-border-strong: #cbd5e1;    /* slate-300 */
   --color-border-subtle: #f1f5f9;    /* slate-100 */
@@ -63,8 +65,8 @@ html.dark {
   --color-muted-strong: #334155;      /* slate-700 */
   --color-foreground: #f1f5f9;        /* slate-100 */
   --color-foreground-soft: #cbd5e1;   /* slate-300 */
-  --color-muted-foreground: #94a3b8;  /* slate-400 */
-  --color-subtle-foreground: #64748b; /* slate-500 */
+  --color-muted-foreground: #94a3b8;  /* slate-400 (already AA on dark surfaces, 7.0:1) */
+  --color-subtle-foreground: #728298; /* slate-500 lifted for AA text (4.6:1 on surface); plain slate-500 was 3.75:1 */
   --color-border: #334155;            /* slate-700 */
   --color-border-strong: #475569;     /* slate-600 */
   --color-border-subtle: #1e293b;     /* slate-800 */

@@ -17,6 +17,36 @@ import {
 const reminderDescriptor = complianceDescriptors.find((d) => d.key === "compliance-reminder")!;
 const escalationDescriptor = complianceDescriptors.find((d) => d.key === "compliance-escalation")!;
 
+describe("compliance-reminder whitespace-neutrality when hasEhsGap is false (pure, no DB)", () => {
+  it("leaves exactly one blank line between the CTA table and the sign-off when hasEhsGap is false", () => {
+    const ctx = complianceReminderContext({
+      personName: "Sam Student",
+      status: "EXPIRING_SOON",
+      expiresAt: new Date("2026-09-01T00:00:00Z"),
+      ehsMissing: [],
+    });
+    const output = renderTemplate(reminderDescriptor.defaultBody, ctx);
+    expect(output).toContain("</table>\n\n<p>Thank you,<br>HAVEN Free Clinic</p>");
+    // Must NOT have a double blank line (three or more consecutive newlines).
+    expect(output).not.toMatch(/\n{3}/);
+  });
+});
+
+describe("compliance-escalation whitespace-neutrality when hasEhsGap is false (pure, no DB)", () => {
+  it("leaves exactly one blank line between the follow-up sentence and the sign-off when hasEhsGap is false", () => {
+    const ctx = complianceEscalationContext({
+      directorName: "Dr. Director",
+      volunteerName: "Sam Student",
+      departmentName: "Primary Care",
+      status: "EXPIRED",
+      ehsMissing: [],
+    });
+    const output = renderTemplate(escalationDescriptor.defaultBody, ctx);
+    expect(output).toContain("Please follow up.</p>\n\n<p>Thank you,<br>HAVEN Free Clinic</p>");
+    expect(output).not.toMatch(/\n{3}/);
+  });
+});
+
 describe("compliance-reminder EHS list rendering (pure, no DB)", () => {
   it("renders both EHS training names into the body", () => {
     const ctx = complianceReminderContext({

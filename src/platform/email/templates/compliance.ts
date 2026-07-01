@@ -237,9 +237,9 @@ export const complianceDescriptors: TemplateDescriptor[] = [
       <a href="{{ ctaUrl }}" style="display: inline-block; padding: 12px 24px; font-family: 'Hanken Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; font-weight: 600; color: #ffffff; text-decoration: none;">Open HAVEN Hub &rarr;</a>
     </td>
   </tr>
-</table>{{else}}<p>{{ actionLine }}</p>{{/if}}
+</table>{{else}}<p>{{ actionLine }}</p>{{/if}}{{#if hasEhsGap}}
 
-{{#if hasEhsGap}}<p>Your EHS training is incomplete. The following item(s) still need to be completed: {{ ehsMissingList }}.</p><p>Please complete these through Yale EHS. Reach out to your director if you are unsure how.</p>{{/if}}
+<p>Your EHS training is incomplete. The following item(s) still need to be completed: {{ ehsMissingList }}.</p><p>Please complete these through Yale EHS. Reach out to your director if you are unsure how.</p>{{/if}}
 
 <p>Thank you,<br>HAVEN Free Clinic</p>`,
   },
@@ -259,9 +259,9 @@ export const complianceDescriptors: TemplateDescriptor[] = [
     defaultSubject: "[HAVEN] Volunteer compliance needs attention",
     defaultBody: `<p>Hello {{ directorName }},</p>
 
-<p>{{ volunteerName }} in {{ departmentName }} is not HIPAA compliant ({{ readableStatus }}) and has not responded to reminders. Please follow up.</p>
+<p>{{ volunteerName }} in {{ departmentName }} is not HIPAA compliant ({{ readableStatus }}) and has not responded to reminders. Please follow up.</p>{{#if hasEhsGap}}
 
-{{#if hasEhsGap}}<p>Outstanding EHS training: {{ ehsMissingList }}.</p>{{/if}}
+<p>Outstanding EHS training: {{ ehsMissingList }}.</p>{{/if}}
 
 <p>Thank you,<br>HAVEN Free Clinic</p>`,
   },

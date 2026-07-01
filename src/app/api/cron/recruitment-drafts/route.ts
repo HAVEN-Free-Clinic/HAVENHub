@@ -1,4 +1,3 @@
-// src/app/api/cron/recruitment-drafts/route.ts
 import { authorizeCron } from "@/platform/cron";
 import { sweepAbandonedDrafts } from "@/modules/recruitment/services/drafts";
 

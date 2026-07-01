@@ -1,4 +1,3 @@
-// src/platform/notifications/notify.ts
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { queueEmail } from "@/platform/email/send";
 import { resolveChannel } from "./channel";

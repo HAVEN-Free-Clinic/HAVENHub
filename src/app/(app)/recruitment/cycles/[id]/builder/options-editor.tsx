@@ -1,4 +1,3 @@
-// src/app/(app)/recruitment/cycles/[id]/builder/options-editor.tsx
 "use client";
 import { GripVertical, Plus, X } from "lucide-react";
 import { useId, type HTMLAttributes } from "react";

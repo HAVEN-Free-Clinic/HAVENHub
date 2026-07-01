@@ -1,4 +1,3 @@
-// src/modules/recruitment/services/portal-auth.ts
 import { randomBytes, createHash } from "node:crypto";
 import { prisma } from "@/platform/db";
 

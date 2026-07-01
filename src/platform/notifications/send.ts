@@ -1,4 +1,3 @@
-// src/platform/notifications/send.ts
 import type { Prisma, PrismaClient, TeamsMessage } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { queueEmail } from "@/platform/email/send";

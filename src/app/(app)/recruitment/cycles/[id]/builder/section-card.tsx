@@ -1,4 +1,3 @@
-// src/app/(app)/recruitment/cycles/[id]/builder/section-card.tsx
 "use client";
 import { useState, useTransition, type HTMLAttributes } from "react";
 import { GripVertical, Settings2 } from "lucide-react";

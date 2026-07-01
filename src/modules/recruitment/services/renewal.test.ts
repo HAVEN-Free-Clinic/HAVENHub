@@ -1,4 +1,3 @@
-// src/modules/recruitment/services/renewal.test.ts
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";

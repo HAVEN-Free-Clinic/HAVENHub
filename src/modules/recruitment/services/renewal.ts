@@ -1,4 +1,3 @@
-// src/modules/recruitment/services/renewal.ts
 import type { Track } from "@prisma/client";
 import { prisma } from "@/platform/db";
 

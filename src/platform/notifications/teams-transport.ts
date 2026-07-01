@@ -1,4 +1,3 @@
-// src/platform/notifications/teams-transport.ts
 import { getAccessToken, mailConnectionStatus } from "@/platform/email/oauth";
 import { getSetting } from "@/platform/settings/service";
 

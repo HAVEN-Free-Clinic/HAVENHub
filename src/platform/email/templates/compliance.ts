@@ -153,7 +153,7 @@ export function complianceReminderContext(p: ComplianceReminderParams): Record<s
     showCta,
     ctaUrl: `${p.appUrl ?? ""}/my-info`,
     brandColor: p.brandColor ?? "",
-    ehsMissing: p.ehsMissing ?? [],
+    ehsMissingList: (p.ehsMissing ?? []).join(", "),
     hasEhsGap: (p.ehsMissing ?? []).length > 0,
   };
 }
@@ -167,7 +167,7 @@ export function complianceEscalationContext(p: ComplianceEscalationParams): Reco
     volunteerName: p.volunteerName,
     departmentName: p.departmentName,
     readableStatus: READABLE_STATUS[p.status],
-    ehsMissing: p.ehsMissing ?? [],
+    ehsMissingList: (p.ehsMissing ?? []).join(", "),
     hasEhsGap: (p.ehsMissing ?? []).length > 0,
   };
 }
@@ -221,7 +221,7 @@ export const complianceDescriptors: TemplateDescriptor[] = [
         label: "Brand color for the call-to-action button background (hex)",
         sampleValue: "#00356b",
       },
-      { name: "ehsMissing", label: "List of missing required EHS training names", sampleValue: '["Blood Borne Pathogens"]' },
+      { name: "ehsMissingList", label: "Comma-separated list of missing required EHS training names", sampleValue: "Blood Borne Pathogens" },
       { name: "hasEhsGap", label: "True when one or more required EHS trainings are incomplete", sampleValue: "false" },
     ],
     defaultSubject: "[HAVEN] Compliance reminder",
@@ -239,15 +239,7 @@ export const complianceDescriptors: TemplateDescriptor[] = [
   </tr>
 </table>{{else}}<p>{{ actionLine }}</p>{{/if}}
 
-{{#if hasEhsGap}}
-<p>Your EHS training is incomplete. The following item(s) still need to be completed:</p>
-<ul>
-{{#each ehsMissing}}
-  <li>{{this}}</li>
-{{/each}}
-</ul>
-<p>Please complete these through Yale EHS. Reach out to your director if you are unsure how.</p>
-{{/if}}
+{{#if hasEhsGap}}<p>Your EHS training is incomplete. The following item(s) still need to be completed: {{ ehsMissingList }}.</p><p>Please complete these through Yale EHS. Reach out to your director if you are unsure how.</p>{{/if}}
 
 <p>Thank you,<br>HAVEN Free Clinic</p>`,
   },
@@ -261,7 +253,7 @@ export const complianceDescriptors: TemplateDescriptor[] = [
       { name: "volunteerName", label: "Volunteer name", sampleValue: "Jane Doe" },
       { name: "departmentName", label: "Department name", sampleValue: "Cardiology" },
       { name: "readableStatus", label: "Human-readable HIPAA compliance status", sampleValue: "expired" },
-      { name: "ehsMissing", label: "List of missing required EHS training names", sampleValue: '["Blood Borne Pathogens"]' },
+      { name: "ehsMissingList", label: "Comma-separated list of missing required EHS training names", sampleValue: "Blood Borne Pathogens" },
       { name: "hasEhsGap", label: "True when one or more required EHS trainings are incomplete", sampleValue: "false" },
     ],
     defaultSubject: "[HAVEN] Volunteer compliance needs attention",
@@ -269,9 +261,7 @@ export const complianceDescriptors: TemplateDescriptor[] = [
 
 <p>{{ volunteerName }} in {{ departmentName }} is not HIPAA compliant ({{ readableStatus }}) and has not responded to reminders. Please follow up.</p>
 
-{{#if hasEhsGap}}
-<p>Outstanding EHS training: {{#each ehsMissing}}{{this}}{{#unless @last}}, {{/unless}}{{/each}}.</p>
-{{/if}}
+{{#if hasEhsGap}}<p>Outstanding EHS training: {{ ehsMissingList }}.</p>{{/if}}
 
 <p>Thank you,<br>HAVEN Free Clinic</p>`,
   },

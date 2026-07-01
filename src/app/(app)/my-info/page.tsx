@@ -15,8 +15,10 @@ import { PersonConflictError } from "@/platform/people";
 import { MyInfoForm } from "@/modules/my-info/components/my-info-form";
 import { MembershipsCard } from "@/modules/my-info/components/memberships-card";
 import { HipaaPanel } from "@/modules/my-info/components/hipaa-panel";
+import { EhsPanel } from "@/modules/my-info/components/ehs-panel";
 import { EpicPanel } from "@/modules/my-info/components/epic-panel";
 import { ClearanceCard } from "@/modules/my-info/components/clearance-card";
+import { getMyEhsStatus } from "@/modules/ehs/services/my-ehs";
 import { complianceStatus, overallClearance } from "@/platform/compliance/rules";
 import { resolveTrainingState, requiredTrainingTracks } from "@/modules/recruitment/services/training";
 import {
@@ -45,10 +47,11 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
 
   // Fetch all data in parallel where possible.
   // getMyInfo already loads the active term; reuse it to avoid a second query.
-  const [myInfo, certificates, epicPanel] = await Promise.all([
+  const [myInfo, certificates, epicPanel, ehsItems] = await Promise.all([
     getMyInfo(person.personId),
     listMyCertificates(person.personId),
     myEpicPanel(person.personId),
+    getMyEhsStatus(person.personId),
   ]);
   const { activeTerm } = myInfo;
 
@@ -201,6 +204,12 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
             certSaved={sp.certSaved === "1"}
             status={status}
           />
+        </section>
+
+        {/* EHS Training */}
+        <section>
+          <SectionHeader className="mb-4">EHS Training</SectionHeader>
+          <EhsPanel items={ehsItems} />
         </section>
 
         {/* Clearance */}

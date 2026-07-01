@@ -14,7 +14,7 @@ type RouteContext = {
  * to download even when `?inline=1` is requested, because the stored mimeType can
  * come from imported attachments (see src/platform/airtable/import/certificates.ts)
  * and an inline `text/html` or `image/svg+xml` would be a stored-XSS vector.
- * SVG is intentionally excluded — it can carry script.
+ * SVG is intentionally excluded; it can carry script.
  */
 const INLINE_SAFE_MIME_TYPES = new Set([
   "application/pdf",

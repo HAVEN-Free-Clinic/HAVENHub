@@ -21,6 +21,7 @@
 import { cache } from "react";
 import type { HipaaCertificate } from "@prisma/client";
 import { prisma } from "@/platform/db";
+import { getActiveTerm } from "@/platform/terms/active-term";
 import { recordAudit } from "@/platform/audit";
 import { updatePersonFields } from "@/platform/people";
 import { getSetting } from "@/platform/settings/service";
@@ -94,10 +95,7 @@ export function parseCertificateUpload(formData: FormData): {
 export async function getMyInfo(personId: string) {
   const [person, activeTerm] = await Promise.all([
     prisma.person.findUniqueOrThrow({ where: { id: personId } }),
-    prisma.term.findFirst({
-      where: { status: "ACTIVE" },
-      orderBy: { startDate: "desc" },
-    }),
+    getActiveTerm(),
   ]);
 
   const memberships = activeTerm
@@ -128,15 +126,6 @@ export const listMyCertificates = cache(
     });
   }
 );
-
-export async function getOwnedCertificate(
-  personId: string,
-  certId: string
-): Promise<HipaaCertificate | null> {
-  const cert = await prisma.hipaaCertificate.findUnique({ where: { id: certId } });
-  if (!cert || cert.personId !== personId) return null;
-  return cert;
-}
 
 // ---------------------------------------------------------------------------
 // Mutations
@@ -180,10 +169,7 @@ export async function updateMyInfo(personId: string, input: MyInfoInput): Promis
  * is a decision that goes through the executive directors.
  */
 export async function withdrawFromTerm(personId: string): Promise<number> {
-  const activeTerm = await prisma.term.findFirst({
-    where: { status: "ACTIVE" },
-    orderBy: { startDate: "desc" },
-  });
+  const activeTerm = await getActiveTerm();
 
   if (!activeTerm) return 0;
 

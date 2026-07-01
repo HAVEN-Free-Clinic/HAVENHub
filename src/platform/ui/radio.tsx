@@ -1,8 +1,5 @@
 import type { ComponentProps, ReactNode } from "react";
-
-function cx(...parts: (string | undefined | false | null)[]): string {
-  return parts.filter(Boolean).join(" ");
-}
+import { cx } from "./cx";
 
 /**
  * Brand-tinted radio with the same visible focus ring as Checkbox, so keyboard

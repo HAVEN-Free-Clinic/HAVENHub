@@ -1,8 +1,5 @@
 import type { ComponentProps, ReactNode } from "react";
-
-function cx(...parts: (string | undefined | false | null)[]): string {
-  return parts.filter(Boolean).join(" ");
-}
+import { cx } from "./cx";
 
 const controlBase =
   "rounded-lg border border-border-strong px-3 py-2 text-sm w-full outline-none " +
@@ -28,7 +25,7 @@ export function Textarea({
  *
  * The label *wraps* the control (implicit association) so screen readers and
  * label-click focus work without threading an `id`/`htmlFor` pair through every
- * caller — this keeps Field usable from both server and client components.
+ * caller; this keeps Field usable from both server and client components.
  */
 export function Field({
   label,

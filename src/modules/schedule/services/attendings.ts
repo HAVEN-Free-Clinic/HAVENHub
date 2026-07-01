@@ -162,6 +162,3 @@ export async function updateAttending(
   return updated;
 }
 
-export async function setAttendingActive(actor: string, id: string, isActive: boolean): Promise<RhdAttending> {
-  return updateAttending(actor, id, { isActive });
-}

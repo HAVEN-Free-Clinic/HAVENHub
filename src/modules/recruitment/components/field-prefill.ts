@@ -1,7 +1,7 @@
 // Helpers for repopulating a saved/prefilled answer back into a form control.
 //
 // A draft answer can be a string (text, single-select), an array of strings
-// (multi-select checkboxes, subcommittee rank — one entry per rank, "" for an
+// (multi-select checkboxes, subcommittee rank: one entry per rank, "" for an
 // unranked slot), or a file-reference object ({ storedName, fileName, ... }).
 // These narrow that loose shape into what each control needs.
 

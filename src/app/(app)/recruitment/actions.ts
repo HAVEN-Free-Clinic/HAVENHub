@@ -1,7 +1,7 @@
 "use server";
 import { redirect } from "next/navigation";
-import { revalidatePath } from "next/cache";
 import { requirePermission } from "@/platform/auth/session";
+import { runAction } from "@/platform/actions";
 import {
   createCycle, publishCycle, closeCycle, reopenCycle, archiveCycle, setAcceptsRenewals,
   setApplicationWindow, setCycleDepartments, CyclePublishError,
@@ -29,67 +29,52 @@ export async function createCycleAction(formData: FormData) {
 
 export async function publishCycleAction(cycleId: string) {
   const person = await requirePermission("recruitment.manage_cycles");
-  try {
-    await publishCycle(cycleId, person.personId);
-  } catch (err) {
-    if (err instanceof CyclePublishError) {
-      redirect(`/recruitment/cycles/${cycleId}?error=${encodeURIComponent(err.message)}`);
-    }
-    throw err;
-  }
-  revalidatePath(`/recruitment/cycles/${cycleId}`);
+  await runAction({
+    work: () => publishCycle(cycleId, person.personId),
+    domainErrors: [CyclePublishError],
+    errorRedirect: (m) => `/recruitment/cycles/${cycleId}?error=${encodeURIComponent(m)}`,
+    revalidate: `/recruitment/cycles/${cycleId}`,
+  });
 }
 
 export async function closeCycleAction(cycleId: string) {
   const person = await requirePermission("recruitment.manage_cycles");
-  try {
-    await closeCycle(cycleId, person.personId);
-  } catch (err) {
-    if (err instanceof CyclePublishError) {
-      redirect(`/recruitment/cycles/${cycleId}?error=${encodeURIComponent(err.message)}`);
-    }
-    throw err;
-  }
-  revalidatePath(`/recruitment/cycles/${cycleId}`);
+  await runAction({
+    work: () => closeCycle(cycleId, person.personId),
+    domainErrors: [CyclePublishError],
+    errorRedirect: (m) => `/recruitment/cycles/${cycleId}?error=${encodeURIComponent(m)}`,
+    revalidate: `/recruitment/cycles/${cycleId}`,
+  });
 }
 
 export async function reopenCycleAction(cycleId: string) {
   const person = await requirePermission("recruitment.manage_cycles");
-  try {
-    await reopenCycle(cycleId, person.personId);
-  } catch (err) {
-    if (err instanceof CyclePublishError) {
-      redirect(`/recruitment/cycles/${cycleId}?error=${encodeURIComponent(err.message)}`);
-    }
-    throw err;
-  }
-  revalidatePath(`/recruitment/cycles/${cycleId}`);
+  await runAction({
+    work: () => reopenCycle(cycleId, person.personId),
+    domainErrors: [CyclePublishError],
+    errorRedirect: (m) => `/recruitment/cycles/${cycleId}?error=${encodeURIComponent(m)}`,
+    revalidate: `/recruitment/cycles/${cycleId}`,
+  });
 }
 
 export async function archiveCycleAction(cycleId: string) {
   const person = await requirePermission("recruitment.manage_cycles");
-  try {
-    await archiveCycle(cycleId, person.personId);
-  } catch (err) {
-    if (err instanceof CyclePublishError) {
-      redirect(`/recruitment/cycles/${cycleId}?error=${encodeURIComponent(err.message)}`);
-    }
-    throw err;
-  }
-  revalidatePath(`/recruitment/cycles/${cycleId}`);
+  await runAction({
+    work: () => archiveCycle(cycleId, person.personId),
+    domainErrors: [CyclePublishError],
+    errorRedirect: (m) => `/recruitment/cycles/${cycleId}?error=${encodeURIComponent(m)}`,
+    revalidate: `/recruitment/cycles/${cycleId}`,
+  });
 }
 
 export async function toggleRenewalsAction(cycleId: string, value: boolean) {
   const person = await requirePermission("recruitment.manage_cycles");
-  try {
-    await setAcceptsRenewals(cycleId, value, person.personId);
-  } catch (err) {
-    if (err instanceof CyclePublishError) {
-      redirect(`/recruitment/cycles/${cycleId}?error=${encodeURIComponent(err.message)}`);
-    }
-    throw err;
-  }
-  revalidatePath(`/recruitment/cycles/${cycleId}`);
+  await runAction({
+    work: () => setAcceptsRenewals(cycleId, value, person.personId),
+    domainErrors: [CyclePublishError],
+    errorRedirect: (m) => `/recruitment/cycles/${cycleId}?error=${encodeURIComponent(m)}`,
+    revalidate: `/recruitment/cycles/${cycleId}`,
+  });
 }
 
 export async function setCycleDepartmentsAction(cycleId: string, formData: FormData) {
@@ -132,28 +117,22 @@ export async function setApplicationWindowAction(cycleId: string, formData: Form
 
 export async function setTrainingCycleAction(cycleId: string, value: boolean) {
   const person = await requirePermission("recruitment.manage_cycles");
-  try {
-    await setTrainingCycle(cycleId, value, person.personId);
-  } catch (err) {
-    if (err instanceof TrainingStateError || err instanceof RecruitmentAuthError) {
-      redirect(`/recruitment/cycles/${cycleId}?error=${encodeURIComponent((err as Error).message)}`);
-    }
-    throw err;
-  }
-  revalidatePath(`/recruitment/cycles/${cycleId}`);
+  await runAction({
+    work: () => setTrainingCycle(cycleId, value, person.personId),
+    domainErrors: [TrainingStateError, RecruitmentAuthError],
+    errorRedirect: (m) => `/recruitment/cycles/${cycleId}?error=${encodeURIComponent(m)}`,
+    revalidate: `/recruitment/cycles/${cycleId}`,
+  });
 }
 
 export async function updateQuizSettingsAction(cycleId: string, formData: FormData) {
   const person = await requirePermission("recruitment.manage_cycles");
   const quizPassPercent = Number(formData.get("quizPassPercent"));
   const quizMaxAttempts = Number(formData.get("quizMaxAttempts"));
-  try {
-    await updateQuizSettings(cycleId, { quizPassPercent, quizMaxAttempts }, person.personId);
-  } catch (err) {
-    if (err instanceof TrainingStateError) {
-      redirect(`/recruitment/cycles/${cycleId}?error=${encodeURIComponent(err.message)}`);
-    }
-    throw err;
-  }
-  revalidatePath(`/recruitment/cycles/${cycleId}`);
+  await runAction({
+    work: () => updateQuizSettings(cycleId, { quizPassPercent, quizMaxAttempts }, person.personId),
+    domainErrors: [TrainingStateError],
+    errorRedirect: (m) => `/recruitment/cycles/${cycleId}?error=${encodeURIComponent(m)}`,
+    revalidate: `/recruitment/cycles/${cycleId}`,
+  });
 }

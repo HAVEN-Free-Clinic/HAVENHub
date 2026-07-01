@@ -6,10 +6,7 @@ import {
   XCircle,
   type LucideIcon,
 } from "lucide-react";
-
-function cx(...parts: (string | undefined | false | null)[]): string {
-  return parts.filter(Boolean).join(" ");
-}
+import { cx } from "./cx";
 
 type Tone = "error" | "success" | "warning" | "info";
 
@@ -34,7 +31,7 @@ type AlertProps = ComponentProps<"p"> & {
 /**
  * Inline status message shown near a form or action.
  *
- * Sizes to its content — a short confirmation stays a compact chip, while a long
+ * Sizes to its content: a short confirmation stays a compact chip, while a long
  * message grows to the container width and wraps. Color lives in the leading
  * tone icon, not a filled banner, so confirmations stay quiet and transient.
  *

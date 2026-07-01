@@ -24,18 +24,9 @@ import {
 } from "@/modules/schedule/services/requests";
 import { isoDateKey } from "@/modules/schedule/engine/map";
 import { displayDate } from "@/modules/schedule/engine/display";
+import { fmtDate } from "@/platform/dates";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Clock } from "lucide-react";
-
-function fmtDate(d: Date | null | undefined): string {
-  if (!d) return "-";
-  return d.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  });
-}
 
 type PageProps = {
   searchParams: Promise<{ error?: string; message?: string; saved?: string; requested?: string }>;
@@ -220,7 +211,7 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                                 {pendingReq.targetId
                                   ? `swap with ${pendingReq.target?.name ?? "unknown"} (${pendingReq.targetDate ? displayDate(isoDateKey(pendingReq.targetDate)) : "?"})`
                                   : "drop"}{" "}
-                                — pending director review
+                                , pending director review
                               </p>
                               <form action={cancelRequestAction}>
                                 <input type="hidden" name="requestId" value={pendingReq.id} />
@@ -361,13 +352,13 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                   <span className="text-sm font-bold text-foreground">
                     {shifts.length > 0
                       ? shifts[0].role.charAt(0) + shifts[0].role.slice(1).toLowerCase()
-                      : "—"}
+                      : "-"}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-foreground-soft">Department</span>
                   <span className="text-sm font-bold text-foreground">
-                    {shifts.length > 0 ? shifts[0].department.code : "—"}
+                    {shifts.length > 0 ? shifts[0].department.code : "-"}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">

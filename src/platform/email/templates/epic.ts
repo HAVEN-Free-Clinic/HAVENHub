@@ -151,7 +151,7 @@ export function epicPasswordResetContext(params: EpicEmailParams): Record<string
 export const epicDescriptors: TemplateDescriptor[] = [
   {
     key: "epic-onboarding",
-    name: "Epic Onboarding",
+    name: "Epic: onboarding",
     category: "transactional",
     group: "epic",
     variables: [
@@ -177,7 +177,7 @@ export const epicDescriptors: TemplateDescriptor[] = [
   },
   {
     key: "epic-activation",
-    name: "Epic Activation",
+    name: "Epic: activation",
     category: "transactional",
     group: "epic",
     variables: [

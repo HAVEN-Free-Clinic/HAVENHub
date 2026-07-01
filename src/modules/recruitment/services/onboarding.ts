@@ -156,7 +156,7 @@ export async function submitContract(
   if (!input.hipaaCompletedAt) e.hipaaCompletedAt = "required";
   if (!input.hipaaFile && !contract.hipaaStoredName) e.hipaaFile = "required";
   if (input.hasEpic && !input.existingEpicId?.trim()) {
-    e.existingEpicId = "required when you already have EPIC";
+    e.existingEpicId = "required when you already have Epic";
   }
   let hipaaCompletedAt: Date | undefined;
   if (input.hipaaCompletedAt) {

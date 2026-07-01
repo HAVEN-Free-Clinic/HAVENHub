@@ -5,7 +5,7 @@
  * (isActive=false).
  */
 import type { Department, Prisma } from "@prisma/client";
-import { prisma } from "@/platform/db";
+import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 
 const CODE_RE = /^[A-Z0-9]{2,12}$/;
@@ -88,7 +88,7 @@ export async function createDepartment(
       data: { code, name, isActive: input.isActive ?? true, idealHeadcount, patientCapacityPerProvider },
     });
   } catch (err) {
-    if (err != null && typeof err === "object" && "code" in err && (err as { code: string }).code === "P2002") {
+    if (isUniqueConstraintError(err)) {
       throw new DepartmentConflictError(code);
     }
     throw err;

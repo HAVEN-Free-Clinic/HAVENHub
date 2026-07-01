@@ -52,7 +52,7 @@ export function TemplateEditor(props: {
 
   const previewSubject = renderTemplate(subject, sample);
   // For a normal template, wrap the rendered body inside the (effective) layout.
-  // For the layout template itself, the body IS the layout — render it directly.
+  // For the layout template itself, the body IS the layout; render it directly.
   const previewDoc = props.isLayout
     ? renderTemplate(body, sample)
     : renderTemplate(props.layoutSource, {

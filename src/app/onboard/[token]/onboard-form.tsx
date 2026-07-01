@@ -123,18 +123,18 @@ export function OnboardForm({ token, prefill }: { token: string; prefill: Prefil
           </div>
         </FormSection>
 
-        <FormSection title="EPIC access">
+        <FormSection title="Epic access">
           <label className="flex items-center gap-2 text-sm">
             <Checkbox name="epicNeeded" />
-            <span>EPIC access is required for my role</span>
+            <span>Epic access is required for my role</span>
           </label>
           <label className="flex items-center gap-2 text-sm">
             <Checkbox name="hasEpic" checked={hasEpic} onChange={(e) => setHasEpic(e.target.checked)} />
-            <span>I already have an EPIC ID</span>
+            <span>I already have an Epic ID</span>
           </label>
           {hasEpic && (
             <div>
-              <Field label="Existing EPIC ID" required>
+              <Field label="Existing Epic ID" required>
                 <Input name="existingEpicId" required />
               </Field>
               {err("existingEpicId") && <p className="mt-1 text-xs text-critical">{err("existingEpicId")}</p>}

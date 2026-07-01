@@ -97,7 +97,7 @@ export function TrainingQuiz({
           <div>
             <p className="text-[15px] font-bold text-foreground">You scored {graded.percent}%</p>
             <p className="mt-0.5 text-[13px] text-foreground-soft">
-              You need {passPercent}% to pass. {attemptsLeft} attempt{attemptsLeft === 1 ? "" : "s"} left — review the
+              You need {passPercent}% to pass. {attemptsLeft} attempt{attemptsLeft === 1 ? "" : "s"} left. Review the
               highlighted answers and try again.
             </p>
           </div>
@@ -180,7 +180,7 @@ export function TrainingQuiz({
               : reviewing
                 ? "Review the highlighted answers below."
                 : allAnswered
-                  ? "All questions answered — ready to submit."
+                  ? "All questions answered. Ready to submit."
                   : `Answer all ${questions.length} questions to submit.`}
           </span>
           {reviewing ? (

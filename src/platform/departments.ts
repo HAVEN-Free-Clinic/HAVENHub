@@ -7,6 +7,7 @@
  */
 
 import { prisma } from "@/platform/db";
+import { getActiveTerm } from "@/platform/terms/active-term";
 
 /**
  * Returns the department ids where the person holds an ACTIVE TermMembership of
@@ -16,10 +17,7 @@ import { prisma } from "@/platform/db";
  * person has no active membership.
  */
 export async function memberDepartmentIds(personId: string): Promise<string[]> {
-  const activeTerm = await prisma.term.findFirst({
-    where: { status: "ACTIVE" },
-    orderBy: { startDate: "desc" },
-  });
+  const activeTerm = await getActiveTerm();
   if (!activeTerm) return [];
 
   const memberships = await prisma.termMembership.findMany({
@@ -42,10 +40,7 @@ export async function memberDepartmentIds(personId: string): Promise<string[]> {
  */
 export async function manageableDepartmentIds(personId: string): Promise<string[]> {
   // 1. Find the active term.
-  const activeTerm = await prisma.term.findFirst({
-    where: { status: "ACTIVE" },
-    orderBy: { startDate: "desc" },
-  });
+  const activeTerm = await getActiveTerm();
   if (!activeTerm) return [];
 
   // 2. Departments where the person is an ACTIVE DIRECTOR in the active term.

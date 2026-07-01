@@ -47,7 +47,7 @@ export function cycleTrail(opts: {
 
 /**
  * Trail for the interview detail page, which lives at `/recruitment/interviews/[id]`
- * — outside the recruitment-staff (`recruitment.access`) gate — so interview
+ * (outside the recruitment-staff `recruitment.access` gate), so interview
  * panelists, who are not recruitment staff, can reach it. The page is shared with
  * cycle staff, so the trail is role-aware: every crumb links somewhere the viewer
  * can actually go.

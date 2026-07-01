@@ -17,6 +17,7 @@
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { manageableDepartmentIds } from "@/platform/departments";
+import { getActiveTerm } from "@/platform/terms/active-term";
 
 /**
  * Returns true when the viewer is allowed to download or inspect the HIPAA
@@ -36,10 +37,7 @@ export async function canViewCertificate(
   if (!(await can(viewerPersonId, "volunteers.view"))) return false;
 
   // Find the active term
-  const activeTerm = await prisma.term.findFirst({
-    where: { status: "ACTIVE" },
-    orderBy: { startDate: "desc" },
-  });
+  const activeTerm = await getActiveTerm();
   if (!activeTerm) return false;
 
   // Departments the viewer manages (own directorships + one-hop delegations).

@@ -1,9 +1,6 @@
 import type { ComponentProps } from "react";
 import { cardClasses } from "./card";
-
-function cx(...parts: (string | undefined | false | null)[]): string {
-  return parts.filter(Boolean).join(" ");
-}
+import { cx } from "./cx";
 
 /** Scrollable container card wrapping the table element. */
 export function Table({ className, ...rest }: ComponentProps<"table">) {

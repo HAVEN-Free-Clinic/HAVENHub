@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requirePermission } from "@/platform/auth/session";
 import { searchPeople } from "@/modules/admin/services/people";
 import { prisma } from "@/platform/db";
+import { getActiveTerm } from "@/platform/terms/active-term";
 import { PeopleTable } from "@/modules/admin/components/people-table";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Pagination } from "@/platform/ui/pagination";
@@ -31,10 +32,7 @@ export default async function PeopleListPage({ searchParams }: PageProps) {
   const pageNum = Math.max(1, parseInt(pageStr ?? "1", 10) || 1);
 
   // Get the active term so we can show membership counts.
-  const activeTerm = await prisma.term.findFirst({
-    where: { status: "ACTIVE" },
-    orderBy: { startDate: "desc" },
-  });
+  const activeTerm = await getActiveTerm();
 
   const { rows, total, page, pageCount } = await searchPeople({
     search: q?.trim() || undefined,

@@ -9,16 +9,10 @@ import {
   NOTIFICATIONS_PAGE_SIZE,
 } from "@/platform/notifications/inbox";
 import { markAllReadAction } from "@/platform/notifications/inbox-actions";
+import { fmtDateTime } from "@/platform/dates";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Pagination } from "@/platform/ui/pagination";
 import { Button } from "@/platform/ui/button";
-
-function fmtDateTime(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(
-    d.getUTCHours()
-  )}:${pad(d.getUTCMinutes())} UTC`;
-}
 
 type PageProps = { searchParams: Promise<{ page?: string }> };
 

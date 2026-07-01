@@ -16,6 +16,7 @@
 
 import { requirePermission } from "@/platform/auth/session";
 import { prisma } from "@/platform/db";
+import { getActiveTerm } from "@/platform/terms/active-term";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
@@ -40,6 +41,7 @@ import {
 } from "@/modules/volunteers/services/disciplinary";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { fmtDate } from "@/platform/dates";
 import Link from "next/link";
 
 // ---------------------------------------------------------------------------
@@ -55,20 +57,6 @@ const ERROR_MESSAGES: Record<string, string> = {
   "person-not-found": "Person not found. Check the NetID or email and try again.",
   "validation": "Please check your input and try again.",
 };
-
-// ---------------------------------------------------------------------------
-// Date helpers (UTC)
-// ---------------------------------------------------------------------------
-
-function fmtDate(d: Date | null | undefined): string {
-  if (!d) return "-";
-  return d.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  });
-}
 
 // ---------------------------------------------------------------------------
 // Page props
@@ -130,10 +118,7 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
   }
 
   // Load active departments for the filter bar.
-  const activeTerm = await prisma.term.findFirst({
-    where: { status: "ACTIVE" },
-    orderBy: { startDate: "desc" },
-  });
+  const activeTerm = await getActiveTerm();
 
   const departments = activeTerm
     ? await prisma.department.findMany({
@@ -262,8 +247,8 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
   return (
     <div>
       <PageHeader
-        title="Disciplinary Actions"
-        description="Record and review formal disciplinary actions"
+        title="Disciplinary actions"
+        description="Record and review formal disciplinary actions."
       />
 
       {errorMessage && (

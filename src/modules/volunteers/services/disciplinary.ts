@@ -22,6 +22,7 @@ import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { can } from "@/platform/rbac/engine";
 import { manageableDepartmentIds } from "@/platform/departments";
+import { getActiveTerm } from "@/platform/terms/active-term";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -86,16 +87,6 @@ export type ActionRow = {
 // ---------------------------------------------------------------------------
 // Internal: scope helpers
 // ---------------------------------------------------------------------------
-
-/**
- * Returns the active term or null.
- */
-async function getActiveTerm() {
-  return prisma.term.findFirst({
-    where: { status: "ACTIVE" },
-    orderBy: { startDate: "desc" },
-  });
-}
 
 /**
  * Returns true if the actor may issue a disciplinary action against the target.

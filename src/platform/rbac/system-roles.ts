@@ -1,8 +1,9 @@
 /**
  * Canonical system-role definitions: the single source of truth for both the
- * dev seed (prisma/seed.ts) and the production backfill migrations. Director and
- * Volunteer are auto-attached by the RBAC engine from TermMembership.kind
- * (see engine.ts MEMBERSHIP_KIND_ROLE); the rest are assigned explicitly.
+ * dev seed (prisma/seed.ts) and the production backfill migrations. Baseline
+ * Director/Volunteer access is provisioned as kind-target RoleAssignment rows
+ * (seed plus backfill migration), not auto-attached in code; the rest are
+ * assigned explicitly.
  *
  * This module is intentionally side-effect free (pure data, no imports) so the
  * seed, migrations, and tests can all import the exact shipped grant lists.

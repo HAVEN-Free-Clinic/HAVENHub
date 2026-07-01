@@ -1000,7 +1000,7 @@ describe("eligibleSwapPartners", () => {
     // Actor works dates[0] (the shift being requested) AND dates[1].
     await createShift(term.id, dept.id, actor.id, dates[0], "VOLUNTEER");
     await createShift(term.id, dept.id, actor.id, dates[1], "VOLUNTEER");
-    // collidingPartner is on dates[1] — swapping onto it would collide because
+    // collidingPartner is on dates[1]; swapping onto it would collide because
     // the actor already holds an assignment there (requesterOnTargetDate).
     await createShift(term.id, dept.id, collidingPartner.id, dates[1], "VOLUNTEER");
     // cleanPartner is on dates[2], where the actor has no assignment.
@@ -1023,7 +1023,7 @@ describe("eligibleSwapPartners", () => {
 
     await createShift(term.id, dept.id, actor.id, dates[0], "VOLUNTEER");
     // collidingPartner offers dates[1] but ALSO holds a SHADOW row on dates[0],
-    // the actor's requester date — assertNoSwapCollision rejects this
+    // the actor's requester date; assertNoSwapCollision rejects this
     // (targetOnRequesterDate), so it must not be offered.
     await createShift(term.id, dept.id, collidingPartner.id, dates[1], "VOLUNTEER");
     await createShift(term.id, dept.id, collidingPartner.id, dates[0], "SHADOW");

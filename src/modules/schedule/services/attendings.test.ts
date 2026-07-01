@@ -2,10 +2,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import {
-  listAttendings,
   createAttending,
   updateAttending,
-  setAttendingActive,
   canManageAnyRhdDept,
   AttendingValidationError,
   AttendingForbiddenError,
@@ -101,13 +99,3 @@ describe("updateAttending", () => {
   });
 });
 
-describe("setAttendingActive", () => {
-  it("toggles isActive", async () => {
-    await rhdManager();
-    const a = await createAttending(ACTOR, { scheduleName: "Rivera", fullName: "Dr. Rivera" });
-    const u = await setAttendingActive(ACTOR, a.id, false);
-    expect(u.isActive).toBe(false);
-    const list = await listAttendings();
-    expect(list.find((x) => x.id === a.id)?.isActive).toBe(false);
-  });
-});

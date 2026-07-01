@@ -16,7 +16,7 @@ import { isModuleActive, type NavModule } from "@/platform/modules/access";
 const useIsomorphicLayoutEffect =
   typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
-/** gap-1 between nav items, in px — kept in sync with the className below. */
+/** gap-1 between nav items, in px; kept in sync with the className below. */
 const NAV_GAP = 4;
 
 function linkClasses(active: boolean): string {
@@ -97,7 +97,7 @@ export function GlobalNav({ items }: { items: NavModule[] }) {
     return () => ro.disconnect();
   }, [recompute]);
 
-  // Font swaps can change text widths after first paint — remeasure once ready.
+  // Font swaps can change text widths after first paint; remeasure once ready.
   useEffect(() => {
     const fonts = (
       document as Document & { fonts?: { ready: Promise<unknown> } }

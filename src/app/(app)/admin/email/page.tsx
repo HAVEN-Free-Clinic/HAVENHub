@@ -43,27 +43,13 @@ import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Alert } from "@/platform/ui/alert";
 import { StatCard } from "@/platform/ui/stat-card";
 import { Card } from "@/platform/ui/card";
+import { fmtDateTime } from "@/platform/dates";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
 const VALID_STATUSES: EmailStatus[] = ["QUEUED", "SENT", "FAILED"];
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function fmtDateTime(d: Date | null): string {
-  if (!d) return "-";
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const year = d.getUTCFullYear();
-  const month = pad(d.getUTCMonth() + 1);
-  const day = pad(d.getUTCDate());
-  const hours = pad(d.getUTCHours());
-  const minutes = pad(d.getUTCMinutes());
-  return `${year}-${month}-${day} ${hours}:${minutes} UTC`;
-}
 
 type BadgeTone = "default" | "success" | "critical";
 

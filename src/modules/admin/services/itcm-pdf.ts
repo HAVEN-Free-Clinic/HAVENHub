@@ -9,7 +9,7 @@
  * The template ships with the AcroForm `NeedAppearances` flag set. With that
  * flag on, Adobe Acrobat ignores the appearance streams pdf-lib writes and
  * regenerates each field's appearance itself from the field's
- * default-appearance font — a font the template does not embed — and renders
+ * default-appearance font (a font the template does not embed) and renders
  * the field blank. (Chrome and Preview regenerate successfully, which is why
  * the form looked filled in some viewers and blank in Acrobat.) So we embed a
  * font, regenerate every field's appearance stream after filling, and then
@@ -23,11 +23,11 @@
  * a subsetted ZapfDingbats TrueType font. Adobe Acrobat fails to render that
  * embedded subset, so checked boxes appear blank in Acrobat even though the box
  * itself draws (the unchecked/checked appearances share the same font-free box
- * drawing — only the checked one adds the glyph). pdf-lib's appearance
+ * drawing; only the checked one adds the glyph). pdf-lib's appearance
  * regeneration skips checkboxes whose appearance state already exists, so it
  * never fixed them. After filling, we replace each checked box's on-state
  * appearance with the original box drawing plus a font-free vector checkmark,
- * which every viewer — Acrobat included — renders.
+ * which every viewer (Acrobat included) renders.
  */
 
 import {
@@ -219,15 +219,15 @@ export async function generatePdf(args: {
   // embedded font to draw with rather than relying on the template's fonts.
   const helv = await pdfDoc.embedFont(StandardFonts.Helvetica);
 
-  // Section I — Authorizer
+  // Section I: Authorizer
   fillText(form, "Text1", auth.name);
   fillText(form, "Text2", "HAVEN IT & Communications Director");
   fillText(form, "Text3", auth.phone);
   fillText(form, "Text4", today);
   fillText(form, "Text5", auth.email);
 
-  // Section III — Person info
-  // Section III — Person info
+  // Section III: Person info
+  // Section III: Person info
   if (isBulk) {
     fillText(form, "Text12", "See spreadsheet");
     fillText(form, "Text18", "See spreadsheet");
@@ -243,12 +243,12 @@ export async function generatePdf(args: {
     if (!isNew) fillText(form, "Text17", "  " + person.epicId);
   }
 
-  // Section III — always-fixed fields
+  // Section III: always-fixed fields
   fillText(form, "Text14", "203-936-8705");
   fillText(form, "Text15", "800 Howard Avenue 06519");
   fillText(form, "Text21", "Floor 1");
 
-  // Section IV — Affiliation + position
+  // Section IV: Affiliation + position
   fillText(form, "Text28", "YM HAVEN FREE CLINIC");
   checkBox(form, "Check Box1");
   checkBox(form, "Check Box40");
@@ -273,10 +273,10 @@ export async function generatePdf(args: {
   }
   
 
-  // Section V — Access type + similar person
+  // Section V: Access type + similar person
   if (isNew) {
     checkBox(form, "Check Box49");
-    fillText(form, "Text75", today); // New Hire start date — no end date on the PDF for New
+    fillText(form, "Text75", today); // New Hire start date; no end date on the PDF for New
   } else if (isDeactivate) {
     if (TERMINATION_CHECKBOX) checkBox(form, TERMINATION_CHECKBOX);
     fillText(form, "Text76", endDate); // effective deactivation date
@@ -298,7 +298,7 @@ export async function generatePdf(args: {
     fillText(form, "Text79", mirrorPerson.epicId);
   }
 
-  // Section VI — System access
+  // Section VI: System access
   checkBox(form, "Check Box64");
   checkBox(form, "Remote Access");
 
@@ -321,8 +321,8 @@ export async function generatePdf(args: {
 
   // Redraw each checked box's mark as a font-free vector checkmark so Adobe
   // Acrobat renders it (the template's glyph-based mark is invisible there; see
-  // file header). The template ships duplicate field objects — a widget on the
-  // page plus an orphan copy in the field tree — and pdf-lib's form API checks
+  // file header). The template ships duplicate field objects: a widget on the
+  // page plus an orphan copy in the field tree; pdf-lib's form API checks
   // the orphan, so we apply the state and mark to the widgets a viewer actually
   // renders: the ones in each page's /Annots, matched by field name.
   const checkedNames = new Set<string>();

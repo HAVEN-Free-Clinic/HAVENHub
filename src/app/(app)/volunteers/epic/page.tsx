@@ -14,7 +14,7 @@
 
 import { requirePermission } from "@/platform/auth/session";
 import { prisma } from "@/platform/db";
-import { businessDaysSince } from "@/platform/dates";
+import { businessDaysSince, fmtDate } from "@/platform/dates";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
@@ -82,20 +82,6 @@ const ERROR_MESSAGES: Record<string, string> = {
   "invalid-kind": "Invalid request kind.",
   "invalid-template": "Invalid email template.",
 };
-
-// ---------------------------------------------------------------------------
-// Date helpers
-// ---------------------------------------------------------------------------
-
-function fmtDate(d: Date | null | undefined): string {
-  if (!d) return "-";
-  return d.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  });
-}
 
 // ---------------------------------------------------------------------------
 // Page props
@@ -378,8 +364,8 @@ export default async function EpicQueuePage({ searchParams }: PageProps) {
   return (
     <div>
       <PageHeader
-        title="Epic Requests"
-        description="Manage Epic account requests and YNHH ticket submissions"
+        title="Epic requests"
+        description="Manage Epic account requests and YNHH ticket submissions."
       />
 
       {errorMessage && (

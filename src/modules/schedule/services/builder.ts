@@ -27,6 +27,7 @@ import type { DeptBanner } from "../engine/banner";
 import { computeClinicReadiness } from "../engine/rhd";
 import type { ClinicReadiness, RhdPersonLite, Attending } from "../engine/rhd";
 import { getSetting } from "@/platform/settings/service";
+import { getActiveTerm } from "@/platform/terms/active-term";
 
 // ---------------------------------------------------------------------------
 // Typed errors
@@ -76,14 +77,6 @@ export const SHIFT_TAGS = ["triage", "walkin", "cc", "remote"] as const;
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
-
-/** Returns the active term or null. */
-async function getActiveTerm() {
-  return prisma.term.findFirst({
-    where: { status: "ACTIVE" },
-    orderBy: { startDate: "desc" },
-  });
-}
 
 /**
  * Validates that the actor may manage the given departmentId.

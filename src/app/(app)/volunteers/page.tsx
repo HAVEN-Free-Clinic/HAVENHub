@@ -16,6 +16,7 @@ import {
 import { CompletionDateError } from "@/platform/compliance/completion-date";
 import type { ComplianceStatus } from "@/platform/compliance/rules";
 import { certExpiresAt } from "@/platform/compliance/rules";
+import { fmtDate } from "@/platform/dates";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
@@ -49,20 +50,6 @@ const STATUS_TONE: Record<ComplianceStatus, Tone> = {
   UNKNOWN_DATE: "default",
   NO_CERTIFICATE: "default",
 };
-
-// ---------------------------------------------------------------------------
-// Date formatting (UTC)
-// ---------------------------------------------------------------------------
-
-function fmtDate(d: Date | null | undefined): string {
-  if (!d) return "-";
-  return d.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  });
-}
 
 // ---------------------------------------------------------------------------
 // Count chips helper
@@ -135,7 +122,7 @@ export default async function VolunteersPage({ searchParams }: PageProps) {
       <div>
         <PageHeader
           title="Compliance"
-          description="Department HIPAA compliance tracking"
+          description="Department HIPAA compliance tracking."
         />
         <div className="mt-12 flex flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground">
           <p>You are not listed as a director of any department this term.</p>
@@ -153,7 +140,7 @@ export default async function VolunteersPage({ searchParams }: PageProps) {
     <div>
       <PageHeader
         title="Compliance"
-        description="HIPAA compliance status for your departments"
+        description="HIPAA compliance status for your departments."
       />
 
       {errorMessage && (

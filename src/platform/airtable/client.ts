@@ -14,10 +14,6 @@ export type AirtableClientOptions = {
   maxRetries?: number;
 };
 
-export function escapeFormulaString(value: string): string {
-  return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-}
-
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
@@ -62,13 +58,11 @@ export class AirtableClient {
   async listAll(
     baseId: string,
     tableId: string,
-    options: { filterByFormula?: string } = {}
   ): Promise<AirtableRecord[]> {
     const records: AirtableRecord[] = [];
     let offset: string | undefined;
     do {
       const params = new URLSearchParams({ returnFieldsByFieldId: "true" });
-      if (options.filterByFormula) params.set("filterByFormula", options.filterByFormula);
       if (offset) params.set("offset", offset);
       const data = (await this.request(
         `${API_ROOT}/${baseId}/${tableId}?${params}`

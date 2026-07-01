@@ -14,6 +14,7 @@
 
 import { requirePermission } from "@/platform/auth/session";
 import { prisma } from "@/platform/db";
+import { getActiveTerm } from "@/platform/terms/active-term";
 import { can } from "@/platform/rbac/engine";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
@@ -34,6 +35,7 @@ import { revalidatePath } from "next/cache";
 import { CertificateViewer } from "@/modules/my-info/components/certificate-viewer";
 import type { ComplianceStatus } from "@/platform/compliance/rules";
 import { certExpiresAt } from "@/platform/compliance/rules";
+import { fmtDate } from "@/platform/dates";
 import Link from "next/link";
 
 type PageProps = {
@@ -79,20 +81,6 @@ const ALL_STATUSES: ComplianceStatus[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Date formatting (UTC)
-// ---------------------------------------------------------------------------
-
-function fmtDate(d: Date | null | undefined): string {
-  if (!d) return "-";
-  return d.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  });
-}
-
-// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
@@ -121,10 +109,7 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
   });
 
   // Fetch active departments for the filter select
-  const activeTerm = await prisma.term.findFirst({
-    where: { status: "ACTIVE" },
-    orderBy: { startDate: "desc" },
-  });
+  const activeTerm = await getActiveTerm();
 
   const departments =
     activeTerm
@@ -169,8 +154,8 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
   return (
     <div>
       <PageHeader
-        title="Master Compliance View"
-        description="HIPAA compliance status across all active clinic members"
+        title="Master compliance view"
+        description="HIPAA compliance status across all active clinic members."
       />
 
       {/* Summary stat cards */}

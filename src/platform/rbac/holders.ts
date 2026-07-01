@@ -11,21 +11,12 @@ export type PermissionHolder = {
 };
 
 /**
- * The baseline system roles the engine auto-attaches from membership kind
- * (see engine.ts MEMBERSHIP_KIND_ROLE). They are never wired through
- * RoleAssignment, so this resolver folds them in directly.
- */
-const AUTO_ROLE_KIND: Record<string, Track> = {
-  Director: "DIRECTOR",
-  Volunteer: "VOLUNTEER",
-};
-
-/**
  * Resolve the ACTIVE people whose effective permissions include any of
  * `permissions`. The inverse of getEffectivePermissions: it walks the same
  * sources (direct/person, department, and kind role assignments scoped to the
- * global or active term, plus the auto-attached Director/Volunteer baselines)
- * and treats a "*" grant as matching every queried permission.
+ * global or active term) and treats a "*" grant as matching every queried
+ * permission. Kinds are derived exclusively from matched RoleAssignment rows
+ * (matching getEffectivePermissions; no auto-attach from membership kind).
  *
  * Returns notification-shaped rows (id/name/contactEmail/entraObjectId),
  * deduplicated and ordered by name. Used to drive staff notifications such as
@@ -39,7 +30,7 @@ export async function peopleWithAnyPermission(permissions: string[]): Promise<Pe
   // Roles that grant any queried permission, or the "*" wildcard.
   const roles = await prisma.role.findMany({
     where: { grants: { some: { permission: { in: [...permissions, "*"] } } } },
-    select: { id: true, name: true, isSystem: true },
+    select: { id: true },
   });
   if (roles.length === 0) return [];
   const roleIds = roles.map((r) => r.id);
@@ -59,12 +50,6 @@ export async function peopleWithAnyPermission(permissions: string[]): Promise<Pe
     if (a.personId) directPersonIds.add(a.personId);
     if (a.departmentId) departmentIds.add(a.departmentId);
     if (a.kind) kinds.add(a.kind);
-  }
-
-  // Fold in auto-attached baseline roles: a queried permission granted by the
-  // Director/Volunteer system role applies to every active member of that kind.
-  for (const r of roles) {
-    if (r.isSystem && AUTO_ROLE_KIND[r.name]) kinds.add(AUTO_ROLE_KIND[r.name]);
   }
 
   const memberIds = new Set<string>();

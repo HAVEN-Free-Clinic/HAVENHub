@@ -97,7 +97,7 @@ html.dark { color-scheme: dark; }
 }
 
 /*
- * Liquid Glass — the floating navigation / control material (Apple-style).
+ * Liquid Glass: the floating navigation / control material (Apple-style).
  * Applied only to the topmost nav bar and floating overlays (modals, popovers),
  * never to content. `.glass-bar` = pinned horizontal bars (bottom-edge emphasis);
  * `.glass-panel` = floating overlays (full border, leans opaque per Apple's

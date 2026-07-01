@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { FileText, AlertTriangle, FilePlus, ListChecks } from "lucide-react";
 import { prisma } from "@/platform/db";
+import { getActiveTerm } from "@/platform/terms/active-term";
 import { PageHeader } from "@/platform/ui/page-header";
 import { buttonClasses } from "@/platform/ui/button";
 import { Badge } from "@/platform/ui/badge";
@@ -8,10 +9,7 @@ import { businessDaysSince } from "@/platform/dates";
 import { Card } from "@/platform/ui/card";
 
 export default async function ItcmPage() {
-  const activeTerm = await prisma.term.findFirst({
-    where: { status: "ACTIVE" },
-    orderBy: { startDate: "desc" },
-  });
+  const activeTerm = await getActiveTerm();
 
   // Load open tickets to compute pending count and overdue count.
   const openTickets = await prisma.ynhhTicket.findMany({
@@ -54,7 +52,7 @@ export default async function ItcmPage() {
             <Card size="compact" pad={false} className="mt-6 flex items-center gap-3 px-5 py-4">
               <AlertTriangle className="h-5 w-5 text-critical shrink-0" aria-hidden />
               <p className="text-sm font-medium text-foreground">
-                {overdueCount} {overdueCount === 1 ? "request has" : "requests have"} been open for more than 7 business days — follow up with the YNHH helpdesk.
+                {overdueCount} {overdueCount === 1 ? "request has" : "requests have"} been open for more than 7 business days. Follow up with the YNHH helpdesk.
               </p>
             </Card>
           )}

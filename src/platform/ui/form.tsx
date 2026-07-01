@@ -1,8 +1,5 @@
 import type { ReactNode } from "react";
-
-function cx(...parts: (string | undefined | false | null)[]): string {
-  return parts.filter(Boolean).join(" ");
-}
+import { cx } from "./cx";
 
 /**
  * A labeled group of fields inside a form. Replaces the divergent hand-rolled

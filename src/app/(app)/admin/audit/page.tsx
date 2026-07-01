@@ -38,7 +38,7 @@ export default async function AuditPage({ searchParams }: PageProps) {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Audit Log"
+        title="Audit log"
         description={`${total.toLocaleString()} ${total === 1 ? "entry" : "entries"}`}
       />
 

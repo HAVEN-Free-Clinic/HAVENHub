@@ -1,5 +1,5 @@
 /**
- * Unit tests for compareBuilderMembers — the ordering used by the schedule
+ * Unit tests for compareBuilderMembers, the ordering used by the schedule
  * builder's member lists (Day view "Available to assign" pool and the grid).
  *
  * Pure function, no database: directors come first, then volunteers, with each

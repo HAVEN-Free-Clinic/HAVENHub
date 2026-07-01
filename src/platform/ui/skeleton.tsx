@@ -1,4 +1,4 @@
-import { cx } from "./button";
+import { cx } from "./cx";
 
 type SkeletonProps = {
   /** Extra classes for size/shape (e.g. "h-9 w-72 rounded-2xl"). */

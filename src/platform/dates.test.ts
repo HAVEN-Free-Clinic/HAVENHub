@@ -1,9 +1,29 @@
 import { describe, it, expect } from "vitest";
-import { businessDaysSince, isoDateKey } from "./dates";
+import { businessDaysSince, fmtDate, fmtDateTime, isoDateKey } from "./dates";
 
 describe("isoDateKey", () => {
   it("formats a UTC day key", () => {
     expect(isoDateKey(new Date("2026-06-11T12:00:00Z"))).toBe("2026-06-11");
+  });
+});
+
+describe("fmtDate", () => {
+  it("formats a UTC date as 'Mon D, YYYY'", () => {
+    expect(fmtDate(new Date("2026-06-13T12:00:00Z"))).toBe("Jun 13, 2026");
+  });
+  it("renders the fallback for null/undefined", () => {
+    expect(fmtDate(null)).toBe("-");
+    expect(fmtDate(undefined)).toBe("-");
+    expect(fmtDate(null, "None")).toBe("None");
+  });
+});
+
+describe("fmtDateTime", () => {
+  it("formats a UTC date-time as 'YYYY-MM-DD HH:MM UTC'", () => {
+    expect(fmtDateTime(new Date("2026-06-13T09:05:00Z"))).toBe("2026-06-13 09:05 UTC");
+  });
+  it("renders the fallback for null", () => {
+    expect(fmtDateTime(null)).toBe("-");
   });
 });
 

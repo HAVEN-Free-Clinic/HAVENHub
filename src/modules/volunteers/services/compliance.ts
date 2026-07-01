@@ -15,6 +15,7 @@ import { canViewCertificate } from "@/platform/compliance/access";
 import { manageableDepartmentIds } from "@/platform/departments";
 import { can } from "@/platform/rbac/engine";
 import { parseCompletionDate, CompletionDateError } from "@/platform/compliance/completion-date";
+import { getActiveTerm } from "@/platform/terms/active-term";
 
 export type { ComplianceStatus };
 
@@ -90,10 +91,7 @@ export async function departmentCompliance(
   viewerPersonId: string
 ): Promise<DepartmentCompliance[]> {
   // 1. Find the active term.
-  const activeTerm = await prisma.term.findFirst({
-    where: { status: "ACTIVE" },
-    orderBy: { startDate: "desc" },
-  });
+  const activeTerm = await getActiveTerm();
   if (!activeTerm) return [];
 
   // 2. Departments the viewer manages: own active directorships PLUS one-hop
@@ -283,10 +281,7 @@ export async function masterCompliance(
   const { status, departmentId, q, page = 1, pageSize = 25 } = query;
 
   // 1. Find the active term.
-  const activeTerm = await prisma.term.findFirst({
-    where: { status: "ACTIVE" },
-    orderBy: { startDate: "desc" },
-  });
+  const activeTerm = await getActiveTerm();
 
   if (!activeTerm) {
     return {

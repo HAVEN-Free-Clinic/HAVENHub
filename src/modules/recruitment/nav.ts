@@ -2,8 +2,8 @@ import type { ModuleNavItem } from "@/platform/modules/types";
 
 /**
  * The panelist-facing "My interviews" tab. It lives here rather than in the
- * module registry nav because its visibility is gated on a *dynamic* condition —
- * whether the viewer is on any interview panel — not on a permission, so the
+ * module registry nav because its visibility is gated on a *dynamic* condition
+ * (whether the viewer is on any interview panel), not on a permission, so the
  * registry's permission-based filterNavItems cannot express it.
  */
 export const MY_INTERVIEWS_NAV_ITEM: ModuleNavItem = {

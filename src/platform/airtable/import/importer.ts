@@ -1,6 +1,5 @@
 import type { Person } from "@prisma/client";
-import { Prisma } from "@prisma/client";
-import { prisma } from "@/platform/db";
+import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { transformPeople, transformRoster, type PersonImport } from "./transforms";
 
 export type AirtableReader = {
@@ -114,8 +113,8 @@ export async function runImport(reader: AirtableReader, options: ImportOptions):
       }
     } catch (error) {
       const reason =
-        error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002"
-          ? `unique constraint conflict on ${String((error.meta as { target?: unknown })?.target ?? "unknown field")}`
+        isUniqueConstraintError(error)
+          ? `unique constraint conflict on ${String((error.meta?.target) ?? "unknown field")}`
           : error instanceof Error
             ? error.message.slice(0, 200)
             : String(error);

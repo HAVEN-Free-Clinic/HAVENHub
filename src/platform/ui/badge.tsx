@@ -1,4 +1,5 @@
 import type { ComponentProps } from "react";
+import { cx } from "./cx";
 
 type Tone = "default" | "brand" | "success" | "warning" | "critical";
 
@@ -6,7 +7,7 @@ type Tone = "default" | "brand" | "success" | "warning" | "critical";
  * Tone → status dot color. The chip itself stays neutral; color is carried by a
  * small leading dot so different statuses read as the same kind of object with a
  * precise accent, rather than a row of variously-tinted pills. `default` shows no
- * dot — it's a plain categorical label.
+ * dot; it's a plain categorical label.
  */
 const dotClasses: Record<Tone, string | null> = {
   default: null,
@@ -15,10 +16,6 @@ const dotClasses: Record<Tone, string | null> = {
   warning: "bg-warning",
   critical: "bg-critical",
 };
-
-function cx(...parts: (string | undefined | false | null)[]): string {
-  return parts.filter(Boolean).join(" ");
-}
 
 type BadgeProps = ComponentProps<"span"> & {
   tone?: Tone;

@@ -67,7 +67,7 @@ export const recruitmentDescriptors: TemplateDescriptor[] = [
     ],
     defaultSubject: "Complete your HAVEN onboarding for {{ cycleTitle }}",
     defaultBody:
-      '<p>Congratulations {{ firstName }},</p><p>To finish joining HAVEN for {{ cycleTitle }}, please complete your onboarding contract here: <a href="{{ contractUrl }}">{{ contractUrl }}</a></p><p>It collects your signatures, EPIC access details, and HIPAA certificate.</p>',
+      '<p>Congratulations {{ firstName }},</p><p>To finish joining HAVEN for {{ cycleTitle }}, please complete your onboarding contract here: <a href="{{ contractUrl }}">{{ contractUrl }}</a></p><p>It collects your signatures, Epic access details, and HIPAA certificate.</p>',
   },
   {
     key: "recruitment.application_received",

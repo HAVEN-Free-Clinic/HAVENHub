@@ -14,6 +14,7 @@ import {
   OffboardNotFoundError,
 } from "@/modules/volunteers/services/offboarding";
 import { revalidatePath } from "next/cache";
+import { fmtDate } from "@/platform/dates";
 import { redirect } from "next/navigation";
 
 // The volunteers layout gates module access. Here we additionally require
@@ -23,21 +24,6 @@ import { redirect } from "next/navigation";
 type PageProps = {
   searchParams: Promise<{ error?: string }>;
 };
-
-// ---------------------------------------------------------------------------
-// Date formatting (UTC) -- copied from /volunteers/page.tsx; not imported
-// across pages to avoid coupling.
-// ---------------------------------------------------------------------------
-
-function fmtDate(d: Date | null | undefined): string {
-  if (!d) return "-";
-  return d.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  });
-}
 
 // ---------------------------------------------------------------------------
 // Page
@@ -111,7 +97,7 @@ export default async function OffboardingPage({ searchParams }: PageProps) {
     <div>
       <PageHeader
         title="Offboarding"
-        description="Flag and process volunteer offboarding"
+        description="Flag and process volunteer offboarding."
       />
 
       {errorMessage && (

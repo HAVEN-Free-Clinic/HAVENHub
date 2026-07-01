@@ -11,12 +11,13 @@
  *   - getPeopleByIds: returns full person records for a set of ids,
  *     used to build the spreadsheet rows for bulk requests.
  *
- * Permission checks are NOT this service's concern — the page gates via
+ * Permission checks are NOT this service's concern; the page gates via
  * requirePermission("admin.access"). Services trust their callers.
  */
 
 import type { Person, Department } from "@prisma/client";
 import { prisma } from "@/platform/db";
+import { getActiveTerm } from "@/platform/terms/active-term";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -44,7 +45,7 @@ export type DepartmentWithMembers = {
  * person's record (no hardcoded directory to keep in sync).
  */
 export type EpicAuthorizer = {
-  /** Person id — the stable key the form submits and the route re-resolves. */
+  /** Person id: the stable key the form submits and the route re-resolves. */
   id: string;
   name: string;
   /** First+last name initials, used for PDF filenames and email subjects. */
@@ -85,10 +86,7 @@ export function authorizerInitials(name: string): string {
  * disable generation rather than offer a stale name.
  */
 export async function listEpicAuthorizers(): Promise<EpicAuthorizer[]> {
-  const activeTerm = await prisma.term.findFirst({
-    where: { status: "ACTIVE" },
-    orderBy: { startDate: "desc" },
-  });
+  const activeTerm = await getActiveTerm();
   if (!activeTerm) return [];
 
   const memberships = await prisma.termMembership.findMany({
@@ -130,10 +128,7 @@ export async function listEpicAuthorizers(): Promise<EpicAuthorizer[]> {
  * populate the person selector on the Epic request page.
  */
 export async function listDepartmentsWithMembers(): Promise<DepartmentWithMembers[]> {
-  const activeTerm = await prisma.term.findFirst({
-    where: { status: "ACTIVE" },
-    orderBy: { startDate: "desc" },
-  });
+  const activeTerm = await getActiveTerm();
   if (!activeTerm) return [];
 
   const memberships = await prisma.termMembership.findMany({
@@ -199,10 +194,7 @@ export async function findMirrorPerson(
   // Reuse a term id the caller already resolved; otherwise look up the active term.
   let resolvedTermId = termId;
   if (!resolvedTermId) {
-    const activeTerm = await prisma.term.findFirst({
-      where: { status: "ACTIVE" },
-      orderBy: { startDate: "desc" },
-    });
+    const activeTerm = await getActiveTerm();
     if (!activeTerm) return null;
     resolvedTermId = activeTerm.id;
   }
@@ -231,7 +223,7 @@ export async function findMirrorPerson(
 /**
  * Returns full person records for a set of person ids.
  *
- * Used to build spreadsheet rows for bulk requests — the page collects
+ * Used to build spreadsheet rows for bulk requests; the page collects
  * selected person ids and passes them here to get name, email, netId, epicId.
  */
 export async function getPeopleByIds(ids: string[]): Promise<Person[]> {

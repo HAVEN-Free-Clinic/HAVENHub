@@ -1,5 +1,5 @@
 import type { Acceptance, Application } from "@prisma/client";
-import { prisma } from "@/platform/db";
+import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { manageableDepartmentIds } from "@/platform/departments";
 import { recordAudit } from "@/platform/audit";
@@ -80,7 +80,7 @@ export async function acceptApplicant(
     await recordAudit({ actorPersonId: approvedById, action: "recruitment.accept", entityType: "Acceptance", entityId: acceptance.id, after: { applicationId, departmentCode } });
     return acceptance;
   } catch (err) {
-    if (typeof err === "object" && err && "code" in err && (err as { code?: string }).code === "P2002") {
+    if (isUniqueConstraintError(err)) {
       throw new AcceptanceError("Already accepted into that department.");
     }
     throw err;

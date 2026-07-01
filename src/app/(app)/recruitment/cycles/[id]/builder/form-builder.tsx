@@ -1,4 +1,3 @@
-// src/app/(app)/recruitment/cycles/[id]/builder/form-builder.tsx
 "use client";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";

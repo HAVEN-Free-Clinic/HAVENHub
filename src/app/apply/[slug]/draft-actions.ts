@@ -1,4 +1,3 @@
-// src/app/apply/[slug]/draft-actions.ts
 "use server";
 import { getApplicantIdentity } from "@/modules/recruitment/services/portal-auth";
 import { saveDraft, uploadDraftFile, DraftError } from "@/modules/recruitment/services/drafts";

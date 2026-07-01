@@ -1,4 +1,3 @@
-// src/platform/notifications/inbox.ts
 import type { Prisma, PrismaClient, Notification } from "@prisma/client";
 import { prisma } from "@/platform/db";
 

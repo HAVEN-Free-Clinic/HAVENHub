@@ -210,10 +210,6 @@ async function createTraining(
 
 beforeEach(resetDb);
 
-// ---------------------------------------------------------------------------
-// manageableScheduleDepartmentIds
-// ---------------------------------------------------------------------------
-
 describe("manageableScheduleDepartmentIds", () => {
   it("returns own department for a simple director", async () => {
     const dates = sixSaturdays();
@@ -565,10 +561,6 @@ describe("setAssignment", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// toggleTag
-// ---------------------------------------------------------------------------
-
 describe("toggleTag", () => {
   it("flips triage on an existing assignment row", async () => {
     const dates = sixSaturdays();
@@ -662,10 +654,6 @@ describe("toggleTag", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// setPatientsBooked
-// ---------------------------------------------------------------------------
-
 describe("setPatientsBooked", () => {
   it("upserts patientsBooked and creates ScheduleDay row", async () => {
     const dates = sixSaturdays();
@@ -724,10 +712,6 @@ describe("setPatientsBooked", () => {
     ).rejects.toBeInstanceOf(BuilderForbiddenError);
   });
 });
-
-// ---------------------------------------------------------------------------
-// setAvailabilityOverride
-// ---------------------------------------------------------------------------
 
 describe("setAvailabilityOverride", () => {
   it("sets canonical dates and directorAvailabilitySetAt", async () => {
@@ -796,10 +780,6 @@ describe("setAvailabilityOverride", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// acknowledgeAvailability
-// ---------------------------------------------------------------------------
-
 describe("acknowledgeAvailability", () => {
   it("stamps availabilityAcknowledgedAt", async () => {
     const dates = sixSaturdays();
@@ -833,10 +813,6 @@ describe("acknowledgeAvailability", () => {
     ).rejects.toBeInstanceOf(BuilderForbiddenError);
   });
 });
-
-// ---------------------------------------------------------------------------
-// upsertRhdClinic
-// ---------------------------------------------------------------------------
 
 describe("upsertRhdClinic", () => {
   it("allows an actor who manages SCTS to upsert", async () => {
@@ -928,10 +904,6 @@ describe("upsertRhdClinic", () => {
     expect(afterOmit.directorName).toBe("Someone");
   });
 });
-
-// ---------------------------------------------------------------------------
-// builderView
-// ---------------------------------------------------------------------------
 
 describe("builderView", () => {
   it("returns empty shape when viewer has no manageable departments", async () => {

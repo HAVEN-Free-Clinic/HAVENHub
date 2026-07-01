@@ -74,10 +74,6 @@ async function seedMembership(opts: {
   });
 }
 
-// ---------------------------------------------------------------------------
-// termRoster
-// ---------------------------------------------------------------------------
-
 describe("termRoster", () => {
   beforeEach(resetDb);
 
@@ -152,10 +148,6 @@ describe("termRoster", () => {
     expect(roster).toHaveLength(0);
   });
 });
-
-// ---------------------------------------------------------------------------
-// addMembership
-// ---------------------------------------------------------------------------
 
 describe("addMembership", () => {
   beforeEach(resetDb);
@@ -250,10 +242,6 @@ describe("addMembership", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// removeMembership
-// ---------------------------------------------------------------------------
-
 describe("removeMembership", () => {
   beforeEach(resetDb);
 
@@ -318,10 +306,6 @@ describe("removeMembership", () => {
     expect(auditCountAfter).toBe(auditCountBefore);
   });
 });
-
-// ---------------------------------------------------------------------------
-// copyRosterFromTerm
-// ---------------------------------------------------------------------------
 
 describe("copyRosterFromTerm", () => {
   beforeEach(resetDb);

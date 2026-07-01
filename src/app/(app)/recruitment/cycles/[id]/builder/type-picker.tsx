@@ -1,4 +1,3 @@
-// src/app/(app)/recruitment/cycles/[id]/builder/type-picker.tsx
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { Plus } from "lucide-react";

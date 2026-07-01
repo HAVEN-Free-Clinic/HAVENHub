@@ -76,31 +76,27 @@ export async function createPersonRecord(
   const data = normalize(input);
 
   try {
-    const person = await prisma.$transaction(async (tx) => {
-      const created = await tx.person.create({
-        data: {
-          name: data.name,
-          netId: data.netId ?? null,
-          contactEmail: data.contactEmail ?? null,
-          phone: data.phone ?? null,
-          epicId: data.epicId ?? null,
-          yaleAffiliation: data.yaleAffiliation ?? null,
-          gradYear: data.gradYear ?? null,
-          spanishSelfReported: data.spanishSelfReported ?? false,
-          spanishVerified: data.spanishVerified ?? false,
-          licensedRN: data.licensedRN ?? false,
-          // An admin setting "verified" on create is itself a verification event.
-          ...(data.spanishVerified
-            ? { spanishVerifiedAt: new Date(), spanishVerifiedById: actorPersonId }
-            : {}),
-        },
-      });
-
-      return created;
+    const person = await prisma.person.create({
+      data: {
+        name: data.name,
+        netId: data.netId ?? null,
+        contactEmail: data.contactEmail ?? null,
+        phone: data.phone ?? null,
+        epicId: data.epicId ?? null,
+        yaleAffiliation: data.yaleAffiliation ?? null,
+        gradYear: data.gradYear ?? null,
+        spanishSelfReported: data.spanishSelfReported ?? false,
+        spanishVerified: data.spanishVerified ?? false,
+        licensedRN: data.licensedRN ?? false,
+        // An admin setting "verified" on create is itself a verification event.
+        ...(data.spanishVerified
+          ? { spanishVerifiedAt: new Date(), spanishVerifiedById: actorPersonId }
+          : {}),
+      },
     });
 
-    // Await audit after the transaction commits. recordAudit never throws, so
-    // it cannot abort the already-committed mutation. We await (rather than
+    // Await audit after the create completes. recordAudit never throws, so it
+    // cannot abort the already-persisted mutation. We await (rather than
     // fire-and-forget with void) so tests can assert the row exists immediately.
     await recordAudit({
       actorPersonId,

@@ -1,4 +1,3 @@
-// src/platform/notifications/channel.ts
 import { getSetting } from "@/platform/settings/service";
 import { channelSettingKey, type NotificationChannel } from "./registry";
 

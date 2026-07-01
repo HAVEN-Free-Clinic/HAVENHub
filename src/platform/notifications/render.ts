@@ -1,5 +1,3 @@
-// src/platform/notifications/render.ts
-
 import { esc } from "@/platform/email/render/escape";
 
 /**

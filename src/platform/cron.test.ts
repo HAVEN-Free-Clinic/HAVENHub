@@ -1,4 +1,3 @@
-// src/platform/cron.test.ts
 import { describe, it, expect, afterEach } from "vitest";
 import { authorizeCron } from "./cron";
 

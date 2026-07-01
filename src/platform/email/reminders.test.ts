@@ -126,10 +126,6 @@ async function getReminderRow(personId: string) {
 
 beforeEach(resetDb);
 
-// ---------------------------------------------------------------------------
-// No active term
-// ---------------------------------------------------------------------------
-
 describe("no active term", () => {
   it("returns all-zero result and sends no emails", async () => {
     const result = await runComplianceReminders(NOW);
@@ -285,10 +281,6 @@ describe("escalation at threshold", () => {
     expect(row4!.remindersSent).toBe(4);
   });
 });
-
-// ---------------------------------------------------------------------------
-// COMPLIANT reset
-// ---------------------------------------------------------------------------
 
 describe("COMPLIANT reset", () => {
   it("resets row to zeroed state when person becomes compliant, no new EmailLog", async () => {

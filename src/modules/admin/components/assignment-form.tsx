@@ -221,10 +221,6 @@ export async function AssignmentForm({
     redirect(`${pageHref}?saved=1`);
   }
 
-  // ---------------------------------------------------------------------------
-  // Render
-  // ---------------------------------------------------------------------------
-
   const activeTermId = terms.find((t) => t.status === "ACTIVE")?.id ?? "";
 
   return (

@@ -105,10 +105,6 @@ async function actorCanManageTarget(
   return membership !== null;
 }
 
-// ---------------------------------------------------------------------------
-// flagForOffboarding
-// ---------------------------------------------------------------------------
-
 /**
  * Flags a person for offboarding in the current active term.
  *
@@ -156,10 +152,6 @@ export async function flagForOffboarding(
   return flag;
 }
 
-// ---------------------------------------------------------------------------
-// unflag
-// ---------------------------------------------------------------------------
-
 /**
  * Removes an offboard flag for the person in the active term.
  *
@@ -191,10 +183,6 @@ export async function unflag(actorPersonId: string, personId: string): Promise<v
     after: { personId, termId: activeTerm.id },
   });
 }
-
-// ---------------------------------------------------------------------------
-// executeOffboard
-// ---------------------------------------------------------------------------
 
 /**
  * Executes the offboard for a person:
@@ -249,10 +237,6 @@ export async function executeOffboard(actorPersonId: string, personId: string): 
     after: { removedMemberships: removedCount },
   });
 }
-
-// ---------------------------------------------------------------------------
-// offboardingView
-// ---------------------------------------------------------------------------
 
 /**
  * Returns a combined view for the offboarding page.

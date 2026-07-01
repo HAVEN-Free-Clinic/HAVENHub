@@ -108,10 +108,6 @@ async function requireManageEpic(actorPersonId: string): Promise<void> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// createEpicRequest
-// ---------------------------------------------------------------------------
-
 /**
  * Creates an epic request.
  *
@@ -188,10 +184,6 @@ export async function createEpicRequest(
   return req;
 }
 
-// ---------------------------------------------------------------------------
-// myEpicPanel
-// ---------------------------------------------------------------------------
-
 /**
  * Returns the person's epicId and their open (PENDING or SUBMITTED) request.
  *
@@ -216,10 +208,6 @@ export async function myEpicPanel(
 
   return { epicId: person.epicId, openRequest };
 }
-
-// ---------------------------------------------------------------------------
-// listEpicRequests
-// ---------------------------------------------------------------------------
 
 /**
  * Returns a paginated list of epic requests.
@@ -276,10 +264,6 @@ export async function listEpicRequests(q: {
 
   return { rows: rows as EpicRequestRow[], total, counts };
 }
-
-// ---------------------------------------------------------------------------
-// createTicket
-// ---------------------------------------------------------------------------
 
 /**
  * Creates a YnhhTicket and moves all listed requests to SUBMITTED in one
@@ -349,10 +333,6 @@ export async function createTicket(
   return ticket;
 }
 
-// ---------------------------------------------------------------------------
-// setTicketServiceRequestNumber
-// ---------------------------------------------------------------------------
-
 /**
  * Sets the serviceRequestNumber on a ticket.
  *
@@ -383,10 +363,6 @@ export async function setTicketServiceRequestNumber(
   });
 }
 
-// ---------------------------------------------------------------------------
-// closeTicket
-// ---------------------------------------------------------------------------
-
 /**
  * Closes a ticket. Ticket must exist (EpicNotFoundError) and be OPEN
  * (EpicStateError if already CLOSED).
@@ -416,10 +392,6 @@ export async function closeTicket(actorPersonId: string, ticketId: string): Prom
   });
 }
 
-// ---------------------------------------------------------------------------
-// listTickets
-// ---------------------------------------------------------------------------
-
 /**
  * Returns all tickets: OPEN first then CLOSED, each newest-submittedAt first
  * within the group. Includes request count and submittedBy name.
@@ -448,10 +420,6 @@ export async function listTickets(): Promise<TicketRow[]> {
 
   return [...open, ...closed] as TicketRow[];
 }
-
-// ---------------------------------------------------------------------------
-// completeRequest
-// ---------------------------------------------------------------------------
 
 /**
  * Completes an epic request.
@@ -547,10 +515,6 @@ export async function completeRequest(
   });
 }
 
-// ---------------------------------------------------------------------------
-// cancelRequest
-// ---------------------------------------------------------------------------
-
 /**
  * Cancels an epic request. Request must exist (EpicNotFoundError) and be
  * PENDING or SUBMITTED (EpicStateError otherwise).
@@ -598,10 +562,6 @@ export async function cancelRequest(
     after: { reason: reason.trim() },
   });
 }
-
-// ---------------------------------------------------------------------------
-// sendEpicEmail
-// ---------------------------------------------------------------------------
 
 /**
  * Sends (queues) an email for an epic request.
@@ -698,10 +658,6 @@ export async function sendEpicEmail(
   });
 }
 
-// ---------------------------------------------------------------------------
-// updateRequestDetails
-// ---------------------------------------------------------------------------
-
 /**
  * Updates jobTitle and/or mirrorEpicId on an open epic request.
  *
@@ -760,10 +716,6 @@ export async function updateRequestDetails(
     },
   });
 }
-
-// ---------------------------------------------------------------------------
-// emailHistory
-// ---------------------------------------------------------------------------
 
 /**
  * Returns epic-template EmailLog rows for the given personIds, grouped into

@@ -1,4 +1,3 @@
-// src/platform/notifications/render.test.ts
 import { describe, it, expect } from "vitest";
 import { renderTeamsBody } from "./render";
 

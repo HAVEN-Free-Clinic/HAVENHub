@@ -133,10 +133,6 @@ export async function canManageAnyScheduleDept(personId: string): Promise<boolea
   return (await manageableScheduleDepartmentIds(personId)).length > 0;
 }
 
-// ---------------------------------------------------------------------------
-// setAssignment
-// ---------------------------------------------------------------------------
-
 /**
  * Assigns or unassigns a person to a clinic date in a department.
  *
@@ -265,10 +261,6 @@ export async function setAssignment(
   }
 }
 
-// ---------------------------------------------------------------------------
-// toggleTag
-// ---------------------------------------------------------------------------
-
 /**
  * Flips a boolean tag (triage, walkin, cc, remote) on an existing assignment.
  *
@@ -327,10 +319,6 @@ export async function toggleTag(
   });
 }
 
-// ---------------------------------------------------------------------------
-// setPatientsBooked
-// ---------------------------------------------------------------------------
-
 /**
  * Upserts the patientsBooked field on the ScheduleDay row for a
  * (term, department, date) triple. A null value clears the field.
@@ -379,10 +367,6 @@ export async function setPatientsBooked(
     after: { patientsBooked: opts.patientsBooked },
   });
 }
-
-// ---------------------------------------------------------------------------
-// setAvailabilityOverride
-// ---------------------------------------------------------------------------
 
 /**
  * Sets or clears the director availability override for a membership.
@@ -450,10 +434,6 @@ export async function setAvailabilityOverride(
   });
 }
 
-// ---------------------------------------------------------------------------
-// acknowledgeAvailability
-// ---------------------------------------------------------------------------
-
 /**
  * Stamps availabilityAcknowledgedAt = now on the membership.
  * The membership must be in a department the actor manages.
@@ -481,10 +461,6 @@ export async function acknowledgeAvailability(
     entityId: membershipId,
   });
 }
-
-// ---------------------------------------------------------------------------
-// upsertRhdClinic
-// ---------------------------------------------------------------------------
 
 /**
  * Upserts the RhdClinic row for a term+date.
@@ -627,10 +603,6 @@ export type BuilderView = {
   pendingRequestCount: number;
   rhd: BuilderRhd | null;
 };
-
-// ---------------------------------------------------------------------------
-// builderView
-// ---------------------------------------------------------------------------
 
 /**
  * The primary read for the schedule builder page.

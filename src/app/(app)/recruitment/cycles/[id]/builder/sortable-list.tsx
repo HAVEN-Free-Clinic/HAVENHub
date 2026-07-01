@@ -1,4 +1,3 @@
-// src/app/(app)/recruitment/cycles/[id]/builder/sortable-list.tsx
 "use client";
 import { useState } from "react";
 import {

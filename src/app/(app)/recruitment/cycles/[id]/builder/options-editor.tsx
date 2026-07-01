@@ -1,4 +1,3 @@
-// src/app/(app)/recruitment/cycles/[id]/builder/options-editor.tsx
 "use client";
 import { GripVertical, Plus, X } from "lucide-react";
 import { useId, type HTMLAttributes } from "react";
@@ -20,7 +19,10 @@ export function OptionsEditor({
   const items = options.map((o) => ({ id: o.value, ...o }));
 
   function reorder(orderedIds: string[]) {
-    onChange(orderedIds.map((id) => options.find((o) => o.value === id)!).filter(Boolean));
+    onChange(orderedIds.flatMap((id) => {
+      const found = options.find((o) => o.value === id);
+      return found ? [found] : [];
+    }));
   }
   function remove(value: string) {
     onChange(options.filter((o) => o.value !== value));

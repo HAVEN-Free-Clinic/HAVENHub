@@ -1,4 +1,3 @@
-// src/platform/notifications/channel.test.ts
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { resolveChannel } from "./channel";
 import * as settings from "@/platform/settings/service";

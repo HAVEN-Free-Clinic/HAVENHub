@@ -1,4 +1,3 @@
-// src/app/(app)/recruitment/cycles/[id]/builder/actions.test.ts
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 vi.mock("@/platform/auth/session", () => ({

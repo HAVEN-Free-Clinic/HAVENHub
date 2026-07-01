@@ -149,10 +149,6 @@ async function createShift(
 
 beforeEach(resetDb);
 
-// ---------------------------------------------------------------------------
-// mySchedule
-// ---------------------------------------------------------------------------
-
 describe("mySchedule", () => {
   it("returns shifts with tags and department, ordered by clinicDate asc", async () => {
     const dates = saturdays("2026-05-30", 3); // [May 30, Jun 6, Jun 13]
@@ -343,10 +339,6 @@ describe("mySchedule", () => {
     expect(result.pendingRequests.size).toBe(0);
   });
 });
-
-// ---------------------------------------------------------------------------
-// fullSchedule
-// ---------------------------------------------------------------------------
 
 describe("fullSchedule", () => {
   it("dateKey param selects the correct Saturday", async () => {
@@ -554,10 +546,6 @@ describe("fullSchedule", () => {
     expect(result.departments).toHaveLength(0);
   });
 });
-
-// ---------------------------------------------------------------------------
-// updateMyAvailability
-// ---------------------------------------------------------------------------
 
 describe("updateMyAvailability", () => {
   it("happy path: updates both memberships of a two-dept person, clears acknowledgedAt, stores canonical noon-UTC dates, writes one audit row", async () => {

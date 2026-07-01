@@ -1,5 +1,5 @@
 /**
- * Daily HIPAA compliance reminders + director escalations.
+ * Daily compliance reminders (HIPAA + EHS training) + director escalations.
  * Replaces the worker's REMINDERS_QUEUE (13:00 UTC) schedule. Per-person 7-day
  * dedup lives inside runComplianceReminders, so a daily trigger is safe.
  *

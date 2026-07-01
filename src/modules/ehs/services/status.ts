@@ -57,6 +57,10 @@ export async function getEhsDashboard(
 
   const catalog = await loadCatalog();
 
+  // Dashboard scope: only memberships in the viewer's manageable departments.
+  // A training scoped to a department the viewer does not manage appears as NA
+  // here even if the reminder engine (loadEhsMissingMap, which spans all
+  // active-term departments) counts it as missing for that volunteer.
   const memberships = (await prisma.termMembership.findMany({
     where: { termId: activeTerm.id, departmentId: { in: deptIds }, status: "ACTIVE" },
     include: {

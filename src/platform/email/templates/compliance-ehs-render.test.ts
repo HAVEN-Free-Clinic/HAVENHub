@@ -121,3 +121,33 @@ describe("compliance-escalation EHS list rendering (pure, no DB)", () => {
     expect(output).not.toContain("Outstanding EHS training");
   });
 });
+
+describe("compliance-escalation EHS-only (COMPLIANT) copy (pure, no DB)", () => {
+  it("renders EHS-only copy when status is COMPLIANT, not HIPAA complaint copy", () => {
+    const ctx = complianceEscalationContext({
+      directorName: "Dr. Director",
+      volunteerName: "Sam Student",
+      departmentName: "Primary Care",
+      status: "COMPLIANT",
+      ehsMissing: ["BBP Clinical"],
+    });
+    const output = renderTemplate(escalationDescriptor.defaultBody, ctx);
+    expect(output).not.toContain("not HIPAA compliant");
+    expect(output).toContain("has outstanding required EHS training");
+    expect(output).toContain("BBP Clinical");
+  });
+
+  it("renders the HIPAA non-compliant sentence and sign-off for EXPIRED status (golden guard)", () => {
+    const ctx = complianceEscalationContext({
+      directorName: "Dr. Director",
+      volunteerName: "Sam Student",
+      departmentName: "Primary Care",
+      status: "EXPIRED",
+      ehsMissing: [],
+    });
+    const output = renderTemplate(escalationDescriptor.defaultBody, ctx);
+    expect(output).toContain(
+      "is not HIPAA compliant (expired) and has not responded to reminders. Please follow up.</p>\n\n<p>Thank you,<br>HAVEN Free Clinic</p>"
+    );
+  });
+});

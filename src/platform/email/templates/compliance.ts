@@ -169,6 +169,7 @@ export function complianceEscalationContext(p: ComplianceEscalationParams): Reco
     readableStatus: READABLE_STATUS[p.status],
     ehsMissingList: (p.ehsMissing ?? []).join(", "),
     hasEhsGap: (p.ehsMissing ?? []).length > 0,
+    hipaaActionable: p.status !== "COMPLIANT",
   };
 }
 
@@ -255,11 +256,12 @@ export const complianceDescriptors: TemplateDescriptor[] = [
       { name: "readableStatus", label: "Human-readable HIPAA compliance status", sampleValue: "expired" },
       { name: "ehsMissingList", label: "Comma-separated list of missing required EHS training names", sampleValue: "Blood Borne Pathogens" },
       { name: "hasEhsGap", label: "True when one or more required EHS trainings are incomplete", sampleValue: "false" },
+      { name: "hipaaActionable", label: "True when the HIPAA status itself is non-compliant (false when only EHS is outstanding)", sampleValue: "true" },
     ],
     defaultSubject: "[HAVEN] Volunteer compliance needs attention",
     defaultBody: `<p>Hello {{ directorName }},</p>
 
-<p>{{ volunteerName }} in {{ departmentName }} is not HIPAA compliant ({{ readableStatus }}) and has not responded to reminders. Please follow up.</p>{{#if hasEhsGap}}
+{{#if hipaaActionable}}<p>{{ volunteerName }} in {{ departmentName }} is not HIPAA compliant ({{ readableStatus }}) and has not responded to reminders. Please follow up.</p>{{else}}<p>{{ volunteerName }} in {{ departmentName }} has outstanding required EHS training and has not responded to reminders. Please follow up.</p>{{/if}}{{#if hasEhsGap}}
 
 <p>Outstanding EHS training: {{ ehsMissingList }}.</p>{{/if}}
 

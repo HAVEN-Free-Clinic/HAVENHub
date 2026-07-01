@@ -1,14 +1,6 @@
 import { Card } from "@/platform/ui/card";
 import type { MyEhsItem } from "@/modules/ehs/services/my-ehs";
-
-function formatDate(d: Date): string {
-  return d.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    timeZone: "UTC",
-  });
-}
+import { fmtDate } from "@/platform/dates";
 
 export function EhsPanel({ items }: { items: MyEhsItem[] }) {
   if (items.length === 0) {
@@ -35,7 +27,7 @@ export function EhsPanel({ items }: { items: MyEhsItem[] }) {
             </span>
             {item.complete && item.completedAt && (
               <span className="shrink-0 text-xs text-subtle-foreground">
-                completed {formatDate(item.completedAt)}
+                completed {fmtDate(item.completedAt)}
               </span>
             )}
           </li>

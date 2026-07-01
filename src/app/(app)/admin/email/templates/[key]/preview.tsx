@@ -7,7 +7,7 @@ import Link from "@tiptap/extension-link";
 import Placeholder from "@tiptap/extension-placeholder";
 import { renderTemplate } from "@/platform/email/render/render";
 import type { VariableDef } from "@/platform/email/templates/types";
-import { Input } from "@/platform/ui/input";
+import { Input, Textarea, Field } from "@/platform/ui/input";
 
 type Mode = "rich" | "source";
 
@@ -18,6 +18,7 @@ export function TemplateEditor(props: {
   initialBody: string;
   isLayout: boolean;
   layoutSource: string;
+  brandColor: string;
 }) {
   const [subject, setSubject] = useState(props.initialSubject);
   const [body, setBody] = useState(props.initialBody);
@@ -42,8 +43,12 @@ export function TemplateEditor(props: {
   const sample = useMemo(() => {
     const ctx: Record<string, unknown> = {};
     for (const v of props.variables) ctx[v.name] = v.sampleValue;
+    // The layout's {{ brandColor }} is injected at render time, not a per-template
+    // variable, so seed it with the resolved setting; the preview band and links
+    // then match what recipients actually see.
+    ctx.brandColor = props.brandColor;
     return ctx;
-  }, [props.variables]);
+  }, [props.variables, props.brandColor]);
 
   const previewSubject = renderTemplate(subject, sample);
   // For a normal template, wrap the rendered body inside the (effective) layout.
@@ -90,30 +95,24 @@ export function TemplateEditor(props: {
       <EditorStyles />
       {/* Editor column */}
       <div>
-        <label className="block text-sm font-medium text-foreground-soft">Subject</label>
-        <Input
-          name="subject"
-          value={subject}
-          onChange={(e) => setSubject(e.target.value)}
-          placeholder="e.g. Welcome to HAVEN!"
-          className="mt-1"
-        />
+        <Field label="Subject">
+          <Input
+            name="subject"
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+            placeholder="e.g. Welcome to HAVEN!"
+          />
+        </Field>
 
         <div className="mt-4 flex items-center justify-between">
           <label className="text-sm font-medium text-foreground-soft">Message body</label>
           <div className="inline-flex overflow-hidden rounded-lg border border-border text-xs">
-            <button
-              type="button"
-              onClick={() => switchMode("rich")}
-              className={`px-2 py-1 ${mode === "rich" ? "bg-brand text-white" : "bg-surface text-foreground-soft"}`}
-            >
+            {/* eslint-disable-next-line no-restricted-syntax -- segmented editor-mode toggle, active state applied inline */}
+            <button type="button" onClick={() => switchMode("rich")} className={`px-2 py-1 ${mode === "rich" ? "bg-brand text-white" : "bg-surface text-foreground-soft"}`}>
               Formatted
             </button>
-            <button
-              type="button"
-              onClick={() => switchMode("source")}
-              className={`px-2 py-1 ${mode === "source" ? "bg-brand text-white" : "bg-surface text-foreground-soft"}`}
-            >
+            {/* eslint-disable-next-line no-restricted-syntax -- segmented editor-mode toggle, active state applied inline */}
+            <button type="button" onClick={() => switchMode("source")} className={`px-2 py-1 ${mode === "source" ? "bg-brand text-white" : "bg-surface text-foreground-soft"}`}>
               HTML
             </button>
           </div>
@@ -125,13 +124,13 @@ export function TemplateEditor(props: {
             <EditorContent editor={editor} />
           </div>
         ) : (
-          <textarea
+          <Textarea
             ref={sourceRef}
             value={body}
             onChange={(e) => setBody(e.target.value)}
             rows={16}
             placeholder="<p>Your message…</p>"
-            className="mt-1 w-full rounded-lg border border-border-strong bg-surface px-3 py-2 font-mono text-xs outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15"
+            className="mt-1 font-mono text-xs"
           />
         )}
 
@@ -142,23 +141,16 @@ export function TemplateEditor(props: {
           <div className="mt-3">
             <div className="text-xs font-medium text-muted-foreground">Insert a variable:</div>
             <div className="mt-1 flex flex-wrap gap-1">
-              {props.variables.map((v) => (
-                <button
-                  key={v.name}
-                  type="button"
-                  title={v.label}
-                  onClick={() => insertToken(`{{ ${v.name} }}`)}
-                  className="rounded-lg border border-border bg-muted px-2 py-1 font-mono text-xs text-foreground-soft hover:bg-muted-strong"
-                >
-                  {`{{ ${v.name} }}`}
-                </button>
-              ))}
-              <button
-                type="button"
-                title="Conditional block — shows the inner content only when the variable has a value"
-                onClick={() => insertToken("{{#if VARIABLE}}\n\n{{/if}}")}
-                className="rounded-lg border border-border bg-muted px-2 py-1 font-mono text-xs text-foreground-soft hover:bg-muted-strong"
-              >
+              {props.variables.map((v) => {
+                return (
+                  // eslint-disable-next-line no-restricted-syntax -- editor variable-insert token chip
+                  <button key={v.name} type="button" title={v.label} onClick={() => insertToken(`{{ ${v.name} }}`)} className="rounded-lg border border-border bg-muted px-2 py-1 font-mono text-xs text-foreground-soft hover:bg-muted-strong">
+                    {`{{ ${v.name} }}`}
+                  </button>
+                );
+              })}
+              {/* eslint-disable-next-line no-restricted-syntax -- editor variable-insert token chip */}
+              <button type="button" title="Conditional block: shows the inner content only when the variable has a value" onClick={() => insertToken("{{#if VARIABLE}}\n\n{{/if}}")} className="rounded-lg border border-border bg-muted px-2 py-1 font-mono text-xs text-foreground-soft hover:bg-muted-strong">
                 {`{{#if}}…{{/if}}`}
               </button>
             </div>
@@ -206,37 +198,47 @@ function Toolbar({ editor }: { editor: Editor | null }) {
 
   return (
     <div className="flex flex-wrap items-center gap-1 border-b border-border p-1">
+      {/* eslint-disable-next-line no-restricted-syntax -- editor toolbar toggle, active state applied via btn() helper */}
       <button type="button" className={btn(editor.isActive("bold"))} onClick={() => editor.chain().focus().toggleBold().run()}>
         <strong>B</strong>
       </button>
+      {/* eslint-disable-next-line no-restricted-syntax -- editor toolbar toggle, active state applied via btn() helper */}
       <button type="button" className={btn(editor.isActive("italic"))} onClick={() => editor.chain().focus().toggleItalic().run()}>
         <em>I</em>
       </button>
       <span className="mx-1 h-5 w-px bg-border" />
+      {/* eslint-disable-next-line no-restricted-syntax -- editor toolbar toggle, active state applied via btn() helper */}
       <button type="button" className={btn(editor.isActive("heading", { level: 2 }))} onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}>
         H2
       </button>
+      {/* eslint-disable-next-line no-restricted-syntax -- editor toolbar toggle, active state applied via btn() helper */}
       <button type="button" className={btn(editor.isActive("heading", { level: 3 }))} onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}>
         H3
       </button>
       <span className="mx-1 h-5 w-px bg-border" />
+      {/* eslint-disable-next-line no-restricted-syntax -- editor toolbar toggle, active state applied via btn() helper */}
       <button type="button" className={btn(editor.isActive("bulletList"))} onClick={() => editor.chain().focus().toggleBulletList().run()}>
         • List
       </button>
+      {/* eslint-disable-next-line no-restricted-syntax -- editor toolbar toggle, active state applied via btn() helper */}
       <button type="button" className={btn(editor.isActive("orderedList"))} onClick={() => editor.chain().focus().toggleOrderedList().run()}>
         1. List
       </button>
+      {/* eslint-disable-next-line no-restricted-syntax -- editor toolbar toggle, active state applied via btn() helper */}
       <button type="button" className={btn(editor.isActive("blockquote"))} onClick={() => editor.chain().focus().toggleBlockquote().run()}>
         &ldquo; Quote
       </button>
       <span className="mx-1 h-5 w-px bg-border" />
+      {/* eslint-disable-next-line no-restricted-syntax -- editor toolbar toggle, active state applied via btn() helper */}
       <button type="button" className={btn(editor.isActive("link"))} onClick={setLink}>
         Link
       </button>
       <span className="mx-1 h-5 w-px bg-border" />
+      {/* eslint-disable-next-line no-restricted-syntax -- editor toolbar toggle, active state applied via btn() helper */}
       <button type="button" className={btn(false)} onClick={() => editor.chain().focus().undo().run()}>
         Undo
       </button>
+      {/* eslint-disable-next-line no-restricted-syntax -- editor toolbar toggle, active state applied via btn() helper */}
       <button type="button" className={btn(false)} onClick={() => editor.chain().focus().redo().run()}>
         Redo
       </button>

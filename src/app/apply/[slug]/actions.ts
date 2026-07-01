@@ -4,6 +4,8 @@ import {
   type UploadedFile,
 } from "@/modules/recruitment/services/submissions";
 import type { ApplicantType } from "@/modules/recruitment/engine/visibility";
+import { auth } from "@/platform/auth/auth";
+import { getApplicantIdentity } from "@/modules/recruitment/services/portal-auth";
 
 export type SubmitResult =
   | { ok: true }
@@ -11,7 +13,7 @@ export type SubmitResult =
 
 export async function submitPublicApplication(slug: string, formData: FormData): Promise<SubmitResult> {
   const rawType = String(formData.get("__applicantType") ?? "NEW");
-  const applicantType: ApplicantType = rawType === "RENEWAL" ? "RENEWAL" : "NEW";
+  const applicantType: ApplicantType = rawType === "RENEWAL" ? "RENEWAL" : rawType === "TRANSFER" ? "TRANSFER" : "NEW";
   const renewalDepartment = String(formData.get("__renewalDepartment") ?? "") || undefined;
 
   const answers: Record<string, unknown> = {};
@@ -30,8 +32,16 @@ export async function submitPublicApplication(slug: string, formData: FormData):
     }
   }
 
+  const session = await auth();
+  const identity = await getApplicantIdentity();
+
   try {
-    await submitApplication(slug, { applicantType, renewalDepartment, answers, files });
+    await submitApplication(slug, {
+      applicantType, renewalDepartment, answers, files,
+      sessionPersonId: session?.personId ?? null,
+      sessionEmail: session?.user?.email ?? null,
+      identityEmail: identity?.email ?? null,
+    });
     return { ok: true };
   } catch (err) {
     if (err instanceof SubmissionValidationError) return { ok: false, message: err.message, fieldErrors: err.fieldErrors };

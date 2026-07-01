@@ -3,7 +3,9 @@ import { requirePermission } from "@/platform/auth/session";
 import { createDraft } from "@/platform/email/campaigns/service";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Button } from "@/platform/ui/button";
-import { Input } from "@/platform/ui/input";
+import { Input, Field } from "@/platform/ui/input";
+import { Card } from "@/platform/ui/card";
+import { FormActions } from "@/platform/ui/form";
 
 export default async function NewCampaignPage() {
   await requirePermission("admin.send_email_campaign");
@@ -23,21 +25,20 @@ export default async function NewCampaignPage() {
         description="Give your campaign a name to get started."
       />
 
-      <form action={createAction} className="max-w-sm space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-foreground-soft" htmlFor="name">
-            Campaign name
-          </label>
-          <Input
-            id="name"
-            name="name"
-            type="text"
-            placeholder="e.g. Spring 2026 reminder"
-            required
-            className="mt-1"
-          />
-        </div>
-        <Button type="submit">Create</Button>
+      <form action={createAction} className="max-w-sm">
+        <Card className="space-y-6">
+          <Field label="Campaign name">
+            <Input
+              name="name"
+              type="text"
+              placeholder="e.g. Spring 2026 reminder"
+              required
+            />
+          </Field>
+          <FormActions>
+            <Button type="submit">Create</Button>
+          </FormActions>
+        </Card>
       </form>
     </div>
   );

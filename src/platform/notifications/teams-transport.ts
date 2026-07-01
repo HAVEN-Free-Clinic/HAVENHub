@@ -57,8 +57,13 @@ interface GraphTeamsTransportOpts {
  * Production transport: sends a 1:1 Teams chat message via Microsoft Graph using
  * the delegated mailer token. Ensures the 1:1 chat exists (Graph returns the
  * existing chat for the same member pair, so POST /chats is effectively
- * idempotent), then posts the message. Never retries -- the queue layer handles
- * back-off and retry.
+ * idempotent), then posts the message.
+ *
+ * Never retries internally: a failed send throws, and drainTeamsQueue requeues
+ * the row (status QUEUED, attempts incremented) for the NEXT cron tick. Because
+ * the cron runs ~1/min and attempts each QUEUED row at most once per tick,
+ * retries are spread roughly one-per-minute across ticks until TEAMS_MAX_ATTEMPTS
+ * -- a fixed-interval retry, NOT exponential back-off.
  */
 export class GraphTeamsTransport implements TeamsTransport {
   private readonly getToken: () => Promise<string>;

@@ -7,8 +7,10 @@ import { getSetting } from "@/platform/settings/service";
 import { putObject, deleteObject } from "@/platform/storage";
 import { queueEmail } from "@/platform/email/send";
 import { recordAudit } from "@/platform/audit";
+import { parseCompletionDate, CompletionDateError } from "@/platform/compliance/completion-date";
 import { RecruitmentAuthError } from "./review";
-import { onboardingEmail } from "../email/templates/onboarding";
+import { findAcceptanceConflicts } from "../engine/conflicts";
+import { renderCycleEmail } from "../email/render";
 
 export class ContractError extends Error {
   constructor(message: string) { super(message); this.name = "ContractError"; }
@@ -36,13 +38,28 @@ export async function createOrResendContract(
       application: {
         include: {
           applicant: true,
-          cycle: { select: { title: true } },
+          cycle: { select: { id: true, title: true, status: true } },
+          acceptances: { select: { departmentCode: true } },
         },
       },
       contract: true,
     },
   });
   if (!acceptance) throw new ContractError("Acceptance not found.");
+  // The onboarding email is itself an acceptance notification, so it must obey
+  // the same gates the Decisions page enforces: never notify on a draft/archived
+  // cycle, and never notify a conflicted applicant (accepted by >1 department)
+  // before SRR resolves the conflict.
+  const cycle = acceptance.application.cycle;
+  if (cycle.status === "DRAFT" || cycle.status === "ARCHIVED") {
+    throw new ContractError("Onboarding links can only be sent for an open or closed cycle.");
+  }
+  const conflicts = findAcceptanceConflicts(
+    acceptance.application.acceptances.map((a) => ({ applicationId: acceptance.applicationId, departmentCode: a.departmentCode })),
+  );
+  if (conflicts.has(acceptance.applicationId)) {
+    throw new ContractError("This applicant was accepted by more than one department. Resolve the conflict on the Decisions page before onboarding.");
+  }
   const applicant = acceptance.application.applicant;
   let contract = acceptance.contract;
   if (contract && contract.status !== "PENDING") {
@@ -62,9 +79,9 @@ export async function createOrResendContract(
     });
   }
   const url = `${baseUrl}/onboard/${contract.token}`;
-  const email = onboardingEmail({
-    firstName: contract.firstName,
-    cycleTitle: acceptance.application.cycle.title,
+  const email = await renderCycleEmail(cycle.id, "recruitment.onboarding", {
+    firstName: contract.firstName || "there",
+    cycleTitle: cycle.title,
     contractUrl: url,
   });
   const c = contract;
@@ -112,7 +129,9 @@ export type ContractSubmission = {
   existingEpicId?: string;
   epicAccessType?: string;
   worksWithYnhh: boolean;
-  hipaaCompletedAt?: Date;
+  spanishSelfReported?: boolean;
+  licensedRN?: boolean;
+  hipaaCompletedAt?: string; // raw YYYY-MM-DD from the date input; validated in submitContract
   hipaaFile?: { fileName: string; mimeType: string; bytes: Buffer };
 };
 
@@ -138,6 +157,18 @@ export async function submitContract(
   if (!input.hipaaFile && !contract.hipaaStoredName) e.hipaaFile = "required";
   if (input.hasEpic && !input.existingEpicId?.trim()) {
     e.existingEpicId = "required when you already have EPIC";
+  }
+  let hipaaCompletedAt: Date | undefined;
+  if (input.hipaaCompletedAt) {
+    try {
+      hipaaCompletedAt = parseCompletionDate(input.hipaaCompletedAt);
+    } catch (err) {
+      if (!(err instanceof CompletionDateError)) throw err;
+      e.hipaaCompletedAt =
+        err.reason.includes("future") ? "Completion date cannot be in the future."
+        : err.reason.includes("older") ? "Completion date cannot be more than 5 years ago."
+        : "Enter a valid completion date.";
+    }
   }
   if (Object.keys(e).length > 0) {
     throw new ContractValidationError("Please fix the highlighted fields.", e);
@@ -199,7 +230,9 @@ export async function submitContract(
         existingEpicId: input.existingEpicId?.trim() || null,
         epicAccessType: input.epicAccessType?.trim() || null,
         worksWithYnhh: input.worksWithYnhh,
-        hipaaCompletedAt: input.hipaaCompletedAt ?? null,
+        spanishSelfReported: input.spanishSelfReported ?? false,
+        licensedRN: input.licensedRN ?? false,
+        hipaaCompletedAt: hipaaCompletedAt ?? null,
         ...fileRef,
         status: "SUBMITTED",
         submittedAt: new Date(),
@@ -218,7 +251,7 @@ export async function submitContract(
 }
 
 export async function listOnboarding(cycleId: string) {
-  return prisma.acceptance.findMany({
+  const rows = await prisma.acceptance.findMany({
     where: { application: { cycleId } },
     include: {
       application: {
@@ -230,4 +263,11 @@ export async function listOnboarding(cycleId: string) {
     },
     orderBy: { createdAt: "asc" },
   });
+  // Flag acceptances whose application was accepted by more than one department.
+  // The onboarding surface must not let SRR send links to, or promote, these
+  // until the conflict is resolved on the Decisions page.
+  const conflicts = findAcceptanceConflicts(
+    rows.map((r) => ({ applicationId: r.applicationId, departmentCode: r.departmentCode })),
+  );
+  return rows.map((r) => ({ ...r, conflicted: conflicts.has(r.applicationId) }));
 }

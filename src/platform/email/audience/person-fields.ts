@@ -1,9 +1,19 @@
 import type { Prisma } from "@prisma/client";
+import type { ComplianceStatus } from "@/platform/compliance/rules";
 import type { AudienceCondition, ConditionOp } from "./types";
 
 export type PersonFieldKind = "text" | "enum" | "multiEnum" | "boolean";
 
-export type AudienceCtx = { activeTermId: string | null };
+export type AudienceCtx = {
+  activeTermId: string | null;
+  /**
+   * Live compliance status for every Person, keyed by id. Required only when
+   * resolving a `complianceStatus` condition: that status is derived (newest
+   * cert + term end), never a stored column, so resolveAudience precomputes it
+   * and injects it here. See loadComplianceStatusMap.
+   */
+  complianceStatusByPerson?: Map<string, ComplianceStatus>;
+};
 
 export type PersonFieldDef = {
   key: string;
@@ -22,7 +32,14 @@ export type PersonFieldDef = {
  */
 export type PersonFieldView = Omit<PersonFieldDef, "compile">;
 
-const COMPLIANCE_VALUES = ["COMPLIANT", "EXPIRING_SOON", "EXPIRED", "UNKNOWN_DATE", "NO_CERTIFICATE"];
+const COMPLIANCE_OPTIONS: { value: ComplianceStatus; label: string }[] = [
+  { value: "COMPLIANT", label: "Compliant" },
+  { value: "EXPIRING_SOON", label: "Expiring soon" },
+  { value: "EXPIRED", label: "Expired" },
+  { value: "PENDING_VERIFICATION", label: "Awaiting verification" },
+  { value: "UNKNOWN_DATE", label: "Unknown date" },
+  { value: "NO_CERTIFICATE", label: "No certificate" },
+];
 
 const MATCH_NOBODY: Prisma.PersonWhereInput = { id: { in: [] } };
 
@@ -147,8 +164,25 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
     group: "Status & roles",
     kind: "multiEnum",
     operators: ["in"],
-    options: COMPLIANCE_VALUES.map((v) => ({ value: v, label: v })),
-    compile: (cond) => ({ complianceReminder: { lastStatus: { in: asArray(cond.value) } } }),
+    options: COMPLIANCE_OPTIONS,
+    // Compliance status is derived live (newest cert + active term end), never a
+    // stored column, so it can't be a Prisma predicate. resolveAudience
+    // precomputes the per-person status map (ctx.complianceStatusByPerson); we
+    // resolve the selected statuses to a concrete id list here.
+    compile: (cond, ctx) => {
+      const wanted = new Set(asArray(cond.value));
+      if (wanted.size === 0) return MATCH_NOBODY;
+      if (!ctx.complianceStatusByPerson) {
+        throw new Error(
+          "complianceStatus audience requires a precomputed status map; resolveAudience must supply ctx.complianceStatusByPerson",
+        );
+      }
+      const ids: string[] = [];
+      for (const [personId, status] of ctx.complianceStatusByPerson) {
+        if (wanted.has(status)) ids.push(personId);
+      }
+      return { id: { in: ids } };
+    },
   },
   {
     key: "hasEpicId",
@@ -159,12 +193,20 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
     compile: (cond) => (cond.op === "isFalse" ? { epicId: null } : { epicId: { not: null } }),
   },
   {
-    key: "spanishSpeaking",
-    label: "Spanish-speaking",
+    key: "spanishVerified",
+    label: "Spanish-speaking (verified)",
     group: "Attributes",
     kind: "boolean",
     operators: ["isTrue", "isFalse"],
-    compile: (cond) => ({ spanishSpeaking: cond.op === "isTrue" }),
+    compile: (cond) => ({ spanishVerified: cond.op === "isTrue" }),
+  },
+  {
+    key: "spanishSelfReported",
+    label: "Spanish-speaking (self-reported)",
+    group: "Attributes",
+    kind: "boolean",
+    operators: ["isTrue", "isFalse"],
+    compile: (cond) => ({ spanishSelfReported: cond.op === "isTrue" }),
   },
   {
     key: "licensedRN",

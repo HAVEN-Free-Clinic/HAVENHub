@@ -67,6 +67,52 @@ describe("runImport", () => {
     expect(await prisma.termMembership.count()).toBe(2);
   });
 
+  it("#89: re-running the import does not resurrect SU26 once a later term is active", async () => {
+    // A people-only reader (no roster rows): exercises the term upsert + activation
+    // path without creating memberships, keeping the test focused on the term
+    // lifecycle that #89 is about.
+    const peopleOnlyReader: AirtableReader = {
+      async listAll(_base, table) {
+        if (table === "people-table") {
+          return [{ id: "recA", fields: { [F.name]: "A Person", [F.netId]: "ap1" } }];
+        }
+        return [];
+      },
+    };
+
+    // Fresh cutover: the first import sets up SU26 as the active term.
+    await runImport(peopleOnlyReader, { ...OPTS, dryRun: false });
+    expect((await prisma.term.findUniqueOrThrow({ where: { code: "SU26" } })).status).toBe(
+      "ACTIVE"
+    );
+
+    // Staff later activate FA26 through /admin/terms, whose single-active-term
+    // swap archives SU26. Reproduce that resulting state directly (the importer's
+    // behavior depends only on the state, not on how it was reached).
+    const su26 = await prisma.term.findUniqueOrThrow({ where: { code: "SU26" } });
+    await prisma.term.update({ where: { id: su26.id }, data: { status: "ARCHIVED" } });
+    await prisma.term.create({
+      data: {
+        code: "FA26",
+        name: "Fall 2026",
+        startDate: new Date("2026-09-27T12:00:00Z"),
+        endDate: new Date("2027-01-15T12:00:00Z"),
+        status: "ACTIVE",
+      },
+    });
+
+    // Re-running the importer must NOT flip SU26 back to ACTIVE: that would leave
+    // two ACTIVE terms and corrupt the single-active invariant.
+    await runImport(peopleOnlyReader, { ...OPTS, dryRun: false });
+
+    const active = await prisma.term.findMany({ where: { status: "ACTIVE" } });
+    expect(active).toHaveLength(1);
+    expect(active[0].code).toBe("FA26");
+    expect((await prisma.term.findUniqueOrThrow({ where: { code: "SU26" } })).status).toBe(
+      "ARCHIVED"
+    );
+  });
+
   it("does not split one human across two airtable rows (cross-key duplicate)", async () => {
     await prisma.person.create({
       data: { name: "Real Person", netId: "rp123", contactEmail: "real.person@yale.edu" },

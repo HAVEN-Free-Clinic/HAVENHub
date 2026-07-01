@@ -57,14 +57,14 @@ export function InactivityTracker({ authenticated }: { authenticated: boolean })
   if (!authenticated || !showWarning) return null;
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 max-w-sm rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 shadow-lg">
-      <p className="text-sm font-semibold text-amber-800 mb-1">Still there?</p>
-      <p className="text-sm text-amber-700 mb-3">
+    <div className="fixed bottom-4 right-4 z-50 max-w-sm rounded-xl border border-border bg-surface px-5 py-4 shadow-lg">
+      <p className="text-sm font-semibold text-foreground mb-1">Still there?</p>
+      <p className="text-sm text-foreground-soft mb-3">
         You&apos;ll be signed out in 5 minutes due to inactivity.
       </p>
       <button
         onClick={() => resetRef.current()}
-        className="rounded-lg bg-amber-800 px-4 py-1.5 text-sm font-medium text-white hover:bg-amber-900 transition-colors"
+        className="rounded-lg bg-brand px-4 py-1.5 text-sm font-medium text-white hover:bg-brand-hover transition-colors"
       >
         Stay signed in
       </button>

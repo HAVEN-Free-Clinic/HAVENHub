@@ -1,5 +1,5 @@
 "use server";
-import type { TrainingTrack } from "@prisma/client";
+import type { Track } from "@prisma/client";
 import { requirePersonSession } from "@/platform/auth/session";
 import {
   submitQuiz,
@@ -25,7 +25,7 @@ export type QuizActionResult =
  *  Returns the result for in-place rendering; the page refreshes itself when the
  *  attempt is terminal (passed or locked) to re-render the clearance state. */
 export async function gradeQuizAction(input: {
-  track: TrainingTrack;
+  track: Track;
   answers: Record<string, string>;
   intake: TrainingIntake;
 }): Promise<QuizActionResult> {

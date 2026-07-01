@@ -1,4 +1,4 @@
-import type { Course } from "@prisma/client";
+import type { Course, CourseAudience } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
@@ -66,12 +66,12 @@ export async function updateCourse(id: string, input: CourseInput, actorId: stri
 
 export async function setCourseAssignment(
   courseId: string,
-  input: { departmentIds: string[]; assignToAll: boolean },
+  input: { departmentIds: string[]; assignToAll: boolean; audience: CourseAudience },
   actorId: string
 ): Promise<void> {
   await requireManager(actorId);
   await prisma.$transaction(async (tx) => {
-    await tx.course.update({ where: { id: courseId }, data: { assignToAll: input.assignToAll } });
+    await tx.course.update({ where: { id: courseId }, data: { assignToAll: input.assignToAll, audience: input.audience } });
     await tx.courseDepartment.deleteMany({ where: { courseId } });
     if (input.departmentIds.length > 0) {
       await tx.courseDepartment.createMany({

@@ -20,11 +20,14 @@ import { MODULES } from "@/platform/modules/registry";
 import { canAccessModule } from "@/platform/modules/access";
 import type { ModuleManifest } from "@/platform/modules/types";
 import { TimeGreeting } from "@/platform/ui/time-greeting";
+import { Card, cardClasses } from "@/platform/ui/card";
 import { ClinicChannelCard } from "./clinic-channel-card";
 import { mySchedule } from "@/modules/schedule/services/schedule";
 import { listMyCertificates } from "@/modules/my-info/services/my-info";
 import { requiredTrainingTracks, resolveTrainingState } from "@/modules/recruitment/services/training";
+import { isInterviewPanelist } from "@/modules/recruitment/services/interviews";
 import { complianceStatus, certExpiresAt } from "@/platform/compliance/rules";
+import { getSetting } from "@/platform/settings/service";
 import { isoDateKey } from "@/platform/dates";
 
 // ---------------------------------------------------------------------------
@@ -37,6 +40,7 @@ const HUE_BY_MODULE: Record<string, string> = {
   "my-info": "info",
   volunteers: "volunteers",
   recruitment: "recruit",
+  "my-interviews": "recruit",
   admin: "admin",
   triage: "schedule",
   referrals: "info",
@@ -108,7 +112,7 @@ function ModuleTile({ m }: { m: ModuleManifest }) {
       href={`/${m.id}`}
       aria-label={`Open ${m.title}`}
       style={hueStyle(m.id)}
-      className="group relative flex items-start gap-4 overflow-hidden rounded-2xl border border-border bg-surface p-[18px] transition hover:-translate-y-0.5 hover:border-border-strong hover:shadow-md"
+      className={cardClasses({ interactive: true, pad: false }) + " group relative flex items-start gap-4 overflow-hidden p-[18px]"}
     >
       <span
         className="grid h-11 w-11 shrink-0 place-items-center rounded-xl"
@@ -146,9 +150,11 @@ export default async function HubPage() {
   // One permission fetch per render; tiles filter in memory (never can() in a loop).
   const permissions = await getEffectivePermissions(person.personId);
 
-  const [schedule, certificates] = await Promise.all([
+  const [schedule, certificates, isPanelist, orgName] = await Promise.all([
     mySchedule(person.personId),
     listMyCertificates(person.personId),
+    isInterviewPanelist(person.personId),
+    getSetting<string>("branding.orgName"),
   ]);
   const { term, shifts } = schedule;
   const tracks = term ? await requiredTrainingTracks(person.personId, term.id) : [];
@@ -180,7 +186,7 @@ export default async function HubPage() {
   // --- Greeting context ---
   const firstName = person.name ? person.name.trim().split(/\s+/)[0] : null;
   const dept = next?.department.name ?? shifts[0]?.department.name ?? null;
-  const eyebrow = [term?.name, dept].filter(Boolean).join(" · ") || "HAVEN Free Clinic";
+  const eyebrow = [term?.name, dept].filter(Boolean).join(" · ") || orgName;
 
   // --- Compliance status (real data, same rules as My Info) ---
   const newestCert = certificates[0] ?? null;
@@ -196,8 +202,10 @@ export default async function HubPage() {
         : status === "EXPIRED"
           ? { ok: false, title: "HIPAA training expired", sub: "Upload a current certificate" }
           : status === "UNKNOWN_DATE"
-            ? { ok: false, title: "Add your HIPAA completion date", sub: "Certificate on file, date missing" }
-            : { ok: false, title: "Upload your HIPAA certificate", sub: "Required for clinic clearance" };
+            ? { ok: false, title: "HIPAA completion date pending", sub: "A compliance manager will verify it; no action needed" }
+            : status === "PENDING_VERIFICATION"
+              ? { ok: false, title: "HIPAA certificate awaiting verification", sub: "A coordinator will confirm your completion date" }
+              : { ok: false, title: "Upload your HIPAA certificate", sub: "Required for clinic clearance" };
 
   const statusLines: Array<{ ok: boolean; title: string; sub: string; href: string }> = [
     { ...hipaaLine, href: "/my-info" },
@@ -205,7 +213,8 @@ export default async function HubPage() {
   ];
 
   // --- Quick actions (real links, access-filtered, capped at 4) ---
-  const hipaaShort = status === "COMPLIANT" ? "current" : "action needed";
+  const hipaaShort =
+    status === "COMPLIANT" ? "current" : status === "UNKNOWN_DATE" ? "pending review" : "action needed";
   const quickAll: Array<{ id: string; show: boolean; href: string; Icon: LucideIcon; label: string; sub: string }> = [
     {
       id: "schedule",
@@ -238,6 +247,17 @@ export default async function HubPage() {
       Icon: ClipboardList,
       label: "Recruitment",
       sub: "Cycles & review",
+    },
+    {
+      // Panelists are often directors with no recruitment.access, so they get no
+      // Recruitment tile or nav — this is their only home-screen path to the
+      // interview assignments page. Shown only when they actually have one.
+      id: "my-interviews",
+      show: isPanelist,
+      href: "/recruitment/interviews",
+      Icon: ClipboardList,
+      label: "My interviews",
+      sub: "Panel assignments",
     },
     {
       id: "admin",
@@ -275,7 +295,7 @@ export default async function HubPage() {
             <div className="relative overflow-hidden rounded-2xl border border-brand-deep bg-gradient-to-br from-brand to-brand-deep p-6 text-white shadow-md">
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
-                  <span className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-brand-light">
+                  <span className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-white/70">
                     <CalendarDays aria-hidden className="h-3.5 w-3.5" /> Your next shift
                   </span>
                   <p className="mt-2.5 text-2xl font-bold leading-tight tracking-tight">{fmtLongDate(next.clinicDate)}</p>
@@ -287,7 +307,7 @@ export default async function HubPage() {
                   ) : (
                     <>
                       <p className="text-2xl font-bold leading-none">{daysAway}</p>
-                      <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.12em] text-brand-light">
+                      <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.12em] text-white/70">
                         {daysAway === 1 ? "day away" : "days away"}
                       </p>
                     </>
@@ -297,11 +317,11 @@ export default async function HubPage() {
 
               <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-white/15 pt-4 text-sm text-white/90">
                 <span className="inline-flex items-center gap-2">
-                  <Stethoscope aria-hidden className="h-4 w-4 text-brand-light" /> {roleLabel(next.role)}
+                  <Stethoscope aria-hidden className="h-4 w-4 text-white/70" /> {roleLabel(next.role)}
                 </span>
                 {nextTags.length > 0 && (
                   <span className="inline-flex items-center gap-2">
-                    <Repeat aria-hidden className="h-4 w-4 text-brand-light" /> {nextTags.join(" · ")}
+                    <Repeat aria-hidden className="h-4 w-4 text-white/70" /> {nextTags.join(" · ")}
                   </span>
                 )}
               </div>
@@ -322,7 +342,7 @@ export default async function HubPage() {
               </div>
             </div>
           ) : (
-            <div className="rounded-2xl border border-border bg-surface p-6">
+            <Card pad={false} className="p-6">
               <span className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-subtle-foreground">
                 <CalendarDays aria-hidden className="h-3.5 w-3.5" /> Your schedule
               </span>
@@ -342,7 +362,7 @@ export default async function HubPage() {
                   </Link>
                 </div>
               )}
-            </div>
+            </Card>
           )}
 
           {/* Quick actions */}
@@ -355,7 +375,7 @@ export default async function HubPage() {
                     key={q.id}
                     href={q.href}
                     style={hueStyle(q.id)}
-                    className="flex items-center gap-3 rounded-xl border border-border bg-surface p-3.5 transition hover:-translate-y-0.5 hover:border-border-strong hover:shadow-md"
+                    className={cardClasses({ size: "compact", interactive: true, pad: false }) + " flex items-center gap-3 p-3.5"}
                   >
                     <span
                       className="grid h-9 w-9 shrink-0 place-items-center rounded-lg"
@@ -392,7 +412,7 @@ export default async function HubPage() {
             <ClinicChannelCard />
           </Suspense>
 
-          <div className="rounded-2xl border border-border bg-surface p-5">
+          <Card>
             <h3 className="text-xs font-bold uppercase tracking-wider text-subtle-foreground">Your status</h3>
             <div className="mt-2">
               {statusLines.map((line) => (
@@ -403,7 +423,7 @@ export default async function HubPage() {
                 >
                   <span
                     className={`grid h-7 w-7 shrink-0 place-items-center rounded-lg ${
-                      line.ok ? "bg-green-50 text-success" : "bg-amber-50 text-warning"
+                      line.ok ? "bg-success text-white" : "bg-warning text-white"
                     }`}
                   >
                     {line.ok ? (
@@ -420,7 +440,7 @@ export default async function HubPage() {
                 </Link>
               ))}
             </div>
-          </div>
+          </Card>
         </aside>
       </div>
     </>

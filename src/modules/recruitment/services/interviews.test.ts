@@ -4,7 +4,7 @@ import { prisma } from "@/platform/db";
 import { RecruitmentAuthError } from "./review";
 import {
   createInterview, updateInterview, addPanelist, removePanelist, sendInterviewInvite,
-  listInterviewsForReview, myAssignedInterviews, getInterview, InterviewError,
+  listInterviewsForReview, myAssignedInterviews, getInterview, isInterviewPanelist, InterviewError,
 } from "./interviews";
 
 async function seed(track: "DIRECTOR" | "VOLUNTEER" = "DIRECTOR") {
@@ -74,6 +74,23 @@ it("rejects a director scheduling for a department the applicant did not rank", 
   await expect(createInterview(application.id, "PCAR", pcarDir.id)).rejects.toBeInstanceOf(RecruitmentAuthError);
 });
 
+it("uses the cycle's interview-invite override when present", async () => {
+  const { director, application, cycle } = await seed();
+  const iv = await createInterview(application.id, "EDUC", director.id);
+  await updateInterview(iv.id, { scheduledAt: new Date("2026-04-15T18:30:00Z"), zoomLink: "https://z", notes: null }, director.id);
+  const cycleId = cycle.id;
+  const interviewId = iv.id;
+  const actorId = director.id;
+  await prisma.recruitmentCycleEmail.create({
+    data: { cycleId, key: "recruitment.interview_invite", subject: "Talk {{ departmentName }}", body: "<p>At {{ interviewTime }}, join {{{ joinLink }}}</p>" },
+  });
+  await sendInterviewInvite(interviewId, actorId);
+  const mail = await prisma.emailLog.findFirstOrThrow({ where: { template: "recruitment.interview_invite" } });
+  expect(mail.subject).toContain("Talk");
+  expect(mail.html).toContain("At ");
+  expect(mail.html).toContain("<!DOCTYPE html>");
+});
+
 it("lists interviews in scope and the panelist's assignments", async () => {
   const { director, panelist, srr, cycle, application } = await seed();
   const iv = await createInterview(application.id, "EDUC", director.id);
@@ -82,4 +99,31 @@ it("lists interviews in scope and the panelist's assignments", async () => {
   expect((await listInterviewsForReview(cycle.id, srr.id))).toHaveLength(1);
   expect((await myAssignedInterviews(panelist.id)).map((i) => i.id)).toEqual([iv.id]);
   expect(await getInterview(iv.id)).not.toBeNull();
+});
+
+it("reports whether a person sits on any interview panel", async () => {
+  const { director, panelist, application } = await seed();
+  expect(await isInterviewPanelist(panelist.id)).toBe(false);
+  const iv = await createInterview(application.id, "EDUC", director.id);
+  await addPanelist(iv.id, panelist.id, false, director.id);
+  expect(await isInterviewPanelist(panelist.id)).toBe(true);
+  expect(await isInterviewPanelist(director.id)).toBe(false);
+});
+
+it("notifies a panelist (in-app) when added to a panel by someone else", async () => {
+  const { director, panelist, application } = await seed();
+  const iv = await createInterview(application.id, "EDUC", director.id);
+  await addPanelist(iv.id, panelist.id, false, director.id);
+  const notes = await prisma.notification.findMany({ where: { personId: panelist.id } });
+  expect(notes).toHaveLength(1);
+  expect(notes[0].type).toBe("recruitment.interview_assignment");
+  expect(notes[0].link).toContain("/recruitment/interviews");
+  expect(notes[0].title).toBeTruthy();
+});
+
+it("does not notify when a manager adds themselves to a panel", async () => {
+  const { director, application } = await seed();
+  const iv = await createInterview(application.id, "EDUC", director.id);
+  await addPanelist(iv.id, director.id, true, director.id);
+  expect(await prisma.notification.count({ where: { personId: director.id } })).toBe(0);
 });

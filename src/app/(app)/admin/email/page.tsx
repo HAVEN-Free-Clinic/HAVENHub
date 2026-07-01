@@ -13,13 +13,24 @@ import { cookies } from "next/headers";
 import { requirePermission } from "@/platform/auth/session";
 import {
   listEmails,
+  listEmailTemplates,
   retryEmail,
+  retryAllFailedEmails,
+  sendSenderTest,
   EMAIL_PAGE_SIZE,
   EmailNotFoundError,
   EmailStateError,
 } from "@/modules/admin/services/email";
 import { buildAuthorizeUrl, mailConnectionStatus, teamsScopesGranted } from "@/platform/email/oauth";
-import type { EmailStatus } from "@prisma/client";
+import {
+  SENDER_CATEGORIES,
+  listSenderRules,
+  saveSenderRule,
+  clearSenderRule,
+  SenderRuleValidationError,
+} from "@/platform/email/sender-rules";
+import { getSetting } from "@/platform/settings/service";
+import type { EmailStatus, EmailSenderScope } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
@@ -31,20 +42,13 @@ import { Pagination } from "@/platform/ui/pagination";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Alert } from "@/platform/ui/alert";
 import { StatCard } from "@/platform/ui/stat-card";
+import { Card } from "@/platform/ui/card";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
 const VALID_STATUSES: EmailStatus[] = ["QUEUED", "SENT", "FAILED"];
-
-const KNOWN_TEMPLATES = [
-  "epic-onboarding",
-  "epic-activation",
-  "epic-password-reset",
-  "compliance-reminder",
-  "compliance-escalation",
-] as const;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -82,7 +86,11 @@ type PageProps = {
     error?: string;
     message?: string;
     retried?: string;
+    retriedAll?: string;
     connected?: string;
+    senderSaved?: string;
+    senderError?: string;
+    senderTested?: string;
   }>;
 };
 
@@ -101,13 +109,12 @@ export default async function EmailPage({ searchParams }: PageProps) {
       ? statusParam
       : undefined;
 
-  // Validate template param; drop if unrecognized.
-  const templateParam = sp.template;
-  const validatedTemplate =
-    templateParam &&
-    KNOWN_TEMPLATES.includes(templateParam as (typeof KNOWN_TEMPLATES)[number])
-      ? templateParam
-      : undefined;
+  // Accept any template value. EmailLog.template is an open string set
+  // (recruitment.*, campaign, ad-hoc, etc.), so there is no closed allowlist to
+  // validate against -- the exact-match query simply returns no rows for a value
+  // that was never logged. The dropdown is built from the values actually
+  // present in the log below (issue #99).
+  const validatedTemplate = sp.template?.trim() || undefined;
 
   const q = sp.q?.trim() || undefined;
   const page = Math.max(1, parseInt(sp.page ?? "1", 10) || 1);
@@ -120,18 +127,40 @@ export default async function EmailPage({ searchParams }: PageProps) {
     : null;
 
   const retriedSuccess = sp.retried === "1";
+  const retriedAllCount = sp.retriedAll ? parseInt(sp.retriedAll, 10) : 0;
+  const retriedAllSuccess = retriedAllCount > 0;
   const connectedSuccess = sp.connected === "1";
 
-  const [{ rows, total, counts }, mailConn, mailCred] = await Promise.all([
-    listEmails({
-      status: validatedStatus,
-      template: validatedTemplate,
-      q,
-      page,
-    }),
+  const senderSavedSuccess = sp.senderSaved === "1";
+  const senderTestedSuccess = sp.senderTested === "1";
+  const senderErrorMessage = sp.senderError ? decodeURIComponent(sp.senderError) : null;
+
+  const [
+    { rows, total, counts },
+    templateValues,
+    mailConn,
+    mailCred,
+    senderRules,
+    globalSender,
+  ] = await Promise.all([
+    listEmails({ status: validatedStatus, template: validatedTemplate, q, page }),
+    listEmailTemplates(),
     mailConnectionStatus(),
     prisma.mailCredential.findUnique({ where: { id: "mailer" } }),
+    listSenderRules(),
+    getSetting<string>("email.sender"),
   ]);
+
+  // Keep an active filter selectable even if it currently has no rows (e.g. a
+  // hand-typed value, or one whose rows were since retried/cleared).
+  const templateOptions =
+    validatedTemplate && !templateValues.includes(validatedTemplate)
+      ? [...templateValues, validatedTemplate].sort()
+      : templateValues;
+
+  const categoryRuleByGroup = new Map(
+    senderRules.filter((r) => r.scope === "CATEGORY").map((r) => [r.target, r])
+  );
 
   const needsTeamsReconnect = mailCred != null && !teamsScopesGranted(mailCred.scope);
 
@@ -168,6 +197,60 @@ export default async function EmailPage({ searchParams }: PageProps) {
 
     revalidatePath("/admin/email");
     redirect("/admin/email?retried=1");
+  }
+
+  async function retryAllAction() {
+    "use server";
+    const actor = await requirePermission("admin.manage_sync");
+    const count = await retryAllFailedEmails(actor.personId);
+    revalidatePath("/admin/email");
+    redirect(`/admin/email?retriedAll=${count}`);
+  }
+
+  async function saveSenderAction(formData: FormData) {
+    "use server";
+    const a = await requirePermission("admin.manage_sync");
+    const scope = formData.get("scope") as EmailSenderScope;
+    const target = (formData.get("target") as string | null) ?? "";
+    const fromEmail = ((formData.get("fromEmail") as string | null) ?? "").trim();
+    const fromName = ((formData.get("fromName") as string | null) ?? "").trim();
+
+    try {
+      if (fromEmail === "") {
+        await clearSenderRule(a.personId, scope, target);
+      } else {
+        await saveSenderRule(a.personId, scope, target, { fromEmail, fromName });
+      }
+    } catch (err) {
+      if (err instanceof SenderRuleValidationError) {
+        redirect(`/admin/email?senderError=${encodeURIComponent(err.message)}`);
+      }
+      throw err;
+    }
+    revalidatePath("/admin/email");
+    redirect("/admin/email?senderSaved=1");
+  }
+
+  async function testSenderAction(formData: FormData) {
+    "use server";
+    const a = await requirePermission("admin.manage_sync");
+    const fromEmail = ((formData.get("fromEmail") as string | null) ?? "").trim();
+    const fromName = ((formData.get("fromName") as string | null) ?? "").trim();
+    const person = await prisma.person.findUnique({
+      where: { id: a.personId },
+      select: { contactEmail: true },
+    });
+    const toEmail = person?.contactEmail ?? "";
+    if (fromEmail === "" || toEmail === "") {
+      redirect(`/admin/email?senderError=${encodeURIComponent("A from address and a recipient are required to send a test.")}`);
+    }
+    try {
+      await sendSenderTest(a.personId, { toEmail, fromEmail, fromName: fromName || null });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Test send failed.";
+      redirect(`/admin/email?senderError=${encodeURIComponent(message)}`);
+    }
+    redirect("/admin/email?senderTested=1");
   }
 
   async function connectMailerAction() {
@@ -227,12 +310,24 @@ export default async function EmailPage({ searchParams }: PageProps) {
       {retriedSuccess && !errorMessage && (
         <Alert tone="success">Email re-queued.</Alert>
       )}
+      {retriedAllSuccess && !errorMessage && (
+        <Alert tone="success">
+          {retriedAllCount} failed {retriedAllCount === 1 ? "email" : "emails"} re-queued.
+        </Alert>
+      )}
       {connectedSuccess && !errorMessage && (
         <Alert tone="success">Mailbox connected.</Alert>
       )}
+      {senderSavedSuccess && !errorMessage && (
+        <Alert tone="success">Sender address saved.</Alert>
+      )}
+      {senderTestedSuccess && !errorMessage && (
+        <Alert tone="success">Test message sent. Check the inbox to confirm.</Alert>
+      )}
+      {senderErrorMessage && <Alert tone="error">{senderErrorMessage}</Alert>}
 
       {/* Mailer connection panel */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-surface p-5">
+      <Card className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-sm font-medium text-foreground-soft">Mailer connection</p>
           {mailConn.connected ? (
@@ -250,12 +345,63 @@ export default async function EmailPage({ searchParams }: PageProps) {
             {mailConn.connected ? "Reconnect" : "Connect mailbox"}
           </Button>
         </form>
-      </div>
+      </Card>
       {needsTeamsReconnect && (
         <Alert tone="warning">
           Teams direct messages need an additional permission. Reconnect the mailbox to grant it.
         </Alert>
       )}
+
+      {/* Per-category send-from addresses */}
+      <Card className="space-y-4">
+        <div>
+          <p className="text-sm font-medium text-foreground-soft">Send-from addresses</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Choose the address each category of email sends from. Leave blank to use the
+            global default ({globalSender}). The connected mailbox must have Send-As rights
+            on any address you enter. Use Send test to confirm.
+          </p>
+        </div>
+        {SENDER_CATEGORIES.map((cat) => {
+          const rule = categoryRuleByGroup.get(cat.group);
+          return (
+            <form
+              key={cat.group}
+              action={saveSenderAction}
+              className="flex flex-wrap items-end gap-3 border-t border-border pt-4"
+            >
+              <input type="hidden" name="scope" value="CATEGORY" />
+              <input type="hidden" name="target" value={cat.group} />
+              <div className="w-40">
+                <p className="text-sm font-medium">{cat.label}</p>
+              </div>
+              <div className="w-64">
+                <Input
+                  name="fromEmail"
+                  type="email"
+                  defaultValue={rule?.fromEmail ?? ""}
+                  placeholder={globalSender}
+                  aria-label={`${cat.label} from address`}
+                />
+              </div>
+              <div className="w-48">
+                <Input
+                  name="fromName"
+                  defaultValue={rule?.fromName ?? ""}
+                  placeholder="Display name (optional)"
+                  aria-label={`${cat.label} display name`}
+                />
+              </div>
+              <Button type="submit" variant="outline" size="sm">
+                Save
+              </Button>
+              <Button type="submit" formAction={testSenderAction} variant="ghost" size="sm">
+                Send test
+              </Button>
+            </form>
+          );
+        })}
+      </Card>
 
       {/* Health stat cards */}
       <div className="grid gap-4 sm:grid-cols-3">
@@ -267,6 +413,22 @@ export default async function EmailPage({ searchParams }: PageProps) {
         />
         <StatCard label="Sent today" value={counts.sentToday} />
       </div>
+
+      {/* Bulk recovery: re-queue every FAILED row at once (e.g. after a
+          transient transport outage exhausted retries on many rows). */}
+      {counts.failed > 0 && (
+        <div className="flex justify-end">
+          <form action={retryAllAction}>
+            <ConfirmButton
+              size="sm"
+              label={`Retry all failed (${counts.failed})`}
+              confirmLabel={`Re-queue all ${counts.failed} failed ${
+                counts.failed === 1 ? "email" : "emails"
+              }?`}
+            />
+          </form>
+        </div>
+      )}
 
       {/* Filter bar (GET form) */}
       <form method="GET" className="flex flex-wrap items-end gap-3">
@@ -291,7 +453,7 @@ export default async function EmailPage({ searchParams }: PageProps) {
             aria-label="Filter by template"
           >
             <option value="">All templates</option>
-            {KNOWN_TEMPLATES.map((t) => (
+            {templateOptions.map((t) => (
               <option key={t} value={t}>
                 {t}
               </option>

@@ -2,12 +2,18 @@ import type { ComponentProps } from "react";
 
 type Tone = "default" | "brand" | "success" | "warning" | "critical";
 
-const toneClasses: Record<Tone, string> = {
-  default:  "bg-muted-strong text-foreground-soft",
-  brand:    "bg-brand-faint text-brand-fg",
-  success:  "bg-green-50 text-success",
-  warning:  "bg-amber-50 text-warning",
-  critical: "bg-red-50 text-critical",
+/**
+ * Tone → status dot color. The chip itself stays neutral; color is carried by a
+ * small leading dot so different statuses read as the same kind of object with a
+ * precise accent, rather than a row of variously-tinted pills. `default` shows no
+ * dot — it's a plain categorical label.
+ */
+const dotClasses: Record<Tone, string | null> = {
+  default: null,
+  brand: "bg-brand",
+  success: "bg-success",
+  warning: "bg-warning",
+  critical: "bg-critical",
 };
 
 function cx(...parts: (string | undefined | false | null)[]): string {
@@ -18,15 +24,20 @@ type BadgeProps = ComponentProps<"span"> & {
   tone?: Tone;
 };
 
-export function Badge({ tone = "default", className, ...rest }: BadgeProps) {
+export function Badge({ tone = "default", className, children, ...rest }: BadgeProps) {
+  const dot = dotClasses[tone];
   return (
     <span
       {...rest}
       className={cx(
-        "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium",
-        toneClasses[tone],
+        "inline-flex items-center gap-1.5 rounded-md border border-border bg-muted px-2 py-0.5 text-[11px] font-medium text-foreground-soft",
         className,
       )}
-    />
+    >
+      {dot && (
+        <span className={cx("h-1.5 w-1.5 shrink-0 rounded-full", dot)} aria-hidden />
+      )}
+      {children}
+    </span>
   );
 }

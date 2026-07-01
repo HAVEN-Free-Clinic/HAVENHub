@@ -20,7 +20,7 @@ const attending = {
 } as const;
 
 function person(id: string, opts: { rn?: boolean; es?: boolean } = {}): RhdPersonLite {
-  return { id, email: `${id}@yale.edu`, licensedRN: !!opts.rn, spanishSpeaking: !!opts.es };
+  return { id, email: `${id}@yale.edu`, licensedRN: !!opts.rn, spanishVerified: !!opts.es };
 }
 
 const base: ClinicInput = {
@@ -82,7 +82,7 @@ describe("computeClinicReadiness", () => {
     const r = computeClinicReadiness({
       ...base,
       sctsOnShift: [person("b"), person("a")],
-      jctsOnShift: [{ id: "a", email: "a@yale.edu", licensedRN: false, spanishSpeaking: false }],
+      jctsOnShift: [{ id: "a", email: "a@yale.edu", licensedRN: false, spanishVerified: false }],
       ccrhOnShift: [],
     });
     expect(r.emails).toEqual(["a@yale.edu", "b@yale.edu"]);

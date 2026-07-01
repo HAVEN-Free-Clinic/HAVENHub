@@ -18,31 +18,28 @@
  */
 
 import { useState, useMemo } from "react";
-import type { DepartmentWithMembers, MemberLite } from "@/modules/admin/services/itcm";
+import type { DepartmentWithMembers, EpicAuthorizer, MemberLite, PendingDeactivation } from "@/modules/admin/services/itcm";
 import { Button } from "@/platform/ui/button";
 import { Select } from "@/platform/ui/select";
 import { Input, Field } from "@/platform/ui/input";
 import { Card } from "@/platform/ui/card";
 import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
+import { Checkbox } from "@/platform/ui/checkbox";
+import { SectionHeader } from "@/platform/ui/section-header";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-
-const AUTHORIZERS = {
-  CC: { name: "Caprice Culkin", phone: "720-254-2589", email: "caprice.culkin@yale.edu" },
-  RT: { name: "Renee Tracey", phone: "201-815-6054", email: "renee.tracey@yale.edu" },
-  JC: { name: "Jack Carney", phone: "585-689-9720", email: "j.carney@yale.edu" },
-} as const;
-type AuthorizerKey = keyof typeof AUTHORIZERS;
 
 type RequestType =
   | "new_individual"
   | "mod_individual"
   | "renew_individual"
   | "bulk_new"
-  | "bulk_mod";
+  | "bulk_mod"
+  | "deactivate_individual"
+  | "bulk_deactivate";
 
 
 const EMAIL_SUBJECTS: Record<RequestType, (initials: string, date: string) => string> = {
@@ -51,6 +48,8 @@ const EMAIL_SUBJECTS: Record<RequestType, (initials: string, date: string) => st
   renew_individual: (i, d) => `[HAVEN] Renew Epic Access for One User ${d} ${i}`,
   bulk_mod: (i, d) => `[HAVEN] Reactivate/Extend and Modify Epic Access for Multiple Users ${d} ${i}`,
   bulk_new: (i, d) => `[HAVEN] Multiple New Epic Account Request ${d} ${i}`,
+  deactivate_individual: (i, d) => `[HAVEN] Deactivate Epic Access for One User ${d} ${i}`,
+  bulk_deactivate: (i, d) => `[HAVEN] Deactivate Epic Access for Multiple Users ${d} ${i}`,
 };
 
 // ---------------------------------------------------------------------------
@@ -59,21 +58,32 @@ const EMAIL_SUBJECTS: Record<RequestType, (initials: string, date: string) => st
 
 type Props = {
   departments: DepartmentWithMembers[];
+  pendingDeactivations: PendingDeactivation[];
+  /** Current term's ITCM directors, the people who can authorize a request. */
+  authorizers: EpicAuthorizer[];
 };
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
-export function EpicRequestForm({ departments }: Props) {
-  // Step 1: configuration
-  const [authorizer, setAuthorizer] = useState<AuthorizerKey>("CC");
+export function EpicRequestForm({ departments, pendingDeactivations, authorizers }: Props) {
+  // Step 1: configuration. The authorizer is identified by person id; default
+  // to the first ITCM director (empty string when there are none).
+  const [authorizerId, setAuthorizerId] = useState<string>(authorizers[0]?.id ?? "");
   const [requestType, setRequestType] = useState<RequestType>("new_individual");
   const [endDate, setEndDate] = useState("");
 
-  // Step 2: person selection
+  const selectedAuthorizer = useMemo(
+    () => authorizers.find((a) => a.id === authorizerId) ?? null,
+    [authorizers, authorizerId]
+  );
+
+  // Step 2: person selection. For bulk requests, selections persist across
+  // department switches so people from multiple departments can be picked together.
   const [selectedDeptId, setSelectedDeptId] = useState<string>("");
   const [selectedPeopleIds, setSelectedPeopleIds] = useState<Set<string>>(new Set());
+  const [selectedPeopleMap, setSelectedPeopleMap] = useState<Map<string, MemberLite>>(new Map());
 
   // Step 3: results
   const [loading, setLoading] = useState(false);
@@ -81,7 +91,7 @@ export function EpicRequestForm({ departments }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   const isBulk = requestType.startsWith("bulk");
-  const isNew = requestType.includes("new");
+  const isDeactivate = requestType.startsWith("deactivate") || requestType === "bulk_deactivate";
 
   // The selected department's members for the person list.
   const selectedDept = useMemo(
@@ -96,7 +106,7 @@ export function EpicRequestForm({ departments }: Props) {
     return [...selectedDept.directors, ...selectedDept.volunteers];
   }, [selectedDept]);
 
-  function togglePerson(id: string) {
+  function togglePerson(id: string, person: MemberLite) {
     setSelectedPeopleIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) {
@@ -105,6 +115,16 @@ export function EpicRequestForm({ departments }: Props) {
         // For individual requests, only one person at a time.
         if (!isBulk) next.clear();
         next.add(id);
+      }
+      return next;
+    });
+    setSelectedPeopleMap((prev) => {
+      const next = new Map(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        if (!isBulk) next.clear();
+        next.set(id, person);
       }
       return next;
     });
@@ -120,12 +140,16 @@ export function EpicRequestForm({ departments }: Props) {
   }
 
   async function handleGenerate() {
+    if (!selectedAuthorizer) {
+      setError("No ITCM director is available to authorize this request.");
+      return;
+    }
     if (selectedPeopleIds.size === 0) {
       setError("Select at least one person before generating.");
       return;
     }
-    if (!isNew && !endDate) {
-      setError("Set the access end date before generating a modify/renew request.");
+    if (!endDate) {
+      setError("Set the access end date before generating this request.");
       return;
     }
     setError(null);
@@ -145,7 +169,7 @@ export function EpicRequestForm({ departments }: Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           requestType,
-          authorizerKey: authorizer,
+          authorizerId: selectedAuthorizer.id,
           personIds: [...selectedPeopleIds],
           endDate: endDateFormatted,
         }),
@@ -171,8 +195,9 @@ export function EpicRequestForm({ departments }: Props) {
         triggerDownload(xlBlob, data.xlsxFilename);
       }
 
-      // Build email draft from returned data.
-      const subject = EMAIL_SUBJECTS[requestType](authorizer, todayMMDDYYYY());
+      // Build email draft from returned data. The subject carries the
+      // authorizer's initials, derived from their name on the server.
+      const subject = EMAIL_SUBJECTS[requestType](selectedAuthorizer.initials, todayMMDDYYYY());
       setEmailDraft({ subject, body: data.emailBody });
     } catch (e) {
       setError((e as Error).message);
@@ -185,20 +210,23 @@ export function EpicRequestForm({ departments }: Props) {
     <div className="space-y-8">
       {/* ── Step 1: Configuration ── */}
       <Card pad={false} className="p-6 space-y-5">
-        <h2 className="text-base font-semibold text-foreground">1. Configure request</h2>
+        <SectionHeader level="title">1. Configure request</SectionHeader>
 
         <div className="grid gap-4 sm:grid-cols-3">
           <Field label="Authorizer">
             <Select
-              value={authorizer}
-              onChange={(e) => setAuthorizer(e.target.value as AuthorizerKey)}
+              value={authorizerId}
+              onChange={(e) => setAuthorizerId(e.target.value)}
+              disabled={authorizers.length === 0}
             >
-              {(Object.entries(AUTHORIZERS) as [AuthorizerKey, typeof AUTHORIZERS[AuthorizerKey]][]).map(
-                ([key, val]) => (
-                  <option key={key} value={key}>
-                    {val.name}
+              {authorizers.length === 0 ? (
+                <option value="">No ITCM directors</option>
+              ) : (
+                authorizers.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
                   </option>
-                )
+                ))
               )}
             </Select>
           </Field>
@@ -207,16 +235,18 @@ export function EpicRequestForm({ departments }: Props) {
             <Select
               value={requestType.startsWith("bulk") ? requestType.replace("bulk_", "") : requestType.replace("_individual", "")}
               onChange={(e) => {
-                const base = e.target.value as "new" | "mod" | "renew";
+                const base = e.target.value as "new" | "mod" | "renew" | "deactivate";
                 const raw = isBulk ? `bulk_${base}` : `${base}_individual`;
                 const safe = raw === "bulk_renew" ? "bulk_mod" : raw;
                 setRequestType(safe as RequestType);
                 setSelectedPeopleIds(new Set());
+                setSelectedPeopleMap(new Map());
               }}
             >
               <option value="new">New</option>
               <option value="mod">Modify</option>
               {!isBulk && <option value="renew">Renew</option>}
+              <option value="deactivate">Deactivate</option>
             </Select>
           </Field>
 
@@ -230,6 +260,7 @@ export function EpicRequestForm({ departments }: Props) {
                 const safe = raw === "bulk_renew" ? "bulk_mod" : raw;
                 setRequestType(safe as RequestType);
                 setSelectedPeopleIds(new Set());
+                setSelectedPeopleMap(new Map());
               }}
             >
               <option value="individual">Individual</option>
@@ -237,94 +268,167 @@ export function EpicRequestForm({ departments }: Props) {
             </Select>
           </Field>
 
-          {!isNew && (
-            <Field label="Access end date">
-              <Input
-                type="date"
-                required
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-              />
-            </Field>
-          )}
+          <Field label="Access end date">
+            <Input
+              type="date"
+              required
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+            />
+          </Field>
         </div>
 
-        <Alert tone="info">
-          Authorizer: <span className="font-medium">{AUTHORIZERS[authorizer].name}</span>
-          {" · "}
-          {AUTHORIZERS[authorizer].phone}
-          {" · "}
-          {AUTHORIZERS[authorizer].email}
-        </Alert>
+        {selectedAuthorizer ? (
+          <Alert tone="info">
+            Authorizer: <span className="font-medium">{selectedAuthorizer.name}</span>
+            {selectedAuthorizer.phone && (
+              <>
+                {" · "}
+                {selectedAuthorizer.phone}
+              </>
+            )}
+            {selectedAuthorizer.email && (
+              <>
+                {" · "}
+                {selectedAuthorizer.email}
+              </>
+            )}
+          </Alert>
+        ) : (
+          <Alert tone="warning">
+            No ITCM directors are set for the current term, so there is no one to authorize this
+            request. Add an ITCM director to the active term and they will appear here.
+          </Alert>
+        )}
       </Card>
 
       {/* ── Step 2: Person selection ── */}
       <Card pad={false} className="p-6 space-y-5">
-        <h2 className="text-base font-semibold text-foreground">
-          2. Select {isBulk ? "people" : "person"}
-        </h2>
+        <SectionHeader level="title">2. Select {isBulk ? "people" : "person"}</SectionHeader>
 
-        <Field label="Department">
-          <Select
-            value={selectedDeptId}
-            onChange={(e) => {
-              setSelectedDeptId(e.target.value);
-              setSelectedPeopleIds(new Set());
-            }}
-          >
-            <option value="">— choose a department —</option>
-            {departments.map((d) => (
-              <option key={d.department.id} value={d.department.id}>
-                {d.department.code} — {d.department.name}
-              </option>
+        {isDeactivate ? (
+          <div className="space-y-1">
+            {pendingDeactivations.length === 0 && (
+              <p className="text-sm text-muted-foreground">No people are awaiting Epic deactivation.</p>
+            )}
+            {pendingDeactivations.map((p) => (
+              <PersonRow
+                key={p.id}
+                person={{ id: p.id, name: p.name, netId: p.netId, contactEmail: p.contactEmail, epicId: p.epicId, kind: "VOLUNTEER" }}
+                selected={selectedPeopleIds.has(p.id)}
+                onToggle={() => togglePerson(p.id, { id: p.id, name: p.name, netId: p.netId, contactEmail: p.contactEmail, epicId: p.epicId, kind: "VOLUNTEER" })}
+              />
             ))}
-          </Select>
-        </Field>
-
-        {selectedDept && (
-          <div className="space-y-4">
-            {/* Directors */}
-            {selectedDept.directors.length > 0 && (
-              <div>
-                <p className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-                  Directors
-                </p>
-                <div className="space-y-1">
-                  {selectedDept.directors.map((p) => (
-                    <PersonRow
-                      key={p.id}
-                      person={p}
-                      selected={selectedPeopleIds.has(p.id)}
-                      onToggle={() => togglePerson(p.id)}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Volunteers */}
-            {selectedDept.volunteers.length > 0 && (
-              <div>
-                <p className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-                  Volunteers
-                </p>
-                <div className="space-y-1">
-                  {selectedDept.volunteers.map((p) => (
-                    <PersonRow
-                      key={p.id}
-                      person={p}
-                      selected={selectedPeopleIds.has(p.id)}
-                      onToggle={() => togglePerson(p.id)}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {allMembers.length === 0 && (
-              <p className="text-sm text-muted-foreground">No active members in this department.</p>
-            )}
           </div>
+        ) : isBulk ? (
+          <div className="space-y-6">
+            {departments.map((d) => (
+              <div key={d.department.id} className="space-y-3">
+                <p className="text-sm font-semibold text-foreground">
+                  {d.department.code} — {d.department.name}
+                </p>
+                {d.directors.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                      Directors
+                    </p>
+                    <div className="space-y-1">
+                      {d.directors.map((p) => (
+                        <PersonRow
+                          key={p.id}
+                          person={p}
+                          selected={selectedPeopleIds.has(p.id)}
+                          onToggle={() => togglePerson(p.id, p)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {d.volunteers.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                      Volunteers
+                    </p>
+                    <div className="space-y-1">
+                      {d.volunteers.map((p) => (
+                        <PersonRow
+                          key={p.id}
+                          person={p}
+                          selected={selectedPeopleIds.has(p.id)}
+                          onToggle={() => togglePerson(p.id, p)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {d.directors.length === 0 && d.volunteers.length === 0 && (
+                  <p className="text-sm text-muted-foreground">No active members in this department.</p>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <>
+            <Field label="Department">
+              <Select
+                value={selectedDeptId}
+                onChange={(e) => {
+                  setSelectedDeptId(e.target.value);
+                  setSelectedPeopleIds(new Set());
+                  setSelectedPeopleMap(new Map());
+                }}
+              >
+                <option value="">— choose a department —</option>
+                {departments.map((d) => (
+                  <option key={d.department.id} value={d.department.id}>
+                    {d.department.code} — {d.department.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+
+            {selectedDept && (
+              <div className="space-y-4">
+                {selectedDept.directors.length > 0 && (
+                  <div>
+                    <p className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                      Directors
+                    </p>
+                    <div className="space-y-1">
+                      {selectedDept.directors.map((p) => (
+                        <PersonRow
+                          key={p.id}
+                          person={p}
+                          selected={selectedPeopleIds.has(p.id)}
+                          onToggle={() => togglePerson(p.id, p)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {selectedDept.volunteers.length > 0 && (
+                  <div>
+                    <p className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                      Volunteers
+                    </p>
+                    <div className="space-y-1">
+                      {selectedDept.volunteers.map((p) => (
+                        <PersonRow
+                          key={p.id}
+                          person={p}
+                          selected={selectedPeopleIds.has(p.id)}
+                          onToggle={() => togglePerson(p.id, p)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {allMembers.length === 0 && (
+                  <p className="text-sm text-muted-foreground">No active members in this department.</p>
+                )}
+              </div>
+            )}
+          </>
         )}
 
         {selectedPeopleIds.size > 0 && (
@@ -332,18 +436,42 @@ export function EpicRequestForm({ departments }: Props) {
             {selectedPeopleIds.size} {selectedPeopleIds.size === 1 ? "person" : "people"} selected
           </p>
         )}
+
+        {isBulk && selectedPeopleMap.size > 0 && (
+          <div className="rounded-xl border border-border bg-muted p-4 space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Selected across all departments
+            </p>
+            <div className="space-y-1">
+              {[...selectedPeopleMap.values()].map((p) => (
+                <div key={p.id} className="flex items-center justify-between text-sm">
+                  <span className="text-foreground">{p.name}</span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => togglePerson(p.id, p)}
+                    className="text-xs p-0 h-auto"
+                  >
+                    Remove
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </Card>
 
       {/* ── Step 3: Generate ── */}
       <Card pad={false} className="p-6 space-y-5">
-        <h2 className="text-base font-semibold text-foreground">3. Generate</h2>
+        <SectionHeader level="title">3. Generate</SectionHeader>
 
         {error && <Alert tone="error">{error}</Alert>}
 
         <Button
           variant="primary"
           onClick={handleGenerate}
-          disabled={loading || selectedPeopleIds.size === 0}
+          disabled={loading || selectedPeopleIds.size === 0 || !selectedAuthorizer}
         >
           {loading ? "Generating…" : "Generate PDF" + (isBulk ? " + spreadsheet" : "")}
         </Button>
@@ -392,11 +520,9 @@ function PersonRow({
 }) {
   return (
     <label className="flex items-center gap-3 rounded-lg px-3 py-2 hover:bg-muted cursor-pointer">
-      <input
-        type="checkbox"
+      <Checkbox
         checked={selected}
         onChange={onToggle}
-        className="h-4 w-4 rounded accent-brand"
       />
       <span className="text-sm text-foreground">{person.name}</span>
       {person.netId && (

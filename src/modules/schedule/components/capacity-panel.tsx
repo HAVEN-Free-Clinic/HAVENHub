@@ -9,6 +9,7 @@
 
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
+import { cardClasses } from "@/platform/ui/card";
 import { Input, Field } from "@/platform/ui/input";
 import { rolesForDept } from "@/modules/schedule/engine/capacity";
 import type { DayMetrics, Quota } from "@/modules/schedule/engine/capacity";
@@ -71,7 +72,7 @@ export function CapacityPanel({
   const roles = rolesForDept(deptCode);
 
   return (
-    <section className="rounded-2xl border border-border bg-surface px-4 py-3 flex flex-col gap-3">
+    <section className={`${cardClasses({ pad: false })} px-4 py-3 flex flex-col gap-3`}>
       <h2 className="text-sm font-semibold text-foreground-soft">Capacity</h2>
 
       {/* Headcount */}
@@ -84,7 +85,7 @@ export function CapacityPanel({
         </Badge>
       </div>
 
-      {/* Role quota badges -- triage and/or walk-in only (cc has no DayMetrics field; skip silently) */}
+      {/* Role quota badges -- only the roles the department actually uses (triage/walk-in for SCTP, cc for JCTP) */}
       {roles.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {roles.includes("triage") && (
@@ -97,7 +98,11 @@ export function CapacityPanel({
               Walk-in: {quotaLabel(metrics.walkinStatus)}
             </Badge>
           )}
-          {/* "cc" is a valid MedRole but has no corresponding DayMetrics field; skipped */}
+          {roles.includes("cc") && (
+            <Badge tone={quotaTone(metrics.ccStatus)}>
+              CC: {quotaLabel(metrics.ccStatus)}
+            </Badge>
+          )}
         </div>
       )}
 

@@ -1,4 +1,4 @@
-// Live schedule config import from Airtable: person flags and department capacity config.
+// Live schedule config import from Airtable: department capacity config.
 // Dry-run by default:
 //   npx tsx --env-file=.env scripts/import-schedule-config.ts
 //   npx tsx --env-file=.env scripts/import-schedule-config.ts --apply
@@ -16,16 +16,10 @@ async function main() {
   const client = new AirtableClient(config.AIRTABLE_PAT);
 
   console.log(dryRun ? "Dry run -- no changes will be written." : "Apply mode -- writing to database.");
-  if (!dryRun) {
-    console.log(
-      "WARNING: apply mirrors Airtable exactly, including LOWERING spanishSpeaking/licensedRN to false when the checkbox is absent. If the Recruitment module owns these flags now, do not re-run."
-    );
-  }
   console.log();
 
   const report = await runScheduleConfigImport(client, {
     baseId: config.HAVEN_MGMT_BASE_ID,
-    peopleTableId: config.ALL_PEOPLE_TABLE_ID,
     rosterTableId: config.SU26_ROSTER_TABLE_ID,
     dryRun,
   });
@@ -34,10 +28,6 @@ async function main() {
 
   if (dryRun) {
     console.log("\nDry run only. Re-run with --apply to write.");
-  }
-
-  if (report.peopleUnresolved > 0) {
-    console.log(`\n${report.peopleUnresolved} Airtable person row(s) with no matching DB Person -- run the people import first.`);
   }
 
   if (report.unknownDepartments.length > 0) {

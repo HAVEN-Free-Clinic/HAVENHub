@@ -9,6 +9,9 @@
 import type { EmailLog, EmailStatus, Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
+import { GraphTransport, LogTransport } from "@/platform/email/transport";
+import { getAccessToken as defaultGetAccessToken } from "@/platform/email/oauth";
+import { getSetting } from "@/platform/settings/service";
 
 // ---------------------------------------------------------------------------
 // Typed errors
@@ -132,6 +135,27 @@ export async function listEmails(query: ListEmailsQuery): Promise<{
 }
 
 // ---------------------------------------------------------------------------
+// listEmailTemplates
+// ---------------------------------------------------------------------------
+
+/**
+ * Return the distinct `template` values actually present in EmailLog, sorted.
+ *
+ * The monitoring page builds its template filter from this so every option
+ * matches real data: recruitment and campaign emails (the highest-volume
+ * categories during a cycle) are no longer omitted by a hardcoded allowlist
+ * (issue #99). An empty log yields an empty list.
+ */
+export async function listEmailTemplates(): Promise<string[]> {
+  const rows = await prisma.emailLog.findMany({
+    distinct: ["template"],
+    select: { template: true },
+    orderBy: { template: "asc" },
+  });
+  return rows.map((r) => r.template);
+}
+
+// ---------------------------------------------------------------------------
 // retryEmail
 // ---------------------------------------------------------------------------
 
@@ -174,5 +198,82 @@ export async function retryEmail(actorPersonId: string, emailId: string): Promis
     entityId: emailId,
     before: { status: "FAILED", attempts: oldAttempts },
     after: { status: "QUEUED" },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// retryAllFailedEmails
+// ---------------------------------------------------------------------------
+
+/**
+ * Bulk-reset every FAILED email to QUEUED so the next drain pass re-attempts
+ * them. Intended for recovery after a transient transport outage that exhausted
+ * the retry budget on many rows at once (issue #63), where clicking per-row
+ * Retry is impractical.
+ *
+ * Resets attempts/lastError exactly like retryEmail. Records a single audit
+ * entry carrying the affected count, or none when there is nothing to retry.
+ * Returns the number of rows re-queued.
+ *
+ * @param actorPersonId - The person authorizing the bulk retry (for audit).
+ */
+export async function retryAllFailedEmails(actorPersonId: string): Promise<number> {
+  const { count } = await prisma.emailLog.updateMany({
+    where: { status: "FAILED" },
+    data: { status: "QUEUED", attempts: 0, lastError: null },
+  });
+
+  if (count === 0) return 0;
+
+  await recordAudit({
+    actorPersonId,
+    action: "email.retry_all",
+    entityType: "EmailLog",
+    before: { status: "FAILED" },
+    after: { status: "QUEUED", count },
+  });
+
+  return count;
+}
+
+// ---------------------------------------------------------------------------
+// sendSenderTest
+// ---------------------------------------------------------------------------
+
+/**
+ * Send a one-off test email AS `fromEmail`, directly (NOT via the queue), so any
+ * Graph rejection (malformed address or missing Send-As rights) surfaces
+ * synchronously to the admin. In log mode it just logs. Records an audit entry.
+ *
+ * `opts` is for testing only; production callers omit it.
+ */
+export async function sendSenderTest(
+  actorPersonId: string,
+  input: { toEmail: string; fromEmail: string; fromName?: string | null },
+  opts?: { getAccessToken?: () => Promise<string>; fetchImpl?: typeof fetch }
+): Promise<void> {
+  const transportKind = await getSetting<"log" | "graph">("email.transport");
+  const transport =
+    transportKind === "graph"
+      ? new GraphTransport({
+          getAccessToken: opts?.getAccessToken ?? defaultGetAccessToken,
+          sender: input.fromEmail,
+          fetchImpl: opts?.fetchImpl,
+        })
+      : new LogTransport();
+
+  await transport.send({
+    to: input.toEmail,
+    subject: "HAVEN Hub sender test",
+    html: `<p>This is a test message confirming HAVEN Hub can send from ${input.fromEmail}.</p>`,
+    from: input.fromEmail,
+    fromName: input.fromName ?? undefined,
+  });
+
+  await recordAudit({
+    actorPersonId,
+    action: "email.sender_test",
+    entityType: "EmailSenderRule",
+    after: { toEmail: input.toEmail, fromEmail: input.fromEmail },
   });
 }

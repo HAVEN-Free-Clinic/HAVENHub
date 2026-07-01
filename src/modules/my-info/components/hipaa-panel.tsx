@@ -14,13 +14,15 @@
 
 import type { HipaaCertificate } from "@prisma/client";
 import { Card } from "@/platform/ui/card";
-import { Input, Field } from "@/platform/ui/input";
+import { Field } from "@/platform/ui/input";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
+import { FormActions } from "@/platform/ui/form";
 import { CertificateViewer } from "@/modules/my-info/components/certificate-viewer";
 import { certExpiresAt } from "@/platform/compliance/rules";
 import type { ComplianceStatus } from "@/platform/compliance/rules";
+import { SectionHeader } from "@/platform/ui/section-header";
 
 function formatDate(date: Date): string {
   return date.toLocaleDateString("en-US", {
@@ -51,6 +53,9 @@ function StatusBadge({ status, cert }: { status: ComplianceStatus; cert: HipaaCe
   if (status === "UNKNOWN_DATE") {
     return <Badge tone="default">Completion date pending</Badge>;
   }
+  if (status === "PENDING_VERIFICATION") {
+    return <Badge tone="warning">Awaiting verification</Badge>;
+  }
   if (!cert?.completionDate) return null;
   const expiresAt = certExpiresAt(cert.completionDate);
   if (status === "COMPLIANT") {
@@ -79,7 +84,7 @@ export function HipaaPanel({
     <Card className="space-y-6">
       {/* Latest certificate */}
       <div>
-        <h3 className="mb-2 text-sm font-semibold uppercase tracking-wider text-muted-foreground">Current Certificate</h3>
+        <SectionHeader as="h3" className="mb-2">Current Certificate</SectionHeader>
         {latest ? (
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2 text-sm text-foreground-soft">
@@ -99,10 +104,12 @@ export function HipaaPanel({
                 </span>
               )}
             </div>
-            {/* Read-only notice when the completion date could not be parsed */}
+            {/* Read-only notice when the completion date could not be parsed.
+                Members cannot set the date themselves, so the copy is reassuring,
+                not imperative (issue #76). */}
             {latest.completionDate === null && (
               <p className="mt-2 text-sm text-muted-foreground">
-                A compliance manager will confirm the completion date.
+                A compliance manager will verify the completion date. No action is needed from you.
               </p>
             )}
           </div>
@@ -113,7 +120,7 @@ export function HipaaPanel({
 
       {/* Upload form */}
       <div>
-        <h3 className="mb-2 text-sm font-semibold uppercase tracking-wider text-muted-foreground">Upload New Certificate</h3>
+        <SectionHeader as="h3" className="mb-2">Upload New Certificate</SectionHeader>
         {error && (
           <Alert tone="error" className="mb-3">
             {error}
@@ -124,27 +131,23 @@ export function HipaaPanel({
             Certificate uploaded successfully.
           </Alert>
         )}
-        <form action={uploadAction} className="flex items-end gap-3">
-          <div className="flex-1">
-            <Field label="HIPAA certificate (PDF)" hint="PDF only.">
-              <Input
-                type="file"
-                name="certificate"
-                accept="application/pdf"
-                className="cursor-pointer"
-              />
-            </Field>
-          </div>
-          <SubmitButton variant="outline" size="sm" pendingLabel="Uploading…">
-            Upload certificate
-          </SubmitButton>
+        <form action={uploadAction}>
+          <Field label="HIPAA certificate (PDF)" hint="PDF only.">
+            {/* eslint-disable-next-line no-restricted-syntax -- native file input with file-button pseudo-element styling (file:* classes); no file primitive exists */}
+            <input type="file" name="certificate" accept="application/pdf" className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground-soft hover:file:bg-muted-strong" />
+          </Field>
+          <FormActions>
+            <SubmitButton variant="outline" size="sm" pendingLabel="Uploading…">
+              Upload certificate
+            </SubmitButton>
+          </FormActions>
         </form>
       </div>
 
       {/* History */}
       {history.length > 0 && (
         <div>
-          <h3 className="mb-2 text-sm font-semibold uppercase tracking-wider text-muted-foreground">History</h3>
+          <SectionHeader as="h3" className="mb-2">History</SectionHeader>
           <ul className="space-y-1.5">
             {history.map((cert) => (
               <li key={cert.id} className="flex items-center gap-3 text-sm text-foreground-soft">

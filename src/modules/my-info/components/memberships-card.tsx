@@ -14,6 +14,7 @@ import { Card } from "@/platform/ui/card";
 import { Badge } from "@/platform/ui/badge";
 import { Alert } from "@/platform/ui/alert";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
+import { FormActions } from "@/platform/ui/form";
 
 type MembershipWithRelations = TermMembership & {
   department: Department;
@@ -62,10 +63,12 @@ export function MembershipsCard({
       {/* Volunteer withdraw button */}
       {hasVolunteer && (
         <form action={withdrawAction} className="mt-4">
-          <ConfirmButton
-            label="I am not volunteering this term"
-            confirmLabel="Confirm withdrawal?"
-          />
+          <FormActions>
+            <ConfirmButton
+              label="I am not volunteering this term"
+              confirmLabel="Confirm withdrawal?"
+            />
+          </FormActions>
         </form>
       )}
 

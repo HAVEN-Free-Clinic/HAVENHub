@@ -17,7 +17,8 @@ export async function submitOnboarding(token: string, formData: FormData): Promi
     trainingSignature: str("trainingSignature"), initials: str("initials"),
     epicNeeded: bool("epicNeeded"), hasEpic: bool("hasEpic"), existingEpicId: str("existingEpicId") || undefined,
     epicAccessType: str("epicAccessType") || undefined, worksWithYnhh: bool("worksWithYnhh"),
-    hipaaCompletedAt: hipaaAt ? new Date(hipaaAt) : undefined,
+    spanishSelfReported: bool("spanishSelfReported"), licensedRN: bool("licensedRN"),
+    hipaaCompletedAt: hipaaAt || undefined,
     hipaaFile: file instanceof File && file.size > 0 ? { fileName: file.name, mimeType: file.type, bytes: Buffer.from(await file.arrayBuffer()) } : undefined,
   };
   try {

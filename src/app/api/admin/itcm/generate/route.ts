@@ -18,45 +18,23 @@
  */
 
 import { NextResponse } from "next/server";
-import { PDFDocument } from "pdf-lib";
 import * as fs from "fs";
 import * as path from "path";
 import { auth } from "@/platform/auth/auth";
 import { getActivePerson } from "@/platform/auth/match-person";
 import { can } from "@/platform/rbac/engine";
-import { findMirrorPerson, getPeopleByIds } from "@/modules/admin/services/itcm";
+import { findMirrorPerson, getPeopleByIds, listEpicAuthorizers, reconcileDeactivationRequests } from "@/modules/admin/services/itcm";
+import {
+  generatePdf,
+  type RequestType,
+} from "@/modules/admin/services/itcm-pdf";
 import { prisma } from "@/platform/db";
+
+
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-
-const AUTHORIZERS = {
-  CC: { name: "Caprice Culkin", phone: "720-254-2589", email: "caprice.culkin@yale.edu" },
-  RT: { name: "Renee Tracey", phone: "201-815-6054", email: "renee.tracey@yale.edu" },
-  JC: { name: "Jack Carney", phone: "585-689-9720", email: "j.carney@yale.edu" },
-} as const;
-type AuthorizerKey = keyof typeof AUTHORIZERS;
-
-type RequestType =
-  | "new_individual"
-  | "mod_individual"
-  | "renew_individual"
-  | "bulk_new"
-  | "bulk_mod";
-
-const SECTION_IX: Record<RequestType, string> = {
-  new_individual:
-    "This individual requires a NEW Epic account, and require access to the department YM HAVEN FREE CLINIC. Their account should have similar functions of the aforementioned Epic ID to mirror within the department YM HAVEN FREE CLINIC.",
-  mod_individual:
-    "This individual already has an Epic account, but they require extended access to the department YM HAVEN FREE CLINIC. Their account should also have similar functions of the aforementioned Epic ID to mirror within the department YM HAVEN FREE CLINIC.",
-  renew_individual:
-    "This individual already has an Epic account, but they require extended access to the department YM HAVEN FREE CLINIC. Their account should also have similar functions of the aforementioned Epic ID to mirror within the department YM HAVEN FREE CLINIC.",
-  bulk_new:
-    "These individuals require NEW Epic accounts, and require access to the department YM HAVEN FREE CLINIC. Their accounts should have similar functions of the aforementioned Epic ID to mirror within the department YM HAVEN FREE CLINIC. Please see the attached spreadsheet for the multiple user information.",
-  bulk_mod:
-    "These individuals already have Epic accounts, but they require extended access to the department YM HAVEN FREE CLINIC. Their accounts should also have similar functions of the aforementioned Epic ID to mirror within the department YM HAVEN FREE CLINIC. Please see the attached spreadsheet for the multiple user information.",
-};
 
 const EMAIL_BODIES: Record<RequestType, (args: {
   personName: string;
@@ -75,6 +53,10 @@ const EMAIL_BODIES: Record<RequestType, (args: {
     `Hello,\nCould we please reactivate/extend the Epic accounts for the users in the Excel Spreadsheet?\nThey already have an Epic account, but need access to the department "YM HAVEN FREE CLINIC".\nPlease reactivate and/or extend their access until ${endDate}.\nThey will need the abilities of the corresponding Epic ID to mirror (included in the spreadsheet), in the department YM HAVEN FREE CLINIC.\nThey neither have YNHH privileges nor are requesting them.\nI've attached a spreadsheet containing ${userCount} users and the completed pdf request form. Please feel free to contact me with any questions or if you require more information. Thank you very much!\n\nBest,\n${authorizerName}`,
   bulk_new: ({ authorizerName, userCount }) =>
     `Hello,\nI hope you are doing well! Could we please create new Epic accounts for each of the attached users in the department "YM HAVEN FREE CLINIC"?\nThey will need the abilities identical to the Epic ID listed under "Epic ID to Mirror," in the department YM HAVEN FREE CLINIC\nThese individuals neither have YNHH hospital privileges nor are requesting them.\nThey will complete Epic training upon receipt of their accounts.\nI've attached the completed pdf request form with further details and an Excel spreadsheet with a set of ${userCount} users who need access. Please feel free to contact me with any questions or if you need any more information. Thank you!\n\nBest,\n${authorizerName}`,
+  deactivate_individual: ({ personName, endDate, authorizerName }) =>
+    `Hello,\nCould we please DEACTIVATE Epic access for ${personName}? They are no longer with the YM HAVEN FREE CLINIC. Please deactivate their access effective ${endDate}.\nThe completed PDF request form is attached. Please contact me with any questions.\n\nBest,\n${authorizerName}`,
+  bulk_deactivate: ({ endDate, authorizerName, userCount }) =>
+    `Hello,\nCould we please DEACTIVATE Epic access for the ${userCount} users in the attached spreadsheet? They are no longer with the YM HAVEN FREE CLINIC. Please deactivate their access effective ${endDate}.\nThe completed PDF request form and the spreadsheet are attached. Please contact me with any questions.\n\nBest,\n${authorizerName}`,
 };
 
 const PDF_FILENAMES: Record<RequestType, (initials: string, date: string) => string> = {
@@ -83,46 +65,23 @@ const PDF_FILENAMES: Record<RequestType, (initials: string, date: string) => str
   renew_individual: (i, d) => `${i} ${d} MOD_REACT Service Request Form_V5.5.pdf`,
   bulk_new: (i, d) => `${i} ${d} Multiple Users NEW Service Request Form_V5.5.pdf`,
   bulk_mod: (i, d) => `${i} ${d} Multiple Users MOD_REACT Service Request Form_V5.5.pdf`,
+  deactivate_individual: (i, d) => `${i} ${d} DEACTIVATE Service Request Form_V5.5.pdf`,
+  bulk_deactivate: (i, d) => `${i} ${d} Multiple Users DEACTIVATE Service Request Form_V5.5.pdf`,
 };
 
 const REQUEST_TYPE_LABELS: Record<RequestType, string> = {
-  new_individual: "New — Individual",
-  mod_individual: "Modify — Individual",
-  renew_individual: "Renew — Individual",
-  bulk_new: "New — Bulk",
-  bulk_mod: "Modify / Renew — Bulk",
+  new_individual: "New - Individual",
+  mod_individual: "Modify - Individual",
+  renew_individual: "Renew - Individual",
+  bulk_new: "New - Bulk",
+  bulk_mod: "Modify / Renew - Bulk",
+  deactivate_individual: "Deactivate - Individual",
+  bulk_deactivate: "Deactivate - Bulk",
 };
 
 // ---------------------------------------------------------------------------
-// Checkbox helper
+// Helpers
 // ---------------------------------------------------------------------------
-
-/**
- * Checks a PDF form checkbox by setting its value to /Yes and its appearance
- * state to /Yes. pdf-lib's built-in check() sometimes fails on non-standard
- * checkbox widgets; direct annotation mutation is more reliable.
- */
-function checkBox(form: ReturnType<PDFDocument["getForm"]>, fieldName: string) {
-  try {
-    const field = form.getCheckBox(fieldName);
-    field.check();
-  } catch {
-    // Field missing or not a checkbox: log so a re-versioned template surfaces
-    // instead of silently shipping an unchecked box.
-    console.warn(`[itcm] PDF checkbox not set: "${fieldName}"`);
-  }
-}
-
-function fillText(form: ReturnType<PDFDocument["getForm"]>, fieldName: string, value: string) {
-  try {
-    const field = form.getTextField(fieldName);
-    field.setText(value);
-  } catch {
-    // Field missing: log so a re-versioned template surfaces instead of
-    // silently shipping a blank field.
-    console.warn(`[itcm] PDF text field not set: "${fieldName}"`);
-  }
-}
 
 /**
  * Splits a stored full name into first/last for the PDF and spreadsheet name
@@ -139,107 +98,6 @@ function splitName(full: string): { firstName: string; lastName: string } {
 }
 
 // ---------------------------------------------------------------------------
-// PDF generator
-// ---------------------------------------------------------------------------
-
-async function generatePdf(args: {
-  requestType: RequestType;
-  authorizerKey: AuthorizerKey;
-  person: { firstName: string; lastName: string; email: string; netId: string; epicId: string; yaleAffiliation: string } | null;
-  endDate: string;
-  mirrorPerson: { name: string; epicId: string } | null;
-  templateBytes: Uint8Array;
-}): Promise<Uint8Array> {
-  const { requestType, authorizerKey, person, endDate, mirrorPerson, templateBytes } = args;
-  const authorizer = AUTHORIZERS[authorizerKey];
-  const today = new Date().toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
-  const isBulk = requestType.startsWith("bulk");
-  const isNew = requestType.includes("new");
-
-  const pdfDoc = await PDFDocument.load(templateBytes);
-  const form = pdfDoc.getForm();
-
-  // Section I — Authorizer
-  fillText(form, "Text1", authorizer.name);
-  fillText(form, "Text2", "HAVEN IT & Communications Director");
-  fillText(form, "Text3", authorizer.phone);
-  fillText(form, "Text4", today);
-  fillText(form, "Text5", authorizer.email);
-
-  // Section III — Person info
-  if (isBulk) {
-    fillText(form, "Text12", "See spreadsheet");
-    fillText(form, "Text18", "See spreadsheet");
-    fillText(form, "Text19", "See spreadsheet");
-    fillText(form, "Text23", "See spreadsheet");
-    fillText(form, "Text29", "See spreadsheet");
-  } else if (person) {
-    fillText(form, "Text12", person.firstName);
-    fillText(form, "Text18", person.lastName);
-    fillText(form, "Text19", person.email);
-    fillText(form, "Text23", person.netId);
-    if (!isNew) fillText(form, "Text17", "  " + person.epicId);
-  }
-
-  // Section III — always-fixed fields
-  fillText(form, "Text14", "203-936-8705");
-  fillText(form, "Text15", "800 Howard Avenue 06519");
-  fillText(form, "Text21", "Floor 1");
-
-  // Section IV — Affiliation + position
-  fillText(form, "Text28", "YM HAVEN FREE CLINIC");
-  checkBox(form, "Check Box1");   // Electronic signature
-  checkBox(form, "Check Box40");  // Community Connect Practice
-
-  if (!isBulk) {
-    checkBox(form, "Check Box21"); // Student (outer)
-    // Check the correct student sub-type based on Yale affiliation.
-    const affiliation = (person?.yaleAffiliation ?? "").toLowerCase();
-    if (affiliation.includes("med") || affiliation.includes("medicine")) {
-      checkBox(form, "Check Box45"); // Med Student
-    }
-    // All others (Yale College, GSAS, etc.) leave sub-type unchecked --
-    // the position "Other" text field (Text29) carries the affiliation label.
-    if (!isBulk && person?.yaleAffiliation) {
-      fillText(form, "Text29", person?.yaleAffiliation);
-    }
-  }
-
-  // Section V — Access type + similar person
-  if (isNew) {
-    checkBox(form, "Check Box49"); // New Hire
-    fillText(form, "Text75", today);
-  } else {
-    checkBox(form, "Check Box51"); // Modify Access
-    checkBox(form, "Check Box53"); // Transfer? No
-    checkBox(form, "Check Box54"); // Current access needed? Yes
-    checkBox(form, "Check Box56"); // Additional access required? Yes
-    fillText(form, "Text76", endDate);
-  }
-
-  if (mirrorPerson) {
-    fillText(form, "Text78", mirrorPerson.name);
-    fillText(form, "Text79", "  " + mirrorPerson.epicId);
-  }
-
-  // Section VI — System access
-  checkBox(form, "Check Box64");   // Epic
-  checkBox(form, "Remote Access"); // Remote Access
-
-  // Section IX — Additional information (font size reduced for wrapping)
-  try {
-    const field = form.getTextField("Text113");
-    field.setText(SECTION_IX[requestType]);
-    field.setFontSize(8);
-  } catch {
-    // skip
-  }
-
-
-  return pdfDoc.save();
-}
-
-// ---------------------------------------------------------------------------
 // Spreadsheet generator
 // ---------------------------------------------------------------------------
 
@@ -251,12 +109,12 @@ async function generateSpreadsheet(args: {
     email: string;
     netId: string;
     epicId: string;
+    mirrorEpicId: string;
   }>;
   endDate: string;
-  mirrorEpicId: string;
 }): Promise<Buffer> {
   const ExcelJS = (await import("exceljs")).default;
-  const { requestType, people, endDate, mirrorEpicId } = args;
+  const { requestType, people, endDate } = args;
   const today = new Date().toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
   const isNew = requestType.includes("new");
 
@@ -279,13 +137,14 @@ async function generateSpreadsheet(args: {
     cell.alignment = { wrapText: true };
   });
 
-  // Add data rows.
+  // Add data rows. Each row carries its own mirror Epic ID since bulk requests
+  // can span multiple departments — there is no single shared mirror anymore.
   for (const p of people) {
     const row = ws.addRow([
       p.lastName, p.firstName, "", p.email, "",
       "Yale College (Student)", "Yale College (Student)",
       today, endDate, "No", p.netId, "",
-      isNew ? "" : p.epicId, mirrorEpicId,
+      isNew ? "" : p.epicId, p.mirrorEpicId,
     ]);
     row.eachCell((cell) => {
       cell.alignment = { wrapText: true };
@@ -297,7 +156,7 @@ async function generateSpreadsheet(args: {
     const maxLen = Math.max(
       headers[i]?.length ?? 10,
       ...people.map((p) => {
-        const vals = [p.lastName, p.firstName, "", p.email, "", "Yale College (Student)", "Yale College (Student)", today, endDate, "No", p.netId, "", isNew ? "" : p.epicId, mirrorEpicId];
+        const vals = [p.lastName, p.firstName, "", p.email, "", "Yale College (Student)", "Yale College (Student)", today, endDate, "No", p.netId, "", isNew ? "" : p.epicId, p.mirrorEpicId];
         return String(vals[i] ?? "").length;
       })
     );
@@ -327,12 +186,12 @@ export async function POST(req: Request) {
 
   const body = await req.json() as {
     requestType: RequestType;
-    authorizerKey: AuthorizerKey;
+    authorizerId: string;
     personIds: string[];
     endDate: string;
   };
 
-  const { requestType, authorizerKey, personIds, endDate } = body;
+  const { requestType, authorizerId, personIds, endDate } = body;
 
   if (!Object.prototype.hasOwnProperty.call(PDF_FILENAMES, requestType)) {
     return NextResponse.json({ error: "Invalid request type" }, { status: 400 });
@@ -342,22 +201,31 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid request type" }, { status: 400 });
   }
 
-  if (!Object.prototype.hasOwnProperty.call(AUTHORIZERS, authorizerKey)) {
-    return NextResponse.json({ error: "Invalid authorizer key" }, { status: 400 });
+  // Resolve the authorizer from the current term's ITCM directors rather than a
+  // hardcoded directory, and re-resolve server-side so the rendered name/phone/
+  // email come from the trusted person record, not the client.
+  const authorizer = (await listEpicAuthorizers()).find((a) => a.id === authorizerId);
+  if (!authorizer) {
+    return NextResponse.json({ error: "Selected authorizer is not a current ITCM director" }, { status: 400 });
   }
 
   if (!personIds?.length) {
     return NextResponse.json({ error: "No people selected" }, { status: 400 });
   }
 
-  // Modify/renew requests carry an access end date; new requests use a fixed
-  // one-year-out date instead. Require it so a blank date never reaches YNHH.
-  if (!requestType.includes("new") && !endDate?.trim()) {
+  const isDeactivate = requestType === "deactivate_individual" || requestType === "bulk_deactivate";
+
+  // Every request type — new, modify, renew, and deactivate — requires an
+  // access/effective date from the admin so a blank date never reaches YNHH.
+  if (!endDate?.trim()) {
     return NextResponse.json(
-      { error: "An end date is required for modify/renew requests" },
+      { error: "An end date is required for this request" },
       { status: 400 }
     );
   }
+
+  // The blank-date guard above means endDate is always present for every type.
+  const effectiveEndDate = endDate;
 
   // Load people from the database.
   const people = await getPeopleByIds(personIds);
@@ -374,29 +242,31 @@ export async function POST(req: Request) {
     orderBy: { startDate: "desc" },
   });
 
-  // Find a department/role to mirror from. Bulk selections are constrained to a
-  // single department by the form, so any selected person's active membership
-  // gives the right department; using the first one that actually has a
-  // membership avoids a blank mirror when the alphabetically-first person lacks one.
-  let mirrorPerson: { name: string; epicId: string } | null = null;
+  // Find a mirror Epic ID per selected person, based on THEIR OWN department
+  // and role — bulk requests can now span multiple departments, so there is
+  // no single global mirror; each spreadsheet row gets its own.
+  const mirrorByPersonId = new Map<string, { name: string; epicId: string } | null>();
   if (activeTerm) {
-    const membership = await prisma.termMembership.findFirst({
+    const memberships = await prisma.termMembership.findMany({
       where: {
         personId: { in: people.map((p) => p.id) },
         termId: activeTerm.id,
         status: "ACTIVE",
       },
     });
-    if (membership) {
-      mirrorPerson = await findMirrorPerson(membership.departmentId, membership.kind, {
+    for (const m of memberships) {
+      const mirror = await findMirrorPerson(m.departmentId, m.kind, {
         excludePersonIds: people.map((p) => p.id),
         termId: activeTerm.id,
       });
+      mirrorByPersonId.set(m.personId, mirror);
     }
   }
 
-  // Load the PDF template from the public/templates directory.
-  const templatePath = path.join(process.cwd(), "public", "templates", "epic-request-template.pdf");
+  // For individual requests there's exactly one person, so this is their mirror.
+  const singleMirrorPerson = mirrorByPersonId.get(people[0].id) ?? null;
+
+ const templatePath = path.join(process.cwd(), "public", "templates", "epic-request-template.pdf");
   let templateBytes: Uint8Array;
   try {
     templateBytes = new Uint8Array(fs.readFileSync(templatePath));
@@ -407,9 +277,9 @@ export async function POST(req: Request) {
     );
   }
 
+  
+
   const isBulk = requestType.startsWith("bulk");
-  const isNew = requestType.includes("new");
-  const authorizer = AUTHORIZERS[authorizerKey];
 
   // Build person shape for individual requests.
   const firstPerson = people[0];
@@ -424,13 +294,14 @@ export async function POST(req: Request) {
     yaleAffiliation: firstPerson.yaleAffiliation ?? "",
   };
 
-  // Generate PDF.
+  // Generate PDF. Bulk requests pass no single mirror — itcm-pdf.ts should
+  // print "See spreadsheet" for "person with similar job functions" instead.
   const pdfBytes = await generatePdf({
     requestType,
-    authorizerKey,
+    authorizer,
     person: personArg,
-    endDate,
-    mirrorPerson,
+    endDate: effectiveEndDate,
+    mirrorPerson: isBulk ? null : singleMirrorPerson,
     templateBytes,
   });
 
@@ -438,25 +309,27 @@ export async function POST(req: Request) {
   const now = new Date();
   const dateStr = `${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}${now.getFullYear()}`;
   // Build filename using validated switch to satisfy CodeQL dynamic call check.
+  // The authorizer's initials (derived from their name) stand in for the old
+  // hardcoded CC/RT/JC keys in the filename.
+  const initials = authorizer.initials;
   let pdfFilename: string;
   switch (requestType) {
-    case "new_individual": pdfFilename = PDF_FILENAMES.new_individual(authorizerKey, dateStr); break;
-    case "mod_individual": pdfFilename = PDF_FILENAMES.mod_individual(authorizerKey, dateStr); break;
-    case "renew_individual": pdfFilename = PDF_FILENAMES.renew_individual(authorizerKey, dateStr); break;
-    case "bulk_new": pdfFilename = PDF_FILENAMES.bulk_new(authorizerKey, dateStr); break;
-    case "bulk_mod": pdfFilename = PDF_FILENAMES.bulk_mod(authorizerKey, dateStr); break;
+    case "new_individual": pdfFilename = PDF_FILENAMES.new_individual(initials, dateStr); break;
+    case "mod_individual": pdfFilename = PDF_FILENAMES.mod_individual(initials, dateStr); break;
+    case "renew_individual": pdfFilename = PDF_FILENAMES.renew_individual(initials, dateStr); break;
+    case "bulk_new": pdfFilename = PDF_FILENAMES.bulk_new(initials, dateStr); break;
+    case "bulk_mod": pdfFilename = PDF_FILENAMES.bulk_mod(initials, dateStr); break;
+    case "deactivate_individual": pdfFilename = PDF_FILENAMES.deactivate_individual(initials, dateStr); break;
+    case "bulk_deactivate": pdfFilename = PDF_FILENAMES.bulk_deactivate(initials, dateStr); break;
     default: return NextResponse.json({ error: "Invalid request type" }, { status: 400 });
   }
 
-  // Build email body.
-  const oneYearOut = new Date();
-  oneYearOut.setFullYear(oneYearOut.getFullYear() + 1);
-  const oneYearStr = oneYearOut.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
-
+  // Build email body. endDate now comes from the admin-picked Access end date
+  // for every request type, including New (no more hardcoded one-year-out date).
   const emailBodyArgs = {
     personName: isBulk ? "Multiple Users" : firstPerson.name,
     epicId: firstPerson.epicId ?? "",
-    endDate: isNew ? oneYearStr : endDate,
+    endDate: effectiveEndDate,
     authorizerName: authorizer.name,
     userCount: people.length,
   };
@@ -469,6 +342,8 @@ export async function POST(req: Request) {
     case "renew_individual": emailBody = EMAIL_BODIES.renew_individual(emailBodyArgs); break;
     case "bulk_new": emailBody = EMAIL_BODIES.bulk_new(emailBodyArgs); break;
     case "bulk_mod": emailBody = EMAIL_BODIES.bulk_mod(emailBodyArgs); break;
+    case "deactivate_individual": emailBody = EMAIL_BODIES.deactivate_individual(emailBodyArgs); break;
+    case "bulk_deactivate": emailBody = EMAIL_BODIES.bulk_deactivate(emailBodyArgs); break;
     default: return NextResponse.json({ error: "Invalid request type" }, { status: 400 });
   };
 
@@ -485,56 +360,62 @@ export async function POST(req: Request) {
         email: p.contactEmail ?? "",
         netId: p.netId ?? "",
         epicId: p.epicId ?? "",
+        mirrorEpicId: mirrorByPersonId.get(p.id)?.epicId ?? "",
       };
     });
 
     const xlsxBuffer = await generateSpreadsheet({
       requestType,
       people: peopleRows,
-      endDate,
-      mirrorEpicId: mirrorPerson?.epicId ?? "",
+      endDate: effectiveEndDate,
     });
 
     xlsxBase64 = xlsxBuffer.toString("base64");
     xlsxFilename = pdfFilename.replace(".pdf", ".xlsx");
   }
 
-  // Record Epic requests and a YNHH ticket in the database for tracking.
-  // kind maps: new_individual/bulk_new → NEW, mod_individual → MODIFY,
-  // renew_individual/bulk_mod → RENEW.
-  const epicKind =
-    requestType === "new_individual" || requestType === "bulk_new"
-      ? "NEW"
-      : requestType === "mod_individual"
-      ? "MODIFY"
-      : "RENEW";
-
   // Create one YnhhTicket per PDF submission to group the requests together.
   // Service request number and close date are filled in manually when YNHH responds.
   // The actor is the signed-in admin who generated the request (resolved above),
-  // so tracking is always recorded — never silently skipped.
+  // so tracking is always recorded - never silently skipped.
   const ticket = await prisma.ynhhTicket.create({
     data: {
       submittedById: actor.id,
-      description: `${REQUEST_TYPE_LABELS[requestType]} — ${people.map((p) => p.name).join(", ")}`,
+      description: `${REQUEST_TYPE_LABELS[requestType]} - ${people.map((p) => p.name).join(", ")}`,
       status: "OPEN",
     },
   });
 
-  await prisma.$transaction(
-    people.map((p) =>
-      prisma.epicRequest.create({
-        data: {
-          personId: p.id,
-          kind: epicKind,
-          status: "SUBMITTED",
-          mirrorEpicId: mirrorPerson?.epicId ?? null,
-          requestedById: actor.id,
-          ticketId: ticket.id,
-        },
-      })
-    )
-  );
+  if (isDeactivate) {
+    // Deactivation requests already exist (queued at offboard) or are created
+    // here for an ad-hoc deactivation; link them to this ticket as SUBMITTED.
+    await reconcileDeactivationRequests(actor.id, people.map((p) => p.id), ticket.id);
+  } else {
+    // Record Epic requests for tracking.
+    // kind maps: new_individual/bulk_new -> NEW, mod_individual -> MODIFY,
+    // renew_individual/bulk_mod -> RENEW.
+    const epicKind =
+      requestType === "new_individual" || requestType === "bulk_new"
+        ? "NEW"
+        : requestType === "mod_individual"
+        ? "MODIFY"
+        : "RENEW";
+
+    await prisma.$transaction(
+      people.map((p) =>
+        prisma.epicRequest.create({
+          data: {
+            personId: p.id,
+            kind: epicKind,
+            status: "SUBMITTED",
+            mirrorEpicId: mirrorByPersonId.get(p.id)?.epicId ?? null,
+            requestedById: actor.id,
+            ticketId: ticket.id,
+          },
+        })
+      )
+    );
+  }
 
   return NextResponse.json({
     pdfBase64: Buffer.from(pdfBytes).toString("base64"),
@@ -544,3 +425,13 @@ export async function POST(req: Request) {
     emailBody,
   });
 }
+
+
+
+
+
+
+
+
+
+

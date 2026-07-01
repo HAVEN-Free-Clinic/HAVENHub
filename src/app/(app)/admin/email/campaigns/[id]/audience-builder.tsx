@@ -3,6 +3,10 @@
 import { useState } from "react";
 import type { PersonFieldView } from "@/platform/email/audience/person-fields";
 import type { Audience, AudienceCondition, ConditionOp } from "@/platform/email/audience/types";
+import { Select } from "@/platform/ui/select";
+import { Checkbox } from "@/platform/ui/checkbox";
+import { Input, Textarea } from "@/platform/ui/input";
+import { Button } from "@/platform/ui/button";
 
 type Props = {
   fields: PersonFieldView[];
@@ -119,18 +123,12 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
       <div className="flex items-center gap-3">
         <span className="text-sm text-foreground-soft">Match</span>
         <div className="inline-flex overflow-hidden rounded-lg border border-border text-xs">
-          <button
-            type="button"
-            onClick={() => setMatch("ALL")}
-            className={`px-3 py-1.5 ${match === "ALL" ? "bg-brand text-white" : "bg-surface text-foreground-soft hover:bg-muted"}`}
-          >
+          {/* eslint-disable-next-line no-restricted-syntax -- segmented match-mode toggle, active state applied inline */}
+          <button type="button" onClick={() => setMatch("ALL")} className={`px-3 py-1.5 ${match === "ALL" ? "bg-brand text-white" : "bg-surface text-foreground-soft hover:bg-muted"}`}>
             ALL conditions
           </button>
-          <button
-            type="button"
-            onClick={() => setMatch("ANY")}
-            className={`px-3 py-1.5 ${match === "ANY" ? "bg-brand text-white" : "bg-surface text-foreground-soft hover:bg-muted"}`}
-          >
+          {/* eslint-disable-next-line no-restricted-syntax -- segmented match-mode toggle, active state applied inline */}
+          <button type="button" onClick={() => setMatch("ANY")} className={`px-3 py-1.5 ${match === "ANY" ? "bg-brand text-white" : "bg-surface text-foreground-soft hover:bg-muted"}`}>
             ANY condition
           </button>
         </div>
@@ -156,10 +154,10 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
               className="flex flex-wrap items-start gap-3 rounded-xl border border-border bg-muted p-3"
             >
               {/* Field selector, grouped */}
-              <select
+              <Select
                 value={cond.field}
                 onChange={(e) => changeField(idx, e.target.value)}
-                className="rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15"
+                className="w-auto"
               >
                 {groups.map((g) => (
                   <optgroup key={g.name} label={g.name}>
@@ -170,38 +168,38 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
                     ))}
                   </optgroup>
                 ))}
-              </select>
+              </Select>
 
               {/* Text fields: operator dropdown + adaptive value control */}
               {def?.kind === "text" && (
                 <>
-                  <select
+                  <Select
                     value={cond.op}
                     onChange={(e) => changeTextOp(idx, e.target.value as ConditionOp)}
-                    className="rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15"
+                    className="w-auto"
                   >
                     {def.operators.map((op) => (
                       <option key={op} value={op}>
                         {TEXT_OP_LABELS[op] ?? op}
                       </option>
                     ))}
-                  </select>
+                  </Select>
 
                   {cond.op === "in" ? (
-                    <textarea
+                    <Textarea
                       value={textValue}
                       onChange={(e) => changeTextValue(idx, e.target.value)}
                       rows={2}
                       placeholder="Paste values, one per line or comma-separated"
-                      className="min-w-[16rem] flex-1 rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15"
+                      className="min-w-[16rem] flex-1"
                     />
                   ) : !VALUELESS_OPS.has(cond.op) ? (
-                    <input
+                    <Input
                       type="text"
                       value={textValue}
                       onChange={(e) => changeTextValue(idx, e.target.value)}
                       placeholder="Enter a value"
-                      className="min-w-[12rem] flex-1 rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15"
+                      className="min-w-[12rem] flex-1"
                     />
                   ) : null}
                 </>
@@ -209,17 +207,17 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
 
               {/* Enum value */}
               {def?.kind === "enum" && (
-                <select
+                <Select
                   value={typeof cond.value === "string" ? cond.value : ""}
                   onChange={(e) => changeEnumValue(idx, e.target.value)}
-                  className="rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15"
+                  className="w-auto"
                 >
                   {options.map((o) => (
                     <option key={o.value} value={o.value}>
                       {o.label}
                     </option>
                   ))}
-                </select>
+                </Select>
               )}
 
               {/* MultiEnum checkboxes */}
@@ -227,11 +225,9 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
                 <div className="flex flex-wrap gap-x-4 gap-y-1">
                   {options.map((o) => (
                     <label key={o.value} className="flex items-center gap-1.5 text-sm">
-                      <input
-                        type="checkbox"
+                      <Checkbox
                         checked={selectedValues.includes(o.value)}
                         onChange={() => toggleMultiValue(idx, o.value)}
-                        className="rounded-lg"
                       />
                       {o.label}
                     </label>
@@ -244,35 +240,39 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
 
               {/* Boolean yes/no */}
               {def?.kind === "boolean" && (
-                <select
+                <Select
                   value={cond.op}
                   onChange={(e) => changeBooleanOp(idx, e.target.value as "isTrue" | "isFalse")}
-                  className="rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15"
+                  className="w-auto"
                 >
                   <option value="isTrue">Yes</option>
                   <option value="isFalse">No</option>
-                </select>
+                </Select>
               )}
 
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="sm"
                 onClick={() => removeCondition(idx)}
                 className="ml-auto text-xs text-subtle-foreground hover:text-critical"
               >
                 Remove
-              </button>
+              </Button>
             </div>
           );
         })}
       </div>
 
-      <button
+      <Button
         type="button"
+        variant="outline"
+        size="sm"
         onClick={addCondition}
-        className="rounded-lg border border-dashed border-border-strong px-3 py-1.5 text-sm text-foreground-soft hover:border-border-strong hover:text-foreground"
+        className="border-dashed"
       >
         + Add condition
-      </button>
+      </Button>
 
       {/* Hidden serialized audience for form submission */}
       <input type="hidden" name="audience" value={JSON.stringify(audience)} />

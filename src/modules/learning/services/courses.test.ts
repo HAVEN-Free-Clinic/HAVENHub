@@ -59,7 +59,15 @@ it("updateCourse on a missing id throws LearningValidationError", async () => {
 it("sets department assignment", async () => {
   const { manager, dept } = await seed();
   const course = await createCourse({ title: "Intro" }, manager.id);
-  await setCourseAssignment(course.id, { departmentIds: [dept.id], assignToAll: false }, manager.id);
+  await setCourseAssignment(course.id, { departmentIds: [dept.id], assignToAll: false, audience: "EVERYONE" }, manager.id);
   const edited = await getCourseForEdit(course.id);
   expect(edited!.departments.map((d) => d.departmentId)).toEqual([dept.id]);
+});
+
+it("persists the course audience", async () => {
+  const { manager, dept } = await seed();
+  const course = await createCourse({ title: "Intro" }, manager.id);
+  await setCourseAssignment(course.id, { departmentIds: [dept.id], assignToAll: false, audience: "DIRECTORS" }, manager.id);
+  const edited = await getCourseForEdit(course.id);
+  expect(edited!.audience).toBe("DIRECTORS");
 });

@@ -44,6 +44,7 @@ import {
   CertificateNotFoundError,
   ComplianceForbiddenError,
 } from "./compliance";
+import { setPersonStatusField } from "@/platform/people";
 import { CompletionDateError } from "@/platform/compliance/completion-date";
 
 // ---------------------------------------------------------------------------
@@ -89,11 +90,14 @@ async function createMembership(
   });
 }
 
-/** Create a certificate with a given completionDate (in days offset from 2025-01-01). */
+/** Create a certificate with a given completionDate (in days offset from 2025-01-01).
+ * Pass verifiedAt to make the cert immediately verifiable (COMPLIANT/EXPIRED/EXPIRING_SOON);
+ * leave it undefined for tests that verify the cert themselves or need it unverified. */
 async function createCert(
   personId: string,
   completionDate: Date | null,
-  uploadedAt?: Date
+  uploadedAt?: Date,
+  verifiedAt?: Date
 ) {
   const id = `cert-${Math.random().toString(36).slice(2)}`;
   return prisma.hipaaCertificate.create({
@@ -104,6 +108,7 @@ async function createCert(
       size: 100,
       mimeType: "application/pdf",
       completionDate,
+      verifiedAt: verifiedAt ?? null,
       uploadedAt: uploadedAt ?? new Date(),
     },
   });
@@ -311,7 +316,7 @@ describe("departmentCompliance", () => {
     await createMembership(viewer.id, term.id, dept.id, "DIRECTOR");
     await createMembership(vol.id, term.id, dept.id, "VOLUNTEER");
     // completionDate 2026-01-01 => expires 2027-01-01, covers term end 2026-09-26 + 30d
-    await createCert(vol.id, noon(2026, 1, 1));
+    await createCert(vol.id, noon(2026, 1, 1), undefined, new Date());
 
     const result = await departmentCompliance(viewer.id);
     const volMember = result[0].members.find((m) => m.person.id === vol.id);
@@ -337,12 +342,12 @@ describe("departmentCompliance", () => {
     await createMembership(expired.id, term.id, dept.id, "VOLUNTEER");
 
     // compliant: cert expires 2027-01-01, covers term end + 30d
-    await createCert(compliant.id, noon(2026, 1, 1));
+    await createCert(compliant.id, noon(2026, 1, 1), undefined, new Date());
     // expiring: cert expires soon but not expired (within 60d of now)
-    await createCert(expiring.id, daysFromNow(-305)); // 365 - 305 = 60d left
+    await createCert(expiring.id, daysFromNow(-305), undefined, new Date()); // 365 - 305 = 60d left
     // noCert: no cert
     // expired: cert already expired
-    await createCert(expired.id, daysFromNow(-400)); // expired 35 days ago
+    await createCert(expired.id, daysFromNow(-400), undefined, new Date()); // expired 35 days ago
 
     const result = await departmentCompliance(viewer.id);
     const statuses = result[0].members.map((m) => m.status);
@@ -367,7 +372,7 @@ describe("departmentCompliance", () => {
     await createMembership(vol2.id, term.id, dept.id, "VOLUNTEER");
 
     // vol1: compliant
-    await createCert(vol1.id, noon(2026, 1, 1));
+    await createCert(vol1.id, noon(2026, 1, 1), undefined, new Date());
     // vol2: no cert
     // viewer: no cert
 
@@ -717,7 +722,7 @@ describe("masterCompliance", () => {
     const bob = await createPerson("Bob", "b01");
     // alice: compliant cert
     await createMembership(alice.id, term.id, dept.id, "VOLUNTEER");
-    await createCert(alice.id, noon(2026, 1, 1)); // compliant
+    await createCert(alice.id, noon(2026, 1, 1), undefined, new Date()); // compliant
     // bob: no cert
     await createMembership(bob.id, term.id, dept.id, "VOLUNTEER");
 
@@ -790,9 +795,9 @@ describe("masterCompliance", () => {
     await createMembership(person.id, term.id, dept.id, "VOLUNTEER");
 
     // Older cert (expired)
-    await createCert(person.id, noon(2020, 1, 1), new Date("2020-01-01T12:00:00Z"));
+    await createCert(person.id, noon(2020, 1, 1), new Date("2020-01-01T12:00:00Z"), new Date());
     // Newer cert (compliant)
-    await createCert(person.id, noon(2026, 1, 1), new Date("2026-01-01T12:00:00Z"));
+    await createCert(person.id, noon(2026, 1, 1), new Date("2026-01-01T12:00:00Z"), new Date());
 
     const result = await masterCompliance({});
     expect(result.rows).toHaveLength(1);
@@ -816,6 +821,23 @@ describe("masterCompliance", () => {
     const result = await masterCompliance({});
     expect(result.rows[0].verifiedByName).toBe("Bob Verifier");
   });
+
+  it("excludes a person offboarded through the admin people path (regression: issue #67)", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("ITCM");
+    const person = await createPerson("Offboarded Via Admin", "ova01");
+    await createMembership(person.id, term.id, dept.id, "VOLUNTEER");
+
+    // Sanity: they are on the roster while ACTIVE.
+    expect((await masterCompliance({})).rows).toHaveLength(1);
+
+    // Offboarding (the admin people page calls this same platform mutation) must
+    // also clear their ACTIVE memberships, so the Master Compliance roster
+    // ("all active clinic members") no longer counts them.
+    await setPersonStatusField("admin-actor", person.id, "OFFBOARDED");
+
+    expect((await masterCompliance({})).rows).toHaveLength(0);
+  });
 });
 
 describe("training clearance on compliance rows", () => {
@@ -826,7 +848,7 @@ describe("training clearance on compliance rows", () => {
     const vol = await createPerson("Vol");
     await createMembership(viewer.id, term.id, dept.id, "DIRECTOR");
     await createMembership(vol.id, term.id, dept.id, "VOLUNTEER");
-    await createCert(vol.id, daysFromNow(-1)); // recent completion -> COMPLIANT
+    await createCert(vol.id, daysFromNow(-1), undefined, new Date()); // recent completion -> COMPLIANT
 
     const srr = await createPerson("SRR");
     const cycle = await prisma.recruitmentCycle.create({ data: { track: "VOLUNTEER", termId: term.id, title: "T", publicSlug: "t", departments: ["SRHD"], createdById: srr.id, isTermTraining: true } });
@@ -840,7 +862,7 @@ describe("training clearance on compliance rows", () => {
     // A volunteer with a valid cert but NO training row is PENDING / NOT_CLEARED.
     const vol2 = await createPerson("Vol2");
     await createMembership(vol2.id, term.id, dept.id, "VOLUNTEER");
-    await createCert(vol2.id, daysFromNow(-1));
+    await createCert(vol2.id, daysFromNow(-1), undefined, new Date());
     const cards2 = await departmentCompliance(viewer.id);
     const row2 = cards2.flatMap((c) => c.members).find((m) => m.person.id === vol2.id)!;
     expect(row2.trainingState).toBe("PENDING");
@@ -854,7 +876,7 @@ describe("training clearance on compliance rows", () => {
     const vol = await createPerson("Vol");
     await createMembership(viewer.id, term.id, dept.id, "DIRECTOR");
     await createMembership(vol.id, term.id, dept.id, "VOLUNTEER");
-    await createCert(vol.id, daysFromNow(-1));
+    await createCert(vol.id, daysFromNow(-1), undefined, new Date());
     const srr = await createPerson("SRR");
     const cycle = await prisma.recruitmentCycle.create({ data: { track: "VOLUNTEER", termId: term.id, title: "T", publicSlug: "t", departments: ["SRHD"], createdById: srr.id, isTermTraining: true } });
     await prisma.training.create({ data: { personId: vol.id, termId: term.id, cycleId: cycle.id, status: "COMPLETE", completedVia: "ATTENDANCE", completedAt: new Date() } });
@@ -863,6 +885,55 @@ describe("training clearance on compliance rows", () => {
     const row = res.rows.find((r) => r.person.id === vol.id)!;
     expect(row.trainingState).toBe("COMPLETE");
     expect(row.overallClearance).toBe("CLEARED");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PENDING_VERIFICATION gate
+// ---------------------------------------------------------------------------
+
+describe("PENDING_VERIFICATION gate", () => {
+  it("a dated cert with verifiedAt=null reads PENDING_VERIFICATION and is NOT_CLEARED", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("ITCM");
+    const viewer = await createPerson("Director", "dir001");
+    const vol = await createPerson("Volunteer", "vol001");
+    await createMembership(viewer.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(vol.id, term.id, dept.id, "VOLUNTEER");
+
+    // Create an unverified cert (no verifiedAt) with a fresh completionDate.
+    await createCert(vol.id, noon(2026, 1, 1)); // no verifiedAt 4th arg -> null
+
+    const result = await departmentCompliance(viewer.id);
+    const volMember = result[0].members.find((m) => m.person.id === vol.id)!;
+    expect(volMember.status).toBe("PENDING_VERIFICATION");
+    expect(volMember.overallClearance).toBe("NOT_CLEARED");
+  });
+
+  it("calling verifyCertificate flips a PENDING cert to COMPLIANT", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("ITCM");
+    const director = await createPerson("Director", "dir001");
+    const vol = await createPerson("Volunteer", "vol001");
+    await grantPermission(director.id, "volunteers.manage_compliance");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(vol.id, term.id, dept.id, "VOLUNTEER");
+
+    const cert = await createCert(vol.id, noon(2026, 1, 1)); // unverified
+
+    // Before verification: PENDING.
+    const before = await departmentCompliance(director.id);
+    const beforeMember = before[0].members.find((m) => m.person.id === vol.id)!;
+    expect(beforeMember.status).toBe("PENDING_VERIFICATION");
+
+    // Verify the cert.
+    await verifyCertificate(director.id, cert.id);
+
+    // After verification: COMPLIANT.
+    const after = await departmentCompliance(director.id);
+    const afterMember = after[0].members.find((m) => m.person.id === vol.id)!;
+    expect(afterMember.status).toBe("COMPLIANT");
+    expect(afterMember.overallClearance).toBe("NOT_CLEARED"); // training still pending
   });
 });
 
@@ -905,20 +976,6 @@ describe("setCompletionDateAsManager", () => {
     });
     expect(log).not.toBeNull();
     expect(log?.actorPersonId).toBe(actor.id);
-  });
-
-  it("enqueues a Person mirror row for hipaaStatus", async () => {
-    const actor = await createPerson("Manager", "mgr001");
-    await grantPermission(actor.id, "volunteers.manage_compliance");
-    const owner = await createPerson("Volunteer", "vol001");
-    const cert = await createCert(owner.id, null);
-
-    await setCompletionDateAsManager(actor.id, cert.id, "2025-06-01");
-
-    const mirror = await prisma.outbox.findFirst({
-      where: { entityType: "Person", entityId: owner.id },
-    });
-    expect(mirror).not.toBeNull();
   });
 
   it("throws ComplianceForbiddenError for a non-manager actor", async () => {

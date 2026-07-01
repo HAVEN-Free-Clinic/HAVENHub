@@ -25,6 +25,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import {
   builderView,
+  canManageAnyScheduleDept,
   setAssignment,
   toggleTag,
   setAvailabilityOverride,
@@ -33,12 +34,15 @@ import {
   upsertRhdClinic,
   BuilderForbiddenError,
   BuilderValidationError,
+  compareBuilderMembers,
 } from "@/modules/schedule/services/builder";
+import type { BuilderMemberIntake } from "@/modules/schedule/services/builder";
 import { createAttending, AttendingValidationError, AttendingForbiddenError } from "@/modules/schedule/services/attendings";
 import {
   listDepartmentRequests,
   approveRequest,
   denyRequest,
+  canManageRequestsForDept,
   RequestForbiddenError,
   RequestNotFoundError,
   RequestValidationError,
@@ -51,6 +55,7 @@ import { PendingRequests } from "@/modules/schedule/components/pending-requests"
 import { displayDate } from "@/modules/schedule/engine/display";
 import { rolesForDept } from "@/modules/schedule/engine/capacity";
 import { isoDateKey } from "@/platform/dates";
+import { Checkbox } from "@/platform/ui/checkbox";
 import { AlertTriangle } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -102,6 +107,11 @@ function buildHref(base: string, p: HrefParams): string {
 
 export default async function BuilderPage({ searchParams }: PageProps) {
   const session = await requireModuleAccess("schedule");
+  // The Builder is a management tool: only people who manage a schedule
+  // department (directorship, delegation, or schedule.edit_all) can do anything
+  // here. Plain schedule.view holders are sent to /no-access rather than shown
+  // an empty, do-nothing builder. Mutations are still scope-checked server-side.
+  if (!(await canManageAnyScheduleDept(session.personId))) redirect("/no-access");
   const sp = await searchParams;
 
   const deptParam = sp.dept ?? undefined;
@@ -127,7 +137,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
       <div>
         <div className="rounded-2xl bg-brand px-8 py-6 text-white mb-8">
           <p className="text-xs font-semibold uppercase tracking-widest text-white/60 mb-1">Schedule Builder</p>
-          <h1 className="text-2xl font-bold">No departments</h1>
+          <h1 className="text-2xl font-bold tracking-tight">No departments</h1>
           <p className="text-sm text-white/70 mt-1">You do not direct any departments this term.</p>
         </div>
       </div>
@@ -137,7 +147,10 @@ export default async function BuilderPage({ searchParams }: PageProps) {
   const { selectedDepartment, clinicDates, selectedDateKey, currentClinicDateKey, members, assignmentsByDate, conflicts } = data;
   const dept = selectedDepartment!;
 
-  const requestRows = await listDepartmentRequests(session.personId, dept.id);
+  const canManageRequests = await canManageRequestsForDept(session.personId, dept.id);
+  const requestRows = canManageRequests
+    ? await listDepartmentRequests(session.personId, dept.id)
+    : [];
 
   function href(overrides: HrefParams): string {
     return buildHref("/schedule/builder", {
@@ -178,15 +191,13 @@ export default async function BuilderPage({ searchParams }: PageProps) {
       ? m.availability.dates.some((d) => isoDateKey(d) === selectedDateKey)
       : false;
 
-  const byName = (
-    a: (typeof unassignedMembers)[number],
-    b: (typeof unassignedMembers)[number],
-  ) => a.person.name.localeCompare(b.person.name);
-
-  const availableMembers = unassignedMembers.filter(isAvailableOnDate).sort(byName);
+  // Directors first, then volunteers, alphabetical within each group.
+  const availableMembers = unassignedMembers
+    .filter(isAvailableOnDate)
+    .sort(compareBuilderMembers);
   const notAvailableMembers = unassignedMembers
     .filter((m) => !isAvailableOnDate(m))
-    .sort(byName);
+    .sort(compareBuilderMembers);
   const availableCount = availableMembers.length;
 
   // ---------------------------------------------------------------------------
@@ -415,11 +426,11 @@ export default async function BuilderPage({ searchParams }: PageProps) {
       })
     : null;
 
-  function flagBadges(person: { spanishSpeaking: boolean; licensedRN: boolean }) {
-    if (!person.spanishSpeaking && !person.licensedRN) return null;
+  function flagBadges(person: { spanishVerified: boolean; licensedRN: boolean }) {
+    if (!person.spanishVerified && !person.licensedRN) return null;
     return (
       <>
-        {person.spanishSpeaking && <Badge tone="default">ES</Badge>}
+        {person.spanishVerified && <Badge tone="default">ES</Badge>}
         {person.licensedRN && <Badge tone="default">RN</Badge>}
       </>
     );
@@ -431,11 +442,11 @@ export default async function BuilderPage({ searchParams }: PageProps) {
       <div
         key={member.person.id}
         className={`rounded-2xl border px-3 py-3 ${
-          available ? "border-success/30 bg-green-50" : "border-border bg-muted opacity-75"
+          available ? "border-border bg-surface" : "border-border bg-muted opacity-75"
         }`}
       >
         <div className="flex flex-wrap items-center gap-2 mb-2">
-          <span className={`text-sm font-semibold ${available ? "text-slate-800" : "text-foreground"}`}>{member.person.name}</span>
+          <span className="text-sm font-semibold text-foreground">{member.person.name}</span>
           <Badge tone={isDirectorKind ? "brand" : "default"}>
             {isDirectorKind ? "Director" : "Volunteer"}
           </Badge>
@@ -479,6 +490,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
             variant="assign"
           />
         </div>
+        <IntakeNotes intake={member.intake} />
       </div>
     );
   }
@@ -490,7 +502,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
         <p className="text-xs font-semibold uppercase tracking-widest text-white/60 mb-1">Schedule Builder</p>
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold">{selectedDisplay ?? "Select a date"}</h1>
+            <h1 className="text-2xl font-bold tracking-tight">{selectedDisplay ?? "Select a date"}</h1>
             <p className="text-sm text-white/70 mt-0.5 font-semibold uppercase tracking-widest">{dept.code} &middot; {dept.name}</p>
           </div>
           <div className="flex items-center gap-3">
@@ -616,9 +628,9 @@ export default async function BuilderPage({ searchParams }: PageProps) {
 
               {/* HIPAA banner */}
               {data.banner.length > 0 && (
-                <div role="status" className="mb-4 rounded-xl border border-warning/30 bg-amber-50 px-4 py-3 text-sm text-warning">
-                  <p className="font-semibold mb-1 flex items-center gap-1.5">
-                    <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden />
+                <Card size="compact" pad={false} role="status" className="mb-4 px-4 py-3 text-sm text-foreground-soft">
+                  <p className="font-semibold mb-1 flex items-center gap-1.5 text-foreground">
+                    <AlertTriangle className="h-4 w-4 shrink-0 text-warning" aria-hidden />
                     HIPAA issues on this date
                   </p>
                   <ul className="list-disc list-inside space-y-0.5">
@@ -628,7 +640,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                       ))
                     )}
                   </ul>
-                </div>
+                </Card>
               )}
 
               {/* Directors */}
@@ -644,7 +656,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                       const m = memberByPersonId.get(pid);
                       const name = m?.person.name ?? pid;
                       return (
-                        <div key={pid} className="rounded-2xl border border-border bg-surface shadow-sm px-3 py-2 flex items-center justify-between">
+                        <Card key={pid} pad={false} className="px-3 py-2 flex items-center justify-between">
                           <span className="flex flex-wrap items-center gap-2">
                             <span className="text-sm font-bold text-foreground">{name}</span>
                             {m?.person && flagBadges(m.person)}
@@ -655,7 +667,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                             <input type="hidden" name="personId" value={pid} />
                             <ConfirmButton label="Remove" confirmLabel="Remove this director?" />
                           </form>
-                        </div>
+                        </Card>
                       );
                     })}
                   </div>
@@ -678,7 +690,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                       const tags = assignment.tags;
                       const personConflicts = conflicts[pid] ?? [];
                       return (
-                        <div key={pid} className="rounded-2xl border border-border bg-surface shadow-sm px-3 py-2">
+                        <Card key={pid} pad={false} className="px-3 py-2">
                           <div className="flex flex-wrap items-center gap-2 text-sm">
                             <span className="font-medium text-foreground">{name}</span>
                             {m?.person && flagBadges(m.person)}
@@ -707,7 +719,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                             <Input name="reason" aria-label="Removal reason" placeholder="Reason (optional)" className="flex-1 min-w-32 py-1 text-xs" />
                             <ConfirmButton label="Remove" confirmLabel="Remove this volunteer?" />
                           </form>
-                        </div>
+                        </Card>
                       );
                     })}
                   </div>
@@ -727,7 +739,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                       const m = memberByPersonId.get(pid);
                       const name = m?.person.name ?? pid;
                       return (
-                        <div key={pid} className="rounded-2xl border border-border bg-surface shadow-sm px-3 py-2 flex items-center justify-between">
+                        <Card key={pid} pad={false} className="px-3 py-2 flex items-center justify-between">
                           <span className="flex flex-wrap items-center gap-2">
                             <span className="text-sm font-medium text-foreground-soft">{name}</span>
                             {m?.person && flagBadges(m.person)}
@@ -738,7 +750,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                             <input type="hidden" name="personId" value={pid} />
                             <ConfirmButton label="Remove" confirmLabel="Remove this shadow?" />
                           </form>
-                        </div>
+                        </Card>
                       );
                     })}
                   </div>
@@ -750,9 +762,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
             <section>
               <div className="flex items-center gap-2 mb-4">
                 <h2 className="text-base font-bold text-foreground">Available to assign</h2>
-                <span className="rounded-full bg-green-50 text-success text-xs font-semibold px-2.5 py-0.5">
-                  {availableCount} available
-                </span>
+                <Badge tone="success">{availableCount} available</Badge>
               </div>
 
               {!selectedDateKey ? (
@@ -809,15 +819,61 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                   dateKey={selectedDateKey!}
                 />
               )}
-              <PendingRequests
-                rows={requestRows}
-                approveAction={approveRequestAction}
-                denyAction={denyRequestAction}
-              />
+              {canManageRequests && (
+                <PendingRequests
+                  rows={requestRows}
+                  approveAction={approveRequestAction}
+                  denyAction={denyRequestAction}
+                />
+              )}
             </div>
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Training-intake notes
+// ---------------------------------------------------------------------------
+
+/**
+ * Renders the scheduling preferences a member gave during training intake so
+ * directors can use them while building. Returns null when the member left
+ * everything blank.
+ */
+function IntakeNotes({
+  intake,
+  className = "",
+}: {
+  intake: BuilderMemberIntake;
+  className?: string;
+}) {
+  const { minShiftsWanted, additionalShiftAvailability, feedback } = intake;
+  if (!minShiftsWanted && !additionalShiftAvailability && !feedback) return null;
+
+  const border = "border-border";
+  const body = "text-muted-foreground";
+  const label = "text-foreground";
+
+  return (
+    <div className={`mt-2 space-y-0.5 border-t ${border} pt-2 text-xs ${body} ${className}`}>
+      {minShiftsWanted && (
+        <p>
+          <span className={`font-semibold ${label}`}>Wants</span> {minShiftsWanted}+ shifts this term
+        </p>
+      )}
+      {additionalShiftAvailability && (
+        <p>
+          <span className={`font-semibold ${label}`}>Availability:</span> {additionalShiftAvailability}
+        </p>
+      )}
+      {feedback && (
+        <p>
+          <span className={`font-semibold ${label}`}>Note to directors:</span> {feedback}
+        </p>
+      )}
     </div>
   );
 }
@@ -848,7 +904,8 @@ function AvailabilityView({
       {members.length === 0 && (
         <p className="text-sm text-subtle-foreground">No members in this department.</p>
       )}
-      {members.map((member) => {
+      {/* Directors first, then volunteers, alphabetical within each group. */}
+      {[...members].sort(compareBuilderMembers).map((member) => {
         const tierLabel =
           member.availability.tier === "DIRECTOR"
             ? "Director override"
@@ -876,6 +933,7 @@ function AvailabilityView({
             {member.legacyNote && (
               <p className="mb-3 text-xs text-subtle-foreground italic">{member.legacyNote}</p>
             )}
+            <IntakeNotes intake={member.intake} className="mb-3" />
             <form action={saveOverrideAction} className="mb-2">
               <input type="hidden" name="membershipId" value={member.membershipId} />
               <div className="flex flex-wrap gap-2 mb-3">
@@ -884,12 +942,10 @@ function AvailabilityView({
                   const checked = availKeys.has(key);
                   return (
                     <label key={key} className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs cursor-pointer transition-colors whitespace-nowrap ${checked ? "border-brand bg-brand/5 text-brand-fg font-semibold" : "border-border text-muted-foreground hover:border-border-strong"}`}>
-                      <input
-                        type="checkbox"
+                      <Checkbox
                         name="dates"
                         value={key}
                         defaultChecked={checked}
-                        className="h-3 w-3 rounded accent-brand"
                       />
                       {displayDate(key)}
                     </label>

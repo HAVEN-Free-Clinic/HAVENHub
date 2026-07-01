@@ -4,7 +4,13 @@ import { AuthError } from "next-auth";
 import { auth, signIn } from "@/platform/auth/auth";
 import { config } from "@/platform/config";
 import { getSetting } from "@/platform/settings/service";
+import { getOrgIdentity, formatOrgLine } from "@/platform/branding/org";
+import { getSupportContact } from "@/platform/branding/support";
+import { SupportLink } from "@/platform/branding/support-link";
 import { HavenLogo } from "@/platform/ui/haven-logo";
+import { Input, Field } from "@/platform/ui/input";
+import { Button } from "@/platform/ui/button";
+import { FormActions } from "@/platform/ui/form";
 import { SignInButton } from "./sign-in-button";
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -38,7 +44,11 @@ export default async function LoginPage({
   }
   const session = await auth();
   if (session?.personId) redirect(safeCallbackUrl);
-  const appName = await getSetting<string>("branding.appName");
+  const [appName, org, support] = await Promise.all([
+    getSetting<string>("branding.appName"),
+    getOrgIdentity(),
+    getSupportContact(),
+  ]);
   const errorMessage = error ? (ERROR_MESSAGES[error] ?? DEFAULT_ERROR) : null;
 
   return (
@@ -75,7 +85,7 @@ export default async function LoginPage({
           <p className="mt-2 text-sm text-white/80">
             Scheduling, volunteer management, and compliance in one place.
           </p>
-          <p className="mt-8 text-xs text-white/70">HAVEN Free Clinic · Yale University</p>
+          <p className="mt-8 text-xs text-white/70">{formatOrgLine(org)}</p>
         </div>
       </div>
 
@@ -83,7 +93,7 @@ export default async function LoginPage({
       <div className="flex flex-col gap-1.5 bg-brand px-6 py-5 text-white lg:hidden">
         <HavenLogo className="h-9 text-white" />
         <p className="text-sm text-white/80">
-          Scheduling, volunteering, and compliance for HAVEN Free Clinic.
+          Scheduling, volunteering, and compliance for {org.name}.
         </p>
       </div>
 
@@ -129,16 +139,15 @@ export default async function LoginPage({
             </p>
           )}
 
-          {/* Persistent help affordance, available before any error occurs */}
-          <p className="mt-5 text-sm text-muted-foreground">
-            Trouble signing in?{" "}
-            <a
-              href="mailto:hfc.it@yale.edu"
-              className="font-medium text-brand-fg underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-            >
-              Contact the HAVEN IT team
-            </a>
-          </p>
+          {/* Persistent help affordance, available before any error occurs.
+              Hidden entirely when no support email is configured, so a
+              locked-out user is never shown a contact they cannot reach. */}
+          {support.email && (
+            <p className="mt-5 text-sm text-muted-foreground">
+              Trouble signing in?{" "}
+              <SupportLink email={support.email}>{support.label}</SupportLink>
+            </p>
+          )}
 
           {(config.NODE_ENV !== "production" || config.DEMO_MODE) && (
             <form
@@ -161,26 +170,21 @@ export default async function LoginPage({
                 }
               }}
             >
-              <label
-                className="text-xs font-medium uppercase tracking-wide text-subtle-foreground"
-                htmlFor="email"
-              >
+              <p className="text-xs font-medium uppercase tracking-wide text-subtle-foreground">
                 Local development
-              </label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                required
-                placeholder="j.carney@yale.edu"
-                className="mt-2 w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15"
-              />
-              <button
-                type="submit"
-                className="mt-3 w-full rounded-lg border border-border-strong px-4 py-2 text-sm font-medium text-foreground-soft transition-colors hover:bg-muted"
-              >
-                Dev sign in
-              </button>
+              </p>
+              <Field label="Email">
+                <Input
+                  name="email"
+                  type="email"
+                  required
+                  placeholder="j.carney@yale.edu"
+                  className="mt-1"
+                />
+              </Field>
+              <FormActions>
+                <Button type="submit" variant="outline" className="w-full">Dev sign in</Button>
+              </FormActions>
             </form>
           )}
         </div>

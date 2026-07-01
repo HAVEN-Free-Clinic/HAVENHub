@@ -32,7 +32,7 @@
  *   - closeTicket on already-closed ticket -> EpicStateError.
  *
  * completeRequest(actorPersonId, requestId, epicId?):
- *   - NEW: writes Person.epicId via updatePersonFields; Outbox row with epicId in changedFields.
+ *   - NEW: writes Person.epicId via updatePersonFields.
  *   - RENEW: leaves person untouched even when epicId passed.
  *   - NEW without epicId -> EpicStateError.
  *   - COMPLETED/CANCELLED status -> EpicStateError.
@@ -578,7 +578,7 @@ describe("closeTicket", () => {
 // ---------------------------------------------------------------------------
 
 describe("completeRequest", () => {
-  it("NEW: writes Person.epicId via updatePersonFields; Outbox row with epicId in changedFields", async () => {
+  it("NEW: writes Person.epicId via updatePersonFields", async () => {
     const actor = await createPerson("Manager", { netId: "mgr001" });
     await grantPermission(actor.id, "volunteers.manage_epic");
     const target = await createPerson("Alice", { netId: "aaa001" });
@@ -595,13 +595,6 @@ describe("completeRequest", () => {
     const updatedReq = await prisma.epicRequest.findUniqueOrThrow({ where: { id: req.id } });
     expect(updatedReq.status).toBe("COMPLETED");
     expect(updatedReq.completedAt).not.toBeNull();
-
-    // Outbox row should exist for the person mirror with epicId in changedFields.
-    const outbox = await prisma.outbox.findFirst({
-      where: { entityId: target.id },
-    });
-    expect(outbox).not.toBeNull();
-    expect(outbox?.changedFields).toContain("epicId");
 
     // Audit for epic.complete.
     const audit = await prisma.auditLog.findFirst({
@@ -724,6 +717,51 @@ describe("completeRequest", () => {
     });
 
     await expect(completeRequest(noPerms.id, req.id)).rejects.toBeInstanceOf(EpicForbiddenError);
+  });
+
+  it("rejects completing a NEW request when the person is not ACTIVE", async () => {
+    const manager = await createPerson("Mgr");
+    await grantPermission(manager.id, "volunteers.manage_epic");
+    const person = await createPerson("Leaver", { status: "OFFBOARDED" });
+    const req = await prisma.epicRequest.create({
+      data: { personId: person.id, kind: "NEW", status: "SUBMITTED", requestedById: manager.id },
+    });
+
+    await expect(completeRequest(manager.id, req.id, "NEWID")).rejects.toBeInstanceOf(EpicStateError);
+
+    const after = await prisma.person.findUnique({ where: { id: person.id } });
+    expect(after?.epicId).toBeNull();
+  });
+
+  it("rejects completing a RENEW request when the person is not ACTIVE", async () => {
+    const manager = await createPerson("Mgr");
+    await grantPermission(manager.id, "volunteers.manage_epic");
+    const person = await createPerson("Leaver", { epicId: "E123", status: "OFFBOARDED" });
+    const req = await prisma.epicRequest.create({
+      data: { personId: person.id, kind: "RENEW", status: "SUBMITTED", requestedById: manager.id },
+    });
+
+    await expect(completeRequest(manager.id, req.id)).rejects.toBeInstanceOf(EpicStateError);
+
+    const stillOpen = await prisma.epicRequest.findUnique({ where: { id: req.id } });
+    expect(stillOpen?.status).toBe("SUBMITTED");
+  });
+
+  it("completes a DEACTIVATE request for an OFFBOARDED person without clearing epicId", async () => {
+    const manager = await createPerson("Mgr");
+    await grantPermission(manager.id, "volunteers.manage_epic");
+    const person = await createPerson("Leaver", { epicId: "E123", status: "OFFBOARDED" });
+    const req = await prisma.epicRequest.create({
+      data: { personId: person.id, kind: "DEACTIVATE", status: "PENDING", requestedById: manager.id },
+    });
+
+    await completeRequest(manager.id, req.id);
+
+    const done = await prisma.epicRequest.findUnique({ where: { id: req.id } });
+    expect(done?.status).toBe("COMPLETED");
+    expect(done?.completedAt).not.toBeNull();
+    const after = await prisma.person.findUnique({ where: { id: person.id } });
+    expect(after?.epicId).toBe("E123"); // never cleared
   });
 
   it("NEW happy path starting from SUBMITTED (request attached to a ticket)", async () => {

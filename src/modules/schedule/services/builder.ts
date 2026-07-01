@@ -13,7 +13,7 @@ import type { RhdClinic } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { isoDateKey } from "@/platform/dates";
-import { manageableDepartmentIds } from "@/platform/departments";
+import { manageableDepartmentIds, memberDepartmentIds } from "@/platform/departments";
 import { can } from "@/platform/rbac/engine";
 import { complianceStatus } from "@/platform/compliance/rules";
 import { resolveAvailability } from "../engine/availability";
@@ -55,6 +55,25 @@ export class BuilderValidationError extends Error {
 export const RHD_CODES = new Set(["SCTS", "JCTS", "CCRH"]);
 
 // ---------------------------------------------------------------------------
+// Input allow-lists
+// ---------------------------------------------------------------------------
+
+/**
+ * Roles a scheduler may assign (mirrors the ShiftRole DB enum). The action
+ * reads `role` from FormData with a bare cast, so the service re-checks the
+ * value against this allow-list before any write -- a crafted out-of-set value
+ * raises BuilderValidationError (the friendly path) instead of letting the DB
+ * throw an opaque PrismaClientValidationError.
+ */
+export const SHIFT_ROLES = ["VOLUNTEER", "SHADOW", "DIRECTOR"] as const;
+
+/**
+ * Boolean tag columns toggleable on a ShiftAssignment. Guarded the same way as
+ * SHIFT_ROLES so a bad `tag` never reaches `data: { [tag]: value }`.
+ */
+export const SHIFT_TAGS = ["triage", "walkin", "cc", "remote"] as const;
+
+// ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
 
@@ -84,21 +103,41 @@ async function scopeCheck(actorPersonId: string, departmentId: string): Promise<
 /**
  * Returns the set of department ids the person may manage for schedule
  * purposes: manageableDepartmentIds(personId) UNION (when
- * can(personId, "schedule.edit_all")) ALL department ids. Deduped.
+ * can(personId, "schedule.edit_own_dept")) memberDepartmentIds(personId)
+ * UNION (when can(personId, "schedule.edit_all")) ALL department ids. Deduped.
  */
 export async function manageableScheduleDepartmentIds(personId: string): Promise<string[]> {
-  const [base, editAll] = await Promise.all([
+  const [base, editOwnDept, editAll] = await Promise.all([
     manageableDepartmentIds(personId),
+    can(personId, "schedule.edit_own_dept"),
     can(personId, "schedule.edit_all"),
   ]);
 
-  if (!editAll) return base;
-
-  // edit_all: union base with every department in the DB.
-  const all = await prisma.department.findMany({ select: { id: true } });
   const ids = new Set<string>(base);
-  for (const d of all) ids.add(d.id);
+
+  // edit_own_dept: extend to departments the person is an active member of.
+  if (editOwnDept) {
+    for (const id of await memberDepartmentIds(personId)) ids.add(id);
+  }
+
+  // edit_all: union with every department in the DB.
+  if (editAll) {
+    const all = await prisma.department.findMany({ select: { id: true } });
+    for (const d of all) ids.add(d.id);
+  }
+
   return [...ids];
+}
+
+/**
+ * True when the person can use the Builder at all -- i.e. manages at least one
+ * schedule department (a directorship, a delegation, or schedule.edit_all).
+ * Plain schedule.view holders get false. Drives both the Builder nav tab
+ * visibility and the page gate so the tab is never a render-but-do-nothing
+ * dead end for a non-manager.
+ */
+export async function canManageAnyScheduleDept(personId: string): Promise<boolean> {
+  return (await manageableScheduleDepartmentIds(personId)).length > 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -129,6 +168,12 @@ export async function setAssignment(
   }
 ): Promise<void> {
   await scopeCheck(actor, opts.departmentId);
+
+  // Reject a role outside the allow-list before any DB work. role === null is the
+  // valid unassign case.
+  if (opts.role !== null && !SHIFT_ROLES.includes(opts.role)) {
+    throw new BuilderValidationError("Invalid role.");
+  }
 
   const term = await getActiveTerm();
   if (!term) throw new BuilderValidationError("No active term.");
@@ -247,6 +292,11 @@ export async function toggleTag(
   }
 ): Promise<void> {
   await scopeCheck(actor, opts.departmentId);
+
+  // Reject a tag outside the allow-list before it can reach `data: { [tag]: ... }`.
+  if (!SHIFT_TAGS.includes(opts.tag)) {
+    throw new BuilderValidationError("Invalid tag.");
+  }
 
   const term = await getActiveTerm();
   if (!term) throw new BuilderValidationError("No active term.");
@@ -514,15 +564,40 @@ export async function upsertRhdClinic(
 // builderView types
 // ---------------------------------------------------------------------------
 
+/** Scheduling preferences a member gave during training intake (training quiz).
+ *  Surfaced to directors in the builder; never auto-applied to capacity math. */
+export type BuilderMemberIntake = {
+  /** Minimum shifts the member wants this term (free text, e.g. "4"). */
+  minShiftsWanted: string | null;
+  /** Free-text availability beyond their checked dates. */
+  additionalShiftAvailability: string | null;
+  /** Free-text note the member addressed to the directors. */
+  feedback: string | null;
+};
+
 export type BuilderMember = {
   membershipId: string;
-  person: { id: string; name: string; spanishSpeaking: boolean; licensedRN: boolean };
+  person: { id: string; name: string; spanishVerified: boolean; licensedRN: boolean };
   kind: "DIRECTOR" | "VOLUNTEER";
   availability: ResolvedAvailability;
   overrideActive: boolean;
   acknowledgePending: boolean;
   legacyNote: string | null;
+  intake: BuilderMemberIntake;
 };
+
+/** Just the fields {@link compareBuilderMembers} needs; any BuilderMember satisfies it. */
+type BuilderMemberOrder = Pick<BuilderMember, "kind"> & { person: { name: string } };
+
+/**
+ * Ordering for the builder's member lists: directors first, then volunteers,
+ * each group sorted alphabetically by name. Used by the Day view's
+ * "Available to assign" pool and the grid view so both surfaces match.
+ */
+export function compareBuilderMembers(a: BuilderMemberOrder, b: BuilderMemberOrder): number {
+  if (a.kind !== b.kind) return a.kind === "DIRECTOR" ? -1 : 1;
+  return a.person.name.localeCompare(b.person.name);
+}
 
 export type BuilderAssignmentEntry = {
   role: "VOLUNTEER" | "SHADOW" | "DIRECTOR";
@@ -582,7 +657,7 @@ export async function builderView(
 
   // Empty state when viewer manages nothing.
   const emptyMetrics = computeDayMetrics(
-    { onShift: 0, triage: 0, walkin: 0, shadow: 0, spanish: 0, patientsBooked: null },
+    { onShift: 0, triage: 0, walkin: 0, cc: 0, shadow: 0, spanish: 0, patientsBooked: null },
     { idealHeadcount: null, patientCapacityPerProvider: null }
   );
 
@@ -666,7 +741,7 @@ export async function builderView(
     prisma.shiftAssignment.findMany({
       where: { termId: term.id, departmentId: selectedDept.id },
       include: {
-        person: { select: { id: true, name: true, spanishSpeaking: true, licensedRN: true } },
+        person: { select: { id: true, name: true, spanishVerified: true, licensedRN: true } },
       },
     }),
     prisma.termMembership.findMany({
@@ -699,6 +774,24 @@ export async function builderView(
     };
   }
 
+  // Load each member's training intake (scheduling preferences from the training
+  // quiz), keyed by personId:track. A member's track is their membership kind, so
+  // a VOLUNTEER-kind member only ever shows VOLUNTEER-track intake.
+  const memberPersonIds = members.map((m) => m.person.id);
+  const trainingRows = memberPersonIds.length
+    ? await prisma.training.findMany({
+        where: { termId: term.id, personId: { in: memberPersonIds } },
+        select: {
+          personId: true,
+          track: true,
+          minShiftsWanted: true,
+          additionalShiftAvailability: true,
+          feedback: true,
+        },
+      })
+    : [];
+  const intakeByKey = new Map(trainingRows.map((t) => [`${t.personId}:${t.track}`, t]));
+
   // Build members list.
   const builderMembers: BuilderMember[] = members.map((m) => {
     const availability = resolveAvailability({
@@ -709,12 +802,14 @@ export async function builderView(
       directorSetAt: m.directorAvailabilitySetAt,
     });
 
+    const intakeRow = intakeByKey.get(`${m.person.id}:${m.kind}`);
+
     return {
       membershipId: m.id,
       person: {
         id: m.person.id,
         name: m.person.name,
-        spanishSpeaking: m.person.spanishSpeaking,
+        spanishVerified: m.person.spanishVerified,
         licensedRN: m.person.licensedRN,
       },
       kind: m.kind as "DIRECTOR" | "VOLUNTEER",
@@ -723,6 +818,11 @@ export async function builderView(
       acknowledgePending:
         m.availabilityUpdatedAt !== null && m.availabilityAcknowledgedAt === null,
       legacyNote: m.selfUpdatedAvailability ?? null,
+      intake: {
+        minShiftsWanted: intakeRow?.minShiftsWanted ?? null,
+        additionalShiftAvailability: intakeRow?.additionalShiftAvailability ?? null,
+        feedback: intakeRow?.feedback ?? null,
+      },
     };
   });
 
@@ -735,7 +835,7 @@ export async function builderView(
   const onShiftPeople = selectedAssignments.filter((a) => a.role === "VOLUNTEER" || a.role === "DIRECTOR");
   const spanishCount = onShiftPeople.filter((a) => {
     const p = personById.get(a.personId) ?? a.person;
-    return p.spanishSpeaking;
+    return p.spanishVerified;
   }).length;
 
   const capacity = computeDayMetrics(
@@ -743,6 +843,7 @@ export async function builderView(
       onShift: onShiftPeople.length,
       triage: selectedAssignments.filter((a) => a.triage).length,
       walkin: selectedAssignments.filter((a) => a.walkin).length,
+      cc: selectedAssignments.filter((a) => a.cc).length,
       shadow: selectedAssignments.filter((a) => a.role === "SHADOW").length,
       spanish: spanishCount,
       patientsBooked: scheduleDay?.patientsBooked ?? null,
@@ -764,7 +865,7 @@ export async function builderView(
     const certs = memberEntry?.person.hipaaCertificates ?? [];
     const newestCert = certs.length > 0 ? certs[0] : null;
     const status = complianceStatus(
-      newestCert ? { completionDate: newestCert.completionDate } : null,
+      newestCert ? { completionDate: newestCert.completionDate, verifiedAt: newestCert.verifiedAt } : null,
       term.endDate,
       now
     );
@@ -940,7 +1041,7 @@ async function buildRhdBlock(
   const persons = personIds.length > 0
     ? await prisma.person.findMany({
         where: { id: { in: personIds } },
-        select: { id: true, contactEmail: true, licensedRN: true, spanishSpeaking: true },
+        select: { id: true, contactEmail: true, licensedRN: true, spanishVerified: true },
       })
     : [];
   const personMap = new Map(persons.map((p) => [p.id, p]));
@@ -951,7 +1052,7 @@ async function buildRhdBlock(
       id: personId,
       email: p?.contactEmail ?? "",
       licensedRN: p?.licensedRN ?? false,
-      spanishSpeaking: p?.spanishSpeaking ?? false,
+      spanishVerified: p?.spanishVerified ?? false,
     };
   }
 

@@ -1,0 +1,24 @@
+name: Neon Preview Cleanup
+
+# Deletes the per-PR Neon branch created by neon-preview.yml once the pull
+# request is closed or merged. This is the auto-delete that was missing: it is
+# tied to the PR lifecycle, not to Vercel deleting the preview deployment
+# (which it never does on merge), so branches no longer pile up.
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: read
+
+jobs:
+  delete-neon-branch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete the PR's Neon branch
+        uses: neondatabase/delete-branch-action@4468d825d5a88ef4012f1705a82f02ec3072f776 # v3.2.1
+        with:
+          project_id: ${{ vars.NEON_PROJECT_ID }}
+          branch: preview/pr-${{ github.event.number }}
+          api_key: ${{ secrets.NEON_API_KEY }}

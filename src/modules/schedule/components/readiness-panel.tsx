@@ -10,11 +10,13 @@
 import Link from "next/link";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
+import { cardClasses } from "@/platform/ui/card";
 import { Input, Field } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { PROCEDURE_KEYS } from "@/modules/schedule/engine/rhd";
 import type { BuilderRhd } from "@/modules/schedule/services/builder";
 import type { ProcedureKey, ProcedureStatus } from "@/modules/schedule/engine/rhd";
+import { SectionHeader } from "@/platform/ui/section-header";
 
 // ---------------------------------------------------------------------------
 // Label maps
@@ -72,7 +74,7 @@ export function ReadinessPanel({
   const { readiness, attendingOptions, clinic } = rhd;
 
   return (
-    <section className="rounded-2xl border border-border bg-surface px-4 py-3 flex flex-col gap-4">
+    <section className={`${cardClasses({ pad: false })} px-4 py-3 flex flex-col gap-4`}>
       <h2 className="text-sm font-semibold text-foreground-soft">RHD Clinic Readiness</h2>
 
       {/* Clinic config form */}
@@ -119,7 +121,7 @@ export function ReadinessPanel({
 
       {/* Quick-add a new attending */}
       <details className="text-xs">
-        <summary className="cursor-pointer text-muted-foreground hover:text-foreground-soft">&#xFF0B; Add attending</summary>
+        <summary className="text-muted-foreground hover:text-foreground-soft">&#xFF0B; Add attending</summary>
         <form action={addAttendingAction} className="mt-2 flex flex-col gap-2">
           <Input name="scheduleName" placeholder="Schedule name (e.g. Rivera)" required className="text-sm" />
           <Input name="fullName" placeholder="Full name (optional)" className="text-sm" />
@@ -132,9 +134,7 @@ export function ReadinessPanel({
 
       {/* Readiness readout */}
       <div className="flex flex-col gap-3 border-t border-border-subtle pt-3">
-        <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-          Readiness
-        </h3>
+        <SectionHeader as="h3">Readiness</SectionHeader>
 
         {/* Closed badge */}
         {readiness.closed && (

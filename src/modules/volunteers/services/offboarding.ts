@@ -20,11 +20,10 @@
  * enforces scope internally because flag/unflag scope depends on the actor's
  * department graph and cannot be pre-checked at the call site.
  *
- * All mutations are audited. setPersonStatusField is called OUTSIDE the Prisma
- * transaction because it uses the module-level prisma client internally and
- * cannot join a transaction callback's tx proxy; it would run outside the
- * transaction regardless of placement. The membership removals and flag
- * deletions commit first; then status is set.
+ * All mutations are audited. executeOffboard flips Person.status FIRST (via
+ * setPersonStatusField, which atomically removes ACTIVE memberships) and deletes
+ * the OffboardFlag rows only afterwards, so a partial failure never leaves a
+ * person off every roster yet still ACTIVE and unflagged (see executeOffboard).
  */
 
 import type { Department, OffboardFlag, Person } from "@prisma/client";
@@ -208,17 +207,26 @@ export async function unflag(actorPersonId: string, personId: string): Promise<v
 
 /**
  * Executes the offboard for a person:
- *   1. In one transaction: set ALL ACTIVE TermMemberships (any term) to REMOVED
- *      and delete all OffboardFlag rows for the person.
- *   2. After the transaction commits: set Person.status to OFFBOARDED via
- *      setPersonStatusField (which owns its own audit entry for person.offboard).
+ *   1. Flip Person.status to OFFBOARDED via setPersonStatusField. That call
+ *      atomically removes ALL ACTIVE TermMemberships (any term) and handles Epic
+ *      revocation, and owns its own "person.offboard" audit entry.
+ *   2. Only AFTER the status flip has committed, delete the person's OffboardFlag
+ *      rows.
  *   3. Audit "offboard.execute" with { removedMemberships: n } in "after"
  *      (setPersonStatusField already emits "person.offboard" for the status flip).
  *
- * Note on setPersonStatusField placement: called OUTSIDE the Prisma transaction
- * because it uses the module-level prisma client and cannot join the tx proxy.
- * The membership removals commit first; if setPersonStatusField fails the
- * memberships are already REMOVED (safe failure mode -- the executor can retry).
+ * Ordering rationale (#98): the flag deletion is deliberately the LAST step.
+ * setPersonStatusField does its membership removal and status flip in a single
+ * transaction, so if it fails nothing is committed -- the person stays ACTIVE,
+ * on the roster, AND flagged, so they remain visible in the offboarding queue
+ * and the executor can simply retry. Deleting the flags first (the old order)
+ * could leave an ACTIVE person on no roster with no flag: a contradictory record
+ * invisible to the offboarding screen. If instead the final flag deletion fails,
+ * the person is already OFFBOARDED and merely lingers in the flagged list -- a
+ * benign, retriable state, never an invisible half-state.
+ *
+ * The removedMemberships count is captured up front (setPersonStatusField owns
+ * the actual removal); it only annotates the audit row.
  *
  * Throws OffboardForbiddenError when actor lacks volunteers.manage_offboarding.
  */
@@ -227,20 +235,16 @@ export async function executeOffboard(actorPersonId: string, personId: string): 
     throw new OffboardForbiddenError("volunteers.manage_offboarding is required to execute offboarding.");
   }
 
-  // 1. Transaction: remove memberships + delete flags.
-  const { removedCount } = await prisma.$transaction(async (tx) => {
-    const { count } = await tx.termMembership.updateMany({
-      where: { personId, status: "ACTIVE" },
-      data: { status: "REMOVED" },
-    });
-
-    await tx.offboardFlag.deleteMany({ where: { personId } });
-
-    return { removedCount: count };
+  // Count ACTIVE memberships before the flip; setPersonStatusField removes them.
+  const removedCount = await prisma.termMembership.count({
+    where: { personId, status: "ACTIVE" },
   });
 
-  // 2. Set person status OFFBOARDED (outside transaction; see comment above).
+  // 1. Flip status (atomically removes memberships + handles Epic). Flags stay.
   await setPersonStatusField(actorPersonId, personId, "OFFBOARDED");
+
+  // 2. Status is durably OFFBOARDED -- now delete the flags (the safe last step).
+  await prisma.offboardFlag.deleteMany({ where: { personId } });
 
   // 3. Audit the offboard execution with membership count.
   // Note: setPersonStatusField already emits "person.offboard" for the status

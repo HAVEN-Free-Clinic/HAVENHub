@@ -58,6 +58,44 @@ it("rejects a zip with no imsmanifest.xml", async () => {
   await expect(ingestScormPackage(course.id, bad, manager.id)).rejects.toBeInstanceOf(LearningValidationError);
 });
 
+it("re-ingesting with resetProgress clears prior course and per-SCO progress", async () => {
+  const { manager, plain, course } = await seed();
+  await ingestScormPackage(course.id, makeMultiScoZip(), manager.id);
+
+  // A learner completed the OLD package.
+  await prisma.courseProgress.create({
+    data: { personId: plain.id, courseId: course.id, status: "COMPLETE", lessonStatus: "completed", completedAt: new Date() },
+  });
+  await prisma.scoProgress.createMany({
+    data: [
+      { personId: plain.id, courseId: course.id, scoId: "ITEM-A", lessonStatus: "completed" },
+      { personId: plain.id, courseId: course.id, scoId: "ITEM-B", lessonStatus: "completed" },
+    ],
+  });
+
+  // Replace with a different package and ask to reset progress.
+  await ingestScormPackage(course.id, makeScormZip(), manager.id, { resetProgress: true });
+
+  expect(await prisma.courseProgress.count({ where: { courseId: course.id } })).toBe(0);
+  expect(await prisma.scoProgress.count({ where: { courseId: course.id } })).toBe(0);
+});
+
+it("re-ingesting without resetProgress preserves prior progress", async () => {
+  const { manager, plain, course } = await seed();
+  await ingestScormPackage(course.id, makeMultiScoZip(), manager.id);
+  await prisma.courseProgress.create({
+    data: { personId: plain.id, courseId: course.id, status: "COMPLETE", lessonStatus: "completed", completedAt: new Date() },
+  });
+  await prisma.scoProgress.create({
+    data: { personId: plain.id, courseId: course.id, scoId: "ITEM-A", lessonStatus: "completed" },
+  });
+
+  await ingestScormPackage(course.id, makeScormZip(), manager.id);
+
+  expect(await prisma.courseProgress.count({ where: { courseId: course.id } })).toBe(1);
+  expect(await prisma.scoProgress.count({ where: { courseId: course.id } })).toBe(1);
+});
+
 it("replacing a package removes files that are no longer present", async () => {
   const { manager, course } = await seed();
   await ingestScormPackage(course.id, makeScormZip(), manager.id);

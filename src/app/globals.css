@@ -81,6 +81,22 @@ html:not(.dark) { color-scheme: light; }
 html.dark { color-scheme: dark; }
 
 /*
+ * Pointer cursor on interactive controls. Tailwind v4's Preflight follows the
+ * modern UA default (`cursor: default` on <button>), so buttons stopped showing
+ * the hand cursor on hover. Restore it for every enabled button, role="button",
+ * and disclosure <summary>. Native <a href> already gets the pointer from the UA.
+ * This lives in @layer base so explicit cursor-* utilities (cursor-grab,
+ * cursor-default, cursor-not-allowed) still override it where intended.
+ */
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  summary {
+    cursor: pointer;
+  }
+}
+
+/*
  * Liquid Glass — the floating navigation / control material (Apple-style).
  * Applied only to the topmost nav bar and floating overlays (modals, popovers),
  * never to content. `.glass-bar` = pinned horizontal bars (bottom-edge emphasis);

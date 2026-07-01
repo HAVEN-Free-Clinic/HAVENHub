@@ -19,8 +19,7 @@
  *     emailHistory       - caller gates to manage_epic holders
  *
  * updatePersonFields (from @/platform/people) is used for all epicId writes:
- * it diffs, audits person.update, and enqueues the mirror outbox entry. Do not
- * duplicate that logic here.
+ * it diffs and audits person.update. Do not duplicate that logic here.
  */
 
 import type { EpicRequest, EmailLog, YnhhTicket } from "@prisma/client";
@@ -206,6 +205,7 @@ export async function myEpicPanel(
       where: {
         personId,
         status: { in: ["PENDING", "SUBMITTED"] },
+        kind: { not: "DEACTIVATE" },
       },
       orderBy: { createdAt: "desc" },
     }),
@@ -459,11 +459,20 @@ export async function listTickets(): Promise<TicketRow[]> {
  * be PENDING or SUBMITTED (EpicStateError otherwise).
  *
  * For kind NEW or MODIFY an epicId argument is REQUIRED (EpicStateError when
- * missing or blank). The epicId is written via updatePersonFields which diffs,
- * audits person.update, and enqueues the mirror outbox.
+ * missing or blank). The epicId is written via updatePersonFields which diffs
+ * and audits person.update.
  *
  * For kind RENEW any provided epicId is IGNORED; the person's epicId is left
  * untouched.
+ *
+ * For kind DEACTIVATE the epicId argument is IGNORED and Person.epicId is
+ * never cleared. Revocation is tracked via the request status; the epicId
+ * is retained as a historical record per product decision. DEACTIVATE requests
+ * may be completed for a person of any status (including OFFBOARDED).
+ *
+ * Access-granting kinds (NEW, MODIFY, RENEW) may only be completed for an
+ * ACTIVE person (EpicStateError otherwise). This prevents stamping a fresh
+ * epicId onto someone who has been offboarded, closing a security hole.
  *
  * Sets status COMPLETED + completedAt. Audits "epic.complete".
  *
@@ -488,6 +497,20 @@ export async function completeRequest(
     );
   }
 
+  const person = await prisma.person.findUnique({ where: { id: req.personId } });
+  if (!person) throw new EpicNotFoundError("Person for this request no longer exists.");
+
+  // Access-granting kinds may only be completed for an ACTIVE person. This
+  // prevents stamping a fresh epicId onto someone who has been offboarded and
+  // removes the inconsistency with createEpicRequest (which already refuses a
+  // non-active person). DEACTIVATE is exempt: completing it is the whole point
+  // for a person who has left.
+  if (req.kind !== "DEACTIVATE" && person.status !== "ACTIVE") {
+    throw new EpicStateError(
+      `Cannot complete a ${req.kind} request for a non-active person (status: ${person.status}).`
+    );
+  }
+
   let writtenEpicId: string | null = null;
 
   if (req.kind === "NEW" || req.kind === "MODIFY") {
@@ -504,7 +527,9 @@ export async function completeRequest(
       throw err;
     }
   }
-  // RENEW: ignore any passed epicId, leave person untouched.
+  // RENEW and DEACTIVATE: leave Person.epicId untouched. DEACTIVATE keeps the
+  // epicId as a historical record per product decision; revocation happens at
+  // YNHH and is tracked by the request status, not by clearing the field.
 
   await prisma.epicRequest.update({
     where: { id: requestId },
@@ -516,7 +541,7 @@ export async function completeRequest(
     action: "epic.complete",
     entityType: "EpicRequest",
     entityId: requestId,
-    // For NEW/MODIFY record the epicId actually written; for RENEW omit it (no write occurred).
+    // For NEW/MODIFY record the epicId actually written; for RENEW and DEACTIVATE omit it (no write occurred).
     after: { kind: req.kind, epicId: writtenEpicId },
   });
 }
@@ -631,7 +656,9 @@ export async function sendEpicEmail(
     contactEmail: person.contactEmail,
     epicId: person.epicId,
     departmentNames,
-    kind: req.kind ?? undefined,
+    // DEACTIVATE has no onboarding/activation/renewal email variant, so it maps
+    // to undefined here (the epic email templates only model NEW/MODIFY/RENEW).
+    kind: req.kind === "DEACTIVATE" ? undefined : req.kind,
   };
 
   const contextBuilders: Record<EpicTemplateKey, (p: EpicEmailParams) => Record<string, unknown>> = {

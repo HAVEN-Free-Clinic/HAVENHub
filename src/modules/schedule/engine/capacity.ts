@@ -16,6 +16,7 @@ export type DayCounts = {
   onShift: number;
   triage: number;
   walkin: number;
+  cc: number;
   shadow: number;
   spanish: number;
   patientsBooked: number | null;
@@ -34,6 +35,7 @@ export type DayMetrics = {
   headcountStatus: "under" | "at" | "over" | "unknown";
   triageStatus: Quota;
   walkinStatus: Quota;
+  ccStatus: Quota;
   shadowCount: number;
   spanishCount: number;
   maxPatientCapacity: number | null;
@@ -67,6 +69,7 @@ export function computeDayMetrics(c: DayCounts, cfg: DayConfig): DayMetrics {
     headcountStatus,
     triageStatus: quotaOf(c.triage),
     walkinStatus: quotaOf(c.walkin),
+    ccStatus: quotaOf(c.cc),
     shadowCount: c.shadow,
     spanishCount: c.spanish,
     maxPatientCapacity,

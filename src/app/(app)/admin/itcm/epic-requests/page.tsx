@@ -10,11 +10,25 @@
  * and the browser back button works correctly.
  */
 
+import { revalidatePath } from "next/cache";
 import { requirePermission } from "@/platform/auth/session";
-import { listDepartmentsWithMembers } from "@/modules/admin/services/itcm";
-import { getEpicRequestHistory } from "@/modules/admin/services/itcm";
+import { listDepartmentsWithMembers, getEpicRequestHistory, listPendingDeactivations, listEpicAuthorizers, closeTicket, updateServiceRequestNumber } from "@/modules/admin/services/itcm";
 import { PageHeader } from "@/platform/ui/page-header";
 import { EpicRequestTabs } from "@/modules/admin/components/epic-request-tabs";
+
+async function closeTicketAction(ticketId: string) {
+  "use server";
+  await requirePermission("admin.access");
+  await closeTicket(ticketId);
+  revalidatePath("/admin/itcm/epic-requests");
+}
+
+async function updateServiceRequestNumberAction(ticketId: string, value: string) {
+  "use server";
+  await requirePermission("admin.access");
+  await updateServiceRequestNumber(ticketId, value);
+  revalidatePath("/admin/itcm/epic-requests");
+}
 
 type PageProps = {
   searchParams: Promise<{ tab?: string }>;
@@ -24,12 +38,14 @@ export default async function EpicRequestsPage({ searchParams }: PageProps) {
   await requirePermission("admin.access");
 
   const { tab } = await searchParams;
-  const activeTab = tab === "tracker" ? "tracker" : "generate";
+const activeTab = tab === "tracker" ? "tracker" : tab === "history" ? "history" : "generate";
 
   // Load data for both tabs in parallel.
-  const [departments, history] = await Promise.all([
+  const [departments, history, pendingDeactivations, authorizers] = await Promise.all([
     listDepartmentsWithMembers(),
     getEpicRequestHistory(),
+    listPendingDeactivations(),
+    listEpicAuthorizers(),
   ]);
 
   return (
@@ -42,6 +58,10 @@ export default async function EpicRequestsPage({ searchParams }: PageProps) {
         activeTab={activeTab}
         departments={departments}
         history={history}
+        pendingDeactivations={pendingDeactivations}
+        authorizers={authorizers}
+        closeTicketAction={closeTicketAction}
+        updateServiceRequestNumberAction={updateServiceRequestNumberAction}
       />
     </div>
   );

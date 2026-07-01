@@ -7,6 +7,7 @@ import {
   CampaignValidationError, CampaignConfirmationError,
 } from "./service";
 import * as audienceResolve from "@/platform/email/audience/resolve";
+import * as sendModule from "@/platform/email/send";
 
 beforeEach(resetDb);
 
@@ -114,8 +115,60 @@ describe("campaign service", () => {
     await updateCampaign(null, c.id, { subject: "s", body: "<p>hi</p>", audience: ALL_ACTIVE });
     await sendCampaignNow(null, c.id, {}); // now SENT
     await expect(
-      executeRun(c.id, { actorId: null, statusUpdate: { status: "SENT" } }),
+      executeRun(c.id, { actorId: null, claimWhere: { status: "DRAFT" }, statusUpdate: { status: "SENT" } }),
     ).rejects.toThrow(/already dispatched/i);
+  });
+
+  it("two concurrent send-now calls dispatch the audience exactly once", async () => {
+    // A double-clicked "send now", or a manual send racing the cron drainer,
+    // must enqueue the audience once. Two recipients widen the overlap window
+    // and make a double-send obvious (2 logs, not 4).
+    await activePerson("Sam Rivera", "sam@example.com");
+    await activePerson("Pat Lee", "pat@example.com");
+    const c = await createDraft(null, "DoubleClick");
+    await updateCampaign(null, c.id, { subject: "Hi {{ firstName }}", body: "<p>Hi {{ firstName }}</p>", audience: ALL_ACTIVE });
+
+    const results = await Promise.allSettled([
+      sendCampaignNow(null, c.id, {}),
+      sendCampaignNow(null, c.id, {}),
+    ]);
+    expect(results.filter((r) => r.status === "fulfilled").length).toBe(1);
+    expect(results.filter((r) => r.status === "rejected").length).toBe(1);
+
+    const runs = await prisma.emailCampaignRun.findMany({ where: { campaignId: c.id } });
+    expect(runs.length).toBe(1);
+    const logs = await prisma.emailLog.findMany({ where: { template: "campaign" } });
+    expect(logs.length).toBe(2);
+    const after = await prisma.emailCampaign.findUniqueOrThrow({ where: { id: c.id } });
+    expect(after.status).toBe("SENT");
+  });
+
+  it("rolls back the claim when enqueue fails, leaving the campaign eligible", async () => {
+    // The claim (status flip) and the enqueue commit in one transaction, so a
+    // mid-run failure must revert the claim -- otherwise a transient transport
+    // error would strand the campaign as SENT with nothing actually sent.
+    await activePerson("Sam Rivera", "sam@example.com");
+    const c = await createDraft(null, "Flaky");
+    await updateCampaign(null, c.id, { subject: "s", body: "<p>hi</p>", audience: ALL_ACTIVE });
+    await scheduleCampaign(null, c.id, { scheduleType: "SCHEDULED", scheduledAt: new Date("2026-06-10T12:00:00Z") });
+
+    const spy = vi.spyOn(sendModule, "queueEmail").mockRejectedValueOnce(new Error("transport down"));
+    try {
+      await expect(
+        executeRun(c.id, { actorId: null, claimWhere: { status: "SCHEDULED" }, statusUpdate: { status: "SENT", nextRunAt: null } }),
+      ).rejects.toThrow(/transport down/);
+    } finally {
+      spy.mockRestore();
+    }
+    const reverted = await prisma.emailCampaign.findUniqueOrThrow({ where: { id: c.id } });
+    expect(reverted.status).toBe("SCHEDULED");
+    expect(await prisma.emailCampaignRun.count({ where: { campaignId: c.id } })).toBe(0);
+
+    // Still eligible: a later run (transport recovered) dispatches normally.
+    const ok = await executeRun(c.id, { actorId: null, claimWhere: { status: "SCHEDULED" }, statusUpdate: { status: "SENT", nextRunAt: null } });
+    expect(ok.recipientCount).toBe(1);
+    const final = await prisma.emailCampaign.findUniqueOrThrow({ where: { id: c.id } });
+    expect(final.status).toBe("SENT");
   });
 
   it("cancel refuses a non-scheduled campaign", async () => {

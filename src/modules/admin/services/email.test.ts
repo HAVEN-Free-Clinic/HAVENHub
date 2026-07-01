@@ -1,10 +1,14 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
+import { _resetSettingsCache } from "@/platform/settings/service";
 import {
   listEmails,
+  listEmailTemplates,
   retryEmail,
+  retryAllFailedEmails,
   emailHealthCounts,
+  sendSenderTest,
   EmailNotFoundError,
   EmailStateError,
 } from "./email";
@@ -155,6 +159,35 @@ describe("listEmails - filters", () => {
 });
 
 // ---------------------------------------------------------------------------
+// listEmailTemplates (issue #99: filter options derived from logged values)
+// ---------------------------------------------------------------------------
+
+describe("listEmailTemplates", () => {
+  beforeEach(resetDb);
+
+  it("returns the distinct template values actually present, sorted", async () => {
+    await seedEmail({ template: "recruitment.acceptance" });
+    await seedEmail({ template: "recruitment.acceptance" });
+    await seedEmail({ template: "campaign" });
+    await seedEmail({ template: "compliance-reminder" });
+    await seedEmail({ template: "epic-onboarding" });
+
+    const templates = await listEmailTemplates();
+
+    expect(templates).toEqual([
+      "campaign",
+      "compliance-reminder",
+      "epic-onboarding",
+      "recruitment.acceptance",
+    ]);
+  });
+
+  it("returns an empty array when the log is empty", async () => {
+    expect(await listEmailTemplates()).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // emailHealthCounts
 // ---------------------------------------------------------------------------
 
@@ -286,6 +319,55 @@ describe("retryEmail", () => {
 });
 
 // ---------------------------------------------------------------------------
+// retryAllFailedEmails (issue #63: bulk recovery)
+// ---------------------------------------------------------------------------
+
+describe("retryAllFailedEmails", () => {
+  beforeEach(resetDb);
+
+  it("requeues every FAILED row and leaves SENT/QUEUED rows untouched", async () => {
+    const f1 = await seedEmail({ status: "FAILED", attempts: 8, lastError: "boom" });
+    const f2 = await seedEmail({ status: "FAILED", attempts: 8, lastError: "boom" });
+    const sent = await seedEmail({ status: "SENT", sentAt: new Date() });
+    const queued = await seedEmail({ status: "QUEUED" });
+
+    const count = await retryAllFailedEmails(ACTOR);
+    expect(count).toBe(2);
+
+    for (const id of [f1.id, f2.id]) {
+      const row = await prisma.emailLog.findUniqueOrThrow({ where: { id } });
+      expect(row.status).toBe("QUEUED");
+      expect(row.attempts).toBe(0);
+      expect(row.lastError).toBeNull();
+    }
+    // Non-FAILED rows are not disturbed.
+    expect((await prisma.emailLog.findUniqueOrThrow({ where: { id: sent.id } })).status).toBe("SENT");
+    expect((await prisma.emailLog.findUniqueOrThrow({ where: { id: queued.id } })).status).toBe("QUEUED");
+  });
+
+  it("writes one email.retry_all audit row carrying the count", async () => {
+    await seedEmail({ status: "FAILED", attempts: 8 });
+    await seedEmail({ status: "FAILED", attempts: 8 });
+
+    await retryAllFailedEmails(ACTOR);
+
+    const audits = await prisma.auditLog.findMany({ where: { action: "email.retry_all" } });
+    expect(audits).toHaveLength(1);
+    expect(audits[0].actorPersonId).toBe(ACTOR);
+    expect(audits[0].entityType).toBe("EmailLog");
+    expect((audits[0].after as Record<string, unknown>).count).toBe(2);
+  });
+
+  it("returns 0 and writes no audit when there are no FAILED rows", async () => {
+    await seedEmail({ status: "QUEUED" });
+
+    const count = await retryAllFailedEmails(ACTOR);
+    expect(count).toBe(0);
+    expect(await prisma.auditLog.count({ where: { action: "email.retry_all" } })).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Error classes
 // ---------------------------------------------------------------------------
 
@@ -306,5 +388,40 @@ describe("EmailStateError", () => {
     expect(err).toBeInstanceOf(EmailStateError);
     expect(err.message).toBe("Only failed emails can be retried.");
     expect(err.name).toBe("EmailStateError");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// sendSenderTest
+// ---------------------------------------------------------------------------
+
+describe("sendSenderTest", () => {
+  beforeEach(async () => {
+    await resetDb();
+    _resetSettingsCache();
+  });
+
+  it("in log mode it does not throw and records an audit entry", async () => {
+    const spy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      await sendSenderTest("actor1", { toEmail: "me@yale.edu", fromEmail: "recruit@yale.edu" });
+    } finally {
+      spy.mockRestore();
+    }
+    const audit = await prisma.auditLog.findFirst({ where: { action: "email.sender_test" } });
+    expect(audit).not.toBeNull();
+  });
+
+  it("in graph mode it throws when Graph responds non-OK", async () => {
+    await prisma.setting.create({ data: { key: "email.transport", value: "graph" } });
+    _resetSettingsCache();
+    const fetchMock = vi.fn(async () => new Response("denied", { status: 403 }));
+    await expect(
+      sendSenderTest(
+        "actor1",
+        { toEmail: "me@yale.edu", fromEmail: "recruit@yale.edu" },
+        { getAccessToken: () => Promise.resolve("tok"), fetchImpl: fetchMock as typeof fetch }
+      )
+    ).rejects.toThrow(/403/);
   });
 });

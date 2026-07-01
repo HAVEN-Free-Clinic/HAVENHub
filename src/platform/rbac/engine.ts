@@ -1,19 +1,18 @@
 import { cache } from "react";
-import type { MembershipKind } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
-
-const MEMBERSHIP_KIND_ROLE: Record<MembershipKind, string> = {
-  DIRECTOR: "Director",
-  VOLUNTEER: "Volunteer",
-};
 
 /**
  * Union of:
  *  - roles assigned directly to the person (global, or scoped to the active term)
  *  - roles assigned to departments the person actively belongs to in the active term
- *  - auto-attached system roles (Director/Volunteer) from active-term membership kind
- * Computed from live DB state and memoized per request via React cache(): repeated calls in one render hit the DB once, and role changes apply on the next request (spec §5).
+ *  - roles assigned to the person's active-term membership kinds (DIRECTOR/VOLUNTEER)
+ *
+ * Baseline Director/Volunteer access is provisioned as kind-target RoleAssignment
+ * rows (see prisma/seed.ts and the backfill migration), NOT auto-attached in code,
+ * so the roles page is the single source of truth. Computed from live DB state and
+ * memoized per request via React cache(): repeated calls in one render hit the DB
+ * once, and role changes apply on the next request.
  */
 export const getEffectivePermissions = cache(
   async (personId: string): Promise<Set<string>> => {
@@ -25,39 +24,28 @@ export const getEffectivePermissions = cache(
         })
       : [];
     const departmentIds = [...new Set(memberships.map((m) => m.departmentId))];
-    const autoRoleNames = [...new Set(memberships.map((m) => MEMBERSHIP_KIND_ROLE[m.kind]))];
+    const membershipKinds = [...new Set(memberships.map((m) => m.kind))];
 
-    const [assignments, autoRoles] = await Promise.all([
-      prisma.roleAssignment.findMany({
-        where: {
-          AND: [
-            {
-              OR: [
-                { termId: null },
-                ...(activeTerm ? [{ termId: activeTerm.id }] : []),
-              ],
-            },
-            {
-              OR: [
-                { personId },
-                ...(departmentIds.length ? [{ departmentId: { in: departmentIds } }] : []),
-              ],
-            },
-          ],
-        },
-        include: { role: { include: { grants: true } } },
-      }),
-      autoRoleNames.length
-        ? prisma.role.findMany({
-            where: { name: { in: autoRoleNames }, isSystem: true },
-            include: { grants: true },
-          })
-        : Promise.resolve([]),
-    ]);
+    const assignments = await prisma.roleAssignment.findMany({
+      where: {
+        AND: [
+          {
+            OR: [{ termId: null }, ...(activeTerm ? [{ termId: activeTerm.id }] : [])],
+          },
+          {
+            OR: [
+              { personId },
+              ...(departmentIds.length ? [{ departmentId: { in: departmentIds } }] : []),
+              ...(membershipKinds.length ? [{ kind: { in: membershipKinds } }] : []),
+            ],
+          },
+        ],
+      },
+      include: { role: { include: { grants: true } } },
+    });
 
     const permissions = new Set<string>();
     for (const a of assignments) for (const g of a.role.grants) permissions.add(g.permission);
-    for (const r of autoRoles) for (const g of r.grants) permissions.add(g.permission);
     return permissions;
   },
 );

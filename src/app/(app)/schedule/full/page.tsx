@@ -1,5 +1,6 @@
 import { requireModuleAccess } from "@/platform/auth/session";
 import { Badge } from "@/platform/ui/badge";
+import { cardClasses } from "@/platform/ui/card";
 import { fullSchedule } from "@/modules/schedule/services/schedule";
 import { isoDateKey } from "@/modules/schedule/engine/map";
 import { displayDate } from "@/modules/schedule/engine/display";
@@ -34,9 +35,9 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
       {/* Hero */}
       <div className="rounded-2xl bg-brand px-8 py-6 text-white mb-8">
         <p className="text-xs font-semibold uppercase tracking-widest text-white/60 mb-1">Full Schedule</p>
-        <h1 className="text-2xl font-bold mb-1">{selectedDisplay ?? "Select a date"}</h1>
+        <h1 className="text-2xl font-bold tracking-tight">{selectedDisplay ?? "Select a date"}</h1>
         {selectedDate && departments.length > 0 && (
-          <p className="text-sm text-white/70">
+          <p className="mt-1 text-sm text-white/70">
             {totalDirectors} director{totalDirectors !== 1 ? "s" : ""} &middot;{" "}
             {totalVolunteers} volunteer{totalVolunteers !== 1 ? "s" : ""} &middot;{" "}
             {totalShadows} shadow{totalShadows !== 1 ? "s" : ""} &middot;{" "}
@@ -83,7 +84,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
               {departments.map(({ department, directors, volunteers, shadows, conflicts }) => (
                 <section
                   key={department.id}
-                  className="rounded-2xl bg-surface overflow-hidden shadow-sm border border-border"
+                  className={`${cardClasses({ pad: false })} overflow-hidden`}
                 >
                   {/* Card header */}
                   <div className="bg-brand px-4 py-3 flex items-center justify-between">

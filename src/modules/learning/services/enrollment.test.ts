@@ -50,6 +50,17 @@ it("isCourseAssignedTo reflects department assignment", async () => {
   expect(await isCourseAssignedTo(learner.id, unassigned.id)).toBe(false);
 });
 
+it("excludes an assigned course with no uploaded SCORM package (cannot block the gate)", async () => {
+  const { learner, dept } = await seed();
+  // Mirrors the admin flow: create + assign a course, upload the package later.
+  const packageless = await prisma.course.create({
+    data: { title: "No package yet", departments: { create: [{ departmentId: dept.id }] } },
+  });
+  const rows = await getMyCourses(learner.id);
+  expect(rows.map((r) => r.id)).not.toContain(packageless.id);
+  expect(await isCourseAssignedTo(learner.id, packageless.id)).toBe(false);
+});
+
 it("getCourseForLearner refuses an unassigned course", async () => {
   const { learner, unassigned } = await seed();
   await expect(getCourseForLearner(learner.id, unassigned.id)).rejects.toBeInstanceOf(LearningAuthError);
@@ -155,4 +166,28 @@ it("persistScoCmi refuses an unassigned course", async () => {
   await expect(
     persistScoCmi(learner.id, unassigned.id, "ITEM-A", { lessonStatus: "completed", scoreRaw: null, suspendData: null, lessonLocation: null })
   ).rejects.toBeInstanceOf(LearningAuthError);
+});
+
+it("excludes a DIRECTORS course from a volunteer's assigned courses", async () => {
+  const { learner, dept } = await seed();
+  const dirCourse = await prisma.course.create({
+    data: { title: "Dir only", scormEntryHref: "index.html", audience: "DIRECTORS", departments: { create: [{ departmentId: dept.id }] } },
+  });
+  const ids = (await getMyCourses(learner.id)).map((r) => r.id);
+  expect(ids).not.toContain(dirCourse.id);
+});
+
+it("includes a DIRECTORS course for a director in the department, alongside EVERYONE courses", async () => {
+  const { dept, course } = await seed();
+  const term = await prisma.term.findFirstOrThrow();
+  const director = await prisma.person.create({ data: { name: "Dee", status: "ACTIVE" } });
+  await prisma.termMembership.create({
+    data: { personId: director.id, termId: term.id, departmentId: dept.id, status: "ACTIVE", kind: "DIRECTOR" },
+  });
+  const dirCourse = await prisma.course.create({
+    data: { title: "Dir only", scormEntryHref: "index.html", audience: "DIRECTORS", departments: { create: [{ departmentId: dept.id }] } },
+  });
+  const ids = (await getMyCourses(director.id)).map((r) => r.id);
+  expect(ids).toContain(dirCourse.id);
+  expect(ids).toContain(course.id);
 });

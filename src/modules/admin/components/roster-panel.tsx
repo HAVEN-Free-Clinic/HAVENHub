@@ -18,7 +18,7 @@ import type { Person, Term } from "@prisma/client";
 import { redirect } from "next/navigation";
 import { requirePermission } from "@/platform/auth/session";
 import { prisma } from "@/platform/db";
-import { termRoster, addMembership, removeMembership, copyRosterFromTerm, MembershipForeignKeyError, MembershipNotFoundError, RosterCopyError } from "@/modules/admin/services/roster";
+import { termRoster, addMembership, removeMembership, copyRosterFromTerm, membershipHasDirectorShifts, MembershipForeignKeyError, MembershipNotFoundError, RosterCopyError } from "@/modules/admin/services/roster";
 import { searchPeople } from "@/modules/admin/services/people";
 import { listTerms, TermNotFoundError } from "@/modules/admin/services/terms";
 import { Badge } from "@/platform/ui/badge";
@@ -29,6 +29,7 @@ import { Select } from "@/platform/ui/select";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Alert } from "@/platform/ui/alert";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
+import { SectionHeader } from "@/platform/ui/section-header";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -50,14 +51,6 @@ type RosterPanelProps = {
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
-
-function SectionHeading({ children }: { children: ReactNode }) {
-  return (
-    <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-      {children}
-    </h2>
-  );
-}
 
 function MemberChip({
   person,
@@ -151,10 +144,15 @@ export async function RosterPanel({
 
   async function removeAction(formData: FormData) {
     "use server";
-    const actorSession = await requirePermission("admin.manage_terms");
+    const actorSession = await requirePermission("admin.manage_roster");
     const membershipId = formData.get("membershipId") as string | null;
     if (!membershipId) {
       redirect(`${termDetailHref}?rosterError=${encodeURIComponent("Missing membership ID.")}`);
+    }
+    if (await membershipHasDirectorShifts(membershipId)) {
+      redirect(
+        `${termDetailHref}?rosterError=${encodeURIComponent("This member has director shift assignments this term. Remove or reassign those shifts before removing their director role.")}`
+      );
     }
     try {
       await removeMembership(actorSession.personId, membershipId);
@@ -171,7 +169,7 @@ export async function RosterPanel({
 
   async function addAction(formData: FormData) {
     "use server";
-    const actorSession = await requirePermission("admin.manage_terms");
+    const actorSession = await requirePermission("admin.manage_roster");
     const personId = formData.get("personId") as string | null;
     const departmentId = formData.get("departmentId") as string | null;
     const kindRaw = formData.get("kind");
@@ -206,7 +204,7 @@ export async function RosterPanel({
 
   async function copyRosterAction(formData: FormData) {
     "use server";
-    const actorSession = await requirePermission("admin.manage_terms");
+    const actorSession = await requirePermission("admin.manage_roster");
     const fromTermId = formData.get("fromTermId") as string | null;
     const kindsRaw = formData.getAll("kinds") as string[];
     const allDepartments = formData.get("allDepartments") === "on";
@@ -260,7 +258,7 @@ export async function RosterPanel({
 
   return (
     <section className="space-y-8">
-      <SectionHeading>Roster</SectionHeading>
+      <SectionHeader className="mb-4">Roster</SectionHeader>
 
       {/* Error and status messages */}
       {rosterError && <Alert tone="error">{rosterError}</Alert>}
@@ -297,7 +295,7 @@ export async function RosterPanel({
 
       {/* Search results panel */}
       {addq && addq.trim() && (
-        <div className="rounded-2xl border border-border bg-surface">
+        <Card pad={false}>
           <div className="border-b border-border-subtle px-4 py-3">
             <p className="text-sm font-medium text-foreground-soft">
               {searchResults.length === 0
@@ -343,7 +341,7 @@ export async function RosterPanel({
               ))}
             </div>
           )}
-        </div>
+        </Card>
       )}
 
       {/* Department cards */}
@@ -370,9 +368,7 @@ export async function RosterPanel({
                   {/* Directors list */}
                   {directors.length > 0 && (
                     <div>
-                      <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                        Directors
-                      </p>
+                      <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">Directors</p>
                       <div className="space-y-1.5">
                         {directors.map((person) => {
                           const membershipId = membershipIdMap.get(
@@ -396,9 +392,7 @@ export async function RosterPanel({
                   {/* Volunteers list */}
                   {volunteers.length > 0 && (
                     <div>
-                      <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                        Volunteers
-                      </p>
+                      <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">Volunteers</p>
                       <div className="space-y-1.5">
                         {volunteers.map((person) => {
                           const membershipId = membershipIdMap.get(

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requirePermission } from "@/platform/auth/session";
 import { listTemplateSummaries } from "@/modules/admin/services/email-templates";
 import { PageHeader } from "@/platform/ui/page-header";
+import { cardClasses } from "@/platform/ui/card";
 
 export default async function EmailTemplatesPage() {
   await requirePermission("admin.manage_email_templates");
@@ -17,7 +18,7 @@ export default async function EmailTemplatesPage() {
       {rows.length === 0 ? (
         <p className="text-sm text-subtle-foreground">No templates registered.</p>
       ) : (
-        <ul className="divide-y rounded-2xl border border-border bg-surface">
+        <ul className={`${cardClasses({ pad: false })} divide-y`}>
           {rows.map((r) => (
             <li key={r.key} className="flex items-center justify-between px-5 py-3">
               <span>

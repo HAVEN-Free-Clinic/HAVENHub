@@ -32,7 +32,7 @@ async function fixture() {
     data: {
       name: "Director",
       isSystem: true,
-      grants: { create: [{ permission: "schedule.view" }, { permission: "schedule.edit_own_dept" }] },
+      grants: { create: [{ permission: "schedule.view" }, { permission: "volunteers.view" }] },
     },
   });
   const volunteerRole = await prisma.role.create({
@@ -43,6 +43,15 @@ async function fixture() {
       name: "Recruitment Manager",
       grants: { create: [{ permission: "recruitment.manage_cycle" }] },
     },
+  });
+
+  // Baseline access is now provisioned as kind-target assignments (decouple),
+  // mirroring prisma/seed.ts and the backfill migration. No code auto-attach.
+  await prisma.roleAssignment.create({
+    data: { roleId: directorRole.id, kind: "DIRECTOR", termId: null },
+  });
+  await prisma.roleAssignment.create({
+    data: { roleId: volunteerRole.id, kind: "VOLUNTEER", termId: null },
   });
 
   return { term, oldTerm, itcm, vadm, adminRole, directorRole, volunteerRole, recruiterRole };
@@ -60,14 +69,25 @@ describe("rbac engine", () => {
     expect(await can(person.id, "anything.at_all")).toBe(true);
   });
 
-  it("auto-attaches Director role from active-term membership kind", async () => {
+  it("grants Director baseline via the kind-target assignment", async () => {
     const f = await fixture();
     const person = await prisma.person.create({ data: { name: "Dir" } });
     await prisma.termMembership.create({
       data: { personId: person.id, termId: f.term.id, departmentId: f.vadm.id, kind: "DIRECTOR" },
     });
-    expect(await can(person.id, "schedule.edit_own_dept")).toBe(true);
+    expect(await can(person.id, "volunteers.view")).toBe(true);
     expect(await can(person.id, "recruitment.manage_cycle")).toBe(false);
+  });
+
+  it("grants nothing from membership kind alone once the kind assignment is removed", async () => {
+    const f = await fixture();
+    await prisma.roleAssignment.deleteMany({ where: { kind: "DIRECTOR" } });
+    const person = await prisma.person.create({ data: { name: "Dir no-assign" } });
+    await prisma.termMembership.create({
+      data: { personId: person.id, termId: f.term.id, departmentId: f.vadm.id, kind: "DIRECTOR" },
+    });
+    // Proves the hardcoded auto-attach is gone: kind alone confers no access.
+    expect(await can(person.id, "volunteers.view")).toBe(false);
   });
 
   it("grants department-assigned roles to active members of that department", async () => {
@@ -103,7 +123,7 @@ describe("rbac engine", () => {
         status: "REMOVED",
       },
     });
-    expect(await can(person.id, "schedule.edit_own_dept")).toBe(false);
+    expect(await can(person.id, "volunteers.view")).toBe(false);
   });
 
   it("returns the full effective permission set", async () => {
@@ -115,7 +135,28 @@ describe("rbac engine", () => {
     const perms = await getEffectivePermissions(person.id);
     expect(perms.has("schedule.view")).toBe(true);
     expect(perms.size).toBe(1);
-    expect(perms.has("schedule.edit_own_dept")).toBe(false);
+    expect(perms.has("volunteers.view")).toBe(false);
+  });
+
+  it("grants kind-target assignments to active members of that kind", async () => {
+    const f = await fixture();
+    const vol = await prisma.person.create({ data: { name: "Vol" } });
+    const dir = await prisma.person.create({ data: { name: "Dir" } });
+    await prisma.termMembership.create({ data: { personId: vol.id, termId: f.term.id, departmentId: f.vadm.id, kind: "VOLUNTEER" } });
+    await prisma.termMembership.create({ data: { personId: dir.id, termId: f.term.id, departmentId: f.vadm.id, kind: "DIRECTOR" } });
+    await prisma.roleAssignment.create({ data: { roleId: f.recruiterRole.id, kind: "VOLUNTEER", termId: f.term.id } });
+
+    expect(await can(vol.id, "recruitment.manage_cycle")).toBe(true);
+    expect(await can(dir.id, "recruitment.manage_cycle")).toBe(false);
+  });
+
+  it("ignores a kind-target assignment scoped to a non-active term", async () => {
+    const f = await fixture();
+    const vol = await prisma.person.create({ data: { name: "Vol2" } });
+    await prisma.termMembership.create({ data: { personId: vol.id, termId: f.term.id, departmentId: f.vadm.id, kind: "VOLUNTEER" } });
+    await prisma.roleAssignment.create({ data: { roleId: f.recruiterRole.id, kind: "VOLUNTEER", termId: f.oldTerm.id } });
+
+    expect(await can(vol.id, "recruitment.manage_cycle")).toBe(false);
   });
 });
 

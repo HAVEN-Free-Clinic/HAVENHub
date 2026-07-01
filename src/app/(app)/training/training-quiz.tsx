@@ -3,9 +3,14 @@
 import { useRef, useState, useTransition, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Check, FileText, RotateCcw, ClipboardList } from "lucide-react";
-import type { TrainingTrack } from "@prisma/client";
+import type { Track } from "@prisma/client";
 import { gradeQuizAction, type QuizActionResult } from "./actions";
 import type { MyTraining } from "@/modules/recruitment/services/training";
+import { Card } from "@/platform/ui/card";
+import { Alert } from "@/platform/ui/alert";
+import { Field, Input, Textarea } from "@/platform/ui/input";
+import { Select } from "@/platform/ui/select";
+import { Button } from "@/platform/ui/button";
 
 type Question = MyTraining["questions"][number];
 
@@ -22,7 +27,7 @@ export function TrainingQuiz({
   attemptsUsed: initialAttemptsUsed,
   intake,
 }: {
-  track: TrainingTrack;
+  track: Track;
   questions: Question[];
   passPercent: number;
   maxAttempts: number;
@@ -58,7 +63,6 @@ export function TrainingQuiz({
     if (!allAnswered || pending || reviewing) return;
     const fd = new FormData(formRef.current!);
     const intakePayload = {
-      subcommitteeInterest: (fd.get("subcommitteeInterest") as string) || null,
       minShiftsWanted: (fd.get("minShiftsWanted") as string) || null,
       additionalShiftAvailability: (fd.get("additionalShiftAvailability") as string) || null,
       feedback: (fd.get("feedback") as string) || null,
@@ -86,28 +90,28 @@ export function TrainingQuiz({
     <form ref={formRef} onSubmit={handleSubmit}>
       {/* Fail result banner (pass/lock refresh the page instead) */}
       {graded && !graded.passed && (
-        <div className="mb-5 flex items-center gap-4 rounded-2xl border border-amber-300 bg-amber-50 p-5">
+        <Card className="mb-5 flex items-center gap-4">
           <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-warning text-white">
             <RotateCcw aria-hidden className="h-5 w-5" />
           </span>
           <div>
-            <p className="text-[15px] font-bold text-warning">You scored {graded.percent}%</p>
-            <p className="mt-0.5 text-[13px] text-amber-900/80">
+            <p className="text-[15px] font-bold text-foreground">You scored {graded.percent}%</p>
+            <p className="mt-0.5 text-[13px] text-foreground-soft">
               You need {passPercent}% to pass. {attemptsLeft} attempt{attemptsLeft === 1 ? "" : "s"} left — review the
               highlighted answers and try again.
             </p>
           </div>
-        </div>
+        </Card>
       )}
 
       {error && (
-        <p role="alert" className="mb-5 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <Alert tone="error" className="mb-5">
           {error}
-        </p>
+        </Alert>
       )}
 
       {/* Quiz card */}
-      <div className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
+      <Card pad={false} className="overflow-hidden">
         <div className="flex items-center justify-between gap-4 border-b border-border px-[22px] py-[18px]">
           <div className="flex items-center gap-3">
             <span className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-[10px] bg-brand-faint text-brand-fg">
@@ -151,15 +155,8 @@ export function TrainingQuiz({
                       key={o.value}
                       className={optionClass({ sel, reviewing, isCorrect, isWrong })}
                     >
-                      <input
-                        type="radio"
-                        name={`q:${q.key}`}
-                        value={o.value}
-                        checked={sel}
-                        disabled={reviewing || pending}
-                        onChange={() => choose(q.key, o.value)}
-                        className="sr-only"
-                      />
+                      {/* eslint-disable-next-line no-restricted-syntax -- visually-hidden radio inside custom styled label, sr-only class required for option styling */}
+                      <input type="radio" name={`q:${q.key}`} value={o.value} checked={sel} disabled={reviewing || pending} onChange={() => choose(q.key, o.value)} className="sr-only" />
                       <span className={dotClass({ sel, isCorrect })}>
                         <span className={dotFillClass({ sel, isCorrect })} />
                       </span>
@@ -187,72 +184,59 @@ export function TrainingQuiz({
                   : `Answer all ${questions.length} questions to submit.`}
           </span>
           {reviewing ? (
-            <button
-              type="button"
-              onClick={tryAgain}
-              className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2.5 text-[13.5px] font-semibold text-white shadow-sm transition hover:bg-brand-hover"
-            >
+            <Button type="button" onClick={tryAgain}>
               <RotateCcw aria-hidden className="h-4 w-4" /> Try again
-            </button>
+            </Button>
           ) : (
-            <button
-              type="submit"
-              disabled={!allAnswered || pending}
-              className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2.5 text-[13.5px] font-semibold text-white shadow-sm transition hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-brand"
-            >
+            <Button type="submit" disabled={!allAnswered || pending}>
               <Check aria-hidden className="h-4 w-4" /> Submit quiz
-            </button>
+            </Button>
           )}
         </div>
-      </div>
+      </Card>
 
       {/* Intake */}
-      <div className="mt-[22px] overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
+      <Card pad={false} className="mt-[22px] overflow-hidden">
         <div className="flex items-center gap-3 border-b border-border px-[22px] py-[18px]">
           <span className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-[10px] bg-brand-faint text-brand-fg">
             <ClipboardList aria-hidden className="h-[19px] w-[19px]" />
           </span>
           <div>
             <p className="text-[15px] font-bold text-foreground">A few quick questions</p>
-            <p className="mt-px text-[12.5px] text-muted-foreground">Helps us place you on shifts and subcommittees</p>
+            <p className="mt-px text-[12.5px] text-muted-foreground">Helps us place you on shifts</p>
           </div>
         </div>
         <div className="grid grid-cols-1 gap-3.5 p-[22px] sm:grid-cols-2">
-          <Field label="Subcommittee interest">
-            <input
-              name="subcommitteeInterest"
-              defaultValue={intake.subcommitteeInterest ?? ""}
-              placeholder="e.g. Community Outreach"
-              className={fieldInputClass}
-            />
-          </Field>
           <Field label="Minimum shifts wanted this term">
-            <select name="minShiftsWanted" defaultValue={intake.minShiftsWanted ?? "4"} className={fieldInputClass}>
+            <Select name="minShiftsWanted" defaultValue={intake.minShiftsWanted ?? "4"}>
               {[2, 3, 4, 5, 6, 8].map((n) => (
                 <option key={n} value={String(n)}>
                   {n} shifts
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>
-          <Field label="Additional shift availability" optional full>
-            <input
-              name="additionalShiftAvailability"
-              defaultValue={intake.additionalShiftAvailability ?? ""}
-              placeholder="e.g. Available most Saturday mornings, some weekday evenings"
-              className={fieldInputClass}
-            />
-          </Field>
-          <Field label="Feedback or questions" optional full>
-            <textarea
-              name="feedback"
-              defaultValue={intake.feedback ?? ""}
-              placeholder="Anything you'd like the directors to know?"
-              className={`${fieldInputClass} min-h-[78px] resize-y`}
-            />
-          </Field>
+          <div className="sm:col-span-2">
+            <Field label="Additional shift availability" hint="Optional">
+              <Input
+                name="additionalShiftAvailability"
+                defaultValue={intake.additionalShiftAvailability ?? ""}
+                placeholder="e.g. Available most Saturday mornings, some weekday evenings"
+              />
+            </Field>
+          </div>
+          <div className="sm:col-span-2">
+            <Field label="Feedback or questions" hint="Optional">
+              <Textarea
+                name="feedback"
+                defaultValue={intake.feedback ?? ""}
+                placeholder="Anything you'd like the directors to know?"
+                className="min-h-[78px] resize-y"
+              />
+            </Field>
+          </div>
         </div>
-      </div>
+      </Card>
     </form>
   );
 }
@@ -260,31 +244,6 @@ export function TrainingQuiz({
 // ---------------------------------------------------------------------------
 // Presentation helpers
 // ---------------------------------------------------------------------------
-
-const fieldInputClass =
-  "w-full rounded-[10px] border border-border-strong bg-surface px-3 py-2.5 text-sm text-foreground transition focus:border-brand focus:outline-none focus:ring-[3px] focus:ring-brand-faint";
-
-function Field({
-  label,
-  optional,
-  full,
-  children,
-}: {
-  label: string;
-  optional?: boolean;
-  full?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className={full ? "sm:col-span-2" : undefined}>
-      <label className="mb-1.5 block text-[12.5px] font-semibold text-foreground-soft">
-        {label}
-        {optional && <span className="font-normal text-subtle-foreground"> (optional)</span>}
-      </label>
-      {children}
-    </div>
-  );
-}
 
 function optionClass({
   sel,

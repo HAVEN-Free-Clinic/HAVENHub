@@ -4,6 +4,7 @@ import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
+import { FormActions } from "@/platform/ui/form";
 import { Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { redirect } from "next/navigation";
@@ -23,7 +24,8 @@ import {
 } from "@/modules/schedule/services/requests";
 import { isoDateKey } from "@/modules/schedule/engine/map";
 import { displayDate } from "@/modules/schedule/engine/display";
-import { CheckCircle2, Clock } from "lucide-react";
+import { Checkbox } from "@/platform/ui/checkbox";
+import { Clock } from "lucide-react";
 
 function fmtDate(d: Date | null | undefined): string {
   if (!d) return "-";
@@ -142,14 +144,14 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
       {/* Hero banner */}
       <div className="rounded-2xl bg-brand px-8 py-6 text-white mb-8">
         <p className="text-xs font-semibold uppercase tracking-widest text-white/60 mb-1">{term?.name ?? "Active Term"}</p>
-        <h1 className="text-2xl font-bold mb-1">My Schedule</h1>
+        <h1 className="text-2xl font-bold tracking-tight">My Schedule</h1>
         {shifts.length > 0 ? (
-          <p className="text-sm text-white/70">
+          <p className="mt-1 text-sm text-white/70">
             {shifts.length} shift{shifts.length !== 1 ? "s" : ""} this term &middot;{" "}
             {[...new Set(shifts.map((s) => s.department.name))].join(", ")}
           </p>
         ) : (
-          <p className="text-sm text-white/70">No shifts assigned yet</p>
+          <p className="mt-1 text-sm text-white/70">No shifts assigned yet</p>
         )}
       </div>
 
@@ -159,14 +161,12 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
         </Alert>
       )}
       {saved && (
-        <Alert tone="success" className="mb-6 flex items-center gap-2 font-medium">
-          <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden />
+        <Alert tone="success" className="mb-6 font-medium">
           Availability saved successfully.
         </Alert>
       )}
       {requested && (
-        <Alert tone="success" className="mb-6 flex items-center gap-2 font-medium">
-          <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden />
+        <Alert tone="success" className="mb-6 font-medium">
           Change request submitted. Your director will review it.
         </Alert>
       )}
@@ -198,7 +198,7 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                     const swapPartners = swapPartnersByKey.get(cardKey) ?? [];
 
                     return (
-                      <div key={cardKey} className="rounded-2xl border border-border bg-surface shadow-sm px-5 py-4">
+                      <Card key={cardKey} pad={false} className="px-5 py-4">
                         <div className="flex flex-wrap items-center gap-2 mb-2">
                           <span className="text-base font-bold text-foreground tabular-nums">{fmtDate(shift.clinicDate)}</span>
                           <span className="text-xs font-bold uppercase tracking-widest text-subtle-foreground">{shift.department.code}</span>
@@ -213,9 +213,9 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
 
                         <div className="mt-2">
                           {pendingReq ? (
-                            <div className="flex flex-wrap items-center gap-3 rounded-xl bg-amber-50 border border-warning/30 px-3 py-2">
-                              <p className="text-sm text-warning flex-1 flex items-center gap-1.5">
-                                <Clock className="h-4 w-4 shrink-0" aria-hidden />
+                            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-muted px-3 py-2">
+                              <p className="text-sm text-foreground-soft flex-1 flex items-center gap-1.5">
+                                <Clock className="h-4 w-4 shrink-0 text-warning" aria-hidden />
                                 Change requested:{" "}
                                 {pendingReq.targetId
                                   ? `swap with ${pendingReq.target?.name ?? "unknown"} (${pendingReq.targetDate ? displayDate(isoDateKey(pendingReq.targetDate)) : "?"})`
@@ -229,7 +229,7 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                             </div>
                           ) : (
                             <details className="group">
-                              <summary className="cursor-pointer text-xs font-medium text-subtle-foreground hover:text-foreground-soft list-none [&::-webkit-details-marker]:hidden">
+                              <summary className="text-xs font-medium text-subtle-foreground hover:text-foreground-soft list-none [&::-webkit-details-marker]:hidden">
                                 <span className="underline underline-offset-2">Request a change</span>
                               </summary>
                               <div className="mt-3 flex flex-col gap-4 pl-1 border-t border-border-subtle pt-3">
@@ -273,7 +273,7 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                             </details>
                           )}
                         </div>
-                      </div>
+                      </Card>
                     );
                   })}
                 </div>
@@ -323,12 +323,10 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                               const checked = availability.dates.some((ad) => isoDateKey(ad) === key);
                               return (
                                 <label key={key} className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs cursor-pointer transition-colors whitespace-nowrap ${checked ? "border-brand bg-brand/5 text-brand-fg font-semibold" : "border-border bg-brand/5 text-brand-fg hover:border-brand/40"}`}>
-                                  <input
-                                    type="checkbox"
+                                  <Checkbox
                                     name="dates"
                                     value={key}
                                     defaultChecked={checked}
-                                    className="h-4 w-4 rounded border-border text-brand focus:ring-brand focus:ring-1 accent-brand"
                                   />
                                   {displayDate(key)}
                                 </label>
@@ -338,9 +336,11 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                         </div>
                       ))}
                     </div>
-                    <Button type="submit" className="mt-6">
-                      Save availability
-                    </Button>
+                    <FormActions className="mt-4">
+                      <Button type="submit">
+                        Save availability
+                      </Button>
+                    </FormActions>
                   </form>
                 </>
               )}

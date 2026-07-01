@@ -1,5 +1,10 @@
 generator client {
   provider = "prisma-client-js"
+  // "native" covers local dev + CI (Debian). "rhel-openssl-3.0.x" is the Vercel
+  // Lambda runtime: required because preview deployments are built in GitHub
+  // Actions (Debian) and shipped with `vercel deploy --prebuilt`, so the query
+  // engine is bundled at build time rather than generated on Vercel's RHEL infra.
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {
@@ -36,9 +41,13 @@ enum TermStatus {
   ARCHIVED
 }
 
-enum MembershipKind {
-  DIRECTOR
+/// Participant track, shared across recruitment, training, and membership: a
+/// VOLUNTEER-track recruit trains on the volunteer track and joins as a
+/// VOLUNTEER-kind member (likewise DIRECTOR). One enum is the single source of
+/// truth so the three domains can never drift out of lock-step.
+enum Track {
   VOLUNTEER
+  DIRECTOR
 }
 
 enum MembershipStatus {
@@ -74,11 +83,10 @@ model Person {
   themePreference           String?
   gradYear                  String?
   status                    PersonStatus         @default(ACTIVE)
+  /// Airtable record id this person was imported from. Retained for the
+  /// read-only Airtable import scripts (see scripts/import-*.ts); the outbound
+  /// mirror that also used it has been removed.
   airtableRecordId          String?              @unique
-  /// The HIPAA compliance status the Airtable mirror last asserted ("Compliant" /
-  /// "Not Compliant"). Mirror bookkeeping only: set by drainPersonRow after a
-  /// successful send so the nightly refresh can detect changes without re-reading Airtable.
-  mirroredHipaaStatus       String?
   memberships               TermMembership[]
   roleAssignments           RoleAssignment[]
   hipaaCertificates         HipaaCertificate[]
@@ -100,7 +108,9 @@ model Person {
   emailLogs                 EmailLog[]           @relation("emailLogPerson")
   /// Email log rows this person triggered (may differ from the recipient).
   emailLogsTriggered        EmailLog[]           @relation("emailLogTriggeredBy")
-  emailTemplatesUpdated     EmailTemplate[]      @relation("emailTemplateUpdatedBy")
+  emailTemplatesUpdated                 EmailTemplate[]         @relation("emailTemplateUpdatedBy")
+  emailSenderRules                      EmailSenderRule[]       @relation("emailSenderRuleUpdatedBy")
+  recruitmentCycleEmailsUpdated         RecruitmentCycleEmail[] @relation("recruitmentCycleEmailUpdatedBy")
   campaignsCreated          EmailCampaign[]      @relation("campaignCreatedBy")
   complianceReminder        ComplianceReminder?
   teamsMessages             TeamsMessage[]       @relation("teamsMessagePerson")
@@ -108,6 +118,7 @@ model Person {
   shiftAssignments          ShiftAssignment[]
   recruitmentCyclesCreated  RecruitmentCycle[]   @relation("RecruitmentCycleCreatedBy")
   recruitmentAcceptances    Acceptance[]         @relation("recruitmentAcceptanceApprover")
+  applicantSubmissions      Applicant[]          @relation("ApplicantPerson")
   contractsPromoted         OnboardingContract[] @relation("contractPromotedBy")
   contractsPromotedTo       OnboardingContract[] @relation("contractPromotedPerson")
   interviewsCreated         Interview[]          @relation("interviewCreatedBy")
@@ -116,6 +127,7 @@ model Person {
   interviewEvaluations      Evaluation[]         @relation("interviewEvaluator")
   trainings                Training[]  @relation("trainingPerson")
   trainingAttendanceMarked Training[]  @relation("trainingAttendanceRecorder")
+  subcommitteeAssignments  Application[] @relation("applicationSubcommitteeAssigner")
   courseProgress            CourseProgress[]
   scoProgress               ScoProgress[]
   /// Shift requests this person raised.
@@ -124,9 +136,15 @@ model Person {
   shiftRequestsTargeted     ShiftRequest[]       @relation("shiftRequestTarget")
   /// Shift requests this person decided (approved or denied).
   shiftRequestsDecided      ShiftRequest[]       @relation("shiftRequestDecidedBy")
-  /// Capacity/RHD attributes imported from Airtable; future source is the Recruitment module.
-  spanishSpeaking           Boolean              @default(false)
-  /// Capacity/RHD attributes imported from Airtable; future source is the Recruitment module.
+  /// Self-reported at onboarding (or set by an admin). Intake signal only; does NOT gate scheduling.
+  spanishSelfReported       Boolean              @default(false)
+  /// Interpreting-department-confirmed Spanish capability. Gates clinical scheduling.
+  spanishVerified           Boolean              @default(false)
+  /// When the interpreting department (or an admin override) recorded the verification. Null = never assessed.
+  spanishVerifiedAt         DateTime?
+  /// Verifier's Person id. Bare id (no FK), mirroring HipaaCertificate.verifiedById.
+  spanishVerifiedById       String?
+  /// Self-reported RN licensure. No verification workflow.
   licensedRN                Boolean              @default(false)
   createdAt                 DateTime             @default(now())
   updatedAt                 DateTime             @updatedAt
@@ -200,6 +218,21 @@ model Department {
   updatedAt                  DateTime               @updatedAt
 }
 
+/// Admin-managed subcommittees applicants rank at application time and the
+/// recruitment team assigns post-acceptance. Soft-delete via isActive so
+/// historical rankings always resolve to a name.
+model Subcommittee {
+  id                   String        @id @default(cuid())
+  name                 String
+  isActive             Boolean       @default(true)
+  order                Int           @default(0)
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+  assignedApplications Application[] @relation("applicationAssignedSubcommittee")
+
+  @@index([isActive, order])
+}
+
 /// One row per "manager department oversees managed department" edge. Used to
 /// extend a director's compliance scope beyond their own department(s) by one
 /// hop (no recursion). Example: PCAR manages SCTP and JCTP.
@@ -218,7 +251,7 @@ model TermMembership {
   personId                   String
   termId                     String
   departmentId               String
-  kind                       MembershipKind
+  kind                       Track
   status                     MembershipStatus @default(ACTIVE)
   /// Tier 3 (lowest): availability from the member's application, set at import
   /// or roster build. The fallback when no self update or director override exists.
@@ -266,16 +299,17 @@ model RoleGrant {
   @@unique([roleId, permission])
 }
 
-/// Exactly one of personId / departmentId is set. termId null = global scope.
+/// Exactly one of personId / departmentId / kind is set. termId null = global scope.
 /// DB-LEVEL GUARDS LIVE IN RAW SQL (see migrations): a COALESCE unique index
-/// (duplicate grants) and a CHECK constraint (target XOR). Guarded by
+/// (duplicate grants) and a CHECK constraint (target = exactly one). Guarded by
 /// src/platform/rbac/schema-guards.test.ts. Never resolve a prisma migrate
 /// diff by accepting a DROP of objects you do not recognize.
 model RoleAssignment {
-  id           String      @id @default(cuid())
+  id           String          @id @default(cuid())
   roleId       String
   personId     String?
   departmentId String?
+  kind         Track?
   termId       String?
   role         Role        @relation(fields: [roleId], references: [id], onDelete: Cascade)
   person       Person?     @relation(fields: [personId], references: [id], onDelete: Cascade)
@@ -284,6 +318,7 @@ model RoleAssignment {
 
   @@index([personId])
   @@index([departmentId])
+  @@index([kind])
   @@index([termId])
 }
 
@@ -399,17 +434,11 @@ model ProviderContact {
   @@index([referralSiteId])
 }
 
-
-enum OutboxStatus {
-  PENDING
-  SENT
-  FAILED
-}
-
 enum EpicRequestKind {
   NEW
   MODIFY
   RENEW
+  DEACTIVATE
 }
 
 enum EpicRequestStatus {
@@ -433,18 +462,19 @@ enum EmailStatus {
 enum TeamsMessageStatus {
   QUEUED
   SENT
+  /// Permanent Teams failure (>= TEAMS_MAX_ATTEMPTS) with NO email fallback: the
+  /// notification was not delivered by any channel. Contrast FALLBACK, where the
+  /// email fallback delivered it. Set by drainTeamsQueue; retryable from the
+  /// admin dashboard and surfaced on the "Failed" health card.
   FAILED
-  /// Teams delivery was abandoned and the message was re-queued as email instead.
+  /// Teams delivery was abandoned but the message WAS delivered via the email
+  /// fallback (queued on permanent failure, or already queued up front for
+  /// channel "both"). A degraded-but-delivered outcome -- contrast FAILED.
   FALLBACK
   /// The log transport ran (email.transport is not "graph"): the message was
   /// recorded but NOT actually sent. Distinct from SENT so the monitor never
   /// implies real delivery in log mode. Retryable once graph is enabled.
   LOGGED
-}
-
-enum RecruitmentTrack {
-  VOLUNTEER
-  DIRECTOR
 }
 
 enum CycleStatus {
@@ -466,6 +496,7 @@ enum FieldType {
   DATE
   FILE
   DEPARTMENT_CHOICE
+  SUBCOMMITTEE_RANK
 }
 
 enum ApplicantScope {
@@ -477,9 +508,11 @@ enum ApplicantScope {
 enum ApplicantType {
   NEW
   RENEWAL
+  TRANSFER
 }
 
 enum ApplicationStatus {
+  DRAFT
   SUBMITTED
 }
 
@@ -516,46 +549,6 @@ enum TrainingStatus {
 enum TrainingMethod {
   ATTENDANCE
   QUIZ
-}
-
-enum TrainingTrack {
-  VOLUNTEER
-  DIRECTOR
-}
-
-/// One row per mirrored change. Written in the same transaction as the domain
-/// write; drained by the worker. FAILED rows persist for inspection and are
-/// also self-healed by nightly reconciliation.
-model Outbox {
-  id            String       @id @default(cuid())
-  entityType    String // "Person"
-  entityId      String
-  operation     String // "upsert"
-  changedFields String[]
-  status        OutboxStatus @default(PENDING)
-  attempts      Int          @default(0)
-  lastError     String?
-  createdAt     DateTime     @default(now())
-  processedAt   DateTime?
-
-  @@index([status, createdAt])
-}
-
-/// Maps a Postgres entity to its Airtable record id in a specific base.
-/// Needed because the sandbox and production bases have different record ids.
-model MirrorRecord {
-  id         String @id @default(cuid())
-  entityType String
-  entityId   String
-  baseId     String
-  recordId   String
-
-  @@unique([entityType, entityId, baseId])
-}
-
-model WorkerHeartbeat {
-  id     String   @id // e.g. "mirror-worker"
-  beatAt DateTime
 }
 
 /// Flags a person for offboarding at the end of a given term. At most one flag
@@ -649,7 +642,6 @@ enum EmailCampaignStatus {
   DRAFT
   SCHEDULED
   ACTIVE
-  SENDING
   SENT
   CANCELLED
 }
@@ -680,7 +672,6 @@ model EmailCampaignRun {
   campaign       EmailCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   runAt          DateTime      @default(now())
   recipientCount Int           @default(0)
-  status         String        @default("SENT")
   emails         EmailLog[]    @relation("emailLogCampaignRun")
 
   @@index([campaignId])
@@ -696,6 +687,10 @@ model EmailLog {
   subject       String
   html          String
   template      String
+  /// Snapshot of the resolved sender at enqueue time. Null means use the global default sender.
+  fromEmail     String?
+  /// Optional display name paired with fromEmail.
+  fromName      String?
   /// Person the email was addressed to (optional; may be null for non-person recipients).
   personId      String?
   /// Person who triggered the email (e.g. the director who performed an action). SetNull on delete.
@@ -728,6 +723,46 @@ model EmailTemplate {
   updatedBy   Person?  @relation("emailTemplateUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+enum EmailSenderScope {
+  CATEGORY
+  TEMPLATE
+}
+
+/// Per-scope sender override. A CATEGORY row targets all templates in a named group;
+/// a TEMPLATE row targets a single descriptor key.
+model EmailSenderRule {
+  id          String           @id @default(cuid())
+  scope       EmailSenderScope
+  /// Group name when scope=CATEGORY; template descriptor key when scope=TEMPLATE.
+  target      String
+  fromEmail   String
+  fromName    String?
+  updatedById String?
+  updatedBy   Person?          @relation("emailSenderRuleUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@unique([scope, target])
+}
+
+/// Per-cycle override of a recruitment email. A row exists only when a cycle
+/// customizes that email; absence means inherit the global default. `key` is one
+/// of the cycle-scoped recruitment descriptor keys (not recruitment.portal_link).
+model RecruitmentCycleEmail {
+  id          String           @id @default(cuid())
+  cycleId     String
+  cycle       RecruitmentCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  key         String
+  subject     String
+  body        String
+  updatedById String?
+  updatedBy   Person?          @relation("recruitmentCycleEmailUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@unique([cycleId, key])
 }
 
 /// Per-person HIPAA reminder state. Drives the weekly cadence (lastRemindedAt),
@@ -774,6 +809,9 @@ model TeamsMessage {
   /// Email fallback payload, queued if Teams delivery fails permanently.
   fallbackSubject String
   fallbackHtml    String
+  /// True when notify() already queued this email up front (channel "both"), so
+  /// the permanent-failure fallback must skip it rather than double-send (#74).
+  emailAlreadyQueued Boolean    @default(false)
   status          TeamsMessageStatus @default(QUEUED)
   attempts        Int                @default(0)
   lastError       String?
@@ -921,7 +959,7 @@ model RhdClinic {
 
 model RecruitmentCycle {
   id              String           @id @default(cuid())
-  track           RecruitmentTrack
+  track           Track
   termId          String
   title           String
   status          CycleStatus      @default(DRAFT)
@@ -929,7 +967,8 @@ model RecruitmentCycle {
   opensAt         DateTime?
   closesAt        DateTime?
   departments     String[]
-  acceptsRenewals Boolean          @default(false)
+  acceptsRenewals     Boolean          @default(false)
+  decisionsReleasedAt DateTime?
   isTermTraining  Boolean          @default(false)
   quizPassPercent Int              @default(80)
   quizMaxAttempts Int              @default(3)
@@ -944,6 +983,7 @@ model RecruitmentCycle {
   applicants   Applicant[]
   applications Application[]
   trainings    Training[]
+  cycleEmails  RecruitmentCycleEmail[]
 
   @@index([status, track])
 }
@@ -988,6 +1028,7 @@ model FormField {
 model Applicant {
   id         String   @id @default(cuid())
   cycleId    String
+  applicantPersonId String?
   firstName  String
   lastName   String
   email      String
@@ -997,10 +1038,15 @@ model Applicant {
   phone      String?
   createdAt  DateTime @default(now())
 
-  cycle        RecruitmentCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
-  applications Application[]
+  cycle           RecruitmentCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  /// Set for signed-in renewals; null for anonymous new applicants. Links the
+  /// submission to the verified HAVEN Hub account.
+  applicantPerson Person?          @relation("ApplicantPerson", fields: [applicantPersonId], references: [id], onDelete: SetNull)
+  applications    Application[]
 
   @@unique([cycleId, emailLower])
+  @@unique([cycleId, applicantPersonId])
+  @@index([applicantPersonId])
 }
 
 model Application {
@@ -1011,8 +1057,18 @@ model Application {
   applicantType     ApplicantType     @default(NEW)
   departmentChoices String[]
   renewalDepartment String?
+  // For a TRANSFER applicant: a snapshot of the department codes they were an
+  // active member of at submit time (where they are coming from). Empty for
+  // NEW and RENEWAL.
+  transferFromDepartments String[] @default([])
+  // ordered subcommittee IDs the applicant ranked (1st -> Nth); hoisted from the
+  // SUBCOMMITTEE_RANK field answer at submit, like departmentChoices.
+  subcommitteeRanking      String[]
+  assignedSubcommitteeId   String?
+  assignedSubcommitteeById String?
+  assignedSubcommitteeAt   DateTime?
   status            ApplicationStatus @default(SUBMITTED)
-  submittedAt       DateTime          @default(now())
+  submittedAt       DateTime?
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
 
@@ -1020,6 +1076,8 @@ model Application {
   applicant   Applicant        @relation(fields: [applicantId], references: [id], onDelete: Cascade)
   acceptances Acceptance[]
   interviews  Interview[]
+  assignedSubcommittee   Subcommittee? @relation("applicationAssignedSubcommittee", fields: [assignedSubcommitteeId], references: [id], onDelete: SetNull)
+  assignedSubcommitteeBy Person?       @relation("applicationSubcommitteeAssigner", fields: [assignedSubcommitteeById], references: [id], onDelete: SetNull)
 
   @@unique([cycleId, applicantId])
   @@index([cycleId, submittedAt])
@@ -1066,6 +1124,8 @@ model OnboardingContract {
   existingEpicId           String?
   epicAccessType           String?
   worksWithYnhh            Boolean        @default(false)
+  spanishSelfReported      Boolean        @default(false)
+  licensedRN               Boolean        @default(false)
   hipaaStoredName          String?
   hipaaFileName            String?
   hipaaMimeType            String?
@@ -1091,7 +1151,7 @@ model Training {
   personId                    String
   termId                      String
   cycleId                     String
-  track                       TrainingTrack   @default(VOLUNTEER)
+  track                       Track           @default(VOLUNTEER)
   status                      TrainingStatus  @default(PENDING)
   completedVia                TrainingMethod?
   completedAt                 DateTime?
@@ -1099,7 +1159,6 @@ model Training {
   attendanceRecordedAt        DateTime?
   locked                      Boolean         @default(false)
   lockResetAt                 DateTime?
-  subcommitteeInterest        String?
   additionalShiftAvailability String?
   minShiftsWanted             String?
   feedback                    String?
@@ -1207,6 +1266,8 @@ model Course {
   isActive        Boolean            @default(true)
   /// When true, the course is assigned to every department (org-wide).
   assignToAll     Boolean            @default(false)
+  /// Who the course targets, composed with department / assignToAll scoping.
+  audience        CourseAudience     @default(EVERYONE)
   /// Ordering in the catalog / management list.
   position        Int                @default(0)
   /// Launch file from imsmanifest.xml (e.g. "index.html"). Null = no package uploaded yet (draft).
@@ -1222,6 +1283,12 @@ model Course {
   departments     CourseDepartment[]
   progress        CourseProgress[]
   scoProgress     ScoProgress[]
+}
+
+enum CourseAudience {
+  EVERYONE
+  DIRECTORS
+  VOLUNTEERS
 }
 
 model CourseDepartment {
@@ -1276,4 +1343,18 @@ model ScoProgress {
 
   @@unique([personId, courseId, scoId])
   @@index([courseId])
+}
+
+/// Single-use, hashed, expiring magic-link token for the applicant portal.
+/// Only the SHA-256 hash of the token is stored; the raw token lives only in
+/// the emailed link.
+model ApplicantPortalToken {
+  id         String    @id @default(cuid())
+  emailLower String
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  usedAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([emailLower])
 }

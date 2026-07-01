@@ -3,8 +3,9 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Eye } from "lucide-react";
+import { Alert } from "@/platform/ui/alert";
 import { Modal } from "@/platform/ui/modal";
-import { buttonClasses } from "@/platform/ui/button";
+import { Button, buttonClasses } from "@/platform/ui/button";
 import { Field, Input } from "@/platform/ui/input";
 
 type CertificateViewerProps = {
@@ -82,18 +83,20 @@ export function CertificateViewer({
 
   return (
     <>
-      <button
+      <Button
         type="button"
+        variant="outline"
+        size="sm"
+        className="gap-1.5"
         onClick={() => {
           setError(null);
           setEditing(false);
           setOpen(true);
         }}
-        className={buttonClasses("outline", "sm", "gap-1.5")}
       >
         <Eye className="h-4 w-4" />
         View
-      </button>
+      </Button>
 
       {open && (
         <Modal
@@ -113,37 +116,40 @@ export function CertificateViewer({
                       defaultValue={isOverwrite ? currentDateValue : undefined}
                     />
                   </Field>
-                  <button
+                  <Button
                     type="submit"
+                    variant="primary"
+                    size="sm"
                     disabled={isPending}
-                    className={buttonClasses("primary", "sm")}
                   >
                     {isPending ? "Saving..." : isOverwrite ? "Update and verify" : "Save and verify"}
-                  </button>
+                  </Button>
                   {isOverwrite && (
-                    <button
+                    <Button
                       type="button"
-                      className={buttonClasses("ghost", "sm")}
+                      variant="ghost"
+                      size="sm"
                       onClick={() => {
                         setEditing(false);
                         setError(null);
                       }}
                     >
                       Cancel
-                    </button>
+                    </Button>
                   )}
                 </form>
               ) : canOverwrite ? (
-                <button
+                <Button
                   type="button"
-                  className={buttonClasses("outline", "sm")}
+                  variant="outline"
+                  size="sm"
                   onClick={() => {
                     setError(null);
                     setEditing(true);
                   }}
                 >
                   Edit date
-                </button>
+                </Button>
               ) : (
                 <span />
               )}
@@ -164,7 +170,7 @@ export function CertificateViewer({
           }
         >
           {error && (
-            <p className="mb-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
+            <Alert tone="error" className="mb-2">{error}</Alert>
           )}
           <iframe
             src={inlineHref}

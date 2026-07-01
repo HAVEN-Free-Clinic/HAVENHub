@@ -15,10 +15,12 @@ export default async function ManageCoursesPage() {
     <>
       <PageHeader title="Manage courses" description="Create courses and upload their SCORM packages." />
       <div className="mt-6 max-w-2xl space-y-6">
-        <form action={createCourseAction} className="flex gap-2">
-          <Input name="title" placeholder="New course title" required className="flex-1" />
-          <Button type="submit">Create</Button>
-        </form>
+        <Card>
+          <form action={createCourseAction} className="flex gap-2">
+            <Input name="title" placeholder="New course title" required className="flex-1" />
+            <Button type="submit">Create</Button>
+          </form>
+        </Card>
         <ul className="space-y-2">
           {courses.map((c) => (
             <li key={c.id}>

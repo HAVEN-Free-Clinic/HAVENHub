@@ -44,3 +44,52 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
+
+  e2e:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: haven
+          POSTGRES_PASSWORD: haven_dev
+          POSTGRES_DB: havenhub
+        ports:
+          - 5434:5432
+        options: >-
+          --health-cmd "pg_isready -U haven"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://haven:haven_dev@localhost:5434/havenhub
+      # Direct connection for `prisma migrate` (schema's directUrl). The CI Postgres
+      # is not pooled, so the unpooled URL is the same as DATABASE_URL.
+      DATABASE_URL_UNPOOLED: postgresql://haven:haven_dev@localhost:5434/havenhub
+      # The Playwright dev server and the e2e portal-cookie helper both read this,
+      # so the forged applicant_session cookie matches what the server validates.
+      AUTH_SECRET: ci-only-secret
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx prisma migrate deploy
+      # Seeds the Platform Admin (j.carney@yale.edu), an ACTIVE term, and the
+      # departments the recruitment e2e flows rely on. The dev server runs in
+      # development mode, so the email-only dev login is available.
+      - run: npm run db:seed
+      - run: npx playwright install --with-deps chromium
+      # Run the full e2e suite. Every spec self-seeds via the UI or the Prisma
+      # fixtures helper (e2e/fixtures.ts, per-spec create-and-cleanup) and asserts
+      # only against fixture-created state, so the suite is deterministic on this
+      # freshly seeded database.
+      - run: npx playwright test
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-results
+          path: test-results/
+          retention-days: 7

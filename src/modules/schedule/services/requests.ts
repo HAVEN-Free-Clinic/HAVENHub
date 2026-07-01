@@ -17,7 +17,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { isoDateKey } from "@/platform/dates";
-import { manageableDepartmentIds } from "@/platform/departments";
+import { manageableDepartmentIds, memberDepartmentIds } from "@/platform/departments";
 import { can } from "@/platform/rbac/engine";
 import {
   validateRequest,
@@ -110,16 +110,45 @@ async function buildScheduleRows(
 }
 
 /**
- * Checks that actor may manage the given department.
+ * Departments the actor may decide requests for: director membership +
+ * one-hop delegation, UNION member departments when the actor holds
+ * schedule.manage_requests, UNION all departments when schedule.edit_all.
+ */
+export async function manageableRequestDepartmentIds(personId: string): Promise<string[]> {
+  const [base, manageRequests, editAll] = await Promise.all([
+    manageableDepartmentIds(personId),
+    can(personId, "schedule.manage_requests"),
+    can(personId, "schedule.edit_all"),
+  ]);
+
+  const ids = new Set<string>(base);
+
+  if (manageRequests) {
+    for (const id of await memberDepartmentIds(personId)) ids.add(id);
+  }
+
+  if (editAll) {
+    const all = await prisma.department.findMany({ select: { id: true } });
+    for (const d of all) ids.add(d.id);
+  }
+
+  return [...ids];
+}
+
+/** True when the actor may decide requests for the given department. */
+export async function canManageRequestsForDept(
+  personId: string,
+  departmentId: string,
+): Promise<boolean> {
+  return (await manageableRequestDepartmentIds(personId)).includes(departmentId);
+}
+
+/**
+ * Checks that actor may decide requests for the given department.
  * Throws RequestForbiddenError if not.
  */
 async function scopeCheck(actorPersonId: string, departmentId: string): Promise<void> {
-  const [manageable, editAll] = await Promise.all([
-    manageableDepartmentIds(actorPersonId),
-    can(actorPersonId, "schedule.edit_all"),
-  ]);
-
-  if (!editAll && !manageable.includes(departmentId)) {
+  if (!(await canManageRequestsForDept(actorPersonId, departmentId))) {
     throw new RequestForbiddenError();
   }
 }
@@ -366,7 +395,12 @@ export async function cancelRequest(
 /**
  * Lists shift requests for a department in the active term.
  *
- * Ordering: PENDING first (createdAt asc), then decided (decidedAt desc, max 10 decided).
+ * Ordering: PENDING first (createdAt asc), then decided (most recent first, max
+ * 10 decided). The decided bucket sorts by updatedAt, not decidedAt: CANCELLED
+ * rows are self-service withdrawals with no decider and a null decidedAt, so a
+ * decidedAt-desc sort would float them ahead of every real decision (Postgres
+ * sorts NULLS FIRST on DESC) and bury approvals/denials. updatedAt is the moment
+ * each row reached its terminal state, giving a true chronological history.
  * Requires actor to be a manageable-department director or hold schedule.edit_all.
  */
 export async function listDepartmentRequests(
@@ -401,7 +435,9 @@ export async function listDepartmentRequests(
         target: { select: { name: true } },
         decidedBy: { select: { name: true } },
       },
-      orderBy: { decidedAt: "desc" },
+      // Sort by updatedAt, not decidedAt: CANCELLED rows have a null decidedAt
+      // and would otherwise sort NULLS FIRST, burying real approvals/denials.
+      orderBy: { updatedAt: "desc" },
       take: 10,
     }),
   ]);
@@ -688,26 +724,54 @@ export async function eligibleSwapPartners(
   if (actorAssignment.role === "SHADOW") return [];
 
   const actorRole = actorAssignment.role;
+  const requesterDates = term.clinicDates.filter((d) => isoDateKey(d) === requesterDateKey);
 
-  // Find all same-dept, same-role assignments on different dates, excluding actor
-  const partners = await prisma.shiftAssignment.findMany({
-    where: {
-      termId: term.id,
-      departmentId,
-      role: actorRole,
-      personId: { not: actorPersonId },
-      clinicDate: {
-        notIn: term.clinicDates.filter((d) => isoDateKey(d) === requesterDateKey),
+  const [partners, actorAssignments, othersOnRequesterDate] = await Promise.all([
+    // Same-dept, same-role assignments on different dates, excluding actor.
+    prisma.shiftAssignment.findMany({
+      where: {
+        termId: term.id,
+        departmentId,
+        role: actorRole,
+        personId: { not: actorPersonId },
+        clinicDate: { notIn: requesterDates },
       },
-    },
-    select: {
-      personId: true,
-      clinicDate: true,
-      person: { select: { name: true } },
-    },
-  });
+      select: {
+        personId: true,
+        clinicDate: true,
+        person: { select: { name: true } },
+      },
+    }),
+    // Every date the actor is already assigned in this department (any role).
+    prisma.shiftAssignment.findMany({
+      where: { termId: term.id, departmentId, personId: actorPersonId },
+      select: { clinicDate: true },
+    }),
+    // Anyone else holding an assignment on the requester's date (any role).
+    prisma.shiftAssignment.findMany({
+      where: {
+        termId: term.id,
+        departmentId,
+        personId: { not: actorPersonId },
+        clinicDate: { in: requesterDates },
+      },
+      select: { personId: true },
+    }),
+  ]);
+
+  // Mirror assertNoSwapCollision so the dropdown only offers swaps createRequest
+  // will accept. A partner is un-swappable when:
+  //   - the actor already works the partner's date (requesterOnTargetDate), or
+  //   - the partner also works the actor's requester date (targetOnRequesterDate).
+  const actorBusyDateKeys = new Set(actorAssignments.map((a) => isoDateKey(a.clinicDate)));
+  const partnerIdsOnRequesterDate = new Set(othersOnRequesterDate.map((a) => a.personId));
 
   return partners
+    .filter(
+      (p) =>
+        !actorBusyDateKeys.has(isoDateKey(p.clinicDate)) &&
+        !partnerIdsOnRequesterDate.has(p.personId),
+    )
     .map((p) => ({
       personId: p.personId,
       name: p.person.name,

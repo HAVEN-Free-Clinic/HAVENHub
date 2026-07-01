@@ -26,6 +26,8 @@ import { Button } from "@/platform/ui/button";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Alert } from "@/platform/ui/alert";
 import { StatCard } from "@/platform/ui/stat-card";
+import { Card } from "@/platform/ui/card";
+import { FormActions } from "@/platform/ui/form";
 import { SelectAllCheckbox } from "./select-all-checkbox";
 import {
   listEpicRequests,
@@ -415,41 +417,47 @@ export default async function EpicQueuePage({ searchParams }: PageProps) {
       {/* New request form */}
       <section className="mt-8">
         <h2 className="mb-3 text-base font-semibold">New Request</h2>
-        <form action={newRequestAction} className="flex flex-wrap items-end gap-3">
-          <div className="w-52">
-            <Field label="NetID or email">
-              <Input name="personKey" placeholder="netid or email@yale.edu" required />
-            </Field>
-          </div>
-          <div className="w-36">
-            <Field label="Kind">
-              <Select name="kind" defaultValue="NEW">
-                {ALL_KINDS.map((k) => (
-                  <option key={k} value={k}>
-                    {k}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-          </div>
-          <div className="w-44">
-            <Field label="Job title">
-              <Input name="jobTitle" placeholder="Optional" />
-            </Field>
-          </div>
-          <div className="w-44">
-            <Field label="Mirror Epic ID">
-              <Input name="mirrorEpicId" placeholder="Optional" />
-            </Field>
-          </div>
-          <div className="flex-1 min-w-44">
-            <Field label="Notes">
-              <Input name="notes" placeholder="Optional" />
-            </Field>
-          </div>
-          <Button type="submit" variant="outline" size="sm">
-            Create request
-          </Button>
+        <form action={newRequestAction}>
+          <Card>
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="w-52">
+                <Field label="NetID or email">
+                  <Input name="personKey" placeholder="netid or email@yale.edu" required />
+                </Field>
+              </div>
+              <div className="w-36">
+                <Field label="Kind">
+                  <Select name="kind" defaultValue="NEW">
+                    {ALL_KINDS.map((k) => (
+                      <option key={k} value={k}>
+                        {k}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              </div>
+              <div className="w-44">
+                <Field label="Job title">
+                  <Input name="jobTitle" placeholder="Optional" />
+                </Field>
+              </div>
+              <div className="w-44">
+                <Field label="Mirror Epic ID">
+                  <Input name="mirrorEpicId" placeholder="Optional" />
+                </Field>
+              </div>
+              <div className="flex-1 min-w-44">
+                <Field label="Notes">
+                  <Input name="notes" placeholder="Optional" />
+                </Field>
+              </div>
+            </div>
+            <FormActions>
+              <Button type="submit" variant="outline" size="sm">
+                Create request
+              </Button>
+            </FormActions>
+          </Card>
         </form>
       </section>
 
@@ -607,8 +615,15 @@ export default async function EpicQueuePage({ searchParams }: PageProps) {
                                   </Button>
                                 </>
                               ) : (
-                                /* RENEW: no epicId needed */
-                                <ConfirmButton label="Complete" confirmLabel="Complete this renewal?" />
+                                /* RENEW and DEACTIVATE: no epicId needed */
+                                <ConfirmButton
+                                  label="Complete"
+                                  confirmLabel={
+                                    row.kind === "DEACTIVATE"
+                                      ? "Mark this deactivation complete?"
+                                      : "Complete this renewal?"
+                                  }
+                                />
                               )}
                             </form>
 

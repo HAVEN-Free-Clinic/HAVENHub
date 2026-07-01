@@ -15,7 +15,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
-import { manageableDepartmentIds } from "./departments";
+import { manageableDepartmentIds, memberDepartmentIds } from "./departments";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -157,5 +157,28 @@ describe("manageableDepartmentIds", () => {
     // shared appears once, both directed depts present.
     expect(result.sort()).toEqual([pcar.id, shared.id, srhd.id].sort());
     expect(result.filter((id) => id === shared.id)).toHaveLength(1);
+  });
+});
+
+describe("memberDepartmentIds", () => {
+  it("returns active member departments of any kind in the active term", async () => {
+    const term = await prisma.term.create({
+      data: { code: `T-${Date.now()}`, name: "T", startDate: new Date("2026-01-01T12:00:00Z"), endDate: new Date("2026-04-30T12:00:00Z"), status: "ACTIVE" },
+    });
+    const person = await prisma.person.create({ data: { name: "M" } });
+    const a = await prisma.department.create({ data: { code: `A-${Date.now()}`, name: "A" } });
+    const b = await prisma.department.create({ data: { code: `B-${Date.now()}`, name: "B" } });
+    const c = await prisma.department.create({ data: { code: `C-${Date.now()}`, name: "C" } });
+    await prisma.termMembership.create({ data: { personId: person.id, termId: term.id, departmentId: a.id, kind: "VOLUNTEER" } });
+    await prisma.termMembership.create({ data: { personId: person.id, termId: term.id, departmentId: b.id, kind: "DIRECTOR" } });
+    await prisma.termMembership.create({ data: { personId: person.id, termId: term.id, departmentId: c.id, kind: "VOLUNTEER", status: "REMOVED" } });
+
+    const ids = await memberDepartmentIds(person.id);
+    expect(ids.sort()).toEqual([a.id, b.id].sort());
+  });
+
+  it("returns [] when there is no active term", async () => {
+    const person = await prisma.person.create({ data: { name: "N" } });
+    expect(await memberDepartmentIds(person.id)).toEqual([]);
   });
 });

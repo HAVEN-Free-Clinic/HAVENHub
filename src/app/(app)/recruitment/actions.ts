@@ -3,7 +3,8 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requirePermission } from "@/platform/auth/session";
 import {
-  createCycle, publishCycle, closeCycle, setAcceptsRenewals, CyclePublishError,
+  createCycle, publishCycle, closeCycle, reopenCycle, archiveCycle, setAcceptsRenewals,
+  setApplicationWindow, setCycleDepartments, CyclePublishError,
 } from "@/modules/recruitment/services/cycles";
 import { setTrainingCycle, updateQuizSettings, TrainingStateError } from "@/modules/recruitment/services/training";
 import { RecruitmentAuthError } from "@/modules/recruitment/services/review";
@@ -52,6 +53,32 @@ export async function closeCycleAction(cycleId: string) {
   revalidatePath(`/recruitment/cycles/${cycleId}`);
 }
 
+export async function reopenCycleAction(cycleId: string) {
+  const person = await requirePermission("recruitment.manage_cycles");
+  try {
+    await reopenCycle(cycleId, person.personId);
+  } catch (err) {
+    if (err instanceof CyclePublishError) {
+      redirect(`/recruitment/cycles/${cycleId}?error=${encodeURIComponent(err.message)}`);
+    }
+    throw err;
+  }
+  revalidatePath(`/recruitment/cycles/${cycleId}`);
+}
+
+export async function archiveCycleAction(cycleId: string) {
+  const person = await requirePermission("recruitment.manage_cycles");
+  try {
+    await archiveCycle(cycleId, person.personId);
+  } catch (err) {
+    if (err instanceof CyclePublishError) {
+      redirect(`/recruitment/cycles/${cycleId}?error=${encodeURIComponent(err.message)}`);
+    }
+    throw err;
+  }
+  revalidatePath(`/recruitment/cycles/${cycleId}`);
+}
+
 export async function toggleRenewalsAction(cycleId: string, value: boolean) {
   const person = await requirePermission("recruitment.manage_cycles");
   try {
@@ -63,6 +90,44 @@ export async function toggleRenewalsAction(cycleId: string, value: boolean) {
     throw err;
   }
   revalidatePath(`/recruitment/cycles/${cycleId}`);
+}
+
+export async function setCycleDepartmentsAction(cycleId: string, formData: FormData) {
+  const person = await requirePermission("recruitment.manage_cycles");
+  const departments = formData.getAll("departments").map(String).map((d) => d.trim()).filter(Boolean);
+  let warn = "";
+  try {
+    const { removedWithApplicants } = await setCycleDepartments(cycleId, departments, person.personId);
+    if (removedWithApplicants.length > 0) {
+      warn = removedWithApplicants.map((r) => `${r.code} (${r.applicantCount})`).join(", ");
+    }
+  } catch (err) {
+    if (err instanceof CyclePublishError) {
+      redirect(`/recruitment/cycles/${cycleId}?error=${encodeURIComponent(err.message)}`);
+    }
+    throw err;
+  }
+  redirect(`/recruitment/cycles/${cycleId}?${warn ? `deptwarn=${encodeURIComponent(warn)}` : "deptsaved=1"}`);
+}
+
+export async function setApplicationWindowAction(cycleId: string, formData: FormData) {
+  const person = await requirePermission("recruitment.manage_cycles");
+  const rawOpens = String(formData.get("opensAt") ?? "").trim();
+  const rawCloses = String(formData.get("closesAt") ?? "").trim();
+  const opensAt = rawOpens ? new Date(rawOpens) : null;
+  const closesAt = rawCloses ? new Date(rawCloses) : null;
+  if ((opensAt && Number.isNaN(opensAt.getTime())) || (closesAt && Number.isNaN(closesAt.getTime()))) {
+    redirect(`/recruitment/cycles/${cycleId}?error=${encodeURIComponent("Enter valid dates for the application window.")}`);
+  }
+  try {
+    await setApplicationWindow(cycleId, { opensAt, closesAt }, person.personId);
+  } catch (err) {
+    if (err instanceof CyclePublishError) {
+      redirect(`/recruitment/cycles/${cycleId}?error=${encodeURIComponent(err.message)}`);
+    }
+    throw err;
+  }
+  redirect(`/recruitment/cycles/${cycleId}?windowsaved=1`);
 }
 
 export async function setTrainingCycleAction(cycleId: string, value: boolean) {

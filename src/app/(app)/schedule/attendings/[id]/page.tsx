@@ -1,6 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { requireModuleAccess } from "@/platform/auth/session";
-import { getAttending, updateAttending, CAPABILITY_KEYS, AttendingValidationError, AttendingForbiddenError, type CapabilityValue } from "@/modules/schedule/services/attendings";
+import { getAttending, updateAttending, canManageAnyRhdDept, CAPABILITY_KEYS, AttendingValidationError, AttendingForbiddenError, type CapabilityValue } from "@/modules/schedule/services/attendings";
 import { AttendingForm } from "@/modules/schedule/components/attending-form";
 import { PageHeader } from "@/platform/ui/page-header";
 
@@ -10,7 +10,8 @@ type PageProps = {
 };
 
 export default async function EditAttendingPage({ params, searchParams }: PageProps) {
-  await requireModuleAccess("schedule");
+  const session = await requireModuleAccess("schedule");
+  if (!(await canManageAnyRhdDept(session.personId))) redirect("/no-access");
   const { id } = await params;
   const { error } = await searchParams;
   const attending = await getAttending(id);

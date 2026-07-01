@@ -33,18 +33,50 @@ export function Textarea({
 export function Field({
   label,
   hint,
+  required,
   children,
 }: {
   label: string;
   hint?: string;
+  required?: boolean;
   children: ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-1">
       <label className="flex flex-col gap-1">
-        <span className="text-xs font-medium text-muted-foreground">{label}</span>
+        <span className="text-xs font-medium text-muted-foreground">
+          {label}
+          {required && <span className="text-critical" aria-hidden="true"> *</span>}
+        </span>
         {children}
       </label>
+      {hint && <p className="text-xs text-subtle-foreground">{hint}</p>}
+    </div>
+  );
+}
+
+/**
+ * Static display row for a non-editable value (IT-managed fields, computed
+ * values). Renders as plain text with a hairline underline so it reads as
+ * information, not as a disabled input, and is not a tab stop.
+ */
+export function ReadonlyField({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: ReactNode;
+  hint?: string;
+}) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
+      <p className="min-h-[34px] border-b border-border py-1.5 text-sm font-medium text-foreground">
+        {value || (
+          <span className="font-normal italic text-subtle-foreground">Not set</span>
+        )}
+      </p>
       {hint && <p className="text-xs text-subtle-foreground">{hint}</p>}
     </div>
   );

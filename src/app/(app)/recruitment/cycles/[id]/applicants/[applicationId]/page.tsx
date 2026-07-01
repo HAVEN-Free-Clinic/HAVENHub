@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getApplication } from "@/modules/recruitment/services/submissions";
-import { visibleSections } from "@/modules/recruitment/engine/visibility";
+import { visibleSections, applicantTypeLabel } from "@/modules/recruitment/engine/visibility";
 import { requirePersonSession } from "@/platform/auth/session";
 import { reviewScope, listAcceptances } from "@/modules/recruitment/services/review";
 import { can } from "@/platform/rbac/engine";
@@ -16,6 +16,9 @@ import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
+import { Card } from "@/platform/ui/card";
+import { SectionHeader } from "@/platform/ui/section-header";
+import { prisma } from "@/platform/db";
 
 export default async function ApplicationDetailPage({ params, searchParams }: { params: Promise<{ id: string; applicationId: string }>; searchParams: Promise<{ error?: string }> }) {
   const { id, applicationId } = await params;
@@ -37,6 +40,11 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
     : app.cycle.departments.filter((d) => scope.departmentCodes.includes(d) && app.departmentChoices.includes(d));
   const accepted = new Set(acceptances.map((a) => a.departmentCode));
   const choices = eligible.filter((d) => !accepted.has(d));
+  const rankIds = [...new Set([...app.subcommitteeRanking, app.assignedSubcommitteeId].filter((x): x is string => Boolean(x)))];
+  const subRows = rankIds.length
+    ? await prisma.subcommittee.findMany({ where: { id: { in: rankIds } }, select: { id: true, name: true } })
+    : [];
+  const subName = new Map(subRows.map((s) => [s.id, s.name]));
   const existingInterviews = app.cycle.track === "DIRECTOR" ? await listApplicationInterviews(applicationId) : [];
   const interviewedDepts = new Set(existingInterviews.map((i) => i.departmentCode));
   const scheduleChoices = choices.filter((d) => !interviewedDepts.has(d));
@@ -57,12 +65,18 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
       />
       <PageHeader
         title={`${app.applicant.firstName} ${app.applicant.lastName}`}
-        description={`${app.applicant.email} · ${app.applicantType}${app.renewalDepartment ? ` · renewing in ${app.renewalDepartment}` : ""}`}
+        description={`${app.applicant.email} · ${applicantTypeLabel(app.applicantType)}${
+          app.renewalDepartment ? ` · renewing in ${app.renewalDepartment}` : ""
+        }${
+          app.applicantType === "TRANSFER" && app.transferFromDepartments.length > 0
+            ? ` · returning member, previously ${app.transferFromDepartments.join(", ")}`
+            : ""
+        }`}
       />
 
       {sections.map((section) => (
-        <section key={section.id} className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">{section.title}</h2>
+        <Card key={section.id}>
+          <SectionHeader>{section.title}</SectionHeader>
           <dl className="mt-3 grid gap-3 sm:grid-cols-2">
             {section.fields.map((f) => {
               const val = answers[f.key];
@@ -77,12 +91,35 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
               );
             })}
           </dl>
-        </section>
+        </Card>
       ))}
 
+      {(app.subcommitteeRanking.length > 0 || app.assignedSubcommitteeId) && (
+        <Card>
+          <SectionHeader>Subcommittee</SectionHeader>
+          <dl className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div>
+              <dt className="text-xs text-subtle-foreground">Ranked preferences</dt>
+              <dd className="mt-0.5 text-sm text-foreground">
+                {app.subcommitteeRanking.length === 0
+                  ? "(none)"
+                  : app.subcommitteeRanking.map((sid, i) => `${i + 1}. ${subName.get(sid) ?? "(removed)"}`).join("  ·  ")}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-subtle-foreground">Assigned</dt>
+              <dd className="mt-0.5 text-sm text-foreground">
+                {app.assignedSubcommitteeId ? (subName.get(app.assignedSubcommitteeId) ?? "(removed)") : "Not assigned"}
+              </dd>
+            </div>
+          </dl>
+          <p className="mt-2 text-xs text-subtle-foreground">Assign from the cycle&apos;s Subcommittees view.</p>
+        </Card>
+      )}
+
       {app.cycle.track === "VOLUNTEER" ? (
-        <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Decision</h2>
+        <Card>
+          <SectionHeader>Decision</SectionHeader>
           {error && <Alert tone="error" className="mt-3">{error}</Alert>}
           {acceptances.length > 0 ? (
             <ul className="mt-3 divide-y divide-border-subtle">
@@ -124,10 +161,10 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
               <SubmitButton size="sm" pendingLabel="Accepting…">Accept</SubmitButton>
             </form>
           )}
-        </section>
+        </Card>
       ) : (
-        <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Interview</h2>
+        <Card>
+          <SectionHeader>Interview</SectionHeader>
           {error && <Alert tone="error" className="mt-3">{error}</Alert>}
           {existingInterviews.length > 0 && (
             <ul className="mt-3 space-y-1 text-sm">
@@ -135,7 +172,7 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
                 <li key={iv.id}>
                   <Link
                     className="font-medium text-brand-fg hover:text-brand-hover"
-                    href={`/recruitment/cycles/${id}/interviews/${iv.id}`}
+                    href={`/recruitment/interviews/${iv.id}`}
                   >
                     Interview for {iv.departmentCode}
                   </Link>
@@ -162,7 +199,7 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
           ) : existingInterviews.length === 0 ? (
             <p className="mt-3 text-sm text-muted-foreground">No eligible department to interview for in your scope.</p>
           ) : null}
-        </section>
+        </Card>
       )}
     </div>
   );

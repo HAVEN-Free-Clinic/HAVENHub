@@ -24,6 +24,7 @@ import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import {
   manageableScheduleDepartmentIds,
+  canManageAnyScheduleDept,
   setAssignment,
   toggleTag,
   setPatientsBooked,
@@ -56,10 +57,16 @@ function sixSaturdays(): Date[] {
 
 async function createPerson(
   name: string,
-  opts: { licensedRN?: boolean; spanishSpeaking?: boolean; contactEmail?: string } = {}
+  opts: { licensedRN?: boolean; spanishVerified?: boolean; spanishSelfReported?: boolean; contactEmail?: string } = {}
 ) {
   return prisma.person.create({
-    data: { name, licensedRN: opts.licensedRN ?? false, spanishSpeaking: opts.spanishSpeaking ?? false, contactEmail: opts.contactEmail },
+    data: {
+      name,
+      licensedRN: opts.licensedRN ?? false,
+      spanishVerified: opts.spanishVerified ?? false,
+      spanishSelfReported: opts.spanishSelfReported ?? false,
+      contactEmail: opts.contactEmail,
+    },
   });
 }
 
@@ -165,6 +172,38 @@ async function grantPermission(personId: string, permission: string) {
   await prisma.roleAssignment.create({ data: { roleId: role.id, personId } });
 }
 
+async function createCycle(termId: string, track: "VOLUNTEER" | "DIRECTOR", creatorId: string) {
+  return prisma.recruitmentCycle.create({
+    data: {
+      track,
+      termId,
+      title: `${track} cycle`,
+      publicSlug: `slug-${Date.now()}-${Math.random()}`,
+      createdById: creatorId,
+    },
+  });
+}
+
+async function createTraining(
+  personId: string,
+  termId: string,
+  cycleId: string,
+  track: "VOLUNTEER" | "DIRECTOR",
+  intake: { minShiftsWanted?: string; additionalShiftAvailability?: string; feedback?: string } = {}
+) {
+  return prisma.training.create({
+    data: {
+      personId,
+      termId,
+      cycleId,
+      track,
+      minShiftsWanted: intake.minShiftsWanted,
+      additionalShiftAvailability: intake.additionalShiftAvailability,
+      feedback: intake.feedback,
+    },
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Setup
 // ---------------------------------------------------------------------------
@@ -236,6 +275,62 @@ describe("manageableScheduleDepartmentIds", () => {
     const ids = await manageableScheduleDepartmentIds(person.id);
     const unique = new Set(ids);
     expect(ids.length).toBe(unique.size);
+  });
+
+  it("includes member departments when the person holds schedule.edit_own_dept", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates, "ACTIVE");
+    const dept = await createDepartment("OWND");
+    const person = await createPerson("Coordinator");
+    await createMembership(person.id, term.id, dept.id, "VOLUNTEER");
+    await grantPermission(person.id, "schedule.edit_own_dept");
+
+    const ids = await manageableScheduleDepartmentIds(person.id);
+    expect(ids).toContain(dept.id);
+  });
+
+  it("does NOT include member departments without schedule.edit_own_dept", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates, "ACTIVE");
+    const dept = await createDepartment("NOPE");
+    const person = await createPerson("PlainVol");
+    await createMembership(person.id, term.id, dept.id, "VOLUNTEER");
+
+    const ids = await manageableScheduleDepartmentIds(person.id);
+    expect(ids).not.toContain(dept.id);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// canManageAnyScheduleDept (drives Builder tab visibility + page gate)
+// ---------------------------------------------------------------------------
+
+describe("canManageAnyScheduleDept", () => {
+  it("is true for a director (manages their own department)", async () => {
+    const term = await createTerm(sixSaturdays());
+    const dept = await createDepartment("PCAR");
+    const person = await createPerson("Director");
+    await createMembership(person.id, term.id, dept.id, "DIRECTOR");
+
+    expect(await canManageAnyScheduleDept(person.id)).toBe(true);
+  });
+
+  it("is true for a person with schedule.edit_all", async () => {
+    await createTerm(sixSaturdays());
+    await createDepartment("DEPT1");
+    const person = await createPerson("Admin");
+    await grantPermission(person.id, "schedule.edit_all");
+
+    expect(await canManageAnyScheduleDept(person.id)).toBe(true);
+  });
+
+  it("is false for a plain volunteer (schedule.view only)", async () => {
+    const term = await createTerm(sixSaturdays());
+    const dept = await createDepartment("PCAR");
+    const person = await createPerson("Volunteer");
+    await createMembership(person.id, term.id, dept.id, "VOLUNTEER");
+
+    expect(await canManageAnyScheduleDept(person.id)).toBe(false);
   });
 });
 
@@ -446,6 +541,28 @@ describe("setAssignment", () => {
       setAssignment(person.id, { departmentId: dept.id, dateKey: "2026-06-06", personId: person.id, role: "VOLUNTEER" })
     ).rejects.toBeInstanceOf(BuilderValidationError);
   });
+
+  it("rejects an out-of-set role with BuilderValidationError (not a raw Prisma error)", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const dept = await createDepartment("PCAR");
+    const director = await createPerson("Director");
+    const volunteer = await createPerson("Volunteer");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(volunteer.id, term.id, dept.id, "VOLUNTEER");
+
+    // A crafted POST can deliver a role outside the allow-list; the bare cast in
+    // the action would pass it straight through. The service must reject it as a
+    // validation error so the action's friendly error path fires.
+    await expect(
+      setAssignment(director.id, {
+        departmentId: dept.id,
+        dateKey: isoDateKey(dates[0]),
+        personId: volunteer.id,
+        role: "ADMIN" as "VOLUNTEER",
+      })
+    ).rejects.toBeInstanceOf(BuilderValidationError);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -503,6 +620,29 @@ describe("toggleTag", () => {
     await expect(
       toggleTag(outsider.id, { departmentId: dept.id, dateKey: isoDateKey(dates[0]), personId: volunteer.id, tag: "triage" })
     ).rejects.toBeInstanceOf(BuilderForbiddenError);
+  });
+
+  it("rejects an out-of-set tag with BuilderValidationError (not a raw Prisma error)", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const dept = await createDepartment("SCTP");
+    const director = await createPerson("Director");
+    const volunteer = await createPerson("Volunteer");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(volunteer.id, term.id, dept.id, "VOLUNTEER");
+    await createShift(term.id, dept.id, volunteer.id, dates[0], "VOLUNTEER");
+
+    // A crafted tag would become `data: { [badTag]: true }` in a Prisma update,
+    // throwing PrismaClientValidationError. The service must reject it up front
+    // so a bad value never reaches the query (and the friendly path fires).
+    await expect(
+      toggleTag(director.id, {
+        departmentId: dept.id,
+        dateKey: isoDateKey(dates[0]),
+        personId: volunteer.id,
+        tag: "deleteMany" as "triage",
+      })
+    ).rejects.toBeInstanceOf(BuilderValidationError);
   });
 
   it("audits tag toggle", async () => {
@@ -907,6 +1047,58 @@ describe("builderView", () => {
     expect(member!.availability.dates).toHaveLength(2);
   });
 
+  it("surfaces each member's training intake, keyed by the membership track", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const dept = await createDepartment("PCAR");
+    const director = await createPerson("Director");
+    const volunteer = await createPerson("Volunteer");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(volunteer.id, term.id, dept.id, "VOLUNTEER");
+
+    const cycle = await createCycle(term.id, "VOLUNTEER", director.id);
+    await createTraining(volunteer.id, term.id, cycle.id, "VOLUNTEER", {
+      minShiftsWanted: "5",
+      additionalShiftAvailability: "Saturday mornings",
+      feedback: "Prefer triage",
+    });
+
+    const view = await builderView(director.id, { departmentId: dept.id });
+
+    const member = view.members.find((m) => m.person.id === volunteer.id);
+    expect(member!.intake).toEqual({
+      minShiftsWanted: "5",
+      additionalShiftAvailability: "Saturday mornings",
+      feedback: "Prefer triage",
+    });
+
+    // A member with no training row has null intake fields, not undefined.
+    const dir = view.members.find((m) => m.person.id === director.id);
+    expect(dir!.intake).toEqual({
+      minShiftsWanted: null,
+      additionalShiftAvailability: null,
+      feedback: null,
+    });
+  });
+
+  it("does not surface intake from a training row of a different track", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const dept = await createDepartment("PCAR");
+    const director = await createPerson("Director");
+    const volunteer = await createPerson("Volunteer");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(volunteer.id, term.id, dept.id, "VOLUNTEER");
+
+    // The volunteer-kind member only has a DIRECTOR-track training row; it must not bleed through.
+    const cycle = await createCycle(term.id, "DIRECTOR", director.id);
+    await createTraining(volunteer.id, term.id, cycle.id, "DIRECTOR", { minShiftsWanted: "8" });
+
+    const view = await builderView(director.id, { departmentId: dept.id });
+    const member = view.members.find((m) => m.person.id === volunteer.id);
+    expect(member!.intake.minShiftsWanted).toBeNull();
+  });
+
   it("marks overrideActive when directorAvailabilitySetAt is set", async () => {
     const dates = sixSaturdays();
     const term = await createTerm(dates);
@@ -954,7 +1146,7 @@ describe("builderView", () => {
     const term = await createTerm(dates);
     const dept = await createDepartment("PCAR", { idealHeadcount: 4 });
     const director = await createPerson("Director");
-    const spanishVol = await createPerson("Bilingual", { spanishSpeaking: true });
+    const spanishVol = await createPerson("Bilingual", { spanishVerified: true });
     const regularVol = await createPerson("Regular");
     await createMembership(director.id, term.id, dept.id, "DIRECTOR");
     await createMembership(spanishVol.id, term.id, dept.id, "VOLUNTEER");
@@ -966,6 +1158,54 @@ describe("builderView", () => {
     const view = await builderView(director.id, { departmentId: dept.id, dateKey: isoDateKey(dates[0]) });
     expect(view.capacity.spanishCount).toBe(1);
     expect(view.capacity.headcount).toBe(2);
+  });
+
+  it("capacity math: counts cc assignments into ccStatus", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const dept = await createDepartment("JCTP", { idealHeadcount: 4 });
+    const director = await createPerson("Director");
+    const ccVol = await createPerson("Coordinator");
+    const regularVol = await createPerson("Regular");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(ccVol.id, term.id, dept.id, "VOLUNTEER");
+    await createMembership(regularVol.id, term.id, dept.id, "VOLUNTEER");
+
+    await createShift(term.id, dept.id, ccVol.id, dates[0], "VOLUNTEER", { cc: true });
+    await createShift(term.id, dept.id, regularVol.id, dates[0], "VOLUNTEER");
+
+    const view = await builderView(director.id, { departmentId: dept.id, dateKey: isoDateKey(dates[0]) });
+    expect(view.capacity.ccStatus).toBe("ok");
+  });
+
+  it("capacity math: ccStatus is missing when no one is tagged cc", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const dept = await createDepartment("JCTP", { idealHeadcount: 4 });
+    const director = await createPerson("Director");
+    const regularVol = await createPerson("Regular");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(regularVol.id, term.id, dept.id, "VOLUNTEER");
+
+    await createShift(term.id, dept.id, regularVol.id, dates[0], "VOLUNTEER");
+
+    const view = await builderView(director.id, { departmentId: dept.id, dateKey: isoDateKey(dates[0]) });
+    expect(view.capacity.ccStatus).toBe("missing");
+  });
+
+  it("capacity math: self-reported-only (unverified) Spanish does not count", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const dept = await createDepartment("PCAR", { idealHeadcount: 4 });
+    const director = await createPerson("Director");
+    const selfReportedVol = await createPerson("Pending", { spanishSelfReported: true });
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(selfReportedVol.id, term.id, dept.id, "VOLUNTEER");
+
+    await createShift(term.id, dept.id, selfReportedVol.id, dates[0], "VOLUNTEER");
+
+    const view = await builderView(director.id, { departmentId: dept.id, dateKey: isoDateKey(dates[0]) });
+    expect(view.capacity.spanishCount).toBe(0);
   });
 
   it("banner lists only non-compliant volunteers assigned on selected date", async () => {
@@ -991,6 +1231,7 @@ describe("builderView", () => {
         size: 100,
         mimeType: "application/pdf",
         completionDate: new Date("2026-01-01T12:00:00Z"),
+        verifiedAt: new Date(),
       },
     });
 
@@ -1108,6 +1349,7 @@ describe("builderView", () => {
         size: 100,
         mimeType: "application/pdf",
         completionDate: new Date("2026-01-01T12:00:00Z"),
+        verifiedAt: new Date(),
       },
     });
 

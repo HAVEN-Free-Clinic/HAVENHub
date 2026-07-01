@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requirePermission } from "@/platform/auth/session";
 import { getCycle } from "@/modules/recruitment/services/cycles";
@@ -11,6 +12,7 @@ import { Badge } from "@/platform/ui/badge";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Alert } from "@/platform/ui/alert";
 import { SubmitButton } from "@/platform/ui/submit-button";
+import { SectionHeader } from "@/platform/ui/section-header";
 
 type Tone = "default" | "brand" | "success" | "warning";
 
@@ -28,7 +30,10 @@ export default async function OnboardingPage({ params, searchParams }: { params:
   const cycle = await getCycle(id);
   if (!cycle) notFound();
   const rows = await listOnboarding(id);
-  const promotable = rows.filter((r) => r.contract?.status === "SUBMITTED");
+  // Conflicted acceptances (applicant accepted by >1 department) cannot be
+  // onboarded or promoted until SRR resolves the conflict on the Decisions page.
+  const promotable = rows.filter((r) => r.contract?.status === "SUBMITTED" && !r.conflicted);
+  const hasConflicts = rows.some((r) => r.conflicted);
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -58,14 +63,20 @@ export default async function OnboardingPage({ params, searchParams }: { params:
               const s = statusLabel(r.contract);
               return (
                 <TR key={r.id}>
-                  <TD>{!r.contract && <Checkbox name="acceptanceId" value={r.id} />}</TD>
+                  <TD>{!r.contract && !r.conflicted && <Checkbox name="acceptanceId" value={r.id} />}</TD>
                   <TD className="font-medium text-foreground">
                     {r.application.applicant.firstName} {r.application.applicant.lastName}
                   </TD>
                   <TD className="text-foreground-soft">{r.departmentCode}</TD>
                   <TD>
-                    <Badge tone={s.tone}>{s.label}</Badge>
-                    {r.contract?.promotedPersonId && <span className="ml-2 text-xs text-subtle-foreground">on roster</span>}
+                    {r.conflicted ? (
+                      <Badge tone="warning">Conflict</Badge>
+                    ) : (
+                      <>
+                        <Badge tone={s.tone}>{s.label}</Badge>
+                        {r.contract?.promotedPersonId && <span className="ml-2 text-xs text-subtle-foreground">on roster</span>}
+                      </>
+                    )}
                   </TD>
                 </TR>
               );
@@ -82,10 +93,21 @@ export default async function OnboardingPage({ params, searchParams }: { params:
         <SubmitButton size="sm" pendingLabel="Sending…">
           Send onboarding links
         </SubmitButton>
+        {hasConflicts && (
+          <p className="text-xs text-subtle-foreground">
+            Applicants accepted by more than one department are marked{" "}
+            <span className="font-medium text-foreground-soft">Conflict</span> and can&apos;t be onboarded until you resolve
+            them on the{" "}
+            <Link className="text-brand-fg hover:text-brand-hover" href={`/recruitment/cycles/${id}/decisions`}>
+              Decisions
+            </Link>{" "}
+            page.
+          </p>
+        )}
       </form>
 
       <form action={promoteAction.bind(null, id)} className="space-y-3 border-t border-border pt-6">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Promote submitted contracts</h2>
+        <SectionHeader>Promote submitted contracts</SectionHeader>
         {promotable.length === 0 ? (
           <p className="text-sm text-muted-foreground">No submitted contracts ready to promote.</p>
         ) : (

@@ -80,3 +80,18 @@ it("getCourseCompletion shows the score rolled up from per-SCO progress", async 
   const rows = await getCourseCompletion(course.id, viewer.id);
   expect(rows[0]).toMatchObject({ status: "COMPLETE", scoreRaw: 88 });
 });
+
+it("a DIRECTORS course lists directors of the assigned department and excludes volunteers", async () => {
+  const { viewer, learner, dept } = await seed();
+  const term = await prisma.term.findFirstOrThrow();
+  const director = await prisma.person.create({ data: { name: "Dee", status: "ACTIVE" } });
+  await prisma.termMembership.create({
+    data: { personId: director.id, termId: term.id, departmentId: dept.id, status: "ACTIVE", kind: "DIRECTOR" },
+  });
+  const dirCourse = await prisma.course.create({
+    data: { title: "Dir only", scormEntryHref: "index.html", audience: "DIRECTORS", departments: { create: [{ departmentId: dept.id }] } },
+  });
+  const ids = (await getCourseCompletion(dirCourse.id, viewer.id)).map((r) => r.personId);
+  expect(ids).toContain(director.id);
+  expect(ids).not.toContain(learner.id);
+});

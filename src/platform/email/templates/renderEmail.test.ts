@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
+import { setSetting } from "@/platform/settings/service";
 import { renderEmail, renderInlineEmail } from "./renderEmail";
 
 beforeEach(resetDb);
@@ -37,5 +38,27 @@ describe("renderEmail", () => {
     expect(out.subject).toBe("Hi Sam");
     expect(out.html).toContain("<p>Hello Sam Rivera</p>");
     expect(out.html).toContain("HAVEN Free Clinic"); // wrapped in branded layout
+  });
+
+  it("uses the default Yale blue in the layout when brandColor is unset", async () => {
+    const out = await renderEmail("layout", { body: "<p>hi</p>", subject: "S" });
+    expect(out.html).toContain("#00356b");
+  });
+
+  it("injects the configured branding.brandColor into the layout shell", async () => {
+    await setSetting("branding.brandColor", "#0a7d3c", null);
+    const out = await renderEmail("layout", { body: "<p>hi</p>", subject: "S" });
+    expect(out.html).toContain("#0a7d3c");
+    expect(out.html).not.toContain("#00356b");
+  });
+
+  it("renderInlineEmail honors the configured branding.brandColor in the layout", async () => {
+    await setSetting("branding.brandColor", "#0a7d3c", null);
+    const out = await renderInlineEmail(
+      { subject: "S", body: "<p>hi</p>" },
+      {},
+    );
+    expect(out.html).toContain("#0a7d3c");
+    expect(out.html).not.toContain("#00356b");
   });
 });

@@ -1,5 +1,8 @@
 // Dev fixture seed. Run via `npm run db:seed` (after `npm run db:migrate`; a stale Prisma client errors with P2011).
 import { PrismaClient } from "@prisma/client";
+// Canonical system-role grants live in one importable, side-effect-free module
+// so the seed, the backfill migrations, and tests all share one source of truth.
+import { SYSTEM_ROLES } from "../src/platform/rbac/system-roles";
 
 const prisma = new PrismaClient();
 
@@ -50,35 +53,6 @@ const DELEGATIONS: Array<{ manager: string; managed: string }> = [
   { manager: "SRHD", managed: "CCRH" },
   { manager: "SRHD", managed: "JCTS" },
   { manager: "SRHD", managed: "SCTS" },
-];
-
-// Director/Volunteer are auto-attached by the RBAC engine via TermMembership.kind.
-const SYSTEM_ROLES: Array<{ name: string; description: string; grants: string[] }> = [
-  {
-    name: "Platform Admin",
-    description: "Full access to every module and admin function",
-    grants: ["*"],
-  },
-  {
-    name: "Director",
-    description: "Baseline access for current-term directors",
-    grants: ["schedule.view", "schedule.edit_own_dept", "volunteers.view", "my-info.access"],
-  },
-  {
-    name: "Volunteer",
-    description: "Baseline access for current-term volunteers",
-    grants: ["schedule.view", "my-info.access", "learning.access"],
-  },
-  {
-    name: "Compliance Manager",
-    description: "Master compliance view across the clinic",
-    grants: ["volunteers.view", "volunteers.manage_compliance"],
-  },
-  {
-    name: "Volunteer Operations Manager",
-    description: "Offboarding, Epic requests, and disciplinary across the clinic",
-    grants: ["volunteers.view", "volunteers.manage_offboarding", "volunteers.manage_epic", "volunteers.issue_disciplinary"],
-  },
 ];
 
 /**
@@ -172,6 +146,23 @@ async function main() {
     }
   }
 
+  // Baseline access by membership kind. Replaces the engine's old hardcoded
+  // auto-attach: a global kind-target assignment grants the Director/Volunteer
+  // role to every active member of that kind, in any term. Idempotent.
+  for (const [roleName, kind] of [
+    ["Director", "DIRECTOR"],
+    ["Volunteer", "VOLUNTEER"],
+  ] as const) {
+    const role = await prisma.role.findUnique({ where: { name: roleName } });
+    if (!role) continue;
+    const existing = await prisma.roleAssignment.findFirst({
+      where: { roleId: role.id, kind, termId: null, personId: null, departmentId: null },
+    });
+    if (!existing) {
+      await prisma.roleAssignment.create({ data: { roleId: role.id, kind, termId: null } });
+    }
+  }
+
   const su26 = await prisma.term.upsert({
     where: { code: "SU26" },
     // clinicDates/dates intentionally not re-upserted; reset the DB to change them.
@@ -197,15 +188,18 @@ async function main() {
     update: {},
     create: { name: "Jack Carney", contactEmail: "j.carney@yale.edu" },
   });
+  // Dev director and volunteer carry a phone so the onboarding "profile" task is
+  // complete; paired with the verified HIPAA cert seeded below, they clear the
+  // onboarding gate and are usable (loginable past /get-started) out of the box.
   const director = await prisma.person.upsert({
     where: { contactEmail: "dev.director@yale.edu" },
-    update: {},
-    create: { name: "Dev Director", contactEmail: "dev.director@yale.edu", netId: "dd123" },
+    update: { phone: "203-555-0131" },
+    create: { name: "Dev Director", contactEmail: "dev.director@yale.edu", netId: "dd123", phone: "203-555-0131" },
   });
   const volunteer = await prisma.person.upsert({
     where: { contactEmail: "dev.volunteer@yale.edu" },
-    update: {},
-    create: { name: "Dev Volunteer", contactEmail: "dev.volunteer@yale.edu", netId: "dv456" },
+    update: { phone: "203-555-0142" },
+    create: { name: "Dev Volunteer", contactEmail: "dev.volunteer@yale.edu", netId: "dv456", phone: "203-555-0142" },
   });
 
   const membership = (personId: string, departmentId: string, kind: "DIRECTOR" | "VOLUNTEER") =>
@@ -225,6 +219,30 @@ async function main() {
   await membership(jack.id, itcm.id, "DIRECTOR");
   await membership(director.id, vadm.id, "DIRECTOR");
   await membership(volunteer.id, vadm.id, "VOLUNTEER");
+
+  // A verified, currently-valid HIPAA cert clears the onboarding "hipaa" task for
+  // the dev director and volunteer. Idempotent: skip if the person already has one.
+  // (Jack is a Platform Admin and bypasses the gate via the exempt permission.)
+  const ensureHipaaCert = async (personId: string) => {
+    const existing = await prisma.hipaaCertificate.findFirst({ where: { personId } });
+    if (existing) return;
+    await prisma.hipaaCertificate.create({
+      data: {
+        personId,
+        fileName: "seed-hipaa.pdf",
+        storedName: `seed-${personId}.pdf`,
+        size: 1024,
+        mimeType: "application/pdf",
+        completionDate: new Date(),
+        verifiedAt: new Date(),
+      },
+    });
+  };
+  // Jack is exempt from the gate, but a cert gives his /my-info HIPAA panel a real
+  // compliance status to display (matches what the production completion-date backfill produces).
+  await ensureHipaaCert(jack.id);
+  await ensureHipaaCert(director.id);
+  await ensureHipaaCert(volunteer.id);
 
   const existingAssignment = await prisma.roleAssignment.findFirst({
     where: { roleId: adminRole.id, personId: jack.id, termId: null },

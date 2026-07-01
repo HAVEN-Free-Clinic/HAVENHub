@@ -1,7 +1,7 @@
 import { createElement, type ReactElement } from "react";
 import { renderToBuffer, type DocumentProps } from "@react-pdf/renderer";
 import { describe, expect, it } from "vitest";
-import { AvsDocument } from "./avs-pdf";
+import { AvsDocument, createAvsStyles, tint } from "./avs-pdf";
 import { buildSummary } from "./build-summary";
 import type { AvsData } from "./types";
 
@@ -27,6 +27,37 @@ const FULL: AvsData = {
   financialResources: ["snap"],
   customResource: "Local YMCA",
 };
+
+describe("tint", () => {
+  it("returns pure white at strength 0", () => {
+    expect(tint("#00356b", 0)).toBe("#ffffff");
+  });
+
+  it("returns the color unchanged at strength 1", () => {
+    expect(tint("#00356b", 1)).toBe("#00356b");
+  });
+
+  it("mixes black halfway to mid grey", () => {
+    expect(tint("#000000", 0.5)).toBe("#808080");
+  });
+});
+
+describe("createAvsStyles", () => {
+  it("threads the brand color into every brand-dependent style", () => {
+    const s = createAvsStyles("#aa1133");
+    expect(s.docTitle.color).toBe("#aa1133");
+    expect(s.heading.color).toBe("#aa1133");
+    expect(s.header.borderBottomColor).toBe("#aa1133");
+    expect(s.tag.color).toBe("#aa1133");
+  });
+
+  it("derives the tag chip background from the brand color, not a fixed hex", () => {
+    const blue = createAvsStyles("#00356b").tag.backgroundColor;
+    const green = createAvsStyles("#0a7d3c").tag.backgroundColor;
+    expect(blue).not.toBe(green);
+    expect(blue).toBe(tint("#00356b", 0.12));
+  });
+});
 
 describe("AvsDocument", () => {
   it("renders a non-empty PDF in English", async () => {

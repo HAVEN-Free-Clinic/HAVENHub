@@ -61,22 +61,26 @@ export default async function EhsDashboardPage() {
                   </TD>
                   {row.cells.map((cell) => (
                     <TD key={cell.trainingId} className="text-center">
-                      <form action={toggleEhsCompletionAction} className="inline">
-                        <input type="hidden" name="personId" value={row.personId} />
-                        <input type="hidden" name="trainingId" value={cell.trainingId} />
-                        <input
-                          type="hidden"
-                          name="complete"
-                          value={cell.state === "COMPLETE" ? "0" : "1"}
-                        />
-                        <Button
-                          type="submit"
-                          size="sm"
-                          variant={cell.state === "COMPLETE" ? "primary" : "outline"}
-                        >
-                          {cell.state === "COMPLETE" ? "Complete" : "Mark"}
-                        </Button>
-                      </form>
+                      {cell.state === "NA" ? (
+                        <span className="text-xs text-subtle-foreground">n/a</span>
+                      ) : (
+                        <form action={toggleEhsCompletionAction} className="inline">
+                          <input type="hidden" name="personId" value={row.personId} />
+                          <input type="hidden" name="trainingId" value={cell.trainingId} />
+                          <input
+                            type="hidden"
+                            name="complete"
+                            value={cell.state === "COMPLETE" ? "0" : "1"}
+                          />
+                          <Button
+                            type="submit"
+                            size="sm"
+                            variant={cell.state === "COMPLETE" ? "primary" : "outline"}
+                          >
+                            {cell.state === "COMPLETE" ? "Complete" : "Mark"}
+                          </Button>
+                        </form>
+                      )}
                     </TD>
                   ))}
                 </TR>

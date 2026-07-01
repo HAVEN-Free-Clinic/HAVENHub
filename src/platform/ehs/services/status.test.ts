@@ -90,4 +90,70 @@ describe("getEhsDashboard", () => {
     // Member is in PCAR, training is scoped to PCAR -> MISSING (not yet completed)
     expect(cell!.state).toBe("MISSING");
   });
+
+  it("splits BBP clinical/student by yaleAffiliation student status", async () => {
+    const { term, dept } = await buildBaseFixtures();
+
+    // Create the two BBP trainings with the fixed stable seed IDs.
+    const bbpClinical = await prisma.ehsTraining.create({
+      data: {
+        id: "ehs_bbp_clinical",
+        name: "BBP Clinical",
+        requiredForAll: true,
+        isActive: true,
+        position: 100,
+      },
+    });
+    const bbpStudent = await prisma.ehsTraining.create({
+      data: {
+        id: "ehs_bbp_student",
+        name: "BBP Student",
+        requiredForAll: true,
+        isActive: true,
+        position: 101,
+      },
+    });
+
+    // A student (Yale College) and a non-student (Yale Staff), each with an ACTIVE membership.
+    const student = await prisma.person.create({
+      data: { name: "Student Person", status: "ACTIVE", yaleAffiliation: "Yale College" },
+    });
+    await prisma.termMembership.create({
+      data: {
+        personId: student.id,
+        termId: term.id,
+        departmentId: dept.id,
+        kind: "VOLUNTEER",
+        status: "ACTIVE",
+      },
+    });
+
+    const nonStudent = await prisma.person.create({
+      data: { name: "Staff Person", status: "ACTIVE", yaleAffiliation: "Yale Staff" },
+    });
+    await prisma.termMembership.create({
+      data: {
+        personId: nonStudent.id,
+        termId: term.id,
+        departmentId: dept.id,
+        kind: "VOLUNTEER",
+        status: "ACTIVE",
+      },
+    });
+
+    const dash = await getEhsDashboard();
+
+    const studentRow = dash.rows.find((r) => r.personId === student.id);
+    const nonStudentRow = dash.rows.find((r) => r.personId === nonStudent.id);
+    expect(studentRow).toBeDefined();
+    expect(nonStudentRow).toBeDefined();
+
+    // Student: BBP Clinical = NA, BBP Student = MISSING.
+    expect(studentRow!.cells.find((c) => c.trainingId === bbpClinical.id)!.state).toBe("NA");
+    expect(studentRow!.cells.find((c) => c.trainingId === bbpStudent.id)!.state).toBe("MISSING");
+
+    // Non-student: BBP Clinical = MISSING, BBP Student = NA.
+    expect(nonStudentRow!.cells.find((c) => c.trainingId === bbpClinical.id)!.state).toBe("MISSING");
+    expect(nonStudentRow!.cells.find((c) => c.trainingId === bbpStudent.id)!.state).toBe("NA");
+  });
 });

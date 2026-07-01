@@ -1,6 +1,7 @@
 import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import {
+  isStudentAffiliation,
   missingTrainings,
   requiredTrainingsForMember,
   type RequirableTraining,
@@ -61,6 +62,7 @@ export async function getEhsDashboard(): Promise<EhsDashboard> {
         select: {
           name: true,
           addedToEhs: true,
+          yaleAffiliation: true,
           ehsCompletions: { select: { trainingId: true, completedAt: true } },
         },
       },
@@ -72,6 +74,7 @@ export async function getEhsDashboard(): Promise<EhsDashboard> {
     person: {
       name: string;
       addedToEhs: boolean;
+      yaleAffiliation: string | null;
       ehsCompletions: { trainingId: string; completedAt: Date | null }[];
     };
     department: { code: string };
@@ -83,6 +86,7 @@ export async function getEhsDashboard(): Promise<EhsDashboard> {
     {
       name: string;
       addedToEhs: boolean;
+      yaleAffiliation: string | null;
       departmentIds: Set<string>;
       departmentCodes: Set<string>;
       completions: Map<string, Date | null>;
@@ -95,6 +99,7 @@ export async function getEhsDashboard(): Promise<EhsDashboard> {
       agg = {
         name: m.person.name,
         addedToEhs: m.person.addedToEhs,
+        yaleAffiliation: m.person.yaleAffiliation,
         departmentIds: new Set(),
         departmentCodes: new Set(),
         completions: new Map(
@@ -110,8 +115,9 @@ export async function getEhsDashboard(): Promise<EhsDashboard> {
   const rows: EhsDashboardRow[] = [...byPerson.entries()]
     .map(([personId, agg]) => {
       const memberDepartmentIds = [...agg.departmentIds];
+      const isStudent = isStudentAffiliation(agg.yaleAffiliation);
       const required = new Set(
-        requiredTrainingsForMember({ trainings: catalog, memberDepartmentIds }).map(
+        requiredTrainingsForMember({ trainings: catalog, memberDepartmentIds, isStudent }).map(
           (t) => t.id
         )
       );
@@ -148,16 +154,25 @@ export async function loadEhsMissingMap(
     select: {
       personId: true,
       departmentId: true,
-      person: { select: { ehsCompletions: { select: { trainingId: true } } } },
+      person: {
+        select: {
+          yaleAffiliation: true,
+          ehsCompletions: { select: { trainingId: true } },
+        },
+      },
     },
   })) as Array<{
     personId: string;
     departmentId: string;
-    person: { ehsCompletions: { trainingId: string }[] };
+    person: {
+      yaleAffiliation: string | null;
+      ehsCompletions: { trainingId: string }[];
+    };
   }>;
 
   const deptsByPerson = new Map<string, Set<string>>();
   const completedByPerson = new Map<string, Set<string>>();
+  const affiliationByPerson = new Map<string, string | null>();
   for (const m of memberships) {
     if (!deptsByPerson.has(m.personId)) deptsByPerson.set(m.personId, new Set());
     deptsByPerson.get(m.personId)!.add(m.departmentId);
@@ -166,15 +181,18 @@ export async function loadEhsMissingMap(
         m.personId,
         new Set(m.person.ehsCompletions.map((c) => c.trainingId))
       );
+      affiliationByPerson.set(m.personId, m.person.yaleAffiliation);
     }
   }
 
   const out = new Map<string, string[]>();
   for (const [personId, deptSet] of deptsByPerson) {
+    const isStudent = isStudentAffiliation(affiliationByPerson.get(personId));
     const missing = missingTrainings({
       trainings: catalog,
       memberDepartmentIds: [...deptSet],
       completedTrainingIds: completedByPerson.get(personId) ?? new Set(),
+      isStudent,
     });
     out.set(personId, missing.map((m) => m.name));
   }

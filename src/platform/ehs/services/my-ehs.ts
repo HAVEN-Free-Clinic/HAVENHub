@@ -1,6 +1,7 @@
 import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import {
+  isStudentAffiliation,
   requiredTrainingsForMember,
   type RequirableTraining,
 } from "@/platform/ehs/engine/applicability";
@@ -23,6 +24,12 @@ export async function getMyEhsStatus(personId: string): Promise<MyEhsItem[]> {
   const memberDepartmentIds = memberships.map((m) => m.departmentId);
   if (memberDepartmentIds.length === 0) return [];
 
+  const person = (await prisma.person.findUnique({
+    where: { id: personId },
+    select: { yaleAffiliation: true },
+  })) as { yaleAffiliation: string | null } | null;
+  const isStudent = isStudentAffiliation(person?.yaleAffiliation);
+
   const catalogRows = (await prisma.ehsTraining.findMany({
     where: { isActive: true },
     orderBy: { position: "asc" },
@@ -43,7 +50,7 @@ export async function getMyEhsStatus(personId: string): Promise<MyEhsItem[]> {
     departmentIds: r.departments.map((d) => d.departmentId),
   }));
 
-  const required = requiredTrainingsForMember({ trainings: catalog, memberDepartmentIds });
+  const required = requiredTrainingsForMember({ trainings: catalog, memberDepartmentIds, isStudent });
 
   const completionRows = (await prisma.ehsCompletion.findMany({
     where: { personId, trainingId: { in: required.map((t) => t.id) } },

@@ -19,7 +19,10 @@ export function OptionsEditor({
   const items = options.map((o) => ({ id: o.value, ...o }));
 
   function reorder(orderedIds: string[]) {
-    onChange(orderedIds.map((id) => options.find((o) => o.value === id)!).filter(Boolean));
+    onChange(orderedIds.flatMap((id) => {
+      const found = options.find((o) => o.value === id);
+      return found ? [found] : [];
+    }));
   }
   function remove(value: string) {
     onChange(options.filter((o) => o.value !== value));

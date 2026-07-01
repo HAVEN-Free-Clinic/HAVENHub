@@ -379,10 +379,6 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     });
   }
 
-  // ---------------------------------------------------------------------------
-  // Render
-  // ---------------------------------------------------------------------------
-
   const selectedDisplay = selectedDateKey
     ? new Date(selectedDateKey + "T12:00:00Z").toLocaleDateString("en-US", {
         weekday: "long",

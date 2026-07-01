@@ -264,10 +264,6 @@ export default async function EmailPage({ searchParams }: PageProps) {
     redirect(target);
   }
 
-  // ---------------------------------------------------------------------------
-  // Render
-  // ---------------------------------------------------------------------------
-
   return (
     <div className="space-y-6">
       <PageHeader

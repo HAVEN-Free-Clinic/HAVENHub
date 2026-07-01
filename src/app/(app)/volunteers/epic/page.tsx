@@ -116,7 +116,6 @@ export default async function EpicQueuePage({ searchParams }: PageProps) {
     ? (ERROR_MESSAGES[errorCode] ?? decodeURIComponent(errorCode))
     : null;
 
-  // Fetch data
   const [requestData, tickets] = await Promise.all([
     listEpicRequests({ status: statusFilter, page }),
     listTickets(),
@@ -354,10 +353,6 @@ export default async function EpicQueuePage({ searchParams }: PageProps) {
     revalidatePath("/volunteers/epic");
     redirect(`/volunteers/epic?status=${statusFilter}`);
   }
-
-  // ---------------------------------------------------------------------------
-  // Render
-  // ---------------------------------------------------------------------------
 
   const now = new Date();
 

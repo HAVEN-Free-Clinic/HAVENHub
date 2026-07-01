@@ -227,7 +227,6 @@ export async function generatePdf(args: {
   fillText(form, "Text5", auth.email);
 
   // Section III: Person info
-  // Section III: Person info
   if (isBulk) {
     fillText(form, "Text12", "See spreadsheet");
     fillText(form, "Text18", "See spreadsheet");

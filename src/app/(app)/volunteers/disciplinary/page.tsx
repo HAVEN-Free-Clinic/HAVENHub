@@ -240,10 +240,6 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
     redirect("/volunteers/disciplinary");
   }
 
-  // ---------------------------------------------------------------------------
-  // Render
-  // ---------------------------------------------------------------------------
-
   return (
     <div>
       <PageHeader

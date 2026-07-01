@@ -16,6 +16,7 @@
 
 import { requirePermission } from "@/platform/auth/session";
 import { prisma } from "@/platform/db";
+import { getActiveTerm } from "@/platform/terms/active-term";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
@@ -117,10 +118,7 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
   }
 
   // Load active departments for the filter bar.
-  const activeTerm = await prisma.term.findFirst({
-    where: { status: "ACTIVE" },
-    orderBy: { startDate: "desc" },
-  });
+  const activeTerm = await getActiveTerm();
 
   const departments = activeTerm
     ? await prisma.department.findMany({

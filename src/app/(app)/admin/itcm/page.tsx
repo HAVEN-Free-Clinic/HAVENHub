@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { FileText, AlertTriangle, FilePlus, ListChecks } from "lucide-react";
 import { prisma } from "@/platform/db";
+import { getActiveTerm } from "@/platform/terms/active-term";
 import { PageHeader } from "@/platform/ui/page-header";
 import { buttonClasses } from "@/platform/ui/button";
 import { Badge } from "@/platform/ui/badge";
@@ -8,10 +9,7 @@ import { businessDaysSince } from "@/platform/dates";
 import { Card } from "@/platform/ui/card";
 
 export default async function ItcmPage() {
-  const activeTerm = await prisma.term.findFirst({
-    where: { status: "ACTIVE" },
-    orderBy: { startDate: "desc" },
-  });
+  const activeTerm = await getActiveTerm();
 
   // Load open tickets to compute pending count and overdue count.
   const openTickets = await prisma.ynhhTicket.findMany({

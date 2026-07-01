@@ -14,6 +14,7 @@
 
 import { requirePermission } from "@/platform/auth/session";
 import { prisma } from "@/platform/db";
+import { getActiveTerm } from "@/platform/terms/active-term";
 import { can } from "@/platform/rbac/engine";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
@@ -108,10 +109,7 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
   });
 
   // Fetch active departments for the filter select
-  const activeTerm = await prisma.term.findFirst({
-    where: { status: "ACTIVE" },
-    orderBy: { startDate: "desc" },
-  });
+  const activeTerm = await getActiveTerm();
 
   const departments =
     activeTerm

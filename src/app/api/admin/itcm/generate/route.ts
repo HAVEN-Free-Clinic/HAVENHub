@@ -29,6 +29,7 @@ import {
   type RequestType,
 } from "@/modules/admin/services/itcm-pdf";
 import { prisma } from "@/platform/db";
+import { getActiveTerm } from "@/platform/terms/active-term";
 
 
 
@@ -237,10 +238,7 @@ export async function POST(req: Request) {
   }
 
   // Resolve the active term once and reuse it for both membership lookups.
-  const activeTerm = await prisma.term.findFirst({
-    where: { status: "ACTIVE" },
-    orderBy: { startDate: "desc" },
-  });
+  const activeTerm = await getActiveTerm();
 
   // Find a mirror Epic ID per selected person, based on THEIR OWN department
   // and role; bulk requests can now span multiple departments, so there is

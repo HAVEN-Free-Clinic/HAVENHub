@@ -364,8 +364,8 @@ export default async function EpicQueuePage({ searchParams }: PageProps) {
   return (
     <div>
       <PageHeader
-        title="Epic Requests"
-        description="Manage Epic account requests and YNHH ticket submissions"
+        title="Epic requests"
+        description="Manage Epic account requests and YNHH ticket submissions."
       />
 
       {errorMessage && (

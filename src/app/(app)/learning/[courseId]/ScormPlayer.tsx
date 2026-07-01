@@ -1,5 +1,6 @@
 "use client";
 import { useLayoutEffect, useRef, useState } from "react";
+import { Check } from "lucide-react";
 import { Scorm12API } from "scorm-again";
 import { persistCmiAction } from "../actions";
 import { Alert } from "@/platform/ui/alert";
@@ -136,7 +137,7 @@ export function ScormPlayer({ courseId, scos }: Props) {
                           done ? "border-teal-600 bg-teal-600 text-white" : "border-border-strong text-subtle-foreground"
                         }`}
                       >
-                        {done ? "✓" : i + 1}
+                        {done ? <Check className="h-4 w-4" /> : i + 1}
                       </span>
                       <span className="truncate">{s.title}</span>
                       {/* Only show a score once it is actually meaningful. A 0 usually means

@@ -218,7 +218,7 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
   },
   {
     key: "hasOpenEpicRequest",
-    label: "Has an open EPIC request",
+    label: "Has an open Epic request",
     group: "Records",
     kind: "boolean",
     operators: ["isTrue", "isFalse"],

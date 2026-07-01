@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useReducer, useState } from "react";
+import { X } from "lucide-react";
 import { pdf } from "@react-pdf/renderer";
 import { Alert } from "@/platform/ui/alert";
 import { Button } from "@/platform/ui/button";
@@ -170,7 +171,7 @@ export function AvsTool({ brandColor }: { brandColor: string }) {
               />
             </Field>
             <Button type="button" variant="ghost" onClick={() => dispatch({ type: "removeMed", index: i })} aria-label="Remove medication">
-              ✕
+              <X className="h-4 w-4" />
             </Button>
           </div>
         ))}
@@ -211,7 +212,7 @@ export function AvsTool({ brandColor }: { brandColor: string }) {
                 onChange={(e) => dispatch({ type: "updateActionItem", index: i, value: e.target.value })}
               />
               <Button type="button" variant="ghost" onClick={() => dispatch({ type: "removeActionItem", index: i })} aria-label="Remove action item">
-                ✕
+                <X className="h-4 w-4" />
               </Button>
             </div>
           ))}

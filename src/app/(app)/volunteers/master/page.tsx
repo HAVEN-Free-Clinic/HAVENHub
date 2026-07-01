@@ -156,8 +156,8 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
   return (
     <div>
       <PageHeader
-        title="Master Compliance View"
-        description="HIPAA compliance status across all active clinic members"
+        title="Master compliance view"
+        description="HIPAA compliance status across all active clinic members."
       />
 
       {/* Summary stat cards */}

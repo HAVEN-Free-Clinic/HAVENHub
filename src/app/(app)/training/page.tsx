@@ -32,7 +32,7 @@ function fmtDate(d: Date): string {
 }
 
 // ---------------------------------------------------------------------------
-// Clearance hero: the one thing that matters: am I cleared for the term?
+// Clearance hero (the one thing that matters): am I cleared for the term?
 // ---------------------------------------------------------------------------
 
 function ClearanceHero({ my }: { my: MyTraining }) {
@@ -187,7 +187,7 @@ function PathCards({ my }: { my: MyTraining }) {
 function CompleteDetail({ accessibleSchedule }: { accessibleSchedule: boolean }) {
   return (
     <Card pad={false} className="p-[22px]">
-      <SectionHeader className="mb-3.5">What this unlocks</SectionHeader>
+      <SectionHeader className="mb-3.5">What you can do now</SectionHeader>
       <DetailRow tone="success" title="Eligible for shift scheduling" sub="You can now be assigned to clinic shifts" />
       <DetailRow tone="success" title="Training requirement met" sub="Shows as cleared on your volunteer compliance" />
       <div className="mt-[18px] flex flex-wrap gap-2.5">
@@ -263,7 +263,7 @@ function BackToHub() {
       href="/"
       className="inline-flex items-center gap-2 rounded-lg border border-border-strong bg-surface px-4 py-2.5 text-[13.5px] font-semibold text-foreground transition hover:border-border-strong hover:bg-muted"
     >
-      Back to hub
+      Back to Hub
     </Link>
   );
 }

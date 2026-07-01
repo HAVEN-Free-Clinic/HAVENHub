@@ -249,8 +249,8 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
   return (
     <div>
       <PageHeader
-        title="Disciplinary Actions"
-        description="Record and review formal disciplinary actions"
+        title="Disciplinary actions"
+        description="Record and review formal disciplinary actions."
       />
 
       {errorMessage && (

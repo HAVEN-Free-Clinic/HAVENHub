@@ -229,7 +229,7 @@ export default async function HubPage() {
       show: accessible.has("my-info"),
       href: "/my-info",
       Icon: UserRoundPen,
-      label: "My info",
+      label: "My Info",
       sub: `HIPAA ${hipaaShort}`,
     },
     {

@@ -178,7 +178,7 @@ export function complianceDateReviewContext(p: ComplianceDateReviewParams): Reco
 export const complianceDescriptors: TemplateDescriptor[] = [
   {
     key: "compliance-reminder",
-    name: "Compliance Reminder",
+    name: "Compliance: reminder",
     category: "transactional",
     group: "compliance",
     variables: [
@@ -228,7 +228,7 @@ export const complianceDescriptors: TemplateDescriptor[] = [
   },
   {
     key: "compliance-escalation",
-    name: "Compliance Escalation",
+    name: "Compliance: escalation",
     category: "transactional",
     group: "compliance",
     variables: [
@@ -246,7 +246,7 @@ export const complianceDescriptors: TemplateDescriptor[] = [
   },
   {
     key: "compliance-date-review",
-    name: "Compliance Date Review",
+    name: "Compliance: date review",
     category: "transactional",
     group: "compliance",
     variables: [

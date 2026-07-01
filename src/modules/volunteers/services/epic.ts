@@ -667,9 +667,9 @@ export async function sendEpicEmail(
   const { subject, html } = await renderEmail(template, contextBuilders[template](params));
 
   const epicTeamsSummary: Record<EpicTemplateKey, string> = {
-    "epic-onboarding": "Your EPIC access onboarding has an update. Open HAVEN Hub for details.",
-    "epic-activation": "Your EPIC access has been activated. Open HAVEN Hub for details.",
-    "epic-password-reset": "Your EPIC password was reset. Open HAVEN Hub for details.",
+    "epic-onboarding": "Your Epic access onboarding has an update. Open HAVEN Hub for details.",
+    "epic-activation": "Your Epic access has been activated. Open HAVEN Hub for details.",
+    "epic-password-reset": "Your Epic password was reset. Open HAVEN Hub for details.",
   };
 
   // Global prisma client is intentional: there is no surrounding domain write to be transactional with.
@@ -682,7 +682,7 @@ export async function sendEpicEmail(
     },
     email: { subject, html },
     teams: {
-      title: "EPIC access update",
+      title: "Epic access update",
       summary: epicTeamsSummary[template],
       link: `${await getSetting<string>("app.baseUrl")}/volunteers`,
     },

@@ -97,7 +97,7 @@ export default async function OffboardingPage({ searchParams }: PageProps) {
     <div>
       <PageHeader
         title="Offboarding"
-        description="Flag and process volunteer offboarding"
+        description="Flag and process volunteer offboarding."
       />
 
       {errorMessage && (

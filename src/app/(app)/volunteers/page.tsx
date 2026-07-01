@@ -122,7 +122,7 @@ export default async function VolunteersPage({ searchParams }: PageProps) {
       <div>
         <PageHeader
           title="Compliance"
-          description="Department HIPAA compliance tracking"
+          description="Department HIPAA compliance tracking."
         />
         <div className="mt-12 flex flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground">
           <p>You are not listed as a director of any department this term.</p>
@@ -140,7 +140,7 @@ export default async function VolunteersPage({ searchParams }: PageProps) {
     <div>
       <PageHeader
         title="Compliance"
-        description="HIPAA compliance status for your departments"
+        description="HIPAA compliance status for your departments."
       />
 
       {errorMessage && (

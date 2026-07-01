@@ -116,7 +116,7 @@ export async function listTrainings(): Promise<EhsTrainingListRow[]> {
 }
 
 export async function getTrainingForEdit(id: string) {
-  return prisma.ehsTraining.findUniqueOrThrow({
+  return prisma.ehsTraining.findUnique({
     where: { id },
     include: { departments: { select: { departmentId: true } } },
   });

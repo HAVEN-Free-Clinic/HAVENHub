@@ -7,6 +7,7 @@ import { Checkbox } from "@/platform/ui/checkbox";
 import { Alert } from "@/platform/ui/alert";
 import { FormActions } from "@/platform/ui/form";
 import { SubmitButton } from "@/platform/ui/submit-button";
+import { notFound } from "next/navigation";
 import { getTrainingForEdit } from "@/modules/ehs/services/trainings";
 import { updateTrainingAction, setTrainingDepartmentsAction } from "../actions";
 
@@ -21,6 +22,7 @@ export default async function EditEhsTrainingPage({
   const { trainingId } = await params;
   const sp = await searchParams;
   const training = await getTrainingForEdit(trainingId);
+  if (!training) notFound();
   const departments = await prisma.department.findMany({
     where: { isActive: true },
     orderBy: { name: "asc" },

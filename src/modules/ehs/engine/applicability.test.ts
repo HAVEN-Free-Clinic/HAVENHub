@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  isFullyCompliant,
   missingTrainings,
   requiredTrainingsForMember,
   type RequirableTraining,
@@ -39,6 +40,14 @@ describe("requiredTrainingsForMember", () => {
   it("excludes inactive trainings even when requiredForAll", () => {
     const trainings = [t({ id: "a", requiredForAll: true, isActive: false })];
     expect(requiredTrainingsForMember({ trainings, memberDepartmentIds: ["d1"] })).toEqual([]);
+  });
+});
+
+describe("isFullyCompliant", () => {
+  it("is true only when HIPAA compliant and no EHS gap", () => {
+    expect(isFullyCompliant({ hipaaStatus: "COMPLIANT", ehsMissingCount: 0 })).toBe(true);
+    expect(isFullyCompliant({ hipaaStatus: "COMPLIANT", ehsMissingCount: 2 })).toBe(false);
+    expect(isFullyCompliant({ hipaaStatus: "EXPIRED", ehsMissingCount: 0 })).toBe(false);
   });
 });
 

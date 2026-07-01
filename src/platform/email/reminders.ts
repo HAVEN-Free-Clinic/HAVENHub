@@ -35,6 +35,8 @@ import {
   complianceReminderContext,
   complianceEscalationContext,
 } from "./templates/compliance";
+import { loadEhsMissingMap } from "@/modules/ehs/services/status";
+import { isFullyCompliant } from "@/modules/ehs/engine/applicability";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -131,14 +133,19 @@ export async function runComplianceReminders(
   const baseUrl = await getSetting<string>("app.baseUrl");
   const brandColor = await getSetting<string>("branding.brandColor");
 
+  // 5. Load the EHS missing map for all active-term members once per run.
+  const ehsMissingByPerson = await loadEhsMissingMap(termId);
+
   // 5 + 6 + 7. Process each candidate.
   for (const person of persons) {
     const cert = certMap.get(person.id) ?? null;
     const status = complianceStatus(cert, activeTerm.endDate, now);
     const existing = reminderMap.get(person.id) ?? null;
+    const ehsMissing = ehsMissingByPerson.get(person.id) ?? [];
+    const isCompliant = isFullyCompliant({ hipaaStatus: status, ehsMissingCount: ehsMissing.length });
 
     // --- COMPLIANT ---
-    if (status === "COMPLIANT") {
+    if (isCompliant) {
       if (
         existing !== null &&
         (existing.remindersSent > 0 ||
@@ -191,6 +198,7 @@ export async function runComplianceReminders(
         expiresAt,
         appUrl: baseUrl,
         brandColor,
+        ehsMissing,
       }),
     );
     await notify(prisma, {
@@ -202,8 +210,8 @@ export async function runComplianceReminders(
       },
       email: { subject: renderedReminder.subject, html: renderedReminder.html },
       teams: {
-        title: "HIPAA compliance reminder",
-        summary: "Your HIPAA training needs attention. Please review your compliance status.",
+        title: "Compliance reminder",
+        summary: "You have outstanding compliance requirements. Please review your compliance status.",
         link: `${baseUrl}/get-started`,
       },
     });
@@ -218,7 +226,7 @@ export async function runComplianceReminders(
     //    between the queue call and the upsert re-queues on the next run
     //    (at-least-once) rather than leaving escalatedAt set with no emails sent.
     if (shouldEscalate) {
-      await sendEscalations(person, termId, status, result);
+      await sendEscalations(person, termId, status, ehsMissing, result);
     }
 
     // Upsert the ComplianceReminder row. escalatedAt is set here, after
@@ -264,6 +272,7 @@ async function sendEscalations(
   volunteer: { id: string; name: string },
   termId: string,
   status: import("@/platform/compliance/rules").ComplianceStatus,
+  ehsMissing: string[],
   result: ReminderRunResult
 ): Promise<void> {
   // Load the volunteer's active-term ACTIVE memberships with department info.
@@ -341,6 +350,7 @@ async function sendEscalations(
         volunteerName: volunteer.name,
         departmentName: director.departmentName,
         status,
+        ehsMissing,
       }),
     );
     await notify(prisma, {
@@ -352,8 +362,8 @@ async function sendEscalations(
       },
       email: { subject: renderedEscalation.subject, html: renderedEscalation.html },
       teams: {
-        title: "HIPAA compliance escalation",
-        summary: `${volunteer.name} in ${director.departmentName} has an outstanding HIPAA compliance issue.`,
+        title: "Compliance escalation",
+        summary: `${volunteer.name} in ${director.departmentName} has outstanding compliance requirements.`,
         link: `${await getSetting<string>("app.baseUrl")}/admin`,
       },
     });

@@ -31,6 +31,8 @@ export type ComplianceReminderParams = {
   appUrl?: string;
   /** Resolved `branding.brandColor`, used for the CTA button background. */
   brandColor?: string;
+  /** Names of required EHS trainings the member has not yet completed. */
+  ehsMissing?: string[];
 };
 
 export type ComplianceEscalationParams = {
@@ -38,6 +40,8 @@ export type ComplianceEscalationParams = {
   volunteerName: string;
   departmentName: string;
   status: ComplianceStatus;
+  /** Names of required EHS trainings the volunteer has not yet completed. */
+  ehsMissing?: string[];
 };
 
 export type ComplianceDateReviewParams = {
@@ -132,7 +136,12 @@ export function complianceReminderContext(p: ComplianceReminderParams): Record<s
       actionLine =
         "No action is needed from you right now. A coordinator will verify your certificate before it counts toward your clearance.";
       break;
-    // unreachable: callers filter COMPLIANT before building a reminder context
+    case "COMPLIANT":
+      // HIPAA is current, but the person has outstanding EHS items (otherwise
+      // isFullyCompliant would have prevented a reminder from being sent).
+      statusLine = "Your HIPAA certificate is on file and current.";
+      actionLine = "No HIPAA action is needed from you right now.";
+      break;
     default:
       throw new Error(`Unexpected reminder status: ${p.status}`);
   }
@@ -144,6 +153,8 @@ export function complianceReminderContext(p: ComplianceReminderParams): Record<s
     showCta,
     ctaUrl: `${p.appUrl ?? ""}/my-info`,
     brandColor: p.brandColor ?? "",
+    ehsMissing: p.ehsMissing ?? [],
+    hasEhsGap: (p.ehsMissing ?? []).length > 0,
   };
 }
 
@@ -156,6 +167,8 @@ export function complianceEscalationContext(p: ComplianceEscalationParams): Reco
     volunteerName: p.volunteerName,
     departmentName: p.departmentName,
     readableStatus: READABLE_STATUS[p.status],
+    ehsMissing: p.ehsMissing ?? [],
+    hasEhsGap: (p.ehsMissing ?? []).length > 0,
   };
 }
 
@@ -208,8 +221,10 @@ export const complianceDescriptors: TemplateDescriptor[] = [
         label: "Brand color for the call-to-action button background (hex)",
         sampleValue: "#00356b",
       },
+      { name: "ehsMissing", label: "List of missing required EHS training names", sampleValue: '["Blood Borne Pathogens"]' },
+      { name: "hasEhsGap", label: "True when one or more required EHS trainings are incomplete", sampleValue: "false" },
     ],
-    defaultSubject: "[HAVEN] HIPAA certification reminder",
+    defaultSubject: "[HAVEN] Compliance reminder",
     defaultBody: `<p>Hello {{ personName }},</p>
 
 <p>{{ statusLine }}</p>
@@ -224,6 +239,16 @@ export const complianceDescriptors: TemplateDescriptor[] = [
   </tr>
 </table>{{else}}<p>{{ actionLine }}</p>{{/if}}
 
+{{#if hasEhsGap}}
+<p>Your EHS training is incomplete. The following item(s) still need to be completed:</p>
+<ul>
+{{#each ehsMissing}}
+  <li>{{this}}</li>
+{{/each}}
+</ul>
+<p>Please complete these through Yale EHS. Reach out to your director if you are unsure how.</p>
+{{/if}}
+
 <p>Thank you,<br>HAVEN Free Clinic</p>`,
   },
   {
@@ -235,12 +260,18 @@ export const complianceDescriptors: TemplateDescriptor[] = [
       { name: "directorName", label: "Director name", sampleValue: "Dr. Smith" },
       { name: "volunteerName", label: "Volunteer name", sampleValue: "Jane Doe" },
       { name: "departmentName", label: "Department name", sampleValue: "Cardiology" },
-      { name: "readableStatus", label: "Human-readable compliance status", sampleValue: "expired" },
+      { name: "readableStatus", label: "Human-readable HIPAA compliance status", sampleValue: "expired" },
+      { name: "ehsMissing", label: "List of missing required EHS training names", sampleValue: '["Blood Borne Pathogens"]' },
+      { name: "hasEhsGap", label: "True when one or more required EHS trainings are incomplete", sampleValue: "false" },
     ],
-    defaultSubject: "[HAVEN] Volunteer HIPAA compliance needs attention",
+    defaultSubject: "[HAVEN] Volunteer compliance needs attention",
     defaultBody: `<p>Hello {{ directorName }},</p>
 
 <p>{{ volunteerName }} in {{ departmentName }} is not HIPAA compliant ({{ readableStatus }}) and has not responded to reminders. Please follow up.</p>
+
+{{#if hasEhsGap}}
+<p>Outstanding EHS training: {{#each ehsMissing}}{{this}}{{#unless @last}}, {{/unless}}{{/each}}.</p>
+{{/if}}
 
 <p>Thank you,<br>HAVEN Free Clinic</p>`,
   },

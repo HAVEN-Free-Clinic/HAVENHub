@@ -24,6 +24,14 @@ export function requiredTrainingsForMember(params: {
   );
 }
 
+/** A person is fully compliant only when HIPAA is COMPLIANT and no required EHS item is missing. */
+export function isFullyCompliant(params: {
+  hipaaStatus: string;
+  ehsMissingCount: number;
+}): boolean {
+  return params.hipaaStatus === "COMPLIANT" && params.ehsMissingCount === 0;
+}
+
 export function missingTrainings(params: {
   trainings: RequirableTraining[];
   memberDepartmentIds: string[];

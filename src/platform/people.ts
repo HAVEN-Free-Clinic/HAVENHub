@@ -96,7 +96,8 @@ export async function createPersonRecord(
     });
 
     // Await audit after the create completes. recordAudit never throws, so it
-    // cannot abort the already-persisted mutation.
+    // cannot abort the already-persisted mutation. We await (rather than
+    // fire-and-forget with void) so tests can assert the row exists immediately.
     await recordAudit({
       actorPersonId,
       action: "person.create",

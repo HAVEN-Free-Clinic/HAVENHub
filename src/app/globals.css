@@ -36,6 +36,16 @@
 }
 
 /*
+ * No overscroll: disable the rubber-band bounce and scroll-chaining app-wide on
+ * both axes (up/down and side to side). Normal scrolling and inner scroll areas
+ * (modals, panels) are unaffected; only the boundary overscroll is suppressed.
+ */
+html,
+body {
+  overscroll-behavior: none;
+}
+
+/*
  * Module accent hues. One L/C family, varied hue, so the tiles read as quiet
  * category coding rather than candy. Consumed via inline `style` (e.g.
  * `--mh`/`--mhbg`) so Tailwind's static scan never has to see them.

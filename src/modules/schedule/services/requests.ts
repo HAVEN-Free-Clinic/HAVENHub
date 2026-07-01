@@ -13,8 +13,7 @@
  */
 
 import type { ShiftRequest } from "@prisma/client";
-import { Prisma } from "@prisma/client";
-import { prisma } from "@/platform/db";
+import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { isoDateKey } from "@/platform/dates";
 import { manageableDepartmentIds, memberDepartmentIds } from "@/platform/departments";
@@ -319,7 +318,7 @@ export async function createRequest(
     // Race backstop: two concurrent createRequest calls can both pass the
     // in-tx findFirst check before either commits; the partial unique index
     // then rejects the second insert with a unique violation (P2002).
-    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+    if (isUniqueConstraintError(err)) {
       throw new RequestValidationError("You already have a pending request for this shift.");
     }
     throw err;

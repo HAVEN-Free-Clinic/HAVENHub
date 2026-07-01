@@ -18,7 +18,7 @@
  */
 
 import type { Person } from "@prisma/client";
-import { prisma } from "@/platform/db";
+import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 
 export class PersonConflictError extends Error {
@@ -37,14 +37,8 @@ export class PersonNotFoundError extends Error {
 
 /** Wrap a Prisma unique-constraint error into a typed PersonConflictError. */
 function toConflictError(err: unknown): never {
-  if (
-    err != null &&
-    typeof err === "object" &&
-    "code" in err &&
-    (err as { code: string }).code === "P2002"
-  ) {
-    const meta = (err as { meta?: { target?: string[] } }).meta;
-    const rawField = meta?.target?.[0] ?? "field";
+  if (isUniqueConstraintError(err)) {
+    const rawField = (err.meta?.target as string[] | undefined)?.[0] ?? "field";
     const field = rawField.replace(/^lower\((.+)\)$/, "$1");
     throw new PersonConflictError(field);
   }

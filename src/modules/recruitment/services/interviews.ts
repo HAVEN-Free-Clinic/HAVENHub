@@ -1,5 +1,5 @@
 import type { Interview, InterviewPanelist } from "@prisma/client";
-import { prisma } from "@/platform/db";
+import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { queueEmail } from "@/platform/email/send";
 import { recordAudit } from "@/platform/audit";
@@ -38,7 +38,7 @@ export async function createInterview(applicationId: string, departmentCode: str
     await recordAudit({ actorPersonId: createdById, action: "recruitment.interview_create", entityType: "Interview", entityId: interview.id, after: { applicationId, departmentCode } });
     return interview;
   } catch (err) {
-    if (typeof err === "object" && err && "code" in err && (err as { code?: string }).code === "P2002") {
+    if (isUniqueConstraintError(err)) {
       throw new InterviewError("An interview already exists for that department.");
     }
     throw err;
@@ -131,7 +131,7 @@ export async function addPanelist(interviewId: string, personId: string, isLead:
       return created;
     });
   } catch (err) {
-    if (typeof err === "object" && err && "code" in err && (err as { code?: string }).code === "P2002") {
+    if (isUniqueConstraintError(err)) {
       throw new InterviewError("That person is already on the panel.");
     }
     throw err;

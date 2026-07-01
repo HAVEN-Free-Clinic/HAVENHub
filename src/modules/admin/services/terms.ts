@@ -13,7 +13,7 @@
  */
 
 import type { Term } from "@prisma/client";
-import { prisma } from "@/platform/db";
+import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 
 // ---------------------------------------------------------------------------
@@ -148,12 +148,7 @@ export async function createTerm(
   } catch (err) {
     // Catch P2002 on the @unique(code) in case of a race between findFirst and
     // create (unlikely in practice but required for correctness).
-    if (
-      err != null &&
-      typeof err === "object" &&
-      "code" in err &&
-      (err as { code: string }).code === "P2002"
-    ) {
+    if (isUniqueConstraintError(err)) {
       throw new TermConflictError(code);
     }
     throw err;

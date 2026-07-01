@@ -1,5 +1,5 @@
 import type { Application, FieldType } from "@prisma/client";
-import { prisma } from "@/platform/db";
+import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { getSetting } from "@/platform/settings/service";
 import { queueEmail } from "@/platform/email/send";
 import { persistFiles, cleanupFiles, validateUploadedFile, type UploadedFile } from "./upload";
@@ -269,7 +269,7 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
       return app;
     });
   } catch (err) {
-    if (typeof err === "object" && err && "code" in err && (err as { code?: string }).code === "P2002") {
+    if (isUniqueConstraintError(err)) {
       await cleanupFiles(fileRefs.storageKeys);
       throw new DuplicateApplicationError();
     }

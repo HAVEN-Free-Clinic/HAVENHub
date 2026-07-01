@@ -14,7 +14,7 @@
 
 import type { Role, RoleGrant, RoleAssignment, Person, Department, Term, Track } from "@prisma/client";
 import { Prisma } from "@prisma/client";
-import { prisma } from "@/platform/db";
+import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { MODULES } from "@/platform/modules/registry";
 
@@ -125,17 +125,9 @@ function validatePermissions(permissions: string[]): void {
  * only unique constraint on the model (there is no @@unique in the Prisma
  * schema; the index lives in raw SQL). We therefore return true for any P2002
  * originating here without needing to inspect the target/message.
- *
- * The non-P2002 message-fallback branch that previously existed was
- * unreachable: Prisma always surfaces unique violations as P2002, never as
- * a generic known-request error. It has been removed to avoid dead code.
  */
 function isDuplicateAssignmentError(err: unknown): boolean {
-  if (!(err instanceof Prisma.PrismaClientKnownRequestError)) return false;
-  // P2002 on RoleAssignment.create is always the expression unique index --
-  // the only unique constraint on this model.
-  if (err.code === "P2002") return true;
-  return false;
+  return isUniqueConstraintError(err);
 }
 
 // ---------------------------------------------------------------------------
@@ -195,10 +187,7 @@ export async function createRole(
       data: { name: trimmedName, description },
     });
   } catch (err) {
-    if (
-      err instanceof Prisma.PrismaClientKnownRequestError &&
-      err.code === "P2002"
-    ) {
+    if (isUniqueConstraintError(err)) {
       throw new RoleConflictError(trimmedName);
     }
     throw err;

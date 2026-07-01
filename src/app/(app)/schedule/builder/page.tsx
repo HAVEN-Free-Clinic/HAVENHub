@@ -21,8 +21,8 @@ import { Card } from "@/platform/ui/card";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
-import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { runAction } from "@/platform/actions";
 import {
   builderView,
   canManageAnyScheduleDept,
@@ -212,16 +212,13 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     const personId = (formData.get("personId") as string) ?? "";
     const role = (formData.get("role") as "VOLUNTEER" | "SHADOW" | "DIRECTOR") ?? "VOLUNTEER";
     const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode });
-    try {
-      await setAssignment(actor.personId, { departmentId, dateKey, personId, role });
-    } catch (err) {
-      if (err instanceof BuilderValidationError || err instanceof BuilderForbiddenError) {
-        redirect(buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message: err.message }));
-      }
-      throw err;
-    }
-    revalidatePath("/schedule/builder");
-    redirect(base);
+    await runAction({
+      work: () => setAssignment(actor.personId, { departmentId, dateKey, personId, role }),
+      domainErrors: [BuilderValidationError, BuilderForbiddenError],
+      errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message }),
+      revalidate: "/schedule/builder",
+      successRedirect: base,
+    });
   }
 
   async function unassignAction(formData: FormData) {
@@ -232,16 +229,13 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     const personId = (formData.get("personId") as string) ?? "";
     const reason = ((formData.get("reason") as string) ?? "").trim() || undefined;
     const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode });
-    try {
-      await setAssignment(actor.personId, { departmentId, dateKey, personId, role: null, reason });
-    } catch (err) {
-      if (err instanceof BuilderValidationError || err instanceof BuilderForbiddenError) {
-        redirect(buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message: err.message }));
-      }
-      throw err;
-    }
-    revalidatePath("/schedule/builder");
-    redirect(base);
+    await runAction({
+      work: () => setAssignment(actor.personId, { departmentId, dateKey, personId, role: null, reason }),
+      domainErrors: [BuilderValidationError, BuilderForbiddenError],
+      errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message }),
+      revalidate: "/schedule/builder",
+      successRedirect: base,
+    });
   }
 
   async function toggleTagAction(formData: FormData) {
@@ -252,16 +246,13 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     const personId = (formData.get("personId") as string) ?? "";
     const tag = (formData.get("tag") as "triage" | "walkin" | "cc" | "remote") ?? "triage";
     const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode });
-    try {
-      await toggleTag(actor.personId, { departmentId, dateKey, personId, tag });
-    } catch (err) {
-      if (err instanceof BuilderValidationError || err instanceof BuilderForbiddenError) {
-        redirect(buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message: err.message }));
-      }
-      throw err;
-    }
-    revalidatePath("/schedule/builder");
-    redirect(base);
+    await runAction({
+      work: () => toggleTag(actor.personId, { departmentId, dateKey, personId, tag }),
+      domainErrors: [BuilderValidationError, BuilderForbiddenError],
+      errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message }),
+      revalidate: "/schedule/builder",
+      successRedirect: base,
+    });
   }
 
   async function saveOverrideAction(formData: FormData) {
@@ -270,16 +261,13 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     const membershipId = (formData.get("membershipId") as string) ?? "";
     const rawDates = formData.getAll("dates") as string[];
     const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode });
-    try {
-      await setAvailabilityOverride(actor.personId, { membershipId, dateKeys: rawDates });
-    } catch (err) {
-      if (err instanceof BuilderValidationError || err instanceof BuilderForbiddenError) {
-        redirect(buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message: err.message }));
-      }
-      throw err;
-    }
-    revalidatePath("/schedule/builder");
-    redirect(base);
+    await runAction({
+      work: () => setAvailabilityOverride(actor.personId, { membershipId, dateKeys: rawDates }),
+      domainErrors: [BuilderValidationError, BuilderForbiddenError],
+      errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message }),
+      revalidate: "/schedule/builder",
+      successRedirect: base,
+    });
   }
 
   async function clearOverrideAction(formData: FormData) {
@@ -287,16 +275,13 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     const actor = await requireModuleAccess("schedule");
     const membershipId = (formData.get("membershipId") as string) ?? "";
     const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode });
-    try {
-      await setAvailabilityOverride(actor.personId, { membershipId, dateKeys: null });
-    } catch (err) {
-      if (err instanceof BuilderValidationError || err instanceof BuilderForbiddenError) {
-        redirect(buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message: err.message }));
-      }
-      throw err;
-    }
-    revalidatePath("/schedule/builder");
-    redirect(base);
+    await runAction({
+      work: () => setAvailabilityOverride(actor.personId, { membershipId, dateKeys: null }),
+      domainErrors: [BuilderValidationError, BuilderForbiddenError],
+      errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message }),
+      revalidate: "/schedule/builder",
+      successRedirect: base,
+    });
   }
 
   async function acknowledgeAction(formData: FormData) {
@@ -304,16 +289,13 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     const actor = await requireModuleAccess("schedule");
     const membershipId = (formData.get("membershipId") as string) ?? "";
     const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode });
-    try {
-      await acknowledgeAvailability(actor.personId, membershipId);
-    } catch (err) {
-      if (err instanceof BuilderValidationError || err instanceof BuilderForbiddenError) {
-        redirect(buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message: err.message }));
-      }
-      throw err;
-    }
-    revalidatePath("/schedule/builder");
-    redirect(base);
+    await runAction({
+      work: () => acknowledgeAvailability(actor.personId, membershipId),
+      domainErrors: [BuilderValidationError, BuilderForbiddenError],
+      errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message }),
+      revalidate: "/schedule/builder",
+      successRedirect: base,
+    });
   }
 
   async function patientsBookedAction(formData: FormData) {
@@ -324,16 +306,13 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     const raw = (formData.get("patientsBooked") as string) ?? "";
     const patientsBooked = raw === "" ? null : Number(raw);
     const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode });
-    try {
-      await setPatientsBooked(actor.personId, { departmentId, dateKey, patientsBooked });
-    } catch (err) {
-      if (err instanceof BuilderValidationError || err instanceof BuilderForbiddenError) {
-        redirect(buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message: err.message }));
-      }
-      throw err;
-    }
-    revalidatePath("/schedule/builder");
-    redirect(base);
+    await runAction({
+      work: () => setPatientsBooked(actor.personId, { departmentId, dateKey, patientsBooked }),
+      domainErrors: [BuilderValidationError, BuilderForbiddenError],
+      errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message }),
+      revalidate: "/schedule/builder",
+      successRedirect: base,
+    });
   }
 
   async function rhdClinicAction(formData: FormData) {
@@ -347,16 +326,13 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     const directorName = rawDirectorName.trim() === "" ? null : rawDirectorName.trim();
     const proceduresBooked = rawProceduresBooked === "" ? null : Number(rawProceduresBooked);
     const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode });
-    try {
-      await upsertRhdClinic(actor.personId, { dateKey, attendingId, directorName, proceduresBooked });
-    } catch (err) {
-      if (err instanceof BuilderValidationError || err instanceof BuilderForbiddenError) {
-        redirect(buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message: err.message }));
-      }
-      throw err;
-    }
-    revalidatePath("/schedule/builder");
-    redirect(base);
+    await runAction({
+      work: () => upsertRhdClinic(actor.personId, { dateKey, attendingId, directorName, proceduresBooked }),
+      domainErrors: [BuilderValidationError, BuilderForbiddenError],
+      errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message }),
+      revalidate: "/schedule/builder",
+      successRedirect: base,
+    });
   }
 
   async function addAttendingAction(formData: FormData) {
@@ -365,16 +341,13 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     const scheduleName = ((formData.get("scheduleName") as string) ?? "").trim();
     const fullName = ((formData.get("fullName") as string) ?? "").trim();
     const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode });
-    try {
-      await createAttending(actor.personId, { scheduleName, fullName: fullName || scheduleName });
-    } catch (err) {
-      if (err instanceof AttendingValidationError || err instanceof AttendingForbiddenError) {
-        redirect(buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message: err.message }));
-      }
-      throw err;
-    }
-    revalidatePath("/schedule/builder");
-    redirect(base);
+    await runAction({
+      work: () => createAttending(actor.personId, { scheduleName, fullName: fullName || scheduleName }),
+      domainErrors: [AttendingValidationError, AttendingForbiddenError],
+      errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message }),
+      revalidate: "/schedule/builder",
+      successRedirect: base,
+    });
   }
 
   async function approveRequestAction(formData: FormData) {
@@ -382,16 +355,13 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     const actor = await requireModuleAccess("schedule");
     const requestId = (formData.get("requestId") as string) ?? "";
     const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode });
-    try {
-      await approveRequest(actor.personId, requestId);
-    } catch (err) {
-      if (err instanceof RequestValidationError || err instanceof RequestForbiddenError || err instanceof RequestNotFoundError) {
-        redirect(buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message: err.message }));
-      }
-      throw err;
-    }
-    revalidatePath("/schedule/builder");
-    redirect(base);
+    await runAction({
+      work: () => approveRequest(actor.personId, requestId),
+      domainErrors: [RequestValidationError, RequestForbiddenError, RequestNotFoundError],
+      errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message }),
+      revalidate: "/schedule/builder",
+      successRedirect: base,
+    });
   }
 
   async function denyRequestAction(formData: FormData) {
@@ -400,16 +370,13 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     const requestId = (formData.get("requestId") as string) ?? "";
     const note = ((formData.get("denyNote") as string) ?? "").trim() || undefined;
     const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode });
-    try {
-      await denyRequest(actor.personId, requestId, note);
-    } catch (err) {
-      if (err instanceof RequestValidationError || err instanceof RequestForbiddenError || err instanceof RequestNotFoundError) {
-        redirect(buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message: err.message }));
-      }
-      throw err;
-    }
-    revalidatePath("/schedule/builder");
-    redirect(base);
+    await runAction({
+      work: () => denyRequest(actor.personId, requestId, note),
+      domainErrors: [RequestValidationError, RequestForbiddenError, RequestNotFoundError],
+      errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message }),
+      revalidate: "/schedule/builder",
+      successRedirect: base,
+    });
   }
 
   // ---------------------------------------------------------------------------

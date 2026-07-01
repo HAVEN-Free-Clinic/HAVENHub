@@ -36,4 +36,15 @@ describe("runAction", () => {
       work: async () => { throw boom; }, domainErrors: [DomainError], errorRedirect: () => "/e",
     })).rejects.toBe(boom);
   });
+  it("revalidates then fires successRedirect when both are provided and work succeeds", async () => {
+    revalidatePath.mockClear();
+    await expect(runAction({
+      work: async () => {},
+      domainErrors: [DomainError],
+      errorRedirect: () => "/e",
+      revalidate: "/p",
+      successRedirect: "/success",
+    })).rejects.toMatchObject({ digest: "NEXT_REDIRECT;/success" });
+    expect(revalidatePath).toHaveBeenCalledWith("/p");
+  });
 });

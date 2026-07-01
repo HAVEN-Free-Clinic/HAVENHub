@@ -63,7 +63,7 @@ export async function AppShell({
               <HavenLogo className="h-8 text-brand-fg" />
             </Link>
             {termLabel && (
-              <span className="ml-1 rounded-full bg-brand-faint px-2.5 py-0.5 text-xs font-medium text-brand-fg">
+              <span className="border-l border-border-strong pl-2.5 text-xs font-medium text-muted-foreground">
                 {termLabel}
               </span>
             )}

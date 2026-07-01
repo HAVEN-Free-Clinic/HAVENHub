@@ -1,7 +1,6 @@
 import Image from "next/image";
 import { redirect } from "next/navigation";
 import { AuthError } from "next-auth";
-import { LogIn } from "lucide-react";
 import { auth, signIn } from "@/platform/auth/auth";
 import { config } from "@/platform/config";
 import { getSetting } from "@/platform/settings/service";
@@ -75,19 +74,10 @@ export default async function LoginPage({
         className="absolute inset-0 bg-gradient-to-br from-brand-deep/45 via-transparent to-transparent"
       />
 
-      {/* Brand lockup, top-left over the backdrop */}
-      <div className="absolute left-6 top-6 z-10 sm:left-10 sm:top-10">
-        <HavenLogo className="h-9 text-white" />
-      </div>
-
       {/* Centered glass card */}
       <div className="glass-panel relative z-10 w-full max-w-sm rounded-2xl p-8 shadow-xl">
-        <div
-          aria-hidden="true"
-          className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl border border-border bg-surface shadow-sm"
-        >
-          <LogIn className="h-5 w-5 text-foreground" />
-        </div>
+        {/* Brand lockup at the top of the card */}
+        <HavenLogo className="mx-auto h-8 text-brand-fg" />
 
         <h1 className="mt-5 text-center text-2xl font-bold tracking-tight text-foreground">
           Sign in to {appName}

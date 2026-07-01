@@ -11,6 +11,7 @@ import type { AirtableReader } from "./importer";
 import {
   COMPLIANCE_NAMES_LINK_FIELD,
   EHS_CHECKBOX_FIELDS,
+  ADDED_TO_EHS_FIELD,
 } from "@/platform/airtable/fields";
 
 // ---------------------------------------------------------------------------
@@ -22,6 +23,7 @@ export type EhsBackfillReport = {
   skippedExisting: number;
   unmatchedPeople: number;
   unknownTrainings: string[];
+  addedToEhs: number;
 };
 
 // ---------------------------------------------------------------------------
@@ -37,6 +39,7 @@ export async function backfillEhsCompletions(
     skippedExisting: 0,
     unmatchedPeople: 0,
     unknownTrainings: [],
+    addedToEhs: 0,
   };
 
   // Resolve training names -> ids once. Cast result to a structural subset
@@ -61,13 +64,31 @@ export async function backfillEhsCompletions(
       continue;
     }
 
-    const person = await prisma.person.findUnique({
+    // Stale Prisma client: addedToEhs not in the generated PersonSelect yet;
+    // double-assert through unknown so the select is passed through at runtime.
+    const person = (await prisma.person.findUnique({
       where: { airtableRecordId: linkedId },
-      select: { id: true },
-    });
+      select: { id: true, addedToEhs: true } as unknown as { id: true },
+    })) as { id: string; addedToEhs: boolean } | null;
     if (!person) {
       report.unmatchedPeople++;
       continue;
+    }
+
+    // Sync the "Added to EHS?" flag when Airtable says true and the local record is false.
+    if (record.fields[ADDED_TO_EHS_FIELD] === true && !person.addedToEhs) {
+      if (!options.dryRun) {
+        // Stale Prisma client: addedToEhs not in PersonUpdateInput yet.
+        await prisma.person.update({ where: { id: person.id }, data: { addedToEhs: true } as unknown as Parameters<typeof prisma.person.update>[0]["data"] });
+        await recordAudit({
+          actorPersonId: null,
+          action: "ehs.added_to_ehs_import",
+          entityType: "Person",
+          entityId: person.id,
+          after: { addedToEhs: true },
+        });
+      }
+      report.addedToEhs++;
     }
 
     for (const field of EHS_CHECKBOX_FIELDS) {

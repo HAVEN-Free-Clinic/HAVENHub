@@ -1,5 +1,4 @@
 import { requirePermission } from "@/platform/auth/session";
-import { prisma } from "@/platform/db";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Card } from "@/platform/ui/card";
 import { Input, Textarea, Field } from "@/platform/ui/input";
@@ -9,7 +8,7 @@ import { FormActions } from "@/platform/ui/form";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { notFound } from "next/navigation";
 import { getTrainingForEdit } from "@/platform/ehs/services/trainings";
-import { updateTrainingAction, setTrainingDepartmentsAction } from "../actions";
+import { updateTrainingAction } from "../actions";
 
 export default async function EditEhsTrainingPage({
   params,
@@ -23,16 +22,11 @@ export default async function EditEhsTrainingPage({
   const sp = await searchParams;
   const training = await getTrainingForEdit(trainingId);
   if (!training) notFound();
-  const departments = await prisma.department.findMany({
-    where: { isActive: true },
-    orderBy: { name: "asc" },
-  });
-  const assigned = new Set(training.departments.map((d: { departmentId: string }) => d.departmentId));
 
   return (
     <>
       <PageHeader title={`Edit: ${training.name}`} description="Edit this EHS training requirement." />
-      <div className="mt-6 grid max-w-3xl gap-8">
+      <div className="mt-6 max-w-2xl">
         {sp.error && (
           <Alert tone="error">{decodeURIComponent(sp.error)}</Alert>
         )}
@@ -53,34 +47,9 @@ export default async function EditEhsTrainingPage({
               <label className="flex items-center gap-2 text-sm">
                 <Checkbox name="isActive" defaultChecked={training.isActive} /> Active
               </label>
-              <label className="flex items-center gap-2 text-sm">
-                <Checkbox name="requiredForAll" defaultChecked={training.requiredForAll} /> Required for all departments
-              </label>
             </div>
             <FormActions>
               <SubmitButton>Save training</SubmitButton>
-            </FormActions>
-          </form>
-        </Card>
-
-        <Card className="space-y-4">
-          <h2 className="font-medium">Department scope</h2>
-          <form action={setTrainingDepartmentsAction}>
-            <input type="hidden" name="trainingId" value={training.id} />
-            <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">
-                When not required for all, choose the departments this training applies to.
-              </p>
-              <div className="grid grid-cols-2 gap-1 text-sm">
-                {departments.map((d) => (
-                  <label key={d.id} className="flex items-center gap-2">
-                    <Checkbox name="departmentIds" value={d.id} defaultChecked={assigned.has(d.id)} /> {d.name}
-                  </label>
-                ))}
-              </div>
-            </div>
-            <FormActions>
-              <SubmitButton>Save departments</SubmitButton>
             </FormActions>
           </form>
         </Card>

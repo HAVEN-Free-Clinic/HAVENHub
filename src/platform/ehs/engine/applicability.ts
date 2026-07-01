@@ -1,5 +1,5 @@
 /** Pure applicability resolution for EHS trainings. No DB. Every active training
- *  applies to every person -- no department scoping, no requiredForAll flag. */
+ *  applies to every person -- flat master view, no department scoping. */
 
 export type EhsTrainingLite = { id: string; name: string; isActive: boolean };
 

@@ -21,7 +21,7 @@ export default async function ManageEhsPage({
     <>
       <PageHeader
         title="Manage EHS trainings"
-        description="Add, edit, and scope EHS training requirements."
+        description="Add and edit EHS training requirements."
       />
       <div className="mt-6 max-w-2xl space-y-6">
         {sp.error && (
@@ -39,10 +39,9 @@ export default async function ManageEhsPage({
               <Link href={`/volunteers/ehs/manage/${t.id}`} className="block">
                 <Card interactive pad={false} className="flex items-center justify-between px-4 py-3">
                   <span>{t.name}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {t.isActive ? "" : "inactive · "}
-                    {t.requiredForAll ? "all departments" : `${t.departmentCount} dept(s)`}
-                  </span>
+                  {!t.isActive && (
+                    <span className="text-xs text-muted-foreground">inactive</span>
+                  )}
                 </Card>
               </Link>
             </li>

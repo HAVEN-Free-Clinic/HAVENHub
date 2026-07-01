@@ -33,10 +33,12 @@ export const COMPLIANCE_TABLE_ID = "tblxmEYGZ1ZKqSeK4";
 /** Compliance table "Names" link field: array of linked All People record ids. */
 export const COMPLIANCE_NAMES_LINK_FIELD = "fldcaF7NQu6JObuq6";
 
-/** Compliance table (tblxmEYGZ1ZKqSeK4) EHS checkbox fields, keyed by field id,
+/** Compliance table (tblxmEYGZ1ZKqSeK4) "Added to EHS?" checkbox field id. */
+export const ADDED_TO_EHS_FIELD = "fld3gfbuD5rASyD8Z";
+
+/** Compliance table (tblxmEYGZ1ZKqSeK4) EHS training checkbox fields, keyed by field id,
  *  mapped to the seeded EhsTraining.name they correspond to. */
 export const EHS_CHECKBOX_FIELDS: { fieldId: string; trainingName: string }[] = [
-  { fieldId: "fld3gfbuD5rASyD8Z", trainingName: "Added to EHS?" },
   { fieldId: "fldQgdujeCMk5dVVH", trainingName: "Chemical - Hazard Communication" },
   { fieldId: "fldWwugy9nikSiLtZ", trainingName: "Biological - TB Awareness" },
   { fieldId: "fldZ3NCYwqVTCXBs7", trainingName: "BBP Clinical" },

@@ -112,15 +112,18 @@ describe("peopleWithAnyPermission", () => {
     expect(holders.map((h) => h.id)).toEqual([dir.id]);
   });
 
-  it("includes active members via an auto-attached baseline system role", async () => {
+  it("includes active members via a kind-target assignment for the baseline Volunteer system role", async () => {
     const f = await fixture();
     const vol = await prisma.person.create({ data: { name: "Vera Volunteer" } });
     await prisma.termMembership.create({
       data: { personId: vol.id, termId: f.term.id, departmentId: f.itcm.id, kind: "VOLUNTEER" },
     });
+    // Baseline Volunteer access is provisioned as a kind-target RoleAssignment
+    // (matching engine.ts and the decouple in #158). No code auto-attach.
+    await prisma.roleAssignment.create({
+      data: { roleId: f.volunteerRole.id, kind: "VOLUNTEER", termId: null },
+    });
 
-    // my-info.access is granted by the baseline Volunteer role, which is
-    // auto-attached from membership kind (never via RoleAssignment).
     const holders = await peopleWithAnyPermission(["my-info.access"]);
     expect(holders.map((h) => h.id)).toEqual([vol.id]);
   });
@@ -200,5 +203,34 @@ describe("peopleWithAnyPermission", () => {
     expect(holders).toEqual([
       { id: person.id, name: "Cathy Compliance", contactEmail: "cathy@x.org", entraObjectId: "entra-1" },
     ]);
+  });
+
+  it("does not report a DIRECTOR member once the kind-target assignment is removed", async () => {
+    await resetDb();
+    const term = await prisma.term.create({
+      data: { code: "SU26", name: "Summer 2026", startDate: new Date("2026-05-30"), endDate: new Date("2026-09-26"), status: "ACTIVE" },
+    });
+    const dept = await prisma.department.create({ data: { code: "TEST", name: "Test Dept" } });
+    const dir = await prisma.role.create({
+      data: { name: "Director", isSystem: true, grants: { create: [{ permission: "volunteers.review" }] } },
+    });
+    const person = await prisma.person.create({ data: { name: "Dana Director", status: "ACTIVE" } });
+    await prisma.termMembership.create({
+      data: { termId: term.id, personId: person.id, departmentId: dept.id, kind: "DIRECTOR", status: "ACTIVE" },
+    });
+    const assignment = await prisma.roleAssignment.create({
+      data: { roleId: dir.id, kind: "DIRECTOR", termId: null },
+    });
+
+    // With the kind-target assignment present, Dana holds the permission.
+    expect((await peopleWithAnyPermission(["volunteers.review"])).map((p) => p.id)).toContain(person.id);
+
+    // Remove the wiring (as the roles page can). The forward resolver would no
+    // longer grant the permission; the inverse resolver must agree and stop
+    // reporting Dana. Pre-fix, the AUTO_ROLE_KIND fold-in loop re-added DIRECTOR
+    // kind from the role name even with no assignment, so the second assertion
+    // would fail. Post-fix, kinds derive only from matched RoleAssignment rows.
+    await prisma.roleAssignment.delete({ where: { id: assignment.id } });
+    expect((await peopleWithAnyPermission(["volunteers.review"])).map((p) => p.id)).not.toContain(person.id);
   });
 });

@@ -3,7 +3,7 @@ import { requirePermission } from "@/platform/auth/session";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Button } from "@/platform/ui/button";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
-import { getEhsDashboard } from "@/modules/ehs/services/status";
+import { getEhsDashboard } from "@/platform/ehs/services/status";
 import { toggleEhsCompletionAction } from "./actions";
 
 export default async function EhsDashboardPage() {

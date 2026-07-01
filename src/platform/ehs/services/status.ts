@@ -5,7 +5,7 @@ import {
   missingTrainings,
   requiredTrainingsForMember,
   type RequirableTraining,
-} from "@/modules/ehs/engine/applicability";
+} from "@/platform/ehs/engine/applicability";
 
 export type EhsCellState = "COMPLETE" | "MISSING" | "NA";
 export type EhsDashboardCell = {

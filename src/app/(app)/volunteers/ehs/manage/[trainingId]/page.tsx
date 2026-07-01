@@ -8,7 +8,7 @@ import { Alert } from "@/platform/ui/alert";
 import { FormActions } from "@/platform/ui/form";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { notFound } from "next/navigation";
-import { getTrainingForEdit } from "@/modules/ehs/services/trainings";
+import { getTrainingForEdit } from "@/platform/ehs/services/trainings";
 import { updateTrainingAction, setTrainingDepartmentsAction } from "../actions";
 
 export default async function EditEhsTrainingPage({

@@ -7,8 +7,8 @@ import {
   createTraining,
   updateTraining,
   setTrainingDepartments,
-} from "@/modules/ehs/services/trainings";
-import { EhsValidationError } from "@/modules/ehs/services/errors";
+} from "@/platform/ehs/services/trainings";
+import { EhsValidationError } from "@/platform/ehs/services/errors";
 
 export async function createTrainingAction(formData: FormData): Promise<void> {
   const person = await requirePermission("volunteers.manage_compliance");

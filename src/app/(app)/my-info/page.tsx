@@ -18,7 +18,7 @@ import { HipaaPanel } from "@/modules/my-info/components/hipaa-panel";
 import { EhsPanel } from "@/modules/my-info/components/ehs-panel";
 import { EpicPanel } from "@/modules/my-info/components/epic-panel";
 import { ClearanceCard } from "@/modules/my-info/components/clearance-card";
-import { getMyEhsStatus } from "@/modules/ehs/services/my-ehs";
+import { getMyEhsStatus } from "@/platform/ehs/services/my-ehs";
 import { complianceStatus, overallClearance } from "@/platform/compliance/rules";
 import { resolveTrainingState, requiredTrainingTracks } from "@/modules/recruitment/services/training";
 import {

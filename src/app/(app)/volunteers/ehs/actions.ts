@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requirePermission } from "@/platform/auth/session";
-import { markEhsComplete, unmarkEhsComplete } from "@/modules/ehs/services/completion";
+import { markEhsComplete, unmarkEhsComplete } from "@/platform/ehs/services/completion";
 
 export async function toggleEhsCompletionAction(formData: FormData): Promise<void> {
   const person = await requirePermission("volunteers.manage_compliance");

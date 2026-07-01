@@ -5,7 +5,7 @@ import { Card } from "@/platform/ui/card";
 import { Input } from "@/platform/ui/input";
 import { Button } from "@/platform/ui/button";
 import { Alert } from "@/platform/ui/alert";
-import { listTrainings } from "@/modules/ehs/services/trainings";
+import { listTrainings } from "@/platform/ehs/services/trainings";
 import { createTrainingAction } from "./actions";
 
 export default async function ManageEhsPage({

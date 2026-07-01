@@ -3,7 +3,7 @@ import { getActiveTerm } from "@/platform/terms/active-term";
 import {
   requiredTrainingsForMember,
   type RequirableTraining,
-} from "@/modules/ehs/engine/applicability";
+} from "@/platform/ehs/engine/applicability";
 
 export type MyEhsItem = {
   id: string;

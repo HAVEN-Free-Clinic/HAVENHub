@@ -1,5 +1,5 @@
 import { Card } from "@/platform/ui/card";
-import type { MyEhsItem } from "@/modules/ehs/services/my-ehs";
+import type { MyEhsItem } from "@/platform/ehs/services/my-ehs";
 import { fmtDate } from "@/platform/dates";
 
 export function EhsPanel({ items }: { items: MyEhsItem[] }) {

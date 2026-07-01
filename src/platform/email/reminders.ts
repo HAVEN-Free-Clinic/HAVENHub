@@ -35,8 +35,8 @@ import {
   complianceReminderContext,
   complianceEscalationContext,
 } from "./templates/compliance";
-import { loadEhsMissingMap } from "@/modules/ehs/services/status";
-import { isFullyCompliant } from "@/modules/ehs/engine/applicability";
+import { loadEhsMissingMap } from "@/platform/ehs/services/status";
+import { isFullyCompliant } from "@/platform/ehs/engine/applicability";
 
 // ---------------------------------------------------------------------------
 // Public types

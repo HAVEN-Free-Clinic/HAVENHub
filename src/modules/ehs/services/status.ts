@@ -26,20 +26,18 @@ export type EhsDashboard = {
 
 /** Load the active EHS catalog as RequirableTraining[] (name + department scoping). */
 async function loadCatalog(): Promise<RequirableTraining[]> {
-  const rows = await (prisma as any).ehsTraining.findMany({
+  const rows = (await prisma.ehsTraining.findMany({
     where: { isActive: true },
     orderBy: { position: "asc" },
     include: { departments: { select: { departmentId: true } } },
-  });
-  return (
-    rows as {
-      id: string;
-      name: string;
-      isActive: boolean;
-      requiredForAll: boolean;
-      departments: { departmentId: string }[];
-    }[]
-  ).map((r) => ({
+  })) as Array<{
+    id: string;
+    name: string;
+    isActive: boolean;
+    requiredForAll: boolean;
+    departments: { departmentId: string }[];
+  }>;
+  return rows.map((r) => ({
     id: r.id,
     name: r.name,
     isActive: r.isActive,
@@ -59,7 +57,7 @@ export async function getEhsDashboard(
 
   const catalog = await loadCatalog();
 
-  const memberships = await (prisma as any).termMembership.findMany({
+  const memberships = (await prisma.termMembership.findMany({
     where: { termId: activeTerm.id, departmentId: { in: deptIds }, status: "ACTIVE" },
     include: {
       person: {
@@ -69,7 +67,15 @@ export async function getEhsDashboard(
       },
       department: { select: { code: true } },
     },
-  });
+  })) as Array<{
+    personId: string;
+    departmentId: string;
+    person: {
+      name: string;
+      ehsCompletions: { trainingId: string; completedAt: Date | null }[];
+    };
+    department: { code: string };
+  }>;
 
   // Collapse multi-department memberships to one row per person, unioning departments.
   const byPerson = new Map<
@@ -78,15 +84,7 @@ export async function getEhsDashboard(
   >();
   const completionByPerson = new Map<string, Map<string, Date | null>>();
 
-  for (const m of memberships as {
-    personId: string;
-    departmentId: string;
-    person: {
-      name: string;
-      ehsCompletions: { trainingId: string; completedAt: Date | null }[];
-    };
-    department: { code: string };
-  }[]) {
+  for (const m of memberships) {
     let agg = byPerson.get(m.personId);
     if (!agg) {
       agg = {
@@ -141,22 +139,22 @@ export async function loadEhsMissingMap(
   activeTermId: string
 ): Promise<Map<string, string[]>> {
   const catalog = await loadCatalog();
-  const memberships = await (prisma as any).termMembership.findMany({
+  const memberships = (await prisma.termMembership.findMany({
     where: { termId: activeTermId, status: "ACTIVE" },
     select: {
       personId: true,
       departmentId: true,
       person: { select: { ehsCompletions: { select: { trainingId: true } } } },
     },
-  });
-
-  const deptsByPerson = new Map<string, Set<string>>();
-  const completedByPerson = new Map<string, Set<string>>();
-  for (const m of memberships as {
+  })) as Array<{
     personId: string;
     departmentId: string;
     person: { ehsCompletions: { trainingId: string }[] };
-  }[]) {
+  }>;
+
+  const deptsByPerson = new Map<string, Set<string>>();
+  const completedByPerson = new Map<string, Set<string>>();
+  for (const m of memberships) {
     if (!deptsByPerson.has(m.personId)) deptsByPerson.set(m.personId, new Set());
     deptsByPerson.get(m.personId)!.add(m.departmentId);
     if (!completedByPerson.has(m.personId)) {

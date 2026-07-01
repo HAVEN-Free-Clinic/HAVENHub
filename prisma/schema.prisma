@@ -129,6 +129,8 @@ model Person {
   subcommitteeAssignments  Application[] @relation("applicationSubcommitteeAssigner")
   courseProgress            CourseProgress[]
   scoProgress               ScoProgress[]
+  ehsCompletions       EhsCompletion[] @relation("ehsCompletionPerson")
+  ehsCompletionsMarked EhsCompletion[] @relation("ehsCompletionMarkedBy")
   /// Shift requests this person raised.
   shiftRequests             ShiftRequest[]       @relation("shiftRequestRequester")
   /// Shift requests targeting this person as the swap partner.
@@ -209,6 +211,7 @@ model Department {
   shiftRequests              ShiftRequest[]
   scheduleDays               ScheduleDay[]
   courseDepartments          CourseDepartment[]
+  ehsTrainingDepartments EhsTrainingDepartment[]
   /// Capacity panel config: imported then admin-maintained.
   idealHeadcount             Int?
   /// Capacity panel config: imported then admin-maintained.
@@ -1246,6 +1249,57 @@ model ScoProgress {
 
   @@unique([personId, courseId, scoId])
   @@index([courseId])
+}
+
+enum EhsCompletionSource {
+  MANUAL
+  IMPORT
+}
+
+model EhsTraining {
+  id             String                  @id @default(cuid())
+  name           String                  @unique
+  description    String?
+  isActive       Boolean                 @default(true)
+  /// When true, required for every active person regardless of department.
+  requiredForAll Boolean                 @default(false)
+  /// Ordering in the catalog and dashboard columns.
+  position       Int                     @default(0)
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+  departments    EhsTrainingDepartment[]
+  completions    EhsCompletion[]
+}
+
+model EhsTrainingDepartment {
+  id           String      @id @default(cuid())
+  trainingId   String
+  departmentId String
+  training     EhsTraining @relation(fields: [trainingId], references: [id], onDelete: Cascade)
+  department   Department  @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  @@unique([trainingId, departmentId])
+  @@index([departmentId])
+}
+
+model EhsCompletion {
+  id          String              @id @default(cuid())
+  personId    String
+  trainingId  String
+  /// Real completion date when known; null for imported rows (date unknown).
+  completedAt DateTime?
+  source      EhsCompletionSource @default(MANUAL)
+  /// Who marked it complete; null for import rows (no person actor).
+  markedById  String?
+  markedAt    DateTime            @default(now())
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  person      Person              @relation("ehsCompletionPerson", fields: [personId], references: [id], onDelete: Cascade)
+  markedBy    Person?             @relation("ehsCompletionMarkedBy", fields: [markedById], references: [id], onDelete: SetNull)
+  training    EhsTraining         @relation(fields: [trainingId], references: [id], onDelete: Cascade)
+
+  @@unique([personId, trainingId])
+  @@index([trainingId])
 }
 
 /// Single-use, hashed, expiring magic-link token for the applicant portal.

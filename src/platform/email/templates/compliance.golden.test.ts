@@ -58,7 +58,7 @@ describe("compliance templates via renderEmail (body inside branded layout)", ()
         brandColor: BRAND,
       }),
     );
-    expect(out.subject).toBe("[HAVEN] HIPAA certification reminder");
+    expect(out.subject).toBe("[HAVEN] Compliance reminder");
     expect(out.html).toContain(
       actionableBody("Jane Doe", "Your HIPAA certification expired on January 15, 2026."),
     );
@@ -75,7 +75,7 @@ describe("compliance templates via renderEmail (body inside branded layout)", ()
         brandColor: BRAND,
       }),
     );
-    expect(out.subject).toBe("[HAVEN] HIPAA certification reminder");
+    expect(out.subject).toBe("[HAVEN] Compliance reminder");
     expect(out.html).toContain(
       actionableBody("Jane Doe", "Your HIPAA certification expires on January 15, 2026."),
     );
@@ -92,7 +92,7 @@ describe("compliance templates via renderEmail (body inside branded layout)", ()
         brandColor: BRAND,
       }),
     );
-    expect(out.subject).toBe("[HAVEN] HIPAA certification reminder");
+    expect(out.subject).toBe("[HAVEN] Compliance reminder");
     expect(out.html).toContain(
       actionableBody("Jane Doe", "We do not have a current HIPAA certificate on file for you."),
     );
@@ -109,7 +109,7 @@ describe("compliance templates via renderEmail (body inside branded layout)", ()
         brandColor: BRAND,
       }),
     );
-    expect(out.subject).toBe("[HAVEN] HIPAA certification reminder");
+    expect(out.subject).toBe("[HAVEN] Compliance reminder");
     expect(out.html).toContain(
       "<p>Hello Jane Doe,</p>\n\n<p>Your HIPAA certificate is on file, and our compliance team is confirming the completion date.</p>\n\n<p>No action is needed from you right now. A coordinator will record the completion date before your certificate counts toward your clearance.</p>\n\n<p>Thank you,<br>HAVEN Free Clinic</p>",
     );
@@ -132,7 +132,7 @@ describe("compliance templates via renderEmail (body inside branded layout)", ()
         status: "EXPIRED",
       }),
     );
-    expect(out.subject).toBe("[HAVEN] Volunteer HIPAA compliance needs attention");
+    expect(out.subject).toBe("[HAVEN] Volunteer compliance needs attention");
     expect(out.html).toContain(
       "<p>Hello Dr. Smith,</p>\n\n<p>Jane Doe in Cardiology is not HIPAA compliant (expired) and has not responded to reminders. Please follow up.</p>\n\n<p>Thank you,<br>HAVEN Free Clinic</p>",
     );
@@ -148,7 +148,7 @@ describe("compliance templates via renderEmail (body inside branded layout)", ()
         status: "EXPIRING_SOON",
       }),
     );
-    expect(out.subject).toBe("[HAVEN] Volunteer HIPAA compliance needs attention");
+    expect(out.subject).toBe("[HAVEN] Volunteer compliance needs attention");
     expect(out.html).toContain(
       "<p>Hello Dr. Smith,</p>\n\n<p>Jane Doe in Cardiology is not HIPAA compliant (expiring soon) and has not responded to reminders. Please follow up.</p>\n\n<p>Thank you,<br>HAVEN Free Clinic</p>",
     );
@@ -164,7 +164,7 @@ describe("compliance templates via renderEmail (body inside branded layout)", ()
         status: "NO_CERTIFICATE",
       }),
     );
-    expect(out.subject).toBe("[HAVEN] Volunteer HIPAA compliance needs attention");
+    expect(out.subject).toBe("[HAVEN] Volunteer compliance needs attention");
     expect(out.html).toContain(
       "<p>Hello Dr. Smith,</p>\n\n<p>Jane Doe in Cardiology is not HIPAA compliant (no certificate on file) and has not responded to reminders. Please follow up.</p>\n\n<p>Thank you,<br>HAVEN Free Clinic</p>",
     );

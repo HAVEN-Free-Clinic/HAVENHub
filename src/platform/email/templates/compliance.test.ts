@@ -33,14 +33,14 @@ describe("compliance-reminder via renderEmail", () => {
   const BRAND = "#00356b";
   const CTA_URL = `${APP_URL}/my-info`;
 
-  it("subject is exactly '[HAVEN] HIPAA certification reminder'", async () => {
+  it("subject is exactly '[HAVEN] Compliance reminder'", async () => {
     const params: ComplianceReminderParams = {
       personName: "Alice Smith",
       status: "EXPIRING_SOON",
       expiresAt: new Date("2026-07-04T00:00:00Z"),
     };
     const { subject } = await renderEmail("compliance-reminder", complianceReminderContext(params));
-    expect(subject).toBe("[HAVEN] HIPAA certification reminder");
+    expect(subject).toBe("[HAVEN] Compliance reminder");
   });
 
   it("EXPIRING_SOON: html contains the word 'expires'", async () => {
@@ -207,7 +207,7 @@ describe("compliance-reminder via renderEmail", () => {
 // ---------------------------------------------------------------------------
 
 describe("compliance-escalation via renderEmail", () => {
-  it("subject is exactly '[HAVEN] Volunteer HIPAA compliance needs attention'", async () => {
+  it("subject is exactly '[HAVEN] Volunteer compliance needs attention'", async () => {
     const params: ComplianceEscalationParams = {
       directorName: "Dr. Director",
       volunteerName: "Alice Smith",
@@ -215,7 +215,7 @@ describe("compliance-escalation via renderEmail", () => {
       status: "EXPIRED",
     };
     const { subject } = await renderEmail("compliance-escalation", complianceEscalationContext(params));
-    expect(subject).toBe("[HAVEN] Volunteer HIPAA compliance needs attention");
+    expect(subject).toBe("[HAVEN] Volunteer compliance needs attention");
   });
 
   it("html contains the volunteer name", async () => {
@@ -284,15 +284,18 @@ describe("compliance-escalation via renderEmail", () => {
     expect(html).toContain("completion date needed");
   });
 
-  it("html contains readable status 'compliant' for COMPLIANT", async () => {
+  it("COMPLIANT status with EHS gap renders EHS-only copy, not HIPAA-complaint copy", async () => {
     const params: ComplianceEscalationParams = {
       directorName: "Dr. Director",
       volunteerName: "Alice Smith",
       departmentName: "Outreach",
       status: "COMPLIANT",
+      ehsMissing: ["BBP Clinical"],
     };
     const { html } = await renderEmail("compliance-escalation", complianceEscalationContext(params));
-    expect(html).toContain("compliant");
+    expect(html).not.toContain("not HIPAA compliant");
+    expect(html).toContain("outstanding required EHS training");
+    expect(html).toContain("BBP Clinical");
   });
 
   it("HTML-escapes a malicious directorName", async () => {

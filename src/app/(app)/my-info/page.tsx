@@ -15,10 +15,12 @@ import { PersonConflictError } from "@/platform/people";
 import { MyInfoForm } from "@/modules/my-info/components/my-info-form";
 import { MembershipsCard } from "@/modules/my-info/components/memberships-card";
 import { HipaaPanel } from "@/modules/my-info/components/hipaa-panel";
+import { EhsPanel } from "@/modules/my-info/components/ehs-panel";
 import { EpicPanel } from "@/modules/my-info/components/epic-panel";
-import { ClearanceCard } from "@/modules/my-info/components/clearance-card";
-import { complianceStatus, overallClearance } from "@/platform/compliance/rules";
-import { resolveTrainingState, requiredTrainingTracks } from "@/modules/recruitment/services/training";
+import { ClearanceCard, certRequirement, taskRequirement } from "@/modules/my-info/components/clearance-card";
+import { getMyEhsStatus } from "@/platform/ehs/services/my-ehs";
+import { complianceStatus } from "@/platform/compliance/rules";
+import { getOnboardingStatus } from "@/modules/onboarding/services/onboarding";
 import {
   myEpicPanel,
   createEpicRequest,
@@ -45,10 +47,11 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
 
   // Fetch all data in parallel where possible.
   // getMyInfo already loads the active term; reuse it to avoid a second query.
-  const [myInfo, certificates, epicPanel] = await Promise.all([
+  const [myInfo, certificates, epicPanel, ehsItems] = await Promise.all([
     getMyInfo(person.personId),
     listMyCertificates(person.personId),
     myEpicPanel(person.personId),
+    getMyEhsStatus(person.personId),
   ]);
   const { activeTerm } = myInfo;
 
@@ -148,17 +151,12 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
     activeTerm?.endDate ?? null
   );
 
-  const tracks = activeTerm ? await requiredTrainingTracks(person.personId, activeTerm.id) : [];
-  const trainingRows = activeTerm
-    ? await Promise.all(
-        tracks.map(async (track) => ({
-          label: track === "DIRECTOR" ? "Director training" : "Volunteer training",
-          state: await resolveTrainingState(person.personId, activeTerm.id, track),
-        }))
-      )
-    : [];
-  const allTrainingsComplete = trainingRows.length === 0 || trainingRows.every((r) => r.state === "COMPLETE");
-  const clearance = overallClearance(status, allTrainingsComplete);
+  // Onboarding status drives the clearance card (includes EHS as a non-blocking item).
+  const onboarding = await getOnboardingStatus(person.personId);
+
+  const requirements = onboarding.tasks
+    .filter((t) => t.state !== "NOT_REQUIRED")
+    .map((t) => (t.key === "hipaa" ? certRequirement(status) : taskRequirement(t.label, t.state)));
 
   const withdrawn = sp.withdrawn !== undefined ? parseInt(sp.withdrawn, 10) : undefined;
 
@@ -203,13 +201,18 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
           />
         </section>
 
+        {/* EHS Training */}
+        <section>
+          <SectionHeader className="mb-4">EHS Training</SectionHeader>
+          <EhsPanel items={ehsItems} />
+        </section>
+
         {/* Clearance */}
         <section>
           <SectionHeader className="mb-4">Clearance</SectionHeader>
           <ClearanceCard
-            clearance={clearance}
-            certStatus={status}
-            trainingRows={trainingRows}
+            requirements={requirements}
+            cleared={onboarding.cleared}
             termName={activeTerm?.name ?? null}
           />
         </section>

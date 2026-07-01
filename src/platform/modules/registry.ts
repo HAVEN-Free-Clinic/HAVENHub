@@ -64,6 +64,7 @@ export const MODULES: ModuleManifest[] = [
       // Compliance / Offboarding / Disciplinary gate on volunteers.view (= module access).
       { label: "Compliance", href: "/volunteers" },
       { label: "Master view", href: "/volunteers/master", permission: "volunteers.manage_compliance" },
+      { label: "EHS training", href: "/volunteers/ehs", permission: "volunteers.manage_compliance" },
       { label: "Spanish review", href: "/volunteers/spanish-review", permission: "volunteers.verify_spanish" },
       { label: "Offboarding", href: "/volunteers/offboarding" },
       { label: "Epic requests", href: "/volunteers/epic", permission: "volunteers.manage_epic" },

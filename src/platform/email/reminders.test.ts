@@ -592,6 +592,32 @@ describe("Teams channel routing", () => {
 
     const teams = await prisma.teamsMessage.findFirst({ where: { type: "compliance-reminder" } });
     expect(teams).not.toBeNull();
-    expect(teams?.title).toContain("compliance");
+    expect(teams?.title).toBe("Compliance reminder");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// HIPAA-compliant person with an EHS gap still receives a compliance-reminder
+// ---------------------------------------------------------------------------
+
+describe("EHS gap reminder", () => {
+  it("sends a compliance-reminder to a HIPAA-compliant person who has a missing EHS training", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("PCAR");
+    const person = await createPerson("EHS Gap Volunteer", "ehsgap@example.com");
+    await addMembership(person.id, term.id, dept.id, "VOLUNTEER");
+    // Give them a valid (COMPLIANT) HIPAA cert
+    await addCert(person.id, COMPLIANT_COMPLETION);
+
+    // Create an active EHS training required for everyone that they have NOT completed
+    const { createTraining } = await import("@/platform/ehs/services/trainings");
+    const actor = await prisma.person.create({ data: { name: "EHS Admin", status: "ACTIVE" } });
+    await createTraining({ name: "BBP Clinical", requiredForAll: true }, actor.id);
+
+    const result = await runComplianceReminders(NOW);
+
+    expect(result.remindersSent).toBe(1);
+    const emailCount = await emailLogCount("compliance-reminder");
+    expect(emailCount).toBe(1);
   });
 });

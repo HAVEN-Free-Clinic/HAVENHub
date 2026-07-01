@@ -9,15 +9,15 @@ import {
 } from "lucide-react";
 import { Badge } from "@/platform/ui/badge";
 import { Card } from "@/platform/ui/card";
-import type {
-  ComplianceStatus,
-  OverallClearance,
-  TrainingState,
-} from "@/platform/compliance/rules";
+import type { ComplianceStatus } from "@/platform/compliance/rules";
 
 type Tone = "success" | "warning" | "critical" | "default";
 
-type Requirement = {
+/** Mirrors OnboardingTaskState from the onboarding engine; redeclared locally to
+ *  avoid a cross-module import (modules must go through platform). */
+type TaskState = "COMPLETE" | "IN_PROGRESS" | "INCOMPLETE" | "NOT_REQUIRED";
+
+export type Requirement = {
   label: string;
   /** Short, friendly status (never the raw enum). */
   statusLabel: string;
@@ -41,7 +41,7 @@ function RowIcon({ tone, met }: { tone: Tone; met: boolean }) {
   return <Circle aria-hidden className={cls} />;
 }
 
-function certRequirement(status: ComplianceStatus): Requirement {
+export function certRequirement(status: ComplianceStatus): Requirement {
   switch (status) {
     case "COMPLIANT":
       return { label: "HIPAA certificate", statusLabel: "Valid", met: true, tone: "success" };
@@ -58,35 +58,34 @@ function certRequirement(status: ComplianceStatus): Requirement {
   }
 }
 
-function trainingRequirement(state: TrainingState): Omit<Requirement, "label"> {
-  return state === "COMPLETE"
-    ? { statusLabel: "Complete", met: true, tone: "success" }
-    : { statusLabel: "Not complete", met: false, tone: "warning" };
+export function taskRequirement(label: string, state: TaskState): Requirement {
+  switch (state) {
+    case "COMPLETE":
+      return { label, statusLabel: "Complete", met: true, tone: "success" };
+    case "IN_PROGRESS":
+      return { label, statusLabel: "In progress", met: false, tone: "warning" };
+    case "INCOMPLETE":
+      return { label, statusLabel: "Not started", met: false, tone: "warning" };
+    case "NOT_REQUIRED":
+      return { label, statusLabel: "Not required", met: true, tone: "default" };
+  }
 }
 
 /**
- * Member clearance summary: a status banner driven by overall clearance, then
- * a checklist of the requirements (HIPAA certificate + per-track trainings) with
- * friendly labels and semantic badges. Frames missing items as next steps, not failures.
+ * Member clearance summary: a status banner driven by the cleared flag, then
+ * a checklist of requirements with friendly labels and semantic badges.
+ * Frames missing items as next steps, not failures.
  */
 export function ClearanceCard({
-  clearance,
-  certStatus,
-  trainingRows,
+  requirements,
+  cleared,
   termName,
 }: {
-  clearance: OverallClearance;
-  certStatus: ComplianceStatus;
-  /** One row per training the person must complete (volunteer and/or director). */
-  trainingRows: { label: string; state: TrainingState }[];
+  requirements: Requirement[];
+  cleared: boolean;
   termName?: string | null;
 }) {
-  const cert = certRequirement(certStatus);
-  const trainings = trainingRows.map((r) => ({ ...trainingRequirement(r.state), label: r.label }));
-  const requirements = [cert, ...trainings];
-  const cleared = clearance === "CLEARED";
   const forTerm = termName ? ` for ${termName}` : "";
-  const anyTrainingIncomplete = trainings.some((t) => !t.met);
 
   return (
     <Card pad={false} className="overflow-hidden">
@@ -99,12 +98,10 @@ export function ClearanceCard({
           <div className="min-w-0">
             <p className="text-xs font-bold uppercase tracking-wider text-success">Cleared</p>
             <p className="mt-0.5 text-[17px] font-bold tracking-tight text-foreground">
-              You&apos;re cleared to volunteer{forTerm}
+              You&apos;re fully cleared{forTerm}
             </p>
             <p className="mt-0.5 text-[13px] leading-snug text-foreground-soft">
-              {trainings.length > 0
-                ? "Your HIPAA certificate and training are on file, so you can be scheduled for shifts."
-                : "Your HIPAA certificate is on file, so you can be scheduled for shifts."}
+              Your onboarding and compliance items are all complete.
             </p>
           </div>
         </div>
@@ -119,7 +116,7 @@ export function ClearanceCard({
               A few steps left{forTerm}
             </p>
             <p className="mt-0.5 text-[13px] leading-snug text-foreground-soft">
-              Finish the unchecked items below to be cleared for shifts.
+              Finish the unchecked items below to be fully cleared.
             </p>
           </div>
         </div>
@@ -137,13 +134,13 @@ export function ClearanceCard({
       </ul>
 
       {/* Next-step CTA */}
-      {anyTrainingIncomplete && (
+      {!cleared && (
         <div className="border-t border-border-subtle px-5 py-3.5">
           <Link
-            href="/training"
+            href="/get-started"
             className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand-fg hover:text-brand-hover"
           >
-            Complete your training
+            Finish onboarding
             <ArrowRight aria-hidden className="h-4 w-4" />
           </Link>
         </div>

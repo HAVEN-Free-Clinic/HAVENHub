@@ -20,7 +20,7 @@ describe("email-templates service", () => {
   it("returns the code default when no override exists", async () => {
     const t = await getTemplateForEdit("compliance-reminder");
     expect(t.hasOverride).toBe(false);
-    expect(t.subject).toBe("[HAVEN] HIPAA certification reminder");
+    expect(t.subject).toBe("[HAVEN] Compliance reminder");
   });
 
   it("saves an override and reports it on next load", async () => {

@@ -6,11 +6,14 @@ import { complianceStatus } from "@/platform/compliance/rules";
 import { listMyCertificates } from "@/modules/my-info/services/my-info";
 import { requiredTrainingTracks, resolveTrainingState } from "@/modules/recruitment/services/training";
 import { getMyCourses } from "@/modules/learning/services/enrollment";
+import { getMyEhsStatus } from "@/platform/ehs/services/my-ehs";
 import {
   deriveProfileTaskState,
   deriveHipaaTaskState,
   deriveTrainingTaskState,
   deriveLearningTaskState,
+  deriveEhsTaskState,
+  computeGating,
   summarize,
   type OnboardingTaskKey,
   type OnboardingTaskState,
@@ -26,6 +29,7 @@ export type OnboardingTask = {
   href: string;
   ctaLabel: string;
   state: OnboardingTaskState;
+  blocking: boolean;
 };
 
 export type OnboardingStatus = {
@@ -35,6 +39,7 @@ export type OnboardingStatus = {
   completedCount: number;
   totalCount: number;
   onboarded: boolean;
+  cleared: boolean;
 };
 
 /** Static presentation copy per task (HAVEN voice; sentence case; no em-dashes). */
@@ -69,15 +74,21 @@ const COPY: Record<OnboardingTaskKey, { label: string; description: string; href
     href: "/get-started/learning",
     ctaLabel: "Open courses",
   },
+  ehs: {
+    label: "EHS training",
+    description: "Environmental Health and Safety trainings are recorded by your coordinator once you complete them in Yale's EHS system.",
+    href: "/my-info",
+    ctaLabel: "View status",
+  },
 };
 
-function task(key: OnboardingTaskKey, state: OnboardingTaskState): OnboardingTask {
-  return { key, state, ...COPY[key] };
+function task(key: OnboardingTaskKey, state: OnboardingTaskState, blocking = true): OnboardingTask {
+  return { key, state, blocking, ...COPY[key] };
 }
 
 /**
  * Compute a person's onboarding clearance for the active term. Returns a dormant
- * (onboarded:true) status when there is no active term, so the gate never blocks.
+ * (onboarded:true, cleared:true) status when there is no active term, so the gate never blocks.
  */
 export const getOnboardingStatus = cache(async function getOnboardingStatus(
   personId: string
@@ -86,14 +97,15 @@ export const getOnboardingStatus = cache(async function getOnboardingStatus(
 
   const term = await getActiveTerm();
   if (!term) {
-    return { hasActiveTerm: false, exempt, tasks: [], completedCount: 0, totalCount: 0, onboarded: true };
+    return { hasActiveTerm: false, exempt, tasks: [], completedCount: 0, totalCount: 0, onboarded: true, cleared: true };
   }
 
-  const [person, certs, courses, tracks] = await Promise.all([
+  const [person, certs, courses, tracks, ehsItems] = await Promise.all([
     prisma.person.findUniqueOrThrow({ where: { id: personId }, select: { contactEmail: true, phone: true } }),
     listMyCertificates(personId),
     getMyCourses(personId),
     requiredTrainingTracks(personId, term.id),
+    getMyEhsStatus(personId),
   ]);
 
   const trainingTasks: OnboardingTask[] = [];
@@ -109,8 +121,10 @@ export const getOnboardingStatus = cache(async function getOnboardingStatus(
     task("hipaa", deriveHipaaTaskState(complianceStatus(certs[0] ?? null, term.endDate))),
     ...trainingTasks,
     task("learning", deriveLearningTaskState(courses)),
+    task("ehs", deriveEhsTaskState(ehsItems), false),
   ];
 
-  const { completedCount, totalCount, onboarded } = summarize(tasks.map((t) => t.state));
-  return { hasActiveTerm: true, exempt, tasks, completedCount, totalCount, onboarded };
+  const { completedCount, totalCount } = summarize(tasks.map((t) => t.state));
+  const { onboarded, cleared } = computeGating(tasks);
+  return { hasActiveTerm: true, exempt, tasks, completedCount, totalCount, onboarded, cleared };
 });

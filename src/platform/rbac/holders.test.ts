@@ -37,7 +37,7 @@ async function fixture() {
   const adminAccessRole = await prisma.role.create({
     data: { name: "Admin Access", grants: { create: [{ permission: "admin.access" }] } },
   });
-  // A baseline system role that is auto-attached from membership kind.
+  // The baseline Volunteer system role, applied via a kind-target RoleAssignment (not auto-attached from membership kind).
   const volunteerRole = await prisma.role.create({
     data: { name: "Volunteer", isSystem: true, grants: { create: [{ permission: "my-info.access" }] } },
   });

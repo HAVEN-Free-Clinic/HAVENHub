@@ -617,10 +617,10 @@ describe("EHS gap reminder", () => {
     // Give them a valid (COMPLIANT) HIPAA cert
     await addCert(person.id, COMPLIANT_COMPLETION);
 
-    // Create an active EHS training that they have NOT completed
+    // Create an active EHS training required for everyone that they have NOT completed
     const { createTraining } = await import("@/platform/ehs/services/trainings");
     const actor = await prisma.person.create({ data: { name: "EHS Admin", status: "ACTIVE" } });
-    await createTraining({ name: "BBP Clinical" }, actor.id);
+    await createTraining({ name: "BBP Clinical", requiredForAll: true }, actor.id);
 
     const result = await runComplianceReminders(NOW);
 

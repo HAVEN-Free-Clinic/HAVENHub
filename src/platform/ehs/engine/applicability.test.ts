@@ -1,45 +1,34 @@
 import { describe, expect, it } from "vitest";
-import {
-  isFullyCompliant,
-  missingTrainings,
-  requiredTrainingsForMember,
-  type RequirableTraining,
-} from "./applicability";
+import { isFullyCompliant, missingTrainings, type EhsTrainingLite } from "./applicability";
 
-function t(over: Partial<RequirableTraining> & { id: string }): RequirableTraining {
-  return {
-    name: over.id,
-    isActive: true,
-    requiredForAll: false,
-    departmentIds: [],
-    ...over,
-  };
+function t(over: Partial<EhsTrainingLite> & { id: string }): EhsTrainingLite {
+  return { name: over.id, isActive: true, ...over };
 }
 
-describe("requiredTrainingsForMember", () => {
-  it("includes requiredForAll active trainings for any member", () => {
-    const trainings = [t({ id: "a", requiredForAll: true })];
-    const out = requiredTrainingsForMember({ trainings, memberDepartmentIds: ["d1"] });
-    expect(out.map((x) => x.id)).toEqual(["a"]);
+describe("missingTrainings", () => {
+  it("returns active trainings the person has not completed", () => {
+    const trainings = [
+      t({ id: "a", name: "A" }),
+      t({ id: "b", name: "B" }),
+    ];
+    const out = missingTrainings({ trainings, completedTrainingIds: ["a"] });
+    expect(out).toEqual([{ id: "b", name: "B" }]);
   });
 
-  it("includes a training when a member department overlaps its departments", () => {
-    const trainings = [t({ id: "bbp", departmentIds: ["sctp", "jctp"] })];
-    expect(
-      requiredTrainingsForMember({ trainings, memberDepartmentIds: ["jctp"] }).map((x) => x.id)
-    ).toEqual(["bbp"]);
+  it("returns empty when all active trainings are completed", () => {
+    const trainings = [t({ id: "a", name: "A" })];
+    expect(missingTrainings({ trainings, completedTrainingIds: ["a"] })).toEqual([]);
   });
 
-  it("excludes a training when no department overlaps and not requiredForAll", () => {
-    const trainings = [t({ id: "bbp", departmentIds: ["sctp"] })];
-    expect(
-      requiredTrainingsForMember({ trainings, memberDepartmentIds: ["orhi"] })
-    ).toEqual([]);
+  it("excludes inactive trainings even when not completed", () => {
+    const trainings = [t({ id: "a", name: "A", isActive: false })];
+    expect(missingTrainings({ trainings, completedTrainingIds: [] })).toEqual([]);
   });
 
-  it("excludes inactive trainings even when requiredForAll", () => {
-    const trainings = [t({ id: "a", requiredForAll: true, isActive: false })];
-    expect(requiredTrainingsForMember({ trainings, memberDepartmentIds: ["d1"] })).toEqual([]);
+  it("returns all active trainings when none are completed", () => {
+    const trainings = [t({ id: "x", name: "X" }), t({ id: "y", name: "Y" })];
+    const out = missingTrainings({ trainings, completedTrainingIds: [] });
+    expect(out.map((m) => m.id)).toEqual(["x", "y"]);
   });
 });
 
@@ -48,27 +37,5 @@ describe("isFullyCompliant", () => {
     expect(isFullyCompliant({ hipaaStatus: "COMPLIANT", ehsMissingCount: 0 })).toBe(true);
     expect(isFullyCompliant({ hipaaStatus: "COMPLIANT", ehsMissingCount: 2 })).toBe(false);
     expect(isFullyCompliant({ hipaaStatus: "EXPIRED", ehsMissingCount: 0 })).toBe(false);
-  });
-});
-
-describe("missingTrainings", () => {
-  it("returns required trainings the member has not completed", () => {
-    const trainings = [
-      t({ id: "a", name: "A", requiredForAll: true }),
-      t({ id: "b", name: "B", requiredForAll: true }),
-    ];
-    const out = missingTrainings({
-      trainings,
-      memberDepartmentIds: ["d1"],
-      completedTrainingIds: ["a"],
-    });
-    expect(out).toEqual([{ id: "b", name: "B" }]);
-  });
-
-  it("returns empty when all required trainings are completed", () => {
-    const trainings = [t({ id: "a", name: "A", requiredForAll: true })];
-    expect(
-      missingTrainings({ trainings, memberDepartmentIds: ["d1"], completedTrainingIds: ["a"] })
-    ).toEqual([]);
   });
 });

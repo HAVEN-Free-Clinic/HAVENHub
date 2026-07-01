@@ -129,6 +129,7 @@ model Person {
   subcommitteeAssignments  Application[] @relation("applicationSubcommitteeAssigner")
   courseProgress            CourseProgress[]
   scoProgress               ScoProgress[]
+  addedToEhs           Boolean         @default(false)
   ehsCompletions       EhsCompletion[] @relation("ehsCompletionPerson")
   ehsCompletionsMarked EhsCompletion[] @relation("ehsCompletionMarkedBy")
   /// Shift requests this person raised.
@@ -211,7 +212,6 @@ model Department {
   shiftRequests              ShiftRequest[]
   scheduleDays               ScheduleDay[]
   courseDepartments          CourseDepartment[]
-  ehsTrainingDepartments EhsTrainingDepartment[]
   /// Capacity panel config: imported then admin-maintained.
   idealHeadcount             Int?
   /// Capacity panel config: imported then admin-maintained.
@@ -1257,29 +1257,15 @@ enum EhsCompletionSource {
 }
 
 model EhsTraining {
-  id             String                  @id @default(cuid())
-  name           String                  @unique
-  description    String?
-  isActive       Boolean                 @default(true)
-  /// When true, required for every active person regardless of department.
-  requiredForAll Boolean                 @default(false)
+  id          String          @id @default(cuid())
+  name        String          @unique
+  description String?
+  isActive    Boolean         @default(true)
   /// Ordering in the catalog and dashboard columns.
-  position       Int                     @default(0)
-  createdAt      DateTime                @default(now())
-  updatedAt      DateTime                @updatedAt
-  departments    EhsTrainingDepartment[]
-  completions    EhsCompletion[]
-}
-
-model EhsTrainingDepartment {
-  id           String      @id @default(cuid())
-  trainingId   String
-  departmentId String
-  training     EhsTraining @relation(fields: [trainingId], references: [id], onDelete: Cascade)
-  department   Department  @relation(fields: [departmentId], references: [id], onDelete: Cascade)
-
-  @@unique([trainingId, departmentId])
-  @@index([departmentId])
+  position    Int             @default(0)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  completions EhsCompletion[]
 }
 
 model EhsCompletion {

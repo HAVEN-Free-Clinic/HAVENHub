@@ -7,7 +7,6 @@ export type EhsTrainingInput = {
   name: string;
   description?: string | null;
   isActive?: boolean;
-  requiredForAll?: boolean;
 };
 
 function normalizeName(name: string): string {
@@ -27,7 +26,6 @@ export async function createTraining(
       name,
       description: input.description ?? null,
       isActive: input.isActive ?? true,
-      requiredForAll: input.requiredForAll ?? false,
       position: (max._max.position ?? -1) + 1,
     },
   });
@@ -36,7 +34,7 @@ export async function createTraining(
     action: "ehs.training_create",
     entityType: "EhsTraining",
     entityId: training.id,
-    after: { name: training.name, requiredForAll: training.requiredForAll },
+    after: { name: training.name },
   });
   return training;
 }
@@ -53,7 +51,6 @@ export async function updateTraining(
       name,
       description: input.description ?? null,
       isActive: input.isActive ?? true,
-      requiredForAll: input.requiredForAll ?? false,
     },
   });
   await recordAudit({
@@ -61,63 +58,25 @@ export async function updateTraining(
     action: "ehs.training_update",
     entityType: "EhsTraining",
     entityId: training.id,
-    after: {
-      name: training.name,
-      isActive: training.isActive,
-      requiredForAll: training.requiredForAll,
-    },
+    after: { name: training.name, isActive: training.isActive },
   });
   return training;
-}
-
-export async function setTrainingDepartments(
-  trainingId: string,
-  departmentIds: string[],
-  actorId: string
-): Promise<void> {
-  await prisma.$transaction(async (tx) => {
-    await tx.ehsTrainingDepartment.deleteMany({ where: { trainingId } });
-    if (departmentIds.length > 0) {
-      await tx.ehsTrainingDepartment.createMany({
-        data: departmentIds.map((departmentId) => ({ trainingId, departmentId })),
-        skipDuplicates: true,
-      });
-    }
-  });
-  await recordAudit({
-    actorPersonId: actorId,
-    action: "ehs.training_set_departments",
-    entityType: "EhsTraining",
-    entityId: trainingId,
-    after: { departmentIds },
-  });
 }
 
 export type EhsTrainingListRow = {
   id: string;
   name: string;
   isActive: boolean;
-  requiredForAll: boolean;
-  departmentCount: number;
 };
 
 export async function listTrainings(): Promise<EhsTrainingListRow[]> {
-  const rows = await prisma.ehsTraining.findMany({
+  const rows = (await prisma.ehsTraining.findMany({
     orderBy: { position: "asc" },
-    include: { _count: { select: { departments: true } } },
-  });
-  return rows.map((r: { id: string; name: string; isActive: boolean; requiredForAll: boolean; _count: { departments: number } }) => ({
-    id: r.id,
-    name: r.name,
-    isActive: r.isActive,
-    requiredForAll: r.requiredForAll,
-    departmentCount: r._count.departments,
-  }));
+    select: { id: true, name: true, isActive: true },
+  })) as Array<{ id: string; name: string; isActive: boolean }>;
+  return rows.map((r) => ({ id: r.id, name: r.name, isActive: r.isActive }));
 }
 
 export async function getTrainingForEdit(id: string) {
-  return prisma.ehsTraining.findUnique({
-    where: { id },
-    include: { departments: { select: { departmentId: true } } },
-  });
+  return prisma.ehsTraining.findUnique({ where: { id } });
 }

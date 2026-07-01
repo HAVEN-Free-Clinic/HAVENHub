@@ -290,14 +290,6 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
   return application;
 }
 
-export async function listApplications(cycleId: string) {
-  return prisma.application.findMany({
-    where: { cycleId },
-    include: { applicant: true },
-    orderBy: { submittedAt: "desc" },
-  });
-}
-
 export async function getApplication(id: string) {
   return prisma.application.findUnique({ where: { id }, include: { applicant: true, cycle: { include: { sections: { where: { purpose: "APPLICATION" }, include: { fields: { orderBy: { order: "asc" } } }, orderBy: { order: "asc" } } } } } });
 }

@@ -2,7 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { config } from "@/platform/config";
-import { SETTINGS, getSettingDef, type SettingInput } from "./registry";
+import { SETTINGS, getSettingDef, type SettingDef, type SettingInput } from "./registry";
 
 const TTL_MS = 30_000;
 
@@ -12,6 +12,14 @@ const cache = new Map<string, CacheEntry>();
 /** Test-only: clear the in-memory cache between cases. */
 export function _resetSettingsCache(): void {
   cache.clear();
+}
+
+/** Parse a stored raw value against the def schema; warn and fall back on failure. */
+function resolveStored(def: SettingDef<unknown>, raw: unknown): { value: unknown; ok: boolean } {
+  const parsed = def.schema.safeParse(raw);
+  if (parsed.success) return { value: parsed.data, ok: true };
+  console.warn(`[settings] invalid stored value for "${def.key}"; using default`, parsed.error.issues);
+  return { value: def.envDefault(), ok: false };
 }
 
 /** Thrown when a submitted value fails its registry schema. */
@@ -37,21 +45,7 @@ export async function getSetting<T = unknown>(key: string): Promise<T> {
   if (cached && cached.expiresAt > Date.now()) return cached.value as T;
 
   const row = await prisma.setting.findUnique({ where: { key } });
-  let value: unknown;
-  if (row) {
-    const parsed = def.schema.safeParse(row.value);
-    if (parsed.success) {
-      value = parsed.data;
-    } else {
-      console.warn(
-        `[settings] invalid stored value for "${key}"; using default`,
-        parsed.error.issues
-      );
-      value = def.envDefault();
-    }
-  } else {
-    value = def.envDefault();
-  }
+  const value = row ? resolveStored(def, row.value).value : def.envDefault();
 
   cache.set(key, { value, expiresAt: Date.now() + TTL_MS });
   return value as T;
@@ -79,16 +73,9 @@ export async function getCategory(category: string): Promise<ResolvedSetting[]> 
     let value = def.envDefault();
     let isOverridden = false;
     if (overrides.has(def.key)) {
-      const parsed = def.schema.safeParse(overrides.get(def.key));
-      if (parsed.success) {
-        value = parsed.data;
-        isOverridden = true;
-      } else {
-        console.warn(
-          `[settings] invalid stored value for "${def.key}"; using default`,
-          parsed.error.issues
-        );
-      }
+      const r = resolveStored(def, overrides.get(def.key));
+      value = r.value;
+      isOverridden = r.ok;
     }
     return {
       key: def.key,

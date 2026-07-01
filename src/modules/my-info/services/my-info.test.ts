@@ -18,7 +18,6 @@ import {
   withdrawFromTerm,
   saveCertificate,
   listMyCertificates,
-  getOwnedCertificate,
   parseCertificateUpload,
   CertificateValidationError,
 } from "./my-info";
@@ -583,43 +582,6 @@ describe("listMyCertificates", () => {
 
     expect(certs[0].id).toBe(second.id);
     expect(certs[1].id).toBe(first.id);
-  });
-});
-
-// ---- getOwnedCertificate ----------------------------------------------------
-
-describe("getOwnedCertificate", () => {
-  it("returns the cert when the personId matches", async () => {
-    const person = await createPerson();
-    const cert = await prisma.hipaaCertificate.create({
-      data: {
-        personId: person.id,
-        fileName: "mine.pdf",
-        storedName: "mine.pdf",
-        size: 50,
-        mimeType: "application/pdf",
-      },
-    });
-
-    const result = await getOwnedCertificate(person.id, cert.id);
-    expect(result?.id).toBe(cert.id);
-  });
-
-  it("returns null when another person tries to access the cert", async () => {
-    const owner = await createPerson({ netId: "owner1" });
-    const other = await createPerson({ netId: "other1" });
-    const cert = await prisma.hipaaCertificate.create({
-      data: {
-        personId: owner.id,
-        fileName: "owners.pdf",
-        storedName: "owners.pdf",
-        size: 50,
-        mimeType: "application/pdf",
-      },
-    });
-
-    const result = await getOwnedCertificate(other.id, cert.id);
-    expect(result).toBeNull();
   });
 });
 

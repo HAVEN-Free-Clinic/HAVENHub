@@ -1,14 +1,6 @@
 // src/platform/notifications/render.ts
 
-/** Escape the five characters that are unsafe in HTML text/attribute context. */
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
+import { esc } from "@/platform/email/render/escape";
 
 /**
  * Build the short-form HTML body for a Teams chat message: a bold title, a
@@ -20,10 +12,10 @@ export function renderTeamsBody(input: {
   summary: string;
   link?: string | null;
 }): string {
-  const title = `<strong>${escapeHtml(input.title)}</strong>`;
-  const summary = `<p>${escapeHtml(input.summary)}</p>`;
+  const title = `<strong>${esc(input.title)}</strong>`;
+  const summary = `<p>${esc(input.summary)}</p>`;
   const link = input.link
-    ? `<p><a href="${escapeHtml(input.link)}">Open in HAVEN Hub</a></p>`
+    ? `<p><a href="${esc(input.link)}">Open in HAVEN Hub</a></p>`
     : "";
   return `${title}${summary}${link}`;
 }

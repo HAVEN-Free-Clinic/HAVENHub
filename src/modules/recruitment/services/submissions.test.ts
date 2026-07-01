@@ -5,7 +5,7 @@ import { config } from "@/platform/config";
 import { createCycle, publishCycle } from "./cycles";
 import { addSection, addField } from "./form-builder";
 import {
-  submitApplication, listApplications, getApplication,
+  submitApplication, getApplication,
   CycleNotOpenError, DuplicateApplicationError, SubmissionValidationError,
 } from "./submissions";
 import { saveDraft, uploadDraftFile, getDraft } from "./drafts";
@@ -168,15 +168,6 @@ it("deletes the superseded draft file blob when a new file replaces it on submit
   expect(newStored).not.toBe(oldStored);
   expect(await getObject(`recruitment/${cycle.id}/${newStored}`)).not.toBeNull();
   expect(await getObject(`recruitment/${cycle.id}/${oldStored}`)).toBeNull();
-});
-
-it("lists and gets applications", async () => {
-  const { cycle } = await openVolunteerCycle();
-  await submitApplication("apply-v", { applicantType: "NEW", answers: { first_name: "Ann", last_name: "Lee", email: "ann@yale.edu", "1st_choice_department": "MDIC" }, files: {} });
-  const list = await listApplications(cycle.id);
-  expect(list).toHaveLength(1);
-  const one = await getApplication(list[0].id);
-  expect(one?.applicant.email).toBe("ann@yale.edu");
 });
 
 it("ignores QUIZ sections when validating the public application", async () => {

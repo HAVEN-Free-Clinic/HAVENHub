@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { AirtableClient, escapeFormulaString } from "./client";
+import { AirtableClient } from "./client";
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -7,12 +7,6 @@ function jsonResponse(status: number, body: unknown): Response {
     headers: { "content-type": "application/json" },
   });
 }
-
-describe("escapeFormulaString", () => {
-  it("escapes single quotes and backslashes", () => {
-    expect(escapeFormulaString("O'Brien\\x")).toBe("O\\'Brien\\\\x");
-  });
-});
 
 describe("AirtableClient", () => {
   it("follows pagination offsets in listAll", async () => {

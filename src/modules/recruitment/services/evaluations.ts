@@ -20,10 +20,3 @@ export async function submitEvaluation(
   return ev;
 }
 
-export async function listEvaluations(interviewId: string) {
-  return prisma.evaluation.findMany({
-    where: { interviewId },
-    include: { evaluator: { select: { id: true, name: true } } },
-    orderBy: { createdAt: "asc" },
-  });
-}

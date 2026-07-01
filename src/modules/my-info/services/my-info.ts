@@ -127,15 +127,6 @@ export const listMyCertificates = cache(
   }
 );
 
-export async function getOwnedCertificate(
-  personId: string,
-  certId: string
-): Promise<HipaaCertificate | null> {
-  const cert = await prisma.hipaaCertificate.findUnique({ where: { id: certId } });
-  if (!cert || cert.personId !== personId) return null;
-  return cert;
-}
-
 // ---------------------------------------------------------------------------
 // Mutations
 // ---------------------------------------------------------------------------

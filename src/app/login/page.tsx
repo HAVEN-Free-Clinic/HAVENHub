@@ -77,15 +77,9 @@ export default async function LoginPage({
           <HavenLogo className="h-16 text-white" />
         </div>
 
-        {/* Bottom: copy */}
+        {/* Bottom: org credit */}
         <div className="relative z-10">
-          <p className="text-2xl font-semibold leading-snug tracking-tight">
-            One platform for the clinic.
-          </p>
-          <p className="mt-2 text-sm text-white/80">
-            Scheduling, volunteer management, and compliance in one place.
-          </p>
-          <p className="mt-8 text-xs text-white/70">{formatOrgLine(org)}</p>
+          <p className="text-xs text-white/70">{formatOrgLine(org)}</p>
         </div>
       </div>
 

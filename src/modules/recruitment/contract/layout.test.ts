@@ -30,4 +30,11 @@ describe("parseContractLayout", () => {
       { kind: "custom_question", key: "email", label: "Email", type: "EMAIL", required: true },
     ] })).toThrow(ContractLayoutError);
   });
+
+  it("rejects duplicate agreement ids", () => {
+    expect(() => parseContractLayout({ blocks: [
+      { kind: "agreement", id: "a1", title: "A", body: "", signatureLabel: "sign" },
+      { kind: "agreement", id: "a1", title: "B", body: "", signatureLabel: "sign" },
+    ] })).toThrow(ContractLayoutError);
+  });
 });

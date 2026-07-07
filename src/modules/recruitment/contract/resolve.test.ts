@@ -17,4 +17,11 @@ describe("resolveLayoutSources", () => {
   it("falls back to the code default when a stored value is malformed", () => {
     expect(resolveLayoutSources({ garbage: true }, null).blocks).toEqual(DEFAULT_CONTRACT_LAYOUT.blocks);
   });
+  it("prefers the cycle override over a non-null global default", () => {
+    const cycle = { blocks: [{ kind: "agreement", id: "c", title: "Cycle", body: "", signatureLabel: "sign" }] };
+    const global = { blocks: [{ kind: "agreement", id: "g", title: "Global", body: "", signatureLabel: "sign" }] };
+    const out = resolveLayoutSources(cycle, global);
+    expect(out.blocks).toHaveLength(1);
+    expect((out.blocks[0] as { id: string }).id).toBe("c");
+  });
 });

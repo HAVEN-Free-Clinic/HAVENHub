@@ -1,4 +1,7 @@
 import { getContractByToken } from "@/modules/recruitment/services/onboarding";
+import { parseContractLayout } from "@/modules/recruitment/contract/layout";
+import { DEFAULT_CONTRACT_LAYOUT } from "@/modules/recruitment/contract/system-fields";
+import { getSetting } from "@/platform/settings/service";
 import { OnboardForm } from "./onboard-form";
 
 export default async function OnboardPage({ params }: { params: Promise<{ token: string }> }) {
@@ -13,10 +16,17 @@ export default async function OnboardPage({ params }: { params: Promise<{ token:
     );
   }
   const prefill = { firstName: contract.firstName, lastName: contract.lastName, email: contract.email, netId: contract.netId ?? "", phone: contract.phone ?? "" };
+  let layout = DEFAULT_CONTRACT_LAYOUT;
+  try {
+    if (contract.templateSnapshot) layout = parseContractLayout(contract.templateSnapshot);
+  } catch {
+    /* invalid snapshot -> fall back to the code default */
+  }
+  const orgName = await getSetting<string>("branding.orgName");
   return (
     <main className="mx-auto max-w-2xl px-6 py-10">
       <h1 className="text-2xl font-bold tracking-tight">HAVEN onboarding</h1>
-      <OnboardForm token={contract.token} prefill={prefill} />
+      <OnboardForm token={contract.token} prefill={prefill} layout={layout} ctx={{ firstName: contract.firstName, orgName }} />
     </main>
   );
 }

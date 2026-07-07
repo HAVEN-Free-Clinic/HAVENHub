@@ -1,7 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
-import { applyBlockOp, assertTwoTier, getContractLayoutForEdit, resetCycleContractLayout, saveCycleContractLayout } from "./template";
+import {
+  applyBlockOp,
+  assertTwoTier,
+  getContractLayoutForEdit,
+  resetCycleContractLayout,
+  saveCycleContractLayout,
+  type BlockPatch,
+} from "./template";
 import { DEFAULT_CONTRACT_LAYOUT } from "./system-fields";
 import { ContractLayoutError, type AgreementBlock, type CustomQuestionBlock } from "./layout";
 
@@ -28,7 +35,46 @@ describe("applyBlockOp", () => {
     const before = JSON.parse(JSON.stringify(DEFAULT_CONTRACT_LAYOUT));
     applyBlockOp(DEFAULT_CONTRACT_LAYOUT, { t: "addAgreement" });
     applyBlockOp(DEFAULT_CONTRACT_LAYOUT, { t: "addCustom", fieldType: "SHORT_TEXT" });
+    applyBlockOp(DEFAULT_CONTRACT_LAYOUT, { t: "updateBlock", index: 0, patch: { label: "Full name" } });
+    applyBlockOp(DEFAULT_CONTRACT_LAYOUT, { t: "removeBlock", index: 2 });
+    applyBlockOp(DEFAULT_CONTRACT_LAYOUT, {
+      t: "reorder",
+      order: DEFAULT_CONTRACT_LAYOUT.blocks.map((_, i, arr) => arr.length - 1 - i),
+    });
+    const gradYearIdx = DEFAULT_CONTRACT_LAYOUT.blocks.findIndex(
+      (b) => b.kind === "system_field" && b.systemKey === "gradYear"
+    );
+    applyBlockOp(DEFAULT_CONTRACT_LAYOUT, { t: "toggleSystem", index: gradYearIdx, enabled: false });
     expect(DEFAULT_CONTRACT_LAYOUT).toEqual(before);
+  });
+
+  it("updateBlock cannot rename an agreement's id (identity is immutable)", () => {
+    const idx = DEFAULT_CONTRACT_LAYOUT.blocks.findIndex((b) => b.kind === "agreement");
+    const original = DEFAULT_CONTRACT_LAYOUT.blocks[idx] as AgreementBlock;
+
+    // BlockPatch excludes `id` at the type level, but a server action could still
+    // pass an untyped object at runtime -- assert the identity field wins regardless.
+    const untypedPatch = { title: "New title", id: "renamed" } as Record<string, unknown> as BlockPatch;
+    const out = applyBlockOp(DEFAULT_CONTRACT_LAYOUT, { t: "updateBlock", index: idx, patch: untypedPatch });
+
+    const patched = out.blocks[idx] as AgreementBlock;
+    expect(patched.id).toBe(original.id);
+    expect(patched.title).toBe("New title");
+  });
+
+  it("updateBlock cannot rename a custom question's key (identity is immutable)", () => {
+    const withCustom = applyBlockOp(DEFAULT_CONTRACT_LAYOUT, { t: "addCustom", fieldType: "SHORT_TEXT" });
+    const idx = withCustom.blocks.findIndex((b) => b.kind === "custom_question");
+    const original = withCustom.blocks[idx] as CustomQuestionBlock;
+
+    // BlockPatch excludes `key` at the type level, but a server action could still
+    // pass an untyped object at runtime -- assert the identity field wins regardless.
+    const untypedPatch = { label: "New label", key: "renamed" } as Record<string, unknown> as BlockPatch;
+    const out = applyBlockOp(withCustom, { t: "updateBlock", index: idx, patch: untypedPatch });
+
+    const patched = out.blocks[idx] as CustomQuestionBlock;
+    expect(patched.key).toBe(original.key);
+    expect(patched.label).toBe("New label");
   });
 
   it("updateBlock patches a block by index without mutating other blocks", () => {

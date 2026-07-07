@@ -17,12 +17,13 @@ import { SYSTEM_FIELDS, SYSTEM_FIELD_KEYS } from "./system-fields";
 /* Pure: block-op mutations                                            */
 /* ------------------------------------------------------------------ */
 
-/** Fields an `updateBlock` op may patch. The discriminant ("kind") and a
- *  system field's identity ("systemKey") are immutable -- swap the block
- *  via remove+add instead of patching them. */
+/** Fields an `updateBlock` op may patch. The discriminant ("kind") and each
+ *  block kind's identity field -- a system field's "systemKey", an
+ *  agreement's "id", a custom question's "key" -- are immutable -- swap the
+ *  block via remove+add instead of patching them. */
 export type BlockPatch = Partial<Omit<SystemFieldBlock, "kind" | "systemKey">> &
-  Partial<Omit<AgreementBlock, "kind">> &
-  Partial<Omit<CustomQuestionBlock, "kind">>;
+  Partial<Omit<AgreementBlock, "kind" | "id">> &
+  Partial<Omit<CustomQuestionBlock, "kind" | "key">>;
 
 export type BlockOp =
   | { t: "addAgreement" }
@@ -53,6 +54,22 @@ function nextCustomKey(blocks: ContractBlock[]): string {
       .map((b) => b.key),
   ];
   return uniqueKey("New question", existing);
+}
+
+/** Merges `patch` into `block`, then forces the discriminant and the
+ *  block's identity field back onto the result -- a defense at runtime
+ *  (BlockPatch already excludes these at the type level) in case a server
+ *  action passes an untyped patch that includes `systemKey` / `id` / `key`.
+ *  Renaming an agreement's id or a custom question's key in place would
+ *  orphan already-stored `signatures[id]` / `customAnswers[key]` data. */
+function patchBlock(block: ContractBlock, patch: BlockPatch): ContractBlock {
+  if (block.kind === "system_field") {
+    return { ...block, ...patch, kind: "system_field", systemKey: block.systemKey } as SystemFieldBlock;
+  }
+  if (block.kind === "agreement") {
+    return { ...block, ...patch, kind: "agreement", id: block.id } as AgreementBlock;
+  }
+  return { ...block, ...patch, kind: "custom_question", key: block.key } as CustomQuestionBlock;
 }
 
 function reorderBlocks(blocks: ContractBlock[], order: number[]): ContractBlock[] {
@@ -95,7 +112,7 @@ export function applyBlockOp(layout: ContractLayout, op: BlockOp): ContractLayou
     case "updateBlock": {
       assertIndex(layout.blocks, op.index, "updateBlock");
       return {
-        blocks: layout.blocks.map((b, i) => (i === op.index ? ({ ...b, ...op.patch } as ContractBlock) : b)),
+        blocks: layout.blocks.map((b, i) => (i === op.index ? patchBlock(b, op.patch) : b)),
       };
     }
     case "removeBlock": {

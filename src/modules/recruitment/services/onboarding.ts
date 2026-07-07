@@ -11,6 +11,7 @@ import { parseCompletionDate, CompletionDateError } from "@/platform/compliance/
 import { RecruitmentAuthError } from "./review";
 import { findAcceptanceConflicts } from "../engine/conflicts";
 import { renderCycleEmail } from "../email/render";
+import { resolveContractLayout } from "../contract/resolve";
 
 export class ContractError extends Error {
   constructor(message: string) { super(message); this.name = "ContractError"; }
@@ -65,6 +66,7 @@ export async function createOrResendContract(
   if (contract && contract.status !== "PENDING") {
     throw new ContractError("This applicant has already submitted their onboarding contract.");
   }
+  const layout = await resolveContractLayout(cycle.id);
   if (!contract) {
     contract = await prisma.onboardingContract.create({
       data: {
@@ -75,7 +77,14 @@ export async function createOrResendContract(
         email: applicant.email,
         netId: applicant.netId,
         phone: applicant.phone,
+        templateSnapshot: layout as object,
       },
+    });
+  } else if (!contract.templateSnapshot) {
+    // Resend of a pre-snapshot PENDING contract: freeze now.
+    contract = await prisma.onboardingContract.update({
+      where: { id: contract.id },
+      data: { templateSnapshot: layout as object },
     });
   }
   const url = `${baseUrl}/onboard/${contract.token}`;

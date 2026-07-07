@@ -199,6 +199,15 @@ describe("submitContract HIPAA date validation", () => {
   });
 });
 
+it("freezes the resolved contract layout onto the contract at send time", async () => {
+  const { srr, acceptance } = await seed();
+  const contract = await createOrResendContract(acceptance.id, srr.id, "http://test");
+  expect(contract.templateSnapshot).toBeTruthy();
+  const snap = contract.templateSnapshot as { blocks: unknown[] };
+  expect(Array.isArray(snap.blocks)).toBe(true);
+  expect(snap.blocks.length).toBeGreaterThan(0);
+});
+
 it("uses the cycle's onboarding email override when present", async () => {
   const { srr, cycle, acceptance } = await seed();
   const cycleId = cycle.id;

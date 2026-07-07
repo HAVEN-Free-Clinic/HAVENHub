@@ -7,6 +7,7 @@ import { applyBlockOp } from "@/modules/recruitment/contract/block-ops";
 import type { BlockPatch } from "@/modules/recruitment/contract/block-ops";
 import type { ContractBlock, ContractLayout } from "@/modules/recruitment/contract/layout";
 import { saveContractAction, resetContractAction } from "./actions";
+import { saveGlobalContractAction } from "@/app/(app)/admin/contract/actions";
 import { SortableList } from "../sortable-list";
 import { TypePicker } from "../type-picker";
 import { SystemFieldCard } from "./system-field-card";
@@ -35,10 +36,12 @@ export function ContractEditor({
   cycleId,
   initialLayout,
   hasOverride,
+  mode = "cycle",
 }: {
   cycleId: string;
   initialLayout: ContractLayout;
   hasOverride: boolean;
+  mode?: "cycle" | "global";
 }) {
   const router = useRouter();
   const [layout, setLayout] = useState<ContractLayout>(initialLayout);
@@ -86,7 +89,8 @@ export function ContractEditor({
   function save() {
     setError(null);
     startTransition(async () => {
-      const res = await saveContractAction(cycleId, layout);
+      const res =
+        mode === "global" ? await saveGlobalContractAction(layout) : await saveContractAction(cycleId, layout);
       if (res.ok) {
         setSaved(true);
         router.refresh();
@@ -172,7 +176,7 @@ export function ContractEditor({
             <Check className="h-4 w-4" aria-hidden /> Saved
           </span>
         )}
-        {hasOverride && (
+        {mode === "cycle" && hasOverride && (
           <Button
             type="button"
             variant={confirmReset ? "danger" : "ghost"}

@@ -28,9 +28,11 @@ export function ContractField({
   if (block.kind === "agreement") {
     return (
       <div className="space-y-2">
-        <p className="text-sm font-medium text-foreground">{block.title}</p>
         {block.body.trim() && (
-          <p className="whitespace-pre-line text-sm text-foreground-soft">{renderVars(block.body, ctx)}</p>
+          <>
+            <p className="text-sm font-medium text-foreground">{block.title}</p>
+            <p className="whitespace-pre-line text-sm text-foreground-soft">{renderVars(block.body, ctx)}</p>
+          </>
         )}
         <Field label={`${block.title} (${block.signatureLabel})`} required>
           <Input name={`sig__${block.id}`} required />

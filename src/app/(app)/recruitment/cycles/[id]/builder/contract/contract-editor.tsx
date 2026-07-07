@@ -162,7 +162,11 @@ export function ContractEditor({
         <Button type="button" variant="outline" size="sm" onClick={addAgreement}>
           <Plus className="h-4 w-4" aria-hidden /> Add agreement
         </Button>
-        <TypePicker label="Add question" onPick={addCustom} />
+        <TypePicker
+          label="Add question"
+          onPick={addCustom}
+          types={["SHORT_TEXT", "LONG_TEXT", "SINGLE_SELECT", "MULTI_SELECT", "CHECKBOX", "EMAIL", "PHONE", "NUMBER", "DATE"]}
+        />
       </Card>
 
       {error && <Alert tone="error">{error}</Alert>}

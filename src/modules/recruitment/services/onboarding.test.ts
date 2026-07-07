@@ -97,14 +97,14 @@ it("submitContract validates signatures + hipaa and stores SUBMITTED", async () 
   const c = await createOrResendContract(acceptance.id, srr.id, "http://test");
   await expect(submitContract(c.token, {
     firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu",
-    agreementSignature: "", professionalismSignature: "Ada", trainingSignature: "Ada", initials: "AL",
+    signatures: { agreement: "", professionalism: "Ada", training: "Ada" }, initials: "AL",
     epicNeeded: false, hasEpic: false, worksWithYnhh: false,
     hipaaCompletedAt: "2026-01-01", hipaaFile: { fileName: "c.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") },
   })).rejects.toBeInstanceOf(ContractValidationError);
 
   const ok = await submitContract(c.token, {
     firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu", netId: "al99", phone: "203",
-    agreementSignature: "Ada", professionalismSignature: "Ada", trainingSignature: "Ada", initials: "AL",
+    signatures: { agreement: "Ada", professionalism: "Ada", training: "Ada" }, initials: "AL",
     epicNeeded: true, hasEpic: false, worksWithYnhh: false,
     hipaaCompletedAt: "2026-01-01", hipaaFile: { fileName: "c.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") },
   });
@@ -114,7 +114,7 @@ it("submitContract validates signatures + hipaa and stores SUBMITTED", async () 
 
   await expect(submitContract(c.token, {
     firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu",
-    agreementSignature: "Ada", professionalismSignature: "Ada", trainingSignature: "Ada", initials: "AL",
+    signatures: { agreement: "Ada", professionalism: "Ada", training: "Ada" }, initials: "AL",
     epicNeeded: false, hasEpic: false, worksWithYnhh: false,
     hipaaCompletedAt: "2026-01-01", hipaaFile: { fileName: "c.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") },
   })).rejects.toBeInstanceOf(ContractError);
@@ -142,13 +142,54 @@ it("submitContract stores spanishSelfReported and licensedRN", async () => {
   const c = await createOrResendContract(acceptance.id, srr.id, "http://test");
   const ok = await submitContract(c.token, {
     firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu", netId: "al99", phone: "203",
-    agreementSignature: "Ada", professionalismSignature: "Ada", trainingSignature: "Ada", initials: "AL",
+    signatures: { agreement: "Ada", professionalism: "Ada", training: "Ada" }, initials: "AL",
     epicNeeded: false, hasEpic: false, worksWithYnhh: false,
     spanishSelfReported: true, licensedRN: true,
     hipaaCompletedAt: "2026-01-01", hipaaFile: { fileName: "c.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") },
   });
   expect(ok.spanishSelfReported).toBe(true);
   expect(ok.licensedRN).toBe(true);
+});
+
+it("stores agreement signatures and required custom answers from the snapshot layout", async () => {
+  const { srr, acceptance } = await seed();
+  const c = await createOrResendContract(acceptance.id, srr.id, "http://test");
+  // Freeze a snapshot with a required agreement + a required custom question.
+  await prisma.onboardingContract.update({
+    where: { id: c.id },
+    data: {
+      templateSnapshot: {
+        blocks: [
+          { kind: "system_field", systemKey: "name" },
+          { kind: "system_field", systemKey: "email" },
+          { kind: "system_field", systemKey: "hipaa" },
+          { kind: "agreement", id: "agreement", title: "Volunteer agreement", body: "", signatureLabel: "sign" },
+          { kind: "custom_question", key: "tshirt", label: "T-shirt size", type: "SHORT_TEXT", required: true },
+        ],
+      },
+    },
+  });
+
+  const base = {
+    firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu", initials: "AL",
+    epicNeeded: false, hasEpic: false, worksWithYnhh: false,
+    hipaaCompletedAt: "2026-01-01",
+    hipaaFile: { fileName: "c.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") },
+  };
+
+  // Missing the required signature + custom answer -> validation error.
+  await expect(
+    submitContract(c.token, { ...base, signatures: {}, customAnswers: {} }),
+  ).rejects.toBeInstanceOf(ContractValidationError);
+
+  const ok = await submitContract(c.token, {
+    ...base,
+    signatures: { agreement: "Jane Doe" },
+    customAnswers: { tshirt: "M" },
+  });
+  expect(ok.status).toBe("SUBMITTED");
+  expect(ok.signatures).toMatchObject({ agreement: "Jane Doe" });
+  expect(ok.customAnswers).toMatchObject({ tshirt: "M" });
 });
 
 describe("submitContract HIPAA date validation", () => {
@@ -164,8 +205,7 @@ describe("submitContract HIPAA date validation", () => {
 
   const base: Omit<ContractSubmission, "hipaaCompletedAt" | "hipaaFile"> = {
     firstName: "A", lastName: "B", email: "a@b.com",
-    agreementSignature: "A B", professionalismSignature: "A B",
-    trainingSignature: "A B", initials: "AB",
+    signatures: { agreement: "A B", professionalism: "A B", training: "A B" }, initials: "AB",
     epicNeeded: false, hasEpic: false, worksWithYnhh: false,
   };
 

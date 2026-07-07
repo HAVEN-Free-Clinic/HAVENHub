@@ -3,21 +3,23 @@ import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import { applyBlockOp, assertTwoTier, getContractLayoutForEdit, resetCycleContractLayout, saveCycleContractLayout } from "./template";
 import { DEFAULT_CONTRACT_LAYOUT } from "./system-fields";
-import { ContractLayoutError } from "./layout";
+import { ContractLayoutError, type AgreementBlock, type CustomQuestionBlock } from "./layout";
 
 describe("applyBlockOp", () => {
   it("adds an agreement with a unique id", () => {
     const out = applyBlockOp(DEFAULT_CONTRACT_LAYOUT, { t: "addAgreement" });
     expect(out.blocks.filter((b) => b.kind === "agreement").length)
       .toBe(DEFAULT_CONTRACT_LAYOUT.blocks.filter((b) => b.kind === "agreement").length + 1);
-    const added = out.blocks.filter((b) => b.kind === "agreement").at(-1) as any;
-    const existingIds = DEFAULT_CONTRACT_LAYOUT.blocks.filter((b) => b.kind === "agreement").map((b: any) => b.id);
+    const added = out.blocks.filter((b): b is AgreementBlock => b.kind === "agreement").at(-1)!;
+    const existingIds = DEFAULT_CONTRACT_LAYOUT.blocks
+      .filter((b): b is AgreementBlock => b.kind === "agreement")
+      .map((b) => b.id);
     expect(existingIds).not.toContain(added.id);
   });
 
   it("adds a custom question with a unique, namespaced key", () => {
     const out = applyBlockOp(DEFAULT_CONTRACT_LAYOUT, { t: "addCustom", fieldType: "SHORT_TEXT" });
-    const cq = out.blocks.find((b) => b.kind === "custom_question") as any;
+    const cq = out.blocks.find((b): b is CustomQuestionBlock => b.kind === "custom_question")!;
     expect(cq.key).toMatch(/^[a-z0-9_]+$/);
     expect(cq.type).toBe("SHORT_TEXT");
   });
@@ -31,7 +33,7 @@ describe("applyBlockOp", () => {
 
   it("updateBlock patches a block by index without mutating other blocks", () => {
     const out = applyBlockOp(DEFAULT_CONTRACT_LAYOUT, { t: "updateBlock", index: 0, patch: { label: "Full name" } });
-    expect((out.blocks[0] as any).label).toBe("Full name");
+    expect((out.blocks[0] as { label: string }).label).toBe("Full name");
     expect(out.blocks[1]).toEqual(DEFAULT_CONTRACT_LAYOUT.blocks[1]);
   });
 
@@ -51,7 +53,7 @@ describe("applyBlockOp", () => {
   it("toggleSystem flips enabled on a system_field block", () => {
     const idx = DEFAULT_CONTRACT_LAYOUT.blocks.findIndex((b) => b.kind === "system_field" && b.systemKey === "gradYear");
     const out = applyBlockOp(DEFAULT_CONTRACT_LAYOUT, { t: "toggleSystem", index: idx, enabled: false });
-    expect((out.blocks[idx] as any).enabled).toBe(false);
+    expect((out.blocks[idx] as { enabled: boolean }).enabled).toBe(false);
   });
 
   it("removeBlock throws for an out-of-range index", () => {

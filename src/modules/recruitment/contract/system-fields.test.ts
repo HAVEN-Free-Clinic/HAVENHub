@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { SYSTEM_FIELDS, DEFAULT_CONTRACT_LAYOUT } from "./system-fields";
-import { parseContractLayout } from "./layout";
+import { parseContractLayout, type AgreementBlock, type SystemFieldBlock } from "./layout";
 
 describe("system fields + default layout", () => {
   it("marks name, email, epic, hipaa as core", () => {
@@ -12,12 +12,16 @@ describe("system fields + default layout", () => {
 
   it("DEFAULT_CONTRACT_LAYOUT validates and reproduces today's fields", () => {
     const layout = parseContractLayout(DEFAULT_CONTRACT_LAYOUT);
-    const systemKeys = layout.blocks.filter((b) => b.kind === "system_field").map((b: any) => b.systemKey);
+    const systemKeys = layout.blocks
+      .filter((b): b is SystemFieldBlock => b.kind === "system_field")
+      .map((b) => b.systemKey);
     // parity: every field on today's onboard-form is represented
     for (const k of ["name","email","netId","phone","dob","dietary","yaleAffiliation","gradYear","epic","spanish","licensedRN","hipaa","initials"]) {
       expect(systemKeys).toContain(k);
     }
-    const agreements = layout.blocks.filter((b) => b.kind === "agreement").map((b: any) => b.id);
+    const agreements = layout.blocks
+      .filter((b): b is AgreementBlock => b.kind === "agreement")
+      .map((b) => b.id);
     expect(agreements).toEqual(["agreement", "professionalism", "training"]);
   });
 

@@ -2,8 +2,6 @@ import { z } from "zod";
 import { config, type AppConfig } from "@/platform/config";
 import { brandingAssetSchema, type BrandingAsset } from "@/platform/branding/asset-types";
 import { NOTIFICATION_TYPES, channelSettingKey, type NotificationChannel } from "@/platform/notifications/registry";
-import { parseContractLayout, type ContractLayout } from "@/modules/recruitment/contract/layout";
-import { DEFAULT_CONTRACT_LAYOUT } from "@/modules/recruitment/contract/system-fields";
 
 export interface SettingValidateCtx {
   /** Env config, for checking that required secrets are present. */
@@ -250,18 +248,15 @@ export const SETTINGS: SettingDef<unknown>[] = [
     envDefault: () => "system",
     secret: false,
   }),
-  define<ContractLayout>({
+  define<unknown>({
     key: "onboarding.contractTemplate",
     category: "Onboarding",
     label: "Onboarding contract (master template)",
     help: "The default onboarding contract every new cycle inherits. Edit per cycle from the cycle's Form builder.",
     input: { type: "textarea" },
     hidden: true,
-    schema: z.custom<ContractLayout>(
-      (v) => { try { parseContractLayout(v); return true; } catch { return false; } },
-      { message: "Invalid contract layout." },
-    ),
-    envDefault: () => DEFAULT_CONTRACT_LAYOUT,
+    schema: z.unknown(),
+    envDefault: () => null,
     secret: false,
   }),
   ...NOTIFICATION_TYPES.map((t) =>

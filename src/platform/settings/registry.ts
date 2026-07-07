@@ -2,6 +2,8 @@ import { z } from "zod";
 import { config, type AppConfig } from "@/platform/config";
 import { brandingAssetSchema, type BrandingAsset } from "@/platform/branding/asset-types";
 import { NOTIFICATION_TYPES, channelSettingKey, type NotificationChannel } from "@/platform/notifications/registry";
+import { parseContractLayout, type ContractLayout } from "@/modules/recruitment/contract/layout";
+import { DEFAULT_CONTRACT_LAYOUT } from "@/modules/recruitment/contract/system-fields";
 
 export interface SettingValidateCtx {
   /** Env config, for checking that required secrets are present. */
@@ -30,6 +32,12 @@ export interface SettingDef<T> {
   help: string;
   /** Render hint for the auto-generated form. */
   input: SettingInput;
+  /**
+   * When true, excluded from the auto-rendered /admin/settings form (and its
+   * category list) but still fully readable/writable via getSetting/setSetting
+   * by key. Use for settings edited through their own dedicated UI.
+   */
+  hidden?: boolean;
   /** Validates both stored DB values and submitted form input. */
   schema: z.ZodType<T>;
   /** Seed value, sourced from env via `config`. */
@@ -242,6 +250,20 @@ export const SETTINGS: SettingDef<unknown>[] = [
     envDefault: () => "system",
     secret: false,
   }),
+  define<ContractLayout>({
+    key: "onboarding.contractTemplate",
+    category: "Onboarding",
+    label: "Onboarding contract (master template)",
+    help: "The default onboarding contract every new cycle inherits. Edit per cycle from the cycle's Form builder.",
+    input: { type: "textarea" },
+    hidden: true,
+    schema: z.custom<ContractLayout>(
+      (v) => { try { parseContractLayout(v); return true; } catch { return false; } },
+      { message: "Invalid contract layout." },
+    ),
+    envDefault: () => DEFAULT_CONTRACT_LAYOUT,
+    secret: false,
+  }),
   ...NOTIFICATION_TYPES.map((t) =>
     define<NotificationChannel>({
       key: channelSettingKey(t.key),
@@ -272,7 +294,8 @@ export function getSettingDef(key: string): SettingDef<unknown> {
   return def;
 }
 
-/** Distinct categories, in first-seen order, for rendering form groups. */
+/** Distinct categories, in first-seen order, for rendering form groups. Hidden
+ * settings (edited via their own dedicated UI) do not surface a category here. */
 export function listCategories(): string[] {
-  return [...new Set(SETTINGS.map((d) => d.category))];
+  return [...new Set(SETTINGS.filter((d) => !d.hidden).map((d) => d.category))];
 }

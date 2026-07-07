@@ -192,6 +192,38 @@ it("stores agreement signatures and required custom answers from the snapshot la
   expect(ok.customAnswers).toMatchObject({ tshirt: "M" });
 });
 
+it("does not require initials when the layout disables the initials system field", async () => {
+  const { srr, acceptance } = await seed();
+  const c = await createOrResendContract(acceptance.id, srr.id, "http://test");
+  // Freeze a snapshot that keeps the core blocks + required agreements but
+  // disables the optional `initials` system field entirely.
+  await prisma.onboardingContract.update({
+    where: { id: c.id },
+    data: {
+      templateSnapshot: {
+        blocks: [
+          { kind: "system_field", systemKey: "name" },
+          { kind: "system_field", systemKey: "email" },
+          { kind: "system_field", systemKey: "hipaa" },
+          { kind: "system_field", systemKey: "initials", enabled: false },
+          { kind: "agreement", id: "agreement", title: "Volunteer agreement", body: "", signatureLabel: "sign" },
+          { kind: "agreement", id: "professionalism", title: "Professionalism policy", body: "", signatureLabel: "sign" },
+          { kind: "agreement", id: "training", title: "Training acknowledgement", body: "", signatureLabel: "sign" },
+        ],
+      },
+    },
+  });
+
+  const ok = await submitContract(c.token, {
+    firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu", initials: "",
+    signatures: { agreement: "Ada", professionalism: "Ada", training: "Ada" },
+    epicNeeded: false, hasEpic: false, worksWithYnhh: false,
+    hipaaCompletedAt: "2026-01-01",
+    hipaaFile: { fileName: "c.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") },
+  });
+  expect(ok.status).toBe("SUBMITTED");
+});
+
 describe("submitContract HIPAA date validation", () => {
   async function pendingContract() {
     const { srr, acceptance } = await seed();

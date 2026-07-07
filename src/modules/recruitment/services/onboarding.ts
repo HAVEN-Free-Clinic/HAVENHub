@@ -169,10 +169,13 @@ export async function submitContract(
   if (!input.firstName?.trim()) e.firstName = "required";
   if (!input.lastName?.trim()) e.lastName = "required";
   if (!input.email?.trim()) e.email = "required";
-  if (!input.initials?.trim()) e.initials = "required";
   // Required agreement signatures + required custom questions come from the frozen
   // snapshot layout, so an edited contract validates exactly what it renders.
   const layout = safeParseLayout(contract.templateSnapshot);
+  const initialsEnabled = layout.blocks.some(
+    (b) => b.kind === "system_field" && b.systemKey === "initials" && b.enabled !== false,
+  );
+  if (initialsEnabled && !input.initials?.trim()) e.initials = "required";
   for (const b of layout.blocks) {
     if (b.kind === "agreement" && !input.signatures?.[b.id]?.trim()) {
       e[`sig__${b.id}`] = "required";

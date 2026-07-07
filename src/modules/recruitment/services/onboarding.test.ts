@@ -1,6 +1,7 @@
 import path from "node:path";
 import { promises as fs } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { Prisma } from "@prisma/client";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import { config } from "@/platform/config";
@@ -206,6 +207,25 @@ it("freezes the resolved contract layout onto the contract at send time", async 
   const snap = contract.templateSnapshot as { blocks: unknown[] };
   expect(Array.isArray(snap.blocks)).toBe(true);
   expect(snap.blocks.length).toBeGreaterThan(0);
+});
+
+it("backfills templateSnapshot on resend when it was missing", async () => {
+  const { srr, acceptance } = await seed();
+  const c1 = await createOrResendContract(acceptance.id, srr.id, "http://test");
+  // simulate a pre-feature contract that was sent before snapshots existed
+  await prisma.onboardingContract.update({ where: { id: c1.id }, data: { templateSnapshot: Prisma.DbNull } });
+  const c2 = await createOrResendContract(acceptance.id, srr.id, "http://test");
+  expect(c2.id).toBe(c1.id);
+  expect(c2.templateSnapshot).toBeTruthy();
+  expect(Array.isArray((c2.templateSnapshot as { blocks: unknown[] }).blocks)).toBe(true);
+});
+
+it("does not overwrite an existing templateSnapshot on resend", async () => {
+  const { srr, acceptance } = await seed();
+  const c1 = await createOrResendContract(acceptance.id, srr.id, "http://test");
+  const snap1 = JSON.stringify(c1.templateSnapshot);
+  const c2 = await createOrResendContract(acceptance.id, srr.id, "http://test");
+  expect(JSON.stringify(c2.templateSnapshot)).toBe(snap1);
 });
 
 it("uses the cycle's onboarding email override when present", async () => {

@@ -66,7 +66,9 @@ export async function createOrResendContract(
   if (contract && contract.status !== "PENDING") {
     throw new ContractError("This applicant has already submitted their onboarding contract.");
   }
-  const layout = await resolveContractLayout(cycle.id);
+  const layout = (!contract || !contract.templateSnapshot)
+    ? await resolveContractLayout(cycle.id)
+    : null;
   if (!contract) {
     contract = await prisma.onboardingContract.create({
       data: {

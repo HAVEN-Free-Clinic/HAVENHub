@@ -67,6 +67,7 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
 
       <div className="flex flex-wrap gap-2">
         <Link href={`/recruitment/cycles/${id}/builder`} className={navLink}>Edit form</Link>
+        <Link href={`/recruitment/cycles/${id}/builder/contract`} className={navLink}>Edit onboarding contract</Link>
         <Link href={`/recruitment/cycles/${id}/applicants`} className={navLink}>View applicants</Link>
         <Link href={`/recruitment/cycles/${id}/decisions`} className={navLink}>Decisions</Link>
         {cycle.track === "VOLUNTEER" && (

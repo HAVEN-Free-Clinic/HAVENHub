@@ -11,6 +11,15 @@ import { parseCompletionDate, CompletionDateError } from "@/platform/compliance/
 import { RecruitmentAuthError } from "./review";
 import { findAcceptanceConflicts } from "../engine/conflicts";
 import { renderCycleEmail } from "../email/render";
+import { resolveContractLayout } from "../contract/resolve";
+import { parseContractLayout, type ContractLayout } from "../contract/layout";
+import { DEFAULT_CONTRACT_LAYOUT } from "../contract/system-fields";
+
+/** Parse a frozen snapshot, falling back to the code default if it is null or invalid. */
+function safeParseLayout(value: unknown): ContractLayout {
+  if (value == null) return DEFAULT_CONTRACT_LAYOUT;
+  try { return parseContractLayout(value); } catch { return DEFAULT_CONTRACT_LAYOUT; }
+}
 
 export class ContractError extends Error {
   constructor(message: string) { super(message); this.name = "ContractError"; }
@@ -65,6 +74,9 @@ export async function createOrResendContract(
   if (contract && contract.status !== "PENDING") {
     throw new ContractError("This applicant has already submitted their onboarding contract.");
   }
+  const layout = (!contract || !contract.templateSnapshot)
+    ? await resolveContractLayout(cycle.id)
+    : null;
   if (!contract) {
     contract = await prisma.onboardingContract.create({
       data: {
@@ -75,7 +87,14 @@ export async function createOrResendContract(
         email: applicant.email,
         netId: applicant.netId,
         phone: applicant.phone,
+        templateSnapshot: layout as object,
       },
+    });
+  } else if (!contract.templateSnapshot) {
+    // Resend of a pre-snapshot PENDING contract: freeze now.
+    contract = await prisma.onboardingContract.update({
+      where: { id: contract.id },
+      data: { templateSnapshot: layout as object },
     });
   }
   const url = `${baseUrl}/onboard/${contract.token}`;
@@ -120,10 +139,11 @@ export type ContractSubmission = {
   dietaryRestrictions?: string;
   yaleAffiliation?: string;
   gradYear?: string;
-  agreementSignature: string;
-  professionalismSignature: string;
-  trainingSignature: string;
   initials: string;
+  // Agreement signatures keyed by agreement block id; custom-question answers keyed
+  // by question key. Which are required is driven by the frozen snapshot layout.
+  signatures?: Record<string, string>;
+  customAnswers?: Record<string, string | string[]>;
   epicNeeded: boolean;
   hasEpic: boolean;
   existingEpicId?: string;
@@ -149,10 +169,23 @@ export async function submitContract(
   if (!input.firstName?.trim()) e.firstName = "required";
   if (!input.lastName?.trim()) e.lastName = "required";
   if (!input.email?.trim()) e.email = "required";
-  if (!input.agreementSignature?.trim()) e.agreementSignature = "required";
-  if (!input.professionalismSignature?.trim()) e.professionalismSignature = "required";
-  if (!input.trainingSignature?.trim()) e.trainingSignature = "required";
-  if (!input.initials?.trim()) e.initials = "required";
+  // Required agreement signatures + required custom questions come from the frozen
+  // snapshot layout, so an edited contract validates exactly what it renders.
+  const layout = safeParseLayout(contract.templateSnapshot);
+  const initialsEnabled = layout.blocks.some(
+    (b) => b.kind === "system_field" && b.systemKey === "initials" && b.enabled !== false,
+  );
+  if (initialsEnabled && !input.initials?.trim()) e.initials = "required";
+  for (const b of layout.blocks) {
+    if (b.kind === "agreement" && !input.signatures?.[b.id]?.trim()) {
+      e[`sig__${b.id}`] = "required";
+    }
+    if (b.kind === "custom_question" && b.required) {
+      const v = input.customAnswers?.[b.key];
+      const empty = v == null || (Array.isArray(v) ? v.length === 0 : String(v).trim() === "");
+      if (empty) e[`custom__${b.key}`] = "required";
+    }
+  }
   if (!input.hipaaCompletedAt) e.hipaaCompletedAt = "required";
   if (!input.hipaaFile && !contract.hipaaStoredName) e.hipaaFile = "required";
   if (input.hasEpic && !input.existingEpicId?.trim()) {
@@ -221,10 +254,9 @@ export async function submitContract(
         dietaryRestrictions: input.dietaryRestrictions?.trim() || null,
         yaleAffiliation: input.yaleAffiliation?.trim() || null,
         gradYear: input.gradYear?.trim() || null,
-        agreementSignature: input.agreementSignature.trim(),
-        professionalismSignature: input.professionalismSignature.trim(),
-        trainingSignature: input.trainingSignature.trim(),
         initials: input.initials.trim(),
+        signatures: (input.signatures ?? {}) as object,
+        customAnswers: (input.customAnswers ?? {}) as object,
         epicNeeded: input.epicNeeded,
         hasEpic: input.hasEpic,
         existingEpicId: input.existingEpicId?.trim() || null,

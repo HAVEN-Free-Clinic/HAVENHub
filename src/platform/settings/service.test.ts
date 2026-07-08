@@ -59,6 +59,11 @@ describe("getCategory", () => {
     const rhdEntry = after.find((e) => e.key === "rhd.maxProcedures");
     expect(rhdEntry).toMatchObject({ value: 7, isOverridden: true });
   });
+
+  it("getCategory excludes hidden settings", async () => {
+    const rows = await getCategory("Onboarding");
+    expect(rows).toEqual([]);
+  });
 });
 
 describe("setSetting", () => {

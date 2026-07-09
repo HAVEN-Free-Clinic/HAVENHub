@@ -179,6 +179,9 @@ test("strike request to approve: director requests a strike, admin approves it, 
   await expect(myRow.getByText("Strike requested")).toBeVisible();
 
   // Switch to the admin reviewer and open the same report.
+  // Clear the director session before switching to admin; an active session cookie makes
+  // /login redirect to '/' before the email input renders.
+  await page.context().clearCookies();
   await devLogin(page, "j.carney@yale.edu");
   await page.goto(`/incidents/review?q=${number}`);
   await page.waitForURL((url) => url.pathname === "/incidents/review");

@@ -3,7 +3,7 @@ import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 
 // Mock Next.js server-only modules so the pure-crypto cookie tests run in Vitest.
-vi.mock("next/headers", () => ({ cookies: vi.fn(async () => ({ get: vi.fn(), set: vi.fn() })) }));
+vi.mock("next/headers", () => ({ cookies: vi.fn(async () => ({ get: vi.fn(), set: vi.fn() })), headers: vi.fn(async () => ({ get: vi.fn(() => null) })) }));
 vi.mock("@/platform/auth/auth", () => ({ auth: vi.fn(async () => null) }));
 
 import { issueMagicToken, verifyMagicToken, requestMagicLink } from "./portal-auth";

@@ -49,7 +49,7 @@ export const MODULES: ModuleManifest[] = [
   {
     id: "volunteers",
     title: "Volunteer Management",
-    description: "Compliance, rosters, offboarding, Epic requests, disciplinary",
+    description: "Compliance, rosters, offboarding, disciplinary",
     icon: Users,
     accessPermission: "volunteers.view",
     permissions: [

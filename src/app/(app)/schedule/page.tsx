@@ -18,6 +18,7 @@ import {
   createRequest,
   cancelRequest,
   eligibleSwapPartners,
+  remindDirectors,
   RequestValidationError,
   RequestForbiddenError,
   RequestNotFoundError,
@@ -34,6 +35,10 @@ type PageProps = {
 
 export default async function MySchedulePage({ searchParams }: PageProps) {
   const session = await requireModuleAccess("schedule");
+  // Evaluated per request (not at module load) so the "pending N days" gate
+  // below stays accurate across warm server instances. `new Date()` (not
+  // Date.now()) to match the codebase convention and satisfy react-hooks/purity.
+  const now = new Date();
   const sp = await searchParams;
 
   const errorCode = sp.error ?? null;
@@ -130,6 +135,22 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
     SHADOW: "warning",
   };
 
+  async function remindDirectorsAction(formData: FormData) {
+    "use server";
+    const actor = await requireModuleAccess("schedule");
+    const requestId = (formData.get("requestId") as string | null) ?? "";
+    try {
+      await remindDirectors(actor.personId, requestId);
+    } catch (err) {
+      if (err instanceof RequestValidationError || err instanceof RequestForbiddenError || err instanceof RequestNotFoundError) {
+        redirect(`/schedule?error=validation&message=${encodeURIComponent((err as Error).message)}`);
+      }
+      throw err;
+    }
+    revalidatePath("/schedule");
+    redirect("/schedule?message=reminded");
+  }
+
   return (
     <div>
       {/* Hero banner */}
@@ -159,6 +180,11 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
       {requested && (
         <Alert tone="success" className="mb-6 font-medium">
           Change request submitted. Your director will review it.
+        </Alert>
+      )}
+      {sp.message === "reminded" && (
+        <Alert tone="success" className="mb-6 font-medium">
+          Reminder sent to your department directors.
         </Alert>
       )}
 
@@ -213,10 +239,21 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                                   : "drop"}{" "}
                                 , pending director review
                               </p>
-                              <form action={cancelRequestAction}>
-                                <input type="hidden" name="requestId" value={pendingReq.id} />
-                                <ConfirmButton label="Cancel request" confirmLabel="Cancel this request?" />
-                              </form>
+                              <div className="flex items-center gap-2">
+                                {Math.floor((now.getTime() - new Date(pendingReq.createdAt).getTime()) / (1000 * 60 * 60 * 24)) >= 5 && (
+                                  <form action={remindDirectorsAction}>
+                                    <input type="hidden" name="requestId" value={pendingReq.id} />
+                                    <ConfirmButton
+                                      label="Remind directors"
+                                      confirmLabel="Send a reminder to your directors?"
+                                    />
+                                  </form>
+                                )}
+                                <form action={cancelRequestAction}>
+                                  <input type="hidden" name="requestId" value={pendingReq.id} />
+                                  <ConfirmButton label="Cancel request" confirmLabel="Cancel this request?" />
+                                </form>
+                              </div>
                             </div>
                           ) : (
                             <details className="group">

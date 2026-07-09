@@ -25,6 +25,7 @@ export const NOTIFICATION_TYPES: NotificationType[] = [
   { key: "support.status_changed", label: "IT Support: status changed", defaultChannel: "email" },
   { key: "support.comment_added", label: "IT Support: new comment", defaultChannel: "email" },
   { key: "support.request_resolved", label: "IT Support: request resolved", defaultChannel: "email" },
+  { key: "shift-reminder", label: "Shift reminder", defaultChannel: "email" },
 ];
 
 /** The settings-registry key that stores a type's channel override. */

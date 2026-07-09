@@ -19,6 +19,7 @@ describe("notification registry", () => {
         "support.status_changed",
         "support.comment_added",
         "support.request_resolved",
+        "shift-reminder",
       ].sort()
     );
     for (const t of NOTIFICATION_TYPES) {

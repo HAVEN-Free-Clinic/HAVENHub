@@ -13,9 +13,12 @@
  *     "don't leak existence to strangers" convention as getTechRequest).
  *
  * State machine:
- *   CLOSED and CANCELLED are terminal. setStatus, resolveRequest, and
- *   cancelRequest/cancelOwnRequest all refuse to touch a ticket already in a
- *   terminal state (SupportStateError).
+ *   RESOLVED, CLOSED, and CANCELLED are terminal. assignRequest, setStatus,
+ *   setPriority, resolveRequest, and cancelRequest/cancelOwnRequest all
+ *   refuse to touch a ticket already in a terminal state (SupportStateError).
+ *   setStatus additionally refuses RESOLVED/CANCELLED as a *target* status --
+ *   those transitions only happen through resolveRequest/cancelRequest, which
+ *   carry their own required-reason and notification behavior.
  *
  * Every mutation is audited. assignRequest, setStatus(AWAITING_REQUESTER),
  * and resolveRequest also notify (render once, then notify the one recipient);
@@ -33,8 +36,8 @@ import { renderEmail } from "@/platform/email/templates/renderEmail";
 import { MANAGE, SupportForbiddenError, SupportNotFoundError, SupportStateError } from "./tech-request";
 import { STATUS_LABELS } from "../components/status-badge";
 
-/** CLOSED and CANCELLED are terminal: no further status transition, resolve, or cancel is allowed. Also used by ticket-detail.tsx to gate the owner-facing cancel button. */
-export const TERMINAL_STATUSES: TechRequestStatus[] = ["CLOSED", "CANCELLED"];
+/** RESOLVED, CLOSED, and CANCELLED are terminal: no further assign, status transition, priority change, resolve, or cancel is allowed. Also used by ticket-detail.tsx to gate the owner-facing cancel button and the manager control panel. */
+export const TERMINAL_STATUSES: TechRequestStatus[] = ["RESOLVED", "CLOSED", "CANCELLED"];
 
 async function requireManage(actorPersonId: string): Promise<void> {
   if (!(await can(actorPersonId, MANAGE))) {
@@ -60,9 +63,10 @@ async function resolveBaseUrl(): Promise<string> {
 /**
  * Sets (or, with assigneeId null, clears) a ticket's assignee.
  *
- * Requires support.manage_requests. Ticket must exist (SupportNotFoundError).
- * When a non-null assignee is set, notifies that assignee
- * (support.request_assigned). Clearing the assignee sends no notification.
+ * Requires support.manage_requests. Ticket must exist (SupportNotFoundError)
+ * and must not already be terminal (SupportStateError). When a non-null
+ * assignee is set, notifies that assignee (support.request_assigned).
+ * Clearing the assignee sends no notification.
  *
  * Audits "support.assign" with before/after assignedToId.
  */
@@ -73,6 +77,10 @@ export async function assignRequest(
 ): Promise<TechRequest> {
   await requireManage(actorPersonId);
   const before = await loadOrThrow(id);
+
+  if (TERMINAL_STATUSES.includes(before.status)) {
+    throw new SupportStateError(`Cannot reassign a ${before.status} ticket.`);
+  }
 
   const updated = await prisma.techRequest.update({
     where: { id },
@@ -122,9 +130,12 @@ export async function assignRequest(
 /**
  * Updates a ticket's status.
  *
- * Requires support.manage_requests. Ticket must exist (SupportNotFoundError)
- * and must not already be terminal (SupportStateError). Moving to
- * AWAITING_REQUESTER notifies the requester (support.status_changed).
+ * Requires support.manage_requests. RESOLVED and CANCELLED are rejected as
+ * target values (SupportStateError) -- those transitions only happen through
+ * resolveRequest/cancelRequest, which require a reason and notify the
+ * requester. Ticket must exist (SupportNotFoundError) and must not already
+ * be terminal (SupportStateError). Moving to AWAITING_REQUESTER notifies the
+ * requester (support.status_changed).
  *
  * Audits "support.status_change" with before/after status.
  */
@@ -134,6 +145,13 @@ export async function setStatus(
   status: TechRequestStatus
 ): Promise<TechRequest> {
   await requireManage(actorPersonId);
+
+  if (status === "RESOLVED" || status === "CANCELLED") {
+    throw new SupportStateError(
+      "Use the Resolve or Cancel action to move a ticket to RESOLVED or CANCELLED."
+    );
+  }
+
   const before = await loadOrThrow(id);
 
   if (TERMINAL_STATUSES.includes(before.status)) {
@@ -187,8 +205,9 @@ export async function setStatus(
 
 /**
  * Updates a ticket's priority. Requires support.manage_requests. Ticket must
- * exist (SupportNotFoundError). No notification (priority is an internal
- * triage signal, not requester-facing).
+ * exist (SupportNotFoundError) and must not already be terminal
+ * (SupportStateError). No notification (priority is an internal triage
+ * signal, not requester-facing).
  *
  * Audits "support.priority_change" with before/after priority.
  */
@@ -199,6 +218,10 @@ export async function setPriority(
 ): Promise<TechRequest> {
   await requireManage(actorPersonId);
   const before = await loadOrThrow(id);
+
+  if (TERMINAL_STATUSES.includes(before.status)) {
+    throw new SupportStateError(`Cannot change the priority of a ${before.status} ticket.`);
+  }
 
   const updated = await prisma.techRequest.update({
     where: { id },

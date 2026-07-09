@@ -9,7 +9,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
-import { createTechRequest, SupportNotFoundError } from "./tech-request";
+import { createTechRequest, SupportNotFoundError, SupportStateError } from "./tech-request";
 import {
   assignRequest,
   setStatus,
@@ -84,6 +84,16 @@ describe("assignRequest", () => {
     const logs = await prisma.emailLog.findMany({ where: { template: "support.request_assigned" } });
     expect(logs).toHaveLength(1); // only the earlier assignment, not the unassign
   });
+
+  it("refuses to reassign a resolved (terminal) ticket", async () => {
+    const owner = await createPerson("Owner");
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
+    await resolveRequest(mgr.id, req.id, "Reset the account.");
+
+    await expect(assignRequest(mgr.id, req.id, mgr.id)).rejects.toThrow(SupportStateError);
+  });
 });
 
 describe("setStatus", () => {
@@ -127,6 +137,42 @@ describe("setStatus", () => {
 
     await expect(setStatus(mgr.id, req.id, "IN_PROGRESS")).rejects.toThrow();
   });
+
+  it("rejects RESOLVED as a target status -- must go through resolveRequest", async () => {
+    const owner = await createPerson("Owner");
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
+
+    await expect(setStatus(mgr.id, req.id, "RESOLVED")).rejects.toThrow(SupportStateError);
+
+    const after = await prisma.techRequest.findUniqueOrThrow({ where: { id: req.id } });
+    expect(after.status).not.toBe("RESOLVED");
+    expect(after.resolvedAt).toBeNull();
+    expect(after.resolution).toBeNull();
+  });
+
+  it("rejects CANCELLED as a target status -- must go through cancelRequest", async () => {
+    const owner = await createPerson("Owner");
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
+
+    await expect(setStatus(mgr.id, req.id, "CANCELLED")).rejects.toThrow(SupportStateError);
+
+    const after = await prisma.techRequest.findUniqueOrThrow({ where: { id: req.id } });
+    expect(after.status).not.toBe("CANCELLED");
+  });
+
+  it("still allows CLOSED as a direct transition", async () => {
+    const owner = await createPerson("Owner");
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
+
+    const updated = await setStatus(mgr.id, req.id, "CLOSED");
+    expect(updated.status).toBe("CLOSED");
+  });
 });
 
 describe("setPriority", () => {
@@ -144,6 +190,16 @@ describe("setPriority", () => {
 
     const updated = await setPriority(mgr.id, req.id, "CRITICAL");
     expect(updated.priority).toBe("CRITICAL");
+  });
+
+  it("refuses to change priority on a resolved (terminal) ticket", async () => {
+    const owner = await createPerson("Owner");
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
+    await resolveRequest(mgr.id, req.id, "Reset the account.");
+
+    await expect(setPriority(mgr.id, req.id, "CRITICAL")).rejects.toThrow(SupportStateError);
   });
 });
 

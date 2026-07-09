@@ -39,8 +39,21 @@ import type { TechRequestDetail } from "../services/tech-request";
 import { TERMINAL_STATUSES } from "../services/manage";
 import type { CommentRow } from "../services/comments";
 
-const ALL_STATUSES = Object.keys(STATUS_LABELS) as TechRequestStatus[];
 const ALL_PRIORITIES = Object.keys(PRIORITY_LABELS) as TechRequestPriority[];
+
+/**
+ * Statuses a manager can set directly through the status select. RESOLVED
+ * and CANCELLED are excluded -- those are reached only through the Resolve
+ * form and Cancel button, which require a reason and notify the requester
+ * (setStatus rejects them as a target value; see manage.ts).
+ */
+const MANAGER_SETTABLE_STATUSES: TechRequestStatus[] = [
+  "SUBMITTED",
+  "IN_PROGRESS",
+  "AWAITING_REQUESTER",
+  "AWAITING_YNHH",
+  "CLOSED",
+];
 
 type ManagerOption = { id: string; name: string | null };
 
@@ -139,71 +152,81 @@ export function TicketDetail({
         cancelAction && (
           <section>
             <SectionHeader className="mb-2">Manager controls</SectionHeader>
-            <Card className="space-y-6">
-              {manageError && <Alert tone="error">{manageError}</Alert>}
+            {isOpen ? (
+              <Card className="space-y-6">
+                {manageError && <Alert tone="error">{manageError}</Alert>}
 
-              <div className="grid gap-4 sm:grid-cols-3">
-                <form action={assignAction} className="space-y-2">
-                  <Field label="Assignee">
-                    <Select name="assigneeId" defaultValue={detail.assignedToId ?? ""}>
-                      <option value="">Unassigned</option>
-                      {[...assigneeOptions].map(([id, name]) => (
-                        <option key={id} value={id}>
-                          {name ?? "Unknown"}
-                        </option>
-                      ))}
-                    </Select>
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <form action={assignAction} className="space-y-2">
+                    <Field label="Assignee">
+                      <Select name="assigneeId" defaultValue={detail.assignedToId ?? ""}>
+                        <option value="">Unassigned</option>
+                        {[...assigneeOptions].map(([id, name]) => (
+                          <option key={id} value={id}>
+                            {name ?? "Unknown"}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                    <SubmitButton variant="outline" size="sm" pendingLabel="Saving…">
+                      Update assignee
+                    </SubmitButton>
+                  </form>
+
+                  <form action={setStatusAction} className="space-y-2">
+                    <Field label="Status">
+                      <Select name="status" defaultValue={detail.status}>
+                        {MANAGER_SETTABLE_STATUSES.map((s) => (
+                          <option key={s} value={s}>
+                            {STATUS_LABELS[s]}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                    <SubmitButton variant="outline" size="sm" pendingLabel="Saving…">
+                      Update status
+                    </SubmitButton>
+                  </form>
+
+                  <form action={setPriorityAction} className="space-y-2">
+                    <Field label="Priority">
+                      <Select name="priority" defaultValue={detail.priority}>
+                        {ALL_PRIORITIES.map((p) => (
+                          <option key={p} value={p}>
+                            {PRIORITY_LABELS[p]}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                    <SubmitButton variant="outline" size="sm" pendingLabel="Saving…">
+                      Update priority
+                    </SubmitButton>
+                  </form>
+                </div>
+
+                <form action={resolveAction} className="space-y-2 border-t border-border pt-4">
+                  <Field label="Resolution">
+                    <Textarea name="resolution" rows={3} placeholder="What fixed this?" required />
                   </Field>
-                  <SubmitButton variant="outline" size="sm" pendingLabel="Saving…">
-                    Update assignee
-                  </SubmitButton>
+                  <SubmitButton pendingLabel="Resolving…">Resolve ticket</SubmitButton>
                 </form>
 
-                <form action={setStatusAction} className="space-y-2">
-                  <Field label="Status">
-                    <Select name="status" defaultValue={detail.status}>
-                      {ALL_STATUSES.map((s) => (
-                        <option key={s} value={s}>
-                          {STATUS_LABELS[s]}
-                        </option>
-                      ))}
-                    </Select>
+                <form action={cancelAction} className="space-y-2 border-t border-border pt-4">
+                  <Field label="Cancel this ticket">
+                    <Textarea name="reason" rows={2} placeholder="Reason for cancelling…" required />
                   </Field>
-                  <SubmitButton variant="outline" size="sm" pendingLabel="Saving…">
-                    Update status
-                  </SubmitButton>
+                  <ConfirmButton label="Cancel ticket" confirmLabel="Confirm cancel?" />
                 </form>
-
-                <form action={setPriorityAction} className="space-y-2">
-                  <Field label="Priority">
-                    <Select name="priority" defaultValue={detail.priority}>
-                      {ALL_PRIORITIES.map((p) => (
-                        <option key={p} value={p}>
-                          {PRIORITY_LABELS[p]}
-                        </option>
-                      ))}
-                    </Select>
-                  </Field>
-                  <SubmitButton variant="outline" size="sm" pendingLabel="Saving…">
-                    Update priority
-                  </SubmitButton>
-                </form>
-              </div>
-
-              <form action={resolveAction} className="space-y-2 border-t border-border pt-4">
-                <Field label="Resolution">
-                  <Textarea name="resolution" rows={3} placeholder="What fixed this?" required />
-                </Field>
-                <SubmitButton pendingLabel="Resolving…">Resolve ticket</SubmitButton>
-              </form>
-
-              <form action={cancelAction} className="space-y-2 border-t border-border pt-4">
-                <Field label="Cancel this ticket">
-                  <Textarea name="reason" rows={2} placeholder="Reason for cancelling…" required />
-                </Field>
-                <ConfirmButton label="Cancel ticket" confirmLabel="Confirm cancel?" />
-              </form>
-            </Card>
+              </Card>
+            ) : (
+              <Card>
+                {manageError && <Alert tone="error">{manageError}</Alert>}
+                <p className="text-sm text-muted-foreground">
+                  This ticket is {STATUS_LABELS[detail.status].toLowerCase()} and can no longer be
+                  edited.
+                </p>
+              </Card>
+            )}
           </section>
         )}
 

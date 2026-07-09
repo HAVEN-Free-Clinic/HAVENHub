@@ -22,7 +22,7 @@ import { manageableDepartmentIds } from "@/platform/departments";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { can } from "@/platform/rbac/engine";
 import { getSetting } from "@/platform/settings/service";
-import { putObject } from "@/platform/storage";
+import { putObject, deleteObject } from "@/platform/storage";
 import { validateUploadedFile } from "@/modules/recruitment/services/upload";
 import { issueAction, DISCIPLINARY_CATEGORIES } from "./disciplinary";
 
@@ -146,7 +146,9 @@ export async function canRequestStrikeAgainst(actorPersonId: string, subjectPers
  * create-row/derive-key/write-bytes pattern in my-info's saveCertificate. If
  * storage write fails partway through, every attachment row created during
  * this call is deleted before the error is rethrown, so the report never ends
- * up pointing at attachment rows with no bytes behind them.
+ * up pointing at attachment rows with no bytes behind them -- and every blob
+ * already written by an earlier file in the same call is also deleted, so a
+ * later file's failure does not orphan the earlier files' bytes in storage.
  */
 export async function submitReport(actorPersonId: string, input: SubmitReportInput): Promise<IncidentReport> {
   const concernTypes = input.concernTypes ?? [];
@@ -219,6 +221,7 @@ export async function submitReport(actorPersonId: string, input: SubmitReportInp
     }
 
     const createdAttachmentIds: string[] = [];
+    const uploadedStoredNames: string[] = [];
     try {
       for (const file of files) {
         const created = await prisma.incidentReportAttachment.create({
@@ -241,17 +244,29 @@ export async function submitReport(actorPersonId: string, input: SubmitReportInp
         });
 
         await putObject(storedName, file.bytes, file.mimeType);
+        uploadedStoredNames.push(storedName);
       }
     } catch (err) {
       // Storage (or an intervening DB write) failed: clean up every attachment
       // row created during this call so none point at bytes that were never
-      // written. The report itself is left in place.
+      // written, AND delete any blobs that were already uploaded earlier in
+      // this loop so they don't become storage orphans with no DB row
+      // pointing at them. The report itself is left in place.
       if (createdAttachmentIds.length > 0) {
         await prisma.incidentReportAttachment
           .deleteMany({ where: { id: { in: createdAttachmentIds } } })
           .catch((cleanupErr) => {
             console.error("[incidents] failed to clean up attachment rows after storage error", report.id, cleanupErr);
           });
+      }
+      if (uploadedStoredNames.length > 0) {
+        await Promise.allSettled(
+          uploadedStoredNames.map((storedName) =>
+            deleteObject(storedName).catch((cleanupErr) => {
+              console.error("[incidents] failed to clean up uploaded blob after storage error", report.id, storedName, cleanupErr);
+            })
+          )
+        );
       }
       throw err;
     }

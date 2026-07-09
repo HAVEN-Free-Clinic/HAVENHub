@@ -12,6 +12,7 @@ import { FormSection, FormActions } from "@/platform/ui/form";
 import { RadioGroup, Radio } from "@/platform/ui/radio";
 import { FieldPreview } from "@/modules/recruitment/components/field-preview";
 import { prefillString } from "@/modules/recruitment/components/field-prefill";
+import { PortalNotice } from "../portal-notice";
 
 type FieldDef ={ key: string; label: string; helpText: string | null; type: string; required: boolean; options: { value: string; label: string }[] | null; validation: Record<string, unknown> | null };
 type SectionDef = { id: string; title: string; description: string | null; appliesTo: "NEW" | "RENEWAL" | "BOTH"; departmentCode: string | null; fields: FieldDef[] };
@@ -154,21 +155,30 @@ export function ApplyForm({
   }
 
   if (result?.ok) {
-    return <Alert tone="success" className="mt-8">Thanks, your application was received. Check your email for a confirmation.</Alert>;
+    return (
+      <PortalNotice tone="success" titleAs="h2" title="Application received" className="mt-4">
+        <p>Thanks, your application was received. Check your email for a confirmation.</p>
+      </PortalNotice>
+    );
   }
 
   return (
-    <form ref={formRef} onSubmit={onSubmit} onChange={scheduleSave} className="mt-6">
-      <Card className="space-y-6">
-        {result && !result.ok && <Alert tone="error">{result.message}</Alert>}
+    <form ref={formRef} onSubmit={onSubmit} onChange={scheduleSave} className="mt-2 space-y-5">
+      <p className="text-sm text-muted-foreground">
+        Complete the fields below to submit your application. Required fields are marked with{" "}
+        <span className="font-medium text-critical">*</span>.
+      </p>
 
-        {saveState !== "idle" && (
-          <p className="text-xs text-muted-foreground" aria-live="polite">
-            {saveState === "saving" ? "Saving..." : "Saved"}
-          </p>
-        )}
+      {result && !result.ok && <Alert tone="error">{result.message}</Alert>}
 
-        {def.acceptsRenewals && (
+      {saveState !== "idle" && (
+        <p className="text-xs text-muted-foreground" aria-live="polite">
+          {saveState === "saving" ? "Saving…" : "Saved"}
+        </p>
+      )}
+
+      {def.acceptsRenewals && (
+        <Card className="space-y-4">
           <FormSection title={`Are you a new or returning ${roleNoun}?`}>
             <RadioGroup>
               {applicantOptions.map((opt) => (
@@ -208,21 +218,23 @@ export function ApplyForm({
               )
             )}
           </FormSection>
-        )}
+        </Card>
+      )}
 
-        {renewalGate ? (
-          <div className="space-y-3">
-            <p className="text-sm text-foreground">Returning {roleNoun}s sign in with Yale so we can verify your renewal and fill in your information.</p>
-            <a href={loginHref} className={`${buttonClasses("primary", "md")} mt-3`}>Sign in with Yale</a>
-          </div>
-        ) : (
-          <>
-            {signedIn && (applicantType === "RENEWAL" ? eligible : applicantType === "TRANSFER" ? isReturning : false) && signedInName && (
-              <p className="text-sm text-muted-foreground">Signed in as {signedInName}.</p>
-            )}
+      {renewalGate ? (
+        <Card className="space-y-3">
+          <p className="text-sm text-foreground">Returning {roleNoun}s sign in with Yale so we can verify your renewal and fill in your information.</p>
+          <a href={loginHref} className={buttonClasses("primary", "lg", "w-full sm:w-auto")}>Sign in with Yale</a>
+        </Card>
+      ) : (
+        <>
+          {signedIn && (applicantType === "RENEWAL" ? eligible : applicantType === "TRANSFER" ? isReturning : false) && signedInName && (
+            <p className="text-sm text-muted-foreground">Signed in as {signedInName}.</p>
+          )}
 
-            {visible.map((section) => (
-              <FormSection key={section.id} title={section.title} description={section.description ?? undefined}>
+          {visible.map((section) => (
+            <Card key={section.id} className="space-y-4">
+              <FormSection title={section.title} description={section.description ?? undefined}>
                 {section.fields.map((f) =>
                   f.type === "FILE" ? (
                     // FILE fields: intercept onChange here so files upload immediately
@@ -233,7 +245,7 @@ export function ApplyForm({
                         onDeptChoice={undefined}
                         prefill={prefill?.values[f.key] ?? initialAnswers[f.key]} locked={lockedKeys.has(f.key)} />
                       {fileStatus[f.key] && (
-                        <p className="mt-1 text-xs text-muted-foreground">{fileStatus[f.key]}</p>
+                        <p className="mt-1 text-xs text-muted-foreground" role="status" aria-live="polite">{fileStatus[f.key]}</p>
                       )}
                     </div>
                   ) : (
@@ -244,19 +256,19 @@ export function ApplyForm({
                   )
                 )}
               </FormSection>
-            ))}
+            </Card>
+          ))}
 
-            {transferIntoCurrent && (
-              <Alert tone="warning">
-                You are already a {roleNoun} in {deptChoice}. Choose &ldquo;Renewing in my current department&rdquo; to come back to it.
-              </Alert>
-            )}
-            <FormActions>
-              <Button type="submit" disabled={submitting || transferIntoCurrent}>{submitting ? "Submitting..." : "Submit application"}</Button>
-            </FormActions>
-          </>
-        )}
-      </Card>
+          {transferIntoCurrent && (
+            <Alert tone="warning">
+              You are already a {roleNoun} in {deptChoice}. Choose &ldquo;Renewing in my current department&rdquo; to come back to it.
+            </Alert>
+          )}
+          <FormActions>
+            <Button type="submit" size="lg" className="w-full sm:w-auto" disabled={submitting || transferIntoCurrent}>{submitting ? "Submitting…" : "Submit application"}</Button>
+          </FormActions>
+        </>
+      )}
     </form>
   );
 }

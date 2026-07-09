@@ -1,6 +1,7 @@
 import path from "node:path";
 import { promises as fs } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { Prisma } from "@prisma/client";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import { config } from "@/platform/config";
@@ -96,14 +97,14 @@ it("submitContract validates signatures + hipaa and stores SUBMITTED", async () 
   const c = await createOrResendContract(acceptance.id, srr.id, "http://test");
   await expect(submitContract(c.token, {
     firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu",
-    agreementSignature: "", professionalismSignature: "Ada", trainingSignature: "Ada", initials: "AL",
+    signatures: { agreement: "", professionalism: "Ada", training: "Ada" }, initials: "AL",
     epicNeeded: false, hasEpic: false, worksWithYnhh: false,
     hipaaCompletedAt: "2026-01-01", hipaaFile: { fileName: "c.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") },
   })).rejects.toBeInstanceOf(ContractValidationError);
 
   const ok = await submitContract(c.token, {
     firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu", netId: "al99", phone: "203",
-    agreementSignature: "Ada", professionalismSignature: "Ada", trainingSignature: "Ada", initials: "AL",
+    signatures: { agreement: "Ada", professionalism: "Ada", training: "Ada" }, initials: "AL",
     epicNeeded: true, hasEpic: false, worksWithYnhh: false,
     hipaaCompletedAt: "2026-01-01", hipaaFile: { fileName: "c.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") },
   });
@@ -113,7 +114,7 @@ it("submitContract validates signatures + hipaa and stores SUBMITTED", async () 
 
   await expect(submitContract(c.token, {
     firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu",
-    agreementSignature: "Ada", professionalismSignature: "Ada", trainingSignature: "Ada", initials: "AL",
+    signatures: { agreement: "Ada", professionalism: "Ada", training: "Ada" }, initials: "AL",
     epicNeeded: false, hasEpic: false, worksWithYnhh: false,
     hipaaCompletedAt: "2026-01-01", hipaaFile: { fileName: "c.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") },
   })).rejects.toBeInstanceOf(ContractError);
@@ -141,13 +142,86 @@ it("submitContract stores spanishSelfReported and licensedRN", async () => {
   const c = await createOrResendContract(acceptance.id, srr.id, "http://test");
   const ok = await submitContract(c.token, {
     firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu", netId: "al99", phone: "203",
-    agreementSignature: "Ada", professionalismSignature: "Ada", trainingSignature: "Ada", initials: "AL",
+    signatures: { agreement: "Ada", professionalism: "Ada", training: "Ada" }, initials: "AL",
     epicNeeded: false, hasEpic: false, worksWithYnhh: false,
     spanishSelfReported: true, licensedRN: true,
     hipaaCompletedAt: "2026-01-01", hipaaFile: { fileName: "c.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") },
   });
   expect(ok.spanishSelfReported).toBe(true);
   expect(ok.licensedRN).toBe(true);
+});
+
+it("stores agreement signatures and required custom answers from the snapshot layout", async () => {
+  const { srr, acceptance } = await seed();
+  const c = await createOrResendContract(acceptance.id, srr.id, "http://test");
+  // Freeze a snapshot with a required agreement + a required custom question.
+  await prisma.onboardingContract.update({
+    where: { id: c.id },
+    data: {
+      templateSnapshot: {
+        blocks: [
+          { kind: "system_field", systemKey: "name" },
+          { kind: "system_field", systemKey: "email" },
+          { kind: "system_field", systemKey: "hipaa" },
+          { kind: "agreement", id: "agreement", title: "Volunteer agreement", body: "", signatureLabel: "sign" },
+          { kind: "custom_question", key: "tshirt", label: "T-shirt size", type: "SHORT_TEXT", required: true },
+        ],
+      },
+    },
+  });
+
+  const base = {
+    firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu", initials: "AL",
+    epicNeeded: false, hasEpic: false, worksWithYnhh: false,
+    hipaaCompletedAt: "2026-01-01",
+    hipaaFile: { fileName: "c.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") },
+  };
+
+  // Missing the required signature + custom answer -> validation error.
+  await expect(
+    submitContract(c.token, { ...base, signatures: {}, customAnswers: {} }),
+  ).rejects.toBeInstanceOf(ContractValidationError);
+
+  const ok = await submitContract(c.token, {
+    ...base,
+    signatures: { agreement: "Jane Doe" },
+    customAnswers: { tshirt: "M" },
+  });
+  expect(ok.status).toBe("SUBMITTED");
+  expect(ok.signatures).toMatchObject({ agreement: "Jane Doe" });
+  expect(ok.customAnswers).toMatchObject({ tshirt: "M" });
+});
+
+it("does not require initials when the layout disables the initials system field", async () => {
+  const { srr, acceptance } = await seed();
+  const c = await createOrResendContract(acceptance.id, srr.id, "http://test");
+  // Freeze a snapshot that keeps the core blocks + required agreements but
+  // disables the optional `initials` system field entirely.
+  await prisma.onboardingContract.update({
+    where: { id: c.id },
+    data: {
+      templateSnapshot: {
+        blocks: [
+          { kind: "system_field", systemKey: "name" },
+          { kind: "system_field", systemKey: "email" },
+          { kind: "system_field", systemKey: "hipaa" },
+          { kind: "system_field", systemKey: "initials", enabled: false },
+          { kind: "agreement", id: "agreement", title: "Volunteer agreement", body: "", signatureLabel: "sign" },
+          { kind: "agreement", id: "professionalism", title: "Professionalism policy", body: "", signatureLabel: "sign" },
+          { kind: "agreement", id: "training", title: "Training acknowledgement", body: "", signatureLabel: "sign" },
+        ],
+      },
+    },
+  });
+
+  const ok = await submitContract(c.token, {
+    firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu", initials: "",
+    signatures: { agreement: "Ada", professionalism: "Ada", training: "Ada" },
+    epicNeeded: false, hasEpic: false, worksWithYnhh: false,
+    hipaaCompletedAt: "2026-01-01",
+    hipaaFile: { fileName: "c.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") },
+  });
+  expect(ok.status).toBe("SUBMITTED");
 });
 
 describe("submitContract HIPAA date validation", () => {
@@ -163,8 +237,7 @@ describe("submitContract HIPAA date validation", () => {
 
   const base: Omit<ContractSubmission, "hipaaCompletedAt" | "hipaaFile"> = {
     firstName: "A", lastName: "B", email: "a@b.com",
-    agreementSignature: "A B", professionalismSignature: "A B",
-    trainingSignature: "A B", initials: "AB",
+    signatures: { agreement: "A B", professionalism: "A B", training: "A B" }, initials: "AB",
     epicNeeded: false, hasEpic: false, worksWithYnhh: false,
   };
 
@@ -197,6 +270,34 @@ describe("submitContract HIPAA date validation", () => {
     const updated = await submitContract(token, { ...base, hipaaCompletedAt: `${yyyy}-06-01` });
     expect(updated.hipaaCompletedAt?.toISOString()).toBe(`${yyyy}-06-01T12:00:00.000Z`);
   });
+});
+
+it("freezes the resolved contract layout onto the contract at send time", async () => {
+  const { srr, acceptance } = await seed();
+  const contract = await createOrResendContract(acceptance.id, srr.id, "http://test");
+  expect(contract.templateSnapshot).toBeTruthy();
+  const snap = contract.templateSnapshot as { blocks: unknown[] };
+  expect(Array.isArray(snap.blocks)).toBe(true);
+  expect(snap.blocks.length).toBeGreaterThan(0);
+});
+
+it("backfills templateSnapshot on resend when it was missing", async () => {
+  const { srr, acceptance } = await seed();
+  const c1 = await createOrResendContract(acceptance.id, srr.id, "http://test");
+  // simulate a pre-feature contract that was sent before snapshots existed
+  await prisma.onboardingContract.update({ where: { id: c1.id }, data: { templateSnapshot: Prisma.DbNull } });
+  const c2 = await createOrResendContract(acceptance.id, srr.id, "http://test");
+  expect(c2.id).toBe(c1.id);
+  expect(c2.templateSnapshot).toBeTruthy();
+  expect(Array.isArray((c2.templateSnapshot as { blocks: unknown[] }).blocks)).toBe(true);
+});
+
+it("does not overwrite an existing templateSnapshot on resend", async () => {
+  const { srr, acceptance } = await seed();
+  const c1 = await createOrResendContract(acceptance.id, srr.id, "http://test");
+  const snap1 = JSON.stringify(c1.templateSnapshot);
+  const c2 = await createOrResendContract(acceptance.id, srr.id, "http://test");
+  expect(JSON.stringify(c2.templateSnapshot)).toBe(snap1);
 });
 
 it("uses the cycle's onboarding email override when present", async () => {

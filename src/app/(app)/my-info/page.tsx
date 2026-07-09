@@ -16,18 +16,10 @@ import { MyInfoForm } from "@/modules/my-info/components/my-info-form";
 import { MembershipsCard } from "@/modules/my-info/components/memberships-card";
 import { HipaaPanel } from "@/modules/my-info/components/hipaa-panel";
 import { EhsPanel } from "@/modules/my-info/components/ehs-panel";
-import { EpicPanel } from "@/modules/my-info/components/epic-panel";
 import { ClearanceCard, certRequirement, taskRequirement } from "@/modules/my-info/components/clearance-card";
 import { getMyEhsStatus } from "@/platform/ehs/services/my-ehs";
 import { complianceStatus } from "@/platform/compliance/rules";
 import { getOnboardingStatus } from "@/modules/onboarding/services/onboarding";
-import {
-  myEpicPanel,
-  createEpicRequest,
-  EpicStateError,
-  EpicForbiddenError,
-} from "@/modules/support/services/epic";
-import type { EpicRequestKind } from "@prisma/client";
 
 type PageProps = {
   searchParams: Promise<{
@@ -36,8 +28,6 @@ type PageProps = {
     withdrawn?: string;
     certSaved?: string;
     certError?: string;
-    epicError?: string;
-    epicSaved?: string;
   }>;
 };
 
@@ -47,10 +37,9 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
 
   // Fetch all data in parallel where possible.
   // getMyInfo already loads the active term; reuse it to avoid a second query.
-  const [myInfo, certificates, epicPanel, ehsItems] = await Promise.all([
+  const [myInfo, certificates, ehsItems] = await Promise.all([
     getMyInfo(person.personId),
     listMyCertificates(person.personId),
-    myEpicPanel(person.personId),
     getMyEhsStatus(person.personId),
   ]);
   const { activeTerm } = myInfo;
@@ -109,39 +98,6 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
       throw err;
     }
     redirect("/my-info?certSaved=1");
-  }
-
-  async function epicRequestAction(formData: FormData) {
-    "use server";
-    const session = await requireModuleAccess("my-info");
-    const rawKind = (formData.get("kind") as string | null) ?? "";
-    const notes = (formData.get("notes") as string | null) || null;
-
-    // Validate kind. The service re-checks via kind-sanity rules; we map the
-    // resulting EpicStateError message to the epicError param.
-    // jobTitle and mirrorEpicId are not accepted from the self-service form;
-    // the IT team fills those in while processing the request.
-    const allowedKinds: EpicRequestKind[] = ["NEW", "MODIFY", "RENEW"];
-    if (!(allowedKinds as string[]).includes(rawKind)) {
-      redirect("/my-info?epicError=Invalid+request+kind.");
-    }
-
-    try {
-      await createEpicRequest(session.personId, {
-        personId: session.personId,
-        kind: rawKind as EpicRequestKind,
-        notes,
-      });
-    } catch (err) {
-      if (err instanceof EpicStateError) {
-        redirect(`/my-info?epicError=${encodeURIComponent(err.message)}`);
-      }
-      if (err instanceof EpicForbiddenError) {
-        redirect(`/my-info?epicError=${encodeURIComponent(err.message)}`);
-      }
-      throw err;
-    }
-    redirect("/my-info?epicSaved=1");
   }
 
   // Compute compliance status for the newest cert
@@ -214,18 +170,6 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
             requirements={requirements}
             cleared={onboarding.cleared}
             termName={activeTerm?.name ?? null}
-          />
-        </section>
-
-        {/* Epic access */}
-        <section>
-          <SectionHeader className="mb-4">Epic Access</SectionHeader>
-          <EpicPanel
-            epicId={epicPanel.epicId}
-            openRequest={epicPanel.openRequest}
-            action={epicRequestAction}
-            error={sp.epicError ? decodeURIComponent(sp.epicError) : undefined}
-            saved={sp.epicSaved === "1"}
           />
         </section>
       </div>

@@ -22,7 +22,7 @@ import { Card } from "@/platform/ui/card";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { fmtDate } from "@/platform/dates";
 import { SupportStatusBadge } from "./status-badge";
-import { CATEGORY_LABELS } from "./request-list";
+import { CATEGORY_LABELS } from "@/modules/support/labels";
 import type { TechRequestDetail } from "../services/tech-request";
 
 type TicketDetailProps = {
@@ -58,9 +58,7 @@ export function TicketDetail({ detail, canManage = false }: TicketDetailProps) {
         </section>
       )}
 
-      {canManage &&
-        null /* Manager seam: assignment, status/priority controls, and the Epic
-                 promotion pipeline land here in a later task. */}
+      {/* Manager controls seam: added in a later task */}
 
       {/* Comment thread seam: Task 6 adds TechRequestComment history + a reply form here. */}
 

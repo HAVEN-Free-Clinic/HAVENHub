@@ -11,21 +11,12 @@
  */
 
 import Link from "next/link";
-import type { TechRequestCategory } from "@prisma/client";
 import { Card } from "@/platform/ui/card";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { fmtDate } from "@/platform/dates";
 import { SupportStatusBadge } from "./status-badge";
+import { CATEGORY_LABELS } from "@/modules/support/labels";
 import type { TechRequestListRow } from "../services/tech-request";
-
-/** Friendly category text (never the raw enum) for list rows and ticket detail headers. */
-export const CATEGORY_LABELS: Record<TechRequestCategory, string> = {
-  EPIC: "Epic",
-  DUO_MFA: "DUO MFA",
-  GENERAL_IT: "General IT",
-  TEAMS: "Teams access",
-  OTHER: "Other",
-};
 
 type RequestListProps = {
   rows: TechRequestListRow[];

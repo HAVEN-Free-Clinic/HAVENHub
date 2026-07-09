@@ -19,14 +19,7 @@ import { SubmitButton } from "@/platform/ui/submit-button";
 import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
-
-const CATEGORY_LABELS: Record<TechRequestCategory, string> = {
-  EPIC: "Epic access",
-  DUO_MFA: "Duo / MFA",
-  GENERAL_IT: "General IT",
-  TEAMS: "Teams",
-  OTHER: "Other",
-};
+import { CATEGORY_LABELS } from "@/modules/support/labels";
 
 const EPIC_SUBTYPES: { value: EpicRequestKind; label: string }[] = [
   { value: "NEW", label: "New account" },

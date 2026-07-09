@@ -19,7 +19,7 @@ import { businessDaysSince } from "@/platform/dates";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
-import type { DepartmentWithMembers, EpicAuthorizer, EpicRequestHistoryRow, PendingDeactivation } from "@/modules/admin/services/itcm";
+import type { DepartmentWithMembers, EpicAuthorizer, EpicRequestHistoryRow, PendingDeactivation } from "@/modules/support/services/itcm";
 import { TicketNumberField } from "./ticket-number-field";
 
 type Tab = "generate" | "tracker" | "history";

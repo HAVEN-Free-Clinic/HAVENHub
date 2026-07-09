@@ -26,7 +26,7 @@ import {
   createEpicRequest,
   EpicStateError,
   EpicForbiddenError,
-} from "@/modules/volunteers/services/epic";
+} from "@/modules/support/services/epic";
 import type { EpicRequestKind } from "@prisma/client";
 
 type PageProps = {

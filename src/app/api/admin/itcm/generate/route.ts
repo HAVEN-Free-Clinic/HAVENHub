@@ -13,8 +13,8 @@
  * with the same role who already has an epicId. Directors mirror directors,
  * volunteers mirror volunteers.
  *
- * Auth: signed-in person with the "admin.access" permission; only platform
- * admins and ITCM directors reach this route.
+ * Auth: signed-in person with the "support.manage_requests" permission; only
+ * platform admins and ITCM directors reach this route.
  */
 
 import { NextResponse } from "next/server";
@@ -23,11 +23,11 @@ import * as path from "path";
 import { auth } from "@/platform/auth/auth";
 import { getActivePerson } from "@/platform/auth/match-person";
 import { can } from "@/platform/rbac/engine";
-import { findMirrorPerson, getPeopleByIds, listEpicAuthorizers, reconcileDeactivationRequests } from "@/modules/admin/services/itcm";
+import { findMirrorPerson, getPeopleByIds, listEpicAuthorizers, reconcileDeactivationRequests } from "@/modules/support/services/itcm";
 import {
   generatePdf,
   type RequestType,
-} from "@/modules/admin/services/itcm-pdf";
+} from "@/modules/support/services/itcm-pdf";
 import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
 
@@ -173,15 +173,16 @@ async function generateSpreadsheet(args: {
 // ---------------------------------------------------------------------------
 
 export async function POST(req: Request) {
-  // Auth check: only signed-in admin.access holders can generate Epic forms.
-  // (Same primitives as other API routes; requirePermission is page-only since
-  // it redirects on failure.) The resolved person is also the tracking actor.
+  // Auth check: only signed-in support.manage_requests holders can generate
+  // Epic forms. (Same primitives as other API routes; requirePermission is
+  // page-only since it redirects on failure.) The resolved person is also the
+  // tracking actor.
   const session = await auth();
   if (!session?.personId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const actor = await getActivePerson(session.personId);
-  if (!actor || !(await can(actor.id, "admin.access"))) {
+  if (!actor || !(await can(actor.id, "support.manage_requests"))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

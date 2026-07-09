@@ -12,20 +12,20 @@
 
 import { revalidatePath } from "next/cache";
 import { requirePermission } from "@/platform/auth/session";
-import { listDepartmentsWithMembers, getEpicRequestHistory, listPendingDeactivations, listEpicAuthorizers, closeTicket, updateServiceRequestNumber } from "@/modules/admin/services/itcm";
+import { listDepartmentsWithMembers, getEpicRequestHistory, listPendingDeactivations, listEpicAuthorizers, closeTicket, updateServiceRequestNumber } from "@/modules/support/services/itcm";
 import { PageHeader } from "@/platform/ui/page-header";
 import { EpicRequestTabs } from "@/modules/admin/components/epic-request-tabs";
 
 async function closeTicketAction(ticketId: string) {
   "use server";
-  await requirePermission("admin.access");
+  await requirePermission("support.manage_requests");
   await closeTicket(ticketId);
   revalidatePath("/admin/itcm/epic-requests");
 }
 
 async function updateServiceRequestNumberAction(ticketId: string, value: string) {
   "use server";
-  await requirePermission("admin.access");
+  await requirePermission("support.manage_requests");
   await updateServiceRequestNumber(ticketId, value);
   revalidatePath("/admin/itcm/epic-requests");
 }
@@ -35,7 +35,7 @@ type PageProps = {
 };
 
 export default async function EpicRequestsPage({ searchParams }: PageProps) {
-  await requirePermission("admin.access");
+  await requirePermission("support.manage_requests");
 
   const { tab } = await searchParams;
 const activeTab = tab === "tracker" ? "tracker" : tab === "history" ? "history" : "generate";

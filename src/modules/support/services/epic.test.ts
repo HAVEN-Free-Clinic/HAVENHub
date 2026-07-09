@@ -4,7 +4,7 @@
  * createEpicRequest(actorPersonId, input):
  *   - Self-create NEW happy path; audit row with kind in after.
  *   - Non-manager cannot create for someone else (EpicForbiddenError).
- *   - Manager (volunteers.manage_epic) creates for anyone.
+ *   - Manager (support.manage_requests) creates for anyone.
  *   - Duplicate-open rejected when PENDING request exists (EpicStateError).
  *   - Duplicate-open rejected when SUBMITTED request exists (EpicStateError).
  *   - NEW with existing epicId on person rejected (EpicStateError).
@@ -182,10 +182,10 @@ describe("createEpicRequest", () => {
     ).rejects.toBeInstanceOf(EpicForbiddenError);
   });
 
-  it("manager (volunteers.manage_epic) creates for anyone", async () => {
+  it("manager (support.manage_requests) creates for anyone", async () => {
     const manager = await createPerson("Manager", { netId: "mgr001" });
     const target = await createPerson("Target", { netId: "tgt001" });
-    await grantPermission(manager.id, "volunteers.manage_epic");
+    await grantPermission(manager.id, "support.manage_requests");
 
     const req = await createEpicRequest(manager.id, { personId: target.id, kind: "NEW" });
     expect(req.personId).toBe(target.id);
@@ -204,7 +204,7 @@ describe("createEpicRequest", () => {
   it("duplicate-open rejected when SUBMITTED request exists (EpicStateError)", async () => {
     const person = await createPerson("Alice", { netId: "aaa001" });
     const manager = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(manager.id, "volunteers.manage_epic");
+    await grantPermission(manager.id, "support.manage_requests");
 
     const req = await createEpicRequest(person.id, { personId: person.id, kind: "NEW" });
     // Move to SUBMITTED by creating a ticket.
@@ -242,7 +242,7 @@ describe("createEpicRequest", () => {
   it("OFFBOARDED person rejected (EpicStateError)", async () => {
     const actor = await createPerson("Manager", { netId: "mgr001" });
     const target = await createPerson("Offboarded", { netId: "off001", status: "OFFBOARDED" });
-    await grantPermission(actor.id, "volunteers.manage_epic");
+    await grantPermission(actor.id, "support.manage_requests");
 
     await expect(
       createEpicRequest(actor.id, { personId: target.id, kind: "NEW" })
@@ -251,7 +251,7 @@ describe("createEpicRequest", () => {
 
   it("person not found -> EpicNotFoundError", async () => {
     const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "volunteers.manage_epic");
+    await grantPermission(actor.id, "support.manage_requests");
 
     await expect(
       createEpicRequest(actor.id, { personId: "cld_nonexistent", kind: "NEW" })
@@ -306,7 +306,7 @@ describe("listEpicRequests", () => {
     const term = await createTerm();
     const dept = await createDepartment("ITCM");
     const mgr = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(mgr.id, "volunteers.manage_epic");
+    await grantPermission(mgr.id, "support.manage_requests");
     await createMembership(mgr.id, term.id, dept.id, "DIRECTOR");
 
     const p1 = await createPerson("Alice", { netId: "aaa001", contactEmail: "alice@yale.edu" });
@@ -334,7 +334,7 @@ describe("listEpicRequests", () => {
 
   it("rows include ticket when attached", async () => {
     const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "volunteers.manage_epic");
+    await grantPermission(actor.id, "support.manage_requests");
     const target = await createPerson("Alice", { netId: "aaa001" });
 
     const req = await prisma.epicRequest.create({
@@ -367,7 +367,7 @@ describe("listEpicRequests", () => {
 describe("createTicket", () => {
   it("happy path: ticket created, requests moved to SUBMITTED, audited", async () => {
     const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "volunteers.manage_epic");
+    await grantPermission(actor.id, "support.manage_requests");
 
     const p1 = await createPerson("Alice", { netId: "aaa001" });
     const p2 = await createPerson("Bob", { netId: "bbb001" });
@@ -401,7 +401,7 @@ describe("createTicket", () => {
 
   it("non-PENDING id in requestIds -> EpicStateError listing offending ids", async () => {
     const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "volunteers.manage_epic");
+    await grantPermission(actor.id, "support.manage_requests");
 
     const p1 = await createPerson("Alice", { netId: "aaa001" });
     const p2 = await createPerson("Bob", { netId: "bbb001" });
@@ -419,7 +419,7 @@ describe("createTicket", () => {
 
   it("unknown id in requestIds -> EpicStateError, no ticket created, valid request stays PENDING", async () => {
     const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "volunteers.manage_epic");
+    await grantPermission(actor.id, "support.manage_requests");
 
     const p1 = await createPerson("Alice", { netId: "aaa001" });
     const validReq = await prisma.epicRequest.create({
@@ -454,7 +454,7 @@ describe("createTicket", () => {
 
   it("empty requestIds array -> EpicStateError", async () => {
     const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "volunteers.manage_epic");
+    await grantPermission(actor.id, "support.manage_requests");
 
     await expect(
       createTicket(actor.id, { requestIds: [] })
@@ -469,7 +469,7 @@ describe("createTicket", () => {
 describe("setTicketServiceRequestNumber", () => {
   it("sets SR number and audits ticket_sr", async () => {
     const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "volunteers.manage_epic");
+    await grantPermission(actor.id, "support.manage_requests");
 
     const target = await createPerson("Alice", { netId: "aaa001" });
     const req = await prisma.epicRequest.create({
@@ -490,7 +490,7 @@ describe("setTicketServiceRequestNumber", () => {
 
   it("ticket not found -> EpicNotFoundError", async () => {
     const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "volunteers.manage_epic");
+    await grantPermission(actor.id, "support.manage_requests");
 
     await expect(
       setTicketServiceRequestNumber(actor.id, "cld_nonexistent", "SR-0001")
@@ -509,7 +509,7 @@ describe("setTicketServiceRequestNumber", () => {
 describe("closeTicket", () => {
   it("sets status CLOSED + closedAt and audits ticket_close", async () => {
     const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "volunteers.manage_epic");
+    await grantPermission(actor.id, "support.manage_requests");
 
     const target = await createPerson("Alice", { netId: "aaa001" });
     const req = await prisma.epicRequest.create({
@@ -531,7 +531,7 @@ describe("closeTicket", () => {
 
   it("already-closed ticket -> EpicStateError", async () => {
     const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "volunteers.manage_epic");
+    await grantPermission(actor.id, "support.manage_requests");
 
     const target = await createPerson("Alice", { netId: "aaa001" });
     const req = await prisma.epicRequest.create({
@@ -545,7 +545,7 @@ describe("closeTicket", () => {
 
   it("ticket not found -> EpicNotFoundError", async () => {
     const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "volunteers.manage_epic");
+    await grantPermission(actor.id, "support.manage_requests");
 
     await expect(closeTicket(actor.id, "cld_nonexistent")).rejects.toBeInstanceOf(EpicNotFoundError);
   });
@@ -560,7 +560,7 @@ describe("closeTicket", () => {
 describe("completeRequest", () => {
   it("NEW: writes Person.epicId via updatePersonFields", async () => {
     const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "volunteers.manage_epic");
+    await grantPermission(actor.id, "support.manage_requests");
     const target = await createPerson("Alice", { netId: "aaa001" });
 
     const req = await prisma.epicRequest.create({
@@ -585,7 +585,7 @@ describe("completeRequest", () => {
 
   it("MODIFY: writes Person.epicId via updatePersonFields", async () => {
     const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "volunteers.manage_epic");
+    await grantPermission(actor.id, "support.manage_requests");
     const target = await createPerson("Alice", { netId: "aaa001", epicId: "E11111" });
 
     const req = await prisma.epicRequest.create({
@@ -600,7 +600,7 @@ describe("completeRequest", () => {
 
   it("RENEW: leaves person epicId untouched even when epicId passed", async () => {
     const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "volunteers.manage_epic");
+    await grantPermission(actor.id, "support.manage_requests");
     const target = await createPerson("Alice", { netId: "aaa001", epicId: "E33333" });
 
     const req = await prisma.epicRequest.create({
@@ -627,7 +627,7 @@ describe("completeRequest", () => {
 
   it("NEW without epicId -> EpicStateError", async () => {
     const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "volunteers.manage_epic");
+    await grantPermission(actor.id, "support.manage_requests");
     const target = await createPerson("Alice", { netId: "aaa001" });
 
     const req = await prisma.epicRequest.create({
@@ -639,7 +639,7 @@ describe("completeRequest", () => {
 
   it("NEW with blank epicId -> EpicStateError", async () => {
     const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "volunteers.manage_epic");
+    await grantPermission(actor.id, "support.manage_requests");
     const target = await createPerson("Alice", { netId: "aaa001" });
 
     const req = await prisma.epicRequest.create({
@@ -651,7 +651,7 @@ describe("completeRequest", () => {
 
   it("COMPLETED status -> EpicStateError", async () => {
     const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "volunteers.manage_epic");
+    await grantPermission(actor.id, "support.manage_requests");
     const target = await createPerson("Alice", { netId: "aaa001", epicId: "E11111" });
 
     const req = await prisma.epicRequest.create({
@@ -669,7 +669,7 @@ describe("completeRequest", () => {
 
   it("CANCELLED status -> EpicStateError", async () => {
     const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "volunteers.manage_epic");
+    await grantPermission(actor.id, "support.manage_requests");
     const target = await createPerson("Alice", { netId: "aaa001", epicId: "E11111" });
 
     const req = await prisma.epicRequest.create({
@@ -681,7 +681,7 @@ describe("completeRequest", () => {
 
   it("not found -> EpicNotFoundError", async () => {
     const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "volunteers.manage_epic");
+    await grantPermission(actor.id, "support.manage_requests");
 
     await expect(completeRequest(actor.id, "cld_nonexistent")).rejects.toBeInstanceOf(
       EpicNotFoundError
@@ -701,7 +701,7 @@ describe("completeRequest", () => {
 
   it("rejects completing a NEW request when the person is not ACTIVE", async () => {
     const manager = await createPerson("Mgr");
-    await grantPermission(manager.id, "volunteers.manage_epic");
+    await grantPermission(manager.id, "support.manage_requests");
     const person = await createPerson("Leaver", { status: "OFFBOARDED" });
     const req = await prisma.epicRequest.create({
       data: { personId: person.id, kind: "NEW", status: "SUBMITTED", requestedById: manager.id },
@@ -715,7 +715,7 @@ describe("completeRequest", () => {
 
   it("rejects completing a RENEW request when the person is not ACTIVE", async () => {
     const manager = await createPerson("Mgr");
-    await grantPermission(manager.id, "volunteers.manage_epic");
+    await grantPermission(manager.id, "support.manage_requests");
     const person = await createPerson("Leaver", { epicId: "E123", status: "OFFBOARDED" });
     const req = await prisma.epicRequest.create({
       data: { personId: person.id, kind: "RENEW", status: "SUBMITTED", requestedById: manager.id },
@@ -729,7 +729,7 @@ describe("completeRequest", () => {
 
   it("completes a DEACTIVATE request for an OFFBOARDED person without clearing epicId", async () => {
     const manager = await createPerson("Mgr");
-    await grantPermission(manager.id, "volunteers.manage_epic");
+    await grantPermission(manager.id, "support.manage_requests");
     const person = await createPerson("Leaver", { epicId: "E123", status: "OFFBOARDED" });
     const req = await prisma.epicRequest.create({
       data: { personId: person.id, kind: "DEACTIVATE", status: "PENDING", requestedById: manager.id },
@@ -746,7 +746,7 @@ describe("completeRequest", () => {
 
   it("NEW happy path starting from SUBMITTED (request attached to a ticket)", async () => {
     const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "volunteers.manage_epic");
+    await grantPermission(actor.id, "support.manage_requests");
     const target = await createPerson("Alice", { netId: "aaa001" });
 
     const req = await prisma.epicRequest.create({
@@ -782,7 +782,7 @@ describe("completeRequest", () => {
 describe("cancelRequest", () => {
   it("appends reason to existing notes and sets CANCELLED", async () => {
     const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "volunteers.manage_epic");
+    await grantPermission(actor.id, "support.manage_requests");
     const target = await createPerson("Alice", { netId: "aaa001" });
 
     const req = await prisma.epicRequest.create({
@@ -811,7 +811,7 @@ describe("cancelRequest", () => {
 
   it("works when notes is null (no leading newline)", async () => {
     const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "volunteers.manage_epic");
+    await grantPermission(actor.id, "support.manage_requests");
     const target = await createPerson("Alice", { netId: "aaa001" });
 
     const req = await prisma.epicRequest.create({
@@ -826,7 +826,7 @@ describe("cancelRequest", () => {
 
   it("blank reason -> EpicStateError", async () => {
     const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "volunteers.manage_epic");
+    await grantPermission(actor.id, "support.manage_requests");
     const target = await createPerson("Alice", { netId: "aaa001" });
 
     const req = await prisma.epicRequest.create({
@@ -852,7 +852,7 @@ describe("cancelRequest", () => {
 
   it("not found -> EpicNotFoundError", async () => {
     const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "volunteers.manage_epic");
+    await grantPermission(actor.id, "support.manage_requests");
 
     await expect(cancelRequest(actor.id, "cld_nonexistent", "reason")).rejects.toBeInstanceOf(
       EpicNotFoundError
@@ -863,7 +863,7 @@ describe("cancelRequest", () => {
 describe("sendEpicEmail", () => {
   it("queues EmailLog row with right template/to/personId/triggeredById", async () => {
     const actor = await createPerson("Manager", { netId: "mgr001", contactEmail: "mgr@yale.edu" });
-    await grantPermission(actor.id, "volunteers.manage_epic");
+    await grantPermission(actor.id, "support.manage_requests");
     const target = await createPerson("Alice", { netId: "aaa001", contactEmail: "alice@yale.edu" });
 
     const req = await prisma.epicRequest.create({
@@ -890,7 +890,7 @@ describe("sendEpicEmail", () => {
 
   it("includes departmentNames from ACTIVE memberships in ACTIVE term", async () => {
     const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "volunteers.manage_epic");
+    await grantPermission(actor.id, "support.manage_requests");
     const target = await createPerson("Alice", { netId: "aaa001", contactEmail: "alice@yale.edu" });
 
     const term = await createTerm();
@@ -909,7 +909,7 @@ describe("sendEpicEmail", () => {
 
   it("no contactEmail -> EpicStateError", async () => {
     const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "volunteers.manage_epic");
+    await grantPermission(actor.id, "support.manage_requests");
     const target = await createPerson("Alice", { netId: "aaa001" }); // no contactEmail
 
     const req = await prisma.epicRequest.create({
@@ -936,7 +936,7 @@ describe("sendEpicEmail", () => {
 
   it("request not found -> EpicNotFoundError", async () => {
     const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "volunteers.manage_epic");
+    await grantPermission(actor.id, "support.manage_requests");
 
     await expect(sendEpicEmail(actor.id, "cld_nonexistent", "epic-onboarding")).rejects.toBeInstanceOf(
       EpicNotFoundError
@@ -946,7 +946,7 @@ describe("sendEpicEmail", () => {
   it("queues a Teams message when the EPIC type routes to teams", async () => {
     vi.spyOn(channel, "resolveChannel").mockResolvedValue("teams");
     const actor = await createPerson("Manager", { netId: "mgr001", contactEmail: "mgr@yale.edu" });
-    await grantPermission(actor.id, "volunteers.manage_epic");
+    await grantPermission(actor.id, "support.manage_requests");
     const target = await createPerson("Alice", { netId: "aaa001", contactEmail: "alice@yale.edu" });
     await prisma.person.update({ where: { id: target.id }, data: { entraObjectId: "e-epic" } });
 
@@ -1068,7 +1068,7 @@ describe("emailHistory", () => {
 describe("updateRequestDetails", () => {
   it("happy path: sets both jobTitle and mirrorEpicId; audit row exists with before/after", async () => {
     const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "volunteers.manage_epic");
+    await grantPermission(actor.id, "support.manage_requests");
     const target = await createPerson("Alice", { netId: "aaa001" });
 
     const req = await prisma.epicRequest.create({
@@ -1099,7 +1099,7 @@ describe("updateRequestDetails", () => {
 
   it("partial update: only jobTitle; mirrorEpicId untouched", async () => {
     const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "volunteers.manage_epic");
+    await grantPermission(actor.id, "support.manage_requests");
     const target = await createPerson("Alice", { netId: "aaa001" });
 
     const req = await prisma.epicRequest.create({
@@ -1121,7 +1121,7 @@ describe("updateRequestDetails", () => {
 
   it("clearing with null clears the field", async () => {
     const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "volunteers.manage_epic");
+    await grantPermission(actor.id, "support.manage_requests");
     const target = await createPerson("Alice", { netId: "aaa001" });
 
     const req = await prisma.epicRequest.create({
@@ -1144,7 +1144,7 @@ describe("updateRequestDetails", () => {
 
   it("clearing with empty string clears the field (treated as null)", async () => {
     const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "volunteers.manage_epic");
+    await grantPermission(actor.id, "support.manage_requests");
     const target = await createPerson("Alice", { netId: "aaa001" });
 
     const req = await prisma.epicRequest.create({
@@ -1180,7 +1180,7 @@ describe("updateRequestDetails", () => {
 
   it("not found -> EpicNotFoundError", async () => {
     const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "volunteers.manage_epic");
+    await grantPermission(actor.id, "support.manage_requests");
 
     await expect(
       updateRequestDetails(actor.id, "cld_nonexistent", { jobTitle: "Title" })
@@ -1189,7 +1189,7 @@ describe("updateRequestDetails", () => {
 
   it("COMPLETED request rejected -> EpicStateError", async () => {
     const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "volunteers.manage_epic");
+    await grantPermission(actor.id, "support.manage_requests");
     const target = await createPerson("Alice", { netId: "aaa001", epicId: "E11111" });
 
     const req = await prisma.epicRequest.create({
@@ -1209,7 +1209,7 @@ describe("updateRequestDetails", () => {
 
   it("SUBMITTED (open) request is accepted", async () => {
     const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "volunteers.manage_epic");
+    await grantPermission(actor.id, "support.manage_requests");
     const target = await createPerson("Alice", { netId: "aaa001" });
 
     const req = await prisma.epicRequest.create({
@@ -1228,7 +1228,7 @@ describe("updateRequestDetails", () => {
 describe("listTickets", () => {
   it("returns OPEN tickets first then CLOSED, includes request count", async () => {
     const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "volunteers.manage_epic");
+    await grantPermission(actor.id, "support.manage_requests");
 
     const p1 = await createPerson("Alice", { netId: "aaa001" });
     const p2 = await createPerson("Bob", { netId: "bbb001" });

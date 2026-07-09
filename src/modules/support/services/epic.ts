@@ -1,22 +1,22 @@
 /**
- * Volunteers module epic request service.
+ * Support module epic request service.
  *
  * Permission model:
  *   ENFORCED internally (call-site cannot bypass):
- *     createEpicRequest      - self OR volunteers.manage_epic
- *     createTicket           - volunteers.manage_epic
- *     setTicketServiceRequestNumber - volunteers.manage_epic
- *     closeTicket            - volunteers.manage_epic
- *     completeRequest        - volunteers.manage_epic
- *     cancelRequest          - volunteers.manage_epic
- *     sendEpicEmail          - volunteers.manage_epic
- *     updateRequestDetails   - volunteers.manage_epic (manager-only)
+ *     createEpicRequest      - self OR support.manage_requests
+ *     createTicket           - support.manage_requests
+ *     setTicketServiceRequestNumber - support.manage_requests
+ *     closeTicket            - support.manage_requests
+ *     completeRequest        - support.manage_requests
+ *     cancelRequest          - support.manage_requests
+ *     sendEpicEmail          - support.manage_requests
+ *     updateRequestDetails   - support.manage_requests (manager-only)
  *
  *   TRUSTED callers (page/server-action gates):
  *     myEpicPanel        - caller gates to the authenticated person
- *     listEpicRequests   - caller gates to manage_epic holders
- *     listTickets        - caller gates to manage_epic holders
- *     emailHistory       - caller gates to manage_epic holders
+ *     listEpicRequests   - caller gates to support.manage_requests holders
+ *     listTickets        - caller gates to support.manage_requests holders
+ *     emailHistory       - caller gates to support.manage_requests holders
  *
  * updatePersonFields (from @/platform/people) is used for all epicId writes:
  * it diffs and audits person.update. Do not duplicate that logic here.
@@ -103,8 +103,8 @@ export type TicketRow = YnhhTicket & {
 // ---------------------------------------------------------------------------
 
 async function requireManageEpic(actorPersonId: string): Promise<void> {
-  if (!(await can(actorPersonId, "volunteers.manage_epic"))) {
-    throw new EpicForbiddenError("volunteers.manage_epic is required.");
+  if (!(await can(actorPersonId, "support.manage_requests"))) {
+    throw new EpicForbiddenError("support.manage_requests is required.");
   }
 }
 
@@ -112,7 +112,7 @@ async function requireManageEpic(actorPersonId: string): Promise<void> {
  * Creates an epic request.
  *
  * Self-service (actorPersonId === input.personId) is always permitted.
- * Creating for someone else requires volunteers.manage_epic.
+ * Creating for someone else requires support.manage_requests.
  *
  * Validates:
  *   - Target person exists (EpicNotFoundError).
@@ -132,7 +132,7 @@ export async function createEpicRequest(
   input: EpicRequestInput
 ): Promise<EpicRequest> {
   const isSelf = actorPersonId === input.personId;
-  if (!isSelf && !(await can(actorPersonId, "volunteers.manage_epic"))) {
+  if (!isSelf && !(await can(actorPersonId, "support.manage_requests"))) {
     throw new EpicForbiddenError("You can only submit an epic request for yourself.");
   }
 
@@ -218,7 +218,7 @@ export async function myEpicPanel(
  *
  * counts is a groupBy across ALL requests regardless of the status filter.
  *
- * Trusts callers: the page gates this to manage_epic holders.
+ * Trusts callers: the page gates this to support.manage_requests holders.
  */
 export async function listEpicRequests(q: {
   status?: EpicRequestStatus;
@@ -269,7 +269,7 @@ export async function listEpicRequests(q: {
  * Creates a YnhhTicket and moves all listed requests to SUBMITTED in one
  * transaction.
  *
- * Requires volunteers.manage_epic. All requestIds must be PENDING; any that
+ * Requires support.manage_requests. All requestIds must be PENDING; any that
  * are not cause EpicStateError listing the offending ids. requestIds must be
  * non-empty.
  *
@@ -336,7 +336,7 @@ export async function createTicket(
 /**
  * Sets the serviceRequestNumber on a ticket.
  *
- * Requires volunteers.manage_epic. Ticket must exist (EpicNotFoundError).
+ * Requires support.manage_requests. Ticket must exist (EpicNotFoundError).
  * Audits "epic.ticket_sr".
  */
 export async function setTicketServiceRequestNumber(
@@ -367,7 +367,7 @@ export async function setTicketServiceRequestNumber(
  * Closes a ticket. Ticket must exist (EpicNotFoundError) and be OPEN
  * (EpicStateError if already CLOSED).
  *
- * Requires volunteers.manage_epic. Audits "epic.ticket_close".
+ * Requires support.manage_requests. Audits "epic.ticket_close".
  */
 export async function closeTicket(actorPersonId: string, ticketId: string): Promise<void> {
   await requireManageEpic(actorPersonId);
@@ -396,7 +396,7 @@ export async function closeTicket(actorPersonId: string, ticketId: string): Prom
  * Returns all tickets: OPEN first then CLOSED, each newest-submittedAt first
  * within the group. Includes request count and submittedBy name.
  *
- * Trusts callers: the page gates this to manage_epic holders.
+ * Trusts callers: the page gates this to support.manage_requests holders.
  */
 export async function listTickets(): Promise<TicketRow[]> {
   const [open, closed] = await Promise.all([
@@ -424,7 +424,7 @@ export async function listTickets(): Promise<TicketRow[]> {
 /**
  * Completes an epic request.
  *
- * Requires volunteers.manage_epic. Request must exist (EpicNotFoundError) and
+ * Requires support.manage_requests. Request must exist (EpicNotFoundError) and
  * be PENDING or SUBMITTED (EpicStateError otherwise).
  *
  * For kind NEW or MODIFY an epicId argument is REQUIRED (EpicStateError when
@@ -519,7 +519,7 @@ export async function completeRequest(
  * Cancels an epic request. Request must exist (EpicNotFoundError) and be
  * PENDING or SUBMITTED (EpicStateError otherwise).
  *
- * Requires volunteers.manage_epic. reason must be non-blank (EpicStateError).
+ * Requires support.manage_requests. reason must be non-blank (EpicStateError).
  *
  * Existing notes are preserved; "Cancelled: <reason>" is appended on a new
  * line (or set directly when notes is null).
@@ -566,7 +566,7 @@ export async function cancelRequest(
 /**
  * Sends (queues) an email for an epic request.
  *
- * Requires volunteers.manage_epic. Request and person must exist
+ * Requires support.manage_requests. Request and person must exist
  * (EpicNotFoundError). Person must have a contactEmail (EpicStateError).
  *
  * Builds params including departmentNames from the person's ACTIVE memberships
@@ -661,7 +661,7 @@ export async function sendEpicEmail(
 /**
  * Updates jobTitle and/or mirrorEpicId on an open epic request.
  *
- * Requires volunteers.manage_epic (EpicForbiddenError). Request must exist
+ * Requires support.manage_requests (EpicForbiddenError). Request must exist
  * (EpicNotFoundError) and be PENDING or SUBMITTED (EpicStateError otherwise).
  *
  * Only keys present in input are written; undefined means "leave untouched".
@@ -724,7 +724,7 @@ export async function updateRequestDetails(
  * Only rows whose template is an epic template key are included. Non-epic
  * template rows are silently excluded.
  *
- * Trusts callers: the page gates this to manage_epic holders.
+ * Trusts callers: the page gates this to support.manage_requests holders.
  */
 export async function emailHistory(personIds: string[]): Promise<Map<string, EmailLog[]>> {
   if (personIds.length === 0) return new Map();

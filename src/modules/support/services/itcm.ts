@@ -12,7 +12,7 @@
  *     used to build the spreadsheet rows for bulk requests.
  *
  * Permission checks are NOT this service's concern; the page gates via
- * requirePermission("admin.access"). Services trust their callers.
+ * requirePermission("support.manage_requests"). Services trust their callers.
  */
 
 import type { Person, Department } from "@prisma/client";
@@ -376,7 +376,7 @@ export async function listPendingDeactivations(): Promise<PendingDeactivation[]>
  * create a SUBMITTED DEACTIVATE request attached to the ticket (supports an
  * ad-hoc deactivation for someone who was not auto-queued).
  *
- * Trusts its caller for permissions: the generate route gates on admin.access.
+ * Trusts its caller for permissions: the generate route gates on support.manage_requests.
  */
 export async function reconcileDeactivationRequests(
   actorPersonId: string,

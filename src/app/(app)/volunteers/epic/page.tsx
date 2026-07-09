@@ -1,7 +1,7 @@
 /**
  * Epic request queue page for Volunteer Management.
  *
- * Access: requirePermission("volunteers.manage_epic").
+ * Access: requirePermission("support.manage_requests").
  * The volunteers layout already gates on volunteers.view.
  *
  * NOTE on nested forms: HTML forbids nesting <form> elements. Per-row
@@ -44,7 +44,7 @@ import {
   EpicForbiddenError,
   EpicNotFoundError,
   EpicStateError,
-} from "@/modules/volunteers/services/epic";
+} from "@/modules/support/services/epic";
 import type { EpicRequestStatus, EpicRequestKind, EmailLog } from "@prisma/client";
 import type { EpicTemplateKey } from "@/platform/email/templates/epic";
 import { revalidatePath } from "next/cache";
@@ -100,7 +100,7 @@ type PageProps = {
 // ---------------------------------------------------------------------------
 
 export default async function EpicQueuePage({ searchParams }: PageProps) {
-  await requirePermission("volunteers.manage_epic");
+  await requirePermission("support.manage_requests");
   const sp = await searchParams;
 
   const rawStatus = sp.status;
@@ -137,12 +137,12 @@ export default async function EpicQueuePage({ searchParams }: PageProps) {
   }
 
   // ---------------------------------------------------------------------------
-  // Server actions - all re-check volunteers.manage_epic
+  // Server actions - all re-check support.manage_requests
   // ---------------------------------------------------------------------------
 
   async function newRequestAction(formData: FormData) {
     "use server";
-    const actor = await requirePermission("volunteers.manage_epic");
+    const actor = await requirePermission("support.manage_requests");
     const personKey = (formData.get("personKey") as string | null)?.trim() ?? "";
     const kind = (formData.get("kind") as string | null) ?? "";
     const jobTitle = (formData.get("jobTitle") as string | null) || null;
@@ -195,7 +195,7 @@ export default async function EpicQueuePage({ searchParams }: PageProps) {
 
   async function completeRequestAction(formData: FormData) {
     "use server";
-    const actor = await requirePermission("volunteers.manage_epic");
+    const actor = await requirePermission("support.manage_requests");
     const requestId = (formData.get("requestId") as string | null) ?? "";
     const epicId = (formData.get("epicId") as string | null) || undefined;
     try {
@@ -217,7 +217,7 @@ export default async function EpicQueuePage({ searchParams }: PageProps) {
 
   async function cancelRequestAction(formData: FormData) {
     "use server";
-    const actor = await requirePermission("volunteers.manage_epic");
+    const actor = await requirePermission("support.manage_requests");
     const requestId = (formData.get("requestId") as string | null) ?? "";
     const reason = (formData.get("reason") as string | null) ?? "";
     try {
@@ -239,7 +239,7 @@ export default async function EpicQueuePage({ searchParams }: PageProps) {
 
   async function sendEmailAction(formData: FormData) {
     "use server";
-    const actor = await requirePermission("volunteers.manage_epic");
+    const actor = await requirePermission("support.manage_requests");
     const requestId = (formData.get("requestId") as string | null) ?? "";
     const template = (formData.get("template") as string | null) ?? "";
     const validTemplates: EpicTemplateKey[] = [
@@ -269,7 +269,7 @@ export default async function EpicQueuePage({ searchParams }: PageProps) {
 
   async function createTicketAction(formData: FormData) {
     "use server";
-    const actor = await requirePermission("volunteers.manage_epic");
+    const actor = await requirePermission("support.manage_requests");
     const requestIds = formData.getAll("requestIds") as string[];
     const description = (formData.get("description") as string | null) || null;
     if (requestIds.length === 0) {
@@ -292,7 +292,7 @@ export default async function EpicQueuePage({ searchParams }: PageProps) {
 
   async function setSrNumberAction(formData: FormData) {
     "use server";
-    const actor = await requirePermission("volunteers.manage_epic");
+    const actor = await requirePermission("support.manage_requests");
     const ticketId = (formData.get("ticketId") as string | null) ?? "";
     const srNumber = (formData.get("srNumber") as string | null) ?? "";
     try {
@@ -311,7 +311,7 @@ export default async function EpicQueuePage({ searchParams }: PageProps) {
 
   async function closeTicketAction(formData: FormData) {
     "use server";
-    const actor = await requirePermission("volunteers.manage_epic");
+    const actor = await requirePermission("support.manage_requests");
     const ticketId = (formData.get("ticketId") as string | null) ?? "";
     try {
       await closeTicket(actor.personId, ticketId);
@@ -332,7 +332,7 @@ export default async function EpicQueuePage({ searchParams }: PageProps) {
 
   async function updateDetailsAction(formData: FormData) {
     "use server";
-    const actor = await requirePermission("volunteers.manage_epic");
+    const actor = await requirePermission("support.manage_requests");
     const requestId = (formData.get("requestId") as string | null) ?? "";
     const jobTitle = (formData.get("jobTitle") as string | null) ?? "";
     const mirrorEpicId = (formData.get("mirrorEpicId") as string | null) ?? "";

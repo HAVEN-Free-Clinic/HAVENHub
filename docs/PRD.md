@@ -653,8 +653,8 @@ admin setting.
   - `/api/cron/nightly`: nightly compliance recomputation across all people.
   - `/api/cron/reminders`: daily HIPAA reminder enqueue (drained by the email
     job, never directly, to avoid double-sending).
-  - `/api/cron/recruitment-drafts`: daily abandoned-draft sweep (registered in
-    `vercel.json` at 04:00, scoped to closed cycles).
+  - `/api/cron/recruitment-drafts`: daily abandoned-draft sweep (scheduled
+    externally via cron-job.org at 04:00 UTC, scoped to closed cycles).
 - **Health:** a `/api/health` endpoint reports service health.
 - **Worktree and migration hygiene:** the repository uses git worktrees for
   parallel work; system-role and other seed-backed changes need a backfill

@@ -6,19 +6,15 @@ triggered on a schedule by hitting its path with `Authorization: Bearer
 $CRON_SECRET`. The worker has been removed, so these routes are the only place
 the queues are drained.
 
-There are **two** trigger mechanisms, and most jobs use the external one:
+All jobs are driven by a single **external scheduler
+([cron-job.org](https://cron-job.org), free).** Vercel only executes `vercel.json`
+crons on a sufficiently-provisioned paid plan (on the Pro trial they register but
+never fire, see commit `7be5efd`), so every job is scheduled externally to stay
+plan-independent and free. `vercel.json` carries **no** `crons` array.
 
-- **External scheduler ([cron-job.org](https://cron-job.org), free):** drives the
-  per-minute email tick and the daily compliance reminders. Vercel only executes
-  `vercel.json` crons on a sufficiently-provisioned paid plan (on the Pro trial
-  they register but never fire, see commit `7be5efd`), so these are scheduled
-  externally to stay plan-independent and free.
-- **Vercel Cron (`vercel.json`):** drives only the recruitment-draft sweep.
-
-Because this split is invisible from `vercel.json` alone (it lists just one job),
-**this file is the source of truth for what must be scheduled.** If an external
-schedule is dropped on re-provision, the job below silently stops running with no
-in-repo error.
+Because nothing is visible from `vercel.json`, **this file is the source of truth
+for what must be scheduled.** If an external schedule is dropped on re-provision,
+the job below silently stops running with no in-repo error.
 
 ## The jobs
 
@@ -26,7 +22,7 @@ in-repo error.
 | --- | --- | --- | --- | --- | --- |
 | `/api/cron/email` | External (cron-job.org) | every minute | `* * * * *` | Dispatches due campaigns, then drains the email + Teams notification queues. The **sole** drainer. | Queued email and Teams notifications never send. |
 | `/api/cron/reminders` | External (cron-job.org) | daily | `0 13 * * *` | Enqueues HIPAA compliance reminders and director escalations (delivery happens on the email tick). | HIPAA reminders and director escalations are never enqueued. |
-| `/api/cron/recruitment-drafts` | Vercel Cron (`vercel.json`) | daily | `0 4 * * *` | Sweeps abandoned onboarding drafts older than 30 days. | Stale draft rows accumulate. |
+| `/api/cron/recruitment-drafts` | External (cron-job.org) | daily | `0 4 * * *` | Sweeps abandoned onboarding drafts older than 30 days. | Stale draft rows accumulate. |
 
 Notes:
 
@@ -36,10 +32,9 @@ Notes:
   email, it never drains it.
 - `reminders` is deliberately split from email delivery: its enqueued mail is
   delivered by the per-minute email tick within ~60s.
-- `recruitment-drafts` is the only job left as a Vercel Cron. If Vercel is not
-  firing crons on the current plan, it can be moved to the external scheduler
-  like the others (point cron-job.org at the path daily and drop it from the
-  `crons` array in `vercel.json`).
+- `recruitment-drafts` used to be a Vercel Cron but was moved to the external
+  scheduler for the same reason as the others (Vercel does not fire `vercel.json`
+  crons on the current plan). `vercel.json` no longer declares any crons.
 
 ## Authorization
 

@@ -64,13 +64,18 @@ Note: rewrite preserves the browser URL (stays pretty); pass-through means
 
 ### 2. Single source of truth for the portal origin
 
-- `config.ts`: add `PORTAL_BASE_URL: z.string().optional()` (e.g. `https://apply.havenfreeclinic.org`).
-- `settings/registry.ts`: add a `portal.baseUrl` setting mirroring `app.baseUrl`, `envDefault: () => config.PORTAL_BASE_URL ?? config.APP_BASE_URL`. Falling back to `app.baseUrl` means links keep working (on the hub) until the env is set.
-- Helper (e.g. `src/modules/recruitment/services/portal-url.ts`): `portalUrl(slug?)` -> `${portalBase}/${slug ?? ""}` using the `portal.baseUrl` setting. Used for canonical/shared links from server components (DB available).
+The portal origin is deploy/DNS configuration and the proxy layer cannot read
+the DB, so it lives in **one env var**, not a settings row.
+
+- `config.ts`: add `PORTAL_BASE_URL: z.string().url().optional()` (e.g. `https://apply.havenfreeclinic.org`). No `settings/registry.ts` change.
+- Pure helper `buildPortalUrl(portalBase: string | undefined, appBase: string, slug?): string`:
+  - When `portalBase` is set (portal live): pretty form `${portalBase}/${slug}` (proxy rewrites `/slug` -> `/apply/slug`), or `${portalBase}` with no slug.
+  - When `portalBase` is unset (pre-launch fallback): `${appBase}/apply/${slug}` (the working hub path), or `${appBase}/apply`.
+- Async wrapper `portalUrl(slug?): Promise<string>` reads `config.PORTAL_BASE_URL` and the `app.baseUrl` setting, then calls `buildPortalUrl`. Used for canonical/shared links from server components.
 
 ### 3. Auth stays self-contained on the subdomain
 
-- Magic link: in `portal-auth.ts`, build the verify URL from the **incoming request origin** (derive from `next/headers` `host` + `x-forwarded-proto`) instead of `app.baseUrl`. Fallback to `portal.baseUrl` then `app.baseUrl` when no request context. Rationale: the applicant cookie must be set on the host the applicant is actually using, so the link must target that same host. On the subdomain the link is `https://apply.havenfreeclinic.org/apply/verify?...` and the cookie lands on the subdomain. Host is trustworthy behind Vercel (consistent with `trustHost: true`).
+- Magic link: in `portal-auth.ts`, pick the email base URL by **matching the request host against known hosts**, never by interpolating the raw `Host` (which `config.ts`/`portal-auth.ts` deliberately treat as attacker-controllable). Pure helper `pickPortalEmailBase(requestHost, portalBase, appBase)`: if `requestHost` equals the host of `portalBase`, return `portalBase`; otherwise return `appBase`. The result is always one of two trusted, configured values. The verify URL keeps its `/apply/verify` path (`${base}/apply/verify?...`), so on the subdomain it is `https://apply.havenfreeclinic.org/apply/verify?...` and its cookie lands on the subdomain. Rationale: the applicant cookie must be set on the host the applicant is using, and this selects the subdomain base only when the applicant is verifiably on the subdomain, without ever trusting the header's contents.
 - Yale SSO: the portal's existing relative `/login?callbackUrl=/apply/<slug>...` links pass through on the subdomain. Entra returns to `apply.../api/auth/callback/microsoft-entra-id`; the JWT session cookie is host-scoped to the subdomain; `auth()` on the subdomain reads it. `safeCallbackUrl`/`safeNextPath` already accept the relative targets used here, so no validation change is needed (everything is same-origin on the subdomain).
 
 ### 4. Guardrails
@@ -89,7 +94,7 @@ Note: rewrite preserves the browser URL (stays pretty); pass-through means
 - Slug collides with a pass-through word: prevented by slug reservation.
 - Static assets (`/brand/login-building.webp`) on the subdomain: excluded from rewrite (file-extension / `/brand` pass-through), served normally.
 - `<hub>/apply` still works everywhere (no rewrite on non-portal hosts).
-- Preview deploys: `PORTAL_BASE_URL` unset -> proxy does no host rewrite and `portal.baseUrl` falls back to `app.baseUrl`; portal remains reachable at `/apply`. Magic link uses request origin, so preview flows still work end to end.
+- Preview deploys: `PORTAL_BASE_URL` unset -> proxy does no host rewrite; `portalUrl()` falls back to `${app.baseUrl}/apply/<slug>`; the magic-link host never matches the (unset) portal host so it uses `app.baseUrl`. This is exactly today's behavior (the magic link already uses `app.baseUrl`), so no regression.
 - `AUTH_URL`/`NEXTAUTH_URL`: must not be pinned to a single host in Vercel env (rely on `trustHost`), else SSO callbacks break on the subdomain. Preflight check.
 
 ## Out-of-band steps (owner: Jack)
@@ -101,8 +106,8 @@ Note: rewrite preserves the browser URL (stays pretty); pass-through means
 ## Testing
 
 - Unit (`proxy`): on the portal host, `/` and `/<slug>` rewrite to `/apply` and `/apply/<slug>`; `/api/...`, `/login`, `/apply/...`, `/brand/x.webp`, and reserved words pass through; on a non-portal host nothing is rewritten and `x-pathname` is still stamped.
-- Unit: `portalUrl()` composes the configured base + slug; slug reservation rejects reserved words at cycle creation.
-- Unit: magic-link builder uses the request origin when present, falls back correctly when absent.
+- Unit: `buildPortalUrl()` produces the pretty form when a portal base is set and the `/apply`-prefixed hub form when it is unset; slug reservation rejects reserved words at cycle creation.
+- Unit: `pickPortalEmailBase()` returns the portal base only when the request host matches the portal host, otherwise the app base (and never interpolates an arbitrary host).
 - Manual/e2e on a preview with `PORTAL_BASE_URL` set: complete the new-applicant magic-link flow and the returning Yale-SSO flow entirely on the subdomain; confirm the copyable public link is the subdomain.
 
 ## Rollout

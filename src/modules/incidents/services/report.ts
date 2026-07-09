@@ -6,11 +6,18 @@
  * approves or declines.
  */
 
-import type { IncidentReport, PatientImpact, IssueNature, PriorOccurrence } from "@prisma/client";
+import type {
+  IncidentReport,
+  IncidentReportAttachment,
+  PatientImpact,
+  IssueNature,
+  PriorOccurrence,
+} from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { manageableDepartmentIds } from "@/platform/departments";
 import { getActiveTerm } from "@/platform/terms/active-term";
+import { can } from "@/platform/rbac/engine";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -182,4 +189,60 @@ export async function submitReport(actorPersonId: string, input: SubmitReportInp
   });
 
   return report;
+}
+
+// ---------------------------------------------------------------------------
+// Read: my reports and per-report visibility
+// ---------------------------------------------------------------------------
+
+export type ReportListRow = { report: IncidentReport; subjectName: string | null };
+
+/**
+ * A reporter's own reports, newest first.
+ */
+export async function listMyReports(actorPersonId: string): Promise<ReportListRow[]> {
+  const reports = await prisma.incidentReport.findMany({
+    where: { reporterId: actorPersonId },
+    include: { subject: { select: { name: true } } },
+    orderBy: { createdAt: "desc" },
+  });
+  return reports.map((r) => ({ report: r, subjectName: r.subject?.name ?? null }));
+}
+
+/**
+ * A single report with its subject, reporter, and attachments.
+ *
+ * Visibility: the reporter (owner) or a holder of incidents.manage; anyone
+ * else throws IncidentForbiddenError. Missing report throws IncidentNotFoundError.
+ * reviewNotes (reviewer-internal) is stripped to null for non-managers, even
+ * when they are the owner.
+ */
+export async function getReport(
+  actorPersonId: string,
+  id: string
+): Promise<{
+  report: IncidentReport & {
+    subject: { name: string } | null;
+    reporter: { name: string };
+    attachments: IncidentReportAttachment[];
+  };
+  canManage: boolean;
+}> {
+  const report = await prisma.incidentReport.findUnique({
+    where: { id },
+    include: {
+      subject: { select: { name: true } },
+      reporter: { select: { name: true } },
+      attachments: true,
+    },
+  });
+  if (!report) throw new IncidentNotFoundError();
+
+  const canManage = await can(actorPersonId, "incidents.manage");
+  const isOwner = report.reporterId === actorPersonId;
+  if (!canManage && !isOwner) throw new IncidentForbiddenError();
+
+  // Reviewer-internal notes are never returned to a non-manager, even the owner.
+  const safe = canManage ? report : { ...report, reviewNotes: null };
+  return { report: safe, canManage };
 }

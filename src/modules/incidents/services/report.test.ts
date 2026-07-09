@@ -19,6 +19,15 @@
  * canRequestStrikeAgainst(actorPersonId, subjectPersonId):
  *   - false when there is no active term.
  *   - false when the subject's membership is in a department the actor does not manage.
+ *
+ * listMyReports(actorPersonId):
+ *   - Returns only the actor's own reports, newest first.
+ *
+ * getReport(actorPersonId, id):
+ *   - Missing report -> IncidentNotFoundError.
+ *   - Non-owner without incidents.manage -> IncidentForbiddenError.
+ *   - Owner (non-manager) can read their own report, with reviewNotes stripped to null.
+ *   - A holder of incidents.manage can read any report, reviewNotes included.
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
@@ -27,9 +36,12 @@ import { resetDb } from "@/platform/test/db";
 import {
   submitReport,
   canRequestStrikeAgainst,
+  listMyReports,
+  getReport,
   CONCERN_TYPE_VALUES,
   IncidentValidationError,
   IncidentNotFoundError,
+  IncidentForbiddenError,
 } from "./report";
 
 // ---------------------------------------------------------------------------
@@ -73,6 +85,17 @@ async function createMembership(
   return prisma.termMembership.create({
     data: { personId, termId, departmentId, kind, status },
   });
+}
+
+async function grantPermission(personId: string, permission: string) {
+  const role = await prisma.role.create({
+    data: {
+      name: `Role-${permission}-${Date.now()}-${Math.random()}`,
+      isSystem: false,
+      grants: { create: [{ permission }] },
+    },
+  });
+  await prisma.roleAssignment.create({ data: { roleId: role.id, personId, termId: null } });
 }
 
 beforeEach(resetDb);
@@ -292,5 +315,114 @@ describe("canRequestStrikeAgainst", () => {
     await createMembership(subject.id, term.id, dept.id, "VOLUNTEER");
 
     expect(await canRequestStrikeAgainst(director.id, subject.id)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// listMyReports
+// ---------------------------------------------------------------------------
+
+describe("listMyReports", () => {
+  it("returns only the actor's own reports, newest first", async () => {
+    const a = await createPerson("A", "a001");
+    const b = await createPerson("B", "b001");
+
+    const first = await submitReport(a.id, { concernTypes: ["OTHER"], description: "first" });
+    await submitReport(b.id, { concernTypes: ["OTHER"], description: "other-person" });
+    const second = await submitReport(a.id, { concernTypes: ["OTHER"], description: "second" });
+
+    const rows = await listMyReports(a.id);
+
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.report.id)).toEqual([second.id, first.id]);
+    expect(rows[0].report.description).toBe("second");
+    expect(rows[1].report.description).toBe("first");
+  });
+
+  it("includes the subject's name when the report names a subject", async () => {
+    const reporter = await createPerson("Reporter", "rep011");
+    const subject = await createPerson("Subject Person", "sub003");
+
+    await submitReport(reporter.id, {
+      concernTypes: ["OTHER"],
+      description: "with subject",
+      subjectPersonId: subject.id,
+    });
+
+    const rows = await listMyReports(reporter.id);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].subjectName).toBe("Subject Person");
+  });
+
+  it("returns an empty list when the actor has filed nothing", async () => {
+    const a = await createPerson("NoReports", "nr001");
+
+    expect(await listMyReports(a.id)).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getReport
+// ---------------------------------------------------------------------------
+
+describe("getReport", () => {
+  it("throws IncidentNotFoundError for a missing report", async () => {
+    const someone = await createPerson("Someone", "some001");
+
+    await expect(getReport(someone.id, "nonexistent-report-id")).rejects.toBeInstanceOf(
+      IncidentNotFoundError
+    );
+  });
+
+  it("forbids a non-owner without incidents.manage", async () => {
+    const a = await createPerson("A", "a002");
+    const stranger = await createPerson("S", "s001");
+    const r = await submitReport(a.id, { concernTypes: ["OTHER"], description: "secret" });
+
+    await expect(getReport(stranger.id, r.id)).rejects.toBeInstanceOf(IncidentForbiddenError);
+  });
+
+  it("allows the owner to read their own report, with reviewNotes stripped to null", async () => {
+    const reporter = await createPerson("Reporter", "rep012");
+    const subject = await createPerson("Subject", "sub004");
+    const r = await submitReport(reporter.id, {
+      concernTypes: ["OTHER"],
+      description: "owner-visible",
+      subjectPersonId: subject.id,
+    });
+    await prisma.incidentReport.update({
+      where: { id: r.id },
+      data: { reviewNotes: "internal reviewer notes" },
+    });
+
+    const { report, canManage } = await getReport(reporter.id, r.id);
+
+    expect(canManage).toBe(false);
+    expect(report.id).toBe(r.id);
+    expect(report.reviewNotes).toBeNull();
+    expect(report.reporter.name).toBe("Reporter");
+    expect(report.subject?.name).toBe("Subject");
+    expect(report.attachments).toEqual([]);
+  });
+
+  it("allows a holder of incidents.manage to read any report, including reviewNotes", async () => {
+    const reporter = await createPerson("Reporter", "rep013");
+    const manager = await createPerson("Manager", "mgr001");
+    await grantPermission(manager.id, "incidents.manage");
+    const r = await submitReport(reporter.id, {
+      concernTypes: ["OTHER"],
+      description: "manager-visible",
+    });
+    await prisma.incidentReport.update({
+      where: { id: r.id },
+      data: { reviewNotes: "internal reviewer notes" },
+    });
+
+    const { report, canManage } = await getReport(manager.id, r.id);
+
+    expect(canManage).toBe(true);
+    expect(report.id).toBe(r.id);
+    expect(report.reviewNotes).toBe("internal reviewer notes");
   });
 });

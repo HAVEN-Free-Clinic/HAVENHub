@@ -15,6 +15,10 @@
  *   - an attachments seam (Task 7: TechRequestAttachment list + upload)
  * Each seam below is a no-op today (renders nothing) - a later task fills it
  * in without touching the header/description/resolution above it.
+ *
+ * Task 6 fills the comment thread seam: `comments` + `commentAction` are
+ * optional so this component still renders (with that seam empty) for any
+ * caller that has not been updated yet.
  */
 
 import { PageHeader } from "@/platform/ui/page-header";
@@ -22,16 +26,29 @@ import { Card } from "@/platform/ui/card";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { fmtDate } from "@/platform/dates";
 import { SupportStatusBadge } from "./status-badge";
+import { CommentThread } from "./comment-thread";
 import { CATEGORY_LABELS } from "@/modules/support/labels";
 import type { TechRequestDetail } from "../services/tech-request";
+import type { CommentRow } from "../services/comments";
 
 type TicketDetailProps = {
   detail: TechRequestDetail;
   /** True when the caller holds support.manage_requests. Gates manager-only sections. */
   canManage?: boolean;
+  /** The ticket's comments, already visibility-filtered by listComments. */
+  comments?: CommentRow[];
+  /** Server action that posts a reply/note via addComment + notifyCommentAdded. */
+  commentAction?: (formData: FormData) => Promise<void>;
+  commentError?: string;
 };
 
-export function TicketDetail({ detail, canManage = false }: TicketDetailProps) {
+export function TicketDetail({
+  detail,
+  canManage = false,
+  comments,
+  commentAction,
+  commentError,
+}: TicketDetailProps) {
   return (
     <div className="space-y-8">
       <PageHeader
@@ -60,7 +77,14 @@ export function TicketDetail({ detail, canManage = false }: TicketDetailProps) {
 
       {/* Manager controls seam: added in a later task */}
 
-      {/* Comment thread seam: Task 6 adds TechRequestComment history + a reply form here. */}
+      {comments && commentAction && (
+        <CommentThread
+          comments={comments}
+          canManage={canManage}
+          action={commentAction}
+          error={commentError}
+        />
+      )}
 
       {/* Attachments seam: Task 7 adds the TechRequestAttachment list + upload here. */}
     </div>

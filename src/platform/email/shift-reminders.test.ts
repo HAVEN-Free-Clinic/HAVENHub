@@ -114,4 +114,16 @@ describe("runShiftReminders", () => {
     expect(result.remindersSent).toBe(0);
     expect(await shiftEmailCount()).toBe(0);
   });
+
+  it("does nothing when the next clinic is beyond this week", async () => {
+    const target = futureClinicDate(12);
+    const term = await createTerm([target]);
+    const sctp = await createDepartment("SCTP", "Senior Primary Care");
+    const vol = await createPerson("Val Volunteer", "val@x.org");
+    await schedule(term.id, sctp.id, vol.id, target, "VOLUNTEER");
+
+    const result = await runShiftReminders(NOW);
+    expect(result.remindersSent).toBe(0);
+    expect(await shiftEmailCount()).toBe(0);
+  });
 });

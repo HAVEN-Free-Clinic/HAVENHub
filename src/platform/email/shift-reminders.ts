@@ -166,6 +166,18 @@ export async function runShiftReminders(now: Date = new Date()): Promise<ShiftRe
   // linked channel always agree.
   const targetDate = selectCurrentClinicDate(term.clinicDates, now);
   if (!targetDate) return result;
+
+  // Only remind for THIS week's clinic. selectCurrentClinicDate returns the next
+  // clinic date on or after `now` with no upper bound, so on a break week it would
+  // point at a future Saturday and, because the dedup window is shorter than the
+  // weekly cadence, re-send every Monday until that week arrives. Bail when the next
+  // clinic is more than 6 days out. Compare by UTC calendar day (clinic dates are
+  // anchored at noon UTC), never by raw timestamp.
+  const MS_PER_DAY = 24 * 60 * 60 * 1000;
+  const nowDay = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const targetDay = Date.UTC(targetDate.getUTCFullYear(), targetDate.getUTCMonth(), targetDate.getUTCDate());
+  if (Math.round((targetDay - nowDay) / MS_PER_DAY) > 6) return result;
+
   const targetKey = isoDateKey(targetDate);
 
   // Load the term's assignments and filter to the target clinic date by UTC day

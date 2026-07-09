@@ -20,6 +20,7 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { Field, Input, Textarea } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Checkbox } from "@/platform/ui/checkbox";
+import { Radio, RadioGroup } from "@/platform/ui/radio";
 import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
 import { Button } from "@/platform/ui/button";
@@ -155,14 +156,10 @@ export default async function ReportConcernPage({ searchParams }: PageProps) {
           {/* Section 6: immediate risk */}
           <fieldset>
             <legend className="mb-2 text-sm font-medium">6. Does this present an ongoing risk right now?</legend>
-            <label className="mr-4 text-sm">
-              <input type="radio" name="immediateRisk" value="yes" className="mr-1" />
-              Yes - needs urgent attention
-            </label>
-            <label className="text-sm">
-              <input type="radio" name="immediateRisk" value="no" defaultChecked className="mr-1" />
-              No - resolved or not time-sensitive
-            </label>
+            <RadioGroup>
+              <Radio name="immediateRisk" value="yes" label="Yes - needs urgent attention" />
+              <Radio name="immediateRisk" value="no" defaultChecked label="No - resolved or not time-sensitive" />
+            </RadioGroup>
           </fieldset>
 
           {/* Section 7: issue nature */}

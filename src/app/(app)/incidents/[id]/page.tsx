@@ -1,5 +1,5 @@
 /**
- * Incident report detail page (owner view).
+ * Incident report detail page (owner + reviewer view).
  *
  * Access: requirePersonSession() then getReport(personId, id), which allows
  * the reporter (owner) or a holder of incidents.manage and throws
@@ -7,13 +7,16 @@
  * and rendered as a 404 via notFound() so an unauthorized viewer cannot tell
  * a report exists from a missing one.
  *
- * This page is READ-ONLY for both audiences. reviewNotes is never rendered
- * here even for a manager (the service already nulls it for non-managers,
- * and reviewer controls/notes are Task 15's job, added to /incidents/review).
- * Attachments link to the Task 16 download route, which does not exist yet;
- * the anchor is rendered ahead of that route landing.
+ * The core fields are READ-ONLY for both audiences. When canManage (the
+ * service already strips reviewNotes to null for non-managers, even the
+ * owner), a "Reviewer controls" section renders: a status/reviewNotes form
+ * bound to reviewReportAction, and, when strikeDecision is PENDING, an
+ * approve/decline form pair bound to decideStrikeAction (Task 15). Attachments
+ * link to the Task 16 download route, which does not exist yet; the anchor is
+ * rendered ahead of that route landing.
  */
 
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requirePersonSession } from "@/platform/auth/session";
 import {
@@ -22,6 +25,8 @@ import {
   IncidentNotFoundError,
   IncidentForbiddenError,
 } from "@/modules/incidents/services/report";
+import { DISCIPLINARY_CATEGORIES } from "@/modules/incidents/services/disciplinary";
+import { reviewReportAction, decideStrikeAction } from "../actions";
 import type {
   IncidentReportStatus,
   PatientImpact,
@@ -33,6 +38,11 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
 import { Card } from "@/platform/ui/card";
 import { SectionHeader } from "@/platform/ui/section-header";
+import { Field, Textarea } from "@/platform/ui/input";
+import { Select } from "@/platform/ui/select";
+import { Button } from "@/platform/ui/button";
+import { FormActions } from "@/platform/ui/form";
+import { Alert } from "@/platform/ui/alert";
 import { fmtDate } from "@/platform/dates";
 
 // ---------------------------------------------------------------------------
@@ -84,19 +94,31 @@ const CONCERN_LABELS: Record<string, string> = Object.fromEntries(
 );
 
 // ---------------------------------------------------------------------------
+// Error codes
+// ---------------------------------------------------------------------------
+
+const ERROR_MESSAGES: Record<string, string> = {
+  forbidden: "You do not have permission for that action.",
+  "not-found": "The incident report could not be found.",
+  validation: "Please check your input and try again.",
+};
+
+// ---------------------------------------------------------------------------
 // Page props
 // ---------------------------------------------------------------------------
 
 type PageProps = {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ error?: string; message?: string }>;
 };
 
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
-export default async function IncidentReportDetailPage({ params }: PageProps) {
+export default async function IncidentReportDetailPage({ params, searchParams }: PageProps) {
   const { id } = await params;
+  const sp = await searchParams;
   const actor = await requirePersonSession();
 
   let result: Awaited<ReturnType<typeof getReport>>;
@@ -108,7 +130,17 @@ export default async function IncidentReportDetailPage({ params }: PageProps) {
     }
     throw err;
   }
-  const { report } = result;
+  const { report, canManage } = result;
+
+  const errorCode = sp.error ?? null;
+  // When error=validation the action encodes the raw message in ?message=.
+  // All other unknown codes fall back to a generic string (never expose raw
+  // encoded content that could confuse users or leak internals).
+  const errorMessage = errorCode
+    ? errorCode === "validation" && sp.message
+      ? decodeURIComponent(sp.message)
+      : (ERROR_MESSAGES[errorCode] ?? "An unexpected error occurred.")
+    : null;
 
   return (
     <div className="max-w-2xl space-y-6">
@@ -116,6 +148,8 @@ export default async function IncidentReportDetailPage({ params }: PageProps) {
         title={`Report #${report.number}`}
         action={<Badge tone={STATUS_TONES[report.status]}>{STATUS_LABELS[report.status]}</Badge>}
       />
+
+      {errorMessage && <Alert tone="error">{errorMessage}</Alert>}
 
       <Card>
         <SectionHeader>Concern</SectionHeader>
@@ -236,6 +270,91 @@ export default async function IncidentReportDetailPage({ params }: PageProps) {
               </li>
             ))}
           </ul>
+        </Card>
+      )}
+
+      {canManage && (
+        <Card>
+          <SectionHeader>Reviewer controls</SectionHeader>
+
+          <form action={reviewReportAction} className="mt-3 space-y-3">
+            <input type="hidden" name="reportId" value={report.id} />
+            <Field label="Status">
+              <Select name="status" defaultValue={report.status}>
+                {(Object.keys(STATUS_LABELS) as IncidentReportStatus[]).map((s) => (
+                  <option key={s} value={s}>
+                    {STATUS_LABELS[s]}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Reviewer notes" hint="Internal notes. Not visible to the reporter or subject.">
+              <Textarea name="reviewNotes" rows={3} defaultValue={report.reviewNotes ?? ""} />
+            </Field>
+            <FormActions>
+              <Button type="submit" variant="primary" size="sm">
+                Save status
+              </Button>
+            </FormActions>
+          </form>
+
+          {report.strikeDecision === "PENDING" && (
+            <div className="mt-6 border-t border-border-subtle pt-6">
+              <SectionHeader level="title">Strike request</SectionHeader>
+              <p className="mt-1 text-sm text-foreground-soft">
+                This report includes a pending strike request against{" "}
+                {report.subject?.name ?? "the subject"}.
+              </p>
+
+              <div className="mt-4 grid gap-6 sm:grid-cols-2">
+                <form action={decideStrikeAction} className="space-y-3">
+                  <input type="hidden" name="reportId" value={report.id} />
+                  <input type="hidden" name="approve" value="yes" />
+                  <Field label="Strike category" required>
+                    <Select name="category" required defaultValue="">
+                      <option value="">Select category...</option>
+                      {DISCIPLINARY_CATEGORIES.map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                  <Field label="Notes">
+                    <Textarea name="notes" rows={2} placeholder="Optional notes on this decision..." />
+                  </Field>
+                  <FormActions>
+                    <Button type="submit" variant="primary" size="sm">
+                      Approve strike
+                    </Button>
+                  </FormActions>
+                </form>
+
+                <form action={decideStrikeAction} className="space-y-3">
+                  <input type="hidden" name="reportId" value={report.id} />
+                  <input type="hidden" name="approve" value="no" />
+                  <Field label="Notes">
+                    <Textarea name="notes" rows={2} placeholder="Optional reason for declining..." />
+                  </Field>
+                  <FormActions>
+                    <Button type="submit" variant="outline" size="sm">
+                      Decline strike
+                    </Button>
+                  </FormActions>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {report.strikeDecision === "APPROVED" && (
+            <p className="mt-4 text-sm text-foreground-soft">
+              Strike recorded on {fmtDate(report.strikeDecidedAt)}. View it on the{" "}
+              <Link href="/incidents/strikes" className="text-brand-fg hover:underline">
+                strikes ledger
+              </Link>
+              .
+            </p>
+          )}
         </Card>
       )}
     </div>

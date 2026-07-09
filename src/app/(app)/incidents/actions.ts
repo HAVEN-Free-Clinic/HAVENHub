@@ -2,14 +2,16 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { requirePersonSession } from "@/platform/auth/session";
+import { requirePersonSession, requirePermission } from "@/platform/auth/session";
 import {
   submitReport,
+  reviewReport,
+  decideStrike,
   IncidentValidationError,
   IncidentNotFoundError,
   IncidentForbiddenError,
 } from "@/modules/incidents/services/report";
-import type { PatientImpact, IssueNature, PriorOccurrence } from "@prisma/client";
+import type { PatientImpact, IssueNature, PriorOccurrence, IncidentReportStatus } from "@prisma/client";
 
 function optEnum<T extends string>(v: FormDataEntryValue | null, allowed: readonly string[]): T | null {
   const s = typeof v === "string" ? v : "";
@@ -62,4 +64,57 @@ export async function submitReportAction(formData: FormData): Promise<void> {
   // must not be caught by the error handler above. This mirrors the disciplinary page.
   revalidatePath("/incidents/mine");
   redirect(`/incidents/mine?submitted=${number}`);
+}
+
+/**
+ * Reviewer control: sets a report's status and reviewer notes. Requires
+ * incidents.manage. On a typed error, redirects back to the report detail
+ * with an ?error= code (validation errors also carry the raw message in
+ * ?message=); a missing report bounces to the review queue instead, since
+ * there is no detail page left to return to.
+ */
+export async function reviewReportAction(formData: FormData): Promise<void> {
+  const actor = await requirePermission("incidents.manage");
+  const id = String(formData.get("reportId"));
+  try {
+    await reviewReport(actor.personId, id, {
+      status: String(formData.get("status") ?? "UNDER_REVIEW") as IncidentReportStatus,
+      reviewNotes: (String(formData.get("reviewNotes") ?? "").trim() || null),
+    });
+  } catch (err) {
+    if (err instanceof IncidentValidationError) redirect(`/incidents/${id}?error=validation&message=${encodeURIComponent(err.message)}`);
+    if (err instanceof IncidentForbiddenError) redirect(`/incidents/${id}?error=forbidden`);
+    if (err instanceof IncidentNotFoundError) redirect(`/incidents/review?error=not-found`);
+    throw err;
+  }
+  revalidatePath(`/incidents/${id}`);
+  revalidatePath("/incidents/review");
+  redirect(`/incidents/${id}`);
+}
+
+/**
+ * Reviewer control: approves or declines a report's pending strike request.
+ * Requires incidents.manage. approve is read from formData as the string
+ * "yes" (any other value, including "no" or absent, declines). Same
+ * error-redirect shape as reviewReportAction.
+ */
+export async function decideStrikeAction(formData: FormData): Promise<void> {
+  const actor = await requirePermission("incidents.manage");
+  const id = String(formData.get("reportId"));
+  try {
+    await decideStrike(actor.personId, id, {
+      approve: formData.get("approve") === "yes",
+      category: (String(formData.get("category") ?? "").trim() || undefined),
+      occurredAt: null,
+      notes: (String(formData.get("notes") ?? "").trim() || null),
+    });
+  } catch (err) {
+    if (err instanceof IncidentValidationError) redirect(`/incidents/${id}?error=validation&message=${encodeURIComponent(err.message)}`);
+    if (err instanceof IncidentForbiddenError) redirect(`/incidents/${id}?error=forbidden`);
+    if (err instanceof IncidentNotFoundError) redirect(`/incidents/review?error=not-found`);
+    throw err;
+  }
+  revalidatePath(`/incidents/${id}`);
+  revalidatePath("/incidents/review");
+  redirect(`/incidents/${id}`);
 }

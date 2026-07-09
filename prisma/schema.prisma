@@ -99,6 +99,8 @@ model Person {
   epicRequestsSubmitted     EpicRequest[]        @relation("epicRequestRequestedBy")
   /// YNHH tickets this person submitted.
   ynhhTicketsSubmitted      YnhhTicket[]         @relation("ynhhTicketSubmittedBy")
+  /// One-off YNHH incidents that concern this person.
+  ynhhTicketsAbout          YnhhTicket[]         @relation("ynhhTicketPerson")
   /// IT Support tickets this person submitted.
   techRequests         TechRequest[]           @relation("techRequestRequester")
   /// IT Support tickets assigned to this person to work.
@@ -521,14 +523,23 @@ model YnhhTicket {
   id                   String           @id @default(cuid())
   serviceRequestNumber String?
   description          String?
+  /// One-off incident subject. Set for standalone YNHH incidents logged directly (not Epic batches).
+  subject              String?
+  /// Resolution notes captured when a one-off incident is resolved.
+  resolution           String?
   status               YnhhTicketStatus @default(OPEN)
   submittedById        String
+  personId             String?
   submittedAt          DateTime         @default(now())
   closedAt             DateTime?
   /// EPIC requests grouped under this ticket.
   requests             EpicRequest[]
   /// Person who submitted the ticket to YNHH IT. Restrict: any referencing row blocks deletion of this person.
   submittedBy          Person           @relation("ynhhTicketSubmittedBy", fields: [submittedById], references: [id], onDelete: Restrict)
+  /// Optional person a one-off YNHH incident concerns. SetNull: keep the log entry if the person is deleted.
+  person               Person?          @relation("ynhhTicketPerson", fields: [personId], references: [id], onDelete: SetNull)
+  /// Files attached to a one-off YNHH incident.
+  attachments          TechRequestAttachment[]
 }
 
 enum TechRequestCategory {
@@ -628,6 +639,7 @@ model TechRequestAttachment {
   id           String   @id @default(cuid())
   requestId    String?
   commentId    String?
+  ynhhTicketId String?
   storageKey   String
   filename     String
   mimeType     String
@@ -637,11 +649,14 @@ model TechRequestAttachment {
 
   request    TechRequest?        @relation(fields: [requestId], references: [id], onDelete: Cascade)
   comment    TechRequestComment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  /// One-off YNHH incident this file is attached to (manager-only download).
+  ynhhTicket YnhhTicket?         @relation(fields: [ynhhTicketId], references: [id], onDelete: Cascade)
   /// Uploader. Restrict: keep provenance stable for audit.
   uploadedBy Person              @relation("techRequestUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
 
   @@index([requestId])
   @@index([commentId])
+  @@index([ynhhTicketId])
 }
 
 /// A formal disciplinary action recorded against a volunteer or director.

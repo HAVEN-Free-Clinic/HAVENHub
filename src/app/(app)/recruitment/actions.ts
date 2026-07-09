@@ -8,6 +8,7 @@ import {
 } from "@/modules/recruitment/services/cycles";
 import { setTrainingCycle, updateQuizSettings, TrainingStateError } from "@/modules/recruitment/services/training";
 import { RecruitmentAuthError } from "@/modules/recruitment/services/review";
+import { isReservedSlug } from "@/modules/recruitment/services/portal-routing";
 
 function slugify(input: string): string {
   return input.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
@@ -22,6 +23,9 @@ export async function createCycleAction(formData: FormData) {
   const slug = slugify(String(formData.get("publicSlug") || title));
   if (!title || !slug) {
     redirect(`/recruitment/cycles/new?error=${encodeURIComponent("Title is required.")}`);
+  }
+  if (isReservedSlug(slug)) {
+    redirect(`/recruitment/cycles/new?error=${encodeURIComponent(`"${slug}" is a reserved word. Choose a different public link.`)}`);
   }
   const cycle = await createCycle({ track, termId, title, publicSlug: slug, departments, acceptsRenewals: false, createdById: person.personId });
   redirect(`/recruitment/cycles/${cycle.id}/builder`);

@@ -6,6 +6,7 @@ import {
   MessagesSquare,
   Send,
   Settings,
+  ShieldAlert,
   Stethoscope,
   UserRoundPen,
   Users,
@@ -48,7 +49,7 @@ export const MODULES: ModuleManifest[] = [
   {
     id: "volunteers",
     title: "Volunteer Management",
-    description: "Compliance, rosters, offboarding, Epic requests, disciplinary",
+    description: "Compliance, rosters, offboarding, Epic requests",
     icon: Users,
     accessPermission: "volunteers.view",
     permissions: [
@@ -56,19 +57,31 @@ export const MODULES: ModuleManifest[] = [
       "volunteers.manage_compliance",
       "volunteers.manage_offboarding",
       "volunteers.manage_epic",
-      "volunteers.issue_disciplinary",
       "volunteers.verify_spanish",
     ],
     status: "active",
     nav: [
-      // Compliance / Offboarding / Disciplinary gate on volunteers.view (= module access).
       { label: "Compliance", href: "/volunteers" },
       { label: "Master view", href: "/volunteers/master", permission: "volunteers.manage_compliance" },
       { label: "EHS training", href: "/volunteers/ehs", permission: "volunteers.manage_compliance" },
       { label: "Spanish review", href: "/volunteers/spanish-review", permission: "volunteers.verify_spanish" },
       { label: "Offboarding", href: "/volunteers/offboarding" },
       { label: "Epic requests", href: "/volunteers/epic", permission: "volunteers.manage_epic" },
-      { label: "Disciplinary", href: "/volunteers/disciplinary" },
+    ],
+  },
+  {
+    id: "incidents",
+    title: "Incident Reports",
+    description: "Report a professional-standards concern; review reports and manage strikes",
+    icon: ShieldAlert,
+    // No accessPermission: open to any signed-in matched person so anyone can file a report.
+    permissions: ["incidents.manage", "incidents.view_strikes"],
+    status: "active",
+    nav: [
+      { label: "Report a concern", href: "/incidents" },
+      { label: "My reports", href: "/incidents/mine" },
+      { label: "Review", href: "/incidents/review", permission: "incidents.manage" },
+      { label: "Strikes", href: "/incidents/strikes", permission: "incidents.view_strikes" },
     ],
   },
   {

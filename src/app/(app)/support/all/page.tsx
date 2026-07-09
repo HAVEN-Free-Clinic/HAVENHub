@@ -16,7 +16,7 @@
 import { requirePermission } from "@/platform/auth/session";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Pagination } from "@/platform/ui/pagination";
-import { listAllRequests } from "@/modules/support/services/tech-request";
+import { listAllRequests, PAGE_SIZE } from "@/modules/support/services/tech-request";
 import { RequestList } from "@/modules/support/components/request-list";
 import {
   RequestFilters,
@@ -25,10 +25,6 @@ import {
   ALL_PRIORITIES,
 } from "@/modules/support/components/request-filters";
 import type { TechRequestStatus, TechRequestCategory, TechRequestPriority } from "@prisma/client";
-
-// Mirrors the service's private PAGE_SIZE (tech-request.ts); listAllRequests
-// doesn't return it, so it's re-stated here just to size the pager.
-const PAGE_SIZE = 25;
 
 type PageProps = {
   searchParams: Promise<{

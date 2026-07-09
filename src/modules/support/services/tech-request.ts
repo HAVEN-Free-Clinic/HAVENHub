@@ -20,7 +20,7 @@ import { recordAudit } from "@/platform/audit";
 import { can } from "@/platform/rbac/engine";
 
 export const MANAGE = "support.manage_requests";
-const PAGE_SIZE = 25;
+export const PAGE_SIZE = 25;
 
 // ---------------------------------------------------------------------------
 // Typed errors

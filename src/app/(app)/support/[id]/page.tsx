@@ -9,6 +9,7 @@ import {
   SupportNotFoundError,
   SupportForbiddenError,
   SupportStateError,
+  type TechRequestDetail,
 } from "@/modules/support/services/tech-request";
 import {
   assignRequest,
@@ -20,10 +21,27 @@ import {
 } from "@/modules/support/services/manage";
 import { addComment, listComments, notifyCommentAdded } from "@/modules/support/services/comments";
 import { persistAttachment } from "@/modules/support/services/attachments";
+import { promoteToEpic } from "@/modules/support/services/epic-link";
+import {
+  completeRequest,
+  createTicket,
+  setTicketServiceRequestNumber,
+  sendEpicEmail,
+  EpicForbiddenError,
+  EpicNotFoundError,
+  EpicStateError,
+} from "@/modules/support/services/epic";
+import type { EpicTemplateKey } from "@/platform/email/templates/epic";
 import { peopleWithAnyPermission } from "@/platform/rbac/holders";
 import { TicketDetail } from "@/modules/support/components/ticket-detail";
 import { ALL_STATUSES, ALL_PRIORITIES } from "@/modules/support/components/request-filters";
 import { Alert } from "@/platform/ui/alert";
+
+const EPIC_EMAIL_TEMPLATES: EpicTemplateKey[] = [
+  "epic-onboarding",
+  "epic-activation",
+  "epic-password-reset",
+];
 
 type PageProps = {
   params: Promise<{ id: string }>;
@@ -32,6 +50,7 @@ type PageProps = {
     commentError?: string;
     attachmentError?: string;
     manageError?: string;
+    epicError?: string;
   }>;
 };
 
@@ -42,9 +61,9 @@ function pick<T extends string>(value: string, allowed: readonly T[]): T | undef
 export default async function TicketPage({ params, searchParams }: PageProps) {
   const session = await requireModuleAccess("support");
   const { id } = await params;
-  const { submitted, commentError, attachmentError, manageError } = await searchParams;
+  const { submitted, commentError, attachmentError, manageError, epicError } = await searchParams;
 
-  let detail;
+  let detail: TechRequestDetail;
   try {
     detail = await getTechRequest(session.personId, id);
   } catch (e) {
@@ -170,6 +189,120 @@ export default async function TicketPage({ params, searchParams }: PageProps) {
     redirect(`/support/${id}`);
   }
 
+  // ---------------------------------------------------------------------------
+  // Epic pipeline: promotion + the single-ticket inline actions from epic.ts.
+  // Each action re-derives the linked EpicRequest (and its ticket) off the
+  // `detail` already loaded above rather than trusting client-supplied ids.
+  // ---------------------------------------------------------------------------
+
+  async function promoteAction() {
+    "use server";
+    const actorSession = await requireModuleAccess("support");
+    try {
+      await promoteToEpic(actorSession.personId, id);
+    } catch (err) {
+      if (
+        err instanceof SupportStateError ||
+        err instanceof SupportForbiddenError ||
+        err instanceof SupportNotFoundError ||
+        err instanceof EpicStateError ||
+        err instanceof EpicForbiddenError ||
+        err instanceof EpicNotFoundError
+      ) {
+        redirect(`/support/${id}?epicError=${encodeURIComponent(err.message)}`);
+      }
+      throw err;
+    }
+    redirect(`/support/${id}`);
+  }
+
+  async function completeEpicAction(formData: FormData) {
+    "use server";
+    const actorSession = await requireModuleAccess("support");
+    const epicRequestId = detail.epicRequestId;
+    if (!epicRequestId) {
+      redirect(`/support/${id}?epicError=${encodeURIComponent("No linked Epic request.")}`);
+    }
+    const epicId = ((formData.get("epicId") as string | null) ?? "").trim() || undefined;
+    try {
+      await completeRequest(actorSession.personId, epicRequestId, epicId);
+    } catch (err) {
+      if (
+        err instanceof EpicForbiddenError ||
+        err instanceof EpicNotFoundError ||
+        err instanceof EpicStateError
+      ) {
+        redirect(`/support/${id}?epicError=${encodeURIComponent(err.message)}`);
+      }
+      throw err;
+    }
+    redirect(`/support/${id}`);
+  }
+
+  async function createEpicTicketAction(formData: FormData) {
+    "use server";
+    const actorSession = await requireModuleAccess("support");
+    const epicRequestId = detail.epicRequestId;
+    if (!epicRequestId) {
+      redirect(`/support/${id}?epicError=${encodeURIComponent("No linked Epic request.")}`);
+    }
+    const description = (formData.get("description") as string | null) || null;
+    try {
+      await createTicket(actorSession.personId, { requestIds: [epicRequestId], description });
+    } catch (err) {
+      if (err instanceof EpicForbiddenError || err instanceof EpicStateError) {
+        redirect(`/support/${id}?epicError=${encodeURIComponent(err.message)}`);
+      }
+      throw err;
+    }
+    redirect(`/support/${id}`);
+  }
+
+  async function setEpicSrAction(formData: FormData) {
+    "use server";
+    const actorSession = await requireModuleAccess("support");
+    const ticketId = detail.epicRequest?.ticketId;
+    if (!ticketId) {
+      redirect(`/support/${id}?epicError=${encodeURIComponent("This request has no YNHH ticket yet.")}`);
+    }
+    const srNumber = (formData.get("srNumber") as string | null) ?? "";
+    try {
+      await setTicketServiceRequestNumber(actorSession.personId, ticketId, srNumber);
+    } catch (err) {
+      if (err instanceof EpicForbiddenError || err instanceof EpicNotFoundError) {
+        redirect(`/support/${id}?epicError=${encodeURIComponent(err.message)}`);
+      }
+      throw err;
+    }
+    redirect(`/support/${id}`);
+  }
+
+  async function sendEpicEmailAction(formData: FormData) {
+    "use server";
+    const actorSession = await requireModuleAccess("support");
+    const epicRequestId = detail.epicRequestId;
+    if (!epicRequestId) {
+      redirect(`/support/${id}?epicError=${encodeURIComponent("No linked Epic request.")}`);
+    }
+    const template = (formData.get("template") as string | null) ?? "";
+    if (!(EPIC_EMAIL_TEMPLATES as string[]).includes(template)) {
+      redirect(`/support/${id}?epicError=${encodeURIComponent("Invalid email template.")}`);
+    }
+    try {
+      await sendEpicEmail(actorSession.personId, epicRequestId, template as EpicTemplateKey);
+    } catch (err) {
+      if (
+        err instanceof EpicForbiddenError ||
+        err instanceof EpicNotFoundError ||
+        err instanceof EpicStateError
+      ) {
+        redirect(`/support/${id}?epicError=${encodeURIComponent(err.message)}`);
+      }
+      throw err;
+    }
+    redirect(`/support/${id}`);
+  }
+
   async function commentAction(formData: FormData) {
     "use server";
     const actorSession = await requireModuleAccess("support");
@@ -242,6 +375,12 @@ export default async function TicketPage({ params, searchParams }: PageProps) {
         comments={comments}
         commentAction={commentAction}
         commentError={commentError ? decodeURIComponent(commentError) : undefined}
+        promoteAction={promoteAction}
+        completeEpicAction={completeEpicAction}
+        createEpicTicketAction={createEpicTicketAction}
+        setEpicSrAction={setEpicSrAction}
+        sendEpicEmailAction={sendEpicEmailAction}
+        epicError={epicError ? decodeURIComponent(epicError) : undefined}
       />
     </div>
   );

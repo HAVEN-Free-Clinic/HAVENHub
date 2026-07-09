@@ -11,8 +11,14 @@
  *     (non-terminal) so the requester can withdraw their own request.
  *   - a `canManage` gated manager control panel (assign / status / priority /
  *     resolve / cancel), one small form per control so each mutation is
- *     independent -- the Epic promotion pipeline is a separate seam, not yet
- *     built.
+ *     independent.
+ *   - a `canManage` gated Epic section, shown only for category EPIC: the
+ *     captured intake fields, a "Create Epic request" promotion button while
+ *     unlinked, and (once linked) the single-request Epic pipeline -- complete,
+ *     create a YNHH ticket, set its SR number, and send an Epic email. This is
+ *     the inline single-ticket counterpart of the retired /volunteers/epic
+ *     multi-select queue; it operates on exactly the one EpicRequest linked to
+ *     this ticket.
  *   - ticket-level attachments (Task 7): rendered only when the ticket has
  *     any (detail.attachments comes straight off getTechRequest's include).
  *
@@ -24,13 +30,14 @@
 import { PageHeader } from "@/platform/ui/page-header";
 import { Card } from "@/platform/ui/card";
 import { SectionHeader } from "@/platform/ui/section-header";
-import { Field, Textarea } from "@/platform/ui/input";
+import { Field, Input, Textarea } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Alert } from "@/platform/ui/alert";
+import { Badge } from "@/platform/ui/badge";
 import { fmtDate } from "@/platform/dates";
-import type { TechRequestStatus, TechRequestPriority } from "@prisma/client";
+import type { TechRequestStatus, TechRequestPriority, EpicRequestKind, EpicRequestStatus } from "@prisma/client";
 import { SupportStatusBadge, STATUS_LABELS } from "./status-badge";
 import { CommentThread } from "./comment-thread";
 import { AttachmentList } from "./attachment-list";
@@ -40,6 +47,29 @@ import { TERMINAL_STATUSES } from "../services/manage";
 import type { CommentRow } from "../services/comments";
 
 const ALL_PRIORITIES = Object.keys(PRIORITY_LABELS) as TechRequestPriority[];
+
+const EPIC_KIND_LABELS: Record<EpicRequestKind, string> = {
+  NEW: "New account",
+  MODIFY: "Modification",
+  RENEW: "Renewal",
+  DEACTIVATE: "Deactivation",
+};
+
+const EPIC_STATUS_LABELS: Record<EpicRequestStatus, string> = {
+  PENDING: "Pending",
+  SUBMITTED: "Submitted",
+  COMPLETED: "Completed",
+  CANCELLED: "Cancelled",
+};
+
+type Tone = "default" | "brand" | "success" | "warning" | "critical";
+
+const EPIC_STATUS_TONE: Record<EpicRequestStatus, Tone> = {
+  PENDING: "default",
+  SUBMITTED: "warning",
+  COMPLETED: "success",
+  CANCELLED: "critical",
+};
 
 /**
  * Statuses a manager can set directly through the status select. RESOLVED
@@ -84,6 +114,18 @@ type TicketDetailProps = {
   /** Server action that posts a reply/note via addComment + notifyCommentAdded. */
   commentAction?: (formData: FormData) => Promise<void>;
   commentError?: string;
+  /** Server action wired to promoteToEpic. Creates the linked EpicRequest. */
+  promoteAction?: (formData: FormData) => Promise<void>;
+  /** Server action wired to completeRequest (epic.ts), for the linked EpicRequest. */
+  completeEpicAction?: (formData: FormData) => Promise<void>;
+  /** Server action wired to createTicket (epic.ts), scoped to just this EpicRequest. */
+  createEpicTicketAction?: (formData: FormData) => Promise<void>;
+  /** Server action wired to setTicketServiceRequestNumber (epic.ts). */
+  setEpicSrAction?: (formData: FormData) => Promise<void>;
+  /** Server action wired to sendEpicEmail (epic.ts); template comes from a hidden field. */
+  sendEpicEmailAction?: (formData: FormData) => Promise<void>;
+  /** Error from the most recent Epic-section action, if any. */
+  epicError?: string;
 };
 
 export function TicketDetail({
@@ -101,6 +143,12 @@ export function TicketDetail({
   comments,
   commentAction,
   commentError,
+  promoteAction,
+  completeEpicAction,
+  createEpicTicketAction,
+  setEpicSrAction,
+  sendEpicEmailAction,
+  epicError,
 }: TicketDetailProps) {
   const isOpen = !TERMINAL_STATUSES.includes(detail.status);
 
@@ -229,6 +277,149 @@ export function TicketDetail({
             )}
           </section>
         )}
+
+      {canManage && detail.category === "EPIC" && (
+        <section>
+          <SectionHeader className="mb-2">Epic access</SectionHeader>
+          <Card className="space-y-4">
+            {epicError && <Alert tone="error">{epicError}</Alert>}
+
+            <dl className="grid gap-3 text-sm sm:grid-cols-2">
+              <div>
+                <dt className="text-muted-foreground">Request type</dt>
+                <dd className="text-foreground">
+                  {detail.epicSubtype ? EPIC_KIND_LABELS[detail.epicSubtype] : "-"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Job title</dt>
+                <dd className="text-foreground">{detail.epicJobTitle ?? "-"}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Mirror Epic ID</dt>
+                <dd className="font-mono text-foreground">{detail.epicMirrorId ?? "-"}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Works at YNHHS</dt>
+                <dd className="text-foreground">
+                  {detail.worksAtYnhh === null ? "-" : detail.worksAtYnhh ? "Yes" : "No"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Government ID / NPI</dt>
+                <dd className="text-foreground">{detail.govId ?? "-"}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">NetID</dt>
+                <dd className="text-foreground">{detail.netId ?? "-"}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Start date</dt>
+                <dd className="text-foreground">{fmtDate(detail.epicStartDate)}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">End date</dt>
+                <dd className="text-foreground">{fmtDate(detail.epicEndDate)}</dd>
+              </div>
+            </dl>
+
+            {!detail.epicRequestId ? (
+              promoteAction && (
+                <form action={promoteAction} className="border-t border-border pt-4">
+                  <SubmitButton variant="primary" size="sm" pendingLabel="Creating…">
+                    Create Epic request
+                  </SubmitButton>
+                </form>
+              )
+            ) : detail.epicRequest ? (
+              <div className="space-y-4 border-t border-border pt-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Epic request status</span>
+                  <Badge tone={EPIC_STATUS_TONE[detail.epicRequest.status]}>
+                    {EPIC_STATUS_LABELS[detail.epicRequest.status]}
+                  </Badge>
+                  {detail.epicRequest.ticket && (
+                    <span className="text-sm text-foreground-soft">
+                      YNHH ticket SR#:{" "}
+                      {detail.epicRequest.ticket.serviceRequestNumber ?? "(not yet set)"}
+                    </span>
+                  )}
+                </div>
+
+                {(detail.epicRequest.status === "PENDING" ||
+                  detail.epicRequest.status === "SUBMITTED") && (
+                  <div className="space-y-3">
+                    {completeEpicAction && (
+                      <form action={completeEpicAction} className="flex flex-wrap items-center gap-2">
+                        {detail.epicRequest.kind === "NEW" || detail.epicRequest.kind === "MODIFY" ? (
+                          <>
+                            <Input
+                              name="epicId"
+                              aria-label="Epic ID"
+                              placeholder="Epic ID"
+                              className="w-40"
+                              required
+                            />
+                            <SubmitButton variant="outline" size="sm" pendingLabel="Completing…">
+                              Complete
+                            </SubmitButton>
+                          </>
+                        ) : (
+                          <ConfirmButton label="Complete" confirmLabel="Complete this renewal?" />
+                        )}
+                      </form>
+                    )}
+
+                    {!detail.epicRequest.ticket && createEpicTicketAction && (
+                      <form action={createEpicTicketAction} className="flex flex-wrap items-end gap-2">
+                        <Field label="Ticket description (optional)">
+                          <Input name="description" placeholder="Optional" className="w-56" />
+                        </Field>
+                        <SubmitButton variant="outline" size="sm" pendingLabel="Submitting…">
+                          Create YNHH ticket
+                        </SubmitButton>
+                      </form>
+                    )}
+
+                    {detail.epicRequest.ticket && setEpicSrAction && (
+                      <form action={setEpicSrAction} className="flex flex-wrap items-end gap-2">
+                        <Field label="SR number">
+                          <Input
+                            name="srNumber"
+                            defaultValue={detail.epicRequest.ticket.serviceRequestNumber ?? ""}
+                            placeholder="SR-"
+                            className="w-40"
+                          />
+                        </Field>
+                        <SubmitButton variant="outline" size="sm" pendingLabel="Saving…">
+                          Save SR number
+                        </SubmitButton>
+                      </form>
+                    )}
+
+                    {sendEpicEmailAction && (
+                      <div className="flex flex-wrap gap-2">
+                        <form action={sendEpicEmailAction}>
+                          <input type="hidden" name="template" value="epic-onboarding" />
+                          <ConfirmButton label="Send onboarding email" confirmLabel="Confirm send?" />
+                        </form>
+                        <form action={sendEpicEmailAction}>
+                          <input type="hidden" name="template" value="epic-activation" />
+                          <ConfirmButton label="Send activation email" confirmLabel="Confirm send?" />
+                        </form>
+                        <form action={sendEpicEmailAction}>
+                          <input type="hidden" name="template" value="epic-password-reset" />
+                          <ConfirmButton label="Send password reset email" confirmLabel="Confirm send?" />
+                        </form>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : null}
+          </Card>
+        </section>
+      )}
 
       {detail.attachments.length > 0 && (
         <section>

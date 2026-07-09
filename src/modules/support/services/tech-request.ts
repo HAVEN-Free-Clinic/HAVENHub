@@ -231,7 +231,7 @@ async function loadDetail(id: string) {
     include: {
       requester: { select: { id: true, name: true, netId: true, contactEmail: true } },
       assignedTo: { select: { id: true, name: true } },
-      epicRequest: true,
+      epicRequest: { include: { ticket: true } },
       attachments: true,
     },
   });

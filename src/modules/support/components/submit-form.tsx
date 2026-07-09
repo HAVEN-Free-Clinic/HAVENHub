@@ -20,6 +20,7 @@ import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
 import { CATEGORY_LABELS } from "@/modules/support/labels";
+import { SUPPORT_UPLOAD_ACCEPT } from "@/modules/support/services/attachments";
 
 const EPIC_SUBTYPES: { value: EpicRequestKind; label: string }[] = [
   { value: "NEW", label: "New account" },
@@ -108,6 +109,11 @@ export function SubmitForm({ action, error }: SubmitFormProps) {
             </label>
           </div>
         )}
+
+        <Field label="Attachments" hint="Optional. Images, PDF, text, or Office documents.">
+          {/* eslint-disable-next-line no-restricted-syntax -- native file input with file-button pseudo-element styling (file:* classes); no file primitive exists */}
+          <input type="file" name="attachments" multiple accept={SUPPORT_UPLOAD_ACCEPT} className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground-soft hover:file:bg-muted-strong" />
+        </Field>
 
         <FormActions>
           <SubmitButton variant="primary" pendingLabel="Submitting…">

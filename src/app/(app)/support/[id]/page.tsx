@@ -10,18 +10,19 @@ import {
   SupportStateError,
 } from "@/modules/support/services/tech-request";
 import { addComment, listComments, notifyCommentAdded } from "@/modules/support/services/comments";
+import { persistAttachment } from "@/modules/support/services/attachments";
 import { TicketDetail } from "@/modules/support/components/ticket-detail";
 import { Alert } from "@/platform/ui/alert";
 
 type PageProps = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ submitted?: string; commentError?: string }>;
+  searchParams: Promise<{ submitted?: string; commentError?: string; attachmentError?: string }>;
 };
 
 export default async function TicketPage({ params, searchParams }: PageProps) {
   const session = await requireModuleAccess("support");
   const { id } = await params;
-  const { submitted, commentError } = await searchParams;
+  const { submitted, commentError, attachmentError } = await searchParams;
 
   let detail;
   try {
@@ -58,6 +59,22 @@ export default async function TicketPage({ params, searchParams }: PageProps) {
       throw err;
     }
 
+    const files = formData.getAll("attachments").filter((f): f is File => f instanceof File && f.size > 0);
+    try {
+      for (const file of files) {
+        await persistAttachment(actorSession.personId, { commentId: comment.id }, {
+          fileName: file.name,
+          mimeType: file.type,
+          bytes: Buffer.from(await file.arrayBuffer()),
+        });
+      }
+    } catch (err) {
+      if (err instanceof SupportForbiddenError) {
+        redirect(`/support/${id}?attachmentError=${encodeURIComponent(err.message)}`);
+      }
+      throw err;
+    }
+
     const req = await prisma.techRequest.findUniqueOrThrow({ where: { id } });
     const author = await prisma.person.findUniqueOrThrow({
       where: { id: actorSession.personId },
@@ -71,6 +88,9 @@ export default async function TicketPage({ params, searchParams }: PageProps) {
     <div className="space-y-6">
       {submitted === "1" && (
         <Alert tone="success">Request submitted. We will keep you posted here.</Alert>
+      )}
+      {attachmentError && (
+        <Alert tone="error">{decodeURIComponent(attachmentError)}</Alert>
       )}
       <TicketDetail
         detail={detail}

@@ -5,20 +5,17 @@
  * requester or a support.manage_requests holder can reach this component -
  * and passes it straight through.
  *
- * This task (5) only builds the owner-visible parts: header, description,
- * and the resolution once one exists. It is deliberately structured with
- * three extension seams for later tasks, so they can add content without
- * restructuring this component:
+ * Header, description, and resolution are always shown. Two further
+ * sections are conditional:
  *   - a `canManage` gated block for manager controls (assignment,
- *     status/priority changes, the Epic promotion pipeline)
- *   - a comment thread seam (Task 6: TechRequestComment history + reply form)
- *   - an attachments seam (Task 7: TechRequestAttachment list + upload)
- * Each seam below is a no-op today (renders nothing) - a later task fills it
- * in without touching the header/description/resolution above it.
+ *     status/priority changes, the Epic promotion pipeline) -- not yet
+ *     built, seam left below.
+ *   - ticket-level attachments (Task 7): rendered only when the ticket has
+ *     any (detail.attachments comes straight off getTechRequest's include).
  *
- * Task 6 fills the comment thread seam: `comments` + `commentAction` are
- * optional so this component still renders (with that seam empty) for any
- * caller that has not been updated yet.
+ * `comments` + `commentAction` are optional so this component still renders
+ * (with the thread empty) for any caller that has not been updated to pass
+ * them.
  */
 
 import { PageHeader } from "@/platform/ui/page-header";
@@ -27,6 +24,7 @@ import { SectionHeader } from "@/platform/ui/section-header";
 import { fmtDate } from "@/platform/dates";
 import { SupportStatusBadge } from "./status-badge";
 import { CommentThread } from "./comment-thread";
+import { AttachmentList } from "./attachment-list";
 import { CATEGORY_LABELS } from "@/modules/support/labels";
 import type { TechRequestDetail } from "../services/tech-request";
 import type { CommentRow } from "../services/comments";
@@ -77,6 +75,15 @@ export function TicketDetail({
 
       {/* Manager controls seam: added in a later task */}
 
+      {detail.attachments.length > 0 && (
+        <section>
+          <SectionHeader className="mb-2">Attachments</SectionHeader>
+          <Card>
+            <AttachmentList attachments={detail.attachments} />
+          </Card>
+        </section>
+      )}
+
       {comments && commentAction && (
         <CommentThread
           comments={comments}
@@ -85,8 +92,6 @@ export function TicketDetail({
           error={commentError}
         />
       )}
-
-      {/* Attachments seam: Task 7 adds the TechRequestAttachment list + upload here. */}
     </div>
   );
 }

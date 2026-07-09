@@ -16,7 +16,15 @@
  *                  INTERNAL rows are filtered out for non-managers.
  */
 
-import type { Prisma, PrismaClient, TechRequest, TechRequestComment, CommentVisibility, Person } from "@prisma/client";
+import type {
+  Prisma,
+  PrismaClient,
+  TechRequest,
+  TechRequestComment,
+  TechRequestAttachment,
+  CommentVisibility,
+  Person,
+} from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { can } from "@/platform/rbac/engine";
@@ -80,12 +88,17 @@ export async function addComment(
 // listComments
 // ---------------------------------------------------------------------------
 
-export type CommentRow = TechRequestComment & { author: { id: string; name: string | null } };
+export type CommentRow = TechRequestComment & {
+  author: { id: string; name: string | null };
+  attachments: TechRequestAttachment[];
+};
 
 /**
- * Returns a ticket's comments, oldest first. Same read gate as
- * getTechRequest (requester or manager; SupportNotFoundError otherwise).
- * INTERNAL rows are filtered out for non-managers.
+ * Returns a ticket's comments, oldest first, each with its attachments. Same
+ * read gate as getTechRequest (requester or manager; SupportNotFoundError
+ * otherwise). INTERNAL rows (and, with them, their attachments) are
+ * filtered out for non-managers -- see getAttachmentForDownload for the
+ * matching per-attachment enforcement on direct download.
  */
 export async function listComments(actorPersonId: string, requestId: string): Promise<CommentRow[]> {
   const req = await prisma.techRequest.findUnique({ where: { id: requestId } });
@@ -96,7 +109,7 @@ export async function listComments(actorPersonId: string, requestId: string): Pr
   return prisma.techRequestComment.findMany({
     where: { requestId, ...(manager ? {} : { visibility: "PUBLIC" }) },
     orderBy: { createdAt: "asc" },
-    include: { author: { select: { id: true, name: true } } },
+    include: { author: { select: { id: true, name: true } }, attachments: true },
   }) as unknown as Promise<CommentRow[]>;
 }
 

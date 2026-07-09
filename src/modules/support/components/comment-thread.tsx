@@ -20,6 +20,8 @@ import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
 import { fmtDateTime } from "@/platform/dates";
 import type { CommentRow } from "../services/comments";
+import { SUPPORT_UPLOAD_ACCEPT } from "../services/attachments";
+import { AttachmentList } from "./attachment-list";
 
 type CommentThreadProps = {
   comments: CommentRow[];
@@ -40,6 +42,7 @@ function CommentCard({ comment, internal }: { comment: CommentRow; internal?: bo
         <span className="shrink-0 text-xs text-muted-foreground">{fmtDateTime(comment.createdAt)}</span>
       </div>
       <p className="mt-1 whitespace-pre-wrap text-sm text-foreground-soft">{comment.body}</p>
+      <AttachmentList attachments={comment.attachments} />
     </Card>
   );
 }
@@ -97,6 +100,8 @@ export function CommentThread({ comments, canManage, action, error }: CommentThr
             ) : (
               <input type="hidden" name="visibility" value="PUBLIC" />
             )}
+            {/* eslint-disable-next-line no-restricted-syntax -- native file input with file-button pseudo-element styling (file:* classes); no file primitive exists */}
+            <input type="file" name="attachments" multiple accept={SUPPORT_UPLOAD_ACCEPT} className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground-soft hover:file:bg-muted-strong" />
             <FormActions>
               <SubmitButton variant="primary" pendingLabel="Posting…">
                 Post

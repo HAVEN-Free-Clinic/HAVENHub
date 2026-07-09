@@ -113,15 +113,22 @@ export function buildShiftReminders(input: BuildShiftRemindersInput): PreparedRe
           .join(", and ")}.</p>`
       : "";
 
+    // "Your department director(s) on shift" is guidance for volunteers and
+    // shadows about who is leading their shift. A director recipient does not
+    // need it (they are themselves a director on shift), so only populate the
+    // list when the recipient has no director shift that day.
+    const recipientIsDirector = sorted.some((a) => a.role === "DIRECTOR");
     const deptDirectorsOnShift: string[] = [];
-    const seenDirectorIds = new Set<string>();
-    for (const a of sorted) {
-      const dirs = directorsByDeptCode.get(a.department.code) ?? [];
-      for (const dir of dirs) {
-        if (dir.id === person.id) continue;
-        if (seenDirectorIds.has(dir.id)) continue;
-        seenDirectorIds.add(dir.id);
-        deptDirectorsOnShift.push(dir.name);
+    if (!recipientIsDirector) {
+      const seenDirectorIds = new Set<string>();
+      for (const a of sorted) {
+        const dirs = directorsByDeptCode.get(a.department.code) ?? [];
+        for (const dir of dirs) {
+          if (dir.id === person.id) continue;
+          if (seenDirectorIds.has(dir.id)) continue;
+          seenDirectorIds.add(dir.id);
+          deptDirectorsOnShift.push(dir.name);
+        }
       }
     }
 

@@ -107,4 +107,28 @@ describe("buildShiftReminders", () => {
     const volReminder = out.find((r) => r.person.id === "v")!;
     expect(volReminder.context.deptDirectorsOnShift).toBe("Sam Lee, Sam Lee");
   });
+
+  it("omits the department-directors list for a director recipient but shows it to volunteers and shadows", () => {
+    const dir1 = person("d1", "Dana Director");
+    const dir2 = person("d2", "Devi Director");
+    const vol = person("v", "Val Volunteer");
+    const shadow = person("s", "Sky Shadow");
+    const out = buildShiftReminders({
+      assignments: [
+        row(dir1, "SCTP", "Senior Primary Care", "DIRECTOR"),
+        row(dir2, "SCTP", "Senior Primary Care", "DIRECTOR"),
+        row(vol, "SCTP", "Senior Primary Care", "VOLUNTEER"),
+        row(shadow, "SCTP", "Senior Primary Care", "SHADOW"),
+      ],
+      targetDate: TARGET,
+      teamsChannelUrl: "",
+      baseUrl: BASE,
+    });
+    // A director is on shift themselves and does not need the directors list.
+    expect(out.find((r) => r.person.id === "d1")!.context.deptDirectorsOnShift).toBe("");
+    expect(out.find((r) => r.person.id === "d2")!.context.deptDirectorsOnShift).toBe("");
+    // Volunteers and shadows still see who is leading their shift.
+    expect(out.find((r) => r.person.id === "v")!.context.deptDirectorsOnShift).toBe("Dana Director, Devi Director");
+    expect(out.find((r) => r.person.id === "s")!.context.deptDirectorsOnShift).toBe("Dana Director, Devi Director");
+  });
 });

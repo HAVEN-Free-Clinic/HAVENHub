@@ -1,14 +1,14 @@
 /**
- * Volunteers module disciplinary service.
+ * Incidents module disciplinary service.
  *
  * Permission split:
  *   - issueAction: enforces scope internally. Actor needs
- *     can(actor, "volunteers.issue_disciplinary") OR target has an ACTIVE
+ *     can(actor, "incidents.manage") OR target has an ACTIVE
  *     membership in the ACTIVE term in one of the actor's manageableDepartmentIds.
  *     No active term + no permission -> DisciplinaryForbiddenError.
- *   - deleteAction: requires can(actor, "volunteers.issue_disciplinary").
+ *   - deleteAction: requires can(actor, "incidents.manage").
  *     Directors cannot delete. Enforced internally.
- *   - listActions: central (issue_disciplinary) sees all. Others see rows for
+ *   - listActions: central (incidents.manage) sees all. Others see rows for
  *     people in their manageable departments, with confidential rows filtered
  *     to only rows they issued. No manageable depts + no permission -> Forbidden.
  *   - issuablePeople / strikeCount: no permission enforcement; callers gate via
@@ -90,7 +90,7 @@ export type ActionRow = {
 
 /**
  * Returns true if the actor may issue a disciplinary action against the target.
- * Requires either volunteers.issue_disciplinary OR the target having an ACTIVE
+ * Requires either incidents.manage OR the target having an ACTIVE
  * membership in the ACTIVE term in one of the actor's manageable departments.
  */
 async function actorCanManageTarget(
@@ -98,7 +98,7 @@ async function actorCanManageTarget(
   targetPersonId: string,
   activeTerm: { id: string }
 ): Promise<boolean> {
-  if (await can(actorPersonId, "volunteers.issue_disciplinary")) return true;
+  if (await can(actorPersonId, "incidents.manage")) return true;
 
   const deptIds = await manageableDepartmentIds(actorPersonId);
   if (deptIds.length === 0) return false;
@@ -118,7 +118,7 @@ async function actorCanManageTarget(
 /**
  * Records a disciplinary action against a person.
  *
- * Scope: volunteers.issue_disciplinary OR target has ACTIVE membership in
+ * Scope: incidents.manage OR target has ACTIVE membership in
  * ACTIVE term in one of the actor's manageable departments. No active term +
  * no permission -> DisciplinaryForbiddenError.
  *
@@ -155,7 +155,7 @@ export async function issueAction(
 
   // --- Scope check ---
   // Central permission bypasses the active-term requirement.
-  const isCentral = await can(actorPersonId, "volunteers.issue_disciplinary");
+  const isCentral = await can(actorPersonId, "incidents.manage");
 
   if (!isCentral) {
     const activeTerm = await getActiveTerm();
@@ -200,14 +200,14 @@ export async function issueAction(
 /**
  * Permanently deletes a disciplinary action.
  *
- * Requires volunteers.issue_disciplinary (central only; directors cannot delete).
+ * Requires incidents.manage (central only; directors cannot delete).
  * Missing row -> DisciplinaryNotFoundError.
  * Audits disciplinary.delete with the full row snapshot in before.
  */
 export async function deleteAction(actorPersonId: string, id: string): Promise<void> {
-  if (!(await can(actorPersonId, "volunteers.issue_disciplinary"))) {
+  if (!(await can(actorPersonId, "incidents.manage"))) {
     throw new DisciplinaryForbiddenError(
-      "volunteers.issue_disciplinary is required to delete disciplinary actions."
+      "incidents.manage is required to delete disciplinary actions."
     );
   }
 
@@ -242,7 +242,7 @@ export async function deleteAction(actorPersonId: string, id: string): Promise<v
  * Returns a paginated list of disciplinary actions visible to the viewer.
  *
  * Visibility:
- *   - Central (issue_disciplinary): sees all (canManageAll true).
+ *   - Central (incidents.manage): sees all (canManageAll true).
  *   - Directors: rows where the person has an ACTIVE membership in the ACTIVE
  *     term in one of their manageable departments AND (NOT confidential OR
  *     issuedById === viewer).
@@ -265,7 +265,7 @@ export async function listActions(
   const page = Math.max(1, q.page ?? 1);
   const skip = (page - 1) * PAGE_SIZE;
 
-  const isCentral = await can(viewerPersonId, "volunteers.issue_disciplinary");
+  const isCentral = await can(viewerPersonId, "incidents.manage");
 
   if (isCentral) {
     // Central: see everything. Fetch active term so the dept filter scopes to
@@ -476,7 +476,7 @@ async function loadStrikeCounts(
  * Returns the set of people against whom the actor may issue a disciplinary
  * action via the UI form.
  *
- * Central (issue_disciplinary): { all: true, people: [] } -- the UI shows a
+ * Central (incidents.manage): { all: true, people: [] } -- the UI shows a
  * free-text search instead.
  *
  * Directors: ACTIVE members (all membership kinds: VOLUNTEER and DIRECTOR alike) of manageable departments in the
@@ -491,7 +491,7 @@ export async function issuablePeople(actorPersonId: string): Promise<{
   all: boolean;
   people: Array<{ id: string; name: string | null; departmentNames: string[] }>;
 }> {
-  if (await can(actorPersonId, "volunteers.issue_disciplinary")) {
+  if (await can(actorPersonId, "incidents.manage")) {
     return { all: true, people: [] };
   }
 

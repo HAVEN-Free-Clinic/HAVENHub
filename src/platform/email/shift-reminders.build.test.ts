@@ -89,4 +89,22 @@ describe("buildShiftReminders", () => {
     expect(out).toHaveLength(1);
     expect(String(out[0].context.additionalShifts)).toContain("Pharmacy");
   });
+
+  it("keeps two same-named directors distinct in deptDirectorsOnShift (identity is by id, not name)", () => {
+    const dir1 = person("d1", "Sam Lee");
+    const dir2 = person("d2", "Sam Lee");
+    const vol = person("v", "Val Volunteer");
+    const out = buildShiftReminders({
+      assignments: [
+        row(dir1, "SCTP", "Senior Primary Care", "DIRECTOR"),
+        row(dir2, "SCTP", "Senior Primary Care", "DIRECTOR"),
+        row(vol, "SCTP", "Senior Primary Care", "VOLUNTEER"),
+      ],
+      targetDate: TARGET,
+      teamsChannelUrl: "",
+      baseUrl: BASE,
+    });
+    const volReminder = out.find((r) => r.person.id === "v")!;
+    expect(volReminder.context.deptDirectorsOnShift).toBe("Sam Lee, Sam Lee");
+  });
 });

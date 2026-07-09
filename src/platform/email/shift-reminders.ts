@@ -34,8 +34,15 @@ function firstNameOf(name: string): string {
   return parts[0] || name;
 }
 
-function uniqueInOrder(values: string[]): string[] {
-  return [...new Set(values)];
+function uniqueNamesById(entries: { id: string; name: string }[]): string[] {
+  const seen = new Set<string>();
+  const names: string[] = [];
+  for (const entry of entries) {
+    if (seen.has(entry.id)) continue;
+    seen.add(entry.id);
+    names.push(entry.name);
+  }
+  return names;
 }
 
 /**
@@ -62,18 +69,18 @@ export function buildShiftReminders(input: BuildShiftRemindersInput): PreparedRe
   const shiftSwapUrl = `${baseUrl}/schedule`;
   const masterScheduleUrl = `${baseUrl}/schedule/full`;
 
-  const edsOnShift = uniqueInOrder(
-    assignments.filter((a) => a.department.code === "EXEC").map((a) => a.person.name),
+  const edsOnShift = uniqueNamesById(
+    assignments.filter((a) => a.department.code === "EXEC").map((a) => a.person),
   );
-  const clinicalAdvisorsOnShift = uniqueInOrder(
-    assignments.filter((a) => a.department.code === "PCAR").map((a) => a.person.name),
+  const clinicalAdvisorsOnShift = uniqueNamesById(
+    assignments.filter((a) => a.department.code === "PCAR").map((a) => a.person),
   );
 
-  const directorsByDeptCode = new Map<string, string[]>();
+  const directorsByDeptCode = new Map<string, { id: string; name: string }[]>();
   for (const a of assignments) {
     if (a.role !== "DIRECTOR") continue;
     const list = directorsByDeptCode.get(a.department.code) ?? [];
-    list.push(a.person.name);
+    list.push({ id: a.person.id, name: a.person.name });
     directorsByDeptCode.set(a.department.code, list);
   }
 
@@ -99,11 +106,17 @@ export function buildShiftReminders(input: BuildShiftRemindersInput): PreparedRe
           .join(", and ")}.</p>`
       : "";
 
-    const deptDirectorsOnShift = uniqueInOrder(
-      sorted
-        .flatMap((a) => directorsByDeptCode.get(a.department.code) ?? [])
-        .filter((n) => n !== person.name),
-    );
+    const deptDirectorsOnShift: string[] = [];
+    const seenDirectorIds = new Set<string>();
+    for (const a of sorted) {
+      const dirs = directorsByDeptCode.get(a.department.code) ?? [];
+      for (const dir of dirs) {
+        if (dir.id === person.id) continue;
+        if (seenDirectorIds.has(dir.id)) continue;
+        seenDirectorIds.add(dir.id);
+        deptDirectorsOnShift.push(dir.name);
+      }
+    }
 
     prepared.push({
       person,

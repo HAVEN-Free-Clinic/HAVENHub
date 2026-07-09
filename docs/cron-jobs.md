@@ -26,6 +26,7 @@ in-repo error.
 | --- | --- | --- | --- | --- | --- |
 | `/api/cron/email` | External (cron-job.org) | every minute | `* * * * *` | Dispatches due campaigns, then drains the email + Teams notification queues. The **sole** drainer. | Queued email and Teams notifications never send. |
 | `/api/cron/reminders` | External (cron-job.org) | daily | `0 13 * * *` | Enqueues HIPAA compliance reminders and director escalations (delivery happens on the email tick). | HIPAA reminders and director escalations are never enqueued. |
+| `/api/cron/shift-reminders` | External (cron-job.org) | weekly (Mon) | `0 13 * * 1` | Enqueues weekly shift reminders to everyone scheduled for the upcoming Saturday clinic day (delivery happens on the email tick). | Volunteers stop receiving their Saturday shift reminders. |
 | `/api/cron/recruitment-drafts` | Vercel Cron (`vercel.json`) | daily | `0 4 * * *` | Sweeps abandoned onboarding drafts older than 30 days. | Stale draft rows accumulate. |
 
 Notes:

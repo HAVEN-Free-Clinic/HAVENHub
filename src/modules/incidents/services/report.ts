@@ -9,9 +9,11 @@
 import type {
   IncidentReport,
   IncidentReportAttachment,
+  IncidentReportStatus,
   PatientImpact,
   IssueNature,
   PriorOccurrence,
+  Prisma,
 } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
@@ -245,4 +247,115 @@ export async function getReport(
   // Reviewer-internal notes are never returned to a non-manager, even the owner.
   const safe = canManage ? report : { ...report, reviewNotes: null };
   return { report: safe, canManage };
+}
+
+// ---------------------------------------------------------------------------
+// Reviewer queue and disposition
+// ---------------------------------------------------------------------------
+
+export type ReviewFilters = {
+  status?: string;
+  concernType?: string;
+  immediateRisk?: boolean;
+  strikePending?: boolean;
+  q?: string;
+  page?: number;
+};
+
+const REVIEW_PAGE_SIZE = 25;
+
+export type ReviewQueueRow = { report: IncidentReport; reporterName: string; subjectName: string | null };
+
+/**
+ * All incident reports, filtered and paginated for a reviewer. Requires
+ * incidents.manage (else IncidentForbiddenError).
+ *
+ * Filters: status (exact), concernType (array contains), immediateRisk (true
+ * only), strikePending (strikeDecision === PENDING), q (case-insensitive
+ * match against subject name, reporter name, or report number).
+ *
+ * Ordered with immediateRisk reports first, then newest first. Paginated at
+ * REVIEW_PAGE_SIZE (25) rows per page.
+ */
+export async function listReviewQueue(
+  actorPersonId: string,
+  filters: ReviewFilters
+): Promise<{ rows: ReviewQueueRow[]; total: number }> {
+  if (!(await can(actorPersonId, "incidents.manage"))) throw new IncidentForbiddenError();
+
+  const page = Math.max(1, filters.page ?? 1);
+  const where: Prisma.IncidentReportWhereInput = {};
+  if (filters.status) where.status = filters.status as IncidentReportStatus;
+  if (filters.concernType) where.concernTypes = { has: filters.concernType };
+  if (filters.immediateRisk) where.immediateRisk = true;
+  if (filters.strikePending) where.strikeDecision = "PENDING";
+  if (filters.q) {
+    const q = filters.q.trim();
+    const asNumber = Number.parseInt(q, 10);
+    where.OR = [
+      { subject: { name: { contains: q, mode: "insensitive" } } },
+      { reporter: { name: { contains: q, mode: "insensitive" } } },
+      ...(Number.isNaN(asNumber) ? [] : [{ number: asNumber }]),
+    ];
+  }
+
+  const [reports, total] = await Promise.all([
+    prisma.incidentReport.findMany({
+      where,
+      include: { subject: { select: { name: true } }, reporter: { select: { name: true } } },
+      orderBy: [{ immediateRisk: "desc" }, { createdAt: "desc" }],
+      skip: (page - 1) * REVIEW_PAGE_SIZE,
+      take: REVIEW_PAGE_SIZE,
+    }),
+    prisma.incidentReport.count({ where }),
+  ]);
+
+  return {
+    rows: reports.map((r) => ({ report: r, reporterName: r.reporter.name, subjectName: r.subject?.name ?? null })),
+    total,
+  };
+}
+
+/**
+ * Sets a report's status and reviewer notes. Requires incidents.manage
+ * (else IncidentForbiddenError). Missing report throws IncidentNotFoundError.
+ *
+ * reviewNotes: when omitted (undefined), the existing notes are kept; pass
+ * null explicitly to clear them.
+ *
+ * resolvedById/resolvedAt are stamped with the actor and now() when status is
+ * RESOLVED or DISMISSED, and cleared to null for any other status (e.g. a
+ * report moved back to UNDER_REVIEW).
+ *
+ * Audits incident.review (entityType "IncidentReport", after: { status }).
+ */
+export async function reviewReport(
+  actorPersonId: string,
+  id: string,
+  input: { status: IncidentReportStatus; reviewNotes?: string | null }
+): Promise<IncidentReport> {
+  if (!(await can(actorPersonId, "incidents.manage"))) throw new IncidentForbiddenError();
+  const existing = await prisma.incidentReport.findUnique({ where: { id } });
+  if (!existing) throw new IncidentNotFoundError();
+
+  const terminal = input.status === "RESOLVED" || input.status === "DISMISSED";
+  const updated = await prisma.incidentReport.update({
+    where: { id },
+    data: {
+      status: input.status,
+      reviewNotes: input.reviewNotes === undefined ? existing.reviewNotes : input.reviewNotes,
+      resolvedById: terminal ? actorPersonId : null,
+      resolvedAt: terminal ? new Date() : null,
+    },
+  });
+
+  await recordAudit({
+    actorPersonId,
+    action: "incident.review",
+    entityType: "IncidentReport",
+    entityId: id,
+    after: { status: updated.status },
+  });
+
+  return updated;
 }

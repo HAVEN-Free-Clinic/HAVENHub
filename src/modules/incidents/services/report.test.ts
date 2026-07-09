@@ -28,6 +28,18 @@
  *   - Non-owner without incidents.manage -> IncidentForbiddenError.
  *   - Owner (non-manager) can read their own report, with reviewNotes stripped to null.
  *   - A holder of incidents.manage can read any report, reviewNotes included.
+ *
+ * listReviewQueue(actorPersonId, filters):
+ *   - Non-manager -> IncidentForbiddenError.
+ *   - A holder of incidents.manage sees all reports, regardless of reporter.
+ *   - Filters by status.
+ *   - Orders immediateRisk reports first, then newest first.
+ *
+ * reviewReport(actorPersonId, id, input):
+ *   - Non-manager -> IncidentForbiddenError.
+ *   - A holder of incidents.manage sets status and reviewNotes; RESOLVED/DISMISSED
+ *     stamp resolvedById/resolvedAt, other statuses clear them.
+ *   - Records an incident.review audit row.
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
@@ -38,6 +50,8 @@ import {
   canRequestStrikeAgainst,
   listMyReports,
   getReport,
+  listReviewQueue,
+  reviewReport,
   CONCERN_TYPE_VALUES,
   IncidentValidationError,
   IncidentNotFoundError,
@@ -424,5 +438,170 @@ describe("getReport", () => {
     expect(canManage).toBe(true);
     expect(report.id).toBe(r.id);
     expect(report.reviewNotes).toBe("internal reviewer notes");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// listReviewQueue
+// ---------------------------------------------------------------------------
+
+describe("listReviewQueue", () => {
+  it("forbids a non-manager", async () => {
+    const a = await createPerson("A", "a003");
+
+    await expect(listReviewQueue(a.id, {})).rejects.toBeInstanceOf(IncidentForbiddenError);
+  });
+
+  it("lets a manager see all reports, regardless of who reported them", async () => {
+    const reporterOne = await createPerson("Reporter One", "rq001");
+    const reporterTwo = await createPerson("Reporter Two", "rq002");
+    const manager = await createPerson("Manager", "rq-mgr001");
+    await grantPermission(manager.id, "incidents.manage");
+
+    const first = await submitReport(reporterOne.id, { concernTypes: ["OTHER"], description: "from reporter one" });
+    const second = await submitReport(reporterTwo.id, { concernTypes: ["OTHER"], description: "from reporter two" });
+
+    const { rows, total } = await listReviewQueue(manager.id, {});
+
+    expect(total).toBe(2);
+    expect(rows).toHaveLength(2);
+    const ids = rows.map((r) => r.report.id);
+    expect(ids).toContain(first.id);
+    expect(ids).toContain(second.id);
+    const rowForOne = rows.find((r) => r.report.id === first.id);
+    expect(rowForOne?.reporterName).toBe("Reporter One");
+    const rowForTwo = rows.find((r) => r.report.id === second.id);
+    expect(rowForTwo?.reporterName).toBe("Reporter Two");
+  });
+
+  it("filters by status", async () => {
+    const reporter = await createPerson("Reporter", "rq003");
+    const manager = await createPerson("Manager", "rq-mgr002");
+    await grantPermission(manager.id, "incidents.manage");
+
+    const submitted = await submitReport(reporter.id, { concernTypes: ["OTHER"], description: "still submitted" });
+    const toResolve = await submitReport(reporter.id, { concernTypes: ["OTHER"], description: "will be resolved" });
+    await reviewReport(manager.id, toResolve.id, { status: "RESOLVED" });
+
+    const { rows, total } = await listReviewQueue(manager.id, { status: "RESOLVED" });
+
+    expect(total).toBe(1);
+    expect(rows.map((r) => r.report.id)).toEqual([toResolve.id]);
+    expect(rows.map((r) => r.report.id)).not.toContain(submitted.id);
+  });
+
+  it("orders immediateRisk reports first even when older, then newest first among the rest", async () => {
+    const reporter = await createPerson("Reporter", "rq004");
+    const manager = await createPerson("Manager", "rq-mgr003");
+    await grantPermission(manager.id, "incidents.manage");
+
+    // Filed first (oldest) but immediateRisk, so it must still sort to the top.
+    const risky = await submitReport(reporter.id, {
+      concernTypes: ["PATIENT_SAFETY"],
+      description: "immediate risk, filed first but should sort to the top",
+      immediateRisk: true,
+    });
+    const older = await submitReport(reporter.id, { concernTypes: ["OTHER"], description: "older, no risk" });
+    const newer = await submitReport(reporter.id, { concernTypes: ["OTHER"], description: "newer, no risk" });
+
+    const { rows } = await listReviewQueue(manager.id, {});
+
+    expect(rows.map((r) => r.report.id)).toEqual([risky.id, newer.id, older.id]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// reviewReport
+// ---------------------------------------------------------------------------
+
+describe("reviewReport", () => {
+  it("forbids a non-manager", async () => {
+    const reporter = await createPerson("Reporter", "rr001");
+    const nonManager = await createPerson("NonManager", "rr002");
+    const report = await submitReport(reporter.id, { concernTypes: ["OTHER"], description: "x" });
+
+    await expect(
+      reviewReport(nonManager.id, report.id, { status: "RESOLVED" })
+    ).rejects.toBeInstanceOf(IncidentForbiddenError);
+  });
+
+  it("throws IncidentNotFoundError for a missing report", async () => {
+    const manager = await createPerson("Manager", "rr-mgr001");
+    await grantPermission(manager.id, "incidents.manage");
+
+    await expect(
+      reviewReport(manager.id, "nonexistent-report-id", { status: "RESOLVED" })
+    ).rejects.toBeInstanceOf(IncidentNotFoundError);
+  });
+
+  it("sets status and reviewNotes, stamping resolvedById/resolvedAt for RESOLVED", async () => {
+    const reporter = await createPerson("Reporter", "rr003");
+    const manager = await createPerson("Manager", "rr-mgr002");
+    await grantPermission(manager.id, "incidents.manage");
+    const report = await submitReport(reporter.id, { concernTypes: ["OTHER"], description: "x" });
+
+    const before = new Date();
+    const updated = await reviewReport(manager.id, report.id, {
+      status: "RESOLVED",
+      reviewNotes: "Reviewed, no further action.",
+    });
+
+    expect(updated.status).toBe("RESOLVED");
+    expect(updated.reviewNotes).toBe("Reviewed, no further action.");
+    expect(updated.resolvedById).toBe(manager.id);
+    expect(updated.resolvedAt).not.toBeNull();
+    expect((updated.resolvedAt as Date).getTime()).toBeGreaterThanOrEqual(before.getTime());
+
+    const row = await prisma.incidentReport.findUnique({ where: { id: report.id } });
+    expect(row?.status).toBe("RESOLVED");
+    expect(row?.resolvedById).toBe(manager.id);
+    expect(row?.resolvedAt).not.toBeNull();
+    expect(row?.reviewNotes).toBe("Reviewed, no further action.");
+  });
+
+  it("stamps resolvedById/resolvedAt for DISMISSED and keeps existing notes when none are passed", async () => {
+    const reporter = await createPerson("Reporter", "rr004");
+    const manager = await createPerson("Manager", "rr-mgr003");
+    await grantPermission(manager.id, "incidents.manage");
+    const report = await submitReport(reporter.id, { concernTypes: ["OTHER"], description: "x" });
+    await prisma.incidentReport.update({ where: { id: report.id }, data: { reviewNotes: "pre-existing note" } });
+
+    const updated = await reviewReport(manager.id, report.id, { status: "DISMISSED" });
+
+    expect(updated.status).toBe("DISMISSED");
+    expect(updated.resolvedById).toBe(manager.id);
+    expect(updated.resolvedAt).not.toBeNull();
+    expect(updated.reviewNotes).toBe("pre-existing note");
+  });
+
+  it("clears resolvedById/resolvedAt for a non-terminal status", async () => {
+    const reporter = await createPerson("Reporter", "rr005");
+    const manager = await createPerson("Manager", "rr-mgr004");
+    await grantPermission(manager.id, "incidents.manage");
+    const report = await submitReport(reporter.id, { concernTypes: ["OTHER"], description: "x" });
+    await reviewReport(manager.id, report.id, { status: "RESOLVED" });
+
+    const reopened = await reviewReport(manager.id, report.id, { status: "UNDER_REVIEW" });
+
+    expect(reopened.status).toBe("UNDER_REVIEW");
+    expect(reopened.resolvedById).toBeNull();
+    expect(reopened.resolvedAt).toBeNull();
+  });
+
+  it("records an incident.review audit row", async () => {
+    const reporter = await createPerson("Reporter", "rr006");
+    const manager = await createPerson("Manager", "rr-mgr005");
+    await grantPermission(manager.id, "incidents.manage");
+    const report = await submitReport(reporter.id, { concernTypes: ["OTHER"], description: "x" });
+
+    await reviewReport(manager.id, report.id, { status: "UNDER_REVIEW" });
+
+    const auditRow = await prisma.auditLog.findFirst({
+      where: { action: "incident.review", entityId: report.id },
+    });
+    expect(auditRow).not.toBeNull();
+    expect(auditRow?.actorPersonId).toBe(manager.id);
+    const after = auditRow?.after as Record<string, unknown>;
+    expect(after.status).toBe("UNDER_REVIEW");
   });
 });

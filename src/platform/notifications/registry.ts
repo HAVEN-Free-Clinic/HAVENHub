@@ -20,6 +20,11 @@ export const NOTIFICATION_TYPES: NotificationType[] = [
   { key: "epic-activation", label: "Epic activation", defaultChannel: "email" },
   { key: "epic-password-reset", label: "Epic password reset", defaultChannel: "email" },
   { key: "recruitment.interview_assignment", label: "Recruitment: interview panel assignment", defaultChannel: "email" },
+  { key: "support.ticket_submitted", label: "IT Support: ticket submitted", defaultChannel: "email" },
+  { key: "support.request_assigned", label: "IT Support: request assigned", defaultChannel: "email" },
+  { key: "support.status_changed", label: "IT Support: status changed", defaultChannel: "email" },
+  { key: "support.comment_added", label: "IT Support: new comment", defaultChannel: "email" },
+  { key: "support.request_resolved", label: "IT Support: request resolved", defaultChannel: "email" },
 ];
 
 /** The settings-registry key that stores a type's channel override. */

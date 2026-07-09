@@ -11,8 +11,11 @@
  *   - getPeopleByIds: returns full person records for a set of ids,
  *     used to build the spreadsheet rows for bulk requests.
  *
- * Permission checks are NOT this service's concern; the page gates via
- * requirePermission("support.manage_requests"). Services trust their callers.
+ * Most read queries here trust their callers; the page gates via
+ * requirePermission("support.manage_requests"). The exceptions are the two
+ * incident mutations (logYnhhIncident, resolveIncident), which enforce
+ * support.manage_requests internally (defense in depth) since they create and
+ * mutate data.
  */
 
 import type { Person, Department, YnhhTicket } from "@prisma/client";

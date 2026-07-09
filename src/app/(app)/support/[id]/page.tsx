@@ -1,28 +1,48 @@
 import { notFound, redirect } from "next/navigation";
 import { requireModuleAccess } from "@/platform/auth/session";
 import { prisma } from "@/platform/db";
-import type { CommentVisibility } from "@prisma/client";
+import type { CommentVisibility, TechRequestStatus, TechRequestPriority } from "@prisma/client";
 import {
   getTechRequest,
   isManager,
+  MANAGE,
   SupportNotFoundError,
   SupportForbiddenError,
   SupportStateError,
 } from "@/modules/support/services/tech-request";
+import {
+  assignRequest,
+  setStatus,
+  setPriority,
+  resolveRequest,
+  cancelRequest,
+  cancelOwnRequest,
+} from "@/modules/support/services/manage";
 import { addComment, listComments, notifyCommentAdded } from "@/modules/support/services/comments";
 import { persistAttachment } from "@/modules/support/services/attachments";
+import { peopleWithAnyPermission } from "@/platform/rbac/holders";
 import { TicketDetail } from "@/modules/support/components/ticket-detail";
+import { ALL_STATUSES, ALL_PRIORITIES } from "@/modules/support/components/request-filters";
 import { Alert } from "@/platform/ui/alert";
 
 type PageProps = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ submitted?: string; commentError?: string; attachmentError?: string }>;
+  searchParams: Promise<{
+    submitted?: string;
+    commentError?: string;
+    attachmentError?: string;
+    manageError?: string;
+  }>;
 };
+
+function pick<T extends string>(value: string, allowed: readonly T[]): T | undefined {
+  return (allowed as readonly string[]).includes(value) ? (value as T) : undefined;
+}
 
 export default async function TicketPage({ params, searchParams }: PageProps) {
   const session = await requireModuleAccess("support");
   const { id } = await params;
-  const { submitted, commentError, attachmentError } = await searchParams;
+  const { submitted, commentError, attachmentError, manageError } = await searchParams;
 
   let detail;
   try {
@@ -33,7 +53,122 @@ export default async function TicketPage({ params, searchParams }: PageProps) {
   }
 
   const canManage = await isManager(session.personId);
+  const isRequester = detail.requesterId === session.personId;
   const comments = await listComments(session.personId, id);
+  const managers = canManage ? await peopleWithAnyPermission([MANAGE]) : [];
+
+  async function assignAction(formData: FormData) {
+    "use server";
+    const actorSession = await requireModuleAccess("support");
+    const raw = ((formData.get("assigneeId") as string) ?? "").trim();
+    try {
+      await assignRequest(actorSession.personId, id, raw || null);
+    } catch (err) {
+      if (
+        err instanceof SupportStateError ||
+        err instanceof SupportForbiddenError ||
+        err instanceof SupportNotFoundError
+      ) {
+        redirect(`/support/${id}?manageError=${encodeURIComponent(err.message)}`);
+      }
+      throw err;
+    }
+    redirect(`/support/${id}`);
+  }
+
+  async function setStatusAction(formData: FormData) {
+    "use server";
+    const actorSession = await requireModuleAccess("support");
+    const raw = (formData.get("status") as string) ?? "";
+    const status = pick<TechRequestStatus>(raw, ALL_STATUSES);
+    try {
+      if (!status) throw new SupportStateError(`Unknown status: ${raw}`);
+      await setStatus(actorSession.personId, id, status);
+    } catch (err) {
+      if (
+        err instanceof SupportStateError ||
+        err instanceof SupportForbiddenError ||
+        err instanceof SupportNotFoundError
+      ) {
+        redirect(`/support/${id}?manageError=${encodeURIComponent(err.message)}`);
+      }
+      throw err;
+    }
+    redirect(`/support/${id}`);
+  }
+
+  async function setPriorityAction(formData: FormData) {
+    "use server";
+    const actorSession = await requireModuleAccess("support");
+    const raw = (formData.get("priority") as string) ?? "";
+    const priority = pick<TechRequestPriority>(raw, ALL_PRIORITIES);
+    try {
+      if (!priority) throw new SupportStateError(`Unknown priority: ${raw}`);
+      await setPriority(actorSession.personId, id, priority);
+    } catch (err) {
+      if (
+        err instanceof SupportStateError ||
+        err instanceof SupportForbiddenError ||
+        err instanceof SupportNotFoundError
+      ) {
+        redirect(`/support/${id}?manageError=${encodeURIComponent(err.message)}`);
+      }
+      throw err;
+    }
+    redirect(`/support/${id}`);
+  }
+
+  async function resolveAction(formData: FormData) {
+    "use server";
+    const actorSession = await requireModuleAccess("support");
+    const resolution = (formData.get("resolution") as string) ?? "";
+    try {
+      await resolveRequest(actorSession.personId, id, resolution);
+    } catch (err) {
+      if (
+        err instanceof SupportStateError ||
+        err instanceof SupportForbiddenError ||
+        err instanceof SupportNotFoundError
+      ) {
+        redirect(`/support/${id}?manageError=${encodeURIComponent(err.message)}`);
+      }
+      throw err;
+    }
+    redirect(`/support/${id}`);
+  }
+
+  async function cancelAction(formData: FormData) {
+    "use server";
+    const actorSession = await requireModuleAccess("support");
+    const reason = (formData.get("reason") as string) ?? "";
+    try {
+      await cancelRequest(actorSession.personId, id, reason);
+    } catch (err) {
+      if (
+        err instanceof SupportStateError ||
+        err instanceof SupportForbiddenError ||
+        err instanceof SupportNotFoundError
+      ) {
+        redirect(`/support/${id}?manageError=${encodeURIComponent(err.message)}`);
+      }
+      throw err;
+    }
+    redirect(`/support/${id}`);
+  }
+
+  async function cancelOwnAction() {
+    "use server";
+    const actorSession = await requireModuleAccess("support");
+    try {
+      await cancelOwnRequest(actorSession.personId, id);
+    } catch (err) {
+      if (err instanceof SupportStateError || err instanceof SupportNotFoundError) {
+        redirect(`/support/${id}?manageError=${encodeURIComponent(err.message)}`);
+      }
+      throw err;
+    }
+    redirect(`/support/${id}`);
+  }
 
   async function commentAction(formData: FormData) {
     "use server";
@@ -95,6 +230,15 @@ export default async function TicketPage({ params, searchParams }: PageProps) {
       <TicketDetail
         detail={detail}
         canManage={canManage}
+        isRequester={isRequester}
+        managers={managers}
+        assignAction={assignAction}
+        setStatusAction={setStatusAction}
+        setPriorityAction={setPriorityAction}
+        resolveAction={resolveAction}
+        cancelAction={cancelAction}
+        cancelOwnAction={cancelOwnAction}
+        manageError={manageError ? decodeURIComponent(manageError) : undefined}
         comments={comments}
         commentAction={commentAction}
         commentError={commentError ? decodeURIComponent(commentError) : undefined}

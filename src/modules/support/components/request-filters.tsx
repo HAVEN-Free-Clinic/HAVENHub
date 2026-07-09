@@ -22,15 +22,7 @@ import { Field, Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Button } from "@/platform/ui/button";
 import { STATUS_LABELS } from "./status-badge";
-import { CATEGORY_LABELS } from "@/modules/support/labels";
-
-/** No priority label map exists yet elsewhere; this is the only place priority is user-facing today. */
-const PRIORITY_LABELS: Record<TechRequestPriority, string> = {
-  LOW: "Low",
-  MEDIUM: "Medium",
-  HIGH: "High",
-  CRITICAL: "Critical",
-};
+import { CATEGORY_LABELS, PRIORITY_LABELS } from "@/modules/support/labels";
 
 export const ALL_STATUSES = Object.keys(STATUS_LABELS) as TechRequestStatus[];
 export const ALL_CATEGORIES = Object.keys(CATEGORY_LABELS) as TechRequestCategory[];

@@ -15,8 +15,9 @@ import type {
   IssueNature,
   PriorOccurrence,
   Prisma,
+  DisciplinaryAction,
 } from "@prisma/client";
-import { prisma } from "@/platform/db";
+import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { manageableDepartmentIds } from "@/platform/departments";
 import { getActiveTerm } from "@/platform/terms/active-term";
@@ -462,13 +463,15 @@ export async function submitReport(actorPersonId: string, input: SubmitReportInp
 export type ReportListRow = { report: IncidentReport; subjectName: string | null };
 
 /**
- * A reporter's own reports, newest first.
+ * A reporter's own reports, newest first. Secondary sort by number (a
+ * monotonic autoincrement) so same-millisecond inserts still order
+ * deterministically.
  */
 export async function listMyReports(actorPersonId: string): Promise<ReportListRow[]> {
   const reports = await prisma.incidentReport.findMany({
     where: { reporterId: actorPersonId },
     include: { subject: { select: { name: true } } },
-    orderBy: { createdAt: "desc" },
+    orderBy: [{ createdAt: "desc" }, { number: "desc" }],
   });
   return reports.map((r) => ({ report: r, subjectName: r.subject?.name ?? null }));
 }
@@ -536,8 +539,10 @@ export type ReviewQueueRow = { report: IncidentReport; reporterName: string; sub
  * only), strikePending (strikeDecision === PENDING), q (case-insensitive
  * match against subject name, reporter name, or report number).
  *
- * Ordered with immediateRisk reports first, then newest first. Paginated at
- * REVIEW_PAGE_SIZE (25) rows per page.
+ * Ordered with immediateRisk reports first, then newest first, then by
+ * number (a monotonic autoincrement) descending so same-millisecond inserts
+ * still order deterministically. Paginated at REVIEW_PAGE_SIZE (25) rows per
+ * page.
  */
 export async function listReviewQueue(
   actorPersonId: string,
@@ -565,7 +570,7 @@ export async function listReviewQueue(
     prisma.incidentReport.findMany({
       where,
       include: { subject: { select: { name: true } }, reporter: { select: { name: true } } },
-      orderBy: [{ immediateRisk: "desc" }, { createdAt: "desc" }],
+      orderBy: [{ immediateRisk: "desc" }, { createdAt: "desc" }, { number: "desc" }],
       skip: (page - 1) * REVIEW_PAGE_SIZE,
       take: REVIEW_PAGE_SIZE,
     }),
@@ -659,7 +664,14 @@ export type DecideStrikeInput = {
  * set to the report's anonymous flag (anonymous report -> confidential
  * strike, hidden from directors), patientInvolved from patientImpact, and
  * reportId linking the new strike back to this report. Then sets
- * strikeDecision APPROVED, stamping strikeDecidedById/At.
+ * strikeDecision APPROVED, stamping strikeDecidedById/At. Since
+ * DisciplinaryAction.reportId is unique, a concurrent double-approve races
+ * two issueAction calls; the loser's unique-constraint violation is caught
+ * and rethrown as IncidentValidationError rather than an untyped 500.
+ *
+ * Both branches audit incident.strike_decided (entityType "IncidentReport",
+ * after: { decision } -- approve also includes strikeActionId and
+ * subjectPersonId) after the report row is updated.
  *
  * Either branch notifies the reporter (incidents.strike_decided, approved
  * mirrors the decision) via best-effort notifyReporterOfStrikeDecision after
@@ -684,6 +696,15 @@ export async function decideStrike(
       where: { id: reportId },
       data: { strikeDecision: "DECLINED", strikeDecidedById: actorPersonId, strikeDecidedAt: new Date() },
     });
+
+    await recordAudit({
+      actorPersonId,
+      action: "incident.strike_decided",
+      entityType: "IncidentReport",
+      entityId: reportId,
+      after: { decision: "DECLINED" },
+    });
+
     await notifyReporterOfStrikeDecision(declined, actorPersonId, false);
     return declined;
   }
@@ -697,23 +718,43 @@ export async function decideStrike(
   }
 
   // issueAction enforces its own permission (incidents.manage -> central bypass).
-  await issueAction(actorPersonId, {
-    personId: report.subjectPersonId,
-    occurredAt: input.occurredAt ?? report.occurredAt ?? new Date(),
-    category,
-    description: report.description,
-    followUpActions: input.followUpActions ?? null,
-    policyReference: input.policyReference ?? null,
-    notes: input.notes ?? null,
-    confidential: report.anonymous, // anonymous report -> strike hidden from directors
-    patientInvolved: report.patientImpact === "YES",
-    reportId: report.id,
-  });
+  let strikeAction: DisciplinaryAction;
+  try {
+    strikeAction = await issueAction(actorPersonId, {
+      personId: report.subjectPersonId,
+      occurredAt: input.occurredAt ?? report.occurredAt ?? new Date(),
+      category,
+      description: report.description,
+      followUpActions: input.followUpActions ?? null,
+      policyReference: input.policyReference ?? null,
+      notes: input.notes ?? null,
+      confidential: report.anonymous, // anonymous report -> strike hidden from directors
+      patientInvolved: report.patientImpact === "YES",
+      reportId: report.id,
+    });
+  } catch (err) {
+    // DisciplinaryAction.reportId is unique. A concurrent double-approve on
+    // the same report races two issueAction calls; the loser hits a
+    // unique-constraint violation here rather than surfacing as a raw 500.
+    if (isUniqueConstraintError(err)) {
+      throw new IncidentValidationError("A strike has already been issued for this report.");
+    }
+    throw err;
+  }
 
   const approved = await prisma.incidentReport.update({
     where: { id: reportId },
     data: { strikeDecision: "APPROVED", strikeDecidedById: actorPersonId, strikeDecidedAt: new Date() },
   });
+
+  await recordAudit({
+    actorPersonId,
+    action: "incident.strike_decided",
+    entityType: "IncidentReport",
+    entityId: reportId,
+    after: { decision: "APPROVED", strikeActionId: strikeAction.id, subjectPersonId: report.subjectPersonId },
+  });
+
   await notifyReporterOfStrikeDecision(approved, actorPersonId, true);
   return approved;
 }

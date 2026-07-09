@@ -484,6 +484,23 @@ describe("listMyReports", () => {
 
     expect(await listMyReports(a.id)).toEqual([]);
   });
+
+  it("breaks a same-millisecond createdAt tie by number, newest first", async () => {
+    const a = await createPerson("Tiebreak", "tb001");
+
+    const first = await submitReport(a.id, { concernTypes: ["OTHER"], description: "first" });
+    const second = await submitReport(a.id, { concernTypes: ["OTHER"], description: "second" });
+
+    // Force an identical createdAt to simulate two reports landing in the
+    // same millisecond; only the number tiebreaker can then order them.
+    const tiedAt = new Date();
+    await prisma.incidentReport.update({ where: { id: first.id }, data: { createdAt: tiedAt } });
+    await prisma.incidentReport.update({ where: { id: second.id }, data: { createdAt: tiedAt } });
+
+    const rows = await listMyReports(a.id);
+
+    expect(rows.map((r) => r.report.id)).toEqual([second.id, first.id]);
+  });
 });
 
 // ---------------------------------------------------------------------------

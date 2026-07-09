@@ -6,7 +6,7 @@ import { createTechRequest, SupportForbiddenError, SupportStateError } from "@/m
 import { notifyTicketSubmitted } from "@/modules/support/services/notifications";
 import { persistAttachment } from "@/modules/support/services/attachments";
 import { SubmitForm } from "@/modules/support/components/submit-form";
-import type { TechRequestCategory, EpicRequestKind } from "@prisma/client";
+import type { TechRequestCategory } from "@prisma/client";
 
 type PageProps = {
   searchParams: Promise<{ error?: string }>;
@@ -27,12 +27,6 @@ export default async function SubmitPage({ searchParams }: PageProps) {
         category,
         subject: (formData.get("subject") as string) ?? "",
         description: (formData.get("description") as string) ?? "",
-        epicSubtype: (formData.get("epicSubtype") as EpicRequestKind) || null,
-        epicJobTitle: (formData.get("epicJobTitle") as string) || null,
-        epicMirrorId: (formData.get("epicMirrorId") as string) || null,
-        worksAtYnhh: formData.get("worksAtYnhh") === "on",
-        govId: (formData.get("govId") as string) || null,
-        netId: (formData.get("netId") as string) || null,
       });
     } catch (err) {
       if (err instanceof SupportStateError) {

@@ -71,9 +71,10 @@ export type CreateTechRequestInput = {
 /**
  * Creates a TechRequest owned by the caller.
  *
- * subject and description must be non-blank (SupportStateError). For category
- * EPIC, epicSubtype must be one of NEW/MODIFY/RENEW (SupportStateError); other
- * epic-only fields are only persisted for EPIC and are ignored otherwise.
+ * subject and description must be non-blank (SupportStateError). An EPIC
+ * ticket may be created with epicSubtype null: the request kind is chosen by
+ * a manager at promotion time, not by the submitter. Other epic-only fields
+ * are only persisted for EPIC and are ignored otherwise.
  *
  * Audits "support.request_create" with category and number in after.
  */
@@ -88,9 +89,6 @@ export async function createTechRequest(
 
   const isEpic = input.category === "EPIC";
   const epicSubtype = isEpic ? input.epicSubtype ?? null : null;
-  if (isEpic && !(epicSubtype && ["NEW", "MODIFY", "RENEW"].includes(epicSubtype))) {
-    throw new SupportStateError("Epic requests need a subtype of New, Modification, or Renewal.");
-  }
 
   const req = await prisma.techRequest.create({
     data: {
@@ -229,7 +227,7 @@ async function loadDetail(id: string) {
   return prisma.techRequest.findUnique({
     where: { id },
     include: {
-      requester: { select: { id: true, name: true, netId: true, contactEmail: true } },
+      requester: { select: { id: true, name: true, netId: true, contactEmail: true, epicId: true } },
       assignedTo: { select: { id: true, name: true } },
       epicRequest: { include: { ticket: true } },
       attachments: true,

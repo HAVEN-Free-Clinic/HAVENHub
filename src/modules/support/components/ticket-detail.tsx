@@ -12,11 +12,11 @@
  *   - a `canManage` gated manager control panel (assign / status / priority /
  *     resolve / cancel), one small form per control so each mutation is
  *     independent.
- *   - a `canManage` gated Epic section, shown only for category EPIC: the
- *     captured intake fields, a "Create Epic request" promotion button while
- *     unlinked (only while the ticket is open (non-terminal); a terminal
- *     ticket's captured intake fields stay visible but the promotion action
- *     is hidden), and (once linked) the single-request Epic pipeline -- complete,
+ *   - a `canManage` gated Epic section, shown only for category EPIC: a
+ *     request-type selector plus "Create Epic request" promotion button
+ *     while unlinked (only while the ticket is open, i.e. non-terminal --
+ *     the manager picks NEW/MODIFY/RENEW here since the submitter no longer
+ *     collects it), and (once linked) the single-request Epic pipeline -- complete,
  *     create a YNHH ticket, set its SR number, and send an Epic email. This is
  *     the inline single-ticket counterpart of the retired /volunteers/epic
  *     multi-select queue; it operates on exactly the one EpicRequest linked to
@@ -56,6 +56,9 @@ const EPIC_KIND_LABELS: Record<EpicRequestKind, string> = {
   RENEW: "Renewal",
   DEACTIVATE: "Deactivation",
 };
+
+/** Kinds a manager may choose when promoting a ticket. DEACTIVATE is a separate offboarding flow, not offered here. */
+const PROMOTABLE_EPIC_KINDS: EpicRequestKind[] = ["NEW", "MODIFY", "RENEW"];
 
 const EPIC_STATUS_LABELS: Record<EpicRequestStatus, string> = {
   PENDING: "Pending",
@@ -116,7 +119,7 @@ type TicketDetailProps = {
   /** Server action that posts a reply/note via addComment + notifyCommentAdded. */
   commentAction?: (formData: FormData) => Promise<void>;
   commentError?: string;
-  /** Server action wired to promoteToEpic. Creates the linked EpicRequest. */
+  /** Server action wired to promoteToEpic. Reads the manager-chosen kind from the "epicKind" field and creates the linked EpicRequest. */
   promoteAction?: (formData: FormData) => Promise<void>;
   /** Server action wired to completeRequest (epic.ts), for the linked EpicRequest. */
   completeEpicAction?: (formData: FormData) => Promise<void>;
@@ -286,48 +289,22 @@ export function TicketDetail({
           <Card className="space-y-4">
             {epicError && <Alert tone="error">{epicError}</Alert>}
 
-            <dl className="grid gap-3 text-sm sm:grid-cols-2">
-              <div>
-                <dt className="text-muted-foreground">Request type</dt>
-                <dd className="text-foreground">
-                  {detail.epicSubtype ? EPIC_KIND_LABELS[detail.epicSubtype] : "-"}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">Job title</dt>
-                <dd className="text-foreground">{detail.epicJobTitle ?? "-"}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">Mirror Epic ID</dt>
-                <dd className="font-mono text-foreground">{detail.epicMirrorId ?? "-"}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">Works at YNHHS</dt>
-                <dd className="text-foreground">
-                  {detail.worksAtYnhh === null ? "-" : detail.worksAtYnhh ? "Yes" : "No"}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">Government ID / NPI</dt>
-                <dd className="text-foreground">{detail.govId ?? "-"}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">NetID</dt>
-                <dd className="text-foreground">{detail.netId ?? "-"}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">Start date</dt>
-                <dd className="text-foreground">{fmtDate(detail.epicStartDate)}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">End date</dt>
-                <dd className="text-foreground">{fmtDate(detail.epicEndDate)}</dd>
-              </div>
-            </dl>
-
             {!detail.epicRequestId ? (
               isOpen && promoteAction && (
-                <form action={promoteAction} className="border-t border-border pt-4">
+                <form action={promoteAction} className="flex flex-wrap items-end gap-2">
+                  <Field label="Request type">
+                    <Select
+                      name="epicKind"
+                      defaultValue={detail.requester.epicId ? "RENEW" : "NEW"}
+                      className="w-48"
+                    >
+                      {PROMOTABLE_EPIC_KINDS.map((k) => (
+                        <option key={k} value={k}>
+                          {EPIC_KIND_LABELS[k]}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
                   <SubmitButton variant="primary" size="sm" pendingLabel="Creating…">
                     Create Epic request
                   </SubmitButton>

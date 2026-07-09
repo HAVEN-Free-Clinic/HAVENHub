@@ -1,7 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { requireModuleAccess } from "@/platform/auth/session";
 import { prisma } from "@/platform/db";
-import type { CommentVisibility, TechRequestStatus, TechRequestPriority } from "@prisma/client";
+import type { CommentVisibility, TechRequestStatus, TechRequestPriority, EpicRequestKind } from "@prisma/client";
 import {
   getTechRequest,
   isManager,
@@ -195,11 +195,12 @@ export default async function TicketPage({ params, searchParams }: PageProps) {
   // `detail` already loaded above rather than trusting client-supplied ids.
   // ---------------------------------------------------------------------------
 
-  async function promoteAction() {
+  async function promoteAction(formData: FormData) {
     "use server";
     const actorSession = await requireModuleAccess("support");
+    const kind = (formData.get("epicKind") as string) as EpicRequestKind;
     try {
-      await promoteToEpic(actorSession.personId, id);
+      await promoteToEpic(actorSession.personId, id, kind);
     } catch (err) {
       if (
         err instanceof SupportStateError ||

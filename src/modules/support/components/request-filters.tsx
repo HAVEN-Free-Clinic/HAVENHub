@@ -16,7 +16,7 @@
  */
 
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import type { TechRequestStatus, TechRequestCategory, TechRequestPriority } from "@prisma/client";
 import { Field, Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
@@ -41,11 +41,14 @@ export function RequestFilters({ counts, total }: RequestFiltersProps) {
   const status = searchParams.get("status") ?? "";
   const category = searchParams.get("category") ?? "";
   const priority = searchParams.get("priority") ?? "";
-  const [q, setQ] = useState(searchParams.get("q") ?? "");
 
-  useEffect(() => {
-    setQ(searchParams.get("q") ?? "");
-  }, [searchParams]);
+  const urlQ = searchParams.get("q") ?? "";
+  const [q, setQ] = useState(urlQ);
+  const [prevUrlQ, setPrevUrlQ] = useState(urlQ);
+  if (urlQ !== prevUrlQ) {
+    setPrevUrlQ(urlQ);
+    setQ(urlQ);
+  }
 
   function setParam(key: string, value: string) {
     const params = new URLSearchParams(searchParams.toString());

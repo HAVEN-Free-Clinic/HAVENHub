@@ -65,11 +65,11 @@ export async function GET(req: Request): Promise<Response> {
       },
     });
 
-    const uniqueDirectors = new Map(
-      directorAssignments.map((a) => [a.person.id, a.person])
-    );
+    const uniqueDirectors = new Map<string, { id: string; name: string; contactEmail: string | null }>(
+        directorAssignments.map((a: { person: { id: string; name: string; contactEmail: string | null } }) => [a.person.id, a.person])
+      );
 
-    for (const director of uniqueDirectors.values()) {
+      for (const director of uniqueDirectors.values()) {
       if (!director.contactEmail) continue;
       try {
         const daysPending = businessDaysSince(req.createdAt);

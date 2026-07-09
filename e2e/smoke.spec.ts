@@ -78,7 +78,6 @@ const ROUTES: RouteCase[] = [
   { path: "/volunteers", allowed: "admin", denied: "volunteer" },
   { path: "/volunteers/master", allowed: "admin", denied: "volunteer" },
   { path: "/volunteers/offboarding", allowed: "admin", denied: "volunteer" },
-  { path: "/volunteers/epic", allowed: "admin", denied: "volunteer" },
   { path: "/volunteers/disciplinary", allowed: "admin", denied: "volunteer" },
   { path: "/volunteers/spanish-review", allowed: "admin", denied: "volunteer" },
 ];

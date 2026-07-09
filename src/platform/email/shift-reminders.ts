@@ -1,6 +1,13 @@
 import type { ShiftRole } from "@prisma/client";
 import { esc } from "@/platform/email/render/escape";
 import { shiftReminderContext } from "./templates/shift";
+import { prisma } from "@/platform/db";
+import { getActiveTerm } from "@/platform/terms/active-term";
+import { getSetting } from "@/platform/settings/service";
+import { isoDateKey } from "@/platform/dates";
+import { selectCurrentClinicDate, getCurrentClinicChannelLink } from "@/platform/teams/channel-link";
+import { notify } from "@/platform/notifications/notify";
+import { renderEmail } from "./templates/renderEmail";
 
 export const ROLE_LABEL: Record<ShiftRole, string> = {
   DIRECTOR: "Director",
@@ -140,4 +147,86 @@ export function buildShiftReminders(input: BuildShiftRemindersInput): PreparedRe
 
   prepared.sort((a, b) => a.person.name.localeCompare(b.person.name));
   return prepared;
+}
+
+export type ShiftReminderRunResult = { remindersSent: number; skipped: number };
+
+/**
+ * Weekly shift reminders. Sent Monday mornings to everyone scheduled for the
+ * upcoming Saturday clinic day. Enqueue-only: notify() writes the EmailLog /
+ * Teams / inbox rows and the per-minute /api/cron/email tick delivers them.
+ */
+export async function runShiftReminders(now: Date = new Date()): Promise<ShiftReminderRunResult> {
+  const result: ShiftReminderRunResult = { remindersSent: 0, skipped: 0 };
+
+  const term = await getActiveTerm();
+  if (!term) return result;
+
+  // Same date selection as the Teams channel link, so the email date and the
+  // linked channel always agree.
+  const targetDate = selectCurrentClinicDate(term.clinicDates, now);
+  if (!targetDate) return result;
+  const targetKey = isoDateKey(targetDate);
+
+  // Load the term's assignments and filter to the target clinic date by UTC day
+  // key (never compare clinicDate by raw timestamp).
+  const rows = await prisma.shiftAssignment.findMany({
+    where: { termId: term.id },
+    select: {
+      personId: true,
+      clinicDate: true,
+      role: true,
+      department: { select: { code: true, name: true } },
+      person: { select: { id: true, name: true, contactEmail: true, entraObjectId: true } },
+    },
+  });
+  const assignments: ReminderAssignment[] = rows
+    .filter((r) => isoDateKey(r.clinicDate) === targetKey)
+    .map((r) => ({ personId: r.personId, role: r.role, department: r.department, person: r.person }));
+  if (assignments.length === 0) return result;
+
+  const channelLink = await getCurrentClinicChannelLink({ now });
+  const teamsChannelUrl = channelLink?.webUrl ?? "";
+  const baseUrl = await getSetting<string>("app.baseUrl");
+
+  const prepared = buildShiftReminders({ assignments, targetDate, teamsChannelUrl, baseUrl });
+
+  // Idempotency: skip anyone already sent a shift-reminder within the last 6
+  // days, which scopes to the current clinic week so a re-fired Monday cron
+  // cannot double-send. Relies on the default email channel writing an EmailLog
+  // row (the shipping config). An admin who switches this type to Teams-only
+  // would weaken this guard; revisit with a dedicated marker if that is done.
+  const cutoff = new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000);
+
+  for (const item of prepared) {
+    if (!item.person.contactEmail) {
+      result.skipped++;
+      continue;
+    }
+
+    const already = await prisma.emailLog.findFirst({
+      where: { personId: item.person.id, template: "shift-reminder", createdAt: { gte: cutoff } },
+      select: { id: true },
+    });
+    if (already) {
+      result.skipped++;
+      continue;
+    }
+
+    const rendered = await renderEmail("shift-reminder", item.context);
+    await notify(prisma, {
+      type: "shift-reminder",
+      person: {
+        id: item.person.id,
+        entraObjectId: item.person.entraObjectId,
+        contactEmail: item.person.contactEmail,
+      },
+      email: { subject: rendered.subject, html: rendered.html },
+      teams: { title: "Shift reminder", summary: item.teamsSummary, link: `${baseUrl}/schedule` },
+    });
+
+    result.remindersSent++;
+  }
+
+  return result;
 }

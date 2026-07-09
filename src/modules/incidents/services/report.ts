@@ -24,6 +24,15 @@ import { can } from "@/platform/rbac/engine";
 import { getSetting } from "@/platform/settings/service";
 import { putObject, deleteObject } from "@/platform/storage";
 import { validateUploadedFile } from "@/modules/recruitment/services/upload";
+import { peopleWithAnyPermission } from "@/platform/rbac/holders";
+import { notify } from "@/platform/notifications/notify";
+import { renderEmail } from "@/platform/email/templates/renderEmail";
+import {
+  reportSubmittedContext,
+  strikeRequestedContext,
+  strikeDecidedContext,
+  reportResolvedContext,
+} from "@/platform/email/templates/incidents";
 import { issueAction, DISCIPLINARY_CATEGORIES } from "./disciplinary";
 
 // ---------------------------------------------------------------------------
@@ -42,6 +51,9 @@ export const CONCERN_TYPES = [
 ] as const;
 
 export const CONCERN_TYPE_VALUES: string[] = CONCERN_TYPES.map((t) => t.value);
+
+/** value -> human label, for building the comma-separated concernSummary in notification emails. */
+const CONCERN_LABELS: Record<string, string> = Object.fromEntries(CONCERN_TYPES.map((t) => [t.value, t.label]));
 
 // ---------------------------------------------------------------------------
 // Typed errors
@@ -118,6 +130,165 @@ export async function canRequestStrikeAgainst(actorPersonId: string, subjectPers
 }
 
 // ---------------------------------------------------------------------------
+// Notifications (best-effort -- never throws out of a committed mutation)
+// ---------------------------------------------------------------------------
+
+/**
+ * Alerts every incidents.manage holder that a report was just submitted
+ * (incidents.report_submitted), and, when the report also carries a pending
+ * strike request, alerts the same reviewers a second time
+ * (incidents.strike_requested). The subject is never a recipient here --
+ * only reviewers. Called after the report row (and any attachments) commit;
+ * a delivery failure is logged and swallowed so it can never roll back or
+ * throw out of submitReport.
+ */
+async function notifyReviewersOfSubmission(report: IncidentReport, actorPersonId: string): Promise<void> {
+  try {
+    const reviewers = await peopleWithAnyPermission(["incidents.manage"]);
+    if (reviewers.length === 0) return;
+
+    const baseUrl = await getSetting<string>("app.baseUrl");
+    const reviewLink = `${baseUrl}/incidents/review`;
+    const concernSummary = report.concernTypes.map((c) => CONCERN_LABELS[c] ?? c).join(", ");
+
+    let subjectName: string | null = null;
+    if (report.strikeDecision === "PENDING" && report.subjectPersonId) {
+      const subject = await prisma.person.findUnique({
+        where: { id: report.subjectPersonId },
+        select: { name: true },
+      });
+      subjectName = subject?.name ?? "the subject";
+    }
+
+    for (const reviewer of reviewers) {
+      const submittedRendered = await renderEmail(
+        "incidents.report_submitted",
+        reportSubmittedContext({
+          reviewerName: reviewer.name,
+          reportNumber: report.number,
+          concernSummary,
+          immediateRisk: report.immediateRisk,
+          reviewLink,
+        })
+      );
+      await notify(prisma, {
+        type: "incidents.report_submitted",
+        person: { id: reviewer.id, entraObjectId: reviewer.entraObjectId, contactEmail: reviewer.contactEmail },
+        email: { subject: submittedRendered.subject, html: submittedRendered.html },
+        teams: {
+          title: `New incident report #${report.number}`,
+          summary: report.immediateRisk
+            ? `Incident report #${report.number} was submitted and flagged as an immediate risk (${concernSummary}).`
+            : `Incident report #${report.number} was submitted (${concernSummary}).`,
+          link: reviewLink,
+        },
+        triggeredById: actorPersonId,
+      });
+
+      if (report.strikeDecision === "PENDING" && subjectName) {
+        const strikeRendered = await renderEmail(
+          "incidents.strike_requested",
+          strikeRequestedContext({
+            reviewerName: reviewer.name,
+            reportNumber: report.number,
+            subjectName,
+            reviewLink,
+          })
+        );
+        await notify(prisma, {
+          type: "incidents.strike_requested",
+          person: { id: reviewer.id, entraObjectId: reviewer.entraObjectId, contactEmail: reviewer.contactEmail },
+          email: { subject: strikeRendered.subject, html: strikeRendered.html },
+          teams: {
+            title: `Strike requested on incident report #${report.number}`,
+            summary: `Incident report #${report.number} includes a request to issue a disciplinary strike against ${subjectName}.`,
+            link: reviewLink,
+          },
+          triggeredById: actorPersonId,
+        });
+      }
+    }
+  } catch (err) {
+    console.error("[incidents] failed to notify reviewers of a submitted report", report.id, err);
+  }
+}
+
+/**
+ * Tells the reporter that a reviewer approved or declined the strike they
+ * requested on their report (incidents.strike_decided). The subject is never
+ * a recipient. Best-effort: a delivery failure is logged and swallowed.
+ */
+async function notifyReporterOfStrikeDecision(
+  report: IncidentReport,
+  actorPersonId: string,
+  approved: boolean
+): Promise<void> {
+  try {
+    const reporter = await prisma.person.findUnique({
+      where: { id: report.reporterId },
+      select: { id: true, name: true, entraObjectId: true, contactEmail: true },
+    });
+    if (!reporter) return;
+
+    const rendered = await renderEmail(
+      "incidents.strike_decided",
+      strikeDecidedContext({ reporterName: reporter.name, reportNumber: report.number, approved })
+    );
+    await notify(prisma, {
+      type: "incidents.strike_decided",
+      person: { id: reporter.id, entraObjectId: reporter.entraObjectId, contactEmail: reporter.contactEmail },
+      email: { subject: rendered.subject, html: rendered.html },
+      teams: {
+        title: `Strike decision on incident report #${report.number}`,
+        summary: approved
+          ? `A reviewer approved the strike you requested on incident report #${report.number}.`
+          : `A reviewer declined the strike you requested on incident report #${report.number}.`,
+      },
+      triggeredById: actorPersonId,
+    });
+  } catch (err) {
+    console.error("[incidents] failed to notify the reporter of a strike decision", report.id, err);
+  }
+}
+
+/**
+ * Tells the reporter that their report was resolved or dismissed
+ * (incidents.report_resolved). The subject is never a recipient. Best-effort:
+ * a delivery failure is logged and swallowed.
+ */
+async function notifyReporterOfResolution(report: IncidentReport, actorPersonId: string): Promise<void> {
+  try {
+    const reporter = await prisma.person.findUnique({
+      where: { id: report.reporterId },
+      select: { id: true, name: true, entraObjectId: true, contactEmail: true },
+    });
+    if (!reporter) return;
+
+    const baseUrl = await getSetting<string>("app.baseUrl");
+    const reportLink = `${baseUrl}/incidents/${report.id}`;
+    const approved = report.status === "RESOLVED";
+
+    const rendered = await renderEmail(
+      "incidents.report_resolved",
+      reportResolvedContext({ reporterName: reporter.name, reportNumber: report.number, approved, reportLink })
+    );
+    await notify(prisma, {
+      type: "incidents.report_resolved",
+      person: { id: reporter.id, entraObjectId: reporter.entraObjectId, contactEmail: reporter.contactEmail },
+      email: { subject: rendered.subject, html: rendered.html },
+      teams: {
+        title: `Incident report #${report.number} ${approved ? "resolved" : "dismissed"}`,
+        summary: `Your incident report #${report.number} has been ${approved ? "resolved" : "dismissed"}.`,
+        link: reportLink,
+      },
+      triggeredById: actorPersonId,
+    });
+  } catch (err) {
+    console.error("[incidents] failed to notify the reporter of a report resolution", report.id, err);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Intake
 // ---------------------------------------------------------------------------
 
@@ -149,6 +320,13 @@ export async function canRequestStrikeAgainst(actorPersonId: string, subjectPers
  * up pointing at attachment rows with no bytes behind them -- and every blob
  * already written by an earlier file in the same call is also deleted, so a
  * later file's failure does not orphan the earlier files' bytes in storage.
+ *
+ * Notifications: after everything above commits, every incidents.manage
+ * holder is alerted (incidents.report_submitted), plus a second
+ * incidents.strike_requested alert when requestStrike landed the report at
+ * strikeDecision PENDING. Delivery is best-effort (notifyReviewersOfSubmission
+ * swallows and logs its own errors) so a notification failure never rolls
+ * back or fails the submission.
  */
 export async function submitReport(actorPersonId: string, input: SubmitReportInput): Promise<IncidentReport> {
   const concernTypes = input.concernTypes ?? [];
@@ -271,6 +449,8 @@ export async function submitReport(actorPersonId: string, input: SubmitReportInp
       throw err;
     }
   }
+
+  await notifyReviewersOfSubmission(report, actorPersonId);
 
   return report;
 }
@@ -410,6 +590,11 @@ export async function listReviewQueue(
  * report moved back to UNDER_REVIEW).
  *
  * Audits incident.review (entityType "IncidentReport", after: { status }).
+ *
+ * When the new status is RESOLVED or DISMISSED, the reporter is notified
+ * (incidents.report_resolved) via best-effort notifyReporterOfResolution
+ * after the update and audit row commit; a delivery failure is logged and
+ * swallowed, never rolling back this call. The subject is never notified.
  */
 export async function reviewReport(
   actorPersonId: string,
@@ -438,6 +623,10 @@ export async function reviewReport(
     entityId: id,
     after: { status: updated.status },
   });
+
+  if (terminal) {
+    await notifyReporterOfResolution(updated, actorPersonId);
+  }
 
   return updated;
 }
@@ -471,6 +660,11 @@ export type DecideStrikeInput = {
  * strike, hidden from directors), patientInvolved from patientImpact, and
  * reportId linking the new strike back to this report. Then sets
  * strikeDecision APPROVED, stamping strikeDecidedById/At.
+ *
+ * Either branch notifies the reporter (incidents.strike_decided, approved
+ * mirrors the decision) via best-effort notifyReporterOfStrikeDecision after
+ * its update commits; a delivery failure is logged and swallowed, never
+ * rolling back this call. The subject is never notified.
  */
 export async function decideStrike(
   actorPersonId: string,
@@ -486,10 +680,12 @@ export async function decideStrike(
   }
 
   if (!input.approve) {
-    return prisma.incidentReport.update({
+    const declined = await prisma.incidentReport.update({
       where: { id: reportId },
       data: { strikeDecision: "DECLINED", strikeDecidedById: actorPersonId, strikeDecidedAt: new Date() },
     });
+    await notifyReporterOfStrikeDecision(declined, actorPersonId, false);
+    return declined;
   }
 
   if (!report.subjectPersonId) {
@@ -514,8 +710,10 @@ export async function decideStrike(
     reportId: report.id,
   });
 
-  return prisma.incidentReport.update({
+  const approved = await prisma.incidentReport.update({
     where: { id: reportId },
     data: { strikeDecision: "APPROVED", strikeDecidedById: actorPersonId, strikeDecidedAt: new Date() },
   });
+  await notifyReporterOfStrikeDecision(approved, actorPersonId, true);
+  return approved;
 }

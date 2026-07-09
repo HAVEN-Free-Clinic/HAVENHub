@@ -331,6 +331,79 @@ describe("submitReport", () => {
 });
 
 // ---------------------------------------------------------------------------
+// submitReport -> notify() wiring
+// ---------------------------------------------------------------------------
+
+describe("submitReport notifications", () => {
+  it("notifies every incidents.manage holder of the new report, and never notifies the subject", async () => {
+    const reporter = await createPerson("Reporter", "notif-rep001");
+    const subject = await createPerson("Subject", "notif-sub001");
+    const manager = await createPerson("Manager", "notif-mgr001");
+    await grantPermission(manager.id, "incidents.manage");
+
+    const report = await submitReport(reporter.id, {
+      concernTypes: ["PROFESSIONAL_CONDUCT"],
+      description: "Raised their voice at a patient.",
+      subjectPersonId: subject.id,
+    });
+
+    const managerNotes = await prisma.notification.findMany({
+      where: { personId: manager.id, type: "incidents.report_submitted" },
+    });
+    expect(managerNotes).toHaveLength(1);
+    expect(managerNotes[0].body).toContain(String(report.number));
+    expect(managerNotes[0].link).toMatch(/\/incidents\/review$/);
+
+    // The subject of the report is never a notification recipient.
+    const subjectNotes = await prisma.notification.findMany({ where: { personId: subject.id } });
+    expect(subjectNotes).toEqual([]);
+  });
+
+  it("does not fail when no one holds incidents.manage", async () => {
+    const reporter = await createPerson("Reporter", "notif-rep002");
+
+    await expect(
+      submitReport(reporter.id, { concernTypes: ["OTHER"], description: "no reviewers exist yet" })
+    ).resolves.toBeDefined();
+
+    expect(await prisma.notification.count({ where: { type: "incidents.report_submitted" } })).toBe(0);
+  });
+
+  it("also sends a strike_requested alert to reviewers when the report requests a strike", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("ITCM");
+    const director = await createPerson("Director", "notif-dir001");
+    const subject = await createPerson("Volunteer", "notif-vol001");
+    const manager = await createPerson("Manager", "notif-mgr002");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(subject.id, term.id, dept.id, "VOLUNTEER");
+    await grantPermission(manager.id, "incidents.manage");
+
+    await submitReport(director.id, {
+      concernTypes: ["ATTENDANCE_RELIABILITY"],
+      description: "No-call/no-show for a scheduled shift.",
+      subjectPersonId: subject.id,
+      requestStrike: true,
+    });
+
+    const submittedNotes = await prisma.notification.findMany({
+      where: { personId: manager.id, type: "incidents.report_submitted" },
+    });
+    expect(submittedNotes).toHaveLength(1);
+
+    const strikeNotes = await prisma.notification.findMany({
+      where: { personId: manager.id, type: "incidents.strike_requested" },
+    });
+    expect(strikeNotes).toHaveLength(1);
+    expect(strikeNotes[0].body).toContain("Volunteer");
+
+    // Neither the director (reporter) nor the subject receives these alerts.
+    expect(await prisma.notification.count({ where: { personId: director.id } })).toBe(0);
+    expect(await prisma.notification.count({ where: { personId: subject.id } })).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // canRequestStrikeAgainst
 // ---------------------------------------------------------------------------
 
@@ -641,6 +714,49 @@ describe("reviewReport", () => {
     const after = auditRow?.after as Record<string, unknown>;
     expect(after.status).toBe("UNDER_REVIEW");
   });
+
+  it("notifies the reporter when a report is RESOLVED, and never notifies the subject", async () => {
+    const reporter = await createPerson("Reporter", "rr007");
+    const subject = await createPerson("Subject", "rr-sub001");
+    const manager = await createPerson("Manager", "rr-mgr006");
+    await grantPermission(manager.id, "incidents.manage");
+    const report = await submitReport(reporter.id, {
+      concernTypes: ["OTHER"],
+      description: "x",
+      subjectPersonId: subject.id,
+    });
+
+    await reviewReport(manager.id, report.id, { status: "RESOLVED" });
+
+    const reporterNotes = await prisma.notification.findMany({
+      where: { personId: reporter.id, type: "incidents.report_resolved" },
+    });
+    expect(reporterNotes).toHaveLength(1);
+    expect(reporterNotes[0].body).toContain("resolved");
+    expect(reporterNotes[0].link).toMatch(new RegExp(`/incidents/${report.id}$`));
+
+    expect(await prisma.notification.count({ where: { personId: subject.id } })).toBe(0);
+  });
+
+  it("notifies the reporter when a report is DISMISSED, and does not notify on a non-terminal status", async () => {
+    const reporter = await createPerson("Reporter", "rr008");
+    const manager = await createPerson("Manager", "rr-mgr007");
+    await grantPermission(manager.id, "incidents.manage");
+    const report = await submitReport(reporter.id, { concernTypes: ["OTHER"], description: "x" });
+
+    await reviewReport(manager.id, report.id, { status: "UNDER_REVIEW" });
+    expect(
+      await prisma.notification.count({ where: { personId: reporter.id, type: "incidents.report_resolved" } })
+    ).toBe(0);
+
+    await reviewReport(manager.id, report.id, { status: "DISMISSED" });
+
+    const reporterNotes = await prisma.notification.findMany({
+      where: { personId: reporter.id, type: "incidents.report_resolved" },
+    });
+    expect(reporterNotes).toHaveLength(1);
+    expect(reporterNotes[0].body).toContain("dismissed");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -792,5 +908,34 @@ describe("decideStrike", () => {
     expect(action).toBeNull();
     const row = await prisma.incidentReport.findUnique({ where: { id: report.id } });
     expect(row?.strikeDecision).toBe("PENDING");
+  });
+
+  it("notifies the reporter (approve = true) when a strike is approved, and never notifies the subject", async () => {
+    const { director, subject, manager, report } = await seedPendingStrikeRequest();
+
+    await decideStrike(manager.id, report.id, {
+      approve: true,
+      category: DISCIPLINARY_CATEGORIES[0],
+    });
+
+    const reporterNotes = await prisma.notification.findMany({
+      where: { personId: director.id, type: "incidents.strike_decided" },
+    });
+    expect(reporterNotes).toHaveLength(1);
+    expect(reporterNotes[0].body).toContain("approved");
+
+    expect(await prisma.notification.count({ where: { personId: subject.id, type: "incidents.strike_decided" } })).toBe(0);
+  });
+
+  it("notifies the reporter (approve = false) when a strike is declined", async () => {
+    const { director, manager, report } = await seedPendingStrikeRequest();
+
+    await decideStrike(manager.id, report.id, { approve: false });
+
+    const reporterNotes = await prisma.notification.findMany({
+      where: { personId: director.id, type: "incidents.strike_decided" },
+    });
+    expect(reporterNotes).toHaveLength(1);
+    expect(reporterNotes[0].body).toContain("declined");
   });
 });

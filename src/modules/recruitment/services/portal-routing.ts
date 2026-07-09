@@ -79,6 +79,6 @@ export function pickPortalEmailBase(
   portalBase: string | undefined,
   appBase: string,
 ): string {
-  if (portalBase && requestHost && hostFromUrl(portalBase) === requestHost) return portalBase;
-  return appBase;
+  const base = portalBase && requestHost && hostFromUrl(portalBase) === requestHost ? portalBase : appBase;
+  return base.replace(/\/+$/, "");
 }

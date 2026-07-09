@@ -77,4 +77,7 @@ describe("pickPortalEmailBase", () => {
     expect(pickPortalEmailBase(null, portal, app)).toBe(app);
     expect(pickPortalEmailBase("apply.havenfreeclinic.org", undefined, app)).toBe(app);
   });
+  it("strips a trailing slash so the verify path is single-slashed", () => {
+    expect(pickPortalEmailBase("apply.havenfreeclinic.org", "https://apply.havenfreeclinic.org/", app)).toBe(portal);
+  });
 });

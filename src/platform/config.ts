@@ -44,7 +44,7 @@ const schema = z
     // https://apply.havenfreeclinic.org). Optional: when unset the portal stays
     // at <APP_BASE_URL>/apply and no host rewrite happens. Deploy-time value,
     // never derived from the request Host header.
-    PORTAL_BASE_URL: z.string().url().optional(),
+    PORTAL_BASE_URL: z.preprocess((v) => (v === "" ? undefined : v), z.string().url().optional()),
     // GitBook docs visitor authentication (custom JWT backend). When both are set,
     // /api/gitbook/auth signs an HS256 JWT with GITBOOK_JWT_KEY for the signed-in
     // person and redirects the visitor back into the published docs site. Optional:

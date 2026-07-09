@@ -1,5 +1,5 @@
 /**
- * POST /api/admin/itcm/generate
+ * POST /api/support/epic/generate
  *
  * Generates a filled YNHH Electronic Service Request PDF for one of five
  * Epic access request scenarios, plus an Excel spreadsheet for bulk requests.

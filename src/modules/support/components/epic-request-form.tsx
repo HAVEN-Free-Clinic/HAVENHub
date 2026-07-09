@@ -9,7 +9,7 @@
  *   3. Review the generated email draft and download the PDF (+ spreadsheet
  *      for bulk requests)
  *
- * PDF and spreadsheet generation happen server-side via the /api/admin/itcm/
+ * PDF and spreadsheet generation happen server-side via the /api/support/epic/
  * generate route (returns a base64-encoded PDF and optional XLSX). The email
  * draft is assembled client-side from the same data since it needs no binary.
  *
@@ -164,7 +164,7 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
         ? `${endDate.slice(5, 7)}/${endDate.slice(8, 10)}/${endDate.slice(0, 4)}`
         : "";
 
-      const res = await fetch("/api/admin/itcm/generate", {
+      const res = await fetch("/api/support/epic/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

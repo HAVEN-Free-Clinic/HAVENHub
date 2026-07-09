@@ -105,7 +105,7 @@ export const MODULES: ModuleManifest[] = [
     ],
     status: "active",
     nav: [
-      // Overview and ITCM gate on admin.access (= module access); the rest each
+      // Overview gates on admin.access (= module access); the rest each
       // require a distinct sub-permission, mirrored here from the page gates.
       // Email and Notifications enforce admin.manage_sync (not the email perms).
       { label: "Overview", href: "/admin" },
@@ -118,7 +118,6 @@ export const MODULES: ModuleManifest[] = [
       { label: "Email", href: "/admin/email", permission: "admin.manage_sync" },
       { label: "Notifications", href: "/admin/notifications", permission: "admin.manage_sync" },
       { label: "Settings", href: "/admin/settings", permission: "admin.manage_settings" },
-      { label: "ITCM", href: "/admin/itcm" },
     ],
   },
   {

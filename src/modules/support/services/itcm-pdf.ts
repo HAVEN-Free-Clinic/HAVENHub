@@ -2,7 +2,7 @@
  * itcm-pdf: fills the YNHH Electronic Service Request PDF template for an Epic
  * access request.
  *
- * Extracted from the /api/admin/itcm/generate route so the generator can be
+ * Extracted from the /api/support/epic/generate route so the generator can be
  * unit-tested without standing up the route's auth/database dependencies.
  *
  * Appearance handling (why NeedAppearances must be false):

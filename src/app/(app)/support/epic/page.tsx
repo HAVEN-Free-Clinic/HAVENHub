@@ -1,5 +1,5 @@
 /**
- * ITCM Epic Requests page.
+ * Support / Epic tools page.
  *
  * Two-tab layout:
  *   - Generate: form-driven PDF, spreadsheet, and email draft generator.
@@ -14,20 +14,20 @@ import { revalidatePath } from "next/cache";
 import { requirePermission } from "@/platform/auth/session";
 import { listDepartmentsWithMembers, getEpicRequestHistory, listPendingDeactivations, listEpicAuthorizers, closeTicket, updateServiceRequestNumber } from "@/modules/support/services/itcm";
 import { PageHeader } from "@/platform/ui/page-header";
-import { EpicRequestTabs } from "@/modules/admin/components/epic-request-tabs";
+import { EpicRequestTabs } from "@/modules/support/components/epic-request-tabs";
 
 async function closeTicketAction(ticketId: string) {
   "use server";
   await requirePermission("support.manage_requests");
   await closeTicket(ticketId);
-  revalidatePath("/admin/itcm/epic-requests");
+  revalidatePath("/support/epic");
 }
 
 async function updateServiceRequestNumberAction(ticketId: string, value: string) {
   "use server";
   await requirePermission("support.manage_requests");
   await updateServiceRequestNumber(ticketId, value);
-  revalidatePath("/admin/itcm/epic-requests");
+  revalidatePath("/support/epic");
 }
 
 type PageProps = {
@@ -38,7 +38,7 @@ export default async function EpicRequestsPage({ searchParams }: PageProps) {
   await requirePermission("support.manage_requests");
 
   const { tab } = await searchParams;
-const activeTab = tab === "tracker" ? "tracker" : tab === "history" ? "history" : "generate";
+  const activeTab = tab === "tracker" ? "tracker" : tab === "history" ? "history" : "generate";
 
   // Load data for both tabs in parallel.
   const [departments, history, pendingDeactivations, authorizers] = await Promise.all([

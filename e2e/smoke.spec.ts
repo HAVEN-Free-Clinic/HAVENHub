@@ -35,7 +35,7 @@ const ROUTES: RouteCase[] = [
   { path: "/admin/email", allowed: "admin", denied: "volunteer" },
   { path: "/admin/email/campaigns", allowed: "admin", denied: "volunteer" },
   { path: "/admin/email/templates", allowed: "admin", denied: "volunteer" },
-  { path: "/admin/itcm", allowed: "admin", denied: "volunteer" },
+  { path: "/support/epic", allowed: "admin", denied: "volunteer" },
   { path: "/admin/notifications", allowed: "admin", denied: "volunteer" },
 
   // Clinic: no module accessPermission (open to any person session).

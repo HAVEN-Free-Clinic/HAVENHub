@@ -58,7 +58,7 @@ export type EpicAuthorizer = {
 
 // The department whose directors authorize Epic requests. "ITCM" is the seeded,
 // unique code for "IT & Compliance Management" (prisma/seed.ts) and the module
-// this page lives under (/admin/itcm).
+// this page lives under (/support/epic).
 const ITCM_DEPARTMENT_CODE = "ITCM";
 
 // ---------------------------------------------------------------------------

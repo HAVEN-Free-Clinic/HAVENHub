@@ -3,6 +3,7 @@ import {
   ClipboardList,
   GraduationCap,
   HeartHandshake,
+  LifeBuoy,
   MessagesSquare,
   Send,
   Settings,
@@ -143,6 +144,22 @@ export const MODULES: ModuleManifest[] = [
       { label: "My courses", href: "/learning" },
       { label: "Manage courses", href: "/learning/manage", permission: "learning.manage_courses" },
       { label: "Completion", href: "/learning/dashboard", permission: "learning.view_progress" },
+    ],
+  },
+  {
+    id: "support",
+    title: "IT Support",
+    description: "Submit and track IT and Epic access requests",
+    icon: LifeBuoy,
+    // No accessPermission: open to any signed-in matched person (like my-info),
+    // so anyone can submit. Manager tabs gate on support.manage_requests.
+    permissions: ["support.manage_requests"],
+    status: "active",
+    nav: [
+      { label: "My requests", href: "/support" },
+      { label: "Submit a request", href: "/support/new" },
+      { label: "All requests", href: "/support/all", permission: "support.manage_requests" },
+      { label: "Epic / YNHH tools", href: "/support/epic", permission: "support.manage_requests" },
     ],
   },
   {

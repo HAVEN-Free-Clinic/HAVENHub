@@ -52,17 +52,19 @@ export async function notifyTicketSubmitted(
   });
 
   // Alert every manager (per-person fan-out), skipping the requester so a
-  // manager who files their own ticket does not get a duplicate email.
+  // manager who files their own ticket does not get a duplicate email. The
+  // manager-variant email content is identical for every recipient, so it is
+  // rendered once outside the loop.
   const managers = await peopleWithAnyPermission([MANAGE]);
+  const mgr = await renderEmail("support.ticket_submitted", {
+    ticketNumber: req.number,
+    subject: req.subject,
+    link,
+    isManager: true,
+    requesterName: requester.name ?? "A volunteer",
+  });
   for (const m of managers) {
     if (m.id === requester.id) continue;
-    const mgr = await renderEmail("support.ticket_submitted", {
-      ticketNumber: req.number,
-      subject: req.subject,
-      link,
-      isManager: true,
-      requesterName: requester.name ?? "A volunteer",
-    });
     await notify(db, {
       type: "support.ticket_submitted",
       person: m,

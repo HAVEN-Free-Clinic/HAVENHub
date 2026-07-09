@@ -14,6 +14,7 @@ describe("notification registry", () => {
         "epic-onboarding",
         "epic-password-reset",
         "recruitment.interview_assignment",
+        "shift-reminder",
       ].sort()
     );
     for (const t of NOTIFICATION_TYPES) {

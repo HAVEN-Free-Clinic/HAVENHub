@@ -1,7 +1,6 @@
 import { esc } from "./escape";
 import { tokenize, type Token } from "./tokens";
 
-
 function truthy(v: unknown): boolean {
   if (v === null || v === undefined) return false;
   if (typeof v === "string") return v.trim().length > 0;

@@ -15,14 +15,15 @@ export type ScheduleTemplateKey =
   | "schedule-request-approved"
   | "schedule-request-approved-partner"
   | "schedule-request-denied"
-  | "schedule-request-cancelled-partner";
+  | "schedule-request-cancelled-partner"
+  | "schedule-request-submitted-director";
 
 export const scheduleDescriptors: TemplateDescriptor[] = [
   {
     key: "schedule-swap-submitted-requester",
     name: "Swap request submitted (requester)",
     category: "transactional",
-    group: "compliance",
+    group: "shift",
     variables: [
       { name: "requesterName", label: "Requester first name", sampleValue: "Alex" },
       { name: "partnerName", label: "Swap partner name", sampleValue: "Jordan" },
@@ -40,7 +41,7 @@ export const scheduleDescriptors: TemplateDescriptor[] = [
     key: "schedule-swap-submitted-partner",
     name: "Swap request submitted (partner)",
     category: "transactional",
-    group: "compliance",
+    group: "shift",
     variables: [
       { name: "partnerName", label: "Partner first name", sampleValue: "Jordan" },
       { name: "requesterName", label: "Requester name", sampleValue: "Alex" },
@@ -58,7 +59,7 @@ export const scheduleDescriptors: TemplateDescriptor[] = [
     key: "schedule-drop-submitted-requester",
     name: "Drop request submitted (requester)",
     category: "transactional",
-    group: "compliance",
+    group: "shift",
     variables: [
       { name: "requesterName", label: "Requester first name", sampleValue: "Alex" },
       { name: "requesterDate", label: "Shift date", sampleValue: "July 15, 2026" },
@@ -74,7 +75,7 @@ export const scheduleDescriptors: TemplateDescriptor[] = [
     key: "schedule-request-approved",
     name: "Shift request approved (requester)",
     category: "transactional",
-    group: "compliance",
+    group: "shift",
     variables: [
       { name: "recipientName", label: "Recipient first name", sampleValue: "Alex" },
       { name: "requestType", label: "Request type (swap or drop)", sampleValue: "swap" },
@@ -92,7 +93,7 @@ export const scheduleDescriptors: TemplateDescriptor[] = [
     key: "schedule-request-approved-partner",
     name: "Shift swap approved (partner)",
     category: "transactional",
-    group: "compliance",
+    group: "shift",
     variables: [
       { name: "partnerName", label: "Partner first name", sampleValue: "Jordan" },
       { name: "requesterDate", label: "Requester shift date", sampleValue: "July 15, 2026" },
@@ -109,7 +110,7 @@ export const scheduleDescriptors: TemplateDescriptor[] = [
     key: "schedule-request-denied",
     name: "Shift request denied (requester)",
     category: "transactional",
-    group: "compliance",
+    group: "shift",
     variables: [
       { name: "requesterName", label: "Requester first name", sampleValue: "Alex" },
       { name: "requestType", label: "Request type (swap or drop)", sampleValue: "swap" },
@@ -126,7 +127,7 @@ export const scheduleDescriptors: TemplateDescriptor[] = [
     key: "schedule-request-cancelled-partner",
     name: "Swap request withdrawn (partner)",
     category: "transactional",
-    group: "compliance",
+    group: "shift",
     variables: [
       { name: "partnerName", label: "Partner first name", sampleValue: "Jordan" },
       { name: "requesterName", label: "Requester name", sampleValue: "Alex" },
@@ -143,7 +144,7 @@ export const scheduleDescriptors: TemplateDescriptor[] = [
     key: "schedule-request-submitted-director",
     name: "New shift request - director notification",
     category: "transactional",
-    group: "compliance",
+    group: "shift",
     variables: [
       { name: "directorName", label: "Director first name", sampleValue: "Sam" },
       { name: "requesterName", label: "Requester name", sampleValue: "Alex Johnson" },

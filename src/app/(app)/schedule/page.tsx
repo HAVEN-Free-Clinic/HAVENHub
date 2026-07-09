@@ -29,14 +29,15 @@ import { fmtDate } from "@/platform/dates";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Clock } from "lucide-react";
 
-const PAGE_NOW = Date.now();
-
 type PageProps = {
   searchParams: Promise<{ error?: string; message?: string; saved?: string; requested?: string }>;
 };
 
 export default async function MySchedulePage({ searchParams }: PageProps) {
   const session = await requireModuleAccess("schedule");
+  // Evaluated per request (not at module load) so the "pending N days" gate
+  // below stays accurate across warm server instances.
+  const now = Date.now();
   const sp = await searchParams;
 
   const errorCode = sp.error ?? null;
@@ -238,7 +239,7 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                                 , pending director review
                               </p>
                               <div className="flex items-center gap-2">
-                                {Math.floor((PAGE_NOW - new Date(pendingReq.createdAt).getTime()) / (1000 * 60 * 60 * 24)) >= 5 && (
+                                {Math.floor((now - new Date(pendingReq.createdAt).getTime()) / (1000 * 60 * 60 * 24)) >= 5 && (
                                   <form action={remindDirectorsAction}>
                                     <input type="hidden" name="requestId" value={pendingReq.id} />
                                     <ConfirmButton

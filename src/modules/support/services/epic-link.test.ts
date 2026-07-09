@@ -21,6 +21,7 @@ import {
   SupportNotFoundError,
   SupportStateError,
 } from "./tech-request";
+import { cancelOwnRequest } from "./manage";
 import { promoteToEpic } from "./epic-link";
 
 // ---------------------------------------------------------------------------
@@ -139,6 +140,27 @@ describe("promoteToEpic", () => {
     await grantPermission(mgr.id, "support.manage_requests");
 
     await expect(promoteToEpic(mgr.id, "does-not-exist")).rejects.toThrow(SupportNotFoundError);
+  });
+
+  it("refuses to promote a terminal (cancelled) ticket", async () => {
+    const owner = await createPerson("Owner", { status: "ACTIVE" });
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const req = await createTechRequest(owner.id, {
+      category: "EPIC",
+      epicSubtype: "NEW",
+      subject: "Need Epic",
+      description: "New volunteer",
+    });
+    await cancelOwnRequest(owner.id, req.id);
+
+    await expect(promoteToEpic(mgr.id, req.id)).rejects.toThrow(SupportStateError);
+
+    const epicRequestCount = await prisma.epicRequest.count();
+    expect(epicRequestCount).toBe(0);
+    const unchanged = await prisma.techRequest.findUniqueOrThrow({ where: { id: req.id } });
+    expect(unchanged.epicRequestId).toBeNull();
+    expect(unchanged.status).toBe("CANCELLED");
   });
 
   it("propagates createEpicRequest's typed errors, e.g. a non-ACTIVE requester", async () => {

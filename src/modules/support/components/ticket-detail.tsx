@@ -14,7 +14,9 @@
  *     independent.
  *   - a `canManage` gated Epic section, shown only for category EPIC: the
  *     captured intake fields, a "Create Epic request" promotion button while
- *     unlinked, and (once linked) the single-request Epic pipeline -- complete,
+ *     unlinked (only while the ticket is open (non-terminal); a terminal
+ *     ticket's captured intake fields stay visible but the promotion action
+ *     is hidden), and (once linked) the single-request Epic pipeline -- complete,
  *     create a YNHH ticket, set its SR number, and send an Epic email. This is
  *     the inline single-ticket counterpart of the retired /volunteers/epic
  *     multi-select queue; it operates on exactly the one EpicRequest linked to
@@ -324,7 +326,7 @@ export function TicketDetail({
             </dl>
 
             {!detail.epicRequestId ? (
-              promoteAction && (
+              isOpen && promoteAction && (
                 <form action={promoteAction} className="border-t border-border pt-4">
                   <SubmitButton variant="primary" size="sm" pendingLabel="Creating…">
                     Create Epic request

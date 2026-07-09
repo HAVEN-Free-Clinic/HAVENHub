@@ -14,14 +14,17 @@ import { recordAudit } from "@/platform/audit";
 import { can } from "@/platform/rbac/engine";
 import { createEpicRequest } from "./epic";
 import { MANAGE, SupportForbiddenError, SupportNotFoundError, SupportStateError } from "./tech-request";
+import { TERMINAL_STATUSES } from "./manage";
 
 /**
  * Promotes an Epic-category TechRequest into a linked EpicRequest.
  *
  * Requires support.manage_requests (SupportForbiddenError otherwise). The
- * ticket must exist (SupportNotFoundError), be category EPIC with a subtype
- * set (SupportStateError otherwise), and must not already be linked to an
- * EpicRequest (SupportStateError otherwise).
+ * ticket must exist (SupportNotFoundError), must not already be in a
+ * terminal state (SupportStateError otherwise -- a resolved/closed/cancelled
+ * ticket cannot be silently reopened by promotion), be category EPIC with a
+ * subtype set (SupportStateError otherwise), and must not already be linked
+ * to an EpicRequest (SupportStateError otherwise).
  *
  * Delegates creation to createEpicRequest, which enforces person-ACTIVE,
  * no-open-request, and kind-vs-epicId rules and audits "epic.request" --
@@ -39,6 +42,9 @@ export async function promoteToEpic(actorPersonId: string, techRequestId: string
   const t = await prisma.techRequest.findUnique({ where: { id: techRequestId } });
   if (!t) throw new SupportNotFoundError();
 
+  if (TERMINAL_STATUSES.includes(t.status)) {
+    throw new SupportStateError(`Cannot create an Epic request for a ${t.status} ticket.`);
+  }
   if (t.category !== "EPIC" || !t.epicSubtype) {
     throw new SupportStateError("Only an Epic-category ticket can be promoted.");
   }

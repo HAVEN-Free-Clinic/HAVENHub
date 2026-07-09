@@ -125,7 +125,7 @@ describe("support templates via renderEmail (body inside branded layout)", () =>
     });
     expect(out.subject).toBe("[HAVEN] IT Support ticket #42 resolved");
     expect(out.html).toContain(
-      "<p>Hello,</p>\n\n<p>Your IT Support ticket <strong>#42: VPN access issue</strong> has been resolved.</p>\n\n<p>Reset the WiFi adapter driver.</p>\n\n<p>If this didn't fix things, reply on the ticket and we'll reopen it.</p>\n\n<p><a href=\"https://hub.havenfreeclinic.org/support/abc123\">View the ticket</a></p>\n\n<p>Thank you,<br>HAVEN IT Support</p>",
+      "<p>Hello,</p>\n\n<p>Your IT Support ticket <strong>#42: VPN access issue</strong> has been resolved.</p>\n\n<p>Reset the WiFi adapter driver.</p>\n\n<p>If this didn't fix things, reply on the ticket and we'll follow up.</p>\n\n<p><a href=\"https://hub.havenfreeclinic.org/support/abc123\">View the ticket</a></p>\n\n<p>Thank you,<br>HAVEN IT Support</p>",
     );
   });
 
@@ -143,7 +143,7 @@ describe("support templates via renderEmail (body inside branded layout)", () =>
     });
     expect(out.subject).toBe("[HAVEN] IT Support ticket #42 resolved");
     expect(out.html).toContain(
-      "<p>Hello,</p>\n\n<p>Your IT Support ticket <strong>#42: VPN access issue</strong> has been resolved.</p>\n\n\n\n<p>If this didn't fix things, reply on the ticket and we'll reopen it.</p>\n\n<p><a href=\"https://hub.havenfreeclinic.org/support/abc123\">View the ticket</a></p>\n\n<p>Thank you,<br>HAVEN IT Support</p>",
+      "<p>Hello,</p>\n\n<p>Your IT Support ticket <strong>#42: VPN access issue</strong> has been resolved.</p>\n\n\n\n<p>If this didn't fix things, reply on the ticket and we'll follow up.</p>\n\n<p><a href=\"https://hub.havenfreeclinic.org/support/abc123\">View the ticket</a></p>\n\n<p>Thank you,<br>HAVEN IT Support</p>",
     );
     expect(out.html).not.toContain("Reset the WiFi adapter driver.");
   });

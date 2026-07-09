@@ -131,7 +131,7 @@ export const supportDescriptors: TemplateDescriptor[] = [
 
 {{#if hasResolution}}<p>{{ resolution }}</p>{{/if}}
 
-<p>If this didn't fix things, reply on the ticket and we'll reopen it.</p>
+<p>If this didn't fix things, reply on the ticket and we'll follow up.</p>
 
 <p><a href="{{ link }}">View the ticket</a></p>
 

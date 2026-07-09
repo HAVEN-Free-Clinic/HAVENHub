@@ -1,0 +1,211 @@
+import { expect, test } from "@playwright/test";
+import { devLogin } from "./auth";
+import { tag } from "./fixtures";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Files a "Report a concern" form: checks the first concern type, fills the
+ * description, optionally selects a managed volunteer as the subject and
+ * requests a strike, then submits.
+ *
+ * Labels on /incidents are plain <label> elements wrapping their control (no
+ * htmlFor/id association usable with getByLabel for the checkbox rows), so
+ * this mirrors the rest of the suite's convention of driving forms by
+ * name/placeholder selectors instead.
+ *
+ * Returns the submitted report's number, parsed off the
+ * /incidents/mine?submitted=<number> redirect.
+ */
+async function submitReport(
+  page: import("@playwright/test").Page,
+  description: string,
+  opts: { subjectOptionText?: string; requestStrike?: boolean } = {}
+): Promise<string> {
+  await page.goto("/incidents");
+  await page.waitForURL((url) => url.pathname === "/incidents");
+
+  // Section 1: at least one concern type.
+  await page.locator('input[name="concernTypes"]').first().check();
+
+  // Section 2: description (required).
+  await page.locator('textarea[name="description"]').fill(description);
+
+  // Section 4 (director-only): pick a volunteer this actor manages, which is
+  // what unlocks the "Request a strike" checkbox in section 10.
+  if (opts.subjectOptionText) {
+    const subjectSelect = page.locator('select[name="subjectPersonId"]');
+    const optionValue = await subjectSelect
+      .locator("option")
+      .filter({ hasText: opts.subjectOptionText })
+      .first()
+      .getAttribute("value");
+    if (!optionValue) {
+      throw new Error(`No subjectPersonId option matched "${opts.subjectOptionText}"`);
+    }
+    await subjectSelect.selectOption(optionValue);
+  }
+
+  if (opts.requestStrike) {
+    await page.locator('input[name="requestStrike"]').check();
+  }
+
+  await page.getByRole("button", { name: "Submit report" }).click();
+
+  // submitReportAction redirects to /incidents/mine?submitted=<number>.
+  await page.waitForURL((url) => url.pathname === "/incidents/mine" && url.searchParams.has("submitted"));
+  const number = new URL(page.url()).searchParams.get("submitted");
+  if (!number) throw new Error("submitReportAction did not redirect with a submitted report number");
+  return number;
+}
+
+/**
+ * Click a ConfirmButton (two-click protocol) scoped to a container locator.
+ * First click arms it; second click submits. Duplicated from
+ * volunteers.spec.ts (not exported there) for the strikes-ledger cleanup in
+ * Test C below.
+ */
+async function confirmButtonClick(
+  container: import("@playwright/test").Locator,
+  label: string
+) {
+  await container.getByRole("button", { name: label, exact: true }).click();
+  await container.getByRole("button").filter({ hasText: /\?/ }).first().click();
+}
+
+// ---------------------------------------------------------------------------
+// Test A: anyone can file a report
+// ---------------------------------------------------------------------------
+
+/**
+ * dev.volunteer holds no incidents.manage / issuable directorships, so this
+ * exercises the plain "report about anyone" path with no subject picker and
+ * no strike request. No residue cleanup: IncidentReport has no delete route
+ * (append-only, like an audit record), matching the epic test's precedent
+ * for un-deletable rows left in the dev DB.
+ */
+test("anyone can file a report: dev.volunteer submits one and sees it in My reports", async ({ page }) => {
+  await devLogin(page, "dev.volunteer@yale.edu");
+
+  const description = `E2E incident ${tag()}`;
+  const number = await submitReport(page, description);
+
+  // Success banner on /incidents/mine.
+  await expect(page.getByText(`Report #${number} submitted.`)).toBeVisible();
+
+  // The new report's row is visible, linking to its detail page. exact: true
+  // guards against a substring match on another row (e.g. "#7" inside "#71").
+  const row = page.locator("tr").filter({ has: page.getByRole("link", { name: `#${number}`, exact: true }) });
+  await expect(row).toBeVisible();
+});
+
+// ---------------------------------------------------------------------------
+// Test B: reviewer round trip
+// ---------------------------------------------------------------------------
+
+/**
+ * Files its own report as the admin reviewer (simpler and more isolated than
+ * depending on Test A's report / execution order) then exercises the
+ * reviewer queue and the status form on the detail page.
+ */
+test("reviewer round trip: admin resolves a report and the status badge updates", async ({ page }) => {
+  await devLogin(page, "j.carney@yale.edu");
+
+  const description = `E2E reviewer round trip ${tag()}`;
+  const number = await submitReport(page, description);
+
+  // Open the review queue, filtered to this exact report by number (q matches
+  // report.number by equality, so this returns exactly one row).
+  await page.goto(`/incidents/review?q=${number}`);
+  await page.waitForURL((url) => url.pathname === "/incidents/review");
+  await expect(page.getByRole("heading", { name: "Review queue" })).toBeVisible();
+
+  // exact: true guards against a substring match on another number (e.g. "#7" inside "#71").
+  const reportLink = page.getByRole("link", { name: `#${number}`, exact: true });
+  await expect(reportLink).toBeVisible();
+  await reportLink.click();
+  await page.waitForURL((url) => url.pathname !== "/incidents/review");
+  const detailUrl = page.url();
+
+  // Reviewer controls: set status to RESOLVED and save.
+  await page.locator('select[name="status"]').selectOption("RESOLVED");
+  await page.getByRole("button", { name: "Save status" }).click();
+
+  // reviewReportAction redirects back to the same detail page.
+  await page.waitForURL(detailUrl);
+
+  // The status badge next to the "Report #<n>" heading must now read Resolved.
+  // Scoped to a <span> (the Badge element) so the <option value="RESOLVED">
+  // text inside the status <select> is never a false match.
+  const statusBadge = page.locator("span").filter({ hasText: /^Resolved$/ });
+  await expect(statusBadge).toBeVisible();
+});
+
+// ---------------------------------------------------------------------------
+// Test C: strike request -> approve
+// ---------------------------------------------------------------------------
+
+/**
+ * dev.director (VADM DIRECTOR) already manages dev.volunteer (VADM VOLUNTEER,
+ * same active term) via the base dev seed in prisma/seed.ts -- no additional
+ * fixture seeding is needed to get a "director manages an active volunteer"
+ * relationship for this test. See manageableDepartmentIds /
+ * canRequestStrikeAgainst in src/platform/departments.ts and
+ * src/modules/incidents/services/report.ts.
+ *
+ * Cleanup: the resulting DisciplinaryAction (strike) row IS deletable via the
+ * strikes ledger, so it is deleted at the end via the same two-click
+ * ConfirmButton the (now-removed) disciplinary test used, leaving no
+ * DisciplinaryAction residue. The IncidentReport itself has no delete route
+ * and is left in place (same documented residue as Tests A/B and the epic
+ * test in volunteers.spec.ts).
+ */
+test("strike request to approve: director requests a strike, admin approves it, it lands on the strikes ledger", async ({
+  page,
+}) => {
+  await devLogin(page, "dev.director@yale.edu");
+
+  const description = `E2E strike request ${tag()}`;
+  const number = await submitReport(page, description, {
+    subjectOptionText: "Dev Volunteer",
+    requestStrike: true,
+  });
+
+  // My reports shows the pending strike request on this report's row. exact: true
+  // guards against a substring match on another row (e.g. "#7" inside "#71").
+  const myRow = page.locator("tr").filter({ has: page.getByRole("link", { name: `#${number}`, exact: true }) });
+  await expect(myRow.getByText("Strike requested")).toBeVisible();
+
+  // Switch to the admin reviewer and open the same report.
+  await devLogin(page, "j.carney@yale.edu");
+  await page.goto(`/incidents/review?q=${number}`);
+  await page.waitForURL((url) => url.pathname === "/incidents/review");
+
+  const reportLink = page.getByRole("link", { name: `#${number}`, exact: true });
+  await expect(reportLink).toBeVisible();
+  await reportLink.click();
+  await page.waitForURL((url) => url.pathname !== "/incidents/review");
+  const detailUrl = page.url();
+
+  // Approve the strike request with a category.
+  const approveForm = page.locator('form:has(input[name="approve"][value="yes"])');
+  await approveForm.locator('select[name="category"]').selectOption("Attendance");
+  await approveForm.getByRole("button", { name: "Approve strike" }).click();
+
+  // decideStrikeAction redirects back to the same detail page.
+  await page.waitForURL(detailUrl);
+
+  // The report now shows the strike as issued (strikeDecision APPROVED).
+  await expect(page.getByText("Strike issued")).toBeVisible();
+
+  // The strike now appears on the strikes ledger, then clean it up.
+  await page.goto("/incidents/strikes");
+  await page.waitForURL((url) => url.pathname === "/incidents/strikes");
+  const strikeRow = page.locator("tr").filter({ hasText: "Dev Volunteer" }).filter({ hasText: description });
+  await expect(strikeRow).toBeVisible();
+
+  await confirmButtonClick(strikeRow, "Delete");
+  await expect(strikeRow).not.toBeVisible();
+});

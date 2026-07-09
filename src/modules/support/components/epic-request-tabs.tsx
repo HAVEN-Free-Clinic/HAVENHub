@@ -3,26 +3,42 @@
 /**
  * EpicRequestTabs: top-level tab switcher for the Epic Requests page.
  *
- * Renders two tabs:
+ * Renders three tabs:
  *   - Generate: the PDF/spreadsheet/email generator form.
- *   - Tracker: a table of all submitted YNHH tickets with business days
- *     since submission, ticket status, and service request number.
+ *   - Tracker: a table of all open YNHH tickets (Epic-batch and standalone
+ *     incidents alike) with business days since submission, ticket status,
+ *     and service request number, plus the "log a YNHH incident" form for
+ *     one-off tickets that aren't Epic access requests.
+ *   - History: closed tickets, grouped by month.
+ *
+ * A ticket is an INCIDENT when ticket.subject is set (requests is empty);
+ * it's an Epic-batch ticket when subject is null (one or more requests).
+ * Both tables branch on that to render the right presentation per row.
  *
  * Tab state is reflected in the URL (?tab=generate or ?tab=tracker) so
  * the active tab survives a page refresh and is shareable.
  */
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { Fragment, Suspense } from "react";
+import { Fragment, Suspense, useState } from "react";
 import { EpicRequestForm } from "./epic-request-form";
 import { businessDaysSince } from "@/platform/dates";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
+import { Input, Textarea, Field } from "@/platform/ui/input";
+import { Select } from "@/platform/ui/select";
+import { SubmitButton } from "@/platform/ui/submit-button";
+import { Alert } from "@/platform/ui/alert";
+import { FormActions } from "@/platform/ui/form";
+import { SectionHeader } from "@/platform/ui/section-header";
+import { SUPPORT_UPLOAD_ACCEPT } from "@/modules/support/upload-constants";
 import type { DepartmentWithMembers, EpicAuthorizer, EpicRequestHistoryRow, PendingDeactivation } from "@/modules/support/services/itcm";
 import { TicketNumberField } from "./ticket-number-field";
 
 type Tab = "generate" | "tracker" | "history";
+
+type IncidentPerson = { id: string; name: string };
 
 type Props = {
   activeTab: Tab;
@@ -30,8 +46,12 @@ type Props = {
   history: EpicRequestHistoryRow[];
   pendingDeactivations: PendingDeactivation[];
   authorizers: EpicAuthorizer[];
+  incidentPeople: IncidentPerson[];
+  error?: string;
   closeTicketAction: (ticketId: string) => Promise<void>;
   updateServiceRequestNumberAction: (ticketId: string, value: string) => Promise<void>;
+  logIncidentAction: (formData: FormData) => Promise<void>;
+  resolveIncidentAction: (ticketId: string, resolution: string) => Promise<void>;
 };
 
 // ---------------------------------------------------------------------------
@@ -63,6 +83,147 @@ function TabNav({ activeTab }: { activeTab: Tab }) {
 }
 
 // ---------------------------------------------------------------------------
+// Log a YNHH incident (Tracker tab)
+// ---------------------------------------------------------------------------
+
+function LogIncidentForm({
+  incidentPeople,
+  logIncidentAction,
+  error,
+}: {
+  incidentPeople: IncidentPerson[];
+  logIncidentAction: (formData: FormData) => Promise<void>;
+  error?: string;
+}) {
+  return (
+    <form action={logIncidentAction}>
+      <Card className="space-y-5">
+        <SectionHeader level="title">Log a YNHH incident</SectionHeader>
+        <p className="text-xs text-subtle-foreground">
+          For a one-off email or ticket sent to YNHH IT that isn&apos;t an Epic access request, e.g. a general
+          outage report or a one-off account question.
+        </p>
+
+        {error && <Alert tone="error">{error}</Alert>}
+
+        <Field label="Subject" required>
+          <Input name="subject" placeholder="Short summary of the incident" required maxLength={200} />
+        </Field>
+
+        <Field label="Description">
+          <Textarea name="description" rows={4} placeholder="Details, optional" />
+        </Field>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="YNHH service request #">
+            <Input name="serviceRequestNumber" placeholder="e.g. RITM1234567" />
+          </Field>
+
+          <Field label="Person">
+            <Select name="personId" defaultValue="">
+              <option value="">Not person-specific</option>
+              {incidentPeople.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
+
+        <Field label="Attachments" hint="Optional. Images, PDF, text, or Office documents.">
+          {/* eslint-disable-next-line no-restricted-syntax -- native file input with file-button pseudo-element styling (file:* classes); no file primitive exists */}
+          <input type="file" name="attachments" multiple accept={SUPPORT_UPLOAD_ACCEPT} className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground-soft hover:file:bg-muted-strong" />
+        </Field>
+
+        <FormActions>
+          <SubmitButton variant="primary" pendingLabel="Logging…">
+            Log incident
+          </SubmitButton>
+        </FormActions>
+      </Card>
+    </form>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Resolve action (inline, for INCIDENT rows in the Tracker)
+// ---------------------------------------------------------------------------
+
+function IncidentResolveAction({
+  ticketId,
+  resolveIncidentAction,
+}: {
+  ticketId: string;
+  resolveIncidentAction: (ticketId: string, resolution: string) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+
+  async function handleResolve(formData: FormData) {
+    const resolution = (formData.get("resolution") as string) ?? "";
+    await resolveIncidentAction(ticketId, resolution);
+    setOpen(false);
+  }
+
+  if (!open) {
+    return (
+      <Button type="button" size="sm" onClick={() => setOpen(true)}>
+        Resolve
+      </Button>
+    );
+  }
+
+  return (
+    <form action={handleResolve} className="flex w-full flex-col gap-2 sm:w-64">
+      <label className="flex flex-col gap-1">
+        <span className="text-xs font-medium text-muted-foreground">
+          Resolution
+          <span className="text-critical" aria-hidden="true"> *</span>
+        </span>
+        <Textarea name="resolution" rows={2} required placeholder="What resolved this incident?" className="text-xs" />
+      </label>
+      <div className="flex items-center gap-2">
+        <SubmitButton size="sm" variant="primary" pendingLabel="Resolving…">
+          Resolve
+        </SubmitButton>
+        <Button type="button" size="sm" variant="ghost" onClick={() => setOpen(false)}>
+          Cancel
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Shared incident row body (Tracker + History)
+// ---------------------------------------------------------------------------
+
+function IncidentBody({ row }: { row: EpicRequestHistoryRow }) {
+  const { ticket, about, attachments } = row;
+  return (
+    <>
+      <p className="text-xs text-foreground-soft">
+        Person: <span className="font-medium">{about?.name ?? "Not person-specific"}</span>
+      </p>
+      {ticket.description && <p className="text-sm text-foreground-soft">{ticket.description}</p>}
+      {attachments.length > 0 && (
+        <div className="flex flex-wrap gap-x-3 gap-y-1">
+          {attachments.map((a) => (
+            <a
+              key={a.id}
+              href={`/support/attachment/${a.id}`}
+              className="text-xs text-brand-fg underline underline-offset-2 hover:text-brand-hover"
+            >
+              {a.filename}
+            </a>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Tracker table
 // ---------------------------------------------------------------------------
 
@@ -70,10 +231,12 @@ function TrackerTable({
   history,
   closeTicketAction,
   updateServiceRequestNumberAction,
+  resolveIncidentAction,
 }: {
   history: EpicRequestHistoryRow[];
   closeTicketAction: (ticketId: string) => Promise<void>;
   updateServiceRequestNumberAction: (ticketId: string, value: string) => Promise<void>;
+  resolveIncidentAction: (ticketId: string, resolution: string) => Promise<void>;
 }) {
   const openTickets = history.filter((h) => h.ticket.status === "OPEN");
 
@@ -87,14 +250,16 @@ function TrackerTable({
 
   return (
     <div className="space-y-4">
-      {openTickets.map(({ ticket, requests }) => {
+      {openTickets.map((row) => {
+        const { ticket, requests } = row;
+        const isIncident = Boolean(ticket.subject);
         const days = businessDaysSince(new Date(ticket.submittedAt));
         return (
           <Card key={ticket.id} className="space-y-3">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="space-y-1">
                 <p className="text-sm font-semibold text-foreground">
-                  {ticket.description ?? "Epic request"}
+                  {ticket.subject ?? ticket.description ?? "Epic request"}
                 </p>
                 <p className="text-xs text-muted-foreground">
                   Submitted {new Date(ticket.submittedAt).toLocaleDateString()} by {ticket.submittedBy.name}
@@ -107,26 +272,33 @@ function TrackerTable({
                   serviceRequestNumber={ticket.serviceRequestNumber}
                   updateAction={updateServiceRequestNumberAction}
                 />
+                {isIncident && <IncidentBody row={row} />}
               </div>
               <div className="flex items-center gap-2">
                 <Badge tone="warning">Open</Badge>
-                <Button size="sm" onClick={() => closeTicketAction(ticket.id)}>
-                  Mark complete
-                </Button>
+                {isIncident ? (
+                  <IncidentResolveAction ticketId={ticket.id} resolveIncidentAction={resolveIncidentAction} />
+                ) : (
+                  <Button size="sm" onClick={() => closeTicketAction(ticket.id)}>
+                    Mark complete
+                  </Button>
+                )}
               </div>
             </div>
 
-            <div className="space-y-1">
-              {requests.map((r) => (
-                <div key={r.id} className="flex items-center gap-2 text-xs text-foreground-soft">
-                  <Badge>{r.kind}</Badge>
-                  <span>{r.person.name}</span>
-                  {r.person.epicId && (
-                    <span className="text-subtle-foreground">{r.person.epicId}</span>
-                  )}
-                </div>
-              ))}
-            </div>
+            {!isIncident && (
+              <div className="space-y-1">
+                {requests.map((r) => (
+                  <div key={r.id} className="flex items-center gap-2 text-xs text-foreground-soft">
+                    <Badge>{r.kind}</Badge>
+                    <span>{r.person.name}</span>
+                    {r.person.epicId && (
+                      <span className="text-subtle-foreground">{r.person.epicId}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </Card>
         );
       })}
@@ -160,34 +332,46 @@ function HistoryTable({ history }: { history: EpicRequestHistoryRow[] }) {
         <div key={month}>
           <h3 className="text-sm font-semibold text-foreground mb-3">{month}</h3>
           <div className="space-y-4">
-            {rows.map(({ ticket, requests }) => (
-              <Card key={ticket.id} className="space-y-3">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="space-y-1">
-                    <p className="text-sm font-semibold text-foreground">{ticket.description ?? "Epic request"}</p>
-                    <p className="text-xs text-muted-foreground">
-                      Submitted {new Date(ticket.submittedAt).toLocaleDateString()} by {ticket.submittedBy.name}
-                      {ticket.closedAt && <span className="ml-2">· Closed {new Date(ticket.closedAt).toLocaleDateString()}</span>}
-                    </p>
-                    {ticket.serviceRequestNumber && (
+            {rows.map((row) => {
+              const { ticket, requests } = row;
+              const isIncident = Boolean(ticket.subject);
+              return (
+                <Card key={ticket.id} className="space-y-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <p className="text-sm font-semibold text-foreground">{ticket.subject ?? ticket.description ?? "Epic request"}</p>
                       <p className="text-xs text-muted-foreground">
-                        Service request: <span className="font-medium text-foreground-soft">{ticket.serviceRequestNumber}</span>
+                        Submitted {new Date(ticket.submittedAt).toLocaleDateString()} by {ticket.submittedBy.name}
+                        {ticket.closedAt && <span className="ml-2">· Closed {new Date(ticket.closedAt).toLocaleDateString()}</span>}
                       </p>
-                    )}
-                  </div>
-                  <Badge tone="success">Closed</Badge>
-                </div>
-                <div className="space-y-1">
-                  {requests.map((r) => (
-                    <div key={r.id} className="flex items-center gap-2 text-xs text-foreground-soft">
-                      <Badge>{r.kind}</Badge>
-                      <span>{r.person.name}</span>
-                      {r.person.epicId && <span className="text-subtle-foreground">{r.person.epicId}</span>}
+                      {ticket.serviceRequestNumber && (
+                        <p className="text-xs text-muted-foreground">
+                          Service request: <span className="font-medium text-foreground-soft">{ticket.serviceRequestNumber}</span>
+                        </p>
+                      )}
+                      {isIncident && <IncidentBody row={row} />}
+                      {isIncident && ticket.resolution && (
+                        <p className="text-xs text-foreground-soft">
+                          Resolution: <span className="font-medium">{ticket.resolution}</span>
+                        </p>
+                      )}
                     </div>
-                  ))}
-                </div>
-              </Card>
-            ))}
+                    <Badge tone="success">Closed</Badge>
+                  </div>
+                  {!isIncident && (
+                    <div className="space-y-1">
+                      {requests.map((r) => (
+                        <div key={r.id} className="flex items-center gap-2 text-xs text-foreground-soft">
+                          <Badge>{r.kind}</Badge>
+                          <span>{r.person.name}</span>
+                          {r.person.epicId && <span className="text-subtle-foreground">{r.person.epicId}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </Card>
+              );
+            })}
           </div>
         </div>
       ))}
@@ -199,7 +383,19 @@ function HistoryTable({ history }: { history: EpicRequestHistoryRow[] }) {
 // Main export
 // ---------------------------------------------------------------------------
 
-export function EpicRequestTabs({ activeTab, departments, history, pendingDeactivations, authorizers, closeTicketAction, updateServiceRequestNumberAction }: Props) {
+export function EpicRequestTabs({
+  activeTab,
+  departments,
+  history,
+  pendingDeactivations,
+  authorizers,
+  incidentPeople,
+  error,
+  closeTicketAction,
+  updateServiceRequestNumberAction,
+  logIncidentAction,
+  resolveIncidentAction,
+}: Props) {
   return (
     <div>
       <Suspense>
@@ -208,7 +404,15 @@ export function EpicRequestTabs({ activeTab, departments, history, pendingDeacti
       {activeTab === "generate" ? (
         <EpicRequestForm departments={departments} pendingDeactivations={pendingDeactivations} authorizers={authorizers} />
       ) : activeTab === "tracker" ? (
-        <TrackerTable history={history} closeTicketAction={closeTicketAction} updateServiceRequestNumberAction={updateServiceRequestNumberAction} />
+        <div className="space-y-8">
+          <LogIncidentForm incidentPeople={incidentPeople} logIncidentAction={logIncidentAction} error={error} />
+          <TrackerTable
+            history={history}
+            closeTicketAction={closeTicketAction}
+            updateServiceRequestNumberAction={updateServiceRequestNumberAction}
+            resolveIncidentAction={resolveIncidentAction}
+          />
+        </div>
       ) : (
         <HistoryTable history={history} />
       )}

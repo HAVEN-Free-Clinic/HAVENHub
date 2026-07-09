@@ -21,7 +21,10 @@ function optEnum<T extends string>(v: FormDataEntryValue | null, allowed: readon
 /**
  * Submits a "Report a concern" form. Any signed-in matched person may file a
  * report about anyone; a director filing about a volunteer they manage may
- * additionally request a strike (submitReport enforces that guard).
+ * additionally request a strike (submitReport enforces that guard). Any
+ * non-empty files selected in the "attachments" file input are read into
+ * memory and passed through to submitReport, which validates and persists
+ * them as IncidentReportAttachment rows.
  *
  * On success, redirects to /incidents/mine?submitted=<number>. On a typed
  * error, redirects back to /incidents with an ?error= code (and, for
@@ -32,6 +35,17 @@ export async function submitReportAction(formData: FormData): Promise<void> {
 
   const occurredAtStr = String(formData.get("occurredAt") ?? "");
   const occurredAt = occurredAtStr ? new Date(occurredAtStr) : null;
+
+  const files = formData
+    .getAll("attachments")
+    .filter((f): f is File => f instanceof File && f.size > 0);
+  const fileInputs = await Promise.all(
+    files.map(async (f) => ({
+      fileName: f.name,
+      mimeType: f.type,
+      bytes: Buffer.from(await f.arrayBuffer()),
+    }))
+  );
 
   let number: number;
   try {
@@ -50,6 +64,7 @@ export async function submitReportAction(formData: FormData): Promise<void> {
       priorOccurrenceDetail: (String(formData.get("priorOccurrenceDetail") ?? "").trim() || null),
       anonymous: formData.get("anonymous") === "on",
       requestStrike: formData.get("requestStrike") === "on",
+      files: fileInputs,
     });
     number = report.number;
   } catch (err) {

@@ -302,6 +302,32 @@ describe("submitReport", () => {
     expect(after.concernTypes).toEqual(["PRIVACY_HIPAA"]);
     expect(after.strikeRequested).toBe(false);
   });
+
+  it("persists an attachment row for a file passed in input.files", async () => {
+    const reporter = await createPerson("Reporter", "rep011att");
+
+    const report = await submitReport(reporter.id, {
+      concernTypes: ["OTHER"],
+      description: "See attached screenshot.",
+      files: [
+        {
+          fileName: "screenshot.png",
+          mimeType: "image/png",
+          bytes: Buffer.from("fake-png-bytes"),
+        },
+      ],
+    });
+
+    const attachments = await prisma.incidentReportAttachment.findMany({
+      where: { reportId: report.id },
+    });
+    expect(attachments).toHaveLength(1);
+    expect(attachments[0].fileName).toBe("screenshot.png");
+    expect(attachments[0].mimeType).toBe("image/png");
+    expect(attachments[0].uploadedById).toBe(reporter.id);
+    expect(attachments[0].storedName).not.toBe("pending");
+    expect(attachments[0].storedName).toBe(`incidents/${report.id}/${attachments[0].id}.png`);
+  });
 });
 
 // ---------------------------------------------------------------------------

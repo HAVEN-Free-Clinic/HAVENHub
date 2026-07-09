@@ -6,6 +6,7 @@
  * approves or declines.
  */
 
+import path from "node:path";
 import type {
   IncidentReport,
   IncidentReportAttachment,
@@ -20,6 +21,9 @@ import { recordAudit } from "@/platform/audit";
 import { manageableDepartmentIds } from "@/platform/departments";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { can } from "@/platform/rbac/engine";
+import { getSetting } from "@/platform/settings/service";
+import { putObject } from "@/platform/storage";
+import { validateUploadedFile } from "@/modules/recruitment/services/upload";
 import { issueAction, DISCIPLINARY_CATEGORIES } from "./disciplinary";
 
 // ---------------------------------------------------------------------------
@@ -83,6 +87,7 @@ export type SubmitReportInput = {
   priorOccurrenceDetail?: string | null;
   anonymous?: boolean;
   requestStrike?: boolean;
+  files?: Array<{ fileName: string; mimeType: string; bytes: Buffer }>;
 };
 
 // ---------------------------------------------------------------------------
@@ -130,6 +135,18 @@ export async function canRequestStrikeAgainst(actorPersonId: string, subjectPers
  *
  * Audits incident.submit (entityType "IncidentReport", after:
  * { number, concernTypes, immediateRisk, strikeRequested }).
+ *
+ * Attachments (input.files): validated with validateUploadedFile (rules: null,
+ * the uploads.maxMb global cap) BEFORE any attachment row is created, so a bad
+ * file rejects the whole submission without leaving partial rows around --
+ * the already-created report itself is left in place, matching how a plain
+ * validation failure earlier in this function never touches the report row.
+ * Each valid file then gets an IncidentReportAttachment row (storedName
+ * "pending" -> derived from the row id -> putObject), mirroring the
+ * create-row/derive-key/write-bytes pattern in my-info's saveCertificate. If
+ * storage write fails partway through, every attachment row created during
+ * this call is deleted before the error is rethrown, so the report never ends
+ * up pointing at attachment rows with no bytes behind them.
  */
 export async function submitReport(actorPersonId: string, input: SubmitReportInput): Promise<IncidentReport> {
   const concernTypes = input.concernTypes ?? [];
@@ -190,6 +207,55 @@ export async function submitReport(actorPersonId: string, input: SubmitReportInp
     entityId: report.id,
     after: { number: report.number, concernTypes, immediateRisk: report.immediateRisk, strikeRequested: strikeDecision !== null },
   });
+
+  const files = input.files ?? [];
+  if (files.length > 0) {
+    // Validate every file before creating any attachment row, so a rejected
+    // file never leaves a partial row behind.
+    const maxMb = await getSetting<number>("uploads.maxMb");
+    for (const file of files) {
+      const problem = validateUploadedFile(file, null, maxMb);
+      if (problem) throw new IncidentValidationError(problem.message);
+    }
+
+    const createdAttachmentIds: string[] = [];
+    try {
+      for (const file of files) {
+        const created = await prisma.incidentReportAttachment.create({
+          data: {
+            reportId: report.id,
+            fileName: file.fileName,
+            storedName: "pending",
+            size: file.bytes.length,
+            mimeType: file.mimeType,
+            uploadedById: actorPersonId,
+          },
+        });
+        createdAttachmentIds.push(created.id);
+
+        const ext = path.extname(file.fileName).match(/^\.[A-Za-z0-9]{1,8}$/)?.[0] ?? "";
+        const storedName = `incidents/${report.id}/${created.id}${ext}`;
+        await prisma.incidentReportAttachment.update({
+          where: { id: created.id },
+          data: { storedName },
+        });
+
+        await putObject(storedName, file.bytes, file.mimeType);
+      }
+    } catch (err) {
+      // Storage (or an intervening DB write) failed: clean up every attachment
+      // row created during this call so none point at bytes that were never
+      // written. The report itself is left in place.
+      if (createdAttachmentIds.length > 0) {
+        await prisma.incidentReportAttachment
+          .deleteMany({ where: { id: { in: createdAttachmentIds } } })
+          .catch((cleanupErr) => {
+            console.error("[incidents] failed to clean up attachment rows after storage error", report.id, cleanupErr);
+          });
+      }
+      throw err;
+    }
+  }
 
   return report;
 }

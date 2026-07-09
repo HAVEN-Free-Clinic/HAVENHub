@@ -43,6 +43,13 @@ const ROUTES: RouteCase[] = [
   { path: "/clinic", allowed: "admin", finalPath: "/clinic/avs" },
   { path: "/clinic/avs", allowed: "admin" },
 
+  // Incidents: no module accessPermission (open to any signed-in matched
+  // person so anyone can file a report). The Strikes sub-page gates on
+  // incidents.view_strikes at the page level; the Volunteer system role does
+  // not hold it (only Director and Volunteer Operations Manager do), so
+  // volunteer is denied there despite the module layout being open.
+  { path: "/incidents/strikes", allowed: "admin", denied: "volunteer" },
+
   // Learning: requireModuleAccess("learning") = learning.access.
   // All three seeded roles carry learning.access so the module root has no
   // meaningful denied case. Dashboard and Manage require elevated permissions.
@@ -79,7 +86,6 @@ const ROUTES: RouteCase[] = [
   { path: "/volunteers/master", allowed: "admin", denied: "volunteer" },
   { path: "/volunteers/offboarding", allowed: "admin", denied: "volunteer" },
   { path: "/volunteers/epic", allowed: "admin", denied: "volunteer" },
-  { path: "/volunteers/disciplinary", allowed: "admin", denied: "volunteer" },
   { path: "/volunteers/spanish-review", allowed: "admin", denied: "volunteer" },
 ];
 

@@ -99,6 +99,14 @@ model Person {
   epicRequestsSubmitted     EpicRequest[]        @relation("epicRequestRequestedBy")
   /// YNHH tickets this person submitted.
   ynhhTicketsSubmitted      YnhhTicket[]         @relation("ynhhTicketSubmittedBy")
+  /// IT Support tickets this person submitted.
+  techRequests         TechRequest[]           @relation("techRequestRequester")
+  /// IT Support tickets assigned to this person to work.
+  assignedTechRequests TechRequest[]           @relation("techRequestAssignee")
+  /// Comments this person authored on IT Support tickets.
+  techRequestComments  TechRequestComment[]    @relation("techRequestCommentAuthor")
+  /// Files this person uploaded to IT Support tickets or comments.
+  techRequestUploads   TechRequestAttachment[] @relation("techRequestUploader")
   /// Disciplinary actions recorded against this person.
   disciplinaryActions       DisciplinaryAction[] @relation("disciplinaryActionPerson")
   /// Disciplinary actions this person issued.
@@ -500,6 +508,8 @@ model EpicRequest {
   requestedBy   Person            @relation("epicRequestRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict)
   /// The YNHH ticket opened for this request (optional).
   ticket        YnhhTicket?       @relation(fields: [ticketId], references: [id], onDelete: SetNull)
+  /// The IT Support ticket that was promoted into this request, if any.
+  techRequest   TechRequest?      @relation("techRequestEpic")
 
   @@index([status])
   @@index([personId, status])
@@ -519,6 +529,119 @@ model YnhhTicket {
   requests             EpicRequest[]
   /// Person who submitted the ticket to YNHH IT. Restrict: any referencing row blocks deletion of this person.
   submittedBy          Person           @relation("ynhhTicketSubmittedBy", fields: [submittedById], references: [id], onDelete: Restrict)
+}
+
+enum TechRequestCategory {
+  EPIC
+  DUO_MFA
+  GENERAL_IT
+  TEAMS
+  OTHER
+}
+
+enum TechRequestPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum TechRequestStatus {
+  SUBMITTED
+  IN_PROGRESS
+  AWAITING_REQUESTER
+  AWAITING_YNHH
+  RESOLVED
+  CLOSED
+  CANCELLED
+}
+
+enum CommentVisibility {
+  PUBLIC
+  INTERNAL
+}
+
+/// An IT Support ticket. The umbrella over all tech requests; the EPIC category
+/// links to an EpicRequest once a manager promotes it. Cascade-deleted with the
+/// requester (the subject of the request).
+model TechRequest {
+  id            String              @id @default(cuid())
+  number        Int                 @unique @default(autoincrement())
+  requesterId   String
+  category      TechRequestCategory
+  epicSubtype   EpicRequestKind?
+  subject       String
+  description   String
+  priority      TechRequestPriority @default(MEDIUM)
+  status        TechRequestStatus   @default(SUBMITTED)
+  assignedToId  String?
+  resolution    String?
+  resolvedAt    DateTime?
+  epicRequestId String?             @unique
+  // EPIC intake fields captured at submit, used when promoting to an EpicRequest.
+  epicJobTitle  String?
+  epicMirrorId  String?
+  epicStartDate DateTime?
+  epicEndDate   DateTime?
+  worksAtYnhh   Boolean?
+  govId         String?
+  netId         String?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  /// Subject of the request. Cascade: tickets belong to the requester.
+  requester   Person       @relation("techRequestRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  /// Manager assigned to work the ticket. Restrict: an assigned person cannot be deleted out from under open work.
+  assignedTo  Person?      @relation("techRequestAssignee", fields: [assignedToId], references: [id], onDelete: Restrict)
+  /// The Epic request this ticket was promoted into (EPIC category only). SetNull: keep the ticket if the EpicRequest is removed.
+  epicRequest EpicRequest? @relation("techRequestEpic", fields: [epicRequestId], references: [id], onDelete: SetNull)
+
+  comments    TechRequestComment[]
+  attachments TechRequestAttachment[]
+
+  @@index([status])
+  @@index([requesterId])
+  @@index([assignedToId])
+}
+
+/// A comment on a TechRequest. PUBLIC is visible to the requester and managers;
+/// INTERNAL is manager-only. Cascade-deleted with the ticket.
+model TechRequestComment {
+  id         String            @id @default(cuid())
+  requestId  String
+  authorId   String
+  body       String
+  visibility CommentVisibility @default(PUBLIC)
+  createdAt  DateTime          @default(now())
+
+  request     TechRequest             @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  /// Author of the comment. Restrict: keep authorship stable for audit.
+  author      Person                  @relation("techRequestCommentAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  attachments TechRequestAttachment[]
+
+  @@index([requestId])
+}
+
+/// A file attached to a ticket or a comment (exactly one of requestId/commentId).
+/// storageKey is the key passed to putObject/getObject; bytes live in Blob.
+model TechRequestAttachment {
+  id           String   @id @default(cuid())
+  requestId    String?
+  commentId    String?
+  storageKey   String
+  filename     String
+  mimeType     String
+  size         Int
+  uploadedById String
+  createdAt    DateTime @default(now())
+
+  request    TechRequest?        @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  comment    TechRequestComment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  /// Uploader. Restrict: keep provenance stable for audit.
+  uploadedBy Person              @relation("techRequestUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
+
+  @@index([requestId])
+  @@index([commentId])
 }
 
 /// A formal disciplinary action recorded against a volunteer or director.

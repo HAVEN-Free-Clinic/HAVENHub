@@ -36,8 +36,9 @@ type PageProps = {
 export default async function MySchedulePage({ searchParams }: PageProps) {
   const session = await requireModuleAccess("schedule");
   // Evaluated per request (not at module load) so the "pending N days" gate
-  // below stays accurate across warm server instances.
-  const now = Date.now();
+  // below stays accurate across warm server instances. `new Date()` (not
+  // Date.now()) to match the codebase convention and satisfy react-hooks/purity.
+  const now = new Date();
   const sp = await searchParams;
 
   const errorCode = sp.error ?? null;
@@ -239,7 +240,7 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                                 , pending director review
                               </p>
                               <div className="flex items-center gap-2">
-                                {Math.floor((now - new Date(pendingReq.createdAt).getTime()) / (1000 * 60 * 60 * 24)) >= 5 && (
+                                {Math.floor((now.getTime() - new Date(pendingReq.createdAt).getTime()) / (1000 * 60 * 60 * 24)) >= 5 && (
                                   <form action={remindDirectorsAction}>
                                     <input type="hidden" name="requestId" value={pendingReq.id} />
                                     <ConfirmButton

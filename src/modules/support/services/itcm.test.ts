@@ -1,7 +1,48 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
-import { authorizerInitials, listEpicAuthorizers, listPendingDeactivations, reconcileDeactivationRequests } from "./itcm";
+import {
+  authorizerInitials,
+  listEpicAuthorizers,
+  listPendingDeactivations,
+  reconcileDeactivationRequests,
+  logYnhhIncident,
+  resolveIncident,
+  getEpicRequestHistory,
+  listIncidentPeople,
+} from "./itcm";
+import { persistAttachment } from "./attachments";
+import { SupportForbiddenError, SupportNotFoundError, SupportStateError } from "./tech-request";
+
+// ---------------------------------------------------------------------------
+// Helpers (copied from tech-request.test.ts / epic.test.ts)
+// ---------------------------------------------------------------------------
+
+async function createPerson(
+  name: string,
+  opts: { netId?: string; contactEmail?: string; epicId?: string; status?: "ACTIVE" | "OFFBOARDED" } = {}
+) {
+  return prisma.person.create({
+    data: {
+      name,
+      netId: opts.netId ?? null,
+      contactEmail: opts.contactEmail ?? null,
+      epicId: opts.epicId ?? null,
+      status: opts.status ?? "ACTIVE",
+    },
+  });
+}
+
+async function grantPermission(personId: string, permission: string) {
+  const role = await prisma.role.create({
+    data: {
+      name: `Role-${permission}-${Date.now()}-${Math.random()}`,
+      isSystem: false,
+      grants: { create: [{ permission }] },
+    },
+  });
+  await prisma.roleAssignment.create({ data: { roleId: role.id, personId, termId: null } });
+}
 
 describe("authorizerInitials", () => {
   it("returns the first and last token initials, uppercased", () => {
@@ -163,5 +204,152 @@ describe("reconcileDeactivationRequests", () => {
 
     const all = await prisma.epicRequest.findMany({ where: { personId: person.id, kind: "DEACTIVATE" } });
     expect(all).toHaveLength(1); // no duplicate
+  });
+});
+
+describe("logYnhhIncident", () => {
+  beforeEach(resetDb);
+
+  it("rejects a non-manager", async () => {
+    const actor = await createPerson("Actor");
+    await expect(
+      logYnhhIncident(actor.id, { subject: "Portal outage" })
+    ).rejects.toThrow(SupportForbiddenError);
+  });
+
+  it("creates a standalone OPEN ticket with the subject, linked person, and SR#, with no linked requests", async () => {
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const about = await createPerson("Concerned Party");
+
+    const ticket = await logYnhhIncident(mgr.id, {
+      subject: "Cannot access Epic portal",
+      description: "User reports a blank screen on login.",
+      serviceRequestNumber: "SR-1001",
+      personId: about.id,
+    });
+
+    expect(ticket.subject).toBe("Cannot access Epic portal");
+    expect(ticket.description).toBe("User reports a blank screen on login.");
+    expect(ticket.serviceRequestNumber).toBe("SR-1001");
+    expect(ticket.personId).toBe(about.id);
+    expect(ticket.status).toBe("OPEN");
+    expect(ticket.submittedById).toBe(mgr.id);
+
+    const requests = await prisma.epicRequest.findMany({ where: { ticketId: ticket.id } });
+    expect(requests).toHaveLength(0);
+  });
+
+  it("rejects a blank subject", async () => {
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    await expect(
+      logYnhhIncident(mgr.id, { subject: "   " })
+    ).rejects.toThrow(SupportStateError);
+  });
+});
+
+describe("resolveIncident", () => {
+  beforeEach(resetDb);
+
+  it("sets CLOSED, resolution, and closedAt", async () => {
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const ticket = await logYnhhIncident(mgr.id, { subject: "Password reset needed" });
+
+    await resolveIncident(mgr.id, ticket.id, "Reset via YNHH help desk.");
+
+    const updated = await prisma.ynhhTicket.findUnique({ where: { id: ticket.id } });
+    expect(updated?.status).toBe("CLOSED");
+    expect(updated?.resolution).toBe("Reset via YNHH help desk.");
+    expect(updated?.closedAt).not.toBeNull();
+  });
+
+  it("rejects an already-closed ticket", async () => {
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const ticket = await logYnhhIncident(mgr.id, { subject: "Already handled" });
+    await resolveIncident(mgr.id, ticket.id, "Done.");
+
+    await expect(
+      resolveIncident(mgr.id, ticket.id, "Again.")
+    ).rejects.toThrow(SupportStateError);
+  });
+
+  it("requires MANAGE", async () => {
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const nonMgr = await createPerson("NonManager");
+    const ticket = await logYnhhIncident(mgr.id, { subject: "Needs a manager" });
+
+    await expect(
+      resolveIncident(nonMgr.id, ticket.id, "Trying anyway.")
+    ).rejects.toThrow(SupportForbiddenError);
+  });
+
+  it("throws SupportNotFoundError for a missing ticket", async () => {
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    await expect(
+      resolveIncident(mgr.id, "nonexistent-id", "Resolution")
+    ).rejects.toThrow(SupportNotFoundError);
+  });
+});
+
+describe("getEpicRequestHistory with incidents", () => {
+  beforeEach(resetDb);
+
+  it("returns a logged incident with ticket.subject, about.name, and attachments; Epic-batch tickets have subject=null/about=null", async () => {
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const about = await createPerson("Affected Person");
+
+    const incident = await logYnhhIncident(mgr.id, {
+      subject: "Locked out of Epic",
+      personId: about.id,
+    });
+    await persistAttachment(mgr.id, { ynhhTicketId: incident.id }, {
+      fileName: "screenshot.png",
+      mimeType: "image/png",
+      bytes: Buffer.from("bytes"),
+    });
+
+    // A plain Epic-batch ticket (no subject/person), matching existing usage.
+    const epicSubject = await createPerson("Epic Subject", { epicId: "E1" });
+    const batchTicket = await prisma.ynhhTicket.create({
+      data: { submittedById: mgr.id, status: "OPEN", serviceRequestNumber: "SR-2000" },
+    });
+    await prisma.epicRequest.create({
+      data: { personId: epicSubject.id, kind: "NEW", status: "SUBMITTED", ticketId: batchTicket.id, requestedById: mgr.id },
+    });
+
+    const rows = await getEpicRequestHistory();
+    expect(rows).toHaveLength(2);
+
+    const incidentRow = rows.find((r) => r.ticket.id === incident.id)!;
+    expect(incidentRow.ticket.subject).toBe("Locked out of Epic");
+    expect(incidentRow.about).toEqual({ name: "Affected Person" });
+    expect(incidentRow.attachments).toHaveLength(1);
+    expect(incidentRow.attachments[0].filename).toBe("screenshot.png");
+    expect(incidentRow.requests).toHaveLength(0);
+
+    const batchRow = rows.find((r) => r.ticket.id === batchTicket.id)!;
+    expect(batchRow.ticket.subject).toBeNull();
+    expect(batchRow.about).toBeNull();
+    expect(batchRow.attachments).toEqual([]);
+    expect(batchRow.requests).toHaveLength(1);
+  });
+});
+
+describe("listIncidentPeople", () => {
+  beforeEach(resetDb);
+
+  it("returns only ACTIVE people, ordered by name", async () => {
+    await createPerson("Zed Active", { status: "ACTIVE" });
+    await createPerson("Amy Active", { status: "ACTIVE" });
+    await createPerson("Offboarded Person", { status: "OFFBOARDED" });
+
+    const rows = await listIncidentPeople();
+    expect(rows.map((r) => r.name)).toEqual(["Amy Active", "Zed Active"]);
   });
 });

@@ -1,17 +1,17 @@
 /**
- * Support module attachments service: files attached to a ticket or a
- * comment.
+ * Support module attachments service: files attached to a ticket, a
+ * comment, or a one-off YNHH incident.
  *
- * Every attachment belongs to exactly one of a TechRequest (requestId) or a
- * TechRequestComment (commentId). Bytes are stored via the shared platform
- * storage abstraction (putObject/getObject); only a storageKey lives on the
- * row.
+ * Every attachment belongs to exactly one of a TechRequest (requestId), a
+ * TechRequestComment (commentId), or a YnhhTicket (ynhhTicketId). Bytes are
+ * stored via the shared platform storage abstraction (putObject/getObject);
+ * only a storageKey lives on the row.
  *
  * Permission model:
- *   persistAttachment          - trusted caller (submit/comment actions,
- *                                 already gated). Validates the file itself
- *                                 (type/size) and throws SupportForbiddenError
- *                                 on a bad file.
+ *   persistAttachment          - trusted caller (submit/comment/incident
+ *                                 actions, already gated). Validates the file
+ *                                 itself (type/size) and throws
+ *                                 SupportForbiddenError on a bad file.
  *   getAttachmentForDownload   - requester or support.manage_requests holder
  *                                 may download. SupportNotFoundError (not
  *                                 Forbidden) for anyone else, matching
@@ -19,7 +19,9 @@
  *                                 cannot distinguish "not found" from "exists
  *                                 but you can't see it". An attachment on an
  *                                 INTERNAL comment additionally requires
- *                                 support.manage_requests.
+ *                                 support.manage_requests. An attachment on a
+ *                                 YNHH incident is manager-only (there is no
+ *                                 requester for a standalone incident).
  */
 
 import { randomUUID } from "node:crypto";
@@ -64,15 +66,16 @@ export function validateSupportUpload(
 // persistAttachment
 // ---------------------------------------------------------------------------
 
-export type AttachmentTarget = { requestId?: string; commentId?: string };
+export type AttachmentTarget = { requestId?: string; commentId?: string; ynhhTicketId?: string };
 
 /**
- * Validates and stores a file attached to a ticket or a comment. Exactly one
- * of target.requestId / target.commentId must be set (the caller decides
- * which; this trusts the caller on ownership, same as addComment/
- * createTechRequest -- the submit/comment actions already gate to the
- * authenticated person). Throws SupportForbiddenError when the file fails
- * validation. Audits "support.attachment_add".
+ * Validates and stores a file attached to a ticket, a comment, or a one-off
+ * YNHH incident. Exactly one of target.requestId / target.commentId /
+ * target.ynhhTicketId must be set (the caller decides which; this trusts the
+ * caller on ownership, same as addComment/createTechRequest -- the submit/
+ * comment/incident actions already gate to the authenticated person).
+ * Throws SupportForbiddenError when the file fails validation. Audits
+ * "support.attachment_add".
  */
 export async function persistAttachment(
   actorPersonId: string,
@@ -86,7 +89,7 @@ export async function persistAttachment(
   );
   if (err) throw new SupportForbiddenError(err);
 
-  const scope = target.requestId ?? target.commentId!;
+  const scope = target.requestId ?? target.commentId ?? target.ynhhTicketId!;
   const ext = path.extname(file.fileName).match(/^\.[A-Za-z0-9]{1,8}$/)?.[0] ?? "";
   const key = `support/${scope}/${randomUUID()}${ext}`;
   await putObject(key, file.bytes, file.mimeType);
@@ -95,6 +98,7 @@ export async function persistAttachment(
     data: {
       requestId: target.requestId ?? null,
       commentId: target.commentId ?? null,
+      ynhhTicketId: target.ynhhTicketId ?? null,
       storageKey: key,
       filename: file.fileName,
       mimeType: file.mimeType,
@@ -120,9 +124,11 @@ export async function persistAttachment(
 /**
  * Resolves an attachment's bytes for an authenticated download. Requires the
  * requester or a support.manage_requests holder; an attachment hanging off
- * an INTERNAL comment additionally requires support.manage_requests.
- * Non-leaky: SupportNotFoundError covers "does not exist", "not yours", and
- * "internal note you can't see" alike.
+ * an INTERNAL comment additionally requires support.manage_requests. An
+ * attachment on a one-off YNHH incident (ynhhTicketId set) is manager-only
+ * -- there is no "requester" for a standalone incident. Non-leaky:
+ * SupportNotFoundError covers "does not exist", "not yours", and "internal
+ * note/incident you can't see" alike.
  */
 export async function getAttachmentForDownload(
   actorPersonId: string,
@@ -130,16 +136,20 @@ export async function getAttachmentForDownload(
 ): Promise<{ bytes: Buffer; filename: string; mimeType: string }> {
   const attachment = await prisma.techRequestAttachment.findUnique({
     where: { id: attachmentId },
-    include: { request: true, comment: { include: { request: true } } },
+    include: { request: true, comment: { include: { request: true } }, ynhhTicket: true },
   });
   if (!attachment) throw new SupportNotFoundError();
 
-  const req = attachment.request ?? attachment.comment?.request;
-  if (!req) throw new SupportNotFoundError();
-
   const manager = await can(actorPersonId, MANAGE);
-  if (!manager && req.requesterId !== actorPersonId) throw new SupportNotFoundError();
-  if (!manager && attachment.comment?.visibility === "INTERNAL") throw new SupportNotFoundError();
+
+  if (attachment.ynhhTicketId || attachment.ynhhTicket) {
+    if (!manager) throw new SupportNotFoundError();
+  } else {
+    const req = attachment.request ?? attachment.comment?.request;
+    if (!req) throw new SupportNotFoundError();
+    if (!manager && req.requesterId !== actorPersonId) throw new SupportNotFoundError();
+    if (!manager && attachment.comment?.visibility === "INTERNAL") throw new SupportNotFoundError();
+  }
 
   const bytes = await getObject(attachment.storageKey);
   if (!bytes) throw new SupportNotFoundError();

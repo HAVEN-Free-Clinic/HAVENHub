@@ -17,6 +17,8 @@
  *   - allows a manager to download any attachment.
  *   - denies a non-manager requester an attachment on an INTERNAL comment.
  *   - allows a manager an attachment on an INTERNAL comment.
+ *   - denies a non-manager an attachment on a YNHH incident.
+ *   - allows a manager an attachment on a YNHH incident.
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
@@ -24,6 +26,7 @@ import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import { createTechRequest, SupportForbiddenError, SupportNotFoundError } from "./tech-request";
 import { addComment } from "./comments";
+import { logYnhhIncident } from "./itcm";
 import { validateSupportUpload, persistAttachment, getAttachmentForDownload } from "./attachments";
 
 // ---------------------------------------------------------------------------
@@ -111,6 +114,20 @@ describe("persistAttachment", () => {
     expect(att.commentId).toBe(comment.id);
     expect(att.requestId).toBeNull();
   });
+
+  it("stores a YNHH-incident-level attachment with ynhhTicketId set", async () => {
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const ticket = await logYnhhIncident(mgr.id, { subject: "Portal outage" });
+    const att = await persistAttachment(mgr.id, { ynhhTicketId: ticket.id }, {
+      fileName: "outage.png",
+      mimeType: "image/png",
+      bytes: Buffer.from("hello"),
+    });
+    expect(att.ynhhTicketId).toBe(ticket.id);
+    expect(att.requestId).toBeNull();
+    expect(att.commentId).toBeNull();
+  });
 });
 
 describe("getAttachmentForDownload", () => {
@@ -177,6 +194,32 @@ describe("getAttachmentForDownload", () => {
     const att = await persistAttachment(mgr.id, { commentId: comment.id }, {
       fileName: "notes.txt",
       mimeType: "text/plain",
+      bytes: Buffer.from("secret"),
+    });
+    const result = await getAttachmentForDownload(mgr.id, att.id);
+    expect(result.bytes.toString()).toBe("secret");
+  });
+
+  it("denies a non-manager an attachment on a YNHH incident", async () => {
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const nonMgr = await createPerson("NonManager");
+    const ticket = await logYnhhIncident(mgr.id, { subject: "Portal outage" });
+    const att = await persistAttachment(mgr.id, { ynhhTicketId: ticket.id }, {
+      fileName: "outage.png",
+      mimeType: "image/png",
+      bytes: Buffer.from("secret"),
+    });
+    await expect(getAttachmentForDownload(nonMgr.id, att.id)).rejects.toThrow(SupportNotFoundError);
+  });
+
+  it("allows a manager an attachment on a YNHH incident", async () => {
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const ticket = await logYnhhIncident(mgr.id, { subject: "Portal outage" });
+    const att = await persistAttachment(mgr.id, { ynhhTicketId: ticket.id }, {
+      fileName: "outage.png",
+      mimeType: "image/png",
       bytes: Buffer.from("secret"),
     });
     const result = await getAttachmentForDownload(mgr.id, att.id);

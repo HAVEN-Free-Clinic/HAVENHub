@@ -15,9 +15,12 @@
  * requirePermission("support.manage_requests"). Services trust their callers.
  */
 
-import type { Person, Department } from "@prisma/client";
+import type { Person, Department, YnhhTicket } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
+import { recordAudit } from "@/platform/audit";
+import { can } from "@/platform/rbac/engine";
+import { MANAGE, SupportForbiddenError, SupportNotFoundError, SupportStateError } from "./tech-request";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -238,11 +241,16 @@ export type EpicRequestHistoryRow = {
     id: string;
     serviceRequestNumber: string | null;
     description: string | null;
+    subject: string | null;
+    resolution: string | null;
     status: "OPEN" | "CLOSED";
     submittedAt: Date;
     closedAt: Date | null;
     submittedBy: { name: string };
   };
+  /** The person a one-off incident concerns; null for Epic-batch tickets. */
+  about: { name: string } | null;
+  attachments: { id: string; filename: string }[];
   requests: {
     id: string;
     kind: "NEW" | "MODIFY" | "RENEW" | "DEACTIVATE";
@@ -256,6 +264,8 @@ export async function getEpicRequestHistory(): Promise<EpicRequestHistoryRow[]> 
     orderBy: { submittedAt: "desc" },
     include: {
       submittedBy: { select: { name: true } },
+      person: { select: { name: true } },
+      attachments: { select: { id: true, filename: true } },
       requests: {
         include: {
           person: { select: { name: true, epicId: true } },
@@ -269,11 +279,15 @@ export async function getEpicRequestHistory(): Promise<EpicRequestHistoryRow[]> 
       id: t.id,
       serviceRequestNumber: t.serviceRequestNumber ?? null,
       description: t.description ?? null,
+      subject: t.subject ?? null,
+      resolution: t.resolution ?? null,
       status: t.status as "OPEN" | "CLOSED",
       submittedAt: t.submittedAt,
       closedAt: t.closedAt ?? null,
       submittedBy: { name: t.submittedBy.name },
     },
+    about: t.person ? { name: t.person.name } : null,
+    attachments: t.attachments.map((a) => ({ id: a.id, filename: a.filename })),
     requests: t.requests.map((r) => ({
       id: r.id,
       kind: r.kind as "NEW" | "MODIFY" | "RENEW" | "DEACTIVATE",
@@ -304,6 +318,119 @@ export async function updateServiceRequestNumber(ticketId: string, serviceReques
   return prisma.ynhhTicket.update({
     where: { id: ticketId },
     data: { serviceRequestNumber },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// logYnhhIncident / resolveIncident
+// ---------------------------------------------------------------------------
+
+export type LogYnhhIncidentInput = {
+  subject: string;
+  description?: string | null;
+  serviceRequestNumber?: string | null;
+  personId?: string | null;
+};
+
+/**
+ * Logs a standalone YNHH incident (an email/ticket sent to YNHH IT that is
+ * not tied to an Epic access request), e.g. a general outage report or a
+ * one-off account question. Creates a YnhhTicket with no linked EpicRequests.
+ *
+ * Enforces support.manage_requests internally (SupportForbiddenError):
+ * YNHH incident logging is a manager-only action, unlike createTechRequest.
+ *
+ * Audits "ynhh.incident_log".
+ */
+export async function logYnhhIncident(
+  actorPersonId: string,
+  input: LogYnhhIncidentInput
+): Promise<YnhhTicket> {
+  if (!(await can(actorPersonId, MANAGE))) {
+    throw new SupportForbiddenError(`The ${MANAGE} permission is required.`);
+  }
+
+  const subject = input.subject?.trim();
+  if (!subject) throw new SupportStateError("A subject is required.");
+
+  const ticket = await prisma.ynhhTicket.create({
+    data: {
+      subject,
+      description: input.description?.trim() || null,
+      serviceRequestNumber: input.serviceRequestNumber?.trim() || null,
+      personId: input.personId || null,
+      status: "OPEN",
+      submittedById: actorPersonId,
+    },
+  });
+
+  await recordAudit({
+    actorPersonId,
+    action: "ynhh.incident_log",
+    entityType: "YnhhTicket",
+    entityId: ticket.id,
+    after: { subject },
+  });
+
+  return ticket;
+}
+
+/**
+ * Resolves a standalone YNHH incident: records the resolution notes, marks it
+ * CLOSED, and stamps closedAt. Requires support.manage_requests
+ * (SupportForbiddenError). Throws SupportNotFoundError for a missing ticket
+ * and SupportStateError for a blank resolution or an already-CLOSED ticket.
+ *
+ * Audits "ynhh.incident_resolve".
+ */
+export async function resolveIncident(
+  actorPersonId: string,
+  ticketId: string,
+  resolution: string
+): Promise<void> {
+  if (!(await can(actorPersonId, MANAGE))) {
+    throw new SupportForbiddenError(`The ${MANAGE} permission is required.`);
+  }
+
+  const ticket = await prisma.ynhhTicket.findUnique({ where: { id: ticketId } });
+  if (!ticket) throw new SupportNotFoundError();
+  if (ticket.status === "CLOSED") {
+    throw new SupportStateError("This incident is already closed.");
+  }
+
+  const trimmedResolution = resolution?.trim();
+  if (!trimmedResolution) throw new SupportStateError("A resolution is required.");
+
+  await prisma.ynhhTicket.update({
+    where: { id: ticketId },
+    data: {
+      status: "CLOSED",
+      resolution: trimmedResolution,
+      closedAt: new Date(),
+    },
+  });
+
+  await recordAudit({
+    actorPersonId,
+    action: "ynhh.incident_resolve",
+    entityType: "YnhhTicket",
+    entityId: ticketId,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// listIncidentPeople
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns ACTIVE people for the one-off incident form's person selector
+ * (the "about" field). Ordered by name.
+ */
+export async function listIncidentPeople(): Promise<{ id: string; name: string }[]> {
+  return prisma.person.findMany({
+    where: { status: "ACTIVE" },
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
   });
 }
 

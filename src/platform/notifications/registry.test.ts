@@ -13,6 +13,10 @@ describe("notification registry", () => {
         "epic-activation",
         "epic-onboarding",
         "epic-password-reset",
+        "incidents.report_resolved",
+        "incidents.report_submitted",
+        "incidents.strike_decided",
+        "incidents.strike_requested",
         "recruitment.interview_assignment",
       ].sort()
     );

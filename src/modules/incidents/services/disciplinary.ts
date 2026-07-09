@@ -75,6 +75,8 @@ export type DisciplinaryInput = {
   notes?: string | null;
   confidential?: boolean;
   patientInvolved?: boolean;
+  /** Links this strike back to the incident report whose request it fulfills. */
+  reportId?: string | null;
 };
 
 export type ActionRow = {
@@ -179,6 +181,7 @@ export async function issueAction(
       notes: input.notes ?? null,
       confidential: input.confidential ?? false,
       patientInvolved: input.patientInvolved ?? false,
+      reportId: input.reportId ?? null,
     },
   });
 

@@ -20,6 +20,7 @@ import { recordAudit } from "@/platform/audit";
 import { manageableDepartmentIds } from "@/platform/departments";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { can } from "@/platform/rbac/engine";
+import { issueAction, DISCIPLINARY_CATEGORIES } from "./disciplinary";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -358,4 +359,82 @@ export async function reviewReport(
   });
 
   return updated;
+}
+
+// ---------------------------------------------------------------------------
+// Strike decision (the report -> strike bridge)
+// ---------------------------------------------------------------------------
+
+export type DecideStrikeInput = {
+  approve: boolean;
+  category?: string;
+  occurredAt?: Date | null;
+  followUpActions?: string | null;
+  policyReference?: string | null;
+  notes?: string | null;
+};
+
+/**
+ * Decides a report's pending strike request. Requires incidents.manage
+ * (else IncidentForbiddenError). Missing report throws IncidentNotFoundError.
+ * The report's strikeDecision must be PENDING, or IncidentValidationError.
+ *
+ * Decline: sets strikeDecision DECLINED, stamps strikeDecidedById/At. No
+ * DisciplinaryAction is created.
+ *
+ * Approve: requires the report to have a subjectPersonId and a valid
+ * category from DISCIPLINARY_CATEGORIES (else IncidentValidationError), then
+ * calls issueAction against the subject with occurredAt defaulting to the
+ * report's occurredAt (or now), description from the report, confidential
+ * set to the report's anonymous flag (anonymous report -> confidential
+ * strike, hidden from directors), patientInvolved from patientImpact, and
+ * reportId linking the new strike back to this report. Then sets
+ * strikeDecision APPROVED, stamping strikeDecidedById/At.
+ */
+export async function decideStrike(
+  actorPersonId: string,
+  reportId: string,
+  input: DecideStrikeInput
+): Promise<IncidentReport> {
+  if (!(await can(actorPersonId, "incidents.manage"))) throw new IncidentForbiddenError();
+
+  const report = await prisma.incidentReport.findUnique({ where: { id: reportId } });
+  if (!report) throw new IncidentNotFoundError();
+  if (report.strikeDecision !== "PENDING") {
+    throw new IncidentValidationError("This report has no pending strike request.");
+  }
+
+  if (!input.approve) {
+    return prisma.incidentReport.update({
+      where: { id: reportId },
+      data: { strikeDecision: "DECLINED", strikeDecidedById: actorPersonId, strikeDecidedAt: new Date() },
+    });
+  }
+
+  if (!report.subjectPersonId) {
+    throw new IncidentValidationError("Cannot issue a strike: the report has no linked subject.");
+  }
+  const category = input.category ?? "";
+  if (!(DISCIPLINARY_CATEGORIES as readonly string[]).includes(category)) {
+    throw new IncidentValidationError(`Choose a strike category. One of: ${DISCIPLINARY_CATEGORIES.join(", ")}.`);
+  }
+
+  // issueAction enforces its own permission (incidents.manage -> central bypass).
+  await issueAction(actorPersonId, {
+    personId: report.subjectPersonId,
+    occurredAt: input.occurredAt ?? report.occurredAt ?? new Date(),
+    category,
+    description: report.description,
+    followUpActions: input.followUpActions ?? null,
+    policyReference: input.policyReference ?? null,
+    notes: input.notes ?? null,
+    confidential: report.anonymous, // anonymous report -> strike hidden from directors
+    patientInvolved: report.patientImpact === "YES",
+    reportId: report.id,
+  });
+
+  return prisma.incidentReport.update({
+    where: { id: reportId },
+    data: { strikeDecision: "APPROVED", strikeDecidedById: actorPersonId, strikeDecidedAt: new Date() },
+  });
 }

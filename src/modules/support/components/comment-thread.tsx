@@ -20,7 +20,7 @@ import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
 import { fmtDateTime } from "@/platform/dates";
 import type { CommentRow } from "../services/comments";
-import { SUPPORT_UPLOAD_ACCEPT } from "../services/attachments";
+import { SUPPORT_UPLOAD_ACCEPT } from "../upload-constants";
 import { AttachmentList } from "./attachment-list";
 
 type CommentThreadProps = {

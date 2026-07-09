@@ -31,23 +31,11 @@ import { getSetting } from "@/platform/settings/service";
 import { can } from "@/platform/rbac/engine";
 import { recordAudit } from "@/platform/audit";
 import { MANAGE, SupportForbiddenError, SupportNotFoundError } from "./tech-request";
+import { ALLOWED_UPLOAD_MIME_TYPES } from "../upload-constants";
 
 const DEFAULT_MAX_MB = 10;
 
-const ALLOWED_MIME_TYPES = new Set([
-  "image/png",
-  "image/jpeg",
-  "image/gif",
-  "image/webp",
-  "application/pdf",
-  "text/plain",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-]);
-
-/** `accept` attribute value for support attachment file inputs, kept in sync with ALLOWED_MIME_TYPES. */
-export const SUPPORT_UPLOAD_ACCEPT = [...ALLOWED_MIME_TYPES].join(",");
+const ALLOWED_MIME_TYPES = new Set<string>(ALLOWED_UPLOAD_MIME_TYPES);
 
 // ---------------------------------------------------------------------------
 // validateSupportUpload

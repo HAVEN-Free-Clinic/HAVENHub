@@ -20,7 +20,7 @@ import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
 import { CATEGORY_LABELS } from "@/modules/support/labels";
-import { SUPPORT_UPLOAD_ACCEPT } from "@/modules/support/services/attachments";
+import { SUPPORT_UPLOAD_ACCEPT } from "@/modules/support/upload-constants";
 
 const EPIC_SUBTYPES: { value: EpicRequestKind; label: string }[] = [
   { value: "NEW", label: "New account" },

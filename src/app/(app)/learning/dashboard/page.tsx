@@ -1,4 +1,5 @@
 import { requirePermission } from "@/platform/auth/session";
+import { can } from "@/platform/rbac/engine";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Button } from "@/platform/ui/button";
 import { Select } from "@/platform/ui/select";
@@ -12,6 +13,7 @@ export default async function LearningDashboardPage({
   searchParams: Promise<{ course?: string }>;
 }) {
   const person = await requirePermission("learning.view_progress");
+  const canManage = await can(person.personId, "learning.manage_courses");
   const courses = await listCoursesForDashboard(person.personId);
   const sp = await searchParams;
   const selected = sp.course ?? courses[0]?.id;
@@ -50,7 +52,7 @@ export default async function LearningDashboardPage({
                 <TD>{r.scoreRaw != null ? `${r.scoreRaw}%` : ""}</TD>
                 <TD className="text-right text-xs text-subtle-foreground">
                   {r.completedAt ? r.completedAt.toLocaleDateString() : ""}
-                  {r.status !== "NOT_STARTED" && selected && (
+                  {canManage && r.status !== "NOT_STARTED" && selected && (
                     <form action={resetCourseProgressAction} className="inline ml-2">
                       <input type="hidden" name="personId" value={r.personId} />
                       <input type="hidden" name="courseId" value={selected} />

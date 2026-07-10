@@ -28,17 +28,19 @@ export async function decideInterview(
         await tx.acceptance.create({ data: { applicationId: iv.applicationId, departmentCode: iv.departmentCode, approvedById: deciderId, notes } });
       }
     } else {
-      // Changing away from ACCEPT removes a not-yet-emailed acceptance so the
+      // Changing away from ACCEPT removes a not-yet-acted-on acceptance so the
       // decision and acceptance never disagree.
-      const existing = await tx.acceptance.findUnique({ where: key });
-      if (existing?.emailedAt) {
-        // The applicant has already been emailed this acceptance. Flipping the
-        // decision here would leave the acceptance row intact, so the portal and
-        // onboarding keep showing "Accepted" while the interview badge reads
-        // REJECT/WAITLIST (issue #77). Rescinding a notified acceptance is a
-        // deliberate, separately-authorized action (revokeAcceptance), so block
-        // the change rather than diverge silently.
-        throw new AcceptanceError("This applicant was already emailed their acceptance. Rescind the acceptance before changing this decision.");
+      const existing = await tx.acceptance.findUnique({ where: key, include: { contract: { select: { id: true } } } });
+      if (existing?.emailedAt || existing?.contract) {
+        // The acceptance has already been acted on downstream: either emailed to
+        // the applicant (issue #77: flipping would leave the portal/onboarding
+        // showing "Accepted" while the badge reads REJECT/WAITLIST), or an
+        // onboarding contract has been created. OnboardingContract.acceptance is
+        // onDelete: Cascade, so deleting the acceptance here would silently destroy
+        // a submitted or promoted onboarding record (signatures and all). Rescinding
+        // a live acceptance is a deliberate, separately-authorized action
+        // (revokeAcceptance), so block the change rather than lose data silently.
+        throw new AcceptanceError("This applicant has already been emailed their acceptance or started onboarding. Rescind the acceptance before changing this decision.");
       }
       if (existing) await tx.acceptance.delete({ where: { id: existing.id } });
     }

@@ -68,7 +68,7 @@ export async function getApplicantStatus(identity: ApplicantIdentity): Promise<A
       // fall through to the neutral state rather than showing a false rejection.
       views.push({ ...base, state: "NOT_SELECTED", headline: "Not selected this cycle", detail: "Thank you for applying.", canContinue: false });
     } else if (scheduledInterview?.scheduledAt) {
-      const when = scheduledInterview.scheduledAt.toLocaleString("en-US", { dateStyle: "long", timeStyle: "short" });
+      const when = scheduledInterview.scheduledAt.toLocaleString("en-US", { dateStyle: "long", timeStyle: "short", timeZone: "America/New_York" });
       views.push({ ...base, state: "INTERVIEW", headline: "Interview scheduled", detail: scheduledInterview.zoomLink ? `${when} (join link in your email)` : when, canContinue: false });
     } else {
       views.push({ ...base, state: "SUBMITTED", headline: "Submitted", detail: "Under review", canContinue: false });

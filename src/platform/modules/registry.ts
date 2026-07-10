@@ -2,10 +2,7 @@ import {
   CalendarDays,
   ClipboardList,
   GraduationCap,
-  HeartHandshake,
   LifeBuoy,
-  MessagesSquare,
-  Send,
   Settings,
   ShieldAlert,
   Stethoscope,
@@ -88,9 +85,12 @@ export const MODULES: ModuleManifest[] = [
     title: "Clinic Tools",
     description: "Point-of-care tools for clinical volunteers",
     icon: Stethoscope,
-    // No accessPermission: the After Visit Summary tool is open to any
-    // onboarded signed-in volunteer for use during a visit (spec decision).
-    permissions: [],
+    // Gated on a grantable clinic.access permission: point-of-care tools like
+    // the After Visit Summary are admin-assigned, not open to every signed-in
+    // person. No baseline system role carries it, so admins grant it per role
+    // or per person. Platform Admin reaches it via the "*" wildcard.
+    accessPermission: "clinic.access",
+    permissions: ["clinic.access"],
     status: "active",
     nav: [{ label: "After Visit Summary", href: "/clinic/avs" }],
   },
@@ -171,36 +171,6 @@ export const MODULES: ModuleManifest[] = [
       { label: "All requests", href: "/support/all", permission: "support.manage_requests" },
       { label: "Epic / YNHH tools", href: "/support/epic", permission: "support.manage_requests" },
     ],
-  },
-  {
-    id: "triage",
-    title: "Triage",
-    description: "Patient case coordination across departments",
-    icon: MessagesSquare,
-    accessPermission: "triage.access",
-    permissions: ["triage.access"],
-    status: "coming-soon",
-    nav: [],
-  },
-  {
-    id: "referrals",
-    title: "Referrals",
-    description: "Track outgoing patient referrals",
-    icon: Send,
-    accessPermission: "referrals.access",
-    permissions: ["referrals.access"],
-    status: "coming-soon",
-    nav: [],
-  },
-  {
-    id: "patient-trackers",
-    title: "Patient Trackers",
-    description: "Department patient tracking workflows",
-    icon: HeartHandshake,
-    accessPermission: "patient-trackers.access",
-    permissions: ["patient-trackers.access"],
-    status: "coming-soon",
-    nav: [],
   },
 ];
 

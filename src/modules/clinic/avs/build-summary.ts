@@ -67,7 +67,9 @@ export function buildSummary(data: AvsData, lang: Lang): LocalizedSummary {
 
   const validMeds = data.medications.filter((m) => m.name.trim());
   const meds = validMeds.length
-    ? block(t.sectionMeds, [{ kind: "meds", label: t.sectionMeds, meds: validMeds }])
+    ? block(t.sectionMeds, [
+        { kind: "meds", label: t.sectionMeds, doseLabel: t.labelDose, costSourceLabel: t.labelCostSource, meds: validMeds },
+      ])
     : null;
 
   const followUpValue = [

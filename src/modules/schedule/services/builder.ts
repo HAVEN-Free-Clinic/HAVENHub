@@ -571,6 +571,14 @@ export function compareBuilderMembers(a: BuilderMemberOrder, b: BuilderMemberOrd
 export type BuilderAssignmentEntry = {
   role: "VOLUNTEER" | "SHADOW" | "DIRECTOR";
   tags: { triage: boolean; walkin: boolean; cc: boolean; remote: boolean };
+  /**
+   * Identity of the assignee, carried from the loaded ShiftAssignment.person so a
+   * non-member assignee (someone offboarded out of their ACTIVE membership while a
+   * future ShiftAssignment outlives it) still renders by name + flags in the Day
+   * view instead of a raw personId cuid. Members are always in `members`; this is
+   * the fallback source for everyone else.
+   */
+  person: { name: string; spanishVerified: boolean; licensedRN: boolean };
 };
 
 export type BuilderRhd = {
@@ -736,6 +744,11 @@ export async function builderView(
     assignmentsByDate[dk][a.personId] = {
       role: a.role as "VOLUNTEER" | "SHADOW" | "DIRECTOR",
       tags: { triage: a.triage, walkin: a.walkin, cc: a.cc, remote: a.remote },
+      person: {
+        name: a.person.name,
+        spanishVerified: a.person.spanishVerified,
+        licensedRN: a.person.licensedRN,
+      },
     };
   }
 

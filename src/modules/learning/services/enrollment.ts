@@ -186,6 +186,18 @@ export type CmiSnapshot = {
 };
 
 /**
+ * Normalize a client-supplied SCORM score before it reaches the int4 score
+ * columns. persistScoCmi is guarded only by `learning.access`, so `cmi.scoreRaw`
+ * is untrusted: a non-finite value (NaN/Infinity) or one outside int4 range would
+ * throw a numeric-overflow at the upsert. SCORM scores are 0-100, so drop
+ * non-finite values to null and clamp the rounded result to that safe range.
+ */
+function sanitizeScore(raw: number | null): number | null {
+  if (raw == null || !Number.isFinite(raw)) return null;
+  return Math.min(100, Math.max(0, Math.round(raw)));
+}
+
+/**
  * Persist one SCO's CMI snapshot, then recompute the course rollup. Idempotent:
  * re-commits update state; per-SCO and course completedAt are each stamped once
  * (the first time that level becomes COMPLETE) and preserved afterwards.
@@ -214,7 +226,7 @@ export async function persistScoCmi(
   const scoData = {
     completedAt: scoCompletedAt,
     lessonStatus: cmi.lessonStatus,
-    scoreRaw: cmi.scoreRaw == null ? null : Math.round(cmi.scoreRaw),
+    scoreRaw: sanitizeScore(cmi.scoreRaw),
     suspendData: cmi.suspendData,
     lessonLocation: cmi.lessonLocation,
   };
@@ -244,7 +256,7 @@ export async function persistScoCmi(
   const scoScores = scos
     .map((s) => scoreById.get(s.id))
     .filter((v): v is number => v != null);
-  const rolledScore = scoScores.length ? Math.max(...scoScores) : null;
+  const rolledScore = scoScores.length ? sanitizeScore(Math.max(...scoScores)) : null;
 
   const existingCourse = await prisma.courseProgress.findUnique({
     where: { personId_courseId: { personId, courseId } },

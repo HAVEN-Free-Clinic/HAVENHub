@@ -131,10 +131,15 @@ async function actorCanManageTarget(
  *
  * Audits disciplinary.issue (entityType "DisciplinaryAction", after:
  * { personId, category, confidential }).
+ *
+ * `client` lets a caller run the person lookup and the DisciplinaryAction
+ * create inside an existing interactive transaction (e.g. decideStrike's
+ * atomic strike claim). It defaults to the shared prisma client.
  */
 export async function issueAction(
   actorPersonId: string,
-  input: DisciplinaryInput
+  input: DisciplinaryInput,
+  client: Prisma.TransactionClient = prisma
 ): Promise<DisciplinaryAction> {
   // --- Validation first (fail fast) ---
   if (!(DISCIPLINARY_CATEGORIES as readonly string[]).includes(input.category)) {
@@ -152,7 +157,7 @@ export async function issueAction(
   }
 
   // --- Person existence check ---
-  const person = await prisma.person.findUnique({ where: { id: input.personId } });
+  const person = await client.person.findUnique({ where: { id: input.personId } });
   if (!person) throw new DisciplinaryNotFoundError(`Person ${input.personId} not found.`);
 
   // --- Scope check ---
@@ -169,7 +174,7 @@ export async function issueAction(
   }
 
   // --- Create the record ---
-  const action = await prisma.disciplinaryAction.create({
+  const action = await client.disciplinaryAction.create({
     data: {
       personId: input.personId,
       issuedById: actorPersonId,

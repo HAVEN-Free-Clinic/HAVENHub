@@ -11,6 +11,7 @@ import { PersonForm } from "@/modules/admin/components/person-form";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
 import { can } from "@/platform/rbac/engine";
+import { assertNotLastActiveAdmin, LastAdminError } from "@/platform/rbac/last-admin";
 import { PersonMembershipsPanel } from "@/modules/admin/components/person-memberships-panel";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { SectionHeader } from "@/platform/ui/section-header";
@@ -61,9 +62,15 @@ export default async function PersonDetailPage({ params, searchParams }: PagePro
     "use server";
     const actorSession = await requirePermission("admin.manage_people");
     try {
+      // Refuse to offboard the last person who can reach the admin module; an
+      // offboarded person can no longer authenticate.
+      await assertNotLastActiveAdmin(id);
       await setPersonStatus(actorSession.personId, id, "OFFBOARDED");
     } catch (err) {
       if (err instanceof PersonNotFoundError) notFound();
+      if (err instanceof LastAdminError) {
+        redirect(`/admin/people/${id}?error=${encodeURIComponent(err.message)}`);
+      }
       throw err;
     }
     redirect(`/admin/people/${id}`);

@@ -16,6 +16,12 @@ it("rejects backslash-rooted paths some browsers treat as protocol-relative", ()
   expect(safeNextPath("/\\evil.com")).toBe("/apply");
 });
 
+it("rejects control chars the URL parser strips into a protocol-relative URL", () => {
+  expect(safeNextPath("/\t/evil.com")).toBe("/apply");
+  expect(safeNextPath("/\n/evil.com")).toBe("/apply");
+  expect(safeNextPath("/\r/evil.com")).toBe("/apply");
+});
+
 it("rejects paths that are not slash-rooted", () => {
   expect(safeNextPath("apply/spring-2026")).toBe("/apply");
   expect(safeNextPath("javascript:alert(1)")).toBe("/apply");

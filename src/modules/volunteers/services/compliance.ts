@@ -11,7 +11,6 @@ import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { complianceStatus, overallClearance } from "@/platform/compliance/rules";
 import type { ComplianceStatus, TrainingState, OverallClearance } from "@/platform/compliance/rules";
-import { canViewCertificate } from "@/platform/compliance/access";
 import { manageableDepartmentIds } from "@/platform/departments";
 import { can } from "@/platform/rbac/engine";
 import { parseCompletionDate, CompletionDateError } from "@/platform/compliance/completion-date";
@@ -234,9 +233,17 @@ export type MasterQuery = {
  * The master view is one row per PERSON, not per membership, so it does not
  * carry a membership `kind`. Omitting it (rather than using a placeholder) keeps
  * the type honest -- the master table never displays a director/volunteer badge.
+ *
+ * `isVolunteer` is true when the person holds at least one ACTIVE VOLUNTEER
+ * membership in the active term. Director-only members train on the DIRECTOR
+ * track, so volunteer-track training does not apply to them; the master view
+ * uses this flag to render "-" for Training/Overall instead of flagging them
+ * as Pending/Not Cleared (mirroring the department view's per-membership
+ * kind-gating).
  */
 export type MasterComplianceRow = Omit<MemberCompliance, "kind"> & {
   departments: string[];
+  isVolunteer: boolean;
 };
 
 export type MasterComplianceResult = {
@@ -320,6 +327,7 @@ export async function masterCompliance(
     {
       person: Person & { hipaaCertificates: HipaaCertificate[] };
       deptCodes: Set<string>;
+      isVolunteer: boolean;
     }
   >();
 
@@ -327,10 +335,13 @@ export async function masterCompliance(
     const existing = personMap.get(m.personId);
     if (existing) {
       existing.deptCodes.add(m.department.code);
+      // A person volunteering in any department trains on the VOLUNTEER track.
+      if (m.kind === "VOLUNTEER") existing.isVolunteer = true;
     } else {
       personMap.set(m.personId, {
         person: m.person,
         deptCodes: new Set([m.department.code]),
+        isVolunteer: m.kind === "VOLUNTEER",
       });
     }
   }
@@ -370,7 +381,7 @@ export async function masterCompliance(
   }
 
   // 6. Compute status for each person and build the full scope rows.
-  const scopeRows: MasterComplianceRow[] = scope.map(({ person, deptCodes }) => {
+  const scopeRows: MasterComplianceRow[] = scope.map(({ person, deptCodes, isVolunteer }) => {
     const newestCert: HipaaCertificate | null =
       person.hipaaCertificates.length > 0 ? person.hipaaCertificates[0] : null;
 
@@ -391,6 +402,7 @@ export async function masterCompliance(
       status: computedStatus,
       verifiedByName,
       departments: Array.from(deptCodes).sort(),
+      isVolunteer,
       trainingState,
       overallClearance: overallClearance(computedStatus, trainingState === "COMPLETE"),
     };
@@ -429,7 +441,15 @@ export async function masterCompliance(
  * Re-verify is allowed and updates the stamp. Audits with action
  * "compliance.verify" and payload { certId, ownerPersonId }.
  *
- * Throws CertificateNotFoundError when the cert does not exist.
+ * Authorization mirrors setCompletionDateAsManager: only holders of
+ * `volunteers.manage_compliance` or `admin.access` may verify. Department
+ * directors keep read access to their members' certificates (canViewCertificate)
+ * but attesting a certificate is a compliance-manager/admin action, not a
+ * director one. The existence check fires first, so an unauthorized actor
+ * probing a nonexistent certId still gets CertificateNotFoundError.
+ *
+ * Throws CertificateNotFoundError when the cert does not exist, or
+ * ComplianceForbiddenError when the actor is neither manager nor admin.
  */
 export async function verifyCertificate(
   actorPersonId: string,
@@ -438,13 +458,11 @@ export async function verifyCertificate(
   const cert = await prisma.hipaaCertificate.findUnique({ where: { id: certId } });
   if (!cert) throw new CertificateNotFoundError(certId);
 
-  // The mutation scope must match the read scope: actors may only verify
-  // certificates they are also permitted to view (self, manage_compliance, or
-  // director of a department the certificate owner belongs to in the active term).
-  const allowed = await canViewCertificate(actorPersonId, cert.personId);
-  if (!allowed) {
+  const isManager = await can(actorPersonId, "volunteers.manage_compliance");
+  const isAdmin = await can(actorPersonId, "admin.access");
+  if (!isManager && !isAdmin) {
     throw new ComplianceForbiddenError(
-      "You can only verify certificates for members of your departments."
+      "Only compliance managers or admins can verify certificates."
     );
   }
 

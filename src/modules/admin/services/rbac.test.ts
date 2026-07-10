@@ -660,6 +660,36 @@ describe("deleteAssignment lockout guard (last admin-conferring assignment)", ()
     expect(found).toBeNull();
   });
 
+  it("rejects deleting the last LIVE admin assignment when an inert archived-term assignment exists", async () => {
+    // Regression (audit M8): the guard must count only assignments the engine
+    // honors. An extra assignment scoped to a non-active/archived term confers
+    // nothing, so it must not let the sole live admin assignment be deleted.
+    const role = await prisma.role.create({
+      data: {
+        name: "Platform Admin",
+        isSystem: true,
+        grants: { create: [{ permission: "*" }] },
+      },
+    });
+    await seedTerm("SU26", "ACTIVE");
+    const archivedTerm = await seedTerm("FA25", "ARCHIVED");
+    const liveAdmin = await seedPerson("Live Admin");
+    const staleAdmin = await seedPerson("Stale Admin");
+
+    // One LIVE global assignment + one inert assignment scoped to an archived term.
+    const liveAssignment = await prisma.roleAssignment.create({
+      data: { roleId: role.id, personId: liveAdmin.id },
+    });
+    await prisma.roleAssignment.create({
+      data: { roleId: role.id, personId: staleAdmin.id, termId: archivedTerm.id },
+    });
+
+    await expect(deleteAssignment(ACTOR, liveAssignment.id)).rejects.toBeInstanceOf(LastAdminError);
+
+    const found = await prisma.roleAssignment.findUnique({ where: { id: liveAssignment.id } });
+    expect(found).not.toBeNull();
+  });
+
   it("engine: can(admin, admin.access) still true after rejected deleteAssignment", async () => {
     const role = await prisma.role.create({
       data: {

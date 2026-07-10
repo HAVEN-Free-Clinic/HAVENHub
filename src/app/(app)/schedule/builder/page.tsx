@@ -36,7 +36,7 @@ import {
   BuilderValidationError,
   compareBuilderMembers,
 } from "@/modules/schedule/services/builder";
-import type { BuilderMemberIntake } from "@/modules/schedule/services/builder";
+import type { BuilderMemberIntake, BuilderAssignmentEntry } from "@/modules/schedule/services/builder";
 import { createAttending, AttendingValidationError, AttendingForbiddenError } from "@/modules/schedule/services/attendings";
 import {
   listDepartmentRequests,
@@ -183,10 +183,27 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     });
   }
 
-  const assignmentsOnDate: Record<string, { role: "VOLUNTEER" | "SHADOW" | "DIRECTOR"; tags: { triage: boolean; walkin: boolean; cc: boolean; remote: boolean } }> =
+  const assignmentsOnDate: Record<string, BuilderAssignmentEntry> =
     selectedDateKey ? (assignmentsByDate[selectedDateKey] ?? {}) : {};
 
   const memberByPersonId = new Map(members.map((m) => [m.person.id, m]));
+
+  // Resolve an assignee's display name and flag person, preferring the ACTIVE
+  // member record but falling back to the identity carried on the assignment. An
+  // assignee who lost their ACTIVE membership (offboarded) is absent from
+  // `members`, so without this fallback the Day view printed their raw personId
+  // cuid; now it shows their name and flags (audit M12).
+  function assigneeInfo(pid: string): {
+    name: string;
+    flagPerson: { spanishVerified: boolean; licensedRN: boolean } | null;
+  } {
+    const member = memberByPersonId.get(pid);
+    const entry = assignmentsOnDate[pid];
+    return {
+      name: member?.person.name ?? entry?.person.name ?? pid,
+      flagPerson: member?.person ?? entry?.person ?? null,
+    };
+  }
 
   const assignedDirectors = Object.entries(assignmentsOnDate)
     .filter(([, a]) => a.role === "DIRECTOR")
@@ -645,13 +662,12 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                 ) : (
                   <div className="flex flex-col gap-2">
                     {assignedDirectors.map((pid) => {
-                      const m = memberByPersonId.get(pid);
-                      const name = m?.person.name ?? pid;
+                      const { name, flagPerson } = assigneeInfo(pid);
                       return (
                         <Card key={pid} pad={false} className="px-3 py-2 flex items-center justify-between">
                           <span className="flex flex-wrap items-center gap-2">
                             <span className="text-sm font-bold text-foreground">{name}</span>
-                            {m?.person && flagBadges(m.person)}
+                            {flagPerson && flagBadges(flagPerson)}
                           </span>
                           <form action={unassignAction} className="flex items-center gap-2">
                             <input type="hidden" name="departmentId" value={dept.id} />
@@ -676,8 +692,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                 ) : (
                   <div className="flex flex-col gap-2">
                     {assignedVolunteers.map((pid) => {
-                      const m = memberByPersonId.get(pid);
-                      const name = m?.person.name ?? pid;
+                      const { name, flagPerson } = assigneeInfo(pid);
                       const assignment = assignmentsOnDate[pid]!;
                       const tags = assignment.tags;
                       const personConflicts = conflicts[pid] ?? [];
@@ -685,7 +700,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                         <Card key={pid} pad={false} className="px-3 py-2">
                           <div className="flex flex-wrap items-center gap-2 text-sm">
                             <span className="font-medium text-foreground">{name}</span>
-                            {m?.person && flagBadges(m.person)}
+                            {flagPerson && flagBadges(flagPerson)}
                             {personConflicts.length > 0 && (
                               <Badge tone="warning" title={personConflicts.join(", ")}>
                                 Also in {personConflicts.join(", ")}
@@ -728,13 +743,12 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                 ) : (
                   <div className="flex flex-col gap-2">
                     {assignedShadows.map((pid) => {
-                      const m = memberByPersonId.get(pid);
-                      const name = m?.person.name ?? pid;
+                      const { name, flagPerson } = assigneeInfo(pid);
                       return (
                         <Card key={pid} pad={false} className="px-3 py-2 flex items-center justify-between">
                           <span className="flex flex-wrap items-center gap-2">
                             <span className="text-sm font-medium text-foreground-soft">{name}</span>
-                            {m?.person && flagBadges(m.person)}
+                            {flagPerson && flagBadges(flagPerson)}
                           </span>
                           <form action={unassignAction} className="flex items-center gap-2">
                             <input type="hidden" name="departmentId" value={dept.id} />

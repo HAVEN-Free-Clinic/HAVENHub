@@ -599,6 +599,34 @@ describe("getReport", () => {
     expect(report.id).toBe(r.id);
     expect(report.reviewNotes).toBe("internal reviewer notes");
   });
+
+  it("forbids a subject who holds incidents.manage from reading a report about themselves", async () => {
+    const reporter = await createPerson("Reporter", "m5-get-rep001");
+    const subject = await createPerson("Subject", "m5-get-sub001");
+    await grantPermission(subject.id, "incidents.manage");
+    const r = await submitReport(reporter.id, {
+      concernTypes: ["OTHER"],
+      description: "about the subject",
+      subjects: [{ personId: subject.id }],
+    });
+
+    await expect(getReport(subject.id, r.id)).rejects.toBeInstanceOf(IncidentForbiddenError);
+  });
+
+  it("still lets a subject who holds incidents.manage read a report they filed themselves (owner path)", async () => {
+    const owner = await createPerson("Owner", "m5-get-own001");
+    await grantPermission(owner.id, "incidents.manage");
+    // The reporter files a report naming themselves as the subject; the
+    // reporter-owner read path must remain open.
+    const r = await submitReport(owner.id, {
+      concernTypes: ["OTHER"],
+      description: "self-filed",
+      subjects: [{ personId: owner.id }],
+    });
+
+    const { report } = await getReport(owner.id, r.id);
+    expect(report.id).toBe(r.id);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -701,6 +729,59 @@ describe("listReviewQueue", () => {
     const { rows } = await listReviewQueue(manager.id, { strikePending: true });
     expect(rows.map((r) => r.report.id)).toContain(report.id);
     expect(rows.find((r) => r.report.id === report.id)?.strikePendingCount).toBe(1);
+  });
+
+  it("excludes reports that link the reviewer as a subject, while keeping subject-less reports", async () => {
+    const reporter = await createPerson("Reporter", "m5-rq-rep001");
+    const other = await createPerson("Other", "m5-rq-oth001");
+    const managerSubject = await createPerson("ManagerSubject", "m5-rq-ms001");
+    await grantPermission(managerSubject.id, "incidents.manage");
+
+    const aboutManager = await submitReport(reporter.id, {
+      concernTypes: ["OTHER"],
+      description: "about the reviewer themselves",
+      subjects: [{ personId: managerSubject.id }],
+    });
+    const noSubject = await submitReport(reporter.id, {
+      concernTypes: ["OTHER"],
+      description: "no subject linked",
+    });
+    const aboutOther = await submitReport(reporter.id, {
+      concernTypes: ["OTHER"],
+      description: "about someone else",
+      subjects: [{ personId: other.id }],
+    });
+
+    const { rows, total } = await listReviewQueue(managerSubject.id, {});
+    const ids = rows.map((r) => r.report.id);
+
+    expect(ids).not.toContain(aboutManager.id);
+    expect(ids).toContain(noSubject.id);
+    expect(ids).toContain(aboutOther.id);
+    expect(total).toBe(2);
+  });
+
+  it("ignores an unknown status filter value instead of throwing", async () => {
+    const reporter = await createPerson("Reporter", "l8-rq-rep001");
+    const manager = await createPerson("Manager", "l8-rq-mgr001");
+    await grantPermission(manager.id, "incidents.manage");
+    await submitReport(reporter.id, { concernTypes: ["OTHER"], description: "x" });
+
+    // A crafted, non-enum status must not reach Prisma; it is dropped and the
+    // query returns all reports rather than throwing.
+    const { total } = await listReviewQueue(manager.id, { status: "NOT_A_STATUS" });
+    expect(total).toBe(1);
+  });
+
+  it("does not overflow int4 when q is a digit string larger than 2147483647", async () => {
+    const reporter = await createPerson("Reporter", "m6-rq-rep001");
+    const manager = await createPerson("Manager", "m6-rq-mgr001");
+    await grantPermission(manager.id, "incidents.manage");
+    await submitReport(reporter.id, { concernTypes: ["OTHER"], description: "x" });
+
+    // 9999999999 exceeds a Postgres int4; the numeric branch must be skipped so
+    // the query matches on names only rather than throwing.
+    await expect(listReviewQueue(manager.id, { q: "9999999999" })).resolves.toMatchObject({ total: 0 });
   });
 });
 
@@ -841,6 +922,24 @@ describe("reviewReport", () => {
     expect(reporterNotes).toHaveLength(1);
     expect(reporterNotes[0].body).toContain("dismissed");
   });
+
+  it("forbids a subject who holds incidents.manage from adjudicating a report about themselves", async () => {
+    const reporter = await createPerson("Reporter", "m5-rr-rep001");
+    const subject = await createPerson("Subject", "m5-rr-sub001");
+    await grantPermission(subject.id, "incidents.manage");
+    const report = await submitReport(reporter.id, {
+      concernTypes: ["OTHER"],
+      description: "about the subject",
+      subjects: [{ personId: subject.id }],
+    });
+
+    await expect(
+      reviewReport(subject.id, report.id, { status: "RESOLVED" })
+    ).rejects.toBeInstanceOf(IncidentForbiddenError);
+
+    const row = await prisma.incidentReport.findUnique({ where: { id: report.id } });
+    expect(row?.status).toBe("SUBMITTED");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -966,5 +1065,33 @@ describe("decideStrike (per subject)", () => {
     });
     expect(reporterNotes).toHaveLength(1);
     expect(reporterNotes[0].body).toContain("declined");
+  });
+
+  it("forbids a linked subject who holds incidents.manage from deciding a strike on themselves", async () => {
+    const { pending, managed } = await seedPendingStrike();
+    await grantPermission(managed.id, "incidents.manage");
+
+    await expect(
+      decideStrike(managed.id, pending.id, { approve: true, category: DISCIPLINARY_CATEGORIES[0] })
+    ).rejects.toBeInstanceOf(IncidentForbiddenError);
+
+    const row = await prisma.incidentReportSubject.findUnique({ where: { id: pending.id } });
+    expect(row?.strikeDecision).toBe("PENDING");
+    expect(await prisma.disciplinaryAction.count({ where: { personId: managed.id } })).toBe(0);
+  });
+
+  it("rejects a second decideStrike once the strike was approved, leaving exactly one strike (L2 atomic guard)", async () => {
+    const { pending, managed, manager } = await seedPendingStrike();
+    await decideStrike(manager.id, pending.id, { approve: true, category: DISCIPLINARY_CATEGORIES[0] });
+
+    // A second decision (here a decline) on the now-APPROVED subject row must be
+    // rejected rather than flipping it to DECLINED while the strike stays live.
+    await expect(
+      decideStrike(manager.id, pending.id, { approve: false })
+    ).rejects.toBeInstanceOf(IncidentValidationError);
+
+    const row = await prisma.incidentReportSubject.findUnique({ where: { id: pending.id } });
+    expect(row?.strikeDecision).toBe("APPROVED");
+    expect(await prisma.disciplinaryAction.count({ where: { personId: managed.id } })).toBe(1);
   });
 });

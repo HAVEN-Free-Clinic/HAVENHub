@@ -66,3 +66,43 @@ export async function manageableDepartmentIds(personId: string): Promise<string[
 
   return [...ids];
 }
+
+/**
+ * The inverse of {@link manageableDepartmentIds} for a single department: the ids
+ * of people who oversee `departmentId` by MEMBERSHIP, namely
+ *   - everyone with an ACTIVE DIRECTOR TermMembership in the department, PLUS
+ *   - everyone with an ACTIVE DIRECTOR membership in a department that manages it
+ *     via a one-hop DepartmentDelegation (the managing side).
+ * Deduped. Returns [] when there is no active term.
+ *
+ * This mirrors the director + delegation half of manageableDepartmentIds, so a
+ * director who oversees the department but does not happen to hold a DIRECTOR
+ * shift on the calendar is still counted. Permission-based approvers
+ * (schedule.manage_requests / schedule.edit_all holders) are NOT included here;
+ * compose those separately where the RBAC engine is available.
+ */
+export async function departmentDirectorPersonIds(departmentId: string): Promise<string[]> {
+  const activeTerm = await getActiveTerm();
+  if (!activeTerm) return [];
+
+  // Departments whose directors oversee this one: the department itself, plus any
+  // department that manages it via a one-hop delegation (the managing side).
+  const delegations = await prisma.departmentDelegation.findMany({
+    where: { managedDepartmentId: departmentId },
+    select: { managerDepartmentId: true },
+  });
+  const directingDepartmentIds = new Set<string>([departmentId]);
+  for (const d of delegations) directingDepartmentIds.add(d.managerDepartmentId);
+
+  const directorships = await prisma.termMembership.findMany({
+    where: {
+      termId: activeTerm.id,
+      kind: "DIRECTOR",
+      status: "ACTIVE",
+      departmentId: { in: [...directingDepartmentIds] },
+    },
+    select: { personId: true },
+  });
+
+  return [...new Set(directorships.map((m) => m.personId))];
+}

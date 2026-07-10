@@ -989,6 +989,9 @@ model TeamsMessage {
   attempts        Int                @default(0)
   lastError       String?
   sentAt          DateTime?
+  /// Per-row send claim: set when a drain worker takes the row, cleared on
+  /// completion. Lets overlapping drains avoid double-sending (mirrors EmailLog).
+  lockedAt        DateTime?
   createdAt       DateTime           @default(now())
   /// Cascade: Teams messages do not outlive the person they address.
   person          Person             @relation("teamsMessagePerson", fields: [personId], references: [id], onDelete: Cascade)

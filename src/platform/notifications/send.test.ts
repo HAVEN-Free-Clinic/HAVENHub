@@ -43,6 +43,44 @@ describe("drainTeamsQueue", () => {
     expect(row?.status).toBe("SENT");
     expect(row?.chatId).toBe("chat-9");
     expect(row?.sentAt).not.toBeNull();
+    // The send claim is released on success.
+    expect(row?.lockedAt).toBeNull();
+  });
+
+  it("skips a row a concurrent drain already claimed (fresh lock), never double-sending", async () => {
+    const p = await prisma.person.create({
+      data: { name: "Sam", contactEmail: "sam@x.com", entraObjectId: "e1" },
+    });
+    const row = await queueTeamsMessage(prisma, { personId: p.id, ...baseInput });
+    // Simulate another worker holding a fresh claim on this row.
+    await prisma.teamsMessage.update({ where: { id: row.id }, data: { lockedAt: new Date() } });
+    const transport: TeamsTransport = {
+      send: vi.fn().mockResolvedValue({ chatId: "chat-9" }),
+    };
+    const n = await drainTeamsQueue(transport);
+    expect(n).toBe(0);
+    expect(transport.send).not.toHaveBeenCalled();
+    const after = await prisma.teamsMessage.findUnique({ where: { id: row.id } });
+    expect(after?.status).toBe("QUEUED");
+  });
+
+  it("reclaims a stale claim left by a crashed worker and sends it", async () => {
+    const p = await prisma.person.create({
+      data: { name: "Sam", contactEmail: "sam@x.com", entraObjectId: "e1" },
+    });
+    const row = await queueTeamsMessage(prisma, { personId: p.id, ...baseInput });
+    // A lock older than the 5 minute stale window is reclaimable.
+    const stale = new Date(Date.now() - 6 * 60 * 1000);
+    await prisma.teamsMessage.update({ where: { id: row.id }, data: { lockedAt: stale } });
+    const transport: TeamsTransport = {
+      send: vi.fn().mockResolvedValue({ chatId: "chat-9" }),
+    };
+    const n = await drainTeamsQueue(transport);
+    expect(n).toBe(1);
+    expect(transport.send).toHaveBeenCalledTimes(1);
+    const after = await prisma.teamsMessage.findUnique({ where: { id: row.id } });
+    expect(after?.status).toBe("SENT");
+    expect(after?.lockedAt).toBeNull();
   });
 
   it("marks the row LOGGED (not SENT) when the transport only logged", async () => {

@@ -33,6 +33,7 @@ import { can } from "@/platform/rbac/engine";
 import { manageableDepartmentIds } from "@/platform/departments";
 import { setPersonStatusField } from "@/platform/people";
 import { getActiveTerm } from "@/platform/terms/active-term";
+import { assertNotLastActiveAdmin } from "@/platform/rbac/last-admin";
 
 // ---------------------------------------------------------------------------
 // Typed errors
@@ -213,6 +214,10 @@ export async function executeOffboard(actorPersonId: string, personId: string): 
   if (!(await can(actorPersonId, "volunteers.manage_offboarding"))) {
     throw new OffboardForbiddenError("volunteers.manage_offboarding is required to execute offboarding.");
   }
+
+  // Refuse to offboard the last person who can reach the admin module (an
+  // offboarded person can no longer authenticate). Throws LastAdminError.
+  await assertNotLastActiveAdmin(personId);
 
   // Count ACTIVE memberships before the flip; setPersonStatusField removes them.
   const removedCount = await prisma.termMembership.count({

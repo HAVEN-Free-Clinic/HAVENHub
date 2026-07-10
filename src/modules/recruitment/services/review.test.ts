@@ -82,6 +82,11 @@ describe("acceptApplicant", () => {
     await acceptApplicant(appSrhd.id, "SRHD", director.id, null);
     await expect(acceptApplicant(appSrhd.id, "SRHD", director.id, null)).rejects.toBeInstanceOf(AcceptanceError);
   });
+  it("rejects accepting an unsubmitted DRAFT application", async () => {
+    const { director, appSrhd } = await seed();
+    await prisma.application.update({ where: { id: appSrhd.id }, data: { status: "DRAFT" } });
+    await expect(acceptApplicant(appSrhd.id, "SRHD", director.id, null)).rejects.toBeInstanceOf(AcceptanceError);
+  });
 });
 
 describe("listAcceptances", () => {
@@ -108,5 +113,16 @@ describe("revokeAcceptance", () => {
     await expect(revokeAcceptance(acc.id, director.id)).rejects.toBeInstanceOf(RecruitmentAuthError);
     await revokeAcceptance(acc.id, srr.id);
     expect(await prisma.acceptance.findUnique({ where: { id: acc.id } })).toBeNull();
+  });
+  it("refuses to revoke an acceptance that has an onboarding contract (would cascade-delete it), even for SRR", async () => {
+    const { srr, appSrhd } = await seed();
+    const acc = await acceptApplicant(appSrhd.id, "SRHD", srr.id, null);
+    await prisma.onboardingContract.create({
+      data: { acceptanceId: acc.id, token: "tok-contract", firstName: "A", lastName: "B", email: "s@yale.edu" },
+    });
+    await expect(revokeAcceptance(acc.id, srr.id)).rejects.toBeInstanceOf(AcceptanceError);
+    // The acceptance and its contract must survive.
+    expect(await prisma.acceptance.findUnique({ where: { id: acc.id } })).not.toBeNull();
+    expect(await prisma.onboardingContract.count()).toBe(1);
   });
 });

@@ -17,10 +17,13 @@
  *   - Audits compliance.verify with { certId, ownerPersonId }.
  *   - Re-verify updates the stamp.
  *   - Throws CertificateNotFoundError when cert does not exist.
- *   - Throws ComplianceForbiddenError when actor cannot view the certificate
- *     (cross-dept director: rejects, cert stays unverified, no audit row).
- *   - manage_compliance holder CAN verify cross-dept certificates.
- *   - Same-dept director CAN verify certificates of their department members.
+ *   - Authorization mirrors setCompletionDateAsManager: only holders of
+ *     volunteers.manage_compliance OR admin.access may verify. A rejection
+ *     leaves the cert unverified and writes no audit row.
+ *   - manage_compliance holder CAN verify (incl. depts they do not direct).
+ *   - admin.access holder CAN verify.
+ *   - A department director (volunteers.view, no manage_compliance) CANNOT
+ *     verify their own members' certificates, including across a delegation edge.
  *
  * masterCompliance({ status?, departmentId?, q?, page?, pageSize? }):
  *   - One row per PERSON (not per membership) across all ACTIVE people with at
@@ -580,7 +583,10 @@ describe("verifyCertificate scope enforcement", () => {
     expect(updated.verifiedById).toBe(actor.id);
   });
 
-  it("allows a same-department director to verify a member's certificate", async () => {
+  it("forbids a same-department director from verifying a member's certificate", async () => {
+    // Verifying a certificate is now a compliance-manager/admin action. A plain
+    // department director (volunteers.view + DIRECTOR, no manage_compliance) may
+    // still view the cert but may no longer attest it.
     const term = await createTerm();
     const dept = await createDepartment("ITCM");
 
@@ -593,17 +599,24 @@ describe("verifyCertificate scope enforcement", () => {
 
     const cert = await createCert(owner.id, noon(2025, 6, 1));
 
-    await expect(verifyCertificate(actor.id, cert.id)).resolves.toBeUndefined();
+    await expect(verifyCertificate(actor.id, cert.id)).rejects.toBeInstanceOf(
+      ComplianceForbiddenError
+    );
 
-    const updated = await prisma.hipaaCertificate.findUniqueOrThrow({ where: { id: cert.id } });
-    expect(updated.verifiedById).toBe(actor.id);
+    const unchanged = await prisma.hipaaCertificate.findUniqueOrThrow({ where: { id: cert.id } });
+    expect(unchanged.verifiedById).toBeNull();
+    expect(unchanged.verifiedAt).toBeNull();
+
+    const auditRow = await prisma.auditLog.findFirst({
+      where: { action: "compliance.verify", entityId: cert.id },
+    });
+    expect(auditRow).toBeNull();
   });
 
-  it("allows a director to verify across a delegation edge", async () => {
-    // PCAR manages SCTP via a DepartmentDelegation row.
-    // Actor is an ACTIVE PCAR DIRECTOR; owner is an ACTIVE SCTP member.
-    // The delegation gives the PCAR director authority over SCTP, so
-    // verifyCertificate must resolve and stamp verifiedById.
+  it("forbids a director from verifying across a delegation edge", async () => {
+    // PCAR manages SCTP via a DepartmentDelegation row. Even though the PCAR
+    // director can VIEW the SCTP member's cert, verification is no longer part
+    // of a director's authority.
     const term = await createTerm();
     const pcar = await createDepartment("PCAR");
     const sctp = await createDepartment("SCTP");
@@ -618,10 +631,48 @@ describe("verifyCertificate scope enforcement", () => {
 
     const cert = await createCert(owner.id, noon(2025, 6, 1));
 
+    await expect(verifyCertificate(actor.id, cert.id)).rejects.toBeInstanceOf(
+      ComplianceForbiddenError
+    );
+
+    const unchanged = await prisma.hipaaCertificate.findUniqueOrThrow({ where: { id: cert.id } });
+    expect(unchanged.verifiedById).toBeNull();
+    expect(unchanged.verifiedAt).toBeNull();
+  });
+
+  it("allows an admin.access holder to verify a certificate", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("SRR");
+
+    const actor = await createPerson("Admin", "admin01");
+    const owner = await createPerson("VolSRR", "vsrr01");
+
+    // actor holds admin.access but is not a director or compliance manager
+    await grantPermission(actor.id, "admin.access");
+    await createMembership(owner.id, term.id, dept.id, "VOLUNTEER");
+
+    const cert = await createCert(owner.id, noon(2025, 6, 1));
+
     await expect(verifyCertificate(actor.id, cert.id)).resolves.toBeUndefined();
 
     const updated = await prisma.hipaaCertificate.findUniqueOrThrow({ where: { id: cert.id } });
     expect(updated.verifiedById).toBe(actor.id);
+  });
+
+  it("forbids a plain volunteers.view holder (no directorship) from verifying", async () => {
+    const owner = await createPerson("Volunteer", "vol001");
+
+    const actor = await createPerson("Viewer", "view01");
+    await grantPermission(actor.id, "volunteers.view");
+
+    const cert = await createCert(owner.id, noon(2025, 6, 1));
+
+    await expect(verifyCertificate(actor.id, cert.id)).rejects.toBeInstanceOf(
+      ComplianceForbiddenError
+    );
+
+    const unchanged = await prisma.hipaaCertificate.findUniqueOrThrow({ where: { id: cert.id } });
+    expect(unchanged.verifiedById).toBeNull();
   });
 });
 
@@ -873,6 +924,49 @@ describe("training clearance on compliance rows", () => {
     const row = res.rows.find((r) => r.person.id === vol.id)!;
     expect(row.trainingState).toBe("COMPLETE");
     expect(row.overallClearance).toBe("CLEARED");
+  });
+
+  it("does not flag a director-only member for missing volunteer-track training in masterCompliance (issue: M2)", async () => {
+    // A director-only member (no VOLUNTEER membership) trains on the DIRECTOR
+    // track, so volunteer-track training does not apply. The master view must
+    // not report them as Pending / Not Cleared. Mirroring the department view,
+    // the fix carries isVolunteer=false on the row so the page renders "-" for
+    // Training and Overall instead of flagging the director.
+    const term = await createTerm("ACTIVE");
+    const dept = await createDepartment("SRHD");
+    const director = await createPerson("Director Only", "do01");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    // A valid, verified HIPAA cert but no volunteer-track Training row.
+    await createCert(director.id, daysFromNow(-1), undefined, new Date());
+
+    const res = await masterCompliance({});
+    const row = res.rows.find((r) => r.person.id === director.id)!;
+    // isVolunteer=false is what drives the "-" rendering (never Pending/Not Cleared).
+    expect(row.isVolunteer).toBe(false);
+
+    // A volunteer in the same term, by contrast, is evaluated on volunteer training.
+    const vol = await createPerson("Vol", "v01");
+    await createMembership(vol.id, term.id, dept.id, "VOLUNTEER");
+    await createCert(vol.id, daysFromNow(-1), undefined, new Date());
+    const res2 = await masterCompliance({});
+    const volRow = res2.rows.find((r) => r.person.id === vol.id)!;
+    expect(volRow.isVolunteer).toBe(true);
+  });
+
+  it("marks a person volunteering in any department as isVolunteer even if they also direct (masterCompliance)", async () => {
+    // Master rows are one-per-person. Someone who is a DIRECTOR in one dept and
+    // a VOLUNTEER in another still trains on the VOLUNTEER track, so the row
+    // must be isVolunteer=true.
+    const term = await createTerm("ACTIVE");
+    const srhd = await createDepartment("SRHD");
+    const itcm = await createDepartment("ITCM");
+    const person = await createPerson("Dual Role", "dr01");
+    await createMembership(person.id, term.id, srhd.id, "DIRECTOR");
+    await createMembership(person.id, term.id, itcm.id, "VOLUNTEER");
+
+    const res = await masterCompliance({});
+    const row = res.rows.find((r) => r.person.id === person.id)!;
+    expect(row.isVolunteer).toBe(true);
   });
 });
 

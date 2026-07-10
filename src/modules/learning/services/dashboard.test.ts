@@ -81,6 +81,11 @@ it("getCourseCompletion shows the score rolled up from per-SCO progress", async 
   expect(rows[0]).toMatchObject({ status: "COMPLETE", scoreRaw: 88 });
 });
 
+it("getCourseCompletion returns [] for a non-existent course id (no throw)", async () => {
+  const { viewer } = await seed();
+  await expect(getCourseCompletion("course-that-does-not-exist", viewer.id)).resolves.toEqual([]);
+});
+
 it("a DIRECTORS course lists directors of the assigned department and excludes volunteers", async () => {
   const { viewer, learner, dept } = await seed();
   const term = await prisma.term.findFirstOrThrow();

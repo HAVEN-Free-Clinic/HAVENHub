@@ -3,7 +3,6 @@ import { can } from "@/platform/rbac/engine";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
-import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Alert } from "@/platform/ui/alert";
 import { CertificateViewer } from "@/modules/my-info/components/certificate-viewer";
 import {
@@ -18,7 +17,6 @@ import type { ComplianceStatus } from "@/platform/compliance/rules";
 import { certExpiresAt } from "@/platform/compliance/rules";
 import { fmtDate } from "@/platform/dates";
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 
 // requireModuleAccess("volunteers") is already enforced by the layout.
 // We additionally require the same permission here in the server action for defense in depth.
@@ -76,28 +74,25 @@ export default async function VolunteersPage({ searchParams }: PageProps) {
 
   const departments = await departmentCompliance(viewer.personId);
 
-  // Server action: verify a certificate.
-  // The service enforces scope (mutation scope matches read scope), so a
-  // ComplianceForbiddenError here means the actor crafted an out-of-scope certId.
-  async function verifyAction(formData: FormData) {
+  // Server action: verify a certificate. certId is bound per-row. The service
+  // requires manage_compliance or admin, so directors (volunteers.view only)
+  // get a ComplianceForbiddenError surfaced in the viewer modal.
+  async function verifyAction(certId: string): Promise<{ error?: string }> {
     "use server";
     const actor = await requirePermission("volunteers.view");
-    const certId = formData.get("certId") as string;
-    if (!certId) return;
     try {
       await verifyCertificate(actor.personId, certId);
     } catch (err) {
-      if (err instanceof ComplianceForbiddenError) {
-        redirect(
-          `/volunteers?error=${encodeURIComponent(err.message)}`
-        );
-      }
+      if (err instanceof ComplianceForbiddenError) return { error: err.message };
+      if (err instanceof CertificateNotFoundError) return { error: "Certificate not found." };
       throw err;
     }
     revalidatePath("/volunteers");
+    return {};
   }
 
   const isAdmin = await can(viewer.personId, "admin.access");
+  const isManager = await can(viewer.personId, "volunteers.manage_compliance");
 
   async function setDateAction(certId: string, dateIso: string): Promise<{ error?: string }> {
     "use server";
@@ -262,13 +257,10 @@ export default async function VolunteersPage({ searchParams }: PageProps) {
                                 canEditDate={isAdmin}
                                 canEditExistingDate={isAdmin}
                                 onSetDate={setDateAction.bind(null, m.cert.id)}
+                                canVerify={isManager || isAdmin}
+                                verified={Boolean(m.cert.verifiedAt)}
+                                onVerify={verifyAction.bind(null, m.cert.id)}
                               />
-                            )}
-                            {m.cert && (
-                              <form action={verifyAction}>
-                                <input type="hidden" name="certId" value={m.cert.id} />
-                                <ConfirmButton label="Verify" confirmLabel="Confirm?" />
-                              </form>
                             )}
                           </div>
                         </TD>

@@ -47,6 +47,27 @@ export function TrainingQuiz({
   const attemptsLeft = Math.max(0, maxAttempts - attemptsUsed);
   const reviewing = graded != null;
 
+  // A track's makeup quiz can have zero questions (e.g. still being authored). With
+  // none, there is nothing to grade: the progress bar would divide by zero (NaN width),
+  // an empty answer set would read as "all answered" and enable Submit, and submitting
+  // only throws server-side. Show an explanatory notice instead of the quiz form.
+  if (questions.length === 0) {
+    return (
+      <Card className="flex items-start gap-4">
+        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-brand-faint text-brand-fg">
+          <ClipboardList aria-hidden className="h-5 w-5" />
+        </span>
+        <div>
+          <p className="text-[15px] font-bold text-foreground">Makeup quiz not ready yet</p>
+          <p className="mt-0.5 text-[13px] text-foreground-soft">
+            This training does not have any quiz questions yet. Please contact your coordinator so they can finish
+            setting it up, then check back here.
+          </p>
+        </div>
+      </Card>
+    );
+  }
+
   function choose(key: string, value: string) {
     if (reviewing || pending) return;
     setAnswers((a) => ({ ...a, [key]: value }));

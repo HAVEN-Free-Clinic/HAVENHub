@@ -38,8 +38,8 @@ export type ReportSubmittedParams = {
 export type StrikeRequestedParams = {
   reviewerName: string;
   reportNumber: number;
-  /** Name of the person a strike is being requested against. */
-  subjectName: string;
+  /** Comma-separated names of the people a strike is being requested against. */
+  subjectNames: string;
   /** Absolute link into the reviewer queue. */
   reviewLink: string;
 };
@@ -79,7 +79,7 @@ export function strikeRequestedContext(p: StrikeRequestedParams): Record<string,
   return {
     reviewerName: p.reviewerName,
     reportNumber: String(p.reportNumber),
-    subjectName: p.subjectName,
+    subjectNames: p.subjectNames,
     reviewLink: p.reviewLink,
   };
 }
@@ -135,12 +135,12 @@ export const incidentsDescriptors: TemplateDescriptor[] = [
     variables: [
       { name: "reviewerName", label: "Reviewer name", sampleValue: "Dr. Smith" },
       { name: "reportNumber", label: "Report number", sampleValue: "42" },
-      { name: "subjectName", label: "Name of the person the strike is requested against", sampleValue: "Jane Doe" },
+      { name: "subjectNames", label: "Names the strike is requested against (comma-separated)", sampleValue: "Jane Doe, John Roe" },
       { name: "reviewLink", label: "Link to the review queue", sampleValue: "https://hub.havenfreeclinic.org/incidents/review" },
     ],
     defaultSubject: "[HAVEN] Strike requested on incident report #{{ reportNumber }}",
     defaultBody: `<p>Hello {{ reviewerName }},</p>
-<p>Incident report #{{ reportNumber }} includes a request to issue a disciplinary strike against {{ subjectName }}.</p>
+<p>Incident report #{{ reportNumber }} includes a request to issue a disciplinary strike against {{ subjectNames }}.</p>
 <p><a href="{{ reviewLink }}">Open the review queue</a></p>
 <p>Thank you,<br>HAVEN Free Clinic</p>`,
   },

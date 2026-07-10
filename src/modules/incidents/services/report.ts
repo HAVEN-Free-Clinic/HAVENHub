@@ -10,12 +10,14 @@ import path from "node:path";
 import type {
   IncidentReport,
   IncidentReportAttachment,
+  IncidentReportSubject,
   IncidentReportStatus,
   PatientImpact,
   IssueNature,
   PriorOccurrence,
   Prisma,
   DisciplinaryAction,
+  StrikeDecision,
 } from "@prisma/client";
 import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
@@ -90,7 +92,7 @@ export type SubmitReportInput = {
   description: string;
   occurredAt?: Date | null;
   setting?: string | null;
-  subjectPersonId?: string | null;
+  subjects?: Array<{ personId: string; requestStrike?: boolean }>;
   subjectDescription?: string | null;
   patientImpact?: PatientImpact | null;
   patientImpactDetail?: string | null;
@@ -99,7 +101,6 @@ export type SubmitReportInput = {
   priorOccurrence?: PriorOccurrence | null;
   priorOccurrenceDetail?: string | null;
   anonymous?: boolean;
-  requestStrike?: boolean;
   files?: Array<{ fileName: string; mimeType: string; bytes: Buffer }>;
 };
 
@@ -210,14 +211,18 @@ export async function listSubjectOptions(actorPersonId: string): Promise<{
 
 /**
  * Alerts every incidents.manage holder that a report was just submitted
- * (incidents.report_submitted), and, when the report also carries a pending
- * strike request, alerts the same reviewers a second time
- * (incidents.strike_requested). The subject is never a recipient here --
- * only reviewers. Called after the report row (and any attachments) commit;
- * a delivery failure is logged and swallowed so it can never roll back or
- * throw out of submitReport.
+ * (incidents.report_submitted), and, when the report also carries at least
+ * one pending strike request, alerts the same reviewers a second time
+ * (incidents.strike_requested), naming every flagged person. The subject(s)
+ * are never a recipient here -- only reviewers. Called after the report row
+ * (and any attachments) commit; a delivery failure is logged and swallowed so
+ * it can never roll back or throw out of submitReport.
  */
-async function notifyReviewersOfSubmission(report: IncidentReport, actorPersonId: string): Promise<void> {
+async function notifyReviewersOfSubmission(
+  report: IncidentReport,
+  pendingSubjectNames: string[],
+  actorPersonId: string
+): Promise<void> {
   try {
     const reviewers = await peopleWithAnyPermission(["incidents.manage"]);
     if (reviewers.length === 0) return;
@@ -225,15 +230,8 @@ async function notifyReviewersOfSubmission(report: IncidentReport, actorPersonId
     const baseUrl = await getSetting<string>("app.baseUrl");
     const reviewLink = `${baseUrl}/incidents/review`;
     const concernSummary = report.concernTypes.map((c) => CONCERN_LABELS[c] ?? c).join(", ");
-
-    let subjectName: string | null = null;
-    if (report.strikeDecision === "PENDING" && report.subjectPersonId) {
-      const subject = await prisma.person.findUnique({
-        where: { id: report.subjectPersonId },
-        select: { name: true },
-      });
-      subjectName = subject?.name ?? "the subject";
-    }
+    const hasStrikeRequest = pendingSubjectNames.length > 0;
+    const subjectNames = pendingSubjectNames.join(", ");
 
     for (const reviewer of reviewers) {
       const submittedRendered = await renderEmail(
@@ -260,13 +258,13 @@ async function notifyReviewersOfSubmission(report: IncidentReport, actorPersonId
         triggeredById: actorPersonId,
       });
 
-      if (report.strikeDecision === "PENDING" && subjectName) {
+      if (hasStrikeRequest) {
         const strikeRendered = await renderEmail(
           "incidents.strike_requested",
           strikeRequestedContext({
             reviewerName: reviewer.name,
             reportNumber: report.number,
-            subjectName,
+            subjectNames,
             reviewLink,
           })
         );
@@ -276,7 +274,7 @@ async function notifyReviewersOfSubmission(report: IncidentReport, actorPersonId
           email: { subject: strikeRendered.subject, html: strikeRendered.html },
           teams: {
             title: `Strike requested on incident report #${report.number}`,
-            summary: `Incident report #${report.number} includes a request to issue a disciplinary strike against ${subjectName}.`,
+            summary: `Incident report #${report.number} includes a request to issue a disciplinary strike against ${subjectNames}.`,
             link: reviewLink,
           },
           triggeredById: actorPersonId,
@@ -374,13 +372,16 @@ async function notifyReporterOfResolution(report: IncidentReport, actorPersonId:
  *   - concernTypes must be non-empty and each value must be a known CONCERN_TYPE_VALUES entry.
  *   - description must be non-blank.
  *   - occurredAt must not be in the future.
- *   - requestStrike requires subjectPersonId AND canRequestStrikeAgainst(actor, subject).
+ *   - a subject's requestStrike requires canRequestStrikeAgainst(actor, that subject).
  *
- * subjectPersonId, when provided, must reference an existing Person
- * (IncidentNotFoundError otherwise).
+ * input.subjects (deduped by personId; a person requests a strike if any
+ * duplicate did) creates one IncidentReportSubject row per linked person, each
+ * strike-flagged one at strikeDecision PENDING. Every linked personId must
+ * reference an existing Person (IncidentNotFoundError otherwise).
  *
  * Audits incident.submit (entityType "IncidentReport", after:
- * { number, concernTypes, immediateRisk, strikeRequested }).
+ * { number, concernTypes, immediateRisk, strikeRequested }) -- strikeRequested
+ * is true when any linked subject requested a strike.
  *
  * Attachments (input.files): validated with validateUploadedFile (rules: null,
  * the uploads.maxMb global cap) BEFORE any attachment row is created, so a bad
@@ -398,10 +399,10 @@ async function notifyReporterOfResolution(report: IncidentReport, actorPersonId:
  *
  * Notifications: after everything above commits, every incidents.manage
  * holder is alerted (incidents.report_submitted), plus a second
- * incidents.strike_requested alert when requestStrike landed the report at
- * strikeDecision PENDING. Delivery is best-effort (notifyReviewersOfSubmission
- * swallows and logs its own errors) so a notification failure never rolls
- * back or fails the submission.
+ * incidents.strike_requested alert naming every subject whose strike request
+ * landed at PENDING, when there is at least one. Delivery is best-effort
+ * (notifyReviewersOfSubmission swallows and logs its own errors) so a
+ * notification failure never rolls back or fails the submission.
  */
 export async function submitReport(actorPersonId: string, input: SubmitReportInput): Promise<IncidentReport> {
   const concernTypes = input.concernTypes ?? [];
@@ -418,22 +419,29 @@ export async function submitReport(actorPersonId: string, input: SubmitReportInp
   if (input.occurredAt && input.occurredAt > new Date()) {
     throw new IncidentValidationError("The date of the incident must not be in the future.");
   }
-  if (input.subjectPersonId) {
-    const subject = await prisma.person.findUnique({ where: { id: input.subjectPersonId } });
-    if (!subject) throw new IncidentNotFoundError(`Subject ${input.subjectPersonId} not found.`);
+
+  // Dedupe subjects by personId; a person requests a strike if any duplicate did.
+  const subjectMap = new Map<string, boolean>();
+  for (const s of input.subjects ?? []) {
+    subjectMap.set(s.personId, (subjectMap.get(s.personId) ?? false) || Boolean(s.requestStrike));
+  }
+  const subjects = [...subjectMap.entries()].map(([personId, requestStrike]) => ({ personId, requestStrike }));
+
+  // Every linked person must exist.
+  for (const s of subjects) {
+    const person = await prisma.person.findUnique({ where: { id: s.personId } });
+    if (!person) throw new IncidentNotFoundError(`Subject ${s.personId} not found.`);
   }
 
-  let strikeDecision: "PENDING" | null = null;
-  if (input.requestStrike) {
-    if (!input.subjectPersonId) {
-      throw new IncidentValidationError("A strike can only be requested against a specific person.");
-    }
-    const allowed = await canRequestStrikeAgainst(actorPersonId, input.subjectPersonId);
-    if (!allowed) {
+  // A strike may only be requested against a volunteer in a department the actor
+  // manages. The UI only offers the checkbox for eligible people; this is the
+  // server-side tamper guard.
+  for (const s of subjects) {
+    if (s.requestStrike && !(await canRequestStrikeAgainst(actorPersonId, s.personId))) {
       throw new IncidentValidationError("You can only request a strike for a volunteer in a department you manage.");
     }
-    strikeDecision = "PENDING";
   }
+  const strikeRequested = subjects.some((s) => s.requestStrike);
 
   const report = await prisma.incidentReport.create({
     data: {
@@ -443,7 +451,6 @@ export async function submitReport(actorPersonId: string, input: SubmitReportInp
       description: input.description,
       occurredAt: input.occurredAt ?? null,
       setting: input.setting ?? null,
-      subjectPersonId: input.subjectPersonId ?? null,
       subjectDescription: input.subjectDescription ?? null,
       patientImpact: input.patientImpact ?? null,
       patientImpactDetail: input.patientImpactDetail ?? null,
@@ -451,7 +458,12 @@ export async function submitReport(actorPersonId: string, input: SubmitReportInp
       issueNature: input.issueNature ?? null,
       priorOccurrence: input.priorOccurrence ?? null,
       priorOccurrenceDetail: input.priorOccurrenceDetail ?? null,
-      strikeDecision,
+      subjects: {
+        create: subjects.map((s) => ({
+          personId: s.personId,
+          strikeDecision: s.requestStrike ? ("PENDING" as const) : null,
+        })),
+      },
     },
   });
 
@@ -460,7 +472,7 @@ export async function submitReport(actorPersonId: string, input: SubmitReportInp
     action: "incident.submit",
     entityType: "IncidentReport",
     entityId: report.id,
-    after: { number: report.number, concernTypes, immediateRisk: report.immediateRisk, strikeRequested: strikeDecision !== null },
+    after: { number: report.number, concernTypes, immediateRisk: report.immediateRisk, strikeRequested },
   });
 
   const files = input.files ?? [];
@@ -525,7 +537,17 @@ export async function submitReport(actorPersonId: string, input: SubmitReportInp
     }
   }
 
-  await notifyReviewersOfSubmission(report, actorPersonId);
+  const pendingSubjectNames =
+    subjects.length === 0
+      ? []
+      : (
+          await prisma.person.findMany({
+            where: { id: { in: subjects.filter((s) => s.requestStrike).map((s) => s.personId) } },
+            select: { name: true },
+          })
+        ).map((p) => p.name);
+
+  await notifyReviewersOfSubmission(report, pendingSubjectNames, actorPersonId);
 
   return report;
 }
@@ -534,7 +556,27 @@ export async function submitReport(actorPersonId: string, input: SubmitReportInp
 // Read: my reports and per-report visibility
 // ---------------------------------------------------------------------------
 
-export type ReportListRow = { report: IncidentReport; subjectName: string | null };
+type SubjectWithName = { strikeDecision: StrikeDecision | null; person: { name: string } };
+
+/** Derive display names + strike counts from a report's linked subjects. */
+function summarizeSubjects(subjects: SubjectWithName[]): {
+  subjectNames: string[];
+  strikePendingCount: number;
+  strikeIssuedCount: number;
+} {
+  return {
+    subjectNames: subjects.map((s) => s.person.name),
+    strikePendingCount: subjects.filter((s) => s.strikeDecision === "PENDING").length,
+    strikeIssuedCount: subjects.filter((s) => s.strikeDecision === "APPROVED").length,
+  };
+}
+
+export type ReportListRow = {
+  report: IncidentReport;
+  subjectNames: string[];
+  strikePendingCount: number;
+  strikeIssuedCount: number;
+};
 
 /**
  * A reporter's own reports, newest first. Secondary sort by number (a
@@ -544,14 +586,14 @@ export type ReportListRow = { report: IncidentReport; subjectName: string | null
 export async function listMyReports(actorPersonId: string): Promise<ReportListRow[]> {
   const reports = await prisma.incidentReport.findMany({
     where: { reporterId: actorPersonId },
-    include: { subject: { select: { name: true } } },
+    include: { subjects: { include: { person: { select: { name: true } } } } },
     orderBy: [{ createdAt: "desc" }, { number: "desc" }],
   });
-  return reports.map((r) => ({ report: r, subjectName: r.subject?.name ?? null }));
+  return reports.map((r) => ({ report: r, ...summarizeSubjects(r.subjects) }));
 }
 
 /**
- * A single report with its subject, reporter, and attachments.
+ * A single report with its linked subjects, reporter, and attachments.
  *
  * Visibility: the reporter (owner) or a holder of incidents.manage; anyone
  * else throws IncidentForbiddenError. Missing report throws IncidentNotFoundError.
@@ -563,7 +605,7 @@ export async function getReport(
   id: string
 ): Promise<{
   report: IncidentReport & {
-    subject: { name: string } | null;
+    subjects: Array<{ id: string; personId: string; strikeDecision: StrikeDecision | null; person: { name: string } }>;
     reporter: { name: string };
     attachments: IncidentReportAttachment[];
   };
@@ -572,7 +614,7 @@ export async function getReport(
   const report = await prisma.incidentReport.findUnique({
     where: { id },
     include: {
-      subject: { select: { name: true } },
+      subjects: { include: { person: { select: { name: true } } }, orderBy: { createdAt: "asc" } },
       reporter: { select: { name: true } },
       attachments: true,
     },
@@ -603,15 +645,22 @@ export type ReviewFilters = {
 
 const REVIEW_PAGE_SIZE = 25;
 
-export type ReviewQueueRow = { report: IncidentReport; reporterName: string; subjectName: string | null };
+export type ReviewQueueRow = {
+  report: IncidentReport;
+  reporterName: string;
+  subjectNames: string[];
+  strikePendingCount: number;
+  strikeIssuedCount: number;
+};
 
 /**
  * All incident reports, filtered and paginated for a reviewer. Requires
  * incidents.manage (else IncidentForbiddenError).
  *
  * Filters: status (exact), concernType (array contains), immediateRisk (true
- * only), strikePending (strikeDecision === PENDING), q (case-insensitive
- * match against subject name, reporter name, or report number).
+ * only), strikePending (any linked subject's strikeDecision === PENDING), q
+ * (case-insensitive match against any linked subject's name, reporter name,
+ * or report number).
  *
  * Ordered with immediateRisk reports first, then newest first, then by
  * number (a monotonic autoincrement) descending so same-millisecond inserts
@@ -629,12 +678,12 @@ export async function listReviewQueue(
   if (filters.status) where.status = filters.status as IncidentReportStatus;
   if (filters.concernType) where.concernTypes = { has: filters.concernType };
   if (filters.immediateRisk) where.immediateRisk = true;
-  if (filters.strikePending) where.strikeDecision = "PENDING";
+  if (filters.strikePending) where.subjects = { some: { strikeDecision: "PENDING" } };
   if (filters.q) {
     const q = filters.q.trim();
     const asNumber = Number.parseInt(q, 10);
     where.OR = [
-      { subject: { name: { contains: q, mode: "insensitive" } } },
+      { subjects: { some: { person: { name: { contains: q, mode: "insensitive" } } } } },
       { reporter: { name: { contains: q, mode: "insensitive" } } },
       ...(Number.isNaN(asNumber) ? [] : [{ number: asNumber }]),
     ];
@@ -643,7 +692,10 @@ export async function listReviewQueue(
   const [reports, total] = await Promise.all([
     prisma.incidentReport.findMany({
       where,
-      include: { subject: { select: { name: true } }, reporter: { select: { name: true } } },
+      include: {
+        subjects: { include: { person: { select: { name: true } } } },
+        reporter: { select: { name: true } },
+      },
       orderBy: [{ immediateRisk: "desc" }, { createdAt: "desc" }, { number: "desc" }],
       skip: (page - 1) * REVIEW_PAGE_SIZE,
       take: REVIEW_PAGE_SIZE,
@@ -652,7 +704,7 @@ export async function listReviewQueue(
   ]);
 
   return {
-    rows: reports.map((r) => ({ report: r, reporterName: r.reporter.name, subjectName: r.subject?.name ?? null })),
+    rows: reports.map((r) => ({ report: r, reporterName: r.reporter.name, ...summarizeSubjects(r.subjects) })),
     total,
   };
 }
@@ -724,50 +776,57 @@ export type DecideStrikeInput = {
 };
 
 /**
- * Decides a report's pending strike request. Requires incidents.manage
- * (else IncidentForbiddenError). Missing report throws IncidentNotFoundError.
- * The report's strikeDecision must be PENDING, or IncidentValidationError.
+ * Decides one linked person's pending strike request on a report. Requires
+ * incidents.manage (else IncidentForbiddenError). Missing IncidentReportSubject
+ * row throws IncidentNotFoundError. That row's strikeDecision must be
+ * PENDING, or IncidentValidationError.
  *
  * Decline: sets strikeDecision DECLINED, stamps strikeDecidedById/At. No
  * DisciplinaryAction is created.
  *
- * Approve: requires the report to have a subjectPersonId and a valid
- * category from DISCIPLINARY_CATEGORIES (else IncidentValidationError), then
- * calls issueAction against the subject with occurredAt defaulting to the
- * report's occurredAt (or now), description from the report, confidential
- * set to the report's anonymous flag (anonymous report -> confidential
- * strike, hidden from directors), patientInvolved from patientImpact, and
- * reportId linking the new strike back to this report. Then sets
- * strikeDecision APPROVED, stamping strikeDecidedById/At. Since
- * DisciplinaryAction.reportId is unique, a concurrent double-approve races
+ * Approve: requires a valid category from DISCIPLINARY_CATEGORIES (else
+ * IncidentValidationError), then calls issueAction against that subject's
+ * personId with occurredAt defaulting to the report's occurredAt (or now),
+ * description from the report, confidential set to the report's anonymous
+ * flag (anonymous report -> confidential strike, hidden from directors),
+ * patientInvolved from patientImpact, and reportId linking the new strike
+ * back to this report. Then sets strikeDecision APPROVED, stamping
+ * strikeDecidedById/At. Since DisciplinaryAction is unique per
+ * (reportId, personId), a concurrent double-approve of the same subject races
  * two issueAction calls; the loser's unique-constraint violation is caught
  * and rethrown as IncidentValidationError rather than an untyped 500.
+ * Deciding one subject's row never touches another subject's row on the same
+ * report.
  *
  * Both branches audit incident.strike_decided (entityType "IncidentReport",
- * after: { decision } -- approve also includes strikeActionId and
- * subjectPersonId) after the report row is updated.
+ * after: { decision } -- approve also includes strikeActionId,
+ * reportSubjectId, and personId) after the subject row is updated.
  *
  * Either branch notifies the reporter (incidents.strike_decided, approved
  * mirrors the decision) via best-effort notifyReporterOfStrikeDecision after
  * its update commits; a delivery failure is logged and swallowed, never
- * rolling back this call. The subject is never notified.
+ * rolling back this call. The linked people are never notified.
  */
 export async function decideStrike(
   actorPersonId: string,
-  reportId: string,
+  reportSubjectId: string,
   input: DecideStrikeInput
-): Promise<IncidentReport> {
+): Promise<IncidentReportSubject> {
   if (!(await can(actorPersonId, "incidents.manage"))) throw new IncidentForbiddenError();
 
-  const report = await prisma.incidentReport.findUnique({ where: { id: reportId } });
-  if (!report) throw new IncidentNotFoundError();
-  if (report.strikeDecision !== "PENDING") {
-    throw new IncidentValidationError("This report has no pending strike request.");
+  const subject = await prisma.incidentReportSubject.findUnique({
+    where: { id: reportSubjectId },
+    include: { report: true },
+  });
+  if (!subject) throw new IncidentNotFoundError();
+  if (subject.strikeDecision !== "PENDING") {
+    throw new IncidentValidationError("This linked person has no pending strike request.");
   }
+  const report = subject.report;
 
   if (!input.approve) {
-    const declined = await prisma.incidentReport.update({
-      where: { id: reportId },
+    const declined = await prisma.incidentReportSubject.update({
+      where: { id: reportSubjectId },
       data: { strikeDecision: "DECLINED", strikeDecidedById: actorPersonId, strikeDecidedAt: new Date() },
     });
 
@@ -775,17 +834,14 @@ export async function decideStrike(
       actorPersonId,
       action: "incident.strike_decided",
       entityType: "IncidentReport",
-      entityId: reportId,
-      after: { decision: "DECLINED" },
+      entityId: report.id,
+      after: { decision: "DECLINED", reportSubjectId, personId: subject.personId },
     });
 
-    await notifyReporterOfStrikeDecision(declined, actorPersonId, false);
+    await notifyReporterOfStrikeDecision(report, actorPersonId, false);
     return declined;
   }
 
-  if (!report.subjectPersonId) {
-    throw new IncidentValidationError("Cannot issue a strike: the report has no linked subject.");
-  }
   const category = input.category ?? "";
   if (!(DISCIPLINARY_CATEGORIES as readonly string[]).includes(category)) {
     throw new IncidentValidationError(`Choose a strike category. One of: ${DISCIPLINARY_CATEGORIES.join(", ")}.`);
@@ -795,7 +851,7 @@ export async function decideStrike(
   let strikeAction: DisciplinaryAction;
   try {
     strikeAction = await issueAction(actorPersonId, {
-      personId: report.subjectPersonId,
+      personId: subject.personId,
       occurredAt: input.occurredAt ?? report.occurredAt ?? new Date(),
       category,
       description: report.description,
@@ -807,17 +863,17 @@ export async function decideStrike(
       reportId: report.id,
     });
   } catch (err) {
-    // DisciplinaryAction.reportId is unique. A concurrent double-approve on
-    // the same report races two issueAction calls; the loser hits a
-    // unique-constraint violation here rather than surfacing as a raw 500.
+    // DisciplinaryAction is now unique per (reportId, personId). A concurrent
+    // double-approve of the same subject races two issueAction calls; the loser
+    // hits the composite unique here rather than surfacing as a raw 500.
     if (isUniqueConstraintError(err)) {
-      throw new IncidentValidationError("A strike has already been issued for this report.");
+      throw new IncidentValidationError("A strike has already been issued for this person on this report.");
     }
     throw err;
   }
 
-  const approved = await prisma.incidentReport.update({
-    where: { id: reportId },
+  const approved = await prisma.incidentReportSubject.update({
+    where: { id: reportSubjectId },
     data: { strikeDecision: "APPROVED", strikeDecidedById: actorPersonId, strikeDecidedAt: new Date() },
   });
 
@@ -825,10 +881,10 @@ export async function decideStrike(
     actorPersonId,
     action: "incident.strike_decided",
     entityType: "IncidentReport",
-    entityId: reportId,
-    after: { decision: "APPROVED", strikeActionId: strikeAction.id, subjectPersonId: report.subjectPersonId },
+    entityId: report.id,
+    after: { decision: "APPROVED", strikeActionId: strikeAction.id, reportSubjectId, personId: subject.personId },
   });
 
-  await notifyReporterOfStrikeDecision(approved, actorPersonId, true);
+  await notifyReporterOfStrikeDecision(report, actorPersonId, true);
   return approved;
 }

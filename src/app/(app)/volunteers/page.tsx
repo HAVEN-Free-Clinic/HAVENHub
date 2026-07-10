@@ -264,7 +264,7 @@ export default async function VolunteersPage({ searchParams }: PageProps) {
                                 onSetDate={setDateAction.bind(null, m.cert.id)}
                               />
                             )}
-                            {m.cert && (
+                            {m.cert && m.cert.completionDate && (
                               <form action={verifyAction}>
                                 <input type="hidden" name="certId" value={m.cert.id} />
                                 <ConfirmButton label="Verify" confirmLabel="Confirm?" />

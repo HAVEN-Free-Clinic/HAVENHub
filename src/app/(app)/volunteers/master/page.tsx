@@ -336,20 +336,28 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
                         </Badge>
                       </TD>
                       <TD>
-                        <Badge
-                          tone={row.trainingState === "COMPLETE" ? "success" : "default"}
-                        >
-                          {row.trainingState === "COMPLETE" ? "Complete" : "Pending"}
-                        </Badge>
+                        {row.isVolunteer ? (
+                          <Badge
+                            tone={row.trainingState === "COMPLETE" ? "success" : "default"}
+                          >
+                            {row.trainingState === "COMPLETE" ? "Complete" : "Pending"}
+                          </Badge>
+                        ) : (
+                          <span className="text-subtle-foreground">-</span>
+                        )}
                       </TD>
                       <TD>
-                        <Badge
-                          tone={
-                            row.overallClearance === "CLEARED" ? "success" : "critical"
-                          }
-                        >
-                          {row.overallClearance === "CLEARED" ? "Cleared" : "Not Cleared"}
-                        </Badge>
+                        {row.isVolunteer ? (
+                          <Badge
+                            tone={
+                              row.overallClearance === "CLEARED" ? "success" : "critical"
+                            }
+                          >
+                            {row.overallClearance === "CLEARED" ? "Cleared" : "Not Cleared"}
+                          </Badge>
+                        ) : (
+                          <span className="text-subtle-foreground">-</span>
+                        )}
                       </TD>
                       <TD className="text-foreground-soft tabular-nums">
                         {fmtDate(row.cert?.completionDate)}
@@ -379,7 +387,7 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
                               onSetDate={setDateAction.bind(null, row.cert.id)}
                             />
                           )}
-                          {row.cert && !row.cert.verifiedAt && (
+                          {row.cert && row.cert.completionDate && !row.cert.verifiedAt && (
                             <form action={verifyAction}>
                               <input type="hidden" name="certId" value={row.cert.id} />
                               <ConfirmButton label="Verify" confirmLabel="Confirm?" />

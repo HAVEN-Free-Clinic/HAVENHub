@@ -874,6 +874,49 @@ describe("training clearance on compliance rows", () => {
     expect(row.trainingState).toBe("COMPLETE");
     expect(row.overallClearance).toBe("CLEARED");
   });
+
+  it("does not flag a director-only member for missing volunteer-track training in masterCompliance (issue: M2)", async () => {
+    // A director-only member (no VOLUNTEER membership) trains on the DIRECTOR
+    // track, so volunteer-track training does not apply. The master view must
+    // not report them as Pending / Not Cleared. Mirroring the department view,
+    // the fix carries isVolunteer=false on the row so the page renders "-" for
+    // Training and Overall instead of flagging the director.
+    const term = await createTerm("ACTIVE");
+    const dept = await createDepartment("SRHD");
+    const director = await createPerson("Director Only", "do01");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    // A valid, verified HIPAA cert but no volunteer-track Training row.
+    await createCert(director.id, daysFromNow(-1), undefined, new Date());
+
+    const res = await masterCompliance({});
+    const row = res.rows.find((r) => r.person.id === director.id)!;
+    // isVolunteer=false is what drives the "-" rendering (never Pending/Not Cleared).
+    expect(row.isVolunteer).toBe(false);
+
+    // A volunteer in the same term, by contrast, is evaluated on volunteer training.
+    const vol = await createPerson("Vol", "v01");
+    await createMembership(vol.id, term.id, dept.id, "VOLUNTEER");
+    await createCert(vol.id, daysFromNow(-1), undefined, new Date());
+    const res2 = await masterCompliance({});
+    const volRow = res2.rows.find((r) => r.person.id === vol.id)!;
+    expect(volRow.isVolunteer).toBe(true);
+  });
+
+  it("marks a person volunteering in any department as isVolunteer even if they also direct (masterCompliance)", async () => {
+    // Master rows are one-per-person. Someone who is a DIRECTOR in one dept and
+    // a VOLUNTEER in another still trains on the VOLUNTEER track, so the row
+    // must be isVolunteer=true.
+    const term = await createTerm("ACTIVE");
+    const srhd = await createDepartment("SRHD");
+    const itcm = await createDepartment("ITCM");
+    const person = await createPerson("Dual Role", "dr01");
+    await createMembership(person.id, term.id, srhd.id, "DIRECTOR");
+    await createMembership(person.id, term.id, itcm.id, "VOLUNTEER");
+
+    const res = await masterCompliance({});
+    const row = res.rows.find((r) => r.person.id === person.id)!;
+    expect(row.isVolunteer).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------

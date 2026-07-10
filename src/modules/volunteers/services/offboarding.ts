@@ -363,5 +363,8 @@ export async function offboardingView(viewerPersonId: string): Promise<{
     departmentNames: (deptNamesByPersonId.get(f.personId) ?? []).sort(),
   }));
 
+  
+
   return { departments, flagged };
 }
+

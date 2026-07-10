@@ -160,4 +160,23 @@ export const scheduleDescriptors: TemplateDescriptor[] = [
 <p>Please review and approve or deny the request in HAVEN Hub.</p>
 <p><a href="https://hub.havenfreeclinic.com/schedule/builder">Review pending requests</a></p>`,
   },
+  {
+    key: "schedule-request-denied-partner",
+    name: "Shift swap denied (partner)",
+    category: "transactional",
+    group: "shift",
+    variables: [
+      { name: "partnerName", label: "Partner first name", sampleValue: "Jordan" },
+      { name: "requesterName", label: "Requester name", sampleValue: "Alex Johnson" },
+      { name: "requesterDate", label: "Requester shift date", sampleValue: "July 15, 2026" },
+      { name: "partnerDate", label: "Partner shift date", sampleValue: "July 22, 2026" },
+      { name: "departmentName", label: "Department name", sampleValue: "Internal Medicine" },
+    ],
+    defaultSubject: "A shift swap request involving you has been denied - HAVEN",
+    defaultBody: `<p>Hi {{ partnerName }},</p>
+<p>A shift swap request submitted by <strong>{{ requesterName }}</strong> involving your shift on <strong>{{ partnerDate }}</strong> and their shift on <strong>{{ requesterDate }}</strong> in the <strong>{{ departmentName }}</strong> department has been <strong>denied</strong> by your directors.</p>
+<p>No action is needed from you. Your schedule remains unchanged.</p>
+<p>${HUB_LINK}</p>`,
+  },
 ];
+

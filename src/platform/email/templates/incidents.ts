@@ -176,4 +176,27 @@ export const incidentsDescriptors: TemplateDescriptor[] = [
 <p><a href="{{ reportLink }}">View your report</a></p>
 <p>Thank you,<br>HAVEN Free Clinic</p>`,
   },
+  {
+    key: "incidents.strike_issued",
+    name: "Incident: strike issued (subject)",
+    category: "transactional" as const,
+    group: "compliance" as const,
+    variables: [
+      { name: "subjectName", label: "Subject first name", sampleValue: "Alex" },
+      { name: "category", label: "Strike category", sampleValue: "Attendance" },
+      { name: "description", label: "Strike description", sampleValue: "No-show to assigned clinic shift on July 15, 2026." },
+      { name: "issuedBy", label: "Issued by name", sampleValue: "Caprice Culkin" },
+      { name: "issuedDate", label: "Date issued", sampleValue: "July 15, 2026" },
+    ],
+    defaultSubject: "A disciplinary action has been recorded against your HAVEN account",
+    defaultBody: `<p>Hi {{ subjectName }},</p>
+<p>A disciplinary action has been officially recorded against your HAVEN volunteer account.</p>
+<table role="presentation" style="border-collapse:collapse;margin:16px 0">
+  <tr><td style="font-weight:600;padding-right:12px">Category</td><td>{{ category }}</td></tr>
+  <tr><td style="font-weight:600;padding-right:12px">Date</td><td>{{ issuedDate }}</td></tr>
+  <tr><td style="font-weight:600;padding-right:12px">Issued by</td><td>{{ issuedBy }}</td></tr>
+</table>
+<p><strong>Details:</strong><br>{{ description }}</p>
+<p>If you have questions or believe this was issued in error, please reach out to your department directors or the HAVEN IT &amp; Communications team at <a href="mailto:hfc.it@yale.edu">hfc.it@yale.edu</a>.</p>`,
+  },
 ];

@@ -11,7 +11,9 @@
  *   Non-compliant (EXPIRING_SOON | EXPIRED | UNKNOWN_DATE | NO_CERTIFICATE):
  *     1. Dedup window check: if lastRemindedAt is within COMPLIANCE_REMINDER_INTERVAL_DAYS,
  *        the person is skipped entirely (no reminder, no escalation evaluation).
- *     2. If no contactEmail, the person is skipped (state is not advanced).
+ *     2. If the person has neither a contactEmail nor a Teams identity, they are
+ *        skipped (state is not advanced). A Teams-reachable member without a
+ *        contactEmail is still reminded, mirroring the escalation path.
  *     3. A reminder email is queued; remindersSent is incremented; lastRemindedAt = now.
  *     4. Escalation fires once per non-compliant streak, guarded by escalatedAt:
  *        when the NEW remindersSent >= COMPLIANCE_ESCALATION_THRESHOLD AND escalatedAt
@@ -173,10 +175,13 @@ export async function runComplianceReminders(
       }
     }
 
-    // b. No contact email: log a notice and skip (do not advance state).
-    if (!person.contactEmail) {
+    // b. No way to reach the member: skip (do not advance state). A member
+    //    reachable on Teams but without a contactEmail is still reminded --
+    //    notify() delivers via Teams and skips the email leg -- mirroring how
+    //    sendEscalations reaches directors that have only an entraObjectId.
+    if (!person.contactEmail && !person.entraObjectId) {
       console.log(
-        `[reminders] Skipping person ${person.id} (${person.name}): no contactEmail.`
+        `[reminders] Skipping person ${person.id} (${person.name}): no contactEmail or Teams identity.`
       );
       result.skipped++;
       continue;

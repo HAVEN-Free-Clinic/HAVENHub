@@ -119,10 +119,19 @@ export async function previewAudience(id: string) {
   }
   const audience = campaign.audienceJson;
   const { recipients, excludedNoEmail } = await resolveAudience(audience);
+  // Dedup by lowercased email exactly as the send path does, so the previewed
+  // count matches what the confirm-count workflow will actually enqueue.
+  const seen = new Set<string>();
+  const deduped = recipients.filter((r) => {
+    const key = r.email.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
   return {
-    count: recipients.length,
+    count: deduped.length,
     excludedNoEmail,
-    sample: recipients.slice(0, 20),
+    sample: deduped.slice(0, 20),
   };
 }
 

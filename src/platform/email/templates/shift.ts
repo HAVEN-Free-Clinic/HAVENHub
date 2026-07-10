@@ -61,7 +61,7 @@ const DEFAULT_BODY = `<p>Hello {{ firstName }},</p>
 <li>Maintain professionalism with patients, volunteers, faculty, and staff at all times.</li>
 </ul>
 <h2>Questions?</h2>
-<p>For urgent clinic-day concerns, please contact{{#if edsOnShift}} the Executive Director(s) on shift, <strong>{{ edsOnShift }}</strong>,{{/if}}{{#if deptDirectorsOnShift}} or your department director(s) on shift, <strong>{{ deptDirectorsOnShift }}</strong>{{/if}}.</p>
+<p>For urgent clinic-day concerns, please contact {{#if edsOnShift}}the Executive Director(s) on shift, <strong>{{ edsOnShift }}</strong>{{#if deptDirectorsOnShift}}, or your department director(s) on shift, <strong>{{ deptDirectorsOnShift }}</strong>{{/if}}{{else}}{{#if deptDirectorsOnShift}}your department director(s) on shift, <strong>{{ deptDirectorsOnShift }}</strong>{{else}}the HAVEN leadership team{{/if}}{{/if}}.</p>
 {{#if clinicalAdvisorsOnShift}}<p>Clinical Advisor(s) on shift: <strong>{{ clinicalAdvisorsOnShift }}</strong></p>{{/if}}
 <p>The master schedule can be found <a href="{{ masterScheduleUrl }}">here</a>.</p>
 <p>Thank you for your commitment to our patients and to HAVEN. We look forward to seeing you on Saturday!</p>`;

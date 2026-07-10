@@ -28,6 +28,12 @@ describe("person fields", () => {
     expect(personFieldWhere({ field: "status", op: "eq", value: "ACTIVE" }, ctx)).toEqual({ status: "ACTIVE" });
   });
 
+  it("status -> an empty value matches nobody (never everyone)", () => {
+    expect(personFieldWhere({ field: "status", op: "eq", value: "" }, ctx)).toEqual({ id: { in: [] } });
+    expect(personFieldWhere({ field: "status", op: "eq", value: "   " }, ctx)).toEqual({ id: { in: [] } });
+    expect(personFieldWhere({ field: "status", op: "eq" }, ctx)).toEqual({ id: { in: [] } });
+  });
+
   it("role -> active-term membership of that kind", () => {
     expect(personFieldWhere({ field: "role", op: "eq", value: "DIRECTOR" }, ctx)).toEqual({
       memberships: { some: { termId: "term1", status: "ACTIVE", kind: "DIRECTOR" } },

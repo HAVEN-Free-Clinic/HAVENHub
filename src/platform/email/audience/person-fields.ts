@@ -128,7 +128,14 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
       { value: "ACTIVE", label: "Active" },
       { value: "OFFBOARDED", label: "Offboarded" },
     ],
-    compile: (cond) => ({ status: cond.value as "ACTIVE" | "OFFBOARDED" }),
+    // An empty value must never compile to `{ status: undefined }` (which Prisma
+    // treats as "no filter", matching EVERYONE). Mirror the match-nobody safety
+    // the text/enum fields use on a blank value.
+    compile: (cond) => {
+      const value = typeof cond.value === "string" ? cond.value.trim() : "";
+      if (value === "") return MATCH_NOBODY;
+      return { status: value as "ACTIVE" | "OFFBOARDED" };
+    },
   },
   {
     key: "role",

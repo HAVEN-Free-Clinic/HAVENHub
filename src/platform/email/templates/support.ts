@@ -1,13 +1,13 @@
 /**
  * IT Support ticket email templates for HAVEN Hub.
  *
- * Five notification points on a TechRequest's lifecycle:
- *   - support.ticket_submitted: fired on create. One shared template renders
- *     both a requester-confirmation variant and a manager-alert variant via
- *     the `isManager` boolean flag (the render engine only supports truthy
- *     {{#if}} checks on a single var, so a two-value string like a
- *     "recipientRole" cannot itself drive branching -- a boolean flag can,
- *     matching the `showCta`/`hasEhsGap` pattern already used by compliance.ts).
+ * Six templates cover a TechRequest's lifecycle. Ticket creation notifies the
+ * requester and the managers separately, each with its own template (there is
+ * no shared "isManager" flag):
+ *   - support.ticket_submitted: fired on create; the requester-facing
+ *     confirmation that we logged their request.
+ *   - support.ticket_manager_alert: fired on create; the manager-facing alert
+ *     that a new ticket needs triage.
  *   - support.request_assigned: fired when a manager assigns (or reassigns) a
  *     ticket.
  *   - support.status_changed: fired on any status transition.
@@ -15,7 +15,7 @@
  *     comments are not notified).
  *   - support.request_resolved: fired when a ticket moves to RESOLVED.
  *
- * All five keys must exist here before any support.* notification can render:
+ * All six keys must exist here before any support.* notification can render:
  * renderEmail() throws "Unknown email template: <key>" for an unregistered key.
  */
 

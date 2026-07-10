@@ -6,11 +6,12 @@
  * declares no accessPermission for this module). Renders the full 10-section
  * Professional Standards Incident Report and posts to submitReportAction.
  *
- * A director who manages one or more volunteers (issuablePeople returns a
- * non-empty `people` list) additionally sees a subject picker tied to a
- * "Request a strike" checkbox; submitReport enforces server-side that a
- * strike may only be requested against a volunteer in a department the actor
- * manages, so the UI gate here is a convenience, not the security boundary.
+ * Section 4 links the subject via a searchable person picker over everyone in
+ * the system (SubjectPicker). A director who manages one or more volunteers can
+ * additionally request a strike once they pick one of those volunteers;
+ * submitReport enforces server-side that a strike may only be requested against
+ * a volunteer in a department the actor manages, so the UI gate is a
+ * convenience, not the security boundary.
  *
  * On success, submitReportAction redirects to /incidents/mine?submitted=<n>.
  */
@@ -25,8 +26,8 @@ import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
 import { Button } from "@/platform/ui/button";
 import { FormActions } from "@/platform/ui/form";
-import { CONCERN_TYPES } from "@/modules/incidents/services/report";
-import { issuablePeople } from "@/modules/incidents/services/disciplinary";
+import { CONCERN_TYPES, listSubjectOptions } from "@/modules/incidents/services/report";
+import { SubjectPicker } from "./subject-picker";
 import { submitReportAction } from "./actions";
 
 // ---------------------------------------------------------------------------
@@ -67,9 +68,10 @@ export default async function ReportConcernPage({ searchParams }: PageProps) {
       : (ERROR_MESSAGES[errorCode] ?? "An unexpected error occurred.")
     : null;
 
-  // Load the volunteers this actor manages (empty for central reviewers, who
-  // issue strikes directly on the ledger rather than via a report request).
-  const issuable = await issuablePeople(actor.personId);
+  // People that can be linked as the subject (everyone), plus the volunteers the
+  // actor manages (strike-eligible). Central reviewers get an empty eligible set
+  // and issue strikes directly on the ledger rather than via a report request.
+  const subject = await listSubjectOptions(actor.personId);
 
   return (
     <div>
@@ -126,19 +128,7 @@ export default async function ReportConcernPage({ searchParams }: PageProps) {
           <Field label="4. Name, role, or department of the individual(s) of concern">
             <Textarea name="subjectDescription" rows={2} placeholder="If unknown, describe as observed" />
           </Field>
-          {issuable.people.length > 0 && (
-            <Field label="Or select a volunteer you manage (enables a strike request)">
-              <Select name="subjectPersonId" defaultValue="">
-                <option value="">Not a specific volunteer I manage</option>
-                {issuable.people.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name ?? p.id}
-                    {p.departmentNames.length ? ` (${p.departmentNames.join(", ")})` : ""}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-          )}
+          <SubjectPicker people={subject.people} strikeEligibleIds={subject.strikeEligibleIds} />
 
           {/* Section 5: patient impact */}
           <Field label="5. Was a patient directly impacted?">
@@ -201,12 +191,6 @@ export default async function ReportConcernPage({ searchParams }: PageProps) {
               <Checkbox name="anonymous" /> I would prefer to remain anonymous (your name is not shared with the
               subject)
             </label>
-            {issuable.people.length > 0 && (
-              <label className="flex items-center gap-2 text-sm">
-                <Checkbox name="requestStrike" /> Request a strike (only applies when you selected a volunteer you
-                manage above; a reviewer approves)
-              </label>
-            )}
           </div>
 
           <FormActions>

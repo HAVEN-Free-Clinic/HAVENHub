@@ -33,22 +33,18 @@ async function submitReport(
   // Section 2: description (required).
   await page.locator('textarea[name="description"]').fill(description);
 
-  // Section 4 (director-only): pick a volunteer this actor manages, which is
-  // what unlocks the "Request a strike" checkbox in section 10.
+  // Section 4: link a person via the searchable combobox. Typing filters the
+  // list; clicking the matching option sets the hidden subjectPersonId and, for a
+  // volunteer the actor manages, reveals the "Request a strike" checkbox.
   if (opts.subjectOptionText) {
-    const subjectSelect = page.locator('select[name="subjectPersonId"]');
-    const optionValue = await subjectSelect
-      .locator("option")
-      .filter({ hasText: opts.subjectOptionText })
-      .first()
-      .getAttribute("value");
-    if (!optionValue) {
-      throw new Error(`No subjectPersonId option matched "${opts.subjectOptionText}"`);
-    }
-    await subjectSelect.selectOption(optionValue);
+    const subjectInput = page.getByRole("combobox", { name: "Search people to link to this report" });
+    await subjectInput.click();
+    await subjectInput.fill(opts.subjectOptionText);
+    await page.getByRole("option").filter({ hasText: opts.subjectOptionText }).first().click();
   }
 
   if (opts.requestStrike) {
+    // Only rendered once an eligible (managed-volunteer) subject is picked above.
     await page.locator('input[name="requestStrike"]').check();
   }
 

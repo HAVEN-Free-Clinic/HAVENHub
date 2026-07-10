@@ -34,7 +34,7 @@ import {
   strikeDecidedContext,
   reportResolvedContext,
 } from "@/platform/email/templates/incidents";
-import { issueAction, DISCIPLINARY_CATEGORIES } from "./disciplinary";
+import { issueAction, issuablePeople, DISCIPLINARY_CATEGORIES } from "./disciplinary";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -128,6 +128,63 @@ export async function canRequestStrikeAgainst(actorPersonId: string, subjectPers
     },
   });
   return membership !== null;
+}
+
+export type SubjectOption = { id: string; name: string; hint: string | null };
+
+/**
+ * People the reporter can link as the subject of a report, plus the subset the
+ * reporter may request a strike against.
+ *
+ * `people`: every ACTIVE person (volunteer, director, or staff), each with a
+ * short role/department hint derived from their active-term membership (null for
+ * people with no active membership, e.g. staff). The report form filters this
+ * list client-side, so linking is not limited to the reporter's own volunteers.
+ *
+ * `strikeEligibleIds`: the ACTIVE VOLUNTEER-kind members in the reporter's
+ * manageable departments (from issuablePeople). The "Request a strike" control is
+ * only offered for these; submitReport re-checks eligibility server-side.
+ */
+export async function listSubjectOptions(actorPersonId: string): Promise<{
+  people: SubjectOption[];
+  strikeEligibleIds: string[];
+}> {
+  const activeTerm = await getActiveTerm();
+  const [persons, memberships, issuable] = await Promise.all([
+    prisma.person.findMany({
+      where: { status: "ACTIVE" },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
+    activeTerm
+      ? prisma.termMembership.findMany({
+          where: { termId: activeTerm.id, status: "ACTIVE" },
+          select: { personId: true, kind: true, department: { select: { code: true } } },
+        })
+      : [],
+    issuablePeople(actorPersonId),
+  ]);
+
+  // Build a "SCTM, JCTM volunteer/director" style hint per person from their
+  // active memberships so same-named people are distinguishable in the picker.
+  const hints = new Map<string, { depts: Set<string>; kinds: Set<string> }>();
+  for (const m of memberships) {
+    const entry = hints.get(m.personId) ?? { depts: new Set<string>(), kinds: new Set<string>() };
+    if (m.department?.code) entry.depts.add(m.department.code);
+    if (m.kind) entry.kinds.add(m.kind === "DIRECTOR" ? "director" : "volunteer");
+    hints.set(m.personId, entry);
+  }
+
+  const people: SubjectOption[] = persons.map((p) => {
+    const h = hints.get(p.id);
+    const hint = h
+      ? [[...h.depts].sort().join(", "), [...h.kinds].sort().join("/")].filter(Boolean).join(" ")
+      : "";
+    return { id: p.id, name: p.name, hint: hint || null };
+  });
+
+  const strikeEligibleIds = issuable.people.map((p) => p.id);
+  return { people, strikeEligibleIds };
 }
 
 // ---------------------------------------------------------------------------

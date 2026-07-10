@@ -21,43 +21,41 @@ const LINK = "https://hub.havenfreeclinic.org/support/abc123";
 
 describe("support templates via renderEmail (body inside branded layout)", () => {
   // ---------------------------------------------------------------------------
-  // support.ticket_submitted - requester confirmation variant
+  // support.ticket_submitted - requester receipt (its own template)
   // ---------------------------------------------------------------------------
 
-  it("support.ticket_submitted requester variant confirms receipt", async () => {
+  it("support.ticket_submitted confirms receipt to the requester", async () => {
     const out = await renderEmail("support.ticket_submitted", {
       ticketNumber: TICKET_NUMBER,
       subject: SUBJECT,
       link: LINK,
-      isManager: false,
-      requesterName: "Jane Doe",
     });
-    expect(out.subject).toBe("[HAVEN] Your IT Support ticket #42 was received");
+    expect(out.subject).toBe("[HAVEN] We received your IT Support request #42");
     expect(out.html).toContain(
-      "<p>Hello,</p>\n\n<p>We received your IT Support ticket and will follow up soon.</p>\n\n<p><strong>#42: VPN access issue</strong></p>\n\n<p><a href=\"https://hub.havenfreeclinic.org/support/abc123\">Track your ticket</a></p>\n\n<p>Thank you,<br>HAVEN IT Support</p>",
+      "<p>Hello,</p>\n\n<p>Thanks for reaching out to IT Support. We have logged your request and someone on the team will follow up. You will get an email as the ticket is updated, and you can reply on it any time.</p>\n\n<p><strong>#42: VPN access issue</strong></p>\n\n<p><a href=\"https://hub.havenfreeclinic.org/support/abc123\">Track your request</a></p>\n\n<p>Thank you,<br>HAVEN IT Support</p>",
     );
-    // The requester variant never names who submitted it or offers a manager-style link.
-    expect(out.html).not.toContain("submitted a new IT Support ticket");
+    // The receipt never names who submitted it or reads as a manager alert.
+    expect(out.html).not.toContain("needs triage");
   });
 
   // ---------------------------------------------------------------------------
-  // support.ticket_submitted - manager alert variant
+  // support.ticket_manager_alert - manager alert (distinct template)
   // ---------------------------------------------------------------------------
 
-  it("support.ticket_submitted manager variant alerts with requester name", async () => {
-    const out = await renderEmail("support.ticket_submitted", {
+  it("support.ticket_manager_alert alerts managers with requester + category", async () => {
+    const out = await renderEmail("support.ticket_manager_alert", {
       ticketNumber: TICKET_NUMBER,
       subject: SUBJECT,
-      link: LINK,
-      isManager: true,
+      category: "General IT",
       requesterName: "Jane Doe",
+      link: LINK,
     });
-    expect(out.subject).toBe("[HAVEN] New IT Support ticket #42");
+    expect(out.subject).toBe("[HAVEN] New IT Support ticket #42 from Jane Doe");
     expect(out.html).toContain(
-      "<p>Hello,</p>\n\n<p>Jane Doe submitted a new IT Support ticket.</p>\n\n<p><strong>#42: VPN access issue</strong></p>\n\n<p><a href=\"https://hub.havenfreeclinic.org/support/abc123\">View the ticket</a></p>\n\n<p>Thank you,<br>HAVEN IT Support</p>",
+      "<p>Hello,</p>\n\n<p><strong>Jane Doe</strong> submitted a new IT Support request that needs triage.</p>\n\n<p><strong>#42: VPN access issue</strong><br>\nCategory: General IT</p>\n\n<p><a href=\"https://hub.havenfreeclinic.org/support/abc123\">Review and assign it</a></p>\n\n<p>Thank you,<br>HAVEN IT Support</p>",
     );
-    // The manager variant never uses the requester-facing "we received" copy.
-    expect(out.html).not.toContain("We received your IT Support ticket");
+    // The manager alert never uses the requester-facing receipt copy.
+    expect(out.html).not.toContain("Thanks for reaching out");
   });
 
   // ---------------------------------------------------------------------------

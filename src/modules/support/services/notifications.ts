@@ -13,6 +13,7 @@ import { peopleWithAnyPermission } from "@/platform/rbac/holders";
 import { getSetting } from "@/platform/settings/service";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
 import { MANAGE } from "./tech-request";
+import { CATEGORY_LABELS } from "../labels";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -36,12 +37,12 @@ export async function notifyTicketSubmitted(
 ): Promise<void> {
   const link = ticketLink(await resolveBaseUrl(), req.id);
 
-  // Confirmation to the requester.
+  // Confirmation to the requester (its own template + notification type so it
+  // reads as a receipt and can be routed independently of the manager alert).
   const conf = await renderEmail("support.ticket_submitted", {
     ticketNumber: req.number,
     subject: req.subject,
     link,
-    isManager: false,
   });
   await notify(db, {
     type: "support.ticket_submitted",
@@ -52,21 +53,21 @@ export async function notifyTicketSubmitted(
   });
 
   // Alert every manager (per-person fan-out), skipping the requester so a
-  // manager who files their own ticket does not get a duplicate email. The
-  // manager-variant email content is identical for every recipient, so it is
-  // rendered once outside the loop.
+  // manager who files their own ticket does not get a duplicate. The manager
+  // alert is a distinct template/type (an actionable "needs triage" notice) and
+  // its content is identical for every recipient, so it is rendered once.
   const managers = await peopleWithAnyPermission([MANAGE]);
-  const mgr = await renderEmail("support.ticket_submitted", {
+  const mgr = await renderEmail("support.ticket_manager_alert", {
     ticketNumber: req.number,
     subject: req.subject,
-    link,
-    isManager: true,
+    category: CATEGORY_LABELS[req.category],
     requesterName: requester.name ?? "A volunteer",
+    link,
   });
   for (const m of managers) {
     if (m.id === requester.id) continue;
     await notify(db, {
-      type: "support.ticket_submitted",
+      type: "support.ticket_manager_alert",
       person: m,
       email: { subject: mgr.subject, html: mgr.html },
       teams: { title: `New IT Support #${req.number}`, summary: req.subject, link },

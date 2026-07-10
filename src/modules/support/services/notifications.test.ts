@@ -58,10 +58,11 @@ describe("notifyTicketSubmitted", () => {
 
     await notifyTicketSubmitted(prisma, req, requester);
 
-    const logs = await prisma.emailLog.findMany({ where: { template: "support.ticket_submitted" } });
-    const recipients = logs.map((l) => l.toEmail).sort();
-    expect(recipients).toContain("req@example.com");
-    expect(recipients).toContain("mgr@example.com");
+    // The requester gets the receipt template; managers get the distinct alert template.
+    const requesterLogs = await prisma.emailLog.findMany({ where: { template: "support.ticket_submitted" } });
+    expect(requesterLogs.map((l) => l.toEmail)).toEqual(["req@example.com"]);
+    const managerLogs = await prisma.emailLog.findMany({ where: { template: "support.ticket_manager_alert" } });
+    expect(managerLogs.map((l) => l.toEmail)).toEqual(["mgr@example.com"]);
   });
 
   it("does not double-notify when the requester also holds the manage permission", async () => {
@@ -76,8 +77,12 @@ describe("notifyTicketSubmitted", () => {
 
     await notifyTicketSubmitted(prisma, req, requester);
 
-    const logs = await prisma.emailLog.findMany({ where: { template: "support.ticket_submitted" } });
-    expect(logs).toHaveLength(1);
-    expect(logs[0].toEmail).toBe("mgr@example.com");
+    // Only the requester receipt goes out; the manager alert is skipped for the
+    // self-filer, so no manager-alert email is queued.
+    const requesterLogs = await prisma.emailLog.findMany({ where: { template: "support.ticket_submitted" } });
+    expect(requesterLogs).toHaveLength(1);
+    expect(requesterLogs[0].toEmail).toBe("mgr@example.com");
+    const managerLogs = await prisma.emailLog.findMany({ where: { template: "support.ticket_manager_alert" } });
+    expect(managerLogs).toHaveLength(0);
   });
 });

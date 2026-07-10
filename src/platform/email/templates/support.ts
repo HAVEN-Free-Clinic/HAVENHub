@@ -24,31 +24,46 @@ import type { TemplateDescriptor } from "./types";
 export const supportDescriptors: TemplateDescriptor[] = [
   {
     key: "support.ticket_submitted",
-    name: "IT Support: ticket submitted",
+    name: "IT Support: ticket received (to requester)",
     category: "transactional",
     group: "support",
     variables: [
       { name: "ticketNumber", label: "Ticket number", sampleValue: "42" },
       { name: "subject", label: "Ticket subject", sampleValue: "Laptop won't connect to WiFi" },
       { name: "link", label: "Absolute link to the ticket", sampleValue: "https://hub.havenfreeclinic.org/support/abc123" },
-      { name: "isManager", label: "True for the manager-alert variant, false for the requester confirmation", sampleValue: "false" },
-      { name: "requesterName", label: "Requester's name (manager variant only)", sampleValue: "Jane Doe" },
     ],
-    defaultSubject:
-      "{{#if isManager}}[HAVEN] New IT Support ticket #{{ ticketNumber }}{{else}}[HAVEN] Your IT Support ticket #{{ ticketNumber }} was received{{/if}}",
-    defaultBody: `{{#if isManager}}<p>Hello,</p>
+    defaultSubject: "[HAVEN] We received your IT Support request #{{ ticketNumber }}",
+    defaultBody: `<p>Hello,</p>
 
-<p>{{ requesterName }} submitted a new IT Support ticket.</p>
-
-<p><strong>#{{ ticketNumber }}: {{ subject }}</strong></p>
-
-<p><a href="{{ link }}">View the ticket</a></p>{{else}}<p>Hello,</p>
-
-<p>We received your IT Support ticket and will follow up soon.</p>
+<p>Thanks for reaching out to IT Support. We have logged your request and someone on the team will follow up. You will get an email as the ticket is updated, and you can reply on it any time.</p>
 
 <p><strong>#{{ ticketNumber }}: {{ subject }}</strong></p>
 
-<p><a href="{{ link }}">Track your ticket</a></p>{{/if}}
+<p><a href="{{ link }}">Track your request</a></p>
+
+<p>Thank you,<br>HAVEN IT Support</p>`,
+  },
+  {
+    key: "support.ticket_manager_alert",
+    name: "IT Support: new-ticket alert (to managers)",
+    category: "transactional",
+    group: "support",
+    variables: [
+      { name: "ticketNumber", label: "Ticket number", sampleValue: "42" },
+      { name: "subject", label: "Ticket subject", sampleValue: "Laptop won't connect to WiFi" },
+      { name: "category", label: "Category label", sampleValue: "General IT" },
+      { name: "requesterName", label: "Requester's name", sampleValue: "Jane Doe" },
+      { name: "link", label: "Absolute link to the ticket", sampleValue: "https://hub.havenfreeclinic.org/support/abc123" },
+    ],
+    defaultSubject: "[HAVEN] New IT Support ticket #{{ ticketNumber }} from {{ requesterName }}",
+    defaultBody: `<p>Hello,</p>
+
+<p><strong>{{ requesterName }}</strong> submitted a new IT Support request that needs triage.</p>
+
+<p><strong>#{{ ticketNumber }}: {{ subject }}</strong><br>
+Category: {{ category }}</p>
+
+<p><a href="{{ link }}">Review and assign it</a></p>
 
 <p>Thank you,<br>HAVEN IT Support</p>`,
   },

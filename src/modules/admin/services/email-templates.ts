@@ -96,6 +96,10 @@ function validateOrThrow(d: TemplateDescriptor, subject: string, body: string): 
   const s = validateTemplate(subject, allowed);
   const b = validateTemplate(body, allowed);
   const problems = [
+    // renderEmail only falls back to the descriptor's default subject on
+    // null/undefined, so a blank override subject would send verbatim (empty
+    // Subject). Reject it on save, matching the campaign send path.
+    ...(subject.trim() === "" ? ["Subject cannot be empty."] : []),
     ...s.errors,
     ...b.errors,
     ...s.unknownVariables.map((v) => `Unknown variable in subject: ${v}`),

@@ -147,11 +147,19 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
       { value: "DIRECTOR", label: "Director" },
       { value: "VOLUNTEER", label: "Volunteer" },
     ],
-    compile: (cond, ctx) => ({
-      memberships: {
-        some: { termId: ctx.activeTermId ?? "", status: "ACTIVE", kind: cond.value as "DIRECTOR" | "VOLUNTEER" },
-      },
-    }),
+    // An empty value must never compile to `{ kind: "" }` (invalid Track enum,
+    // Prisma throws a 500) nor `{ kind: undefined }` (dropped, matching EVERY
+    // active member). Mirror the match-nobody safety the status field uses: only
+    // the two valid Track values pass through.
+    compile: (cond, ctx) => {
+      const value = typeof cond.value === "string" ? cond.value.trim() : "";
+      if (value !== "DIRECTOR" && value !== "VOLUNTEER") return MATCH_NOBODY;
+      return {
+        memberships: {
+          some: { termId: ctx.activeTermId ?? "", status: "ACTIVE", kind: value },
+        },
+      };
+    },
   },
   {
     key: "department",

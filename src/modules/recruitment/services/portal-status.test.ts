@@ -104,3 +104,22 @@ it("does not show NOT_SELECTED for a released cycle where acceptances exist but 
   expect(v.state).toBe("SUBMITTED");
 });
 
+it("does not show NOT_SELECTED for an application submitted after decisions were released (audit3 M2)", async () => {
+  const { cycle, app } = await cycleWithApp("c8", "late@yale.edu");
+  // Release is allowed on an OPEN cycle and is repeatable/survives reopen, so an
+  // application submitted after a release must not inherit a false rejection.
+  const releasedAt = new Date("2026-06-01T00:00:00Z");
+  await prisma.recruitmentCycle.update({ where: { id: cycle.id }, data: { decisionsReleasedAt: releasedAt } });
+  await prisma.application.update({ where: { id: app.id }, data: { submittedAt: new Date("2026-06-02T00:00:00Z") } });
+  const [v] = await getApplicantStatus(ID("late@yale.edu"));
+  expect(v.state).toBe("SUBMITTED");
+});
+
+it("shows NOT_SELECTED for an application submitted at/before the release (audit3 M2)", async () => {
+  const { cycle, app } = await cycleWithApp("c9", "early@yale.edu");
+  await prisma.application.update({ where: { id: app.id }, data: { submittedAt: new Date("2026-06-01T00:00:00Z") } });
+  await prisma.recruitmentCycle.update({ where: { id: cycle.id }, data: { decisionsReleasedAt: new Date("2026-06-05T00:00:00Z") } });
+  const [v] = await getApplicantStatus(ID("early@yale.edu"));
+  expect(v.state).toBe("NOT_SELECTED");
+});
+

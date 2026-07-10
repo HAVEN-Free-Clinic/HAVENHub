@@ -125,3 +125,36 @@ it("promotes a TRANSFER applicant into the accepted department, not their prior 
   const person = await prisma.person.findFirstOrThrow({ where: { netId: "al99" } });
   expect(await prisma.termMembership.count({ where: { personId: person.id, termId: term.id, departmentId: srhd.id, kind: "VOLUNTEER" } })).toBe(1);
 });
+
+it("reactivates a REMOVED membership for the same term/dept/kind rather than leaving the person off every ACTIVE roster (audit3 M1)", async () => {
+  const existing = await prisma.person.create({ data: { name: "Ada Lovelace", netId: "al99", status: "OFFBOARDED" } });
+  const { term, srhd, srr, contract } = await seedSubmitted({ netId: "al99", epicNeeded: false });
+  // Offboarding flips the membership to REMOVED rather than deleting it; a bare
+  // findFirst-then-create would skip the create and leave the stale REMOVED row,
+  // so the re-promoted (ACTIVE) person would be absent from every ACTIVE-keyed
+  // roster/scheduler/compliance surface.
+  const removed = await prisma.termMembership.create({ data: { personId: existing.id, termId: term.id, departmentId: srhd.id, kind: "VOLUNTEER", status: "REMOVED" } });
+
+  const res = await promoteContracts([contract.id], srr.id);
+  expect(res).toEqual({ created: 0, reactivated: 1, skipped: 0 });
+
+  // No duplicate membership; the existing row is flipped back to ACTIVE.
+  const memberships = await prisma.termMembership.findMany({ where: { personId: existing.id, termId: term.id, departmentId: srhd.id, kind: "VOLUNTEER" } });
+  expect(memberships).toHaveLength(1);
+  expect(memberships[0].id).toBe(removed.id);
+  expect(memberships[0].status).toBe("ACTIVE");
+});
+
+it("leaves an already-ACTIVE membership untouched on re-promotion (audit3 M1)", async () => {
+  const existing = await prisma.person.create({ data: { name: "Ada Lovelace", netId: "al99", status: "ACTIVE" } });
+  const { term, srhd, srr, contract } = await seedSubmitted({ netId: "al99", epicNeeded: false });
+  const active = await prisma.termMembership.create({ data: { personId: existing.id, termId: term.id, departmentId: srhd.id, kind: "VOLUNTEER", status: "ACTIVE" } });
+
+  const res = await promoteContracts([contract.id], srr.id);
+  expect(res).toEqual({ created: 0, reactivated: 1, skipped: 0 });
+
+  const memberships = await prisma.termMembership.findMany({ where: { personId: existing.id, termId: term.id, departmentId: srhd.id, kind: "VOLUNTEER" } });
+  expect(memberships).toHaveLength(1);
+  expect(memberships[0].id).toBe(active.id);
+  expect(memberships[0].status).toBe("ACTIVE");
+});

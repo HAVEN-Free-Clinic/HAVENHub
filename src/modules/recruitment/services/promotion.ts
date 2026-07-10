@@ -67,6 +67,14 @@ export async function promoteContracts(contractIds: string[], actorId: string): 
         const existingMembership = await tx.termMembership.findFirst({ where: { personId: person.id, termId: cycle.termId, departmentId: dept.id, kind } });
         if (!existingMembership) {
           await tx.termMembership.create({ data: { personId: person.id, termId: cycle.termId, departmentId: dept.id, kind, status: "ACTIVE" } });
+        } else if (existingMembership.status === "REMOVED") {
+          // Offboarding flips a membership to REMOVED rather than deleting it (see
+          // offboard convergence). A person who was previously removed and is now
+          // re-promoted keeps that stale REMOVED row, so without this they land as
+          // Person.status ACTIVE but absent from every ACTIVE-keyed roster,
+          // scheduler, and compliance surface (audit3 M1). Reactivate it; an
+          // already-ACTIVE membership is left untouched.
+          await tx.termMembership.update({ where: { id: existingMembership.id }, data: { status: "ACTIVE" } });
         }
 
         if (contract.hipaaStoredName) {

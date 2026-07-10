@@ -1,3 +1,5 @@
+import path from "node:path";
+import { promises as fs } from "node:fs";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
@@ -294,6 +296,48 @@ it("rejects submitting when the application is already SUBMITTED", async () => {
   const args = { applicantType: "NEW" as const, answers: { first_name: "Bo", last_name: "Ng", email: "bo@yale.edu", "1st_choice_department": "MDIC" }, files: {} };
   await submitApplication("apply-v", args);
   await expect(submitApplication("apply-v", args)).rejects.toBeInstanceOf(DuplicateApplicationError);
+});
+
+it("two concurrent submits of the same draft flip it once and queue one confirmation email (audit3 L9)", async () => {
+  await openVolunteerCycle();
+  const ID = { email: "race@yale.edu", personId: null };
+  await saveDraft("apply-v", ID, { answers: { first_name: "Ray", last_name: "Sun", email: "race@yale.edu" } });
+  const args = { applicantType: "NEW" as const, answers: { first_name: "Ray", last_name: "Sun", email: "race@yale.edu", "1st_choice_department": "MDIC" }, files: {} };
+  // Fire two submits at once. The atomic status: "DRAFT" claim (mirroring
+  // submitContract) means only one flips DRAFT->SUBMITTED; the loser throws
+  // DuplicateApplicationError instead of double-sending the confirmation email.
+  const settled = await Promise.allSettled([submitApplication("apply-v", args), submitApplication("apply-v", args)]);
+  const fulfilled = settled.filter((s) => s.status === "fulfilled");
+  const rejected = settled.filter((s) => s.status === "rejected") as PromiseRejectedResult[];
+  expect(fulfilled).toHaveLength(1);
+  expect(rejected).toHaveLength(1);
+  expect(rejected[0].reason).toBeInstanceOf(DuplicateApplicationError);
+
+  expect(await prisma.application.count({ where: { applicant: { emailLower: "race@yale.edu" } } })).toBe(1);
+  const app = await prisma.application.findFirstOrThrow({ where: { applicant: { emailLower: "race@yale.edu" } } });
+  expect(app.status).toBe("SUBMITTED");
+  expect(await prisma.emailLog.count({ where: { template: "recruitment.application_received", toEmail: "race@yale.edu" } })).toBe(1);
+});
+
+it("drops the losing concurrent submit's freshly-uploaded blob instead of orphaning it (audit3 L9)", async () => {
+  const { cycle } = await openVolunteerCycle();
+  const ID = { email: "racef@yale.edu", personId: null };
+  await saveDraft("apply-v", ID, { answers: { first_name: "Ray", last_name: "Sun", email: "racef@yale.edu" } });
+  const mkArgs = () => ({
+    applicantType: "NEW" as const,
+    answers: { first_name: "Ray", last_name: "Sun", email: "racef@yale.edu", "1st_choice_department": "MDIC" },
+    files: { resume: { fileName: "resume.pdf", mimeType: "application/pdf", bytes: Buffer.from(`r-${Math.random()}`) } },
+  });
+  // Each submit persists its own blob before the transaction; the loser's blob
+  // must be cleaned up on DuplicateApplicationError, not left orphaned.
+  const settled = await Promise.allSettled([submitApplication("apply-v", mkArgs()), submitApplication("apply-v", mkArgs())]);
+  expect(settled.filter((s) => s.status === "fulfilled")).toHaveLength(1);
+
+  const files = await fs.readdir(path.join(config.UPLOAD_DIR, "recruitment", cycle.id));
+  expect(files).toHaveLength(1); // only the winning submission's blob survives
+  const app = await prisma.application.findFirstOrThrow({ where: { applicant: { emailLower: "racef@yale.edu" } } });
+  const stored = (app.answers as { resume: { storedName: string } }).resume.storedName;
+  expect(files[0]).toBe(stored);
 });
 
 async function makeVolunteer(deptCode: string) {

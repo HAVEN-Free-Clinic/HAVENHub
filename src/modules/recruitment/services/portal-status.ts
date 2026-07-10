@@ -12,8 +12,10 @@ export type ApplicantStatusView = {
 };
 
 /** Per-application status for the portal. Final outcomes are shown only after
- *  release: an accept via Acceptance.emailedAt, a not-selected/waitlist via
- *  the cycle's decisionsReleasedAt. Internal evaluations are never read. */
+ *  release: an accept via Acceptance.emailedAt, a waitlist via a per-application
+ *  WAITLIST interview decision, and a not-selected via the cycle's
+ *  decisionsReleasedAt gated on the application having been submitted at/before
+ *  that release. Internal evaluations are never read. */
 export async function getApplicantStatus(identity: ApplicantIdentity): Promise<ApplicantStatusView[]> {
   const applicants = await prisma.applicant.findMany({
     where: { OR: [{ emailLower: identity.email }, ...(identity.personId ? [{ applicantPersonId: identity.personId }] : [])] },
@@ -50,7 +52,19 @@ export async function getApplicantStatus(identity: ApplicantIdentity): Promise<A
         : { ...base, state: "DRAFT", headline: "Applications closed", detail: "This cycle is no longer accepting applications.", canContinue: false });
       continue;
     }
-    const released = a.cycle.decisionsReleasedAt != null;
+    const releasedAt = a.cycle.decisionsReleasedAt;
+    const released = releasedAt != null;
+    // NOT_SELECTED must hang on a per-application signal, not merely the
+    // cycle-level release stamp. Release is allowed on an OPEN cycle, is
+    // repeatable/batched, and survives reopen, so an application submitted (or
+    // newly created) after a release must not inherit a false definitive
+    // rejection. The strongest correct per-application signal available is the
+    // submission time: only an application submitted at/before the release was
+    // in the pool that release decided on. Residual limitation: there is no
+    // per-application decision timestamp on the volunteer not-selected path, so
+    // an application submitted before release that reviewers simply never got to
+    // still reads NOT_SELECTED, same as an intentional pass (pre-existing).
+    const decidedForApp = releasedAt != null && app.submittedAt != null && app.submittedAt <= releasedAt;
     const emailedAcc = app.acceptances.find((acc) => acc.emailedAt != null);
     const onboardingAcc = app.acceptances.find((acc) => acc.contract != null);
     const scheduledInterview = app.interviews.find((iv) => iv.scheduledAt != null);
@@ -63,7 +77,7 @@ export async function getApplicantStatus(identity: ApplicantIdentity): Promise<A
       views.push({ ...base, state: "ACCEPTED", headline: `Accepted to ${deptName.get(emailedAcc.departmentCode) ?? emailedAcc.departmentCode}`, detail: null, canContinue: false });
     } else if (released && waitlisted) {
       views.push({ ...base, state: "WAITLISTED", headline: "Waitlisted", detail: "We will be in touch if a spot opens.", canContinue: false });
-    } else if (released && app.acceptances.length === 0) {
+    } else if (decidedForApp && app.acceptances.length === 0) {
       // Guard against the conflict case: if acceptance rows exist but none is emailed (pending resolution),
       // fall through to the neutral state rather than showing a false rejection.
       views.push({ ...base, state: "NOT_SELECTED", headline: "Not selected this cycle", detail: "Thank you for applying.", canContinue: false });

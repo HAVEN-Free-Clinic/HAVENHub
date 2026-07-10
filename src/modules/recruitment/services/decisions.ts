@@ -83,11 +83,16 @@ export async function releaseDecisions(cycleId: string, actorId: string): Promis
       cycleTitle: cycle.title,
       departmentName: deptName.get(acc.departmentCode) ?? acc.departmentCode,
     });
-    await prisma.$transaction(async (tx) => {
+    const claimedByThisRelease = await prisma.$transaction(async (tx) => {
+      // Claim the send atomically: the emailedAt: null precondition means only one
+      // of two concurrent releases can stamp this acceptance, so the loser neither
+      // re-queues the acceptance email nor re-stamps emailedAt (audit3 L15).
+      const claimed = await tx.acceptance.updateMany({ where: { id: acc.id, emailedAt: null }, data: { emailedAt: new Date() } });
+      if (claimed.count !== 1) return false;
       await queueEmail(tx, { to: applicant.email, subject: email.subject, html: email.html, template: "recruitment.acceptance" });
-      await tx.acceptance.update({ where: { id: acc.id }, data: { emailedAt: new Date() } });
+      return true;
     });
-    sent += 1;
+    if (claimedByThisRelease) sent += 1;
   }
 
   // Mark the cycle's decisions released so the applicant portal may surface

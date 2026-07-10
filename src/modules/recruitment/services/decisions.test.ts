@@ -63,6 +63,18 @@ it("requires review_all", async () => {
   await expect(releaseDecisions(cycle.id, plain.id)).rejects.toBeInstanceOf(RecruitmentAuthError);
 });
 
+it("two concurrent releases send the acceptance email only once (audit3 L15)", async () => {
+  const { srr, cycle, clean } = await seed();
+  await acceptApplicant(clean.id, "SRHD", srr.id, null);
+  // Fire two releases at once. The atomic emailedAt: null claim means only one
+  // stamps and queues the email; the loser neither re-sends nor re-stamps.
+  const [a, b] = await Promise.all([releaseDecisions(cycle.id, srr.id), releaseDecisions(cycle.id, srr.id)]);
+  expect(a.sent + b.sent).toBe(1);
+  expect(await prisma.emailLog.count({ where: { template: "recruitment.acceptance" } })).toBe(1);
+  const acc = await prisma.acceptance.findFirstOrThrow({ where: { applicationId: clean.id } });
+  expect(acc.emailedAt).not.toBeNull();
+});
+
 it("stamps decisionsReleasedAt on the cycle when decisions are released", async () => {
   const { srr, cycle, clean } = await seed();
   await acceptApplicant(clean.id, "SRHD", srr.id, null);

@@ -49,6 +49,15 @@ it("rejects a duplicate interview", async () => {
   await expect(createInterview(application.id, "EDUC", director.id)).rejects.toBeInstanceOf(InterviewError);
 });
 
+it("rejects creating an interview for a DRAFT application (audit3 L1)", async () => {
+  const { director, application } = await seed();
+  await prisma.application.update({ where: { id: application.id }, data: { status: "DRAFT" } });
+  // A DRAFT application is not a real submission, so it must not be interviewed
+  // (mirrors acceptApplicant's SUBMITTED guard).
+  await expect(createInterview(application.id, "EDUC", director.id)).rejects.toBeInstanceOf(InterviewError);
+  expect(await prisma.interview.count({ where: { applicationId: application.id } })).toBe(0);
+});
+
 it("schedules, panels, and invites; invite requires a time and stamps invitedAt + queues email", async () => {
   const { director, panelist, application } = await seed();
   const iv = await createInterview(application.id, "EDUC", director.id);

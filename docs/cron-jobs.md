@@ -21,8 +21,8 @@ the job below silently stops running with no in-repo error.
 | Path | Trigger | Cadence | UTC schedule | What it does | What breaks if it stops |
 | --- | --- | --- | --- | --- | --- |
 | `/api/cron/email` | External (cron-job.org) | every 30 min | `*/30 * * * *` | Dispatches due campaigns, then drains the email + Teams queues. **Backstop** only: primary delivery fires on enqueue (post-response flush). | Failed-send retries and scheduled campaigns stall (new transactional mail still goes out on enqueue). |
-| `/api/cron/reminders` | External (cron-job.org) | daily | `0 13 * * *` | Enqueues HIPAA compliance reminders and director escalations (delivery happens on the email tick). | HIPAA reminders and director escalations are never enqueued. |
-| `/api/cron/shift-reminders` | External (cron-job.org) | weekly (Mon) | `0 13 * * 1` | Enqueues weekly shift reminders to everyone scheduled for the upcoming Saturday clinic day (delivery happens on the email tick). | Volunteers stop receiving their Saturday shift reminders. |
+| `/api/cron/reminders` | External (cron-job.org) | daily | `0 13 * * *` | Enqueues HIPAA compliance reminders and director escalations (delivered by the enqueue flush after it runs, backstopped by the email tick). | HIPAA reminders and director escalations are never enqueued. |
+| `/api/cron/shift-reminders` | External (cron-job.org) | weekly (Mon) | `0 13 * * 1` | Enqueues weekly shift reminders to everyone scheduled for the upcoming Saturday clinic day (delivered by the enqueue flush after it runs, backstopped by the email tick). | Volunteers stop receiving their Saturday shift reminders. |
 | `/api/cron/recruitment-drafts` | External (cron-job.org) | daily | `0 4 * * *` | Sweeps abandoned onboarding drafts older than 30 days. | Stale draft rows accumulate. |
 
 Notes:

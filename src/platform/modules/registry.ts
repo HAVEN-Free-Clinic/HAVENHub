@@ -3,6 +3,7 @@ import {
   ClipboardList,
   GraduationCap,
   HeartHandshake,
+  LifeBuoy,
   MessagesSquare,
   Send,
   Settings,
@@ -48,14 +49,13 @@ export const MODULES: ModuleManifest[] = [
   {
     id: "volunteers",
     title: "Volunteer Management",
-    description: "Compliance, rosters, offboarding, Epic requests, disciplinary",
+    description: "Compliance, rosters, offboarding, disciplinary",
     icon: Users,
     accessPermission: "volunteers.view",
     permissions: [
       "volunteers.view",
       "volunteers.manage_compliance",
       "volunteers.manage_offboarding",
-      "volunteers.manage_epic",
       "volunteers.issue_disciplinary",
       "volunteers.verify_spanish",
     ],
@@ -67,7 +67,6 @@ export const MODULES: ModuleManifest[] = [
       { label: "EHS training", href: "/volunteers/ehs", permission: "volunteers.manage_compliance" },
       { label: "Spanish review", href: "/volunteers/spanish-review", permission: "volunteers.verify_spanish" },
       { label: "Offboarding", href: "/volunteers/offboarding" },
-      { label: "Epic requests", href: "/volunteers/epic", permission: "volunteers.manage_epic" },
       { label: "Disciplinary", href: "/volunteers/disciplinary" },
     ],
   },
@@ -104,7 +103,7 @@ export const MODULES: ModuleManifest[] = [
     ],
     status: "active",
     nav: [
-      // Overview and ITCM gate on admin.access (= module access); the rest each
+      // Overview gates on admin.access (= module access); the rest each
       // require a distinct sub-permission, mirrored here from the page gates.
       // Email and Notifications enforce admin.manage_sync (not the email perms).
       { label: "Overview", href: "/admin" },
@@ -117,7 +116,6 @@ export const MODULES: ModuleManifest[] = [
       { label: "Email", href: "/admin/email", permission: "admin.manage_sync" },
       { label: "Notifications", href: "/admin/notifications", permission: "admin.manage_sync" },
       { label: "Settings", href: "/admin/settings", permission: "admin.manage_settings" },
-      { label: "ITCM", href: "/admin/itcm" },
     ],
   },
   {
@@ -143,6 +141,22 @@ export const MODULES: ModuleManifest[] = [
       { label: "My courses", href: "/learning" },
       { label: "Manage courses", href: "/learning/manage", permission: "learning.manage_courses" },
       { label: "Completion", href: "/learning/dashboard", permission: "learning.view_progress" },
+    ],
+  },
+  {
+    id: "support",
+    title: "IT Support",
+    description: "Submit and track IT and Epic access requests",
+    icon: LifeBuoy,
+    // No accessPermission: open to any signed-in matched person (like my-info),
+    // so anyone can submit. Manager tabs gate on support.manage_requests.
+    permissions: ["support.manage_requests"],
+    status: "active",
+    nav: [
+      { label: "My requests", href: "/support" },
+      { label: "Submit a request", href: "/support/new" },
+      { label: "All requests", href: "/support/all", permission: "support.manage_requests" },
+      { label: "Epic / YNHH tools", href: "/support/epic", permission: "support.manage_requests" },
     ],
   },
   {

@@ -14,6 +14,11 @@ describe("notification registry", () => {
         "epic-onboarding",
         "epic-password-reset",
         "recruitment.interview_assignment",
+        "support.ticket_submitted",
+        "support.request_assigned",
+        "support.status_changed",
+        "support.comment_added",
+        "support.request_resolved",
         "shift-reminder",
       ].sort()
     );

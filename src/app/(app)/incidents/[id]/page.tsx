@@ -7,13 +7,14 @@
  * and rendered as a 404 via notFound() so an unauthorized viewer cannot tell
  * a report exists from a missing one.
  *
- * The core fields are READ-ONLY for both audiences. When canManage (the
- * service already strips reviewNotes to null for non-managers, even the
- * owner), a "Reviewer controls" section renders: a status/reviewNotes form
- * bound to reviewReportAction, and, when strikeDecision is PENDING, an
- * approve/decline form pair bound to decideStrikeAction (Task 15). Attachments
- * link to the Task 16 download route, which does not exist yet; the anchor is
- * rendered ahead of that route landing.
+ * The core fields are READ-ONLY for both audiences. The "Individual(s) of
+ * concern" section lists each linked person (report.subjects) with a
+ * per-person strike badge, plus the free-text subjectDescription. When
+ * canManage (the service already strips reviewNotes to null for
+ * non-managers, even the owner), a "Reviewer controls" section renders: a
+ * status/reviewNotes form bound to reviewReportAction, and one Approve/
+ * Decline form pair per subject whose strike request is still PENDING, each
+ * bound to decideStrikeAction with that subject's reportSubjectId.
  */
 
 import Link from "next/link";

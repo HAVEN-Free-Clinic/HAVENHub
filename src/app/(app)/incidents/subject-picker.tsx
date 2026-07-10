@@ -88,6 +88,7 @@ export function SubjectPicker({
               <button
                 type="button"
                 onClick={() => remove(p.id)}
+                aria-label={`Remove ${p.name}`}
                 // eslint-disable-next-line no-restricted-syntax -- inline text-link remove action, not a full Button
                 className="ml-auto text-xs text-subtle-foreground underline hover:text-foreground"
               >

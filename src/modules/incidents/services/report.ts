@@ -537,12 +537,13 @@ export async function submitReport(actorPersonId: string, input: SubmitReportInp
     }
   }
 
+  const strikePersonIds = subjects.filter((s) => s.requestStrike).map((s) => s.personId);
   const pendingSubjectNames =
-    subjects.length === 0
+    strikePersonIds.length === 0
       ? []
       : (
           await prisma.person.findMany({
-            where: { id: { in: subjects.filter((s) => s.requestStrike).map((s) => s.personId) } },
+            where: { id: { in: strikePersonIds } },
             select: { name: true },
           })
         ).map((p) => p.name);

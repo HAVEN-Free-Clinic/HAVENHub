@@ -269,10 +269,14 @@ export async function submitContract(
     };
   }
 
-  let updated;
+  // Claim the submit atomically: the status: "PENDING" precondition means only one
+  // of two concurrent submits can flip the row. Without it, both would upload a
+  // distinct HIPAA blob and both flip to SUBMITTED, but the row keeps only the last
+  // blob, orphaning the other (plus a duplicate audit row).
+  let claimed;
   try {
-    updated = await prisma.onboardingContract.update({
-      where: { id: contract.id },
+    claimed = await prisma.onboardingContract.updateMany({
+      where: { id: contract.id, status: "PENDING" },
       data: {
         firstName: input.firstName.trim(),
         lastName: input.lastName.trim(),
@@ -303,12 +307,18 @@ export async function submitContract(
     if (writtenKey) await deleteObject(writtenKey);
     throw err;
   }
+  if (claimed.count === 0) {
+    // A concurrent submit already flipped this contract to SUBMITTED. Drop the blob
+    // we just wrote so it isn't orphaned, and don't write a second audit row.
+    if (writtenKey) await deleteObject(writtenKey);
+    throw new ContractError("This onboarding form has already been submitted.");
+  }
   await recordAudit({
     action: "recruitment.onboarding_submit",
     entityType: "OnboardingContract",
     entityId: contract.id,
   });
-  return updated;
+  return prisma.onboardingContract.findUniqueOrThrow({ where: { id: contract.id } });
 }
 
 export async function listOnboarding(cycleId: string) {

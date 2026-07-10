@@ -15,6 +15,7 @@ describe("notification registry", () => {
         "epic-password-reset",
         "recruitment.interview_assignment",
         "support.ticket_submitted",
+        "support.ticket_manager_alert",
         "support.request_assigned",
         "support.status_changed",
         "support.comment_added",

@@ -234,9 +234,17 @@ export type MasterQuery = {
  * The master view is one row per PERSON, not per membership, so it does not
  * carry a membership `kind`. Omitting it (rather than using a placeholder) keeps
  * the type honest -- the master table never displays a director/volunteer badge.
+ *
+ * `isVolunteer` is true when the person holds at least one ACTIVE VOLUNTEER
+ * membership in the active term. Director-only members train on the DIRECTOR
+ * track, so volunteer-track training does not apply to them; the master view
+ * uses this flag to render "-" for Training/Overall instead of flagging them
+ * as Pending/Not Cleared (mirroring the department view's per-membership
+ * kind-gating).
  */
 export type MasterComplianceRow = Omit<MemberCompliance, "kind"> & {
   departments: string[];
+  isVolunteer: boolean;
 };
 
 export type MasterComplianceResult = {
@@ -320,6 +328,7 @@ export async function masterCompliance(
     {
       person: Person & { hipaaCertificates: HipaaCertificate[] };
       deptCodes: Set<string>;
+      isVolunteer: boolean;
     }
   >();
 
@@ -327,10 +336,13 @@ export async function masterCompliance(
     const existing = personMap.get(m.personId);
     if (existing) {
       existing.deptCodes.add(m.department.code);
+      // A person volunteering in any department trains on the VOLUNTEER track.
+      if (m.kind === "VOLUNTEER") existing.isVolunteer = true;
     } else {
       personMap.set(m.personId, {
         person: m.person,
         deptCodes: new Set([m.department.code]),
+        isVolunteer: m.kind === "VOLUNTEER",
       });
     }
   }
@@ -370,7 +382,7 @@ export async function masterCompliance(
   }
 
   // 6. Compute status for each person and build the full scope rows.
-  const scopeRows: MasterComplianceRow[] = scope.map(({ person, deptCodes }) => {
+  const scopeRows: MasterComplianceRow[] = scope.map(({ person, deptCodes, isVolunteer }) => {
     const newestCert: HipaaCertificate | null =
       person.hipaaCertificates.length > 0 ? person.hipaaCertificates[0] : null;
 
@@ -391,6 +403,7 @@ export async function masterCompliance(
       status: computedStatus,
       verifiedByName,
       departments: Array.from(deptCodes).sort(),
+      isVolunteer,
       trainingState,
       overallClearance: overallClearance(computedStatus, trainingState === "COMPLETE"),
     };

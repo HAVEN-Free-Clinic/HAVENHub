@@ -66,7 +66,7 @@ describe("GET /api/cron/email: retry-budget protection (issue #63)", () => {
     expect(res.status).toBe(200);
 
     // Still QUEUED with exactly one attempt -- NOT FAILED at attempts == 8. A
-    // later tick (after recovery) retries them, one attempt per minute.
+    // later drain (after recovery) retries them, paced by the STALE_LOCK_MS lock.
     const rows = await prisma.emailLog.findMany();
     expect(rows).toHaveLength(5);
     for (const row of rows) {

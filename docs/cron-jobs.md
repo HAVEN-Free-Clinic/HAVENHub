@@ -32,9 +32,10 @@ Notes:
   the backstop that retries failed sends and dispatches scheduled campaigns.
 - Multiple drainers now coexist safely (enqueue-triggered flushes, this tick, and
   any overlapping tick): each drain claims a row with an atomic `updateMany` on
-  `lockedAt` before sending, so no row is sent twice. A failed row is kept locked
-  for `STALE_LOCK_MS` (5 min), so retries are paced by that window regardless of
-  how often a drain is triggered.
+  `lockedAt` before sending, so no row is sent twice. A transiently-failed row is
+  kept locked for `STALE_LOCK_MS` (5 min), so retries are paced by that window
+  regardless of how often a drain is triggered; a permanently-failed row (FAILED
+  after 8 attempts) releases its lock so an admin retry is immediately claimable.
 - The `reminders` and `shift-reminders` jobs still only **enqueue**; their mail is
   delivered by the enqueue flush after they run, or by this backstop tick.
 - `recruitment-drafts` used to be a Vercel Cron but was moved to the external

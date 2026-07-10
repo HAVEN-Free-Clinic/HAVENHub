@@ -21,10 +21,12 @@
  * "exactly one drainer or it double-sends" rule is superseded by that claim.)
  *
  * Each drain attempts every eligible QUEUED row AT MOST ONCE per call. Do NOT
- * wrap it in a `while (processed > 0)` loop: a failed row stays QUEUED, and a
- * failed row is kept LOCKED for STALE_LOCK_MS, so its retry is paced by that
- * window (not by trigger frequency). Re-looping would burn all 8 retries during a
- * transient outage (issue #63).
+ * wrap it in a `while (processed > 0)` loop: a transiently-failed row stays
+ * QUEUED and keeps its lock for STALE_LOCK_MS, so its retry is paced by that
+ * window (not by trigger frequency); a permanently-failed row (FAILED after 8
+ * attempts) instead releases its lock so an admin retry is immediately
+ * claimable. Re-looping would burn all 8 retries during a transient outage
+ * (issue #63).
  */
 import { authorizeCron } from "@/platform/cron";
 import { dispatchDueCampaigns } from "@/platform/email/campaigns/dispatch";

@@ -22,7 +22,10 @@ export function gradeQuiz(
   for (const q of graded) {
     if (answers[q.key] === q.correctValue) score += 1;
   }
-  const percent = total === 0 ? 0 : Math.round((100 * score) / total);
-  const passed = total > 0 && percent >= passPercent;
+  const rawPercent = total === 0 ? 0 : (100 * score) / total;
+  // Round for display only; pass/fail compares the raw percentage so a
+  // below-threshold score (e.g. 69.5) can't round up (to 70) and clear the gate.
+  const percent = Math.round(rawPercent);
+  const passed = total > 0 && rawPercent >= passPercent;
   return { score, total, percent, passed };
 }

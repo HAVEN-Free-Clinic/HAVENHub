@@ -1056,3 +1056,68 @@ describe("manage_requests scope", () => {
     await expect(listDepartmentRequests(actor.id, dept.id)).rejects.toBeInstanceOf(RequestForbiddenError);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Approver notifications (audit L1)
+//
+// createRequest must email the department's ACTUAL approvers -- the same set
+// approveRequest routes through (directors by membership + one-hop delegated
+// directors) -- not merely whoever holds a DIRECTOR shift. queueEmail records one
+// EmailLog per recipient (personId + template), so we assert on that.
+// ---------------------------------------------------------------------------
+
+async function createPersonWithEmail(name: string, contactEmail: string) {
+  return prisma.person.create({ data: { name, contactEmail } });
+}
+
+describe("createRequest approver notifications (L1)", () => {
+  it("notifies a department director who holds a DIRECTOR membership but NO DIRECTOR shift", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("NOTA");
+    const requester = await createPerson("Requester");
+
+    // Director oversees the department by membership only; they are NOT on any
+    // DIRECTOR shift, so the old shift-assignment recipient query missed them.
+    const director = await createPersonWithEmail("Off-shift Dir", "dir@example.org");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+
+    await createShift(term.id, dept.id, requester.id, dates[0], "VOLUNTEER");
+
+    await createRequest(requester.id, {
+      requesterDateKey: isoDateKey(dates[0]),
+      departmentId: dept.id,
+    });
+
+    const notice = await prisma.emailLog.findFirst({
+      where: { template: "schedule-request-submitted-director", personId: director.id },
+    });
+    expect(notice).not.toBeNull();
+    expect(notice?.toEmail).toBe("dir@example.org");
+  });
+
+  it("notifies a one-hop delegated director (PCAR director for an SCTP request)", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const pcar = await createDepartment("PCAR");
+    const sctp = await createDepartment("SCTP");
+    await delegate(pcar.id, sctp.id);
+
+    const requester = await createPerson("SCTP Vol");
+    const pcarDirector = await createPersonWithEmail("PCAR Dir", "pcar@example.org");
+    await createMembership(pcarDirector.id, term.id, pcar.id, "DIRECTOR");
+
+    await createShift(term.id, sctp.id, requester.id, dates[0], "VOLUNTEER");
+
+    await createRequest(requester.id, {
+      requesterDateKey: isoDateKey(dates[0]),
+      departmentId: sctp.id,
+    });
+
+    const notice = await prisma.emailLog.findFirst({
+      where: { template: "schedule-request-submitted-director", personId: pcarDirector.id },
+    });
+    expect(notice).not.toBeNull();
+    expect(notice?.toEmail).toBe("pcar@example.org");
+  });
+});

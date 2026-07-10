@@ -16,7 +16,11 @@ import type { ShiftRequest } from "@prisma/client";
 import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { isoDateKey } from "@/platform/dates";
-import { manageableDepartmentIds, memberDepartmentIds } from "@/platform/departments";
+import {
+  departmentDirectorPersonIds,
+  manageableDepartmentIds,
+  memberDepartmentIds,
+} from "@/platform/departments";
 import { can } from "@/platform/rbac/engine";
 import {
   validateRequest,
@@ -128,6 +132,55 @@ async function scopeCheck(actorPersonId: string, departmentId: string): Promise<
   if (!(await canManageRequestsForDept(actorPersonId, departmentId))) {
     throw new RequestForbiddenError();
   }
+}
+
+/**
+ * The people who should be notified about a shift request for `departmentId`:
+ * the department's ACTUAL approvers, derived from the same authority
+ * approveRequest/denyRequest enforce (manageableRequestDepartmentIds), NOT merely
+ * whoever holds a DIRECTOR shift on the calendar.
+ *
+ * Recipients =
+ *   - department directors by membership + one-hop delegated directors
+ *     ({@link departmentDirectorPersonIds}), PLUS
+ *   - schedule.manage_requests holders who are ACTIVE members of the department
+ *     (manageableRequestDepartmentIds only extends such a holder to departments
+ *     they belong to).
+ *
+ * Blanket schedule.edit_all admins are intentionally excluded so a routine drop
+ * request does not email every org-wide administrator. Deduped by person; the
+ * caller no-ops any recipient without a contactEmail.
+ */
+async function requestApproverRecipients(
+  departmentId: string,
+): Promise<Array<{ id: string; name: string; contactEmail: string | null }>> {
+  const activeTerm = await getActiveTerm();
+  if (!activeTerm) return [];
+
+  const [directorIds, memberships] = await Promise.all([
+    departmentDirectorPersonIds(departmentId),
+    prisma.termMembership.findMany({
+      where: { termId: activeTerm.id, departmentId, status: "ACTIVE" },
+      select: { personId: true },
+    }),
+  ]);
+
+  const memberIds = [...new Set(memberships.map((m) => m.personId))];
+  const manageRequestsMemberIds = (
+    await Promise.all(
+      memberIds.map(async (pid) =>
+        (await can(pid, "schedule.manage_requests")) ? pid : null,
+      ),
+    )
+  ).filter((pid): pid is string => pid !== null);
+
+  const personIds = [...new Set([...directorIds, ...manageRequestsMemberIds])];
+  if (personIds.length === 0) return [];
+
+  return prisma.person.findMany({
+    where: { id: { in: personIds } },
+    select: { id: true, name: true, contactEmail: true },
+  });
 }
 
 async function assertNoSwapCollision(
@@ -376,44 +429,31 @@ export async function createRequest(
       );
     }
 
-    // Notify all active directors of the department.
-    const activeTerm2 = await getActiveTerm();
-    if (activeTerm2) {
-      const directorAssignments = await prisma.shiftAssignment.findMany({
-        where: {
-          termId: activeTerm2.id,
-          departmentId: input.departmentId,
-          role: "DIRECTOR",
-        },
-        select: {
-          person: { select: { name: true, contactEmail: true, id: true } },
-        },
-      });
+    // Notify the department's actual approvers (directors by membership, one-hop
+    // delegated directors, and schedule.manage_requests holders in the
+    // department), the same authority approveRequest enforces -- not merely
+    // whoever happens to hold a DIRECTOR shift on the calendar.
+    const approvers = await requestApproverRecipients(input.departmentId);
 
-      const uniqueDirectors = new Map(
-        directorAssignments.map((a) => [a.person.id, a.person])
-      );
-
-      await Promise.all(
-        [...uniqueDirectors.values()].map((director) =>
-          sendScheduleEmail(
-            "schedule-request-submitted-director",
-            director.contactEmail,
-            director.id,
-            actorPersonId,
-            {
-              directorName: director.name?.split(" ")[0] ?? director.name ?? "",
-              requesterName: requester?.name ?? "",
-              requestType: isSwap ? "swap" : "drop",
-              requesterDate: requesterDateStr,
-              partnerName: partner?.name ?? "",
-              partnerDate: partnerDateStr,
-              departmentName: deptName,
-            },
-          )
+    await Promise.all(
+      approvers.map((approver) =>
+        sendScheduleEmail(
+          "schedule-request-submitted-director",
+          approver.contactEmail,
+          approver.id,
+          actorPersonId,
+          {
+            directorName: approver.name?.split(" ")[0] ?? approver.name ?? "",
+            requesterName: requester?.name ?? "",
+            requestType: isSwap ? "swap" : "drop",
+            requesterDate: requesterDateStr,
+            partnerName: partner?.name ?? "",
+            partnerDate: partnerDateStr,
+            departmentName: deptName,
+          },
         )
-      );
-    }
+      )
+    );
   } catch {
     // Best-effort notifications.
   }
@@ -975,27 +1015,17 @@ export async function remindDirectors(
   const requesterDateStr = fmtEmailDate(req.requesterDate);
   const partnerDateStr = req.targetDate ? fmtEmailDate(req.targetDate) : "";
 
-  const directorAssignments = await prisma.shiftAssignment.findMany({
-    where: {
-      termId: req.termId,
-      departmentId: req.departmentId,
-      role: "DIRECTOR",
-    },
-    select: {
-      person: { select: { id: true, name: true, contactEmail: true } },
-    },
-  });
-
-  const uniqueDirectors = new Map(
-    directorAssignments.map((a) => [a.person.id, a.person])
-  );
+  // Same approver set as the initial notification: directors by membership,
+  // one-hop delegated directors, and in-department schedule.manage_requests
+  // holders -- the people who can actually decide this request.
+  const approvers = await requestApproverRecipients(req.departmentId);
 
   await Promise.all(
-    [...uniqueDirectors.values()].map(async (director) => {
-      if (!director.contactEmail) return;
+    approvers.map(async (approver) => {
+      if (!approver.contactEmail) return;
       // Shared render path: branded layout + admin override, not a bare fragment.
       const { subject, html } = await renderEmail("schedule-request-submitted-director", {
-        directorName: director.name?.split(" ")[0] ?? director.name ?? "",
+        directorName: approver.name?.split(" ")[0] ?? approver.name ?? "",
         requesterName: req.requester.name,
         requestType: isSwap ? "swap" : "drop",
         requesterDate: requesterDateStr,
@@ -1004,11 +1034,11 @@ export async function remindDirectors(
         departmentName: req.department.name,
       });
       await queueEmail(prisma, {
-        to: director.contactEmail,
+        to: approver.contactEmail,
         subject,
         html,
         template: "schedule-request-submitted-director",
-        personId: director.id,
+        personId: approver.id,
         triggeredById: actorPersonId,
       });
     })

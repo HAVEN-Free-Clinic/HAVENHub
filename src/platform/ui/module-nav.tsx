@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -14,6 +15,7 @@ type NavItem = { label: string; href: string };
  */
 export function ModuleNav({ items }: { items: NavItem[] }) {
   const pathname = usePathname();
+  const activeRef = useRef<HTMLAnchorElement>(null);
 
   function isActive(href: string): boolean {
     if (pathname === href) return true;
@@ -24,24 +26,38 @@ export function ModuleNav({ items }: { items: NavItem[] }) {
     return false;
   }
 
+  // When the row scrolls horizontally on narrow screens, keep the active tab in
+  // view so the current section is always visible. `nearest` only scrolls the
+  // tab row (never the page) and does nothing when the tab is already visible.
+  useEffect(() => {
+    activeRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [pathname]);
+
   return (
     <nav
       aria-label="Module"
-      className="flex gap-6 border-b border-border text-sm"
+      // Scroll the tab row within its own box on narrow screens instead of
+      // letting it stretch the page past the viewport. Scrollbar hidden for a
+      // clean tab-bar look; tabs stay swipe/trackpad scrollable.
+      className="flex gap-6 overflow-x-auto border-b border-border text-sm [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
-      {items.map((item) => (
-        <Link
-          key={item.href}
-          href={item.href}
-          className={
-            isActive(item.href)
-              ? "border-b-2 border-brand pb-2 text-brand-fg font-medium"
-              : "pb-2 text-muted-foreground hover:text-foreground"
-          }
-        >
-          {item.label}
-        </Link>
-      ))}
+      {items.map((item) => {
+        const active = isActive(item.href);
+        return (
+          <Link
+            key={item.href}
+            ref={active ? activeRef : undefined}
+            href={item.href}
+            className={
+              active
+                ? "shrink-0 whitespace-nowrap border-b-2 border-brand pb-2 text-brand-fg font-medium"
+                : "shrink-0 whitespace-nowrap pb-2 text-muted-foreground hover:text-foreground"
+            }
+          >
+            {item.label}
+          </Link>
+        );
+      })}
     </nav>
   );
 }

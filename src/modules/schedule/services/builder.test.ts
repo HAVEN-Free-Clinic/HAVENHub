@@ -1113,6 +1113,35 @@ describe("builderView", () => {
     expect(byDate[key0]![volunteer.id].role).toBe("VOLUNTEER");
   });
 
+  it("carries the assignee's name + flags so a non-member (offboarded) assignee is not a raw cuid", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const dept = await createDepartment("PCAR");
+    const director = await createPerson("Director");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+
+    // Offboarded volunteer: their ACTIVE membership was removed, but a future
+    // ShiftAssignment outlived it (offboarding does not delete assignments). They
+    // must still surface by name/flags, not as a raw personId cuid.
+    const orphan = await createPerson("Offboarded Olivia", { spanishVerified: true });
+    await createMembership(orphan.id, term.id, dept.id, "VOLUNTEER", { status: "REMOVED" });
+    await createShift(term.id, dept.id, orphan.id, dates[0], "VOLUNTEER");
+
+    const view = await builderView(director.id, {
+      departmentId: dept.id,
+      dateKey: isoDateKey(dates[0]),
+    });
+
+    // Not an ACTIVE member -> absent from the members list (the old cuid source).
+    expect(view.members.some((m) => m.person.id === orphan.id)).toBe(false);
+
+    // ...but the assignment entry carries their identity for display.
+    const entry = view.assignmentsByDate[isoDateKey(dates[0])]?.[orphan.id];
+    expect(entry).toBeDefined();
+    expect(entry!.person.name).toBe("Offboarded Olivia");
+    expect(entry!.person.spanishVerified).toBe(true);
+  });
+
   it("capacity math: counts spanish-speaking assignees correctly", async () => {
     const dates = sixSaturdays();
     const term = await createTerm(dates);

@@ -10,3 +10,10 @@ if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
 export function isUniqueConstraintError(err: unknown): err is Prisma.PrismaClientKnownRequestError {
   return err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002";
 }
+
+/** True when `err` is a Prisma foreign-key-constraint (P2003) violation. */
+export function isForeignKeyConstraintError(
+  err: unknown
+): err is Prisma.PrismaClientKnownRequestError {
+  return err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2003";
+}

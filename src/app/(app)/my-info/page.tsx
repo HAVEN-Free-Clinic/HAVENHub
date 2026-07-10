@@ -130,7 +130,7 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
           <MyInfoForm
             action={updateAction}
             person={myInfo.person}
-            error={sp.error ? decodeURIComponent(sp.error) : undefined}
+            error={sp.error || undefined}
             saved={sp.saved === "1" ? "Saved." : undefined}
           />
         </section>
@@ -151,7 +151,7 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
           <HipaaPanel
             certificates={certificates}
             uploadAction={uploadAction}
-            error={sp.certError ? decodeURIComponent(sp.certError) : undefined}
+            error={sp.certError || undefined}
             certSaved={sp.certSaved === "1"}
             status={status}
           />

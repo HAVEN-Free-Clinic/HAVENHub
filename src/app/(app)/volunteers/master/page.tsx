@@ -24,14 +24,18 @@ import { Field, Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Button, buttonClasses } from "@/platform/ui/button";
 import { StatCard } from "@/platform/ui/stat-card";
+import { Alert } from "@/platform/ui/alert";
+import { ConfirmButton } from "@/platform/ui/confirm-button";
 import {
   masterCompliance,
   setCompletionDateAsManager,
+  verifyCertificate,
   ComplianceForbiddenError,
   CertificateNotFoundError,
 } from "@/modules/volunteers/services/compliance";
 import { CompletionDateError } from "@/platform/compliance/completion-date";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { CertificateViewer } from "@/modules/my-info/components/certificate-viewer";
 import type { ComplianceStatus } from "@/platform/compliance/rules";
 import { certExpiresAt } from "@/platform/compliance/rules";
@@ -44,6 +48,7 @@ type PageProps = {
     departmentId?: string;
     status?: string;
     page?: string;
+    error?: string;
   }>;
 };
 
@@ -99,6 +104,9 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
       ? (rawStatus as ComplianceStatus)
       : undefined;
 
+  // searchParams arrive already URL-decoded in the App Router; do not decode again.
+  const errorMessage = sp.error || null;
+
   // Fetch master compliance data
   const result = await masterCompliance({
     q,
@@ -141,6 +149,26 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
     return {};
   }
 
+  // Server action: verify a certificate. Gated to volunteers.manage_compliance,
+  // the master-view persona. verifyCertificate's scope check (canViewCertificate)
+  // treats manage_compliance as a master key, so a compliance manager may verify
+  // any member's cert here. A ComplianceForbiddenError is therefore defensive.
+  async function verifyAction(formData: FormData) {
+    "use server";
+    const actor = await requirePermission("volunteers.manage_compliance");
+    const certId = formData.get("certId") as string;
+    if (!certId) return;
+    try {
+      await verifyCertificate(actor.personId, certId);
+    } catch (err) {
+      if (err instanceof ComplianceForbiddenError) {
+        redirect(`/volunteers/master?error=${encodeURIComponent(err.message)}`);
+      }
+      throw err;
+    }
+    revalidatePath("/volunteers/master");
+  }
+
   // Build filter-preserving hrefs for pagination
   function buildHref(targetPage: number): string {
     const params = new URLSearchParams();
@@ -157,6 +185,12 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
         title="Master compliance view"
         description="HIPAA compliance status across all active clinic members."
       />
+
+      {errorMessage && (
+        <Alert tone="error" className="mt-4">
+          {errorMessage}
+        </Alert>
+      )}
 
       {/* Summary stat cards */}
       <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
@@ -333,17 +367,25 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
                         )}
                       </TD>
                       <TD>
-                        {row.cert && (
-                          <CertificateViewer
-                            certId={row.cert.id}
-                            fileName={row.cert.fileName}
-                            ownerName={row.person.name}
-                            completionDate={row.cert.completionDate}
-                            canEditDate
-                            canEditExistingDate={isAdmin}
-                            onSetDate={setDateAction.bind(null, row.cert.id)}
-                          />
-                        )}
+                        <div className="flex items-center gap-2">
+                          {row.cert && (
+                            <CertificateViewer
+                              certId={row.cert.id}
+                              fileName={row.cert.fileName}
+                              ownerName={row.person.name}
+                              completionDate={row.cert.completionDate}
+                              canEditDate
+                              canEditExistingDate={isAdmin}
+                              onSetDate={setDateAction.bind(null, row.cert.id)}
+                            />
+                          )}
+                          {row.cert && !row.cert.verifiedAt && (
+                            <form action={verifyAction}>
+                              <input type="hidden" name="certId" value={row.cert.id} />
+                              <ConfirmButton label="Verify" confirmLabel="Confirm?" />
+                            </form>
+                          )}
+                        </div>
                       </TD>
                     </TR>
                   );

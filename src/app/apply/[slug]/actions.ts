@@ -34,6 +34,13 @@ export async function submitPublicApplication(slug: string, formData: FormData):
 
   const session = await auth();
   const identity = await getApplicantIdentity();
+  if (!identity) {
+    // The apply page redirects unauthenticated visitors, but this server action is a
+    // directly-callable endpoint, so we re-enforce the identity gate here. Without a
+    // verified portal identity (Yale SSO or a magic-link cookie) we refuse the
+    // submission rather than trust a client-supplied email (spoofing / dedup squatting).
+    return { ok: false, message: "Please verify your email before submitting your application." };
+  }
 
   try {
     await submitApplication(slug, {

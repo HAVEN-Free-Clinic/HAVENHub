@@ -47,6 +47,24 @@ it("accepts a valid NEW submission, dedups, and queues a confirmation email", as
   ).rejects.toBeInstanceOf(DuplicateApplicationError);
 });
 
+it("uses the verified identity email for a NEW submission, ignoring a spoofed form email (audit H1)", async () => {
+  const { cycle } = await openVolunteerCycle();
+  await submitApplication("apply-v", {
+    applicantType: "NEW",
+    answers: { first_name: "Eve", last_name: "X", email: "attacker-typed@evil.com", "1st_choice_department": "MDIC" },
+    files: {},
+    identityEmail: "verified@yale.edu",
+  });
+  // The owner/dedup key and the confirmation email use the verified identity,
+  // never the spoofable client form value.
+  const emails = await prisma.emailLog.findMany();
+  expect(emails.map((e) => e.toEmail)).toEqual(["verified@yale.edu"]);
+  const owner = await prisma.applicant.findUnique({ where: { cycleId_emailLower: { cycleId: cycle.id, emailLower: "verified@yale.edu" } } });
+  expect(owner).not.toBeNull();
+  const spoofed = await prisma.applicant.findUnique({ where: { cycleId_emailLower: { cycleId: cycle.id, emailLower: "attacker-typed@evil.com" } } });
+  expect(spoofed).toBeNull();
+});
+
 it("does not require the SRHD supplement when MDIC is chosen", async () => {
   await openVolunteerCycle();
   const app = await submitApplication("apply-v", {

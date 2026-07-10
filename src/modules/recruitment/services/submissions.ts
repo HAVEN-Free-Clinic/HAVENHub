@@ -129,9 +129,11 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
   }
 
   if (input.applicantType === "NEW" && input.identityEmail) {
-    // The apply page is identity-gated; the authoritative email is the verified
-    // identity (magic-link or SSO), not the form value. Override so the dedup +
-    // owner key cannot be a different, unverified address.
+    // NEW applicants reach this service only through the identity-gated apply action
+    // (submitPublicApplication rejects a null identity), so identityEmail is the
+    // verified address (Yale SSO or magic-link). It is authoritative: the dedup +
+    // owner key must be the verified identity, never the client form value, so an
+    // attacker cannot submit under a victim's email or squat their dedup slot.
     input.answers = { ...input.answers, email: input.identityEmail };
   }
 

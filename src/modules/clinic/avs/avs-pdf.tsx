@@ -111,8 +111,18 @@ function Item({ item, styles }: { item: SummaryItem; styles: AvsStyles }) {
         {item.meds.map((m, i) => (
           <View key={i} style={styles.medRow} wrap={false}>
             <Text style={styles.medName}>{m.name}</Text>
-            {m.dose.trim() ? <Text style={styles.medDetail}>{m.dose}</Text> : null}
-            {m.costSource.trim() ? <Text style={styles.medDetail}>{m.costSource}</Text> : null}
+            {m.dose.trim() ? (
+              <>
+                <Text style={styles.label}>{item.doseLabel}</Text>
+                <Text style={styles.medDetail}>{m.dose}</Text>
+              </>
+            ) : null}
+            {m.costSource.trim() ? (
+              <>
+                <Text style={styles.label}>{item.costSourceLabel}</Text>
+                <Text style={styles.medDetail}>{m.costSource}</Text>
+              </>
+            ) : null}
           </View>
         ))}
       </View>

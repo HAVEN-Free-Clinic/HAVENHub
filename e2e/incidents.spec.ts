@@ -7,9 +7,25 @@ import { tag } from "./fixtures";
 // ---------------------------------------------------------------------------
 
 /**
+ * A person to link as a report subject via the Section 4 picker: the option
+ * text used to find them in the combobox, and whether to request a strike
+ * against them (only meaningful -- and only rendered -- for a volunteer the
+ * actor manages).
+ */
+type ReportSubject = { optionText: string; requestStrike?: boolean };
+
+/**
  * Files a "Report a concern" form: checks the first concern type, fills the
- * description, optionally selects a managed volunteer as the subject and
- * requests a strike, then submits.
+ * description, adds each of `subjects` via the Section 4 picker, then
+ * submits.
+ *
+ * The picker adds people one at a time: select a combobox option, then click
+ * "Add" to append them to an on-page list. Each added person renders as an
+ * <li> with their name, a "Remove" button, and, only for a volunteer the
+ * actor manages, a "Request a strike" checkbox named `strikePersonIds`
+ * (valued with their person id). A strike is requested by checking that
+ * checkbox scoped to the just-added person's <li>, so requesting one
+ * person's strike never touches another's row.
  *
  * Labels on /incidents are plain <label> elements wrapping their control (no
  * htmlFor/id association usable with getByLabel for the checkbox rows), so
@@ -22,7 +38,7 @@ import { tag } from "./fixtures";
 async function submitReport(
   page: import("@playwright/test").Page,
   description: string,
-  opts: { subjectOptionText?: string; requestStrike?: boolean } = {}
+  subjects: ReportSubject[] = []
 ): Promise<string> {
   await page.goto("/incidents");
   await page.waitForURL((url) => url.pathname === "/incidents");
@@ -33,19 +49,23 @@ async function submitReport(
   // Section 2: description (required).
   await page.locator('textarea[name="description"]').fill(description);
 
-  // Section 4: link a person via the searchable combobox. Typing filters the
-  // list; clicking the matching option sets the hidden subjectPersonId and, for a
-  // volunteer the actor manages, reveals the "Request a strike" checkbox.
-  if (opts.subjectOptionText) {
+  // Section 4: link each subject via the searchable combobox, then click
+  // "Add" to append them to the on-page list. Adding a person remounts the
+  // combobox (clearing its text), so each loop iteration starts from the
+  // same clean state as the last.
+  for (const subject of subjects) {
     const subjectInput = page.getByRole("combobox", { name: "Search people to link to this report" });
     await subjectInput.click();
-    await subjectInput.fill(opts.subjectOptionText);
-    await page.getByRole("option").filter({ hasText: opts.subjectOptionText }).first().click();
-  }
+    await subjectInput.fill(subject.optionText);
+    await page.getByRole("option").filter({ hasText: subject.optionText }).first().click();
+    await page.getByRole("button", { name: "Add" }).click();
 
-  if (opts.requestStrike) {
-    // Only rendered once an eligible (managed-volunteer) subject is picked above.
-    await page.locator('input[name="requestStrike"]').check();
+    if (subject.requestStrike) {
+      // Only rendered for a volunteer the actor manages; scope to this
+      // person's <li> so checking one person's box never checks another's.
+      const row = page.locator("li").filter({ hasText: subject.optionText });
+      await row.locator('input[name="strikePersonIds"]').check();
+    }
   }
 
   await page.getByRole("button", { name: "Submit report" }).click();
@@ -164,15 +184,13 @@ test("strike request to approve: director requests a strike, admin approves it, 
   await devLogin(page, "dev.director@yale.edu");
 
   const description = `E2E strike request ${tag()}`;
-  const number = await submitReport(page, description, {
-    subjectOptionText: "Dev Volunteer",
-    requestStrike: true,
-  });
+  const number = await submitReport(page, description, [{ optionText: "Dev Volunteer", requestStrike: true }]);
 
-  // My reports shows the pending strike request on this report's row. exact: true
-  // guards against a substring match on another row (e.g. "#7" inside "#71").
+  // My reports shows the aggregate pending-strike label on this report's row.
+  // exact: true guards against a substring match on another row (e.g. "#7"
+  // inside "#71").
   const myRow = page.locator("tr").filter({ has: page.getByRole("link", { name: `#${number}`, exact: true }) });
-  await expect(myRow.getByText("Strike requested")).toBeVisible();
+  await expect(myRow.getByText("Strike pending")).toBeVisible();
 
   // Switch to the admin reviewer and open the same report.
   // Clear the director session before switching to admin; an active session cookie makes
@@ -204,6 +222,83 @@ test("strike request to approve: director requests a strike, admin approves it, 
   await page.waitForURL((url) => url.pathname === "/incidents/strikes");
   const strikeRow = page.locator("tr").filter({ hasText: "Dev Volunteer" }).filter({ hasText: description });
   await expect(strikeRow).toBeVisible();
+
+  await confirmButtonClick(strikeRow, "Delete");
+  await expect(strikeRow).not.toBeVisible();
+});
+
+// ---------------------------------------------------------------------------
+// Test D: multi-person report, per-person strike
+// ---------------------------------------------------------------------------
+
+/**
+ * Exercises linking MULTIPLE people to one report and requesting a strike
+ * against only one of them. dev.director links "Dev Volunteer" (a managed
+ * volunteer, strike requested) and "Jack Carney" (strike not requested) as
+ * subjects. Jack Carney is the only other ACTIVE person in the base dev seed
+ * besides dev.director and dev.volunteer (see prisma/seed.ts: he is the
+ * platform admin / ITCM director). He is not a volunteer in a department
+ * dev.director manages, so canRequestStrikeAgainst rejects a strike against
+ * him and the picker never offers the checkbox for his row -- exercising the
+ * "no strike for this subject" path structurally, not just by omission.
+ *
+ * Cleanup: same as Test C -- the single resulting DisciplinaryAction is
+ * deleted via the strikes ledger's two-click ConfirmButton; the IncidentReport
+ * itself has no delete route and is left in place.
+ */
+test("multi-person report: director links two people, admin approves the single requested strike", async ({
+  page,
+}) => {
+  await devLogin(page, "dev.director@yale.edu");
+
+  const description = `E2E multi-person report ${tag()}`;
+  const number = await submitReport(page, description, [
+    { optionText: "Dev Volunteer", requestStrike: true },
+    { optionText: "Jack Carney" },
+  ]);
+
+  // Switch to the admin reviewer and open the same report.
+  // Clear the director session before switching to admin; an active session cookie makes
+  // /login redirect to '/' before the email input renders.
+  await page.context().clearCookies();
+  await devLogin(page, "j.carney@yale.edu");
+  await page.goto(`/incidents/review?q=${number}`);
+  await page.waitForURL((url) => url.pathname === "/incidents/review");
+
+  const reportLink = page.getByRole("link", { name: `#${number}`, exact: true });
+  await expect(reportLink).toBeVisible();
+  await reportLink.click();
+  await page.waitForURL((url) => url.pathname !== "/incidents/review");
+  const detailUrl = page.url();
+
+  // Both linked people appear in the "Individual(s) of concern" section. The
+  // subjects list is the only <ul> nested in a <dl> on this page.
+  const subjectsList = page.locator("dl ul");
+  await expect(subjectsList.getByText("Dev Volunteer")).toBeVisible();
+  await expect(subjectsList.getByText("Jack Carney")).toBeVisible();
+
+  // Only Dev Volunteer requested a strike, so there is exactly one
+  // Approve/Decline form pair on the page. Approve it with a category.
+  const approveForm = page.locator('form:has(input[name="approve"][value="yes"])');
+  await approveForm.locator('select[name="category"]').selectOption("Attendance");
+  await approveForm.getByRole("button", { name: "Approve strike" }).click();
+
+  // decideStrikeAction redirects back to the same detail page.
+  await page.waitForURL(detailUrl);
+
+  // The report now shows the strike as issued for the managed volunteer
+  // (strikeDecision APPROVED).
+  await expect(page.getByText("Strike issued")).toBeVisible();
+
+  // Exactly one strike lands on the ledger, for Dev Volunteer; Jack Carney
+  // carries none. Then clean it up.
+  await page.goto("/incidents/strikes");
+  await page.waitForURL((url) => url.pathname === "/incidents/strikes");
+  const strikeRow = page.locator("tr").filter({ hasText: "Dev Volunteer" }).filter({ hasText: description });
+  await expect(strikeRow).toBeVisible();
+  await expect(
+    page.locator("tr").filter({ hasText: "Jack Carney" }).filter({ hasText: description })
+  ).toHaveCount(0);
 
   await confirmButtonClick(strikeRow, "Delete");
   await expect(strikeRow).not.toBeVisible();

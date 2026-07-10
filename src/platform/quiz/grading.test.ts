@@ -28,6 +28,14 @@ describe("gradeQuiz", () => {
     expect(r.passed).toBe(false);
   });
 
+  it("compares the raw percentage, not the rounded one, against the threshold", () => {
+    // 2/3 = 66.67 raw, which rounds up to 67. A 67 threshold must still fail.
+    const questions = [q("a", "x"), q("b", "y"), q("c", "z")];
+    const r = gradeQuiz(questions, { a: "x", b: "y", c: "WRONG" }, 67);
+    expect(r.percent).toBe(67); // display still rounds
+    expect(r.passed).toBe(false); // but 66.67 < 67 does not clear the gate
+  });
+
   it("never passes a quiz with no graded questions", () => {
     const r = gradeQuiz([q("a", null)], { a: "x" }, 0);
     expect(r.total).toBe(0);

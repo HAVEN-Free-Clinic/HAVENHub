@@ -75,7 +75,10 @@ export async function getCategory(category: string): Promise<ResolvedSetting[]> 
     if (overrides.has(def.key)) {
       const r = resolveStored(def, overrides.get(def.key));
       value = r.value;
-      isOverridden = r.ok;
+      // A stored row exists, so the setting is overridden even if the value is
+      // invalid (value falls back to the default for display). Keep isOverridden
+      // true so the Reset control stays available to clear the orphan row.
+      isOverridden = true;
     }
     return {
       key: def.key,

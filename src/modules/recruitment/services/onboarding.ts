@@ -21,6 +21,29 @@ function safeParseLayout(value: unknown): ContractLayout {
   try { return parseContractLayout(value); } catch { return DEFAULT_CONTRACT_LAYOUT; }
 }
 
+/**
+ * Validate a YYYY-MM-DD date of birth from the date input: it must be a real
+ * calendar date and not in the future. Returns the date normalized to noon UTC
+ * (matching the completion-date convention so it never shifts a day across time
+ * zones), or null when the value is malformed.
+ */
+function parseDateOfBirth(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+  const year = parseInt(match[1], 10);
+  const month0 = parseInt(match[2], 10) - 1;
+  const day = parseInt(match[3], 10);
+  const dob = new Date(Date.UTC(year, month0, day, 12, 0, 0, 0));
+  // Reject calendar overflow (e.g. Feb 30 rolling into March).
+  if (dob.getUTCFullYear() !== year || dob.getUTCMonth() !== month0 || dob.getUTCDate() !== day) {
+    return null;
+  }
+  const now = new Date();
+  const endOfTodayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999);
+  if (dob.getTime() > endOfTodayUtc) return null;
+  return dob;
+}
+
 export class ContractError extends Error {
   constructor(message: string) { super(message); this.name = "ContractError"; }
 }
@@ -135,7 +158,7 @@ export type ContractSubmission = {
   email: string;
   netId?: string;
   phone?: string;
-  dateOfBirth?: Date;
+  dateOfBirth?: string; // raw YYYY-MM-DD from the date input; validated in submitContract
   dietaryRestrictions?: string;
   yaleAffiliation?: string;
   gradYear?: string;
@@ -203,6 +226,12 @@ export async function submitContract(
         : "Enter a valid completion date.";
     }
   }
+  let dateOfBirth: Date | undefined;
+  if (input.dateOfBirth) {
+    const parsed = parseDateOfBirth(input.dateOfBirth);
+    if (parsed) dateOfBirth = parsed;
+    else e.dateOfBirth = "Enter a valid date of birth.";
+  }
   if (Object.keys(e).length > 0) {
     throw new ContractValidationError("Please fix the highlighted fields.", e);
   }
@@ -250,7 +279,7 @@ export async function submitContract(
         email: input.email.trim(),
         netId: input.netId?.trim() || null,
         phone: input.phone?.trim() || null,
-        dateOfBirth: input.dateOfBirth ?? null,
+        dateOfBirth: dateOfBirth ?? null,
         dietaryRestrictions: input.dietaryRestrictions?.trim() || null,
         yaleAffiliation: input.yaleAffiliation?.trim() || null,
         gradYear: input.gradYear?.trim() || null,

@@ -26,7 +26,7 @@ export async function submitOnboarding(token: string, formData: FormData): Promi
   }
   const input: ContractSubmission = {
     firstName: str("firstName"), lastName: str("lastName"), email: str("email"), netId: str("netId") || undefined, phone: str("phone") || undefined,
-    dateOfBirth: dob ? new Date(dob) : undefined, dietaryRestrictions: str("dietaryRestrictions") || undefined,
+    dateOfBirth: dob || undefined, dietaryRestrictions: str("dietaryRestrictions") || undefined,
     yaleAffiliation: str("yaleAffiliation") || undefined, gradYear: str("gradYear") || undefined,
     initials: str("initials"), signatures, customAnswers,
     epicNeeded: bool("epicNeeded"), hasEpic: bool("hasEpic"), existingEpicId: str("existingEpicId") || undefined,

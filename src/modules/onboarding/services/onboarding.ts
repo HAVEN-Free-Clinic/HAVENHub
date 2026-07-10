@@ -4,7 +4,7 @@ import { can } from "@/platform/rbac/engine";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { complianceStatus } from "@/platform/compliance/rules";
 import { listMyCertificates } from "@/modules/my-info/services/my-info";
-import { requiredTrainingTracks, resolveTrainingState } from "@/modules/recruitment/services/training";
+import { requiredTrainingTracks, resolveTrainingProgress } from "@/modules/recruitment/services/training";
 import { getMyCourses } from "@/modules/learning/services/enrollment";
 import { getMyEhsStatus } from "@/platform/ehs/services/my-ehs";
 import {
@@ -110,8 +110,9 @@ export const getOnboardingStatus = cache(async function getOnboardingStatus(
 
   const trainingTasks: OnboardingTask[] = [];
   for (const track of tracks) {
-    const state = await resolveTrainingState(personId, term.id, track);
-    const attemptsUsed = 0; // gate only needs COMPLETE vs not; attempts refine IN_PROGRESS, optional here
+    // attemptsUsed lets the checklist render IN_PROGRESS for a started-but-unpassed
+    // quiz; the gate itself still only clears on a COMPLETE state.
+    const { state, attemptsUsed } = await resolveTrainingProgress(personId, term.id, track);
     const key = track === "DIRECTOR" ? "directorTraining" : "training";
     trainingTasks.push(task(key, deriveTrainingTaskState({ state, attemptsUsed })));
   }

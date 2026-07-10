@@ -123,13 +123,22 @@ export async function runImport(reader: AirtableReader, options: ImportOptions):
   }
 
   report.departments = roster.departments.length;
-  report.memberships = roster.memberships.length;
-  if (options.dryRun) return report;
+  if (options.dryRun) {
+    // Count only memberships whose person was imported this run. Apply skips roster
+    // links to skipped/unresolvable people (personId not in importedByRecordId), so
+    // counting every link here would overreport what apply actually creates.
+    report.memberships = roster.memberships.filter((m) =>
+      importedByRecordId.has(m.personRecordId)
+    ).length;
+    return report;
+  }
 
   for (const dept of roster.departments) {
     await prisma.department.upsert({
       where: { code: dept.code },
-      update: { name: dept.name },
+      // Never overwrite an existing department's name: admins customize it in the
+      // app and the import default is just the code. Name is set only on create.
+      update: {},
       create: dept,
     });
   }

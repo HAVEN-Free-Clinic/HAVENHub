@@ -624,6 +624,29 @@ describe("deleteAssignment lockout guard (last admin-conferring assignment)", ()
     expect(found).toBeNull();
   });
 
+  it("does not let two concurrent deletes remove the last admin (serializable guard)", async () => {
+    // Role with exactly two admin-conferring assignments. Two concurrent deletes
+    // must not both pass the "one remains" check and leave zero admins (write skew).
+    const role = await prisma.role.create({
+      data: {
+        name: "Platform Admin",
+        isSystem: true,
+        grants: { create: [{ permission: "*" }] },
+      },
+    });
+    const person1 = await seedPerson("Admin User 1");
+    const person2 = await seedPerson("Admin User 2");
+    const a1 = await prisma.roleAssignment.create({ data: { roleId: role.id, personId: person1.id } });
+    const a2 = await prisma.roleAssignment.create({ data: { roleId: role.id, personId: person2.id } });
+
+    // Fire both deletes concurrently. At least one must fail (LastAdminError or a
+    // serialization abort); the invariant is that an admin assignment survives.
+    await Promise.allSettled([deleteAssignment(ACTOR, a1.id), deleteAssignment(ACTOR, a2.id)]);
+
+    const remaining = await prisma.roleAssignment.count({ where: { roleId: role.id } });
+    expect(remaining).toBeGreaterThanOrEqual(1);
+  });
+
   it("allows deleting the last assignment of a non-admin role", async () => {
     const role = await seedRole("Schedule Viewer");
     await prisma.roleGrant.create({ data: { roleId: role.id, permission: "schedule.view" } });

@@ -41,11 +41,21 @@ export async function saveBrandingAsset(
 
   await putObject(assetKey(asset), file.bytes, file.type);
   const current = await getSetting<BrandingAsset>(`branding.${asset}`);
-  await setSetting(
-    `branding.${asset}`,
-    { contentType: file.type, version: current.version + 1 },
-    actorPersonId
-  );
+  try {
+    // Bump the descriptor only after the bytes land. If this write fails, the new
+    // bytes already sit at the fixed key while the descriptor still records the
+    // previous contentType/version, so the route would serve the new bytes under a
+    // stale contentType. Drop the bytes so the route falls back to the bundled
+    // default instead of serving a mismatched type.
+    await setSetting(
+      `branding.${asset}`,
+      { contentType: file.type, version: current.version + 1 },
+      actorPersonId
+    );
+  } catch (err) {
+    await deleteObject(assetKey(asset)).catch(() => undefined);
+    throw err;
+  }
 }
 
 /** Remove the custom asset; the descriptor resets to default so the route serves the bundled default. */

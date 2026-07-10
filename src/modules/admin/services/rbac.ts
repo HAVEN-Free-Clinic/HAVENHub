@@ -434,15 +434,26 @@ export async function deleteAssignment(actorPersonId: string, id: string): Promi
     (g) => g.permission === "*" || g.permission === "admin.access"
   );
   if (isAdminConferring) {
-    const count = await prisma.roleAssignment.count({ where: { roleId: assignment.roleId } });
-    if (count === 1) {
-      throw new LastAdminError(
-        "This is the last assignment of an admin-conferring role; deleting it would lock everyone out."
-      );
-    }
+    // Re-check the count and delete inside one serializable transaction. A plain
+    // check-then-delete lets two concurrent deletes of the same admin-conferring
+    // role both read count > 1, both pass the guard, and both delete (write skew),
+    // removing the last admin. Serializable isolation makes Postgres abort the
+    // loser instead of locking everyone out.
+    await prisma.$transaction(
+      async (tx) => {
+        const count = await tx.roleAssignment.count({ where: { roleId: assignment.roleId } });
+        if (count === 1) {
+          throw new LastAdminError(
+            "This is the last assignment of an admin-conferring role; deleting it would lock everyone out."
+          );
+        }
+        await tx.roleAssignment.delete({ where: { id } });
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+    );
+  } else {
+    await prisma.roleAssignment.delete({ where: { id } });
   }
-
-  await prisma.roleAssignment.delete({ where: { id } });
 
   await recordAudit({
     actorPersonId,

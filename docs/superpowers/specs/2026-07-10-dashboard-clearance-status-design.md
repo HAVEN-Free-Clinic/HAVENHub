@@ -57,9 +57,10 @@ Per row:
 - Title: the task label above.
 - Sub text: friendly per-state text. HIPAA keeps its existing richer, expiry
   aware sub ("Valid through May 2027" / "Renew before ..." / "Upload a current
-  certificate", etc.). Other tasks use short status text derived from the same
-  `taskRequirement()` helper My Info uses (Complete / In progress / Not started),
-  keeping labels and wording in parity with My Info.
+  certificate", etc.). Other tasks use short status text (Complete / In progress
+  / Not started) that matches My Info's `taskRequirement()` labels, inlined in
+  `page.tsx` to keep this server page decoupled from the client-capable
+  clearance-card component.
 - Chevron on the right, unchanged.
 
 Links go to the real module pages (not the `/get-started` onboarding gate), so

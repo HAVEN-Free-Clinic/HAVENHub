@@ -22,6 +22,10 @@ import { tag } from "./fixtures";
  * test) -- a live session cookie makes /login redirect away before the
  * dev-login form renders.
  *
+ * Selector note: form fields use the shared Field wrapper, whose required
+ * marker (" *") is part of the label text, so getByLabel is used WITHOUT
+ * { exact: true } (a substring match on the field name).
+ *
  * Tickets/comments/Epic requests created here are not cleaned up: they carry
  * no FK dependents, CI seeds a fresh DB per run, and subjects are tagged with
  * tag() so rows never collide across runs -- the same "append-only, no
@@ -42,10 +46,8 @@ test("support: volunteer submits a General IT request; a manager replies publicl
   await expect(page.getByRole("heading", { name: "Submit a request" })).toBeVisible();
 
   // Category defaults to General IT -- no selection needed.
-  await page.getByLabel("Subject", { exact: true }).fill(subject);
-  await page
-    .getByLabel("Description", { exact: true })
-    .fill("My laptop cannot reach the clinic wifi.");
+  await page.getByLabel("Subject").fill(subject);
+  await page.getByLabel("Description").fill("My laptop cannot reach the clinic wifi.");
   await page.getByRole("button", { name: "Submit request" }).click();
 
   // Server action redirects to /support/<id>?submitted=1.
@@ -113,14 +115,14 @@ test("support: volunteer submits a General IT request; a manager replies publicl
   await page.waitForURL((url) => url.pathname === `/support/${id}`);
   await page.waitForLoadState("networkidle");
 
-  await page.getByLabel("Status", { exact: true }).selectOption({ label: "Awaiting you" });
+  await page.getByLabel("Status").selectOption({ label: "Awaiting you" });
   await page.getByRole("button", { name: "Update status" }).click();
   await page.waitForURL((url) => url.pathname === `/support/${id}`);
   await page.waitForLoadState("networkidle");
-  await expect(page.getByLabel("Status", { exact: true })).toHaveValue("AWAITING_REQUESTER");
+  await expect(page.getByLabel("Status")).toHaveValue("AWAITING_REQUESTER");
 
   const resolution = `Resolved: reset the wifi profile ${t}`;
-  await page.getByLabel("Resolution", { exact: true }).fill(resolution);
+  await page.getByLabel("Resolution").fill(resolution);
   await page.getByRole("button", { name: "Resolve ticket" }).click();
   await page.waitForURL((url) => url.pathname === `/support/${id}`);
   await page.waitForLoadState("networkidle");
@@ -147,7 +149,7 @@ test("support: volunteer submits a General IT request; a manager replies publicl
   await expect(page.getByText(internalNote)).not.toBeVisible();
 });
 
-test("support epic: volunteer submits an Epic New request; a manager promotes it and the linked Epic pipeline appears on the ticket", async ({
+test("support epic: volunteer submits an Epic access request; a manager promotes it (choosing the kind) and the linked Epic pipeline appears on the ticket", async ({
   page,
 }) => {
   test.setTimeout(90_000);
@@ -155,26 +157,17 @@ test("support epic: volunteer submits an Epic New request; a manager promotes it
   const subject = `E2E Epic Access ${t}`;
 
   // dev.volunteer is ACTIVE with no epicId on file and no open Epic request
-  // (the seed never sets epicId; no other spec touches it), so
-  // createEpicRequest's kind-NEW precondition ("no epicId on file") holds --
-  // matching the now-retired /volunteers/epic e2e test's choice of person and
-  // kind, just driven through the new /support ticket-detail UI.
+  // (the seed never sets epicId; no other spec touches it), so when the manager
+  // promotes with kind NEW, createEpicRequest's "no epicId on file" precondition
+  // holds. Epic operational details are the manager's concern now: the submitter
+  // only picks the category and describes the request.
   await devLogin(page, "dev.volunteer@yale.edu");
   await page.goto("/support/new");
   await page.waitForURL((url) => url.pathname === "/support/new");
 
-  await page.getByLabel("Category", { exact: true }).selectOption({ label: "Epic access" });
-  await expect(page.getByText("Epic access details")).toBeVisible();
-
-  await page.getByLabel("Subject", { exact: true }).fill(subject);
-  await page
-    .getByLabel("Description", { exact: true })
-    .fill("New Epic account for a new clinic volunteer.");
-  // Request type defaults to "New account" (kind NEW) -- leave as-is.
-  await expect(page.getByLabel("Request type")).toHaveValue("NEW");
-  await page.getByLabel("Job title", { exact: true }).fill("Clinic Volunteer");
-  await page.getByLabel("NetID", { exact: true }).fill("dv456");
-
+  await page.getByLabel("Category").selectOption({ label: "Epic access" });
+  await page.getByLabel("Subject").fill(subject);
+  await page.getByLabel("Description").fill("New Epic account for a new clinic volunteer.");
   await page.getByRole("button", { name: "Submit request" }).click();
   await page.waitForURL(
     (url) => /^\/support\/[^/]+$/.test(url.pathname) && url.searchParams.get("submitted") === "1"
@@ -197,16 +190,18 @@ test("support epic: volunteer submits an Epic New request; a manager promotes it
   await page.waitForURL((url) => url.pathname === `/support/${id}`);
   await page.waitForLoadState("networkidle");
 
-  await expect(page.getByRole("heading", { name: "Epic access" })).toBeVisible();
-  await expect(page.getByText("New account")).toBeVisible();
-
+  // The manager's Epic section: the request-type (kind) selector defaults to NEW
+  // for a person with no Epic ID; promote with "Create Epic request".
+  await expect(page.getByRole("heading", { name: "Epic access", exact: true })).toBeVisible();
+  await expect(page.getByLabel("Request type")).toHaveValue("NEW");
   await page.getByRole("button", { name: "Create Epic request" }).click();
   await page.waitForURL((url) => url.pathname === `/support/${id}`);
   await page.waitForLoadState("networkidle");
 
-  // No error banner, and the linked Epic pipeline now renders in place of the
-  // "Create Epic request" button.
-  await expect(page.locator('[role="alert"]')).toHaveCount(0);
+  // Promotion succeeded: the "Create Epic request" button is gone and the linked
+  // Epic pipeline now renders in its place. (Do not assert on [role="alert"]:
+  // the Next.js dev overlay adds one under `next dev`, which CI also uses.)
+  await expect(page.getByRole("button", { name: "Create Epic request" })).toHaveCount(0);
   await expect(page.getByText("Epic request status")).toBeVisible();
   await expect(page.getByText("Pending", { exact: true })).toBeVisible();
   await expect(page.getByLabel("Epic ID")).toBeVisible();

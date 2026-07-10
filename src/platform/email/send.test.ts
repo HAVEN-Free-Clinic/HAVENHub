@@ -306,6 +306,26 @@ describe("drainEmailQueue", () => {
     expect(rowA.attempts).toBe(1);
     expect(rowA.lastError).toBe("first fails");
   });
+
+  it("skips a row a concurrent worker holds and reclaims a stale lock", async () => {
+    // `held` models a row another drain is currently sending (fresh lock); `stale`
+    // models a crashed drain that left its claim behind long ago.
+    const held = await prisma.emailLog.create({ data: { ...BASE_EMAIL, toEmail: "held@example.com", lockedAt: new Date() } });
+    const stale = await prisma.emailLog.create({ data: { ...BASE_EMAIL, toEmail: "stale@example.com", lockedAt: new Date(Date.now() - 10 * 60 * 1000) } });
+    const transport = okTransport();
+
+    await drainEmailQueue(transport);
+
+    // The freshly-held row is left for its owner (never double-sent); the stale
+    // claim is reclaimed and sent.
+    expect(transport.calls).toEqual(["stale@example.com"]);
+    const heldAfter = await prisma.emailLog.findUniqueOrThrow({ where: { id: held.id } });
+    expect(heldAfter.status).toBe("QUEUED");
+    expect(heldAfter.lockedAt).not.toBeNull();
+    const staleAfter = await prisma.emailLog.findUniqueOrThrow({ where: { id: stale.id } });
+    expect(staleAfter.status).toBe("SENT");
+    expect(staleAfter.lockedAt).toBeNull();
+  });
 });
 
 describe("queueEmail sender snapshot", () => {

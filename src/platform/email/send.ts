@@ -136,9 +136,13 @@ export async function drainEmailQueue(
             attempts,
             lastError: error instanceof Error ? error.message.slice(0, 500) : String(error),
             status: attempts >= MAX_ATTEMPTS ? "FAILED" : "QUEUED",
-            // Release the claim so the row is retryable on the next tick (it sits
-            // behind this invocation's cursor, so it is not re-attempted now).
-            lockedAt: null,
+            // Keep the claim (do NOT null lockedAt): a failed row stays locked so
+            // its retry is gated by the STALE_LOCK_MS window, not by how often a
+            // drain is triggered. Since delivery now fires on enqueue, an enqueue
+            // burst during an outage must not re-attempt this row until the lock
+            // goes stale, or it would burn all retries in seconds (issue #63). On
+            // FAILED the value is moot (FAILED rows are never re-claimed).
+            lockedAt: claimedAt,
           },
         });
       }

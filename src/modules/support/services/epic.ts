@@ -438,7 +438,7 @@ export async function sendEpicEmail(
     teams: {
       title: "Epic access update",
       summary: epicTeamsSummary[template],
-      link: `${await getSetting<string>("app.baseUrl")}/volunteers`,
+      link: `${await getSetting<string>("app.baseUrl")}/my-info`,
     },
     triggeredById: actorPersonId,
   });

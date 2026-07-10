@@ -554,9 +554,12 @@ export async function listMyReports(actorPersonId: string): Promise<ReportListRo
  * A single report with its subject, reporter, and attachments.
  *
  * Visibility: the reporter (owner) or a holder of incidents.manage; anyone
- * else throws IncidentForbiddenError. Missing report throws IncidentNotFoundError.
- * reviewNotes (reviewer-internal) is stripped to null for non-managers, even
- * when they are the owner.
+ * else throws IncidentForbiddenError. A person who only reaches the report
+ * through incidents.manage (not as its reporter-owner) but is themselves the
+ * report's subject is also forbidden, so a subject can never unmask an
+ * anonymous reporter or read a report about themselves via that capability.
+ * Missing report throws IncidentNotFoundError. reviewNotes (reviewer-internal)
+ * is stripped to null for non-managers, even when they are the owner.
  */
 export async function getReport(
   actorPersonId: string,
@@ -583,6 +586,12 @@ export async function getReport(
   const isOwner = report.reporterId === actorPersonId;
   if (!canManage && !isOwner) throw new IncidentForbiddenError();
 
+  // A subject who merely holds incidents.manage must never reach a report about
+  // themselves through that capability (they could unmask an anonymous reporter
+  // or self-adjudicate). Reaching here with !isOwner implies canManage, so this
+  // only blocks the manage path; the reporter-owner read path is unaffected.
+  if (!isOwner && report.subjectPersonId === actorPersonId) throw new IncidentForbiddenError();
+
   // Reviewer-internal notes are never returned to a non-manager, even the owner.
   const safe = canManage ? report : { ...report, reviewNotes: null };
   return { report: safe, canManage };
@@ -603,15 +612,30 @@ export type ReviewFilters = {
 
 const REVIEW_PAGE_SIZE = 25;
 
+/**
+ * The real IncidentReportStatus enum values, used to validate the status filter
+ * before it reaches Prisma. An unknown value (e.g. a hand-crafted query string)
+ * is dropped rather than passed through, which would otherwise throw.
+ */
+const INCIDENT_REPORT_STATUSES: IncidentReportStatus[] = ["SUBMITTED", "UNDER_REVIEW", "RESOLVED", "DISMISSED"];
+
+/** Largest value a Postgres int4 (IncidentReport.number) can hold. */
+const MAX_INT4 = 2_147_483_647;
+
 export type ReviewQueueRow = { report: IncidentReport; reporterName: string; subjectName: string | null };
 
 /**
  * All incident reports, filtered and paginated for a reviewer. Requires
- * incidents.manage (else IncidentForbiddenError).
+ * incidents.manage (else IncidentForbiddenError). Reports whose subject is the
+ * reviewer themselves are excluded, so a subject who holds incidents.manage
+ * can never review a report about themselves.
  *
- * Filters: status (exact), concernType (array contains), immediateRisk (true
- * only), strikePending (strikeDecision === PENDING), q (case-insensitive
- * match against subject name, reporter name, or report number).
+ * Filters: status (validated against IncidentReportStatus; an unknown value is
+ * ignored), concernType (array contains), immediateRisk (true only),
+ * strikePending (strikeDecision === PENDING), q (case-insensitive match against
+ * subject name, reporter name, or report number -- the numeric branch is only
+ * used when the digits fit a Postgres int4, so an out-of-range value never
+ * overflows the number column).
  *
  * Ordered with immediateRisk reports first, then newest first, then by
  * number (a monotonic autoincrement) descending so same-millisecond inserts
@@ -625,18 +649,37 @@ export async function listReviewQueue(
   if (!(await can(actorPersonId, "incidents.manage"))) throw new IncidentForbiddenError();
 
   const page = Math.max(1, filters.page ?? 1);
-  const where: Prisma.IncidentReportWhereInput = {};
-  if (filters.status) where.status = filters.status as IncidentReportStatus;
+  // Never surface a report about the reviewer to that same reviewer. A bare
+  // `{ not: actorPersonId }` would also drop subject-less reports, because
+  // Postgres excludes NULLs from a `<>` comparison, so spell out the null branch
+  // to keep unassigned-subject reports in the queue.
+  const where: Prisma.IncidentReportWhereInput = {
+    OR: [{ subjectPersonId: null }, { subjectPersonId: { not: actorPersonId } }],
+  };
+  if (filters.status && (INCIDENT_REPORT_STATUSES as string[]).includes(filters.status)) {
+    where.status = filters.status as IncidentReportStatus;
+  }
   if (filters.concernType) where.concernTypes = { has: filters.concernType };
   if (filters.immediateRisk) where.immediateRisk = true;
   if (filters.strikePending) where.strikeDecision = "PENDING";
   if (filters.q) {
     const q = filters.q.trim();
     const asNumber = Number.parseInt(q, 10);
-    where.OR = [
-      { subject: { name: { contains: q, mode: "insensitive" } } },
-      { reporter: { name: { contains: q, mode: "insensitive" } } },
-      ...(Number.isNaN(asNumber) ? [] : [{ number: asNumber }]),
+    // Only match on the report number when the digits fit a Postgres int4. A
+    // longer digit string overflows the `number` column and throws, so an
+    // out-of-range value simply skips the numeric branch.
+    const numMatch =
+      Number.isFinite(asNumber) && asNumber >= 0 && asNumber <= MAX_INT4 ? [{ number: asNumber }] : [];
+    // AND these search alternatives with the subject-exclusion OR above; a second
+    // top-level `OR` would overwrite it and defeat the self-exclusion.
+    where.AND = [
+      {
+        OR: [
+          { subject: { name: { contains: q, mode: "insensitive" } } },
+          { reporter: { name: { contains: q, mode: "insensitive" } } },
+          ...numMatch,
+        ],
+      },
     ];
   }
 
@@ -659,7 +702,9 @@ export async function listReviewQueue(
 
 /**
  * Sets a report's status and reviewer notes. Requires incidents.manage
- * (else IncidentForbiddenError). Missing report throws IncidentNotFoundError.
+ * (else IncidentForbiddenError), and a reviewer who is the report's subject is
+ * forbidden so no one can adjudicate a report about themselves. Missing report
+ * throws IncidentNotFoundError.
  *
  * reviewNotes: when omitted (undefined), the existing notes are kept; pass
  * null explicitly to clear them.
@@ -683,6 +728,8 @@ export async function reviewReport(
   if (!(await can(actorPersonId, "incidents.manage"))) throw new IncidentForbiddenError();
   const existing = await prisma.incidentReport.findUnique({ where: { id } });
   if (!existing) throw new IncidentNotFoundError();
+  // The subject of a report may never adjudicate it, even holding incidents.manage.
+  if (existing.subjectPersonId === actorPersonId) throw new IncidentForbiddenError();
 
   const terminal = input.status === "RESOLVED" || input.status === "DISMISSED";
   const updated = await prisma.incidentReport.update({
@@ -725,23 +772,32 @@ export type DecideStrikeInput = {
 
 /**
  * Decides a report's pending strike request. Requires incidents.manage
- * (else IncidentForbiddenError). Missing report throws IncidentNotFoundError.
- * The report's strikeDecision must be PENDING, or IncidentValidationError.
+ * (else IncidentForbiddenError), and a reviewer who is the report's subject is
+ * forbidden so no one can decide a strike on themselves. Missing report throws
+ * IncidentNotFoundError. The report's strikeDecision must be PENDING, or
+ * IncidentValidationError.
  *
- * Decline: sets strikeDecision DECLINED, stamps strikeDecidedById/At. No
+ * Both terminal transitions are an atomic claim: the report write is an
+ * updateMany gated on strikeDecision still being PENDING, and a count of 0
+ * (a concurrent decision won the race) raises IncidentValidationError. This
+ * keeps a concurrent approve+decline from ever leaving a DECLINED report with
+ * a live strike behind it.
+ *
+ * Decline: claims strikeDecision DECLINED, stamps strikeDecidedById/At. No
  * DisciplinaryAction is created.
  *
  * Approve: requires the report to have a subjectPersonId and a valid
- * category from DISCIPLINARY_CATEGORIES (else IncidentValidationError), then
- * calls issueAction against the subject with occurredAt defaulting to the
+ * category from DISCIPLINARY_CATEGORIES (else IncidentValidationError). The
+ * PENDING->APPROVED claim and the issueAction strike create run inside one
+ * interactive transaction, so a lost claim rolls back the strike too. The
+ * strike is issued against the subject with occurredAt defaulting to the
  * report's occurredAt (or now), description from the report, confidential
  * set to the report's anonymous flag (anonymous report -> confidential
  * strike, hidden from directors), patientInvolved from patientImpact, and
- * reportId linking the new strike back to this report. Then sets
- * strikeDecision APPROVED, stamping strikeDecidedById/At. Since
- * DisciplinaryAction.reportId is unique, a concurrent double-approve races
- * two issueAction calls; the loser's unique-constraint violation is caught
- * and rethrown as IncidentValidationError rather than an untyped 500.
+ * reportId linking the new strike back to this report. Since
+ * DisciplinaryAction.reportId is unique, a double-approve that still slips
+ * through surfaces the loser's unique-constraint violation, caught and
+ * rethrown as IncidentValidationError rather than an untyped 500.
  *
  * Both branches audit incident.strike_decided (entityType "IncidentReport",
  * after: { decision } -- approve also includes strikeActionId and
@@ -761,15 +817,24 @@ export async function decideStrike(
 
   const report = await prisma.incidentReport.findUnique({ where: { id: reportId } });
   if (!report) throw new IncidentNotFoundError();
+  // The subject of a report may never decide a strike on themselves.
+  if (report.subjectPersonId === actorPersonId) throw new IncidentForbiddenError();
   if (report.strikeDecision !== "PENDING") {
     throw new IncidentValidationError("This report has no pending strike request.");
   }
 
   if (!input.approve) {
-    const declined = await prisma.incidentReport.update({
-      where: { id: reportId },
+    // Atomic claim: only a still-PENDING report becomes DECLINED. If a
+    // concurrent decision won first, count === 0 and we reject rather than
+    // clobbering the decided state.
+    const claim = await prisma.incidentReport.updateMany({
+      where: { id: reportId, strikeDecision: "PENDING" },
       data: { strikeDecision: "DECLINED", strikeDecidedById: actorPersonId, strikeDecidedAt: new Date() },
     });
+    if (claim.count === 0) {
+      throw new IncidentValidationError("This report's strike request was already decided.");
+    }
+    const declined = await prisma.incidentReport.findUniqueOrThrow({ where: { id: reportId } });
 
     await recordAudit({
       actorPersonId,
@@ -791,35 +856,51 @@ export async function decideStrike(
     throw new IncidentValidationError(`Choose a strike category. One of: ${DISCIPLINARY_CATEGORIES.join(", ")}.`);
   }
 
+  // The PENDING->APPROVED claim and the strike create share one interactive
+  // transaction: the claim runs first, so a lost race (count === 0) throws
+  // before any strike is created, and any later failure rolls the claim back.
   // issueAction enforces its own permission (incidents.manage -> central bypass).
   let strikeAction: DisciplinaryAction;
+  let approved: IncidentReport;
   try {
-    strikeAction = await issueAction(actorPersonId, {
-      personId: report.subjectPersonId,
-      occurredAt: input.occurredAt ?? report.occurredAt ?? new Date(),
-      category,
-      description: report.description,
-      followUpActions: input.followUpActions ?? null,
-      policyReference: input.policyReference ?? null,
-      notes: input.notes ?? null,
-      confidential: report.anonymous, // anonymous report -> strike hidden from directors
-      patientInvolved: report.patientImpact === "YES",
-      reportId: report.id,
+    const result = await prisma.$transaction(async (tx) => {
+      const claim = await tx.incidentReport.updateMany({
+        where: { id: reportId, strikeDecision: "PENDING" },
+        data: { strikeDecision: "APPROVED", strikeDecidedById: actorPersonId, strikeDecidedAt: new Date() },
+      });
+      if (claim.count === 0) {
+        throw new IncidentValidationError("This report's strike request was already decided.");
+      }
+      const action = await issueAction(
+        actorPersonId,
+        {
+          personId: report.subjectPersonId as string,
+          occurredAt: input.occurredAt ?? report.occurredAt ?? new Date(),
+          category,
+          description: report.description,
+          followUpActions: input.followUpActions ?? null,
+          policyReference: input.policyReference ?? null,
+          notes: input.notes ?? null,
+          confidential: report.anonymous, // anonymous report -> strike hidden from directors
+          patientInvolved: report.patientImpact === "YES",
+          reportId: report.id,
+        },
+        tx
+      );
+      const row = await tx.incidentReport.findUniqueOrThrow({ where: { id: reportId } });
+      return { action, row };
     });
+    strikeAction = result.action;
+    approved = result.row;
   } catch (err) {
-    // DisciplinaryAction.reportId is unique. A concurrent double-approve on
-    // the same report races two issueAction calls; the loser hits a
-    // unique-constraint violation here rather than surfacing as a raw 500.
+    // DisciplinaryAction.reportId is unique. A double-approve that still slips
+    // past the atomic claim hits a unique-constraint violation here (rolling
+    // the transaction back) rather than surfacing as a raw 500.
     if (isUniqueConstraintError(err)) {
       throw new IncidentValidationError("A strike has already been issued for this report.");
     }
     throw err;
   }
-
-  const approved = await prisma.incidentReport.update({
-    where: { id: reportId },
-    data: { strikeDecision: "APPROVED", strikeDecidedById: actorPersonId, strikeDecidedAt: new Date() },
-  });
 
   await recordAudit({
     actorPersonId,

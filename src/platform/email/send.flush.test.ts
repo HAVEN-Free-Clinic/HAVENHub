@@ -45,4 +45,20 @@ describe("drainEmailQueue retry gate", () => {
     const third = await prisma.emailLog.findUniqueOrThrow({ where: { id } });
     expect(third.attempts).toBe(2);
   });
+
+  it("releases the lock when a row exhausts its retries and becomes FAILED", async () => {
+    // attempts starts at MAX_ATTEMPTS - 1 (8 - 1 = 7) so a single failing drain
+    // drives it to FAILED.
+    const row = await prisma.emailLog.create({
+      data: { toEmail: "f@example.com", subject: "s", html: "<p>f</p>", template: "generic", attempts: 7 },
+    });
+
+    await drainEmailQueue(failing);
+
+    const failed = await prisma.emailLog.findUniqueOrThrow({ where: { id: row.id } });
+    expect(failed.status).toBe("FAILED");
+    expect(failed.attempts).toBe(8);
+    // Lock released so an admin retry (FAILED -> QUEUED) is immediately claimable.
+    expect(failed.lockedAt).toBeNull();
+  });
 });

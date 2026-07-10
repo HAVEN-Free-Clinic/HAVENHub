@@ -64,10 +64,11 @@ export async function queueEmail(db: Db, input: QueueEmailInput): Promise<EmailL
  * updateMany(status=QUEUED, lock free) -> lockedAt=now, so only one worker wins a
  * given row. Two overlapping drains (a backlog that outlives the 60s cron
  * interval, plus an external scheduler that does not skip overlapping runs)
- * therefore cannot both send the same row. The claim is released on completion; a
- * lock left by a crashed worker is reclaimable after STALE_LOCK_MS, which
- * preserves at-least-once delivery (a crash between claim and send re-sends once
- * the lock goes stale).
+ * therefore cannot both send the same row. The claim is released on success or
+ * permanent failure (a transient failure keeps it to gate the retry); a lock left
+ * by a crashed worker is reclaimable after STALE_LOCK_MS, which preserves
+ * at-least-once delivery (a crash between claim and send re-sends once the lock
+ * goes stale).
  */
 export async function drainEmailQueue(
   transport: EmailTransport,
@@ -130,19 +131,22 @@ export async function drainEmailQueue(
         });
       } catch (error) {
         const attempts = row.attempts + 1;
+        const failed = attempts >= MAX_ATTEMPTS;
         await prisma.emailLog.update({
           where: { id: row.id },
           data: {
             attempts,
             lastError: error instanceof Error ? error.message.slice(0, 500) : String(error),
-            status: attempts >= MAX_ATTEMPTS ? "FAILED" : "QUEUED",
-            // Keep the claim (do NOT null lockedAt): a failed row stays locked so
-            // its retry is gated by the STALE_LOCK_MS window, not by how often a
-            // drain is triggered. Since delivery now fires on enqueue, an enqueue
-            // burst during an outage must not re-attempt this row until the lock
-            // goes stale, or it would burn all retries in seconds (issue #63). On
-            // FAILED the value is moot (FAILED rows are never re-claimed).
-            lockedAt: claimedAt,
+            status: failed ? "FAILED" : "QUEUED",
+            // Transient failure: keep the claim (lockedAt stays set) so the retry
+            // is gated by the STALE_LOCK_MS window, not by how often a drain is
+            // triggered. Delivery now fires on enqueue, so an enqueue burst during
+            // an outage must not re-attempt this row until the lock goes stale, or
+            // it would burn all 8 retries in seconds (issue #63).
+            // Permanent failure: release the lock so an admin Retry / Retry-all
+            // (FAILED -> QUEUED) is immediately claimable instead of stuck behind a
+            // stale lock for up to STALE_LOCK_MS.
+            lockedAt: failed ? null : claimedAt,
           },
         });
       }

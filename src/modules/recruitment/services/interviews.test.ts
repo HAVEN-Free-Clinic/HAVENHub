@@ -114,6 +114,9 @@ it("notifies a panelist (in-app) when added to a panel by someone else", async (
   const { director, panelist, application } = await seed();
   const iv = await createInterview(application.id, "EDUC", director.id);
   await addPanelist(iv.id, panelist.id, false, director.id);
+  // The panel row must persist alongside the notification: the notify() runs
+  // post-commit (audit M11), so the panelist add and its assignment note both land.
+  expect(await prisma.interviewPanelist.count({ where: { interviewId: iv.id, personId: panelist.id } })).toBe(1);
   const notes = await prisma.notification.findMany({ where: { personId: panelist.id } });
   expect(notes).toHaveLength(1);
   expect(notes[0].type).toBe("recruitment.interview_assignment");

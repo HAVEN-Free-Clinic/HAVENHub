@@ -13,8 +13,8 @@
 ## Global Constraints
 
 - **Worktree + branch:** all work lands in `/Users/jcarney/Documents/Code-Projects/HAVENHub-wt-incidents-multi` on `feat/incidents-multi-subject` (off `origin/main`). Use worktree-rooted absolute paths for file edits.
-- **Per-worktree test DB (never Neon):** `TEST_DATABASE_URL="postgresql://haven:haven_dev@localhost:5434/havenhub_incidents_multi"`. Env vars do NOT persist between shell calls and vitest ignores `.env`, so **inline this on every `npm test` / `prisma` command** (e.g. `TEST_DATABASE_URL=... npm test`). The repo `.env` points `DATABASE_URL` at shared prod Neon; never run `prisma migrate`/vitest against it.
-- **Shared Prisma client:** `node_modules` is symlinked to the main checkout, so `prisma generate` regenerates the client for every worktree. That is expected here (the change is this branch's). CI (with each branch's own schema) is the authoritative gate for DB-backed tests; if local docker Postgres is unavailable, push and let CI run them.
+- **Per-worktree test DB (never Neon), ALREADY PROVISIONED:** `TEST_DATABASE_URL="postgresql://haven:haven_dev@localhost:5434/havenhub_test_incmulti"`. This DB was created (owned by `haven`) and all existing migrations applied; the incidents service suite is a green baseline (83 passing). Env vars do NOT persist between shell calls and vitest ignores `.env`, so **inline `TEST_DATABASE_URL=...` on every `npm test`/`vitest` command, and `DATABASE_URL=...` (plus `DATABASE_URL_UNPOOLED=...`) on every `prisma` command**. The repo `.env` points at shared prod Neon and there is NO `.env` in this worktree; never run `prisma`/vitest without the inline URL.
+- **Isolated node_modules (NOT shared):** this worktree has its own real `node_modules` (a clean `npm ci`, not the symlink to the main checkout). So `prisma generate` writes ONLY this worktree's client and does not perturb notif-tx or any other worktree. Run `npx prisma` / `npx vitest` / `npx tsc` / `npx eslint` directly from the worktree. Never `git add node_modules` (it shows as a typechange from the committed symlink; leave it uncommitted). Postgres is a native Homebrew instance on `localhost:5434`; the docker daemon is not used here. `psql`/superuser role `jcarney` (trust auth) is available for DB admin.
 - **Migration hygiene:** hand-write the migration SQL (do not rely on `prisma migrate dev` autogen, which folds pre-existing repo drift). Scalar-list defaults must emit `DEFAULT ARRAY[]::TEXT[]` (unchanged here). Run `prisma migrate status` clean before any Neon deploy; previews share the prod DB, so a branch behind a migration crashes P2021.
 - **Copy rules:** no em-dashes in any user-facing copy (use commas, parentheses, or periods). "HAVEN Hub" is two words in prose/UI; identifiers stay `havenhub`.
 - **Lint purity:** no `Date.now()` in React render (use `new Date()`); CI lints before testing, so a lint failure hides test output. Run `npm run lint` and `npm run typecheck` before declaring any UI task done.
@@ -47,17 +47,20 @@
 **Interfaces:**
 - Produces: Prisma model `IncidentReportSubject { id, reportId, personId, strikeDecision: StrikeDecision|null, strikeDecidedById, strikeDecidedAt, createdAt, report, person, strikeDecidedBy }`; `IncidentReport.subjects: IncidentReportSubject[]` and `IncidentReport.strikeActions: DisciplinaryAction[]`; `DisciplinaryAction` composite unique `(reportId, personId)`. `IncidentReport.subjectPersonId`/`strikeDecision`/`strikeDecidedById`/`strikeDecidedAt` and the `subject`/`strikeDecidedBy`/`strikeAction` relations are REMOVED.
 
-- [ ] **Step 1: Provision the per-worktree test DB and apply existing migrations**
+- [ ] **Step 1: Confirm the test DB baseline (already provisioned)**
 
-Run (from the worktree root):
+The DB `havenhub_test_incmulti` (owned by `haven`) already exists with all existing migrations applied and a green service baseline. Just confirm before editing schema:
 ```bash
-npm run db:up
-docker compose exec -T postgres psql -U haven -d havenhub -c "CREATE DATABASE havenhub_incidents_multi" || true
-DATABASE_URL="postgresql://haven:haven_dev@localhost:5434/havenhub_incidents_multi" \
-DATABASE_URL_UNPOOLED="postgresql://haven:haven_dev@localhost:5434/havenhub_incidents_multi" \
+TEST_DATABASE_URL="postgresql://haven:haven_dev@localhost:5434/havenhub_test_incmulti" \
+  npx vitest run src/modules/incidents/services/
+```
+Expected: PASS (baseline). If for any reason the DB is missing, recreate it via the native Postgres (no docker daemon here):
+```bash
+psql -h localhost -p 5434 -U jcarney -d postgres -c "CREATE DATABASE havenhub_test_incmulti OWNER haven"
+DATABASE_URL="postgresql://haven:haven_dev@localhost:5434/havenhub_test_incmulti" \
+DATABASE_URL_UNPOOLED="postgresql://haven:haven_dev@localhost:5434/havenhub_test_incmulti" \
   npx prisma migrate deploy
 ```
-Expected: existing migrations apply, ending "All migrations have been successfully applied." (If docker is unavailable locally, skip local DB steps throughout and rely on CI per Global Constraints.)
 
 - [ ] **Step 2: Add the `IncidentReportSubject` model to `prisma/schema.prisma`**
 
@@ -203,11 +206,11 @@ ALTER TABLE "IncidentReport" DROP COLUMN "strikeDecidedAt";
 
 Run:
 ```bash
-DATABASE_URL="postgresql://haven:haven_dev@localhost:5434/havenhub_incidents_multi" \
-DATABASE_URL_UNPOOLED="postgresql://haven:haven_dev@localhost:5434/havenhub_incidents_multi" \
+DATABASE_URL="postgresql://haven:haven_dev@localhost:5434/havenhub_test_incmulti" \
+DATABASE_URL_UNPOOLED="postgresql://haven:haven_dev@localhost:5434/havenhub_test_incmulti" \
   npx prisma migrate deploy
 npx prisma generate
-DATABASE_URL="postgresql://haven:haven_dev@localhost:5434/havenhub_incidents_multi" npx prisma migrate status
+DATABASE_URL="postgresql://haven:haven_dev@localhost:5434/havenhub_test_incmulti" DATABASE_URL_UNPOOLED="postgresql://haven:haven_dev@localhost:5434/havenhub_test_incmulti" npx prisma migrate status
 ```
 Expected: migrate deploy applies `20260710150000_incidents_multi_subject`; generate succeeds; `migrate status` reports "Database schema is up to date!".
 
@@ -319,7 +322,7 @@ Also update the first test ("creates a SUBMITTED report ...") to drop the `expec
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `TEST_DATABASE_URL="postgresql://haven:haven_dev@localhost:5434/havenhub_incidents_multi" npx vitest run src/modules/incidents/services/report.test.ts -t "submitReport"`
+Run: `TEST_DATABASE_URL="postgresql://haven:haven_dev@localhost:5434/havenhub_test_incmulti" npx vitest run src/modules/incidents/services/report.test.ts -t "submitReport"`
 Expected: FAIL (type errors on `subjects`, and `report.strikeDecision` gone).
 
 - [ ] **Step 3: Update `SubmitReportInput` and `submitReport`**
@@ -408,7 +411,7 @@ and change the call to `await notifyReviewersOfSubmission(report, pendingSubject
 
 - [ ] **Step 4: Run the submitReport tests to verify they pass**
 
-Run: `TEST_DATABASE_URL="postgresql://haven:haven_dev@localhost:5434/havenhub_incidents_multi" npx vitest run src/modules/incidents/services/report.test.ts -t "submitReport"`
+Run: `TEST_DATABASE_URL="postgresql://haven:haven_dev@localhost:5434/havenhub_test_incmulti" npx vitest run src/modules/incidents/services/report.test.ts -t "submitReport"`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -517,7 +520,7 @@ describe("decideStrike (per subject)", () => {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `TEST_DATABASE_URL="postgresql://haven:haven_dev@localhost:5434/havenhub_incidents_multi" npx vitest run src/modules/incidents/services/report.test.ts -t "decideStrike"`
+Run: `TEST_DATABASE_URL="postgresql://haven:haven_dev@localhost:5434/havenhub_test_incmulti" npx vitest run src/modules/incidents/services/report.test.ts -t "decideStrike"`
 Expected: FAIL (decideStrike signature mismatch, `IncidentReportSubject` unknown).
 
 - [ ] **Step 3: Rewrite `decideStrike`**
@@ -609,7 +612,7 @@ export async function decideStrike(
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `TEST_DATABASE_URL="postgresql://haven:haven_dev@localhost:5434/havenhub_incidents_multi" npx vitest run src/modules/incidents/services/report.test.ts -t "decideStrike"`
+Run: `TEST_DATABASE_URL="postgresql://haven:haven_dev@localhost:5434/havenhub_test_incmulti" npx vitest run src/modules/incidents/services/report.test.ts -t "decideStrike"`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -688,7 +691,7 @@ Also update the existing `listMyReports` newest-first test to read `subjectNames
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `TEST_DATABASE_URL="postgresql://haven:haven_dev@localhost:5434/havenhub_incidents_multi" npx vitest run src/modules/incidents/services/report.test.ts -t "getReport|listReviewQueue|listMyReports"`
+Run: `TEST_DATABASE_URL="postgresql://haven:haven_dev@localhost:5434/havenhub_test_incmulti" npx vitest run src/modules/incidents/services/report.test.ts -t "getReport|listReviewQueue|listMyReports"`
 Expected: FAIL.
 
 - [ ] **Step 3: Add the `summarizeSubjects` helper and update the reads**
@@ -759,7 +762,7 @@ In `listReviewQueue`, update the filters and mapping:
 
 - [ ] **Step 4: Run to verify passing**
 
-Run: `TEST_DATABASE_URL="postgresql://haven:haven_dev@localhost:5434/havenhub_incidents_multi" npx vitest run src/modules/incidents/services/report.test.ts -t "getReport|listReviewQueue|listMyReports"`
+Run: `TEST_DATABASE_URL="postgresql://haven:haven_dev@localhost:5434/havenhub_test_incmulti" npx vitest run src/modules/incidents/services/report.test.ts -t "getReport|listReviewQueue|listMyReports"`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -813,7 +816,7 @@ it("sends one strike_requested alert naming the flagged people when a strike is 
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `TEST_DATABASE_URL="postgresql://haven:haven_dev@localhost:5434/havenhub_incidents_multi" npx vitest run src/modules/incidents/services/report.test.ts -t "strike_requested|notifications"`
+Run: `TEST_DATABASE_URL="postgresql://haven:haven_dev@localhost:5434/havenhub_test_incmulti" npx vitest run src/modules/incidents/services/report.test.ts -t "strike_requested|notifications"`
 Expected: FAIL.
 
 - [ ] **Step 3: Update the email template**
@@ -851,7 +854,7 @@ Then in the reviewer loop, replace the `if (report.strikeDecision === "PENDING" 
 
 - [ ] **Step 5: Run to verify passing**
 
-Run: `TEST_DATABASE_URL="postgresql://haven:haven_dev@localhost:5434/havenhub_incidents_multi" npx vitest run src/modules/incidents/services/report.test.ts`
+Run: `TEST_DATABASE_URL="postgresql://haven:haven_dev@localhost:5434/havenhub_test_incmulti" npx vitest run src/modules/incidents/services/report.test.ts`
 Expected: PASS (the whole incidents report suite).
 
 - [ ] **Step 6: Typecheck the service + email surface and commit**
@@ -1311,7 +1314,7 @@ Add the same two helper functions to `review/page.tsx`. Update the row map destr
 Run:
 ```bash
 npx tsc --noEmit && npm run lint
-TEST_DATABASE_URL="postgresql://haven:haven_dev@localhost:5434/havenhub_incidents_multi" npm test
+TEST_DATABASE_URL="postgresql://haven:haven_dev@localhost:5434/havenhub_test_incmulti" npm test
 ```
 Expected: typecheck clean across the whole app, lint clean, all tests pass.
 
@@ -1347,8 +1350,8 @@ Run:
 ```bash
 npm run lint
 npx tsc --noEmit
-TEST_DATABASE_URL="postgresql://haven:haven_dev@localhost:5434/havenhub_incidents_multi" npm test
-DATABASE_URL="postgresql://haven:haven_dev@localhost:5434/havenhub_incidents_multi" npx prisma migrate status
+TEST_DATABASE_URL="postgresql://haven:haven_dev@localhost:5434/havenhub_test_incmulti" npm test
+DATABASE_URL="postgresql://haven:haven_dev@localhost:5434/havenhub_test_incmulti" DATABASE_URL_UNPOOLED="postgresql://haven:haven_dev@localhost:5434/havenhub_test_incmulti" npx prisma migrate status
 ```
 Expected: lint clean, types clean, tests green, migrations up to date.
 

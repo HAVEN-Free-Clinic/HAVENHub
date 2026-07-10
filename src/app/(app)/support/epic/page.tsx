@@ -33,15 +33,15 @@ import { EpicRequestTabs } from "@/modules/support/components/epic-request-tabs"
 
 async function closeTicketAction(ticketId: string) {
   "use server";
-  await requirePermission("support.manage_requests");
-  await closeTicket(ticketId);
+  const session = await requirePermission("support.manage_requests");
+  await closeTicket(session.personId, ticketId);
   revalidatePath("/support/epic");
 }
 
 async function updateServiceRequestNumberAction(ticketId: string, value: string) {
   "use server";
-  await requirePermission("support.manage_requests");
-  await updateServiceRequestNumber(ticketId, value);
+  const session = await requirePermission("support.manage_requests");
+  await updateServiceRequestNumber(session.personId, ticketId, value);
   revalidatePath("/support/epic");
 }
 

@@ -28,9 +28,11 @@ import { ALL_STATUSES, ALL_CATEGORIES, ALL_PRIORITIES } from "@/modules/support/
 type RequestFiltersProps = {
   counts: Record<TechRequestStatus, number>;
   total: number;
+  /** support.manage_requests holders, to populate the assignee filter. */
+  assignees: { id: string; name: string | null }[];
 };
 
-export function RequestFilters({ counts, total }: RequestFiltersProps) {
+export function RequestFilters({ counts, total, assignees }: RequestFiltersProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -38,6 +40,7 @@ export function RequestFilters({ counts, total }: RequestFiltersProps) {
   const status = searchParams.get("status") ?? "";
   const category = searchParams.get("category") ?? "";
   const priority = searchParams.get("priority") ?? "";
+  const assignee = searchParams.get("assignee") ?? "";
 
   const urlQ = searchParams.get("q") ?? "";
   const [q, setQ] = useState(urlQ);
@@ -107,6 +110,23 @@ export function RequestFilters({ counts, total }: RequestFiltersProps) {
             {ALL_PRIORITIES.map((p) => (
               <option key={p} value={p}>
                 {PRIORITY_LABELS[p]}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      </div>
+
+      <div className="w-44">
+        <Field label="Assignee">
+          <Select
+            aria-label="Filter by assignee"
+            value={assignee}
+            onChange={(e) => setParam("assignee", e.target.value)}
+          >
+            <option value="">All assignees</option>
+            {assignees.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name ?? "Unknown"}
               </option>
             ))}
           </Select>

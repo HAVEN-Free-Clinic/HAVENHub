@@ -6,6 +6,7 @@ import {
   listEpicAuthorizers,
   listPendingDeactivations,
   reconcileDeactivationRequests,
+  submitEpicRequests,
   logYnhhIncident,
   resolveIncident,
   getEpicRequestHistory,
@@ -204,6 +205,108 @@ describe("reconcileDeactivationRequests", () => {
 
     const all = await prisma.epicRequest.findMany({ where: { personId: person.id, kind: "DEACTIVATE" } });
     expect(all).toHaveLength(1); // no duplicate
+  });
+});
+
+describe("submitEpicRequests", () => {
+  beforeEach(resetDb);
+
+  it("happy path: creates an OPEN ticket and SUBMITTED requests carrying the mirror Epic ID", async () => {
+    const actor = await createPerson("Manager");
+    await grantPermission(actor.id, "support.manage_requests");
+    const a = await createPerson("Alice");
+    const b = await createPerson("Bob");
+
+    const ticket = await submitEpicRequests(actor.id, "NEW", "New - Bulk - Alice, Bob", [
+      { personId: a.id, mirrorEpicId: "MIRROR-A" },
+      { personId: b.id, mirrorEpicId: null },
+    ]);
+
+    expect(ticket.status).toBe("OPEN");
+    expect(ticket.description).toBe("New - Bulk - Alice, Bob");
+    expect(ticket.submittedById).toBe(actor.id);
+
+    const reqs = await prisma.epicRequest.findMany({ where: { ticketId: ticket.id }, orderBy: { person: { name: "asc" } } });
+    expect(reqs).toHaveLength(2);
+    expect(reqs.every((r) => r.status === "SUBMITTED" && r.kind === "NEW")).toBe(true);
+    expect(reqs.find((r) => r.personId === a.id)?.mirrorEpicId).toBe("MIRROR-A");
+    expect(reqs.find((r) => r.personId === b.id)?.mirrorEpicId).toBeNull();
+  });
+
+  it("rejects a duplicate open request and creates no ticket", async () => {
+    const actor = await createPerson("Manager");
+    await grantPermission(actor.id, "support.manage_requests");
+    const person = await createPerson("Alice");
+    // An existing open (PENDING) request already tracks this person.
+    await prisma.epicRequest.create({
+      data: { personId: person.id, kind: "NEW", status: "PENDING", requestedById: actor.id },
+    });
+
+    await expect(
+      submitEpicRequests(actor.id, "NEW", "New - Individual - Alice", [
+        { personId: person.id, mirrorEpicId: null },
+      ])
+    ).rejects.toBeInstanceOf(SupportStateError);
+
+    // The whole transaction rolls back: no new ticket, no second request.
+    expect(await prisma.ynhhTicket.count()).toBe(0);
+    expect(await prisma.epicRequest.count({ where: { personId: person.id } })).toBe(1);
+  });
+
+  it("rejects a NEW request for a person who already has an Epic ID, and creates no ticket", async () => {
+    const actor = await createPerson("Manager");
+    await grantPermission(actor.id, "support.manage_requests");
+    const person = await createPerson("Alice", { epicId: "E-EXISTS" });
+
+    await expect(
+      submitEpicRequests(actor.id, "NEW", "New - Individual - Alice", [
+        { personId: person.id, mirrorEpicId: null },
+      ])
+    ).rejects.toBeInstanceOf(SupportStateError);
+
+    expect(await prisma.ynhhTicket.count()).toBe(0);
+    expect(await prisma.epicRequest.count()).toBe(0);
+  });
+
+  it("rejects a MODIFY/RENEW for a person with no Epic ID on file", async () => {
+    const actor = await createPerson("Manager");
+    await grantPermission(actor.id, "support.manage_requests");
+    const person = await createPerson("Alice");
+
+    await expect(
+      submitEpicRequests(actor.id, "MODIFY", "Modify - Individual - Alice", [
+        { personId: person.id, mirrorEpicId: null },
+      ])
+    ).rejects.toBeInstanceOf(SupportStateError);
+
+    expect(await prisma.ynhhTicket.count()).toBe(0);
+  });
+
+  it("rejects a non-active person", async () => {
+    const actor = await createPerson("Manager");
+    await grantPermission(actor.id, "support.manage_requests");
+    const person = await createPerson("Alice", { epicId: "E1", status: "OFFBOARDED" });
+
+    await expect(
+      submitEpicRequests(actor.id, "RENEW", "Renew - Individual - Alice", [
+        { personId: person.id, mirrorEpicId: null },
+      ])
+    ).rejects.toBeInstanceOf(SupportStateError);
+
+    expect(await prisma.ynhhTicket.count()).toBe(0);
+  });
+
+  it("throws SupportNotFoundError when a person no longer exists", async () => {
+    const actor = await createPerson("Manager");
+    await grantPermission(actor.id, "support.manage_requests");
+
+    await expect(
+      submitEpicRequests(actor.id, "NEW", "New - Individual - Ghost", [
+        { personId: "cld_nonexistent", mirrorEpicId: null },
+      ])
+    ).rejects.toBeInstanceOf(SupportNotFoundError);
+
+    expect(await prisma.ynhhTicket.count()).toBe(0);
   });
 });
 

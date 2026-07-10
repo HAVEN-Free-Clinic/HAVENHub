@@ -305,23 +305,54 @@ export async function getEpicRequestHistory(): Promise<EpicRequestHistoryRow[]> 
  * Closed tickets move out of the active Tracker view and into History --
  * see EpicRequestTabs, which filters getEpicRequestHistory's results by
  * ticket.status rather than querying separately.
+ *
+ * Audits "epic.ticket_close" so a tracker close leaves the same trail as the
+ * single-ticket close on the request detail page.
  */
-export async function closeTicket(ticketId: string) {
-  return prisma.ynhhTicket.update({
+export async function closeTicket(actorPersonId: string, ticketId: string) {
+  const ticket = await prisma.ynhhTicket.update({
     where: { id: ticketId },
     data: {
       status: "CLOSED",
       closedAt: new Date(),
     },
   });
+
+  await recordAudit({
+    actorPersonId,
+    action: "epic.ticket_close",
+    entityType: "YnhhTicket",
+    entityId: ticketId,
+    after: { status: "CLOSED" },
+  });
+
+  return ticket;
 }
 
-/** Sets or updates the YNHH service request number on a ticket. */
-export async function updateServiceRequestNumber(ticketId: string, serviceRequestNumber: string) {
-  return prisma.ynhhTicket.update({
+/**
+ * Sets or updates the YNHH service request number on a ticket. Audits
+ * "epic.ticket_sr" so a tracker SR edit leaves the same trail as the
+ * single-ticket SR edit on the request detail page.
+ */
+export async function updateServiceRequestNumber(
+  actorPersonId: string,
+  ticketId: string,
+  serviceRequestNumber: string
+) {
+  const ticket = await prisma.ynhhTicket.update({
     where: { id: ticketId },
     data: { serviceRequestNumber },
   });
+
+  await recordAudit({
+    actorPersonId,
+    action: "epic.ticket_sr",
+    entityType: "YnhhTicket",
+    entityId: ticketId,
+    after: { serviceRequestNumber },
+  });
+
+  return ticket;
 }
 
 // ---------------------------------------------------------------------------
@@ -530,5 +561,83 @@ export async function reconcileDeactivationRequests(
         });
       }
     }
+  });
+}
+
+/**
+ * Creates the YNHH ticket and its SUBMITTED access-granting (NEW/MODIFY/RENEW)
+ * Epic requests for the generate route's non-deactivate path, enforcing the
+ * same invariants createEpicRequest guarantees so this bulk/PDF path cannot
+ * manufacture a duplicate open request or a NEW request for someone who
+ * already has an Epic ID.
+ *
+ * Mirrors reconcileDeactivationRequests (the DEACTIVATE path) but rejects
+ * duplicates instead of reusing them. Validation and both writes run in one
+ * transaction, so any violation throws before the ticket is committed (no
+ * orphan ticket, no partially-created batch):
+ *   - every person must still exist and be ACTIVE (SupportNotFoundError /
+ *     SupportStateError);
+ *   - NEW requires no epicId, MODIFY/RENEW requires an epicId (SupportStateError);
+ *   - no person may already have an open (PENDING/SUBMITTED) request
+ *     (SupportStateError).
+ *
+ * Trusts its caller for permissions: the generate route gates on
+ * support.manage_requests. Returns the created ticket.
+ */
+export async function submitEpicRequests(
+  actorPersonId: string,
+  kind: "NEW" | "MODIFY" | "RENEW",
+  ticketDescription: string,
+  requests: { personId: string; mirrorEpicId: string | null }[]
+): Promise<YnhhTicket> {
+  const personIds = requests.map((r) => r.personId);
+
+  return prisma.$transaction(async (tx) => {
+    const people = await tx.person.findMany({
+      where: { id: { in: personIds } },
+      select: { id: true, name: true, status: true, epicId: true },
+    });
+    const byId = new Map(people.map((p) => [p.id, p]));
+
+    for (const { personId } of requests) {
+      const person = byId.get(personId);
+      if (!person) throw new SupportNotFoundError(`Person not found: ${personId}`);
+      if (person.status !== "ACTIVE") {
+        throw new SupportStateError(`${person.name} is not an active member; cannot submit an Epic request.`);
+      }
+      if (kind === "NEW" && person.epicId) {
+        throw new SupportStateError(`${person.name} already has an Epic ID; submit a Modify or Renew instead of New.`);
+      }
+      if ((kind === "MODIFY" || kind === "RENEW") && !person.epicId) {
+        throw new SupportStateError(`${person.name} has no Epic ID on file; submit a New request instead of ${kind}.`);
+      }
+    }
+
+    const open = await tx.epicRequest.findMany({
+      where: { personId: { in: personIds }, status: { in: ["PENDING", "SUBMITTED"] } },
+      include: { person: { select: { name: true } } },
+    });
+    if (open.length > 0) {
+      const names = [...new Set(open.map((r) => r.person.name))].join(", ");
+      throw new SupportStateError(
+        `An open Epic request already exists for: ${names}. Cancel it before submitting another.`
+      );
+    }
+
+    const ticket = await tx.ynhhTicket.create({
+      data: { submittedById: actorPersonId, description: ticketDescription, status: "OPEN" },
+    });
+    await tx.epicRequest.createMany({
+      data: requests.map((r) => ({
+        personId: r.personId,
+        kind,
+        status: "SUBMITTED",
+        mirrorEpicId: r.mirrorEpicId,
+        requestedById: actorPersonId,
+        ticketId: ticket.id,
+      })),
+    });
+
+    return ticket;
   });
 }

@@ -23,7 +23,8 @@ import * as path from "path";
 import { auth } from "@/platform/auth/auth";
 import { getActivePerson } from "@/platform/auth/match-person";
 import { can } from "@/platform/rbac/engine";
-import { findMirrorPerson, getPeopleByIds, listEpicAuthorizers, reconcileDeactivationRequests } from "@/modules/support/services/itcm";
+import { findMirrorPerson, getPeopleByIds, listEpicAuthorizers, reconcileDeactivationRequests, submitEpicRequests } from "@/modules/support/services/itcm";
+import { SupportStateError, SupportNotFoundError } from "@/modules/support/services/tech-request";
 import {
   generatePdf,
   type RequestType,
@@ -374,25 +375,26 @@ export async function POST(req: Request) {
   }
 
   // Create one YnhhTicket per PDF submission to group the requests together.
-  // Service request number and close date are filled in manually when YNHH responds.
-  // The actor is the signed-in admin who generated the request (resolved above),
-  // so tracking is always recorded - never silently skipped.
-  const ticket = await prisma.ynhhTicket.create({
-    data: {
-      submittedById: actor.id,
-      description: `${REQUEST_TYPE_LABELS[requestType]} - ${people.map((p) => p.name).join(", ")}`,
-      status: "OPEN",
-    },
-  });
+  // Service request number and close date are filled in manually when YNHH
+  // responds. The actor is the signed-in admin who generated the request
+  // (resolved above), so tracking is always recorded - never silently skipped.
+  const ticketDescription = `${REQUEST_TYPE_LABELS[requestType]} - ${people.map((p) => p.name).join(", ")}`;
 
   if (isDeactivate) {
     // Deactivation requests already exist (queued at offboard) or are created
     // here for an ad-hoc deactivation; link them to this ticket as SUBMITTED.
+    const ticket = await prisma.ynhhTicket.create({
+      data: { submittedById: actor.id, description: ticketDescription, status: "OPEN" },
+    });
     await reconcileDeactivationRequests(actor.id, people.map((p) => p.id), ticket.id);
   } else {
-    // Record Epic requests for tracking.
+    // Record access-granting Epic requests for tracking.
     // kind maps: new_individual/bulk_new -> NEW, mod_individual -> MODIFY,
-    // renew_individual/bulk_mod -> RENEW.
+    // renew_individual/bulk_mod -> RENEW. submitEpicRequests enforces the same
+    // invariants createEpicRequest guarantees (person ACTIVE, no open request,
+    // NEW -> no epicId, MODIFY/RENEW -> epicId) and creates the ticket plus its
+    // requests atomically, so a duplicate submission is rejected here instead of
+    // manufacturing a second open request or an orphan ticket.
     const epicKind =
       requestType === "new_individual" || requestType === "bulk_new"
         ? "NEW"
@@ -400,20 +402,19 @@ export async function POST(req: Request) {
         ? "MODIFY"
         : "RENEW";
 
-    await prisma.$transaction(
-      people.map((p) =>
-        prisma.epicRequest.create({
-          data: {
-            personId: p.id,
-            kind: epicKind,
-            status: "SUBMITTED",
-            mirrorEpicId: mirrorByPersonId.get(p.id)?.epicId ?? null,
-            requestedById: actor.id,
-            ticketId: ticket.id,
-          },
-        })
-      )
-    );
+    try {
+      await submitEpicRequests(
+        actor.id,
+        epicKind,
+        ticketDescription,
+        people.map((p) => ({ personId: p.id, mirrorEpicId: mirrorByPersonId.get(p.id)?.epicId ?? null }))
+      );
+    } catch (err) {
+      if (err instanceof SupportStateError || err instanceof SupportNotFoundError) {
+        return NextResponse.json({ error: err.message }, { status: 400 });
+      }
+      throw err;
+    }
   }
 
   return NextResponse.json({

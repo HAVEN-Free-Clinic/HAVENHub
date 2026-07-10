@@ -193,10 +193,16 @@ export async function listAllRequests(
   if (filter.q?.trim()) {
     const q = filter.q.trim();
     const asNum = Number.parseInt(q, 10);
+    // Only match on the ticket number when the digits fit a Postgres int4. A
+    // longer digit string (e.g. an ID pasted into the search box) overflows the
+    // `number` column and throws a raw error, so an out-of-range value simply
+    // skips the numeric branch and matches on subject/requester only.
+    const numMatch =
+      Number.isFinite(asNum) && asNum >= 0 && asNum <= 2_147_483_647 ? [{ number: asNum }] : [];
     where.OR = [
       { subject: { contains: q, mode: "insensitive" } },
       { requester: { name: { contains: q, mode: "insensitive" } } },
-      ...(Number.isFinite(asNum) ? [{ number: asNum }] : []),
+      ...numMatch,
     ];
   }
   const [rows, total, groupBy] = await Promise.all([

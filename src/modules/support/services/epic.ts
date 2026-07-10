@@ -6,24 +6,15 @@
  *     createEpicRequest      - self OR support.manage_requests
  *     createTicket           - support.manage_requests
  *     setTicketServiceRequestNumber - support.manage_requests
- *     closeTicket            - support.manage_requests
  *     completeRequest        - support.manage_requests
- *     cancelRequest          - support.manage_requests
  *     sendEpicEmail          - support.manage_requests
- *     updateRequestDetails   - support.manage_requests (manager-only)
- *
- *   TRUSTED callers (page/server-action gates):
- *     myEpicPanel        - caller gates to the authenticated person
- *     listEpicRequests   - caller gates to support.manage_requests holders
- *     listTickets        - caller gates to support.manage_requests holders
- *     emailHistory       - caller gates to support.manage_requests holders
  *
  * updatePersonFields (from @/platform/people) is used for all epicId writes:
  * it diffs and audits person.update. Do not duplicate that logic here.
  */
 
-import type { EpicRequest, EmailLog, YnhhTicket } from "@prisma/client";
-import type { EpicRequestKind, EpicRequestStatus } from "@prisma/client";
+import type { EpicRequest, YnhhTicket } from "@prisma/client";
+import type { EpicRequestKind } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { can } from "@/platform/rbac/engine";
@@ -39,8 +30,6 @@ import {
   type EpicTemplateKey,
 } from "@/platform/email/templates/epic";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
-
-const PAGE_SIZE = 25;
 
 // ---------------------------------------------------------------------------
 // Typed errors
@@ -77,25 +66,6 @@ export type EpicRequestInput = {
   jobTitle?: string | null;
   mirrorEpicId?: string | null;
   notes?: string | null;
-};
-
-export type EpicRequestRow = EpicRequest & {
-  person: {
-    id: string;
-    name: string | null;
-    netId: string | null;
-    contactEmail: string | null;
-    epicId: string | null;
-  };
-  ticket: {
-    id: string;
-    serviceRequestNumber: string | null;
-  } | null;
-};
-
-export type TicketRow = YnhhTicket & {
-  _count: { requests: number };
-  submittedBy: { name: string | null };
 };
 
 // ---------------------------------------------------------------------------
@@ -185,93 +155,18 @@ export async function createEpicRequest(
 }
 
 /**
- * Returns the person's epicId and their open (PENDING or SUBMITTED) request.
- *
- * Trusts callers: the page gates this to the authenticated person.
- */
-export async function myEpicPanel(
-  personId: string
-): Promise<{ epicId: string | null; openRequest: EpicRequest | null }> {
-  const [person, openRequest] = await Promise.all([
-    prisma.person.findUnique({ where: { id: personId } }),
-    prisma.epicRequest.findFirst({
-      where: {
-        personId,
-        status: { in: ["PENDING", "SUBMITTED"] },
-        kind: { not: "DEACTIVATE" },
-      },
-      orderBy: { createdAt: "desc" },
-    }),
-  ]);
-
-  if (!person) return { epicId: null, openRequest: null };
-
-  return { epicId: person.epicId, openRequest };
-}
-
-/**
- * Returns a paginated list of epic requests.
- *
- * page defaults to 1, page size is 25. Filtered by status when given, newest
- * first. Each row includes person (id, name, netId, contactEmail, epicId) and
- * ticket (id, serviceRequestNumber) or null.
- *
- * counts is a groupBy across ALL requests regardless of the status filter.
- *
- * Trusts callers: the page gates this to support.manage_requests holders.
- */
-export async function listEpicRequests(q: {
-  status?: EpicRequestStatus;
-  page?: number;
-}): Promise<{ rows: EpicRequestRow[]; total: number; counts: Record<EpicRequestStatus, number> }> {
-  const page = q.page ?? 1;
-  const skip = (page - 1) * PAGE_SIZE;
-
-  const where = q.status ? { status: q.status } : {};
-
-  const [rows, total, groupBy] = await Promise.all([
-    prisma.epicRequest.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-      skip,
-      take: PAGE_SIZE,
-      include: {
-        person: {
-          select: { id: true, name: true, netId: true, contactEmail: true, epicId: true },
-        },
-        ticket: {
-          select: { id: true, serviceRequestNumber: true },
-        },
-      },
-    }),
-    prisma.epicRequest.count({ where }),
-    prisma.epicRequest.groupBy({
-      by: ["status"],
-      _count: { _all: true },
-    }),
-  ]);
-
-  const zero: Record<EpicRequestStatus, number> = {
-    PENDING: 0,
-    SUBMITTED: 0,
-    COMPLETED: 0,
-    CANCELLED: 0,
-  };
-  const counts = groupBy.reduce((acc, row) => {
-    acc[row.status] = row._count._all;
-    return acc;
-  }, zero);
-
-  return { rows: rows as EpicRequestRow[], total, counts };
-}
-
-/**
  * Creates a YnhhTicket and moves all listed requests to SUBMITTED in one
  * transaction.
  *
  * Requires support.manage_requests. All requestIds must be PENDING; any that
  * are not cause EpicStateError listing the offending ids. requestIds must be
  * non-empty.
+ *
+ * The pre-check reads status outside the write, so the SUBMITTED move is an
+ * atomic claim (updateMany scoped to status PENDING): under a concurrent
+ * double-submit only one caller matches all rows; the loser matches fewer,
+ * throws, and rolls back its own ticket rather than reassigning a request or
+ * orphaning a ticket.
  *
  * Audits "epic.ticket_create" with requestIds.
  */
@@ -314,10 +209,15 @@ export async function createTicket(
       },
     });
 
-    await tx.epicRequest.updateMany({
-      where: { id: { in: input.requestIds } },
+    const claimed = await tx.epicRequest.updateMany({
+      where: { id: { in: input.requestIds }, status: "PENDING" },
       data: { ticketId: created.id, status: "SUBMITTED" },
     });
+    if (claimed.count !== input.requestIds.length) {
+      throw new EpicStateError(
+        "One or more of these requests were already submitted by a concurrent action. Refresh and try again."
+      );
+    }
 
     return created;
   });
@@ -361,64 +261,6 @@ export async function setTicketServiceRequestNumber(
     entityId: ticketId,
     after: { serviceRequestNumber: srNumber },
   });
-}
-
-/**
- * Closes a ticket. Ticket must exist (EpicNotFoundError) and be OPEN
- * (EpicStateError if already CLOSED).
- *
- * Requires support.manage_requests. Audits "epic.ticket_close".
- */
-export async function closeTicket(actorPersonId: string, ticketId: string): Promise<void> {
-  await requireManageEpic(actorPersonId);
-
-  const ticket = await prisma.ynhhTicket.findUnique({ where: { id: ticketId } });
-  if (!ticket) throw new EpicNotFoundError(`Ticket not found: ${ticketId}`);
-  if (ticket.status === "CLOSED") {
-    throw new EpicStateError("Ticket is already CLOSED.");
-  }
-
-  await prisma.ynhhTicket.update({
-    where: { id: ticketId },
-    data: { status: "CLOSED", closedAt: new Date() },
-  });
-
-  await recordAudit({
-    actorPersonId,
-    action: "epic.ticket_close",
-    entityType: "YnhhTicket",
-    entityId: ticketId,
-    after: { status: "CLOSED" },
-  });
-}
-
-/**
- * Returns all tickets: OPEN first then CLOSED, each newest-submittedAt first
- * within the group. Includes request count and submittedBy name.
- *
- * Trusts callers: the page gates this to support.manage_requests holders.
- */
-export async function listTickets(): Promise<TicketRow[]> {
-  const [open, closed] = await Promise.all([
-    prisma.ynhhTicket.findMany({
-      where: { status: "OPEN" },
-      orderBy: { submittedAt: "desc" },
-      include: {
-        _count: { select: { requests: true } },
-        submittedBy: { select: { name: true } },
-      },
-    }),
-    prisma.ynhhTicket.findMany({
-      where: { status: "CLOSED" },
-      orderBy: { submittedAt: "desc" },
-      include: {
-        _count: { select: { requests: true } },
-        submittedBy: { select: { name: true } },
-      },
-    }),
-  ]);
-
-  return [...open, ...closed] as TicketRow[];
 }
 
 /**
@@ -512,54 +354,6 @@ export async function completeRequest(
     entityId: requestId,
     // For NEW/MODIFY record the epicId actually written; for RENEW and DEACTIVATE omit it (no write occurred).
     after: { kind: req.kind, epicId: writtenEpicId },
-  });
-}
-
-/**
- * Cancels an epic request. Request must exist (EpicNotFoundError) and be
- * PENDING or SUBMITTED (EpicStateError otherwise).
- *
- * Requires support.manage_requests. reason must be non-blank (EpicStateError).
- *
- * Existing notes are preserved; "Cancelled: <reason>" is appended on a new
- * line (or set directly when notes is null).
- *
- * Audits "epic.cancel" with reason.
- */
-export async function cancelRequest(
-  actorPersonId: string,
-  requestId: string,
-  reason: string
-): Promise<void> {
-  await requireManageEpic(actorPersonId);
-
-  if (!reason || !reason.trim()) {
-    throw new EpicStateError("A non-blank reason is required to cancel a request.");
-  }
-
-  const req = await prisma.epicRequest.findUnique({ where: { id: requestId } });
-  if (!req) throw new EpicNotFoundError(`EpicRequest not found: ${requestId}`);
-
-  if (req.status !== "PENDING" && req.status !== "SUBMITTED") {
-    throw new EpicStateError(
-      `Cannot cancel a request with status ${req.status}. Must be PENDING or SUBMITTED.`
-    );
-  }
-
-  const cancellationLine = `Cancelled: ${reason.trim()}`;
-  const updatedNotes = req.notes ? `${req.notes}\n${cancellationLine}` : cancellationLine;
-
-  await prisma.epicRequest.update({
-    where: { id: requestId },
-    data: { status: "CANCELLED", notes: updatedNotes },
-  });
-
-  await recordAudit({
-    actorPersonId,
-    action: "epic.cancel",
-    entityType: "EpicRequest",
-    entityId: requestId,
-    after: { reason: reason.trim() },
   });
 }
 
@@ -658,98 +452,3 @@ export async function sendEpicEmail(
   });
 }
 
-/**
- * Updates jobTitle and/or mirrorEpicId on an open epic request.
- *
- * Requires support.manage_requests (EpicForbiddenError). Request must exist
- * (EpicNotFoundError) and be PENDING or SUBMITTED (EpicStateError otherwise).
- *
- * Only keys present in input are written; undefined means "leave untouched".
- * null or "" clears the field to null. Non-empty strings are trimmed.
- *
- * Audits "epic.update_details" with before/after of both fields.
- */
-export async function updateRequestDetails(
-  actorPersonId: string,
-  requestId: string,
-  input: { jobTitle?: string | null; mirrorEpicId?: string | null }
-): Promise<void> {
-  await requireManageEpic(actorPersonId);
-
-  const req = await prisma.epicRequest.findUnique({ where: { id: requestId } });
-  if (!req) throw new EpicNotFoundError(`EpicRequest not found: ${requestId}`);
-
-  if (req.status !== "PENDING" && req.status !== "SUBMITTED") {
-    throw new EpicStateError(
-      `Cannot update details on a request with status ${req.status}. Must be PENDING or SUBMITTED.`
-    );
-  }
-
-  // Build the update data: undefined = skip field; null/"" = clear; string = trim and set.
-  const data: { jobTitle?: string | null; mirrorEpicId?: string | null } = {};
-
-  if (input.jobTitle !== undefined) {
-    const v = input.jobTitle;
-    data.jobTitle = v === null || v === "" ? null : v.trim();
-  }
-  if (input.mirrorEpicId !== undefined) {
-    const v = input.mirrorEpicId;
-    data.mirrorEpicId = v === null || v === "" ? null : v.trim();
-  }
-
-  if (Object.keys(data).length > 0) {
-    await prisma.epicRequest.update({ where: { id: requestId }, data });
-  }
-
-  await recordAudit({
-    actorPersonId,
-    action: "epic.update_details",
-    entityType: "EpicRequest",
-    entityId: requestId,
-    before: {
-      jobTitle: req.jobTitle,
-      mirrorEpicId: req.mirrorEpicId,
-    },
-    after: {
-      jobTitle: data.jobTitle !== undefined ? data.jobTitle : req.jobTitle,
-      mirrorEpicId: data.mirrorEpicId !== undefined ? data.mirrorEpicId : req.mirrorEpicId,
-    },
-  });
-}
-
-/**
- * Returns epic-template EmailLog rows for the given personIds, grouped into
- * a Map keyed by personId, newest first.
- *
- * Only rows whose template is an epic template key are included. Non-epic
- * template rows are silently excluded.
- *
- * Trusts callers: the page gates this to support.manage_requests holders.
- */
-export async function emailHistory(personIds: string[]): Promise<Map<string, EmailLog[]>> {
-  if (personIds.length === 0) return new Map();
-
-  const epicTemplateKeys: EpicTemplateKey[] = [
-    "epic-onboarding",
-    "epic-activation",
-    "epic-password-reset",
-  ];
-
-  const rows = await prisma.emailLog.findMany({
-    where: {
-      personId: { in: personIds },
-      template: { in: epicTemplateKeys },
-    },
-    orderBy: { createdAt: "desc" },
-  });
-
-  const result = new Map<string, EmailLog[]>();
-  for (const row of rows) {
-    if (!row.personId) continue;
-    const list = result.get(row.personId) ?? [];
-    list.push(row);
-    result.set(row.personId, list);
-  }
-
-  return result;
-}

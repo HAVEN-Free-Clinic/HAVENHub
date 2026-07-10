@@ -8,14 +8,16 @@ export function SubmitButton({
   children,
   pendingLabel,
   variant,
+  disabled,
 }: {
   children: React.ReactNode;
   pendingLabel: string;
   variant?: Variant;
+  disabled?: boolean;
 }) {
   const { pending } = useFormStatus();
   return (
-    <Button type="submit" variant={variant} disabled={pending}>
+    <Button type="submit" variant={variant} disabled={pending || disabled}>
       {pending ? pendingLabel : children}
     </Button>
   );

@@ -234,13 +234,16 @@ test("strike request to approve: director requests a strike, admin approves it, 
 /**
  * Exercises linking MULTIPLE people to one report and requesting a strike
  * against only one of them. dev.director links "Dev Volunteer" (a managed
- * volunteer, strike requested) and "Jack Carney" (strike not requested) as
- * subjects. Jack Carney is the only other ACTIVE person in the base dev seed
- * besides dev.director and dev.volunteer (see prisma/seed.ts: he is the
- * platform admin / ITCM director). He is not a volunteer in a department
- * dev.director manages, so canRequestStrikeAgainst rejects a strike against
- * him and the picker never offers the checkbox for his row -- exercising the
- * "no strike for this subject" path structurally, not just by omission.
+ * volunteer, strike requested) and themselves, "Dev Director" (strike not
+ * requested), as subjects. The second subject cannot be the admin reviewer
+ * (Jack Carney): a report that links the reviewer as a subject is hidden from
+ * that reviewer's own queue by the self-adjudication guard, so with only three
+ * people in the base dev seed (see prisma/seed.ts) the second subject is
+ * dev.director themselves. dev.director is not a volunteer in a department they
+ * manage (issuablePeople excludes the actor), so canRequestStrikeAgainst
+ * rejects a strike against them and the picker never offers the checkbox for
+ * their row -- exercising the "no strike for this subject" path structurally,
+ * not just by omission.
  *
  * Cleanup: same as Test C -- the single resulting DisciplinaryAction is
  * deleted via the strikes ledger's two-click ConfirmButton; the IncidentReport
@@ -254,7 +257,7 @@ test("multi-person report: director links two people, admin approves the single 
   const description = `E2E multi-person report ${tag()}`;
   const number = await submitReport(page, description, [
     { optionText: "Dev Volunteer", requestStrike: true },
-    { optionText: "Jack Carney" },
+    { optionText: "Dev Director" },
   ]);
 
   // Switch to the admin reviewer and open the same report.
@@ -275,7 +278,7 @@ test("multi-person report: director links two people, admin approves the single 
   // subjects list is the only <ul> nested in a <dl> on this page.
   const subjectsList = page.locator("dl ul");
   await expect(subjectsList.getByText("Dev Volunteer")).toBeVisible();
-  await expect(subjectsList.getByText("Jack Carney")).toBeVisible();
+  await expect(subjectsList.getByText("Dev Director")).toBeVisible();
 
   // Only Dev Volunteer requested a strike, so there is exactly one
   // Approve/Decline form pair on the page. Approve it with a category.
@@ -290,14 +293,14 @@ test("multi-person report: director links two people, admin approves the single 
   // (strikeDecision APPROVED).
   await expect(page.getByText("Strike issued")).toBeVisible();
 
-  // Exactly one strike lands on the ledger, for Dev Volunteer; Jack Carney
+  // Exactly one strike lands on the ledger, for Dev Volunteer; Dev Director
   // carries none. Then clean it up.
   await page.goto("/incidents/strikes");
   await page.waitForURL((url) => url.pathname === "/incidents/strikes");
   const strikeRow = page.locator("tr").filter({ hasText: "Dev Volunteer" }).filter({ hasText: description });
   await expect(strikeRow).toBeVisible();
   await expect(
-    page.locator("tr").filter({ hasText: "Jack Carney" }).filter({ hasText: description })
+    page.locator("tr").filter({ hasText: "Dev Director" }).filter({ hasText: description })
   ).toHaveCount(0);
 
   await confirmButtonClick(strikeRow, "Delete");

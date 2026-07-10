@@ -150,8 +150,12 @@ async function scopeCheck(actorPersonId: string, departmentId: string): Promise<
  * Blanket schedule.edit_all admins are intentionally excluded so a routine drop
  * request does not email every org-wide administrator. Deduped by person; the
  * caller no-ops any recipient without a contactEmail.
+ *
+ * Exported so the pending-request reminder cron
+ * (src/app/api/cron/schedule-reminders/route.ts) reminds this same approver set
+ * instead of re-deriving recipients from whoever holds a DIRECTOR shift.
  */
-async function requestApproverRecipients(
+export async function requestApproverRecipients(
   departmentId: string,
 ): Promise<Array<{ id: string; name: string; contactEmail: string | null }>> {
   const activeTerm = await getActiveTerm();

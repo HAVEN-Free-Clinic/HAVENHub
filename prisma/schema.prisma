@@ -1000,8 +1000,18 @@ model RecruitmentCycle {
   applications Application[]
   trainings    Training[]
   cycleEmails  RecruitmentCycleEmail[]
+  contract     RecruitmentCycleContract?
 
   @@index([status, track])
+}
+
+model RecruitmentCycleContract {
+  id        String   @id @default(cuid())
+  cycleId   String   @unique
+  layout    Json
+  updatedAt DateTime @updatedAt
+
+  cycle RecruitmentCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
 }
 
 model FormSection {
@@ -1154,6 +1164,9 @@ model OnboardingContract {
   promotedPersonId         String?
   createdAt                DateTime       @default(now())
   updatedAt                DateTime       @updatedAt
+  templateSnapshot Json?
+  customAnswers    Json?
+  signatures       Json?
 
   acceptance     Acceptance @relation(fields: [acceptanceId], references: [id], onDelete: Cascade)
   promotedBy     Person?    @relation("contractPromotedBy", fields: [promotedById], references: [id], onDelete: SetNull)

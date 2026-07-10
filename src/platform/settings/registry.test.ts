@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SETTINGS, getSettingDef } from "./registry";
+import { SETTINGS, getSettingDef, listCategories } from "./registry";
 
 describe("settings registry", () => {
   it("has unique keys", () => {
@@ -27,6 +27,11 @@ describe("settings registry", () => {
 
   it("throws for an unregistered key", () => {
     expect(() => getSettingDef("nope.missing")).toThrowError(/Unregistered/);
+  });
+
+  it("excludes hidden settings' categories from listCategories()", () => {
+    // onboarding.contractTemplate is hidden: true (edited via dedicated pages, not the generic form)
+    expect(listCategories()).not.toContain("Onboarding");
   });
 });
 

@@ -9,15 +9,21 @@ import { createOrResendContract } from "./onboarding";
 beforeEach(async () => { await resetDb(); });
 afterEach(async () => { await resetDb(); });
 
-async function cycleWithApp(slug: string, email: string) {
+async function cycleWithApp(
+  slug: string,
+  email: string,
+  opts: { appStatus?: "DRAFT" | "SUBMITTED"; cycleStatus?: "OPEN" | "CLOSED"; closesAt?: Date | null } = {},
+) {
+  const appStatus = opts.appStatus ?? "SUBMITTED";
+  const cycleStatus = opts.cycleStatus ?? "OPEN";
   const srr = await prisma.person.create({ data: { name: "SRR", status: "ACTIVE" } });
   const role = await prisma.role.create({ data: { name: "RA " + slug, grants: { create: [{ permission: "recruitment.review_all" }] } } });
   await prisma.roleAssignment.create({ data: { personId: srr.id, roleId: role.id } });
   const term = await prisma.term.create({ data: { code: "FA26", name: "F", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
   await prisma.department.create({ data: { code: "SRHD", name: "Student Run Health Dept" } });
-  const cycle = await prisma.recruitmentCycle.create({ data: { track: "VOLUNTEER", termId: term.id, title: "Volunteer 2026", publicSlug: slug, departments: ["SRHD"], createdById: srr.id, status: "OPEN" } });
+  const cycle = await prisma.recruitmentCycle.create({ data: { track: "VOLUNTEER", termId: term.id, title: "Volunteer 2026", publicSlug: slug, departments: ["SRHD"], createdById: srr.id, status: cycleStatus, closesAt: opts.closesAt ?? null } });
   const applicant = await prisma.applicant.create({ data: { cycleId: cycle.id, firstName: "Reed", lastName: "R", email, emailLower: email.toLowerCase() } });
-  const app = await prisma.application.create({ data: { cycleId: cycle.id, applicantId: applicant.id, answers: {}, applicantType: "NEW", departmentChoices: ["SRHD"], status: "SUBMITTED", submittedAt: new Date() } });
+  const app = await prisma.application.create({ data: { cycleId: cycle.id, applicantId: applicant.id, answers: {}, applicantType: "NEW", departmentChoices: ["SRHD"], status: appStatus, submittedAt: appStatus === "SUBMITTED" ? new Date() : null } });
   return { srr, cycle, applicant, app };
 }
 const ID = (email: string) => ({ email, personId: null });
@@ -60,6 +66,26 @@ it("shows a scheduled interview as neutral progress", async () => {
   await prisma.interview.create({ data: { applicationId: app.id, departmentCode: "SRHD", scheduledAt: new Date("2026-09-01T14:00:00Z"), createdById: (await prisma.person.findFirstOrThrow()).id } });
   const [v] = await getApplicantStatus(ID("reed@yale.edu"));
   expect(v.state).toBe("INTERVIEW");
+});
+
+it("lets you continue a draft while the cycle is open", async () => {
+  await cycleWithApp("d1", "reed@yale.edu", { appStatus: "DRAFT" });
+  const [v] = await getApplicantStatus(ID("reed@yale.edu"));
+  expect(v.state).toBe("DRAFT");
+  expect(v.canContinue).toBe(true);
+});
+
+it("does not offer Continue for a draft whose cycle has closed", async () => {
+  await cycleWithApp("d2", "reed@yale.edu", { appStatus: "DRAFT", cycleStatus: "CLOSED" });
+  const [v] = await getApplicantStatus(ID("reed@yale.edu"));
+  expect(v.canContinue).toBe(false);
+  expect(v.headline).toMatch(/closed/i);
+});
+
+it("does not offer Continue for a draft whose application window has passed", async () => {
+  await cycleWithApp("d3", "reed@yale.edu", { appStatus: "DRAFT", closesAt: new Date("2020-01-01T00:00:00Z") });
+  const [v] = await getApplicantStatus(ID("reed@yale.edu"));
+  expect(v.canContinue).toBe(false);
 });
 
 it("does not leak another identity's status", async () => {

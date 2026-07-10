@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getCycle } from "@/modules/recruitment/services/cycles";
+import { portalUrl } from "@/modules/recruitment/services/portal-url";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 import { publishCycleAction, closeCycleAction, reopenCycleAction, archiveCycleAction, toggleRenewalsAction, setTrainingCycleAction, updateQuizSettingsAction, setCycleDepartmentsAction, setApplicationWindowAction } from "../../actions";
@@ -47,7 +48,7 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
     ...cycle.departments.filter((c) => !activeCodes.has(c)).map((c) => ({ code: c, name: null as string | null, known: false })),
   ];
   const selected = new Set(cycle.departments);
-  const applyUrl = `/apply/${cycle.publicSlug}`;
+  const applyUrl = await portalUrl(cycle.publicSlug);
   const navLink = buttonClasses("outline", "sm");
   // The opensAt/closesAt window is a soft gate *inside* the OPEN status: the public
   // form only accepts applications while now is in [opensAt, closesAt]. Reflect that
@@ -67,6 +68,7 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
 
       <div className="flex flex-wrap gap-2">
         <Link href={`/recruitment/cycles/${id}/builder`} className={navLink}>Edit form</Link>
+        <Link href={`/recruitment/cycles/${id}/builder/contract`} className={navLink}>Edit onboarding contract</Link>
         <Link href={`/recruitment/cycles/${id}/applicants`} className={navLink}>View applicants</Link>
         <Link href={`/recruitment/cycles/${id}/decisions`} className={navLink}>Decisions</Link>
         {cycle.track === "VOLUNTEER" && (

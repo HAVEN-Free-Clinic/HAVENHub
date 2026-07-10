@@ -31,6 +31,7 @@ export const SENDER_CATEGORIES: { group: TemplateGroup; label: string }[] = [
   { group: "recruitment", label: "Recruitment" },
   { group: "compliance", label: "Compliance" },
   { group: "epic", label: "Epic" },
+  { group: "shift", label: "Shift reminders" },
   { group: "campaign", label: "Campaigns" },
 ];
 

@@ -63,7 +63,7 @@ export type ResolvedSetting = {
 
 /** Resolve every setting in a category for rendering a form group. */
 export async function getCategory(category: string): Promise<ResolvedSetting[]> {
-  const defs = SETTINGS.filter((d) => d.category === category);
+  const defs = SETTINGS.filter((d) => d.category === category && !d.hidden);
   const rows = await prisma.setting.findMany({
     where: { key: { in: defs.map((d) => d.key) } },
   });

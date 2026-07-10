@@ -1,5 +1,6 @@
 import { prisma } from "@/platform/db";
 import type { ApplicantIdentity } from "./portal-auth";
+import { isCycleOpen } from "./cycle-window";
 
 export type ApplicantStatusView = {
   slug: string;
@@ -17,7 +18,7 @@ export async function getApplicantStatus(identity: ApplicantIdentity): Promise<A
   const applicants = await prisma.applicant.findMany({
     where: { OR: [{ emailLower: identity.email }, ...(identity.personId ? [{ applicantPersonId: identity.personId }] : [])] },
     include: {
-      cycle: { select: { publicSlug: true, title: true, decisionsReleasedAt: true } },
+      cycle: { select: { publicSlug: true, title: true, decisionsReleasedAt: true, status: true, opensAt: true, closesAt: true } },
       applications: {
         include: {
           acceptances: { select: { departmentCode: true, emailedAt: true, contract: { select: { status: true } } } },
@@ -34,13 +35,19 @@ export async function getApplicantStatus(identity: ApplicantIdentity): Promise<A
   const depts = codes.size ? await prisma.department.findMany({ where: { code: { in: [...codes] } }, select: { code: true, name: true } }) : [];
   const deptName = new Map(depts.map((d) => [d.code, d.name]));
 
+  const now = new Date();
   const views: ApplicantStatusView[] = [];
   for (const a of applicants) {
     const app = a.applications[0];
     if (!app) continue;
     const base = { slug: a.cycle.publicSlug, cycleTitle: a.cycle.title };
     if (app.status === "DRAFT") {
-      views.push({ ...base, state: "DRAFT", headline: "Draft", detail: "Continue your application", canContinue: true });
+      // A draft is only continuable while its cycle is still accepting
+      // applications. Once the cycle closes, the destination form rejects the
+      // submission, so do not offer a dead "Continue" link here.
+      views.push(isCycleOpen(a.cycle, now)
+        ? { ...base, state: "DRAFT", headline: "Draft", detail: "Continue your application", canContinue: true }
+        : { ...base, state: "DRAFT", headline: "Applications closed", detail: "This cycle is no longer accepting applications.", canContinue: false });
       continue;
     }
     const released = a.cycle.decisionsReleasedAt != null;

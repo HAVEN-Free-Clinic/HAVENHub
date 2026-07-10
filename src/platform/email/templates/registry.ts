@@ -3,11 +3,13 @@ import { layoutDescriptor } from "./layout";
 import { complianceDescriptors } from "./compliance";
 import { epicDescriptors } from "./epic";
 import { recruitmentDescriptors } from "./recruitment";
+import { shiftDescriptors } from "./shift";
+import { scheduleDescriptors } from "./schedule";
 import { incidentsDescriptors } from "./incidents";
 
 export const LAYOUT_KEY = "layout";
 
-const ALL: TemplateDescriptor[] = [layoutDescriptor, ...complianceDescriptors, ...epicDescriptors, ...recruitmentDescriptors, ...incidentsDescriptors];
+const ALL: TemplateDescriptor[] = [layoutDescriptor, ...complianceDescriptors, ...epicDescriptors, ...recruitmentDescriptors, ...shiftDescriptors, ...scheduleDescriptors, ...incidentsDescriptors];
 
 const BY_KEY = new Map(ALL.map((d) => [d.key, d]));
 

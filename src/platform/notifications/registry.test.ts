@@ -18,6 +18,7 @@ describe("notification registry", () => {
         "incidents.strike_decided",
         "incidents.strike_requested",
         "recruitment.interview_assignment",
+        "shift-reminder",
       ].sort()
     );
     for (const t of NOTIFICATION_TYPES) {

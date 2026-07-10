@@ -690,6 +690,93 @@ describe("deleteAssignment lockout guard (last admin-conferring assignment)", ()
     expect(found).not.toBeNull();
   });
 
+  it("rejects deleting the sole ACTIVE admin's assignment when the only other holder is offboarded (audit M5)", async () => {
+    // The guard must count EFFECTIVE ACTIVE holders, not raw rows. An offboarded
+    // person's still-present admin assignment is inert (they cannot authenticate),
+    // so a row-count guard would let the only real admin be deleted into a lockout.
+    const role = await prisma.role.create({
+      data: {
+        name: "Platform Admin",
+        isSystem: true,
+        grants: { create: [{ permission: "*" }] },
+      },
+    });
+    const activeAdmin = await seedPerson("Active Admin");
+    const goneAdmin = await prisma.person.create({
+      data: { name: "Gone Admin", status: "OFFBOARDED" },
+    });
+    const liveAssignment = await prisma.roleAssignment.create({
+      data: { roleId: role.id, personId: activeAdmin.id },
+    });
+    // Second row exists but resolves to an offboarded (inert) holder.
+    await prisma.roleAssignment.create({
+      data: { roleId: role.id, personId: goneAdmin.id },
+    });
+
+    await expect(deleteAssignment(ACTOR, liveAssignment.id)).rejects.toBeInstanceOf(LastAdminError);
+
+    const found = await prisma.roleAssignment.findUnique({ where: { id: liveAssignment.id } });
+    expect(found).not.toBeNull();
+  });
+
+  it("allows deleting an inert archived-term admin assignment even when only one live admin exists (audit L16)", async () => {
+    // Deleting an inert (non-active/archived-term) assignment cannot reduce admin
+    // access, so the guard must not block it just because a single LIVE assignment
+    // of the same role exists.
+    const role = await prisma.role.create({
+      data: {
+        name: "Platform Admin",
+        isSystem: true,
+        grants: { create: [{ permission: "*" }] },
+      },
+    });
+    await seedTerm("SU26", "ACTIVE");
+    const archivedTerm = await seedTerm("FA25", "ARCHIVED");
+    const liveAdmin = await seedPerson("Live Admin");
+    const staleAdmin = await seedPerson("Stale Admin");
+
+    // One LIVE global admin + the inert archived-term assignment we will delete.
+    await prisma.roleAssignment.create({ data: { roleId: role.id, personId: liveAdmin.id } });
+    const inertAssignment = await prisma.roleAssignment.create({
+      data: { roleId: role.id, personId: staleAdmin.id, termId: archivedTerm.id },
+    });
+
+    await expect(deleteAssignment(ACTOR, inertAssignment.id)).resolves.not.toThrow();
+
+    const found = await prisma.roleAssignment.findUnique({ where: { id: inertAssignment.id } });
+    expect(found).toBeNull();
+  });
+
+  it("rejects deleting the last membership-resolved admin assignment when its only holder is offboarded", async () => {
+    // Dept-scoped admin grant that resolves through an ACTIVE membership. The
+    // member is offboarded, so no effective ACTIVE admin remains: deleting the
+    // grant must be refused.
+    const activeTerm = await seedTerm("SU26", "ACTIVE");
+    const dept = await seedDepartment("ADMINDEPT");
+    const role = await prisma.role.create({
+      data: { name: "Dept Admin", grants: { create: [{ permission: "admin.access" }] } },
+    });
+    const deptAssignment = await prisma.roleAssignment.create({
+      data: { roleId: role.id, departmentId: dept.id, termId: activeTerm.id },
+    });
+    const goneMember = await prisma.person.create({
+      data: { name: "Gone Member", status: "OFFBOARDED" },
+    });
+    await prisma.termMembership.create({
+      data: {
+        personId: goneMember.id,
+        termId: activeTerm.id,
+        departmentId: dept.id,
+        kind: "DIRECTOR",
+        status: "ACTIVE",
+      },
+    });
+
+    await expect(deleteAssignment(ACTOR, deptAssignment.id)).rejects.toBeInstanceOf(LastAdminError);
+    const found = await prisma.roleAssignment.findUnique({ where: { id: deptAssignment.id } });
+    expect(found).not.toBeNull();
+  });
+
   it("engine: can(admin, admin.access) still true after rejected deleteAssignment", async () => {
     const role = await prisma.role.create({
       data: {

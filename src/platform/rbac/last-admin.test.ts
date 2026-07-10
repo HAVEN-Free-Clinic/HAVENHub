@@ -11,7 +11,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
-import { assertNotLastActiveAdmin, LastAdminError } from "./last-admin";
+import {
+  assertNotLastActiveAdmin,
+  assertNotLastActiveAdminTx,
+  assertActiveAdminRemainsTx,
+  isEffectiveActiveAdmin,
+  LastAdminError,
+} from "./last-admin";
 
 async function seedPerson(name: string, status: "ACTIVE" | "OFFBOARDED" = "ACTIVE") {
   return prisma.person.create({ data: { name, status } });
@@ -121,5 +127,137 @@ describe("assertNotLastActiveAdmin", () => {
   it("does not throw when there are no admin-conferring grants at all", async () => {
     const person = await seedPerson("Nobody Special");
     await expect(assertNotLastActiveAdmin(person.id)).resolves.toBeUndefined();
+  });
+});
+
+/**
+ * Transactional twin (audit M9/L8): the same invariant recomputed on a
+ * transaction client so the offboard check and the Person.status flip commit
+ * atomically. Behaviourally mirrors the standalone form.
+ */
+describe("assertNotLastActiveAdminTx", () => {
+  beforeEach(resetDb);
+
+  it("throws LastAdminError inside a tx when offboarding the sole active admin", async () => {
+    const role = await seedAdminRole("*");
+    const admin = await seedPerson("Sole Admin");
+    await prisma.roleAssignment.create({ data: { roleId: role.id, personId: admin.id } });
+
+    await expect(
+      prisma.$transaction((tx) => assertNotLastActiveAdminTx(tx, admin.id))
+    ).rejects.toBeInstanceOf(LastAdminError);
+  });
+
+  it("resolves inside a tx when another active admin remains", async () => {
+    const role = await seedAdminRole("admin.access");
+    const a1 = await seedPerson("Admin 1");
+    const a2 = await seedPerson("Admin 2");
+    await prisma.roleAssignment.create({ data: { roleId: role.id, personId: a1.id } });
+    await prisma.roleAssignment.create({ data: { roleId: role.id, personId: a2.id } });
+
+    await expect(
+      prisma.$transaction((tx) => assertNotLastActiveAdminTx(tx, a1.id))
+    ).resolves.toBeUndefined();
+  });
+
+  it("is a no-op inside a tx for a non-admin person", async () => {
+    const role = await seedAdminRole("*");
+    const admin = await seedPerson("The Admin");
+    const nonAdmin = await seedPerson("Regular Person");
+    await prisma.roleAssignment.create({ data: { roleId: role.id, personId: admin.id } });
+
+    await expect(
+      prisma.$transaction((tx) => assertNotLastActiveAdminTx(tx, nonAdmin.id))
+    ).resolves.toBeUndefined();
+  });
+
+  it("counts only ACTIVE people inside a tx: throws when the only other admin is offboarded", async () => {
+    const role = await seedAdminRole("*");
+    const active = await seedPerson("Active Admin");
+    const offboarded = await seedPerson("Gone Admin", "OFFBOARDED");
+    await prisma.roleAssignment.create({ data: { roleId: role.id, personId: active.id } });
+    await prisma.roleAssignment.create({ data: { roleId: role.id, personId: offboarded.id } });
+
+    await expect(
+      prisma.$transaction((tx) => assertNotLastActiveAdminTx(tx, active.id))
+    ).rejects.toBeInstanceOf(LastAdminError);
+  });
+});
+
+/**
+ * isEffectiveActiveAdmin is the fast pre-check the roster guards use to decide
+ * whether the (Serializable) last-admin recomputation is needed at all.
+ */
+describe("isEffectiveActiveAdmin", () => {
+  beforeEach(resetDb);
+
+  it("is true for an active admin and false for a non-admin", async () => {
+    const role = await seedAdminRole("*");
+    const admin = await seedPerson("Admin");
+    const other = await seedPerson("Other");
+    await prisma.roleAssignment.create({ data: { roleId: role.id, personId: admin.id } });
+
+    expect(await isEffectiveActiveAdmin(admin.id)).toBe(true);
+    expect(await isEffectiveActiveAdmin(other.id)).toBe(false);
+  });
+
+  it("is false for an offboarded holder of an admin assignment", async () => {
+    const role = await seedAdminRole("*");
+    const gone = await seedPerson("Gone Admin", "OFFBOARDED");
+    await prisma.roleAssignment.create({ data: { roleId: role.id, personId: gone.id } });
+
+    expect(await isEffectiveActiveAdmin(gone.id)).toBe(false);
+  });
+
+  it("is true for a member who holds admin via a department-scoped grant", async () => {
+    const activeTerm = await seedTerm("SU26", "ACTIVE");
+    const dept = await seedDepartment("ADMINDEPT");
+    const role = await prisma.role.create({
+      data: { name: "Dept Admin", grants: { create: [{ permission: "admin.access" }] } },
+    });
+    await prisma.roleAssignment.create({
+      data: { roleId: role.id, departmentId: dept.id, termId: activeTerm.id },
+    });
+    const member = await seedPerson("Dept Member");
+    await prisma.termMembership.create({
+      data: {
+        personId: member.id,
+        termId: activeTerm.id,
+        departmentId: dept.id,
+        kind: "DIRECTOR",
+        status: "ACTIVE",
+      },
+    });
+
+    expect(await isEffectiveActiveAdmin(member.id)).toBe(true);
+  });
+});
+
+/**
+ * assertActiveAdminRemainsTx is the post-mutation invariant the roster guards
+ * run inside their Serializable transaction: refuse when no effective ACTIVE
+ * admin remains.
+ */
+describe("assertActiveAdminRemainsTx", () => {
+  beforeEach(resetDb);
+
+  it("throws when no effective active admin exists (only an offboarded holder)", async () => {
+    const role = await seedAdminRole("*");
+    const gone = await seedPerson("Gone Admin", "OFFBOARDED");
+    await prisma.roleAssignment.create({ data: { roleId: role.id, personId: gone.id } });
+
+    await expect(
+      prisma.$transaction((tx) => assertActiveAdminRemainsTx(tx))
+    ).rejects.toBeInstanceOf(LastAdminError);
+  });
+
+  it("resolves when an effective active admin exists", async () => {
+    const role = await seedAdminRole("*");
+    const admin = await seedPerson("Live Admin");
+    await prisma.roleAssignment.create({ data: { roleId: role.id, personId: admin.id } });
+
+    await expect(
+      prisma.$transaction((tx) => assertActiveAdminRemainsTx(tx))
+    ).resolves.toBeUndefined();
   });
 });

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
-import { drainTeamsQueue } from "@/platform/notifications/send";
+import { drainTeamsQueue, queueTeamsMessage, flushTeamsQueue } from "@/platform/notifications/send";
 import type { TeamsTransport } from "@/platform/notifications/teams-transport";
 
 const failing: TeamsTransport = {
@@ -53,5 +53,44 @@ describe("drainTeamsQueue retry gate", () => {
     await drainTeamsQueue(failing);
     const third = await prisma.teamsMessage.findUniqueOrThrow({ where: { id } });
     expect(third.attempts).toBe(2);
+  });
+});
+
+async function seedPerson(): Promise<string> {
+  const person = await prisma.person.create({
+    data: { name: "T2", status: "ACTIVE", entraObjectId: "entra-2", contactEmail: "t2@example.com" },
+  });
+  return person.id;
+}
+
+const teamsInput = (personId: string) => ({
+  personId,
+  type: "generic",
+  title: "t",
+  summary: "s",
+  bodyHtml: "<p>b</p>",
+  fallbackSubject: "fs",
+  fallbackHtml: "<p>fb</p>",
+});
+
+describe("teams fire-on-enqueue wiring", () => {
+  beforeEach(async () => {
+    await resetDb();
+  });
+
+  it("queueTeamsMessage does not deliver synchronously outside a request scope", async () => {
+    const personId = await seedPerson();
+    await queueTeamsMessage(prisma, teamsInput(personId));
+    const row = await prisma.teamsMessage.findFirstOrThrow({ where: { personId } });
+    expect(row.status).toBe("QUEUED");
+  });
+
+  it("flushTeamsQueue drains a queued message via the resolved transport", async () => {
+    const personId = await seedPerson();
+    await queueTeamsMessage(prisma, teamsInput(personId));
+    await flushTeamsQueue();
+    const row = await prisma.teamsMessage.findFirstOrThrow({ where: { personId } });
+    // The log transport (EMAIL_TRANSPORT=log in tests) records LOGGED, not SENT.
+    expect(row.status).toBe("LOGGED");
   });
 });

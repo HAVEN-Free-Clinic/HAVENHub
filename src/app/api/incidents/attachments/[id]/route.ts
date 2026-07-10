@@ -31,8 +31,10 @@ const INLINE_SAFE_MIME_TYPES = new Set([
  *
  * Security:
  *   - Requires a valid session with a personId, matched to an active Person.
- *   - Requires the attachment to exist AND its report to belong to the
- *     session's person (the reporter), or the viewer to hold incidents.manage.
+ *   - Requires the attachment to exist AND either the viewer to be the report's
+ *     reporter (owner), or a holder of incidents.manage who is NOT a linked
+ *     subject of the report -- a subject who also holds incidents.manage can
+ *     never download evidence about themselves, mirroring the report read paths.
  *   - Both "missing" and "not allowed" return 404, so an unauthorized viewer
  *     cannot tell an attachment exists from one that doesn't.
  *   - storedName comes only from the DB row (never from user input).
@@ -57,12 +59,18 @@ export async function GET(
   // --- Access check: load the attachment by id then verify viewer may access it ---
   const attachment = await prisma.incidentReportAttachment.findUnique({
     where: { id },
-    include: { report: { select: { reporterId: true } } },
+    include: { report: { select: { reporterId: true, subjects: { select: { personId: true } } } } },
   });
-  const allowed = attachment
-    ? attachment.report.reporterId === activePerson.id ||
-      (await can(activePerson.id, "incidents.manage"))
-    : false;
+  // Access mirrors the report read paths: the reporter (owner) always sees the
+  // evidence; a manager sees it only when they are NOT a linked subject of the
+  // report, so a subject who also holds incidents.manage can never download
+  // evidence about themselves.
+  let allowed = false;
+  if (attachment) {
+    const isOwner = attachment.report.reporterId === activePerson.id;
+    const isSubject = attachment.report.subjects.some((s) => s.personId === activePerson.id);
+    allowed = isOwner || (!isSubject && (await can(activePerson.id, "incidents.manage")));
+  }
   if (!attachment || !allowed) {
     // Return 404 in both cases to avoid leaking whether the attachment exists.
     return Response.json({ error: "Not found" }, { status: 404 });

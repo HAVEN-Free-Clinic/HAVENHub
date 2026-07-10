@@ -35,6 +35,16 @@ export default async function SubmitPage({ searchParams }: PageProps) {
       throw err;
     }
 
+    // Alert managers and confirm to the requester as soon as the ticket exists,
+    // before persisting attachments. An attachment failure below redirects
+    // (throws NEXT_REDIRECT), so notifying here keeps a committed ticket from
+    // ever going un-triaged just because one file was oversized or disallowed.
+    const requester = await prisma.person.findUniqueOrThrow({
+      where: { id: session.personId },
+      select: { id: true, name: true, entraObjectId: true, contactEmail: true },
+    });
+    await notifyTicketSubmitted(prisma, req, requester);
+
     const files = formData.getAll("attachments").filter((f): f is File => f instanceof File && f.size > 0);
     try {
       for (const file of files) {
@@ -51,11 +61,6 @@ export default async function SubmitPage({ searchParams }: PageProps) {
       throw err;
     }
 
-    const requester = await prisma.person.findUniqueOrThrow({
-      where: { id: session.personId },
-      select: { id: true, name: true, entraObjectId: true, contactEmail: true },
-    });
-    await notifyTicketSubmitted(prisma, req, requester);
     redirect(`/support/${req.id}?submitted=1`);
   }
 

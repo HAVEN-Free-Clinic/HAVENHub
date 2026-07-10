@@ -37,6 +37,9 @@ import {
   reportResolvedContext,
 } from "@/platform/email/templates/incidents";
 import { issueAction, DISCIPLINARY_CATEGORIES } from "./disciplinary";
+import { queueEmail } from "@/platform/email/send";
+import { renderTemplate } from "@/platform/email/render/render";
+import { getDescriptor } from "@/platform/email/templates/registry";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -985,5 +988,46 @@ export async function decideStrike(
   });
 
   await notifyReporterOfStrikeDecision(report, actorPersonId, true);
+
+  // Notify the subject that a strike has been officially issued against them.
+  try {
+    const descriptor = getDescriptor("incidents.strike_issued");
+    if (descriptor) {
+      const [volunteer, issuer] = await Promise.all([
+        prisma.person.findUnique({
+          where: { id: subject.personId },
+          select: { name: true, contactEmail: true },
+        }),
+        prisma.person.findUnique({
+          where: { id: actorPersonId },
+          select: { name: true },
+        }),
+      ]);
+      if (volunteer?.contactEmail) {
+        const issuedDate = new Date().toLocaleDateString("en-US", {
+          month: "long", day: "numeric", year: "numeric",
+        });
+        const html = renderTemplate(descriptor.defaultBody, {
+          subjectName: volunteer.name?.split(" ")[0] ?? volunteer.name ?? "",
+          category,
+          description: report.description ?? "",
+          issuedBy: issuer?.name ?? "HAVEN Directors",
+          issuedDate,
+        });
+        const emailSubject = renderTemplate(descriptor.defaultSubject, {});
+        await queueEmail(prisma, {
+          to: volunteer.contactEmail,
+          subject: emailSubject,
+          html,
+          template: "incidents.strike_issued",
+          personId: subject.personId,
+          triggeredById: actorPersonId,
+        });
+      }
+    }
+  } catch {
+    // Best-effort notifications.
+  }
+
   return approved;
 }

@@ -903,6 +903,26 @@ export async function denyRequest(
         departmentName: department?.name ?? "",
       },
     );
+
+    if (isSwap && req.targetId && req.targetDate) {
+      const partner = await prisma.person.findUnique({
+        where: { id: req.targetId },
+        select: { name: true, contactEmail: true },
+      });
+      await sendScheduleEmail(
+        "schedule-request-denied-partner",
+        partner?.contactEmail,
+        req.targetId,
+        actorPersonId,
+        {
+          partnerName: partner?.name?.split(" ")[0] ?? "",
+          requesterName: requester?.name ?? "",
+          requesterDate: fmtEmailDate(req.requesterDate),
+          partnerDate: fmtEmailDate(req.targetDate),
+          departmentName: department?.name ?? "",
+        },
+      );
+    }
   } catch {
     // Best-effort notifications.
   }

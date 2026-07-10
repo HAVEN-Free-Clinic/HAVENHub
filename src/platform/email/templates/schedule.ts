@@ -31,7 +31,7 @@ export const scheduleDescriptors: TemplateDescriptor[] = [
       { name: "partnerDate", label: "Partner shift date", sampleValue: "July 22, 2026" },
       { name: "departmentName", label: "Department name", sampleValue: "Internal Medicine" },
     ],
-    defaultSubject: "Your swap request has been submitted - HAVEN",
+    defaultSubject: "Your swap request has been submitted",
     defaultBody: `<p>Hi {{ requesterName }},</p>
 <p>You have requested a <strong>shift swap</strong> for <strong>{{ requesterDate }}</strong> with <strong>{{ partnerName }}</strong> ({{ partnerDate }}) in the <strong>{{ departmentName }}</strong> department.</p>
 <p>We have notified <strong>{{ partnerName }}</strong> about this request. Your department directors have also been notified and will review and approve or deny it.</p>
@@ -49,7 +49,7 @@ export const scheduleDescriptors: TemplateDescriptor[] = [
       { name: "partnerDate", label: "Partner shift date", sampleValue: "July 22, 2026" },
       { name: "departmentName", label: "Department name", sampleValue: "Internal Medicine" },
     ],
-    defaultSubject: "You have been requested for a shift swap - HAVEN",
+    defaultSubject: "You have been requested for a shift swap",
     defaultBody: `<p>Hi {{ partnerName }},</p>
 <p><strong>{{ requesterName }}</strong> has requested to swap their shift on <strong>{{ requesterDate }}</strong> with your shift on <strong>{{ partnerDate }}</strong> in the <strong>{{ departmentName }}</strong> department.</p>
 <p>Your department directors will review and approve or deny the request. No action is needed from you at this time.</p>
@@ -65,7 +65,7 @@ export const scheduleDescriptors: TemplateDescriptor[] = [
       { name: "requesterDate", label: "Shift date", sampleValue: "July 15, 2026" },
       { name: "departmentName", label: "Department name", sampleValue: "Internal Medicine" },
     ],
-    defaultSubject: "Your drop request has been submitted - HAVEN",
+    defaultSubject: "Your drop request has been submitted",
     defaultBody: `<p>Hi {{ requesterName }},</p>
 <p>You have requested to <strong>drop your shift</strong> on <strong>{{ requesterDate }}</strong> in the <strong>{{ departmentName }}</strong> department.</p>
 <p>Your department directors will review and approve or deny the request.</p>
@@ -83,7 +83,7 @@ export const scheduleDescriptors: TemplateDescriptor[] = [
       { name: "partnerDate", label: "Partner shift date (swap only)", sampleValue: "July 22, 2026" },
       { name: "departmentName", label: "Department name", sampleValue: "Internal Medicine" },
     ],
-    defaultSubject: "Your shift request has been approved - HAVEN",
+    defaultSubject: "Your shift request has been approved",
     defaultBody: `<p>Hi {{ recipientName }},</p>
 <p>Your <strong>{{ requestType }} request</strong> for <strong>{{ requesterDate }}</strong> in the <strong>{{ departmentName }}</strong> department has been <strong>approved</strong> by your directors.</p>
 <p>Your schedule has been updated accordingly.</p>
@@ -100,7 +100,7 @@ export const scheduleDescriptors: TemplateDescriptor[] = [
       { name: "partnerDate", label: "Partner shift date", sampleValue: "July 22, 2026" },
       { name: "departmentName", label: "Department name", sampleValue: "Internal Medicine" },
     ],
-    defaultSubject: "A shift swap involving you has been approved - HAVEN",
+    defaultSubject: "A shift swap involving you has been approved",
     defaultBody: `<p>Hi {{ partnerName }},</p>
 <p>A shift swap has been <strong>approved</strong> involving your shift on <strong>{{ partnerDate }}</strong> and <strong>{{ requesterDate }}</strong> in the <strong>{{ departmentName }}</strong> department.</p>
 <p>Your schedule has been updated accordingly.</p>
@@ -117,7 +117,7 @@ export const scheduleDescriptors: TemplateDescriptor[] = [
       { name: "requesterDate", label: "Shift date", sampleValue: "July 15, 2026" },
       { name: "departmentName", label: "Department name", sampleValue: "Internal Medicine" },
     ],
-    defaultSubject: "Your shift request has been denied - HAVEN",
+    defaultSubject: "Your shift request has been denied",
     defaultBody: `<p>Hi {{ requesterName }},</p>
 <p>Your <strong>{{ requestType }} request</strong> for <strong>{{ requesterDate }}</strong> in the <strong>{{ departmentName }}</strong> department has been <strong>denied</strong> by your directors.</p>
 <p>Please reach out to your department directors if you have any questions.</p>
@@ -134,7 +134,7 @@ export const scheduleDescriptors: TemplateDescriptor[] = [
       { name: "partnerDate", label: "Partner shift date", sampleValue: "July 22, 2026" },
       { name: "departmentName", label: "Department name", sampleValue: "Internal Medicine" },
     ],
-    defaultSubject: "A shift swap request involving you has been withdrawn - HAVEN",
+    defaultSubject: "A shift swap request involving you has been withdrawn",
     defaultBody: `<p>Hi {{ partnerName }},</p>
 <p><strong>{{ requesterName }}</strong> has withdrawn their shift swap request involving your shift on <strong>{{ partnerDate }}</strong> in the <strong>{{ departmentName }}</strong> department.</p>
 <p>No action is needed from you.</p>
@@ -154,10 +154,29 @@ export const scheduleDescriptors: TemplateDescriptor[] = [
       { name: "partnerDate", label: "Partner shift date (swap only)", sampleValue: "July 22, 2026" },
       { name: "departmentName", label: "Department name", sampleValue: "Internal Medicine" },
     ],
-    defaultSubject: "New shift request pending review - HAVEN",
+    defaultSubject: "New shift request pending review",
     defaultBody: `<p>Hi {{ directorName }},</p>
 <p><strong>{{ requesterName }}</strong> has submitted a <strong>{{ requestType }} request</strong> for <strong>{{ requesterDate }}</strong>{{#if partnerName}} with <strong>{{ partnerName }}</strong> ({{ partnerDate }}){{/if}} in the <strong>{{ departmentName }}</strong> department.</p>
 <p>Please review and approve or deny the request in HAVEN Hub.</p>
 <p><a href="https://hub.havenfreeclinic.com/schedule/builder">Review pending requests</a></p>`,
   },
+  {
+    key: "schedule-request-denied-partner",
+    name: "Shift swap denied (partner)",
+    category: "transactional",
+    group: "shift",
+    variables: [
+      { name: "partnerName", label: "Partner first name", sampleValue: "Jordan" },
+      { name: "requesterName", label: "Requester name", sampleValue: "Alex Johnson" },
+      { name: "requesterDate", label: "Requester shift date", sampleValue: "July 15, 2026" },
+      { name: "partnerDate", label: "Partner shift date", sampleValue: "July 22, 2026" },
+      { name: "departmentName", label: "Department name", sampleValue: "Internal Medicine" },
+    ],
+    defaultSubject: "A shift swap request involving you has been denied",
+    defaultBody: `<p>Hi {{ partnerName }},</p>
+<p>A shift swap request submitted by <strong>{{ requesterName }}</strong> involving your shift on <strong>{{ partnerDate }}</strong> and their shift on <strong>{{ requesterDate }}</strong> in the <strong>{{ departmentName }}</strong> department has been <strong>denied</strong> by your directors.</p>
+<p>No action is needed from you. Your schedule remains unchanged.</p>
+<p>${HUB_LINK}</p>`,
+  },
 ];
+

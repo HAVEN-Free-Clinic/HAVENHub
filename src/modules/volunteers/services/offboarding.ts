@@ -33,7 +33,7 @@ import { can } from "@/platform/rbac/engine";
 import { manageableDepartmentIds } from "@/platform/departments";
 import { setPersonStatusField } from "@/platform/people";
 import { getActiveTerm } from "@/platform/terms/active-term";
-import { assertNotLastActiveAdmin } from "@/platform/rbac/last-admin";
+import { assertNotLastActiveAdminTx } from "@/platform/rbac/last-admin";
 
 // ---------------------------------------------------------------------------
 // Typed errors
@@ -215,17 +215,20 @@ export async function executeOffboard(actorPersonId: string, personId: string): 
     throw new OffboardForbiddenError("volunteers.manage_offboarding is required to execute offboarding.");
   }
 
-  // Refuse to offboard the last person who can reach the admin module (an
-  // offboarded person can no longer authenticate). Throws LastAdminError.
-  await assertNotLastActiveAdmin(personId);
-
   // Count ACTIVE memberships before the flip; setPersonStatusField removes them.
   const removedCount = await prisma.termMembership.count({
     where: { personId, status: "ACTIVE" },
   });
 
   // 1. Flip status (atomically removes memberships + handles Epic). Flags stay.
-  await setPersonStatusField(actorPersonId, personId, "OFFBOARDED");
+  //    Refuse to offboard the last person who can reach the admin module (an
+  //    offboarded person can no longer authenticate). The guard runs INSIDE the
+  //    status-flip transaction (assertInvariant), so the check and the flip commit
+  //    atomically: two concurrent offboards of the last two admins cannot both pass
+  //    a separate read and leave zero admins (write skew). Throws LastAdminError.
+  await setPersonStatusField(actorPersonId, personId, "OFFBOARDED", {
+    assertInvariant: (tx) => assertNotLastActiveAdminTx(tx, personId),
+  });
 
   // 2. Status is durably OFFBOARDED -- now delete the flags (the safe last step).
   await prisma.offboardFlag.deleteMany({ where: { personId } });

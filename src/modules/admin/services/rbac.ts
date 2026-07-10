@@ -18,7 +18,7 @@ import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { MODULES } from "@/platform/modules/registry";
 import { getActiveTerm } from "@/platform/terms/active-term";
-import { LastAdminError } from "@/platform/rbac/last-admin";
+import { LastAdminError, assertDeletingAssignmentKeepsAdminTx } from "@/platform/rbac/last-admin";
 
 // Re-export so callers that historically imported LastAdminError from this
 // module keep working. The class now lives in the platform layer so the
@@ -409,15 +409,15 @@ export async function deleteAssignment(actorPersonId: string, id: string): Promi
   }
 
   // Lockout guard: if this role confers admin access (via a "*" or
-  // "admin.access" grant) and this is the last remaining assignment of that
-  // role, refuse the deletion.
+  // "admin.access" grant), refuse the deletion when it would drop the number of
+  // EFFECTIVE ACTIVE admin holders to zero.
   //
-  // This is a conservative approximation: another role might also grant
-  // admin.access, so refusing here may be overly strict in those cases.
-  // However, the safe, simple invariant is to protect the last assignment of
-  // ANY admin-conferring role rather than doing a cross-role reachability
-  // check. Operators can work around this by assigning the role to another
-  // person first, then removing the old assignment.
+  // "Effective ACTIVE holders" (not raw assignment rows) is the load-bearing
+  // distinction (audit M5): an offboarded person's still-present admin
+  // assignment is inert (they cannot authenticate), so counting rows let the
+  // only real admin's assignment be deleted into a full lockout. The
+  // recomputation joins Person status ACTIVE and expands dept/kind-scoped grants
+  // through active memberships, exactly as the engine resolves them.
   //
   // Shell-level recovery if lockout somehow occurs: `npm run db:seed`
   // re-seeds Platform Admin with the "*" grant and a default admin assignment.
@@ -425,34 +425,31 @@ export async function deleteAssignment(actorPersonId: string, id: string): Promi
     (g) => g.permission === "*" || g.permission === "admin.access"
   );
   if (isAdminConferring) {
-    // Count only the assignments the engine actually honors: a live grant is one
-    // scoped to no term (global) or to the ACTIVE term. Assignments scoped to a
-    // non-active/archived term confer nothing (see getEffectivePermissions), so
-    // counting them could let the last LIVE admin assignment be deleted into a
-    // full lockout while an inert row keeps the naive count above one.
     const activeTerm = await getActiveTerm();
-    // Re-check the count and delete inside one serializable transaction. A plain
-    // check-then-delete lets two concurrent deletes of the same admin-conferring
-    // role both read count > 1, both pass the guard, and both delete (write skew),
-    // removing the last admin. Serializable isolation makes Postgres abort the
-    // loser instead of locking everyone out.
-    await prisma.$transaction(
-      async (tx) => {
-        const liveCount = await tx.roleAssignment.count({
-          where: {
-            roleId: assignment.roleId,
-            OR: [{ termId: null }, ...(activeTerm ? [{ termId: activeTerm.id }] : [])],
-          },
-        });
-        if (liveCount === 1) {
-          throw new LastAdminError(
-            "This is the last live assignment of an admin-conferring role; deleting it would lock everyone out."
-          );
-        }
-        await tx.roleAssignment.delete({ where: { id } });
-      },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
-    );
+    // Only a LIVE assignment (global, or scoped to the ACTIVE term) contributes
+    // admin access. Deleting an inert one (scoped to a non-active/archived term)
+    // cannot reduce the admin population, so it needs no guard (audit L16; mirrors
+    // the early no-op check assertNotLastActiveAdmin does when the target confers
+    // nothing).
+    const isLive =
+      assignment.termId === null ||
+      (activeTerm !== null && assignment.termId === activeTerm.id);
+    if (isLive) {
+      // Recompute effective ACTIVE admins as if this row were already gone and
+      // delete inside one Serializable transaction. A plain check-then-delete lets
+      // two concurrent deletes both see another admin remaining and both delete
+      // (write skew), removing the last admin. Serializable makes Postgres abort
+      // the loser instead of locking everyone out.
+      await prisma.$transaction(
+        async (tx) => {
+          await assertDeletingAssignmentKeepsAdminTx(tx, activeTerm, id);
+          await tx.roleAssignment.delete({ where: { id } });
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+      );
+    } else {
+      await prisma.roleAssignment.delete({ where: { id } });
+    }
   } else {
     await prisma.roleAssignment.delete({ where: { id } });
   }

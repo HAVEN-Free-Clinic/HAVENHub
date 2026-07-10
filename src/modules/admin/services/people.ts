@@ -26,7 +26,7 @@ import {
   updatePersonFields,
   setPersonStatusField,
 } from "@/platform/people";
-import type { PersonInput } from "@/platform/people";
+import type { PersonInput, SetPersonStatusOptions } from "@/platform/people";
 
 // Re-export the mutation-core types/errors so callers that import from this
 // module (the historical home of these symbols) keep working unchanged.
@@ -108,7 +108,8 @@ export function updatePerson(
 export function setPersonStatus(
   actorPersonId: string,
   id: string,
-  status: "ACTIVE" | "OFFBOARDED"
+  status: "ACTIVE" | "OFFBOARDED",
+  opts: SetPersonStatusOptions = {}
 ): Promise<Person> {
-  return setPersonStatusField(actorPersonId, id, status);
+  return setPersonStatusField(actorPersonId, id, status, opts);
 }

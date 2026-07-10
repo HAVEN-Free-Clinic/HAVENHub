@@ -21,6 +21,7 @@ import {
   MembershipNotFoundError,
   DirectorHasShiftAssignmentsError,
 } from "@/modules/admin/services/roster";
+import { LastAdminError } from "@/platform/rbac/last-admin";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
@@ -97,6 +98,9 @@ export async function PersonMembershipsPanel({
           `${baseHref}?rosterError=${encodeURIComponent("This member has director shift assignments this term. Remove or reassign those shifts before changing their role.")}`
         );
       }
+      if (err instanceof LastAdminError) {
+        redirect(`${baseHref}?rosterError=${encodeURIComponent(err.message)}`);
+      }
       if (err instanceof MembershipNotFoundError) {
         redirect(`${baseHref}?rosterError=${encodeURIComponent("Membership no longer exists; the page may be stale.")}`);
       }
@@ -118,6 +122,9 @@ export async function PersonMembershipsPanel({
     try {
       await removeMembership(actor.personId, membershipId!);
     } catch (err) {
+      if (err instanceof LastAdminError) {
+        redirect(`${baseHref}?rosterError=${encodeURIComponent(err.message)}`);
+      }
       if (err instanceof MembershipNotFoundError) {
         redirect(`${baseHref}?rosterError=${encodeURIComponent("Membership no longer exists; the page may be stale.")}`);
       }

@@ -21,6 +21,7 @@ import { prisma } from "@/platform/db";
 import { termRoster, addMembership, removeMembership, copyRosterFromTerm, membershipHasDirectorShifts, MembershipForeignKeyError, MembershipNotFoundError, RosterCopyError } from "@/modules/admin/services/roster";
 import { searchPeople } from "@/modules/admin/services/people";
 import { listTerms, TermNotFoundError } from "@/modules/admin/services/terms";
+import { LastAdminError } from "@/platform/rbac/last-admin";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
@@ -157,6 +158,9 @@ export async function RosterPanel({
     try {
       await removeMembership(actorSession.personId, membershipId);
     } catch (err) {
+      if (err instanceof LastAdminError) {
+        redirect(`${termDetailHref}?rosterError=${encodeURIComponent(err.message)}`);
+      }
       if (err instanceof MembershipNotFoundError) {
         redirect(
           `${termDetailHref}?rosterError=${encodeURIComponent("Member no longer exists; the page may be stale.")}`

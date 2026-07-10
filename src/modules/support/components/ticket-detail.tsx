@@ -375,25 +375,31 @@ export function TicketDetail({
                         </SubmitButton>
                       </form>
                     )}
-
-                    {sendEpicEmailAction && (
-                      <div className="flex flex-wrap gap-2">
-                        <form action={sendEpicEmailAction}>
-                          <input type="hidden" name="template" value="epic-onboarding" />
-                          <ConfirmButton label="Send onboarding email" confirmLabel="Confirm send?" />
-                        </form>
-                        <form action={sendEpicEmailAction}>
-                          <input type="hidden" name="template" value="epic-activation" />
-                          <ConfirmButton label="Send activation email" confirmLabel="Confirm send?" />
-                        </form>
-                        <form action={sendEpicEmailAction}>
-                          <input type="hidden" name="template" value="epic-password-reset" />
-                          <ConfirmButton label="Send password reset email" confirmLabel="Confirm send?" />
-                        </form>
-                      </div>
-                    )}
                   </div>
                 )}
+
+                {/* Email buttons stay available once COMPLETED so a manager can
+                    still email onboarding/activation/password-reset details to the
+                    user after their Epic access has been provisioned. */}
+                {(detail.epicRequest.status === "PENDING" ||
+                  detail.epicRequest.status === "SUBMITTED" ||
+                  detail.epicRequest.status === "COMPLETED") &&
+                  sendEpicEmailAction && (
+                    <div className="flex flex-wrap gap-2">
+                      <form action={sendEpicEmailAction}>
+                        <input type="hidden" name="template" value="epic-onboarding" />
+                        <ConfirmButton label="Send onboarding email" confirmLabel="Confirm send?" />
+                      </form>
+                      <form action={sendEpicEmailAction}>
+                        <input type="hidden" name="template" value="epic-activation" />
+                        <ConfirmButton label="Send activation email" confirmLabel="Confirm send?" />
+                      </form>
+                      <form action={sendEpicEmailAction}>
+                        <input type="hidden" name="template" value="epic-password-reset" />
+                        <ConfirmButton label="Send password reset email" confirmLabel="Confirm send?" />
+                      </form>
+                    </div>
+                  )}
               </div>
             ) : null}
           </Card>

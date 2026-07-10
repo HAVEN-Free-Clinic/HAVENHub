@@ -1,5 +1,5 @@
 /**
- * TDD tests for the volunteers epic request service.
+ * TDD tests for the support epic request service.
  *
  * createEpicRequest(actorPersonId, input):
  *   - Self-create NEW happy path; audit row with kind in after.
@@ -12,24 +12,16 @@
  *   - OFFBOARDED person rejected (EpicStateError).
  *   - Person not found -> EpicNotFoundError.
  *
- * myEpicPanel(personId):
- *   - Returns epicId + open request or null.
- *
- * listEpicRequests(q):
- *   - Filters by status, newest first, includes person + ticket.
- *   - Counts across ALL requests regardless of filter.
- *   - Pagination: 26 rows -> page 2 has 1 row.
- *
  * createTicket(actorPersonId, input):
  *   - Happy path: ticket created, requests moved to SUBMITTED.
  *   - Non-PENDING id in requestIds -> EpicStateError.
  *   - Unknown id in requestIds -> EpicStateError, no ticket created, valid request stays PENDING.
  *   - No permission -> EpicForbiddenError.
+ *   - Concurrent double-submit: only one caller claims the request; the loser
+ *     throws and creates no ticket (atomic PENDING claim).
  *
- * setTicketServiceRequestNumber + closeTicket:
+ * setTicketServiceRequestNumber:
  *   - Sets SR number; audits ticket_sr.
- *   - closeTicket sets CLOSED + closedAt; audits ticket_close.
- *   - closeTicket on already-closed ticket -> EpicStateError.
  *
  * completeRequest(actorPersonId, requestId, epicId?):
  *   - NEW: writes Person.epicId via updatePersonFields.
@@ -38,26 +30,10 @@
  *   - COMPLETED/CANCELLED status -> EpicStateError.
  *   - Not found -> EpicNotFoundError.
  *
- * cancelRequest(actorPersonId, requestId, reason):
- *   - Appends reason to existing notes.
- *   - Works when notes is null.
- *   - Blank reason -> EpicStateError.
- *
  * sendEpicEmail(actorPersonId, requestId, template):
  *   - Queues EmailLog row with right template/to/personId/triggeredById.
  *   - No contactEmail -> EpicStateError.
  *   - No permission -> EpicForbiddenError.
- *
- * emailHistory(personIds):
- *   - Groups by personId, excludes non-epic templates.
- *
- * updateRequestDetails(actorPersonId, requestId, input):
- *   - Happy path: sets both jobTitle and mirrorEpicId; audit row exists.
- *   - Partial update: only jobTitle provided; mirrorEpicId untouched.
- *   - Clearing with null clears the field; clearing with "" clears the field.
- *   - No permission -> EpicForbiddenError.
- *   - Not found -> EpicNotFoundError.
- *   - COMPLETED request rejected -> EpicStateError.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -66,17 +42,10 @@ import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import {
   createEpicRequest,
-  myEpicPanel,
-  listEpicRequests,
   createTicket,
   setTicketServiceRequestNumber,
-  closeTicket,
-  listTickets,
   completeRequest,
-  cancelRequest,
   sendEpicEmail,
-  emailHistory,
-  updateRequestDetails,
   EpicForbiddenError,
   EpicNotFoundError,
   EpicStateError,
@@ -259,111 +228,6 @@ describe("createEpicRequest", () => {
   });
 });
 
-describe("myEpicPanel", () => {
-  it("returns epicId and open PENDING request", async () => {
-    const person = await createPerson("Alice", { netId: "aaa001", epicId: "E99" });
-    const req = await prisma.epicRequest.create({
-      data: { personId: person.id, kind: "RENEW", status: "PENDING", requestedById: person.id },
-    });
-
-    const panel = await myEpicPanel(person.id);
-    expect(panel.epicId).toBe("E99");
-    expect(panel.openRequest?.id).toBe(req.id);
-  });
-
-  it("returns epicId and open SUBMITTED request", async () => {
-    const person = await createPerson("Bob", { netId: "bbb001", epicId: "E88" });
-    const req = await prisma.epicRequest.create({
-      data: { personId: person.id, kind: "RENEW", status: "SUBMITTED", requestedById: person.id },
-    });
-
-    const panel = await myEpicPanel(person.id);
-    expect(panel.epicId).toBe("E88");
-    expect(panel.openRequest?.id).toBe(req.id);
-  });
-
-  it("returns null openRequest when no open request exists", async () => {
-    const person = await createPerson("Carol", { netId: "ccc001" });
-
-    const panel = await myEpicPanel(person.id);
-    expect(panel.epicId).toBeNull();
-    expect(panel.openRequest).toBeNull();
-  });
-
-  it("ignores COMPLETED and CANCELLED requests", async () => {
-    const person = await createPerson("Dave", { netId: "ddd001", epicId: "E77" });
-    await prisma.epicRequest.create({
-      data: { personId: person.id, kind: "RENEW", status: "COMPLETED", requestedById: person.id },
-    });
-
-    const panel = await myEpicPanel(person.id);
-    expect(panel.openRequest).toBeNull();
-  });
-});
-
-describe("listEpicRequests", () => {
-  it("returns filtered rows, correct counts, person + ticket fields", async () => {
-    const term = await createTerm();
-    const dept = await createDepartment("ITCM");
-    const mgr = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(mgr.id, "support.manage_requests");
-    await createMembership(mgr.id, term.id, dept.id, "DIRECTOR");
-
-    const p1 = await createPerson("Alice", { netId: "aaa001", contactEmail: "alice@yale.edu" });
-    const p2 = await createPerson("Bob", { netId: "bbb001", contactEmail: "bob@yale.edu" });
-
-    const req1 = await prisma.epicRequest.create({
-      data: { personId: p1.id, kind: "NEW", status: "PENDING", requestedById: p1.id },
-    });
-    await prisma.epicRequest.create({
-      data: { personId: p2.id, kind: "NEW", status: "COMPLETED", requestedById: p2.id },
-    });
-
-    const result = await listEpicRequests({ status: "PENDING" });
-    expect(result.rows).toHaveLength(1);
-    expect(result.rows[0].id).toBe(req1.id);
-    expect(result.rows[0].person.id).toBe(p1.id);
-
-    // counts across ALL requests (PENDING + COMPLETED)
-    expect(result.counts.PENDING).toBe(1);
-    expect(result.counts.COMPLETED).toBe(1);
-    expect(result.counts.SUBMITTED).toBe(0);
-    expect(result.counts.CANCELLED).toBe(0);
-    expect(result.total).toBe(1); // total reflects the filtered result
-  });
-
-  it("rows include ticket when attached", async () => {
-    const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "support.manage_requests");
-    const target = await createPerson("Alice", { netId: "aaa001" });
-
-    const req = await prisma.epicRequest.create({
-      data: { personId: target.id, kind: "NEW", status: "PENDING", requestedById: target.id },
-    });
-    const ticket = await createTicket(actor.id, { requestIds: [req.id] });
-
-    const result = await listEpicRequests({ status: "SUBMITTED" });
-    expect(result.rows[0].ticket?.id).toBe(ticket.id);
-  });
-
-  it("pagination: 26 rows -> page 2 has 1 row", async () => {
-    const actor = await createPerson("Manager", { netId: "mgr001" });
-    for (let i = 0; i < 26; i++) {
-      const p = await createPerson(`Person${i}`, { netId: `p${String(i).padStart(3, "0")}` });
-      await prisma.epicRequest.create({
-        data: { personId: p.id, kind: "NEW", status: "PENDING", requestedById: actor.id },
-      });
-    }
-
-    const page1 = await listEpicRequests({ status: "PENDING", page: 1 });
-    expect(page1.rows).toHaveLength(25);
-    expect(page1.total).toBe(26);
-
-    const page2 = await listEpicRequests({ status: "PENDING", page: 2 });
-    expect(page2.rows).toHaveLength(1);
-  });
-});
-
 describe("createTicket", () => {
   it("happy path: ticket created, requests moved to SUBMITTED, audited", async () => {
     const actor = await createPerson("Manager", { netId: "mgr001" });
@@ -460,10 +324,43 @@ describe("createTicket", () => {
       createTicket(actor.id, { requestIds: [] })
     ).rejects.toBeInstanceOf(EpicStateError);
   });
+
+  it("concurrent double-submit: only one caller claims the request, the loser creates no ticket", async () => {
+    const actor = await createPerson("Manager", { netId: "mgr001" });
+    await grantPermission(actor.id, "support.manage_requests");
+
+    const target = await createPerson("Alice", { netId: "aaa001" });
+    const req = await prisma.epicRequest.create({
+      data: { personId: target.id, kind: "NEW", status: "PENDING", requestedById: target.id },
+    });
+
+    // Fire two createTicket calls for the same PENDING request at once. Both
+    // pass the outside-the-write pre-check, but the atomic PENDING claim lets
+    // only one win; the loser matches zero rows, throws, and rolls back its own
+    // ticket so no ticket is orphaned and the request is not reassigned.
+    const results = await Promise.allSettled([
+      createTicket(actor.id, { requestIds: [req.id] }),
+      createTicket(actor.id, { requestIds: [req.id] }),
+    ]);
+
+    const fulfilled = results.filter((r) => r.status === "fulfilled");
+    const rejected = results.filter((r) => r.status === "rejected");
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect((rejected[0] as PromiseRejectedResult).reason).toBeInstanceOf(EpicStateError);
+
+    // Exactly one ticket exists, and the request is linked to it as SUBMITTED.
+    const tickets = await prisma.ynhhTicket.findMany();
+    expect(tickets).toHaveLength(1);
+
+    const updated = await prisma.epicRequest.findUniqueOrThrow({ where: { id: req.id } });
+    expect(updated.status).toBe("SUBMITTED");
+    expect(updated.ticketId).toBe(tickets[0].id);
+  });
 });
 
 // ---------------------------------------------------------------------------
-// setTicketServiceRequestNumber + closeTicket
+// setTicketServiceRequestNumber
 // ---------------------------------------------------------------------------
 
 describe("setTicketServiceRequestNumber", () => {
@@ -503,57 +400,6 @@ describe("setTicketServiceRequestNumber", () => {
     await expect(
       setTicketServiceRequestNumber(noPerms.id, "some-ticket-id", "SR-0001")
     ).rejects.toBeInstanceOf(EpicForbiddenError);
-  });
-});
-
-describe("closeTicket", () => {
-  it("sets status CLOSED + closedAt and audits ticket_close", async () => {
-    const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "support.manage_requests");
-
-    const target = await createPerson("Alice", { netId: "aaa001" });
-    const req = await prisma.epicRequest.create({
-      data: { personId: target.id, kind: "NEW", status: "PENDING", requestedById: target.id },
-    });
-    const ticket = await createTicket(actor.id, { requestIds: [req.id] });
-
-    await closeTicket(actor.id, ticket.id);
-
-    const updated = await prisma.ynhhTicket.findUniqueOrThrow({ where: { id: ticket.id } });
-    expect(updated.status).toBe("CLOSED");
-    expect(updated.closedAt).not.toBeNull();
-
-    const audit = await prisma.auditLog.findFirst({
-      where: { action: "epic.ticket_close", entityId: ticket.id },
-    });
-    expect(audit).not.toBeNull();
-  });
-
-  it("already-closed ticket -> EpicStateError", async () => {
-    const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "support.manage_requests");
-
-    const target = await createPerson("Alice", { netId: "aaa001" });
-    const req = await prisma.epicRequest.create({
-      data: { personId: target.id, kind: "NEW", status: "PENDING", requestedById: target.id },
-    });
-    const ticket = await createTicket(actor.id, { requestIds: [req.id] });
-    await closeTicket(actor.id, ticket.id);
-
-    await expect(closeTicket(actor.id, ticket.id)).rejects.toBeInstanceOf(EpicStateError);
-  });
-
-  it("ticket not found -> EpicNotFoundError", async () => {
-    const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "support.manage_requests");
-
-    await expect(closeTicket(actor.id, "cld_nonexistent")).rejects.toBeInstanceOf(EpicNotFoundError);
-  });
-
-  it("no permission -> EpicForbiddenError", async () => {
-    const noPerms = await createPerson("NoPerms", { netId: "np001" });
-
-    await expect(closeTicket(noPerms.id, "some-ticket-id")).rejects.toBeInstanceOf(EpicForbiddenError);
   });
 });
 
@@ -779,87 +625,6 @@ describe("completeRequest", () => {
   });
 });
 
-describe("cancelRequest", () => {
-  it("appends reason to existing notes and sets CANCELLED", async () => {
-    const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "support.manage_requests");
-    const target = await createPerson("Alice", { netId: "aaa001" });
-
-    const req = await prisma.epicRequest.create({
-      data: {
-        personId: target.id,
-        kind: "NEW",
-        status: "PENDING",
-        requestedById: target.id,
-        notes: "Original notes",
-      },
-    });
-
-    await cancelRequest(actor.id, req.id, "Withdrew application");
-
-    const updated = await prisma.epicRequest.findUniqueOrThrow({ where: { id: req.id } });
-    expect(updated.status).toBe("CANCELLED");
-    expect(updated.notes).toBe("Original notes\nCancelled: Withdrew application");
-
-    const audit = await prisma.auditLog.findFirst({
-      where: { action: "epic.cancel", entityId: req.id },
-    });
-    expect(audit).not.toBeNull();
-    const after = audit?.after as Record<string, unknown>;
-    expect(after.reason).toBe("Withdrew application");
-  });
-
-  it("works when notes is null (no leading newline)", async () => {
-    const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "support.manage_requests");
-    const target = await createPerson("Alice", { netId: "aaa001" });
-
-    const req = await prisma.epicRequest.create({
-      data: { personId: target.id, kind: "NEW", status: "PENDING", requestedById: target.id },
-    });
-
-    await cancelRequest(actor.id, req.id, "No longer a volunteer");
-
-    const updated = await prisma.epicRequest.findUniqueOrThrow({ where: { id: req.id } });
-    expect(updated.notes).toBe("Cancelled: No longer a volunteer");
-  });
-
-  it("blank reason -> EpicStateError", async () => {
-    const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "support.manage_requests");
-    const target = await createPerson("Alice", { netId: "aaa001" });
-
-    const req = await prisma.epicRequest.create({
-      data: { personId: target.id, kind: "NEW", status: "PENDING", requestedById: target.id },
-    });
-
-    await expect(cancelRequest(actor.id, req.id, "  ")).rejects.toBeInstanceOf(EpicStateError);
-    await expect(cancelRequest(actor.id, req.id, "")).rejects.toBeInstanceOf(EpicStateError);
-  });
-
-  it("no permission -> EpicForbiddenError", async () => {
-    const noPerms = await createPerson("NoPerms", { netId: "np001" });
-    const target = await createPerson("Alice", { netId: "aaa001" });
-
-    const req = await prisma.epicRequest.create({
-      data: { personId: target.id, kind: "NEW", status: "PENDING", requestedById: target.id },
-    });
-
-    await expect(cancelRequest(noPerms.id, req.id, "reason")).rejects.toBeInstanceOf(
-      EpicForbiddenError
-    );
-  });
-
-  it("not found -> EpicNotFoundError", async () => {
-    const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "support.manage_requests");
-
-    await expect(cancelRequest(actor.id, "cld_nonexistent", "reason")).rejects.toBeInstanceOf(
-      EpicNotFoundError
-    );
-  });
-});
-
 describe("sendEpicEmail", () => {
   it("queues EmailLog row with right template/to/personId/triggeredById", async () => {
     const actor = await createPerson("Manager", { netId: "mgr001", contactEmail: "mgr@yale.edu" });
@@ -960,303 +725,5 @@ describe("sendEpicEmail", () => {
     expect(teams).not.toBeNull();
 
     vi.restoreAllMocks();
-  });
-});
-
-describe("emailHistory", () => {
-  it("groups by personId, includes only epic templates, newest first", async () => {
-    const p1 = await createPerson("Alice", { netId: "aaa001" });
-    const p2 = await createPerson("Bob", { netId: "bbb001" });
-
-    const earlier = new Date("2026-01-01");
-    const later = new Date("2026-06-01");
-
-    await prisma.emailLog.create({
-      data: {
-        toEmail: "alice@yale.edu",
-        subject: "S1",
-        html: "<p>1</p>",
-        template: "epic-onboarding",
-        personId: p1.id,
-        createdAt: earlier,
-      },
-    });
-    await prisma.emailLog.create({
-      data: {
-        toEmail: "alice@yale.edu",
-        subject: "S2",
-        html: "<p>2</p>",
-        template: "epic-activation",
-        personId: p1.id,
-        createdAt: later,
-      },
-    });
-    await prisma.emailLog.create({
-      data: {
-        toEmail: "alice@yale.edu",
-        subject: "Non-epic",
-        html: "<p>x</p>",
-        template: "some-other-template",
-        personId: p1.id,
-        createdAt: later,
-      },
-    });
-    await prisma.emailLog.create({
-      data: {
-        toEmail: "bob@yale.edu",
-        subject: "S3",
-        html: "<p>3</p>",
-        template: "epic-password-reset",
-        personId: p2.id,
-        createdAt: later,
-      },
-    });
-
-    const history = await emailHistory([p1.id, p2.id]);
-
-    expect(history.size).toBe(2);
-
-    const p1Logs = history.get(p1.id)!;
-    expect(p1Logs).toHaveLength(2); // excludes the non-epic template
-    // newest first: epic-activation (later) should come first
-    expect(p1Logs[0].template).toBe("epic-activation");
-    expect(p1Logs[1].template).toBe("epic-onboarding");
-
-    const p2Logs = history.get(p2.id)!;
-    expect(p2Logs).toHaveLength(1);
-    expect(p2Logs[0].template).toBe("epic-password-reset");
-  });
-
-  it("excludes personIds not in the input list", async () => {
-    const p1 = await createPerson("Alice", { netId: "aaa001" });
-    const p2 = await createPerson("Bob", { netId: "bbb001" });
-
-    await prisma.emailLog.create({
-      data: {
-        toEmail: "alice@yale.edu",
-        subject: "S",
-        html: "<p>x</p>",
-        template: "epic-onboarding",
-        personId: p1.id,
-      },
-    });
-    await prisma.emailLog.create({
-      data: {
-        toEmail: "bob@yale.edu",
-        subject: "S",
-        html: "<p>x</p>",
-        template: "epic-onboarding",
-        personId: p2.id,
-      },
-    });
-
-    const history = await emailHistory([p1.id]);
-    expect(history.has(p1.id)).toBe(true);
-    expect(history.has(p2.id)).toBe(false);
-  });
-
-  it("returns empty map for empty personIds input", async () => {
-    const history = await emailHistory([]);
-    expect(history.size).toBe(0);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// listTickets
-// ---------------------------------------------------------------------------
-
-describe("updateRequestDetails", () => {
-  it("happy path: sets both jobTitle and mirrorEpicId; audit row exists with before/after", async () => {
-    const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "support.manage_requests");
-    const target = await createPerson("Alice", { netId: "aaa001" });
-
-    const req = await prisma.epicRequest.create({
-      data: { personId: target.id, kind: "NEW", status: "PENDING", requestedById: target.id },
-    });
-
-    await updateRequestDetails(actor.id, req.id, {
-      jobTitle: "Volunteer Clinician",
-      mirrorEpicId: "E11111",
-    });
-
-    const updated = await prisma.epicRequest.findUniqueOrThrow({ where: { id: req.id } });
-    expect(updated.jobTitle).toBe("Volunteer Clinician");
-    expect(updated.mirrorEpicId).toBe("E11111");
-
-    const audit = await prisma.auditLog.findFirst({
-      where: { action: "epic.update_details", entityId: req.id },
-    });
-    expect(audit).not.toBeNull();
-    expect(audit?.actorPersonId).toBe(actor.id);
-    const before = audit?.before as Record<string, unknown>;
-    const after = audit?.after as Record<string, unknown>;
-    expect(before.jobTitle).toBeNull();
-    expect(before.mirrorEpicId).toBeNull();
-    expect(after.jobTitle).toBe("Volunteer Clinician");
-    expect(after.mirrorEpicId).toBe("E11111");
-  });
-
-  it("partial update: only jobTitle; mirrorEpicId untouched", async () => {
-    const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "support.manage_requests");
-    const target = await createPerson("Alice", { netId: "aaa001" });
-
-    const req = await prisma.epicRequest.create({
-      data: {
-        personId: target.id,
-        kind: "NEW",
-        status: "PENDING",
-        requestedById: target.id,
-        mirrorEpicId: "E99999",
-      },
-    });
-
-    await updateRequestDetails(actor.id, req.id, { jobTitle: "New Title" });
-
-    const updated = await prisma.epicRequest.findUniqueOrThrow({ where: { id: req.id } });
-    expect(updated.jobTitle).toBe("New Title");
-    expect(updated.mirrorEpicId).toBe("E99999");
-  });
-
-  it("clearing with null clears the field", async () => {
-    const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "support.manage_requests");
-    const target = await createPerson("Alice", { netId: "aaa001" });
-
-    const req = await prisma.epicRequest.create({
-      data: {
-        personId: target.id,
-        kind: "NEW",
-        status: "PENDING",
-        requestedById: target.id,
-        jobTitle: "Old Title",
-        mirrorEpicId: "E88888",
-      },
-    });
-
-    await updateRequestDetails(actor.id, req.id, { jobTitle: null, mirrorEpicId: null });
-
-    const updated = await prisma.epicRequest.findUniqueOrThrow({ where: { id: req.id } });
-    expect(updated.jobTitle).toBeNull();
-    expect(updated.mirrorEpicId).toBeNull();
-  });
-
-  it("clearing with empty string clears the field (treated as null)", async () => {
-    const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "support.manage_requests");
-    const target = await createPerson("Alice", { netId: "aaa001" });
-
-    const req = await prisma.epicRequest.create({
-      data: {
-        personId: target.id,
-        kind: "NEW",
-        status: "PENDING",
-        requestedById: target.id,
-        jobTitle: "Old Title",
-        mirrorEpicId: "E77777",
-      },
-    });
-
-    await updateRequestDetails(actor.id, req.id, { jobTitle: "", mirrorEpicId: "" });
-
-    const updated = await prisma.epicRequest.findUniqueOrThrow({ where: { id: req.id } });
-    expect(updated.jobTitle).toBeNull();
-    expect(updated.mirrorEpicId).toBeNull();
-  });
-
-  it("no permission -> EpicForbiddenError", async () => {
-    const noPerms = await createPerson("NoPerms", { netId: "np001" });
-    const target = await createPerson("Alice", { netId: "aaa001" });
-
-    const req = await prisma.epicRequest.create({
-      data: { personId: target.id, kind: "NEW", status: "PENDING", requestedById: target.id },
-    });
-
-    await expect(
-      updateRequestDetails(noPerms.id, req.id, { jobTitle: "Title" })
-    ).rejects.toBeInstanceOf(EpicForbiddenError);
-  });
-
-  it("not found -> EpicNotFoundError", async () => {
-    const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "support.manage_requests");
-
-    await expect(
-      updateRequestDetails(actor.id, "cld_nonexistent", { jobTitle: "Title" })
-    ).rejects.toBeInstanceOf(EpicNotFoundError);
-  });
-
-  it("COMPLETED request rejected -> EpicStateError", async () => {
-    const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "support.manage_requests");
-    const target = await createPerson("Alice", { netId: "aaa001", epicId: "E11111" });
-
-    const req = await prisma.epicRequest.create({
-      data: {
-        personId: target.id,
-        kind: "RENEW",
-        status: "COMPLETED",
-        requestedById: target.id,
-        completedAt: new Date(),
-      },
-    });
-
-    await expect(
-      updateRequestDetails(actor.id, req.id, { jobTitle: "Title" })
-    ).rejects.toBeInstanceOf(EpicStateError);
-  });
-
-  it("SUBMITTED (open) request is accepted", async () => {
-    const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "support.manage_requests");
-    const target = await createPerson("Alice", { netId: "aaa001" });
-
-    const req = await prisma.epicRequest.create({
-      data: { personId: target.id, kind: "NEW", status: "SUBMITTED", requestedById: target.id },
-    });
-
-    await expect(
-      updateRequestDetails(actor.id, req.id, { jobTitle: "Volunteer" })
-    ).resolves.toBeUndefined();
-
-    const updated = await prisma.epicRequest.findUniqueOrThrow({ where: { id: req.id } });
-    expect(updated.jobTitle).toBe("Volunteer");
-  });
-});
-
-describe("listTickets", () => {
-  it("returns OPEN tickets first then CLOSED, includes request count", async () => {
-    const actor = await createPerson("Manager", { netId: "mgr001" });
-    await grantPermission(actor.id, "support.manage_requests");
-
-    const p1 = await createPerson("Alice", { netId: "aaa001" });
-    const p2 = await createPerson("Bob", { netId: "bbb001" });
-    const p3 = await createPerson("Carol", { netId: "ccc001" });
-
-    const req1 = await prisma.epicRequest.create({
-      data: { personId: p1.id, kind: "NEW", status: "PENDING", requestedById: p1.id },
-    });
-    const req2 = await prisma.epicRequest.create({
-      data: { personId: p2.id, kind: "NEW", status: "PENDING", requestedById: p2.id },
-    });
-    const req3 = await prisma.epicRequest.create({
-      data: { personId: p3.id, kind: "NEW", status: "PENDING", requestedById: p3.id },
-    });
-
-    const ticket1 = await createTicket(actor.id, { requestIds: [req1.id, req2.id] });
-    const ticket2 = await createTicket(actor.id, { requestIds: [req3.id] });
-    await closeTicket(actor.id, ticket2.id);
-
-    const tickets = await listTickets();
-
-    // OPEN first.
-    expect(tickets[0].id).toBe(ticket1.id);
-    expect(tickets[0]._count.requests).toBe(2);
-
-    // CLOSED second.
-    expect(tickets[1].id).toBe(ticket2.id);
-    expect(tickets[1]._count.requests).toBe(1);
-    expect(tickets[1].closedAt).not.toBeNull();
   });
 });

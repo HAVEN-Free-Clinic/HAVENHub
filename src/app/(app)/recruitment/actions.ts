@@ -1,6 +1,7 @@
 "use server";
 import { redirect } from "next/navigation";
 import { requirePermission } from "@/platform/auth/session";
+import { isUniqueConstraintError } from "@/platform/db";
 import { runAction } from "@/platform/actions";
 import {
   createCycle, publishCycle, closeCycle, reopenCycle, archiveCycle, setAcceptsRenewals,
@@ -27,7 +28,17 @@ export async function createCycleAction(formData: FormData) {
   if (isReservedSlug(slug)) {
     redirect(`/recruitment/cycles/new?error=${encodeURIComponent(`"${slug}" is a reserved word. Choose a different public link.`)}`);
   }
-  const cycle = await createCycle({ track, termId, title, publicSlug: slug, departments, acceptsRenewals: false, createdById: person.personId });
+  let cycle;
+  try {
+    cycle = await createCycle({ track, termId, title, publicSlug: slug, departments, acceptsRenewals: false, createdById: person.personId });
+  } catch (err) {
+    // publicSlug is unique. A colliding slug throws P2002; surface the same
+    // friendly reserved-word flow instead of the generic error page (audit3 L2).
+    if (isUniqueConstraintError(err)) {
+      redirect(`/recruitment/cycles/new?error=${encodeURIComponent(`"${slug}" is already taken as a public link. Choose a different one.`)}`);
+    }
+    throw err;
+  }
   redirect(`/recruitment/cycles/${cycle.id}/builder`);
 }
 

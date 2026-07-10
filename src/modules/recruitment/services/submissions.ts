@@ -255,9 +255,21 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
         transferFromDepartments,
         status: "SUBMITTED" as const, submittedAt: new Date(),
       };
-      const app = existingApp
-        ? await tx.application.update({ where: { id: existingApp.id }, data: appData })
-        : await tx.application.create({ data: { cycleId: cycle.id, applicantId, ...appData } });
+      let app: Application;
+      if (existingApp) {
+        // Claim the draft atomically: the status: "DRAFT" precondition means only
+        // one of two concurrent submits can flip the row. Without it both would
+        // flip DRAFT->SUBMITTED and queue a confirmation email, and the last
+        // write's file refs would win, orphaning the loser's freshly-uploaded
+        // blob (audit3 L9). Mirrors submitContract (onboarding.ts). The loser
+        // throws DuplicateApplicationError, which the outer catch turns into a
+        // cleanupFiles(fileRefs.storageKeys) so its new blob is dropped.
+        const claimed = await tx.application.updateMany({ where: { id: existingApp.id, status: "DRAFT" }, data: appData });
+        if (claimed.count === 0) throw new DuplicateApplicationError();
+        app = await tx.application.findUniqueOrThrow({ where: { id: existingApp.id } });
+      } else {
+        app = await tx.application.create({ data: { cycleId: cycle.id, applicantId, ...appData } });
+      }
       const receivedEmail = await renderCycleEmail(cycle.id, "recruitment.application_received", {
         firstName: firstName || "there",
         cycleTitle: cycle.title,

@@ -10,11 +10,20 @@ import {
   clearSenderRule,
   listSenderRules,
   SenderRuleValidationError,
+  SENDER_CATEGORIES,
 } from "./sender-rules";
 
 beforeEach(async () => {
   await resetDb();
   _resetSettingsCache();
+});
+
+describe("SENDER_CATEGORIES", () => {
+  it("exposes a send-from category for every enqueued group (incl. support and incidents)", () => {
+    const groups = SENDER_CATEGORIES.map((c) => c.group);
+    expect(groups).toContain("support");
+    expect(groups).toContain("incidents");
+  });
 });
 
 describe("groupForTemplate", () => {

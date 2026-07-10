@@ -40,6 +40,13 @@ describe("person fields", () => {
     });
   });
 
+  it("role -> an empty/invalid value matches nobody (never everyone)", () => {
+    expect(personFieldWhere({ field: "role", op: "eq", value: "" }, ctx)).toEqual({ id: { in: [] } });
+    expect(personFieldWhere({ field: "role", op: "eq", value: "   " }, ctx)).toEqual({ id: { in: [] } });
+    expect(personFieldWhere({ field: "role", op: "eq" }, ctx)).toEqual({ id: { in: [] } });
+    expect(personFieldWhere({ field: "role", op: "eq", value: "GHOST" }, ctx)).toEqual({ id: { in: [] } });
+  });
+
   it("department -> active-term membership in those department codes", () => {
     expect(personFieldWhere({ field: "department", op: "in", value: ["CARDIO", "PEDS"] }, ctx)).toEqual({
       memberships: { some: { termId: "term1", status: "ACTIVE", department: { code: { in: ["CARDIO", "PEDS"] } } } },

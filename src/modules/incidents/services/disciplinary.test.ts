@@ -5,7 +5,7 @@
  *   - Director issues for own-dept member; action created; audit row exists.
  *   - Delegation edge: PCAR director managing dept B via DepartmentDelegation can issue.
  *   - Cross-dept director gets DisciplinaryForbiddenError.
- *   - Central (issue_disciplinary) can issue for anyone.
+ *   - Central (incidents.manage) can issue for anyone.
  *   - Validation: bad category -> DisciplinaryValidationError.
  *   - Validation: blank description -> DisciplinaryValidationError.
  *   - Validation: future occurredAt -> DisciplinaryValidationError.
@@ -223,13 +223,13 @@ describe("issueAction", () => {
     ).rejects.toBeInstanceOf(DisciplinaryForbiddenError);
   });
 
-  it("central holder of volunteers.issue_disciplinary can issue for anyone", async () => {
+  it("central holder of incidents.manage can issue for anyone", async () => {
     const term = await createTerm();
     const dept = await createDepartment("SRR");
     const actor = await createPerson("Central", "ctr001");
     const target = await createPerson("Anyone", "any001");
 
-    await grantPermission(actor.id, "volunteers.issue_disciplinary");
+    await grantPermission(actor.id, "incidents.manage");
     await createMembership(target.id, term.id, dept.id, "VOLUNTEER");
 
     const action = await issueCentral(actor.id, target.id);
@@ -354,7 +354,7 @@ describe("deleteAction", () => {
     const central = await createPerson("Central", "ctr001");
     const target = await createPerson("Volunteer", "vol001");
 
-    await grantPermission(central.id, "volunteers.issue_disciplinary");
+    await grantPermission(central.id, "incidents.manage");
     await createMembership(target.id, term.id, dept.id, "VOLUNTEER");
 
     const action = await issueCentral(central.id, target.id, { description: "Serious incident" });
@@ -382,7 +382,7 @@ describe("deleteAction", () => {
     const director = await createPerson("Director", "dir001");
     const target = await createPerson("Volunteer", "vol001");
 
-    await grantPermission(central.id, "volunteers.issue_disciplinary");
+    await grantPermission(central.id, "incidents.manage");
     await createMembership(director.id, term.id, dept.id, "DIRECTOR");
     await createMembership(target.id, term.id, dept.id, "VOLUNTEER");
 
@@ -395,7 +395,7 @@ describe("deleteAction", () => {
 
   it("missing action -> DisciplinaryNotFoundError", async () => {
     const central = await createPerson("Central", "ctr001");
-    await grantPermission(central.id, "volunteers.issue_disciplinary");
+    await grantPermission(central.id, "incidents.manage");
 
     await expect(deleteAction(central.id, "nonexistent-id")).rejects.toBeInstanceOf(
       DisciplinaryNotFoundError
@@ -415,7 +415,7 @@ describe("listActions - visibility", () => {
     const director = await createPerson("Director", "dir001");
     const target = await createPerson("Volunteer", "vol001");
 
-    await grantPermission(central.id, "volunteers.issue_disciplinary");
+    await grantPermission(central.id, "incidents.manage");
     await createMembership(director.id, term.id, dept.id, "DIRECTOR");
     await createMembership(target.id, term.id, dept.id, "VOLUNTEER");
 
@@ -504,7 +504,7 @@ describe("listActions - visibility", () => {
     const directorB = await createPerson("DirB", "dirb001");
     const targetA = await createPerson("VolA", "vola001");
 
-    await grantPermission(central.id, "volunteers.issue_disciplinary");
+    await grantPermission(central.id, "incidents.manage");
     await createMembership(directorB.id, term.id, deptB.id, "DIRECTOR");
     await createMembership(targetA.id, term.id, deptA.id, "VOLUNTEER");
 
@@ -528,7 +528,7 @@ describe("listActions - filters", () => {
     const central = await createPerson("Central", "ctr001");
     const target = await createPerson("Volunteer", "vol001");
 
-    await grantPermission(central.id, "volunteers.issue_disciplinary");
+    await grantPermission(central.id, "incidents.manage");
     await createMembership(target.id, term.id, dept.id, "VOLUNTEER");
 
     await issueAction(central.id, {
@@ -556,7 +556,7 @@ describe("listActions - filters", () => {
     const targetA = await createPerson("Alice Smith", "alice001");
     const targetB = await createPerson("Bob Jones", "bob001");
 
-    await grantPermission(central.id, "volunteers.issue_disciplinary");
+    await grantPermission(central.id, "incidents.manage");
     await createMembership(targetA.id, term.id, dept.id, "VOLUNTEER");
     await createMembership(targetB.id, term.id, dept.id, "VOLUNTEER");
 
@@ -576,7 +576,7 @@ describe("listActions - filters", () => {
     const targetA = await createPerson("VolA", "vola001");
     const targetB = await createPerson("VolB", "volb001");
 
-    await grantPermission(central.id, "volunteers.issue_disciplinary");
+    await grantPermission(central.id, "incidents.manage");
     await createMembership(targetA.id, term.id, deptA.id, "VOLUNTEER");
     await createMembership(targetB.id, term.id, deptB.id, "VOLUNTEER");
 
@@ -636,7 +636,7 @@ describe("listActions - filters", () => {
     // activeVol is a member of the dept in the active term.
     const activeVol = await createPerson("Current Vol", "cv001");
 
-    await grantPermission(central.id, "volunteers.issue_disciplinary");
+    await grantPermission(central.id, "incidents.manage");
     await createMembership(archivedVol.id, archivedTerm.id, dept.id, "VOLUNTEER");
     await createMembership(activeVol.id, activeTerm.id, dept.id, "VOLUNTEER");
 
@@ -662,7 +662,7 @@ describe("listActions - filters", () => {
     // carol is in deptB with a matching name -- should NOT appear (wrong dept)
     const carol = await createPerson("Alice Wrong Dept", "carol001");
 
-    await grantPermission(central.id, "volunteers.issue_disciplinary");
+    await grantPermission(central.id, "incidents.manage");
     await createMembership(alice.id, term.id, deptA.id, "VOLUNTEER");
     await createMembership(bob.id, term.id, deptA.id, "VOLUNTEER");
     await createMembership(carol.id, term.id, deptB.id, "VOLUNTEER");
@@ -681,7 +681,7 @@ describe("listActions - filters", () => {
     const dept = await createDepartment("ITCM");
     const central = await createPerson("Central", "ctr001");
 
-    await grantPermission(central.id, "volunteers.issue_disciplinary");
+    await grantPermission(central.id, "incidents.manage");
 
     // Create 26 distinct targets with memberships and actions
     for (let i = 0; i < 26; i++) {
@@ -706,7 +706,7 @@ describe("strikes", () => {
     const central = await createPerson("Central", "ctr001");
     const target = await createPerson("Repeat Offender", "ro001");
 
-    await grantPermission(central.id, "volunteers.issue_disciplinary");
+    await grantPermission(central.id, "incidents.manage");
     await createMembership(target.id, term.id, dept.id, "VOLUNTEER");
 
     await issueCentral(central.id, target.id, { description: "Incident 1" });
@@ -729,7 +729,7 @@ describe("strikes", () => {
     const director = await createPerson("Director", "dir001");
     const target = await createPerson("Repeat Vol", "rv001");
 
-    await grantPermission(central.id, "volunteers.issue_disciplinary");
+    await grantPermission(central.id, "incidents.manage");
     await createMembership(director.id, term.id, dept.id, "DIRECTOR");
     await createMembership(target.id, term.id, dept.id, "VOLUNTEER");
 
@@ -766,7 +766,7 @@ describe("strikes", () => {
     const director = await createPerson("Director", "dir001");
     const target = await createPerson("Repeat Vol", "rv001");
 
-    await grantPermission(central.id, "volunteers.issue_disciplinary");
+    await grantPermission(central.id, "incidents.manage");
     await createMembership(director.id, term.id, dept.id, "DIRECTOR");
     await createMembership(target.id, term.id, dept.id, "VOLUNTEER");
 
@@ -805,7 +805,7 @@ describe("strikes", () => {
 describe("issuablePeople", () => {
   it("central -> { all: true, people: [] }", async () => {
     const actor = await createPerson("Central", "ctr001");
-    await grantPermission(actor.id, "volunteers.issue_disciplinary");
+    await grantPermission(actor.id, "incidents.manage");
 
     const result = await issuablePeople(actor.id);
     expect(result.all).toBe(true);

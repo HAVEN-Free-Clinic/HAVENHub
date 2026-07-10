@@ -1,20 +1,23 @@
 /**
- * Disciplinary actions log page for Volunteer Management.
+ * Strikes ledger page for Incident Reports.
  *
- * Access: requirePermission("volunteers.view") -- same gate as offboarding.
- * The volunteers layout already gates on volunteers.view; this call is
- * defense-in-depth and supplies the actor's personId.
+ * Access: requirePermission("incidents.view_strikes"). Directors hold this
+ * permission and can view but not issue or delete; central reviewers hold
+ * incidents.manage and can issue and delete.
  *
  * Visibility is enforced by the service (listActions / issuablePeople).
  * A DisciplinaryForbiddenError from listActions is caught here and renders
  * a friendly empty state instead of a hard error.
  *
  * Server actions:
- *   issueActionForm  -- re-checks volunteers.view (service enforces scope).
- *   deleteActionForm -- re-checks volunteers.issue_disciplinary.
+ *   issueActionForm  -- re-checks incidents.view_strikes, then requires
+ *                        incidents.manage (directors issue strikes via a
+ *                        report request, not here).
+ *   deleteActionForm -- re-checks incidents.manage.
  */
 
 import { requirePermission } from "@/platform/auth/session";
+import { can } from "@/platform/rbac/engine";
 import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { PageHeader } from "@/platform/ui/page-header";
@@ -38,7 +41,7 @@ import {
   DisciplinaryForbiddenError,
   DisciplinaryNotFoundError,
   DisciplinaryValidationError,
-} from "@/modules/volunteers/services/disciplinary";
+} from "@/modules/incidents/services/disciplinary";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { fmtDate } from "@/platform/dates";
@@ -78,7 +81,7 @@ type PageProps = {
 // ---------------------------------------------------------------------------
 
 export default async function DisciplinaryPage({ searchParams }: PageProps) {
-  const viewer = await requirePermission("volunteers.view");
+  const viewer = await requirePermission("incidents.view_strikes");
   const sp = await searchParams;
 
   const qSearch = sp.q?.trim() || undefined;
@@ -140,7 +143,7 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
     if (departmentId) params.set("departmentId", departmentId);
     if (categoryFilter) params.set("category", categoryFilter);
     params.set("page", String(targetPage));
-    return `/volunteers/disciplinary?${params.toString()}`;
+    return `/incidents/strikes?${params.toString()}`;
   }
 
   // ---------------------------------------------------------------------------
@@ -149,7 +152,10 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
 
   async function issueActionForm(formData: FormData) {
     "use server";
-    const actor = await requirePermission("volunteers.view");
+    const actor = await requirePermission("incidents.view_strikes");
+    if (!(await can(actor.personId, "incidents.manage"))) {
+      redirect("/incidents/strikes?error=forbidden");
+    }
 
     const occurredAtStr = (formData.get("occurredAt") as string | null) ?? "";
     const category = (formData.get("category") as string | null) ?? "";
@@ -165,7 +171,7 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
     if (!personId) {
       const personKey = (formData.get("personKey") as string | null)?.trim() ?? "";
       if (!personKey) {
-        redirect("/volunteers/disciplinary?error=person-not-found");
+        redirect("/incidents/strikes?error=person-not-found");
       }
       const person = await prisma.person.findFirst({
         where: {
@@ -177,14 +183,14 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
         select: { id: true },
       });
       if (!person) {
-        redirect("/volunteers/disciplinary?error=person-not-found");
+        redirect("/incidents/strikes?error=person-not-found");
       }
       personId = person.id;
     }
 
     const occurredAt = occurredAtStr ? new Date(occurredAtStr) : null;
     if (!occurredAt || isNaN(occurredAt.getTime())) {
-      redirect("/volunteers/disciplinary?error=validation");
+      redirect("/incidents/strikes?error=validation");
     }
 
     try {
@@ -201,50 +207,50 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
       });
     } catch (err) {
       if (err instanceof DisciplinaryForbiddenError) {
-        redirect("/volunteers/disciplinary?error=forbidden");
+        redirect("/incidents/strikes?error=forbidden");
       }
       if (err instanceof DisciplinaryNotFoundError) {
-        redirect("/volunteers/disciplinary?error=person-not-found");
+        redirect("/incidents/strikes?error=person-not-found");
       }
       if (err instanceof DisciplinaryValidationError) {
         const msg = err.message.toLowerCase();
-        if (msg.includes("category")) redirect("/volunteers/disciplinary?error=bad-category");
-        if (msg.includes("description")) redirect("/volunteers/disciplinary?error=blank-description");
-        if (msg.includes("future")) redirect("/volunteers/disciplinary?error=future-date");
+        if (msg.includes("category")) redirect("/incidents/strikes?error=bad-category");
+        if (msg.includes("description")) redirect("/incidents/strikes?error=blank-description");
+        if (msg.includes("future")) redirect("/incidents/strikes?error=future-date");
         redirect(
-          `/volunteers/disciplinary?error=validation&message=${encodeURIComponent(err.message)}`
+          `/incidents/strikes?error=validation&message=${encodeURIComponent(err.message)}`
         );
       }
       throw err;
     }
-    revalidatePath("/volunteers/disciplinary");
-    redirect("/volunteers/disciplinary");
+    revalidatePath("/incidents/strikes");
+    redirect("/incidents/strikes");
   }
 
   async function deleteActionForm(formData: FormData) {
     "use server";
-    const actor = await requirePermission("volunteers.issue_disciplinary");
+    const actor = await requirePermission("incidents.manage");
     const actionId = (formData.get("actionId") as string | null) ?? "";
     try {
       await deleteAction(actor.personId, actionId);
     } catch (err) {
       if (err instanceof DisciplinaryForbiddenError) {
-        redirect("/volunteers/disciplinary?error=forbidden");
+        redirect("/incidents/strikes?error=forbidden");
       }
       if (err instanceof DisciplinaryNotFoundError) {
-        redirect("/volunteers/disciplinary?error=not-found");
+        redirect("/incidents/strikes?error=not-found");
       }
       throw err;
     }
-    revalidatePath("/volunteers/disciplinary");
-    redirect("/volunteers/disciplinary");
+    revalidatePath("/incidents/strikes");
+    redirect("/incidents/strikes");
   }
 
   return (
     <div>
       <PageHeader
-        title="Disciplinary actions"
-        description="Record and review formal disciplinary actions."
+        title="Strikes"
+        description="Issued disciplinary strikes. Directors see their departments; reviewers see all and can issue or delete."
       />
 
       {errorMessage && (
@@ -374,7 +380,7 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
       {/* Filter bar */}
       <form
         method="GET"
-        action="/volunteers/disciplinary"
+        action="/incidents/strikes"
         className="mt-10 flex flex-wrap items-end gap-3"
       >
         <div className="flex-1 min-w-44">
@@ -420,7 +426,7 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
 
         {(qSearch || departmentId || categoryFilter) && (
           <Link
-            href="/volunteers/disciplinary"
+            href="/incidents/strikes"
             className={buttonClasses("outline", "sm")}
           >
             Clear

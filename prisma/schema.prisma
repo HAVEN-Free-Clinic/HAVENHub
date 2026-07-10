@@ -67,6 +67,37 @@ enum CertificateExtraction {
   NONE
 }
 
+enum PatientImpact {
+  YES
+  NO
+  UNSURE
+}
+
+enum IssueNature {
+  SYSTEM
+  INDIVIDUAL
+  BOTH_UNSURE
+}
+
+enum PriorOccurrence {
+  YES
+  NO
+  UNSURE
+}
+
+enum IncidentReportStatus {
+  SUBMITTED
+  UNDER_REVIEW
+  RESOLVED
+  DISMISSED
+}
+
+enum StrikeDecision {
+  PENDING
+  APPROVED
+  DECLINED
+}
+
 model Person {
   id                        String               @id @default(cuid())
   netId                     String?              @unique
@@ -113,6 +144,16 @@ model Person {
   disciplinaryActions       DisciplinaryAction[] @relation("disciplinaryActionPerson")
   /// Disciplinary actions this person issued.
   disciplinaryActionsIssued DisciplinaryAction[] @relation("disciplinaryActionIssuedBy")
+  /// Incident reports this person filed.
+  incidentReportsFiled        IncidentReport[]           @relation("incidentReportReporter")
+  /// Incident reports naming this person as the subject.
+  incidentReportsAbout        IncidentReport[]           @relation("incidentReportSubject")
+  /// Incident reports this person resolved or dismissed.
+  incidentReportsResolved     IncidentReport[]           @relation("incidentReportResolvedBy")
+  /// Incident-report strike decisions this person made.
+  incidentStrikeDecisions     IncidentReport[]           @relation("incidentReportStrikeDecidedBy")
+  /// Incident-report attachments this person uploaded.
+  incidentAttachmentsUploaded IncidentReportAttachment[] @relation("incidentAttachmentUploadedBy")
   /// Email log rows addressed to or triggered by this person.
   emailLogs                 EmailLog[]           @relation("emailLogPerson")
   /// Email log rows this person triggered (may differ from the recipient).
@@ -675,12 +716,80 @@ model DisciplinaryAction {
   confidential    Boolean  @default(false)
   patientInvolved Boolean  @default(false)
   createdAt       DateTime @default(now())
+  /// When this strike was issued by approving an incident report's strike request.
+  reportId        String?  @unique
+  report          IncidentReport? @relation("incidentReportStrikeAction", fields: [reportId], references: [id], onDelete: SetNull)
   /// Subject of the action. Cascade: records belong to the person.
   person          Person   @relation("disciplinaryActionPerson", fields: [personId], references: [id], onDelete: Cascade)
   /// Person who issued the action. Restrict: the issuer should not be deleted while records exist.
   issuedBy        Person   @relation("disciplinaryActionIssuedBy", fields: [issuedById], references: [id], onDelete: Restrict)
 
   @@index([personId])
+}
+
+/// A Professional Standards Incident Report. Any signed-in person may file one
+/// about anyone; reviewers (incidents.manage) triage them. A director filing
+/// about a volunteer they manage may request a strike, which a reviewer approves
+/// (issuing a linked DisciplinaryAction) or declines.
+model IncidentReport {
+  id                    String               @id @default(cuid())
+  number                Int                  @unique @default(autoincrement())
+  reporterId            String
+  anonymous             Boolean              @default(false)
+  concernTypes          String[]             @default([])
+  description           String               @db.Text
+  occurredAt            DateTime?
+  setting               String?
+  subjectPersonId       String?
+  subjectDescription    String?
+  patientImpact         PatientImpact?
+  patientImpactDetail   String?
+  immediateRisk         Boolean              @default(false)
+  issueNature           IssueNature?
+  priorOccurrence       PriorOccurrence?
+  priorOccurrenceDetail String?
+  status                IncidentReportStatus @default(SUBMITTED)
+  reviewNotes           String?              @db.Text
+  resolvedById          String?
+  resolvedAt            DateTime?
+  strikeDecision        StrikeDecision?
+  strikeDecidedById     String?
+  strikeDecidedAt       DateTime?
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+  /// The person who filed the report. Restrict: the reporter is load-bearing for the record.
+  reporter              Person               @relation("incidentReportReporter", fields: [reporterId], references: [id], onDelete: Restrict)
+  /// The individual of concern, when a specific person is identified. SetNull: a report survives its subject being deleted (subjectDescription remains).
+  subject               Person?              @relation("incidentReportSubject", fields: [subjectPersonId], references: [id], onDelete: SetNull)
+  /// The reviewer who resolved or dismissed the report.
+  resolvedBy            Person?              @relation("incidentReportResolvedBy", fields: [resolvedById], references: [id], onDelete: Restrict)
+  /// The reviewer who decided the strike request.
+  strikeDecidedBy       Person?              @relation("incidentReportStrikeDecidedBy", fields: [strikeDecidedById], references: [id], onDelete: Restrict)
+  /// The strike created when a strike request is approved (FK lives on DisciplinaryAction.reportId).
+  strikeAction          DisciplinaryAction?  @relation("incidentReportStrikeAction")
+  attachments           IncidentReportAttachment[]
+
+  @@index([status])
+  @@index([reporterId])
+  @@index([subjectPersonId])
+}
+
+/// A file attached to an incident report. Bytes live in storage under storedName
+/// (src/platform/storage.ts putObject/getObject); this row is the metadata +
+/// ownership record. Mirrors the HipaaCertificate storage-key convention.
+model IncidentReportAttachment {
+  id           String         @id @default(cuid())
+  reportId     String
+  fileName     String
+  storedName   String
+  size         Int
+  mimeType     String
+  uploadedById String
+  createdAt    DateTime       @default(now())
+  report       IncidentReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  uploadedBy   Person         @relation("incidentAttachmentUploadedBy", fields: [uploadedById], references: [id], onDelete: Restrict)
+
+  @@index([reportId])
 }
 
 enum EmailCampaignStatus {

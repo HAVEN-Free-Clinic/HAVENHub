@@ -40,6 +40,32 @@ describe("renderEmail", () => {
     expect(out.html).toContain("HAVEN Free Clinic"); // wrapped in branded layout
   });
 
+  it("leaves subject merge variables unescaped while still escaping them in the HTML title", async () => {
+    // Override a real (non-layout) template so its subject flows into the default
+    // layout's <title>. The layout special-cases the layout key itself.
+    await prisma.emailTemplate.create({
+      data: { key: "support.ticket_submitted", subject: "Welcome {{ name }}", body: "<p>hi</p>" },
+    });
+    const out = await renderEmail("support.ticket_submitted", { name: "O'Brien & Co" });
+    // Subject header is plain text: apostrophe and ampersand pass through verbatim.
+    expect(out.subject).toBe("Welcome O'Brien & Co");
+    // The layout's <title> re-escapes {{ subject }}, so the HTML stays safe.
+    expect(out.html).toContain("O&#39;Brien &amp; Co");
+    expect(out.html).not.toContain("O'Brien & Co");
+  });
+
+  it("renderInlineEmail leaves subject merge variables unescaped but escapes them in the HTML title", async () => {
+    const out = await renderInlineEmail(
+      { subject: "Hi {{ firstName }}", body: "<p>Hello</p>" },
+      { firstName: "O'Brien & Co" },
+    );
+    // Subject header keeps the raw apostrophe and ampersand.
+    expect(out.subject).toBe("Hi O'Brien & Co");
+    // The branded layout escapes {{ subject }} into the <title>.
+    expect(out.html).toContain("O&#39;Brien &amp; Co");
+    expect(out.html).not.toContain("Hi O'Brien & Co");
+  });
+
   it("uses the default Yale blue in the layout when brandColor is unset", async () => {
     const out = await renderEmail("layout", { body: "<p>hi</p>", subject: "S" });
     expect(out.html).toContain("#00356b");

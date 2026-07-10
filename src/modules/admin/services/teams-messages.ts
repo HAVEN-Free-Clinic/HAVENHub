@@ -90,6 +90,6 @@ export async function retryTeamsMessage(id: string): Promise<void> {
   }
   await prisma.teamsMessage.update({
     where: { id },
-    data: { status: "QUEUED", attempts: 0, lastError: null },
+    data: { status: "QUEUED", attempts: 0, lastError: null, lockedAt: null },
   });
 }

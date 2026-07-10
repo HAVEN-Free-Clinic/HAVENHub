@@ -26,8 +26,9 @@ const emailFlusher = createEnqueueFlusher(async () => {
   await drainEmailQueue(transport);
 });
 
-/** Run the email drain now, coalescing overlapping calls. Exposed for the cron
- *  route and tests; delivery is normally triggered via queueEmail on enqueue. */
+/** Run the email drain now, coalescing overlapping calls. Exposed for tests;
+ *  delivery normally fires via queueEmail on enqueue, and the 30-min cron
+ *  backstop calls drainEmailQueue directly. */
 export const flushEmailQueue = emailFlusher.flushNow;
 
 /**

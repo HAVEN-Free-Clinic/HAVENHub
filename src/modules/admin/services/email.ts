@@ -172,6 +172,7 @@ export async function retryEmail(actorPersonId: string, emailId: string): Promis
       status: "QUEUED",
       attempts: 0,
       lastError: null,
+      lockedAt: null,
     },
   });
 
@@ -200,7 +201,7 @@ export async function retryEmail(actorPersonId: string, emailId: string): Promis
 export async function retryAllFailedEmails(actorPersonId: string): Promise<number> {
   const { count } = await prisma.emailLog.updateMany({
     where: { status: "FAILED" },
-    data: { status: "QUEUED", attempts: 0, lastError: null },
+    data: { status: "QUEUED", attempts: 0, lastError: null, lockedAt: null },
   });
 
   if (count === 0) return 0;

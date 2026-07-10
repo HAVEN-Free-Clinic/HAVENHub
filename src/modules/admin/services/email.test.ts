@@ -258,6 +258,26 @@ describe("retryEmail", () => {
     expect(updated.lastError).toBeNull();
   });
 
+  it("clears a non-null lockedAt when retrying a FAILED row (defense in depth: retryEmail no longer depends on FAILED rows already carrying lockedAt: null)", async () => {
+    const email = await prisma.emailLog.create({
+      data: {
+        toEmail: "locked@example.com",
+        subject: "Locked",
+        html: "<p>x</p>",
+        template: "generic",
+        status: "FAILED",
+        attempts: 8,
+        lockedAt: new Date(),
+      },
+    });
+
+    await retryEmail(ACTOR, email.id);
+
+    const updated = await prisma.emailLog.findUniqueOrThrow({ where: { id: email.id } });
+    expect(updated.status).toBe("QUEUED");
+    expect(updated.lockedAt).toBeNull();
+  });
+
   it("writes an email.retry audit row with before/after snapshot", async () => {
     const email = await seedEmail({
       status: "FAILED",

@@ -30,8 +30,9 @@ const teamsFlusher = createEnqueueFlusher(async () => {
   await drainTeamsQueue(transport);
 });
 
-/** Run the Teams drain now, coalescing overlapping calls. Exposed for the cron
- *  route and tests; delivery is normally triggered via queueTeamsMessage. */
+/** Run the Teams drain now, coalescing overlapping calls. Exposed for tests;
+ *  delivery normally fires via queueTeamsMessage on enqueue, and the 30-min
+ *  cron backstop calls drainTeamsQueue directly. */
 export const flushTeamsQueue = teamsFlusher.flushNow;
 
 /** Append a Teams message job, mirroring queueEmail (any Db handle). */

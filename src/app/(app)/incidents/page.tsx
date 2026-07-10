@@ -187,7 +187,8 @@ export default async function ReportConcernPage({ searchParams }: PageProps) {
 
           {/* Section 9: attachments */}
           <Field label="9. Attachments" hint="Optional. Photos, screenshots, or documents that support the report.">
-            <input type="file" name="attachments" multiple className="text-sm" />
+            {/* eslint-disable-next-line no-restricted-syntax -- native file input, no file primitive exists */}
+            <input type="file" name="attachments" multiple className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground-soft hover:file:bg-muted-strong" />
           </Field>
 
           {/* Section 10: name / anonymity / strike request */}

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
-import { drainEmailQueue } from "@/platform/email/send";
+import { drainEmailQueue, queueEmail, flushEmailQueue } from "@/platform/email/send";
 import type { EmailTransport } from "@/platform/email/transport";
 
 const failing: EmailTransport = {
@@ -60,5 +60,34 @@ describe("drainEmailQueue retry gate", () => {
     expect(failed.attempts).toBe(8);
     // Lock released so an admin retry (FAILED -> QUEUED) is immediately claimable.
     expect(failed.lockedAt).toBeNull();
+  });
+});
+
+describe("email fire-on-enqueue wiring", () => {
+  beforeEach(async () => {
+    await resetDb();
+  });
+
+  it("queueEmail does not deliver synchronously outside a request scope", async () => {
+    await queueEmail(prisma, {
+      to: "q@example.com",
+      subject: "s",
+      html: "<p>q</p>",
+      template: "generic",
+    });
+    const row = await prisma.emailLog.findFirstOrThrow({ where: { toEmail: "q@example.com" } });
+    expect(row.status).toBe("QUEUED");
+  });
+
+  it("flushEmailQueue delivers a queued email via the resolved transport", async () => {
+    await queueEmail(prisma, {
+      to: "n@example.com",
+      subject: "s",
+      html: "<p>n</p>",
+      template: "generic",
+    });
+    await flushEmailQueue();
+    const row = await prisma.emailLog.findFirstOrThrow({ where: { toEmail: "n@example.com" } });
+    expect(row.status).toBe("SENT");
   });
 });

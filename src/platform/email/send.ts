@@ -1,7 +1,8 @@
 import type { Prisma, PrismaClient, EmailLog } from "@prisma/client";
 import { prisma } from "@/platform/db";
-import type { EmailTransport } from "./transport";
+import { resolveEmailTransport, type EmailTransport } from "./transport";
 import { resolveSenderForTemplate } from "./sender-rules";
+import { createEnqueueFlusher } from "@/platform/flush-on-enqueue";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -20,6 +21,15 @@ const MAX_ATTEMPTS = 8;
  *  and may be reclaimed by another drain. Bounds the worst-case redelivery delay. */
 const STALE_LOCK_MS = 5 * 60 * 1000;
 
+const emailFlusher = createEnqueueFlusher(async () => {
+  const transport = await resolveEmailTransport();
+  await drainEmailQueue(transport);
+});
+
+/** Run the email drain now, coalescing overlapping calls. Exposed for the cron
+ *  route and tests; delivery is normally triggered via queueEmail on enqueue. */
+export const flushEmailQueue = emailFlusher.flushNow;
+
 /**
  * Append an email send job in the SAME transaction as the domain write, so a
  * rolled-back mutation never leaks a phantom send. Callers pass any Db handle
@@ -27,7 +37,7 @@ const STALE_LOCK_MS = 5 * 60 * 1000;
  */
 export async function queueEmail(db: Db, input: QueueEmailInput): Promise<EmailLog> {
   const sender = await resolveSenderForTemplate(input.template);
-  return db.emailLog.create({
+  const row = await db.emailLog.create({
     data: {
       toEmail: input.to,
       subject: input.subject,
@@ -40,6 +50,11 @@ export async function queueEmail(db: Db, input: QueueEmailInput): Promise<EmailL
       fromName: sender?.fromName ?? null,
     },
   });
+  // Deliver on enqueue: after the response commits (post-transaction, so this row
+  // is visible), drain the queue so the message goes out in ~1s instead of
+  // waiting for the safety-net cron. No-ops outside a request scope.
+  emailFlusher.schedule();
+  return row;
 }
 
 /**

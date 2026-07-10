@@ -25,8 +25,7 @@ import {
 import type { ScheduleRowForValidation } from "../engine/requests";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { queueEmail } from "@/platform/email/send";
-import { renderTemplate } from "@/platform/email/render/render";
-import { getDescriptor } from "@/platform/email/templates/registry";
+import { renderEmail } from "@/platform/email/templates/renderEmail";
 
 // ---------------------------------------------------------------------------
 // Typed errors
@@ -166,11 +165,11 @@ async function sendScheduleEmail(
   vars: Record<string, string>,
 ): Promise<void> {
   if (!to) return;
-  const descriptor = getDescriptor(templateKey);
-  if (!descriptor) return;
   try {
-    const subject = renderTemplate(descriptor.defaultSubject, vars);
-    const html = renderTemplate(descriptor.defaultBody, vars);
+    // Route through the shared renderEmail path so schedule lifecycle emails get
+    // the branded layout AND honor any admin EmailTemplate override, instead of
+    // shipping the bare code-default fragment.
+    const { subject, html } = await renderEmail(templateKey, vars);
     await queueEmail(prisma, {
       to,
       subject,
@@ -443,10 +442,17 @@ export async function cancelRequest(
     throw new RequestValidationError("Only pending requests can be cancelled.");
   }
 
-  await prisma.shiftRequest.update({
-    where: { id: requestId },
+  // Atomic guarded transition: the read-time check above gives the friendly
+  // message for the common case; this precondition closes the race window so a
+  // request already approved/denied by a director cannot also be flipped to
+  // CANCELLED.
+  const { count } = await prisma.shiftRequest.updateMany({
+    where: { id: requestId, status: "PENDING" },
     data: { status: "CANCELLED" },
   });
+  if (count === 0) {
+    throw new RequestValidationError("This request was already decided.");
+  }
 
   await recordAudit({
     actorPersonId,
@@ -617,6 +623,32 @@ export async function approveRequest(
       );
     }
 
+    // Capture each moved person's existing role tags BEFORE any delete, so a swap
+    // carries triage/walk-in/cc/remote onto the person's new date instead of
+    // silently resetting them to defaults. Each person is removed from exactly one
+    // date per plan, so keying by personId is unambiguous.
+    const tagsByPerson = new Map<
+      string,
+      { triage: boolean; walkin: boolean; cc: boolean; remote: boolean }
+    >();
+    for (const mutation of mutations) {
+      if (mutation.op !== "remove") continue;
+      const canonicalDate = clinicDateMap.get(mutation.dateKey);
+      if (!canonicalDate) continue;
+      const existing = await tx.shiftAssignment.findUnique({
+        where: {
+          termId_departmentId_clinicDate_personId: {
+            termId: req.termId,
+            departmentId: req.departmentId,
+            clinicDate: canonicalDate,
+            personId: mutation.personId,
+          },
+        },
+        select: { triage: true, walkin: true, cc: true, remote: true },
+      });
+      if (existing) tagsByPerson.set(mutation.personId, existing);
+    }
+
     for (const mutation of mutations) {
       const dbRole = mutation.role.toUpperCase() as "DIRECTOR" | "VOLUNTEER" | "SHADOW";
 
@@ -643,6 +675,7 @@ export async function approveRequest(
           );
         }
       } else {
+        const carriedTags = tagsByPerson.get(mutation.personId) ?? {};
         await tx.shiftAssignment.upsert({
           where: {
             termId_departmentId_clinicDate_personId: {
@@ -658,20 +691,28 @@ export async function approveRequest(
             clinicDate: canonicalDate,
             personId: mutation.personId,
             role: dbRole,
+            ...carriedTags,
           },
-          update: { role: dbRole },
+          update: { role: dbRole, ...carriedTags },
         });
       }
     }
 
-    await tx.shiftRequest.update({
-      where: { id: requestId },
+    // Atomic status flip: only a still-PENDING request becomes APPROVED. If a
+    // concurrent deny/cancel decided it first, count === 0 and the whole
+    // transaction rolls back, so applied mutations can never coexist with a
+    // DENIED/CANCELLED status.
+    const { count } = await tx.shiftRequest.updateMany({
+      where: { id: requestId, status: "PENDING" },
       data: {
         status: "APPROVED",
         decidedById: actorPersonId,
         decidedAt: now,
       },
     });
+    if (count === 0) {
+      throw new RequestValidationError("This request was already decided.");
+    }
   });
 
   await recordAudit({
@@ -769,8 +810,12 @@ export async function denyRequest(
     newNote = newNote ? `${newNote}\nDenied: ${note}` : `Denied: ${note}`;
   }
 
-  await prisma.shiftRequest.update({
-    where: { id: requestId },
+  // Atomic guarded transition: the read-time check above covers the common case;
+  // this precondition closes the race window so an applied approval cannot also
+  // be flipped to DENIED (which would leave mutations applied under a DENIED
+  // status).
+  const { count } = await prisma.shiftRequest.updateMany({
+    where: { id: requestId, status: "PENDING" },
     data: {
       status: "DENIED",
       decidedById: actorPersonId,
@@ -778,6 +823,9 @@ export async function denyRequest(
       note: newNote,
     },
   });
+  if (count === 0) {
+    throw new RequestValidationError("This request was already decided.");
+  }
 
   await recordAudit({
     actorPersonId,
@@ -923,16 +971,9 @@ export async function remindDirectors(
   const daysSince = Math.floor((Date.now() - req.createdAt.getTime()) / (1000 * 60 * 60 * 24));
   if (daysSince < 5) throw new RequestValidationError("You can only send a reminder after 5 days.");
 
-  const descriptor = getDescriptor("schedule-request-submitted-director");
-  if (!descriptor) return;
-
   const isSwap = !!(req.targetId && req.targetDate);
-  const requesterDateStr = req.requesterDate.toLocaleDateString("en-US", {
-    month: "long", day: "numeric", year: "numeric",
-  });
-  const partnerDateStr = req.targetDate
-    ? req.targetDate.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
-    : "";
+  const requesterDateStr = fmtEmailDate(req.requesterDate);
+  const partnerDateStr = req.targetDate ? fmtEmailDate(req.targetDate) : "";
 
   const directorAssignments = await prisma.shiftAssignment.findMany({
     where: {
@@ -952,11 +993,8 @@ export async function remindDirectors(
   await Promise.all(
     [...uniqueDirectors.values()].map(async (director) => {
       if (!director.contactEmail) return;
-      const subject = renderTemplate(
-        `Reminder: pending shift request from ${req.requester.name} - HAVEN`,
-        {},
-      );
-      const html = renderTemplate(descriptor.defaultBody, {
+      // Shared render path: branded layout + admin override, not a bare fragment.
+      const { subject, html } = await renderEmail("schedule-request-submitted-director", {
         directorName: director.name?.split(" ")[0] ?? director.name ?? "",
         requesterName: req.requester.name,
         requestType: isSwap ? "swap" : "drop",

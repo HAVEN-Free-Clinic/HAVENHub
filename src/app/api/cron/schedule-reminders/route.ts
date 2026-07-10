@@ -7,24 +7,39 @@
  * with Authorization: Bearer $CRON_SECRET. Add to cron-job.org alongside the
  * existing compliance reminders job.
  *
+ * Emails go through the shared renderEmail path (branded layout + admin
+ * override), and each director is throttled: if they were already sent this
+ * template within REMINDER_THROTTLE_MS they are skipped, so a daily cron cannot
+ * re-notify the same director every single day a request stays pending. The
+ * throttle keys on the same template the original submission notice uses, so it
+ * also spaces the first reminder off the initial notification.
+ *
  * Only enqueues emails - delivery is handled by the per-minute
  * /api/cron/email route.
  */
 import { authorizeCron } from "@/platform/cron";
 import { prisma } from "@/platform/db";
 import { queueEmail } from "@/platform/email/send";
-import { renderTemplate } from "@/platform/email/render/render";
-import { getDescriptor } from "@/platform/email/templates/registry";
-import { businessDaysSince } from "@/platform/dates";
+import { renderEmail } from "@/platform/email/templates/renderEmail";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
+const REMINDER_TEMPLATE = "schedule-request-submitted-director";
+
+// Skip re-reminding a director who was already sent this template within the
+// window. Mirrors the recent-EmailLog dedup in
+// src/platform/email/shift-reminders.ts. Three days collapses the daily cron's
+// would-be daily duplicates into at most one nudge every few days while a
+// request stays pending.
+const REMINDER_THROTTLE_MS = 3 * 24 * 60 * 60 * 1000;
+
 export async function GET(req: Request): Promise<Response> {
   if (!authorizeCron(req)) return new Response("Unauthorized", { status: 401 });
 
   const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000);
+  const throttleCutoff = new Date(Date.now() - REMINDER_THROTTLE_MS);
 
   const pendingRequests = await prisma.shiftRequest.findMany({
     where: {
@@ -39,25 +54,23 @@ export async function GET(req: Request): Promise<Response> {
     },
   });
 
-  const descriptor = getDescriptor("schedule-request-submitted-director");
-  if (!descriptor) return Response.json({ ok: true, reminded: 0 });
-
   let reminded = 0;
+  let skipped = 0;
 
-  for (const req of pendingRequests) {
-    const isSwap = !!(req.targetId && req.targetDate);
-    const requesterDateStr = req.requesterDate.toLocaleDateString("en-US", {
+  for (const pending of pendingRequests) {
+    const isSwap = !!(pending.targetId && pending.targetDate);
+    const requesterDateStr = pending.requesterDate.toLocaleDateString("en-US", {
       month: "long", day: "numeric", year: "numeric",
     });
-    const partnerDateStr = req.targetDate
-      ? req.targetDate.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
+    const partnerDateStr = pending.targetDate
+      ? pending.targetDate.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
       : "";
 
     // Find all directors assigned in this department for the active term.
     const directorAssignments = await prisma.shiftAssignment.findMany({
       where: {
-        termId: req.termId,
-        departmentId: req.departmentId,
+        termId: pending.termId,
+        departmentId: pending.departmentId,
         role: "DIRECTOR",
       },
       select: {
@@ -66,31 +79,43 @@ export async function GET(req: Request): Promise<Response> {
     });
 
     const uniqueDirectors = new Map<string, { id: string; name: string; contactEmail: string | null }>(
-        directorAssignments.map((a: { person: { id: string; name: string; contactEmail: string | null } }) => [a.person.id, a.person])
-      );
+      directorAssignments.map((a) => [a.person.id, a.person])
+    );
 
-      for (const director of uniqueDirectors.values()) {
+    for (const director of uniqueDirectors.values()) {
       if (!director.contactEmail) continue;
+
+      // Throttle: skip if this director already got the reminder template within
+      // the window (covers both a prior cron reminder AND the original submission
+      // notice), so we never enqueue a duplicate every day.
+      const already = await prisma.emailLog.findFirst({
+        where: {
+          personId: director.id,
+          template: REMINDER_TEMPLATE,
+          createdAt: { gte: throttleCutoff },
+        },
+        select: { id: true },
+      });
+      if (already) {
+        skipped++;
+        continue;
+      }
+
       try {
-        const daysPending = businessDaysSince(req.createdAt);
-        const subject = renderTemplate(
-          `Reminder: shift request pending ${daysPending} business day${daysPending !== 1 ? "s" : ""} - HAVEN`,
-          {},
-        );
-        const html = renderTemplate(descriptor.defaultBody, {
+        const { subject, html } = await renderEmail(REMINDER_TEMPLATE, {
           directorName: director.name?.split(" ")[0] ?? director.name ?? "",
-          requesterName: req.requester.name,
+          requesterName: pending.requester.name,
           requestType: isSwap ? "swap" : "drop",
           requesterDate: requesterDateStr,
-          partnerName: req.target?.name ?? "",
+          partnerName: pending.target?.name ?? "",
           partnerDate: partnerDateStr,
-          departmentName: req.department.name,
+          departmentName: pending.department.name,
         });
         await queueEmail(prisma, {
           to: director.contactEmail,
           subject,
           html,
-          template: "schedule-request-submitted-director",
+          template: REMINDER_TEMPLATE,
           personId: director.id,
           triggeredById: director.id,
         });
@@ -101,5 +126,5 @@ export async function GET(req: Request): Promise<Response> {
     }
   }
 
-  return Response.json({ ok: true, reminded });
+  return Response.json({ ok: true, reminded, skipped });
 }

@@ -104,7 +104,7 @@ describe("top-nav module filtering (regression for limited roles)", () => {
     expect(ids).toContain("schedule");
     expect(ids).toContain("learning");
     expect(ids).toContain("my-info"); // open module, no accessPermission
-    expect(ids).toContain("clinic"); // open module, no accessPermission
+    expect(ids).not.toContain("clinic"); // gated on clinic.access, which this limited role lacks
     expect(ids).not.toContain("admin");
     expect(ids).not.toContain("recruitment");
     expect(ids).not.toContain("volunteers");

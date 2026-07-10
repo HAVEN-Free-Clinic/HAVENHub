@@ -43,12 +43,9 @@ describe("module registry", () => {
         "incidents",
         "learning",
         "my-info",
-        "patient-trackers",
         "recruitment",
-        "referrals",
         "schedule",
         "support",
-        "triage",
         "volunteers",
       ].sort()
     );

@@ -145,15 +145,15 @@ model Person {
   /// Disciplinary actions this person issued.
   disciplinaryActionsIssued DisciplinaryAction[] @relation("disciplinaryActionIssuedBy")
   /// Incident reports this person filed.
-  incidentReportsFiled        IncidentReport[]           @relation("incidentReportReporter")
-  /// Incident reports naming this person as the subject.
-  incidentReportsAbout        IncidentReport[]           @relation("incidentReportSubject")
+  incidentReportsFiled           IncidentReport[]           @relation("incidentReportReporter")
+  /// Incident reports naming this person as a subject.
+  incidentSubjectLinks           IncidentReportSubject[]    @relation("incidentReportSubjectPerson")
   /// Incident reports this person resolved or dismissed.
-  incidentReportsResolved     IncidentReport[]           @relation("incidentReportResolvedBy")
+  incidentReportsResolved        IncidentReport[]           @relation("incidentReportResolvedBy")
   /// Incident-report strike decisions this person made.
-  incidentStrikeDecisions     IncidentReport[]           @relation("incidentReportStrikeDecidedBy")
+  incidentSubjectStrikeDecisions IncidentReportSubject[]    @relation("incidentReportSubjectStrikeDecidedBy")
   /// Incident-report attachments this person uploaded.
-  incidentAttachmentsUploaded IncidentReportAttachment[] @relation("incidentAttachmentUploadedBy")
+  incidentAttachmentsUploaded    IncidentReportAttachment[] @relation("incidentAttachmentUploadedBy")
   /// Email log rows addressed to or triggered by this person.
   emailLogs                 EmailLog[]           @relation("emailLogPerson")
   /// Email log rows this person triggered (may differ from the recipient).
@@ -717,7 +717,7 @@ model DisciplinaryAction {
   patientInvolved Boolean  @default(false)
   createdAt       DateTime @default(now())
   /// When this strike was issued by approving an incident report's strike request.
-  reportId        String?  @unique
+  reportId        String?
   report          IncidentReport? @relation("incidentReportStrikeAction", fields: [reportId], references: [id], onDelete: SetNull)
   /// Subject of the action. Cascade: records belong to the person.
   person          Person   @relation("disciplinaryActionPerson", fields: [personId], references: [id], onDelete: Cascade)
@@ -725,6 +725,7 @@ model DisciplinaryAction {
   issuedBy        Person   @relation("disciplinaryActionIssuedBy", fields: [issuedById], references: [id], onDelete: Restrict)
 
   @@index([personId])
+  @@unique([reportId, personId])
 }
 
 /// A Professional Standards Incident Report. Any signed-in person may file one
@@ -740,7 +741,6 @@ model IncidentReport {
   description           String               @db.Text
   occurredAt            DateTime?
   setting               String?
-  subjectPersonId       String?
   subjectDescription    String?
   patientImpact         PatientImpact?
   patientImpactDetail   String?
@@ -752,26 +752,42 @@ model IncidentReport {
   reviewNotes           String?              @db.Text
   resolvedById          String?
   resolvedAt            DateTime?
-  strikeDecision        StrikeDecision?
-  strikeDecidedById     String?
-  strikeDecidedAt       DateTime?
   createdAt             DateTime             @default(now())
   updatedAt             DateTime             @updatedAt
   /// The person who filed the report. Restrict: the reporter is load-bearing for the record.
   reporter              Person               @relation("incidentReportReporter", fields: [reporterId], references: [id], onDelete: Restrict)
-  /// The individual of concern, when a specific person is identified. SetNull: a report survives its subject being deleted (subjectDescription remains).
-  subject               Person?              @relation("incidentReportSubject", fields: [subjectPersonId], references: [id], onDelete: SetNull)
   /// The reviewer who resolved or dismissed the report.
   resolvedBy            Person?              @relation("incidentReportResolvedBy", fields: [resolvedById], references: [id], onDelete: Restrict)
-  /// The reviewer who decided the strike request.
-  strikeDecidedBy       Person?              @relation("incidentReportStrikeDecidedBy", fields: [strikeDecidedById], references: [id], onDelete: Restrict)
-  /// The strike created when a strike request is approved (FK lives on DisciplinaryAction.reportId).
-  strikeAction          DisciplinaryAction?  @relation("incidentReportStrikeAction")
   attachments           IncidentReportAttachment[]
+  subjects              IncidentReportSubject[]
+  strikeActions         DisciplinaryAction[]       @relation("incidentReportStrikeAction")
 
   @@index([status])
   @@index([reporterId])
-  @@index([subjectPersonId])
+}
+
+/// Links an incident report to one person involved (one row per person) and
+/// carries that person's per-report strike-request state, so a single report
+/// can hold independent strike requests against multiple people.
+model IncidentReportSubject {
+  id                String          @id @default(cuid())
+  reportId          String
+  personId          String
+  /// null = linked for context only. PENDING/APPROVED/DECLINED = strike request state.
+  strikeDecision    StrikeDecision?
+  strikeDecidedById String?
+  strikeDecidedAt   DateTime?
+  createdAt         DateTime        @default(now())
+  /// Cascade: the link belongs to the report.
+  report            IncidentReport  @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  /// Cascade: the link is meaningless without the person.
+  person            Person          @relation("incidentReportSubjectPerson", fields: [personId], references: [id], onDelete: Cascade)
+  /// The reviewer who decided this person's strike request.
+  strikeDecidedBy   Person?         @relation("incidentReportSubjectStrikeDecidedBy", fields: [strikeDecidedById], references: [id], onDelete: SetNull)
+
+  @@unique([reportId, personId])
+  @@index([reportId])
+  @@index([personId])
 }
 
 /// A file attached to an incident report. Bytes live in storage under storedName

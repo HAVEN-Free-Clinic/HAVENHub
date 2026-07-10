@@ -7,13 +7,14 @@
  * and rendered as a 404 via notFound() so an unauthorized viewer cannot tell
  * a report exists from a missing one.
  *
- * The core fields are READ-ONLY for both audiences. When canManage (the
- * service already strips reviewNotes to null for non-managers, even the
- * owner), a "Reviewer controls" section renders: a status/reviewNotes form
- * bound to reviewReportAction, and, when strikeDecision is PENDING, an
- * approve/decline form pair bound to decideStrikeAction (Task 15). Attachments
- * link to the Task 16 download route, which does not exist yet; the anchor is
- * rendered ahead of that route landing.
+ * The core fields are READ-ONLY for both audiences. The "Individual(s) of
+ * concern" section lists each linked person (report.subjects) with a
+ * per-person strike badge, plus the free-text subjectDescription. When
+ * canManage (the service already strips reviewNotes to null for
+ * non-managers, even the owner), a "Reviewer controls" section renders: a
+ * status/reviewNotes form bound to reviewReportAction, and one Approve/
+ * Decline form pair per subject whose strike request is still PENDING, each
+ * bound to decideStrikeAction with that subject's reportSubjectId.
  */
 
 import Link from "next/link";
@@ -69,6 +70,12 @@ const STRIKE_LABELS: Record<StrikeDecision, string> = {
   PENDING: "Strike requested",
   APPROVED: "Strike issued",
   DECLINED: "Strike declined",
+};
+
+const STRIKE_TONES: Record<StrikeDecision, BadgeTone> = {
+  PENDING: "warning",
+  APPROVED: "success",
+  DECLINED: "default",
 };
 
 const PATIENT_IMPACT_LABELS: Record<PatientImpact, string> = {
@@ -181,11 +188,30 @@ export default async function IncidentReportDetailPage({ params, searchParams }:
         <SectionHeader>Individual(s) of concern</SectionHeader>
         <dl className="mt-3 grid gap-3 sm:grid-cols-2">
           <div className="sm:col-span-2">
-            <dt className="text-xs text-subtle-foreground">Subject</dt>
+            <dt className="text-xs text-subtle-foreground">Linked people</dt>
             <dd className="mt-0.5 text-sm text-foreground">
-              {report.subject?.name ?? report.subjectDescription ?? "(described in report)"}
+              {report.subjects.length > 0 ? (
+                <ul className="space-y-1">
+                  {report.subjects.map((s) => (
+                    <li key={s.id} className="flex items-center gap-2">
+                      <span>{s.person.name}</span>
+                      {s.strikeDecision && (
+                        <Badge tone={STRIKE_TONES[s.strikeDecision]}>{STRIKE_LABELS[s.strikeDecision]}</Badge>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                "(none linked)"
+              )}
             </dd>
           </div>
+          {report.subjectDescription && (
+            <div className="sm:col-span-2">
+              <dt className="text-xs text-subtle-foreground">As described</dt>
+              <dd className="mt-0.5 whitespace-pre-wrap text-sm text-foreground">{report.subjectDescription}</dd>
+            </div>
+          )}
         </dl>
       </Card>
 
@@ -247,9 +273,19 @@ export default async function IncidentReportDetailPage({ params, searchParams }:
             <dd className="mt-0.5 text-sm text-foreground">{fmtDate(report.createdAt)}</dd>
           </div>
           <div>
-            <dt className="text-xs text-subtle-foreground">Strike request</dt>
+            <dt className="text-xs text-subtle-foreground">Strike requests</dt>
             <dd className="mt-0.5 text-sm text-foreground">
-              {report.strikeDecision ? STRIKE_LABELS[report.strikeDecision] : "No strike requested"}
+              {(() => {
+                const pending = report.subjects.filter((s) => s.strikeDecision === "PENDING").length;
+                const issued = report.subjects.filter((s) => s.strikeDecision === "APPROVED").length;
+                const declined = report.subjects.filter((s) => s.strikeDecision === "DECLINED").length;
+                const parts = [
+                  pending ? `${pending} pending` : "",
+                  issued ? `${issued} issued` : "",
+                  declined ? `${declined} declined` : "",
+                ].filter(Boolean);
+                return parts.length ? parts.join(", ") : "No strike requested";
+              })()}
             </dd>
           </div>
         </dl>
@@ -298,57 +334,64 @@ export default async function IncidentReportDetailPage({ params, searchParams }:
             </FormActions>
           </form>
 
-          {report.strikeDecision === "PENDING" && (
-            <div className="mt-6 border-t border-border-subtle pt-6">
-              <SectionHeader level="title">Strike request</SectionHeader>
-              <p className="mt-1 text-sm text-foreground-soft">
-                This report includes a pending strike request against{" "}
-                {report.subject?.name ?? "the subject"}.
-              </p>
+          {report.subjects.filter((s) => s.strikeDecision === "PENDING").length > 0 && (
+            <div className="mt-6 space-y-6 border-t border-border-subtle pt-6">
+              <SectionHeader level="title">Strike requests</SectionHeader>
+              {report.subjects
+                .filter((s) => s.strikeDecision === "PENDING")
+                .map((s) => (
+                  <div key={s.id} className="rounded-lg border border-border-subtle p-4">
+                    <p className="text-sm text-foreground-soft">
+                      Pending strike request against <span className="font-medium">{s.person.name}</span>.
+                    </p>
+                    <div className="mt-4 grid gap-6 sm:grid-cols-2">
+                      <form action={decideStrikeAction} className="space-y-3">
+                        <input type="hidden" name="reportId" value={report.id} />
+                        <input type="hidden" name="reportSubjectId" value={s.id} />
+                        <input type="hidden" name="approve" value="yes" />
+                        <Field label="Strike category" required>
+                          <Select name="category" required defaultValue="">
+                            <option value="">Select category...</option>
+                            {DISCIPLINARY_CATEGORIES.map((c) => (
+                              <option key={c} value={c}>
+                                {c}
+                              </option>
+                            ))}
+                          </Select>
+                        </Field>
+                        <Field label="Notes">
+                          <Textarea name="notes" rows={2} placeholder="Optional notes on this decision..." />
+                        </Field>
+                        <FormActions>
+                          <Button type="submit" variant="primary" size="sm">
+                            Approve strike
+                          </Button>
+                        </FormActions>
+                      </form>
 
-              <div className="mt-4 grid gap-6 sm:grid-cols-2">
-                <form action={decideStrikeAction} className="space-y-3">
-                  <input type="hidden" name="reportId" value={report.id} />
-                  <input type="hidden" name="approve" value="yes" />
-                  <Field label="Strike category" required>
-                    <Select name="category" required defaultValue="">
-                      <option value="">Select category...</option>
-                      {DISCIPLINARY_CATEGORIES.map((c) => (
-                        <option key={c} value={c}>
-                          {c}
-                        </option>
-                      ))}
-                    </Select>
-                  </Field>
-                  <Field label="Notes">
-                    <Textarea name="notes" rows={2} placeholder="Optional notes on this decision..." />
-                  </Field>
-                  <FormActions>
-                    <Button type="submit" variant="primary" size="sm">
-                      Approve strike
-                    </Button>
-                  </FormActions>
-                </form>
-
-                <form action={decideStrikeAction} className="space-y-3">
-                  <input type="hidden" name="reportId" value={report.id} />
-                  <input type="hidden" name="approve" value="no" />
-                  <Field label="Notes">
-                    <Textarea name="notes" rows={2} placeholder="Optional reason for declining..." />
-                  </Field>
-                  <FormActions>
-                    <Button type="submit" variant="outline" size="sm">
-                      Decline strike
-                    </Button>
-                  </FormActions>
-                </form>
-              </div>
+                      <form action={decideStrikeAction} className="space-y-3">
+                        <input type="hidden" name="reportId" value={report.id} />
+                        <input type="hidden" name="reportSubjectId" value={s.id} />
+                        <input type="hidden" name="approve" value="no" />
+                        <Field label="Notes">
+                          <Textarea name="notes" rows={2} placeholder="Optional reason for declining..." />
+                        </Field>
+                        <FormActions>
+                          <Button type="submit" variant="outline" size="sm">
+                            Decline strike
+                          </Button>
+                        </FormActions>
+                      </form>
+                    </div>
+                  </div>
+                ))}
             </div>
           )}
 
-          {report.strikeDecision === "APPROVED" && (
+          {report.subjects.filter((s) => s.strikeDecision === "APPROVED").length > 0 && (
             <p className="mt-4 text-sm text-foreground-soft">
-              Strike recorded on {fmtDate(report.strikeDecidedAt)}. View it on the{" "}
+              {report.subjects.filter((s) => s.strikeDecision === "APPROVED").length} strike(s) issued from this report.
+              View them on the{" "}
               <Link href="/incidents/strikes" className="text-brand-fg hover:underline">
                 strikes ledger
               </Link>

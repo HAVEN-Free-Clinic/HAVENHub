@@ -47,6 +47,13 @@ export async function submitReportAction(formData: FormData): Promise<void> {
     }))
   );
 
+  const strikeIds = new Set(formData.getAll("strikePersonIds").map(String));
+  const subjects = formData
+    .getAll("subjectPersonIds")
+    .map(String)
+    .filter(Boolean)
+    .map((personId) => ({ personId, requestStrike: strikeIds.has(personId) }));
+
   let number: number;
   try {
     const report = await submitReport(actor.personId, {
@@ -54,7 +61,7 @@ export async function submitReportAction(formData: FormData): Promise<void> {
       description: String(formData.get("description") ?? "").trim(),
       occurredAt: occurredAt && !Number.isNaN(occurredAt.getTime()) ? occurredAt : null,
       setting: (String(formData.get("setting") ?? "").trim() || null),
-      subjectPersonId: (String(formData.get("subjectPersonId") ?? "").trim() || null),
+      subjects,
       subjectDescription: (String(formData.get("subjectDescription") ?? "").trim() || null),
       patientImpact: optEnum<PatientImpact>(formData.get("patientImpact"), ["YES", "NO", "UNSURE"]),
       patientImpactDetail: (String(formData.get("patientImpactDetail") ?? "").trim() || null),
@@ -63,7 +70,6 @@ export async function submitReportAction(formData: FormData): Promise<void> {
       priorOccurrence: optEnum<PriorOccurrence>(formData.get("priorOccurrence"), ["YES", "NO", "UNSURE"]),
       priorOccurrenceDetail: (String(formData.get("priorOccurrenceDetail") ?? "").trim() || null),
       anonymous: formData.get("anonymous") === "on",
-      requestStrike: formData.get("requestStrike") === "on",
       files: fileInputs,
     });
     number = report.number;
@@ -127,21 +133,22 @@ export async function reviewReportAction(formData: FormData): Promise<void> {
  */
 export async function decideStrikeAction(formData: FormData): Promise<void> {
   const actor = await requirePermission("incidents.manage");
-  const id = String(formData.get("reportId"));
+  const reportId = String(formData.get("reportId"));
+  const reportSubjectId = String(formData.get("reportSubjectId"));
   try {
-    await decideStrike(actor.personId, id, {
+    await decideStrike(actor.personId, reportSubjectId, {
       approve: formData.get("approve") === "yes",
       category: (String(formData.get("category") ?? "").trim() || undefined),
       occurredAt: null,
       notes: (String(formData.get("notes") ?? "").trim() || null),
     });
   } catch (err) {
-    if (err instanceof IncidentValidationError) redirect(`/incidents/${id}?error=validation&message=${encodeURIComponent(err.message)}`);
-    if (err instanceof IncidentForbiddenError) redirect(`/incidents/${id}?error=forbidden`);
+    if (err instanceof IncidentValidationError) redirect(`/incidents/${reportId}?error=validation&message=${encodeURIComponent(err.message)}`);
+    if (err instanceof IncidentForbiddenError) redirect(`/incidents/${reportId}?error=forbidden`);
     if (err instanceof IncidentNotFoundError) redirect(`/incidents/review?error=not-found`);
     throw err;
   }
-  revalidatePath(`/incidents/${id}`);
+  revalidatePath(`/incidents/${reportId}`);
   revalidatePath("/incidents/review");
-  redirect(`/incidents/${id}`);
+  redirect(`/incidents/${reportId}`);
 }

@@ -14,12 +14,13 @@
 import Link from "next/link";
 import { requirePersonSession } from "@/platform/auth/session";
 import { listMyReports, CONCERN_TYPES } from "@/modules/incidents/services/report";
-import type { IncidentReportStatus, StrikeDecision } from "@prisma/client";
+import type { IncidentReportStatus } from "@prisma/client";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { Badge } from "@/platform/ui/badge";
 import { Alert } from "@/platform/ui/alert";
 import { fmtDate } from "@/platform/dates";
+import { formatSubjectNames, aggregateStrikeLabel } from "@/app/(app)/incidents/subject-display";
 
 // ---------------------------------------------------------------------------
 // Status + strike labels
@@ -39,12 +40,6 @@ const STATUS_TONES: Record<IncidentReportStatus, BadgeTone> = {
   UNDER_REVIEW: "warning",
   RESOLVED: "success",
   DISMISSED: "default",
-};
-
-const STRIKE_LABELS: Record<StrikeDecision, string> = {
-  PENDING: "Strike requested",
-  APPROVED: "Strike issued",
-  DECLINED: "Strike declined",
 };
 
 const CONCERN_LABELS: Record<string, string> = Object.fromEntries(
@@ -97,7 +92,7 @@ export default async function MyReportsPage({ searchParams }: PageProps) {
               </TR>
             </THead>
             <tbody>
-              {rows.map(({ report, subjectName }) => (
+              {rows.map(({ report, subjectNames, strikePendingCount, strikeIssuedCount }) => (
                 <TR key={report.id}>
                   <TD>
                     <Link href={`/incidents/${report.id}`} className="font-medium text-brand-fg hover:underline">
@@ -107,12 +102,12 @@ export default async function MyReportsPage({ searchParams }: PageProps) {
                   <TD className="max-w-xs text-sm text-foreground-soft">
                     {report.concernTypes.map((c) => CONCERN_LABELS[c] ?? c).join(", ")}
                   </TD>
-                  <TD className="text-sm text-foreground-soft">{subjectName ?? "(described in report)"}</TD>
+                  <TD className="text-sm text-foreground-soft">{formatSubjectNames(subjectNames)}</TD>
                   <TD>
                     <Badge tone={STATUS_TONES[report.status]}>{STATUS_LABELS[report.status]}</Badge>
                   </TD>
                   <TD className="text-sm text-foreground-soft">
-                    {report.strikeDecision ? STRIKE_LABELS[report.strikeDecision] : ""}
+                    {aggregateStrikeLabel(strikePendingCount, strikeIssuedCount)}
                   </TD>
                   <TD className="whitespace-nowrap text-sm text-foreground-soft">{fmtDate(report.createdAt)}</TD>
                 </TR>

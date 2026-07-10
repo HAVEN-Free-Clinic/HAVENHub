@@ -2,18 +2,19 @@
  * TDD tests for the incident reports intake service.
  *
  * submitReport(actorPersonId, input):
- *   - Creates a SUBMITTED report with the reporter set and strikeDecision null.
- *   - Persists the optional fields passed in (setting, subjectPersonId,
- *     subjectDescription, patientImpact, issueNature, priorOccurrence).
+ *   - Creates a SUBMITTED report with the reporter set.
+ *   - Persists the optional fields passed in (setting, subjectDescription,
+ *     patientImpact, issueNature, priorOccurrence).
+ *   - subjects: Array<{ personId, requestStrike? }> creates one deduped
+ *     IncidentReportSubject row per person, strike-flagged ones PENDING.
  *   - Validation: empty concernTypes -> IncidentValidationError.
  *   - Validation: unknown concern type value -> IncidentValidationError.
  *   - Validation: blank description -> IncidentValidationError.
  *   - Validation: future occurredAt -> IncidentValidationError.
- *   - Missing subjectPersonId row -> IncidentNotFoundError.
- *   - requestStrike without a subjectPersonId -> IncidentValidationError.
- *   - requestStrike when the actor does not manage the subject -> IncidentValidationError.
+ *   - Missing linked personId -> IncidentNotFoundError.
+ *   - requestStrike when the actor does not manage that subject -> IncidentValidationError.
  *   - requestStrike when the actor manages the subject (active DIRECTOR of a
- *     department the subject is an ACTIVE VOLUNTEER in) -> strikeDecision PENDING.
+ *     department the subject is an ACTIVE VOLUNTEER in) -> that row's strikeDecision PENDING.
  *   - Records an incident.submit audit row.
  *
  * canRequestStrikeAgainst(actorPersonId, subjectPersonId):
@@ -21,19 +22,21 @@
  *   - false when the subject's membership is in a department the actor does not manage.
  *
  * listMyReports(actorPersonId):
- *   - Returns only the actor's own reports, newest first.
+ *   - Returns only the actor's own reports, newest first, with subjectNames/strike counts.
  *
  * getReport(actorPersonId, id):
  *   - Missing report -> IncidentNotFoundError.
  *   - Non-owner without incidents.manage -> IncidentForbiddenError.
  *   - Owner (non-manager) can read their own report, with reviewNotes stripped to null.
  *   - A holder of incidents.manage can read any report, reviewNotes included.
+ *   - report.subjects exposes each linked person with their strikeDecision.
  *
  * listReviewQueue(actorPersonId, filters):
  *   - Non-manager -> IncidentForbiddenError.
  *   - A holder of incidents.manage sees all reports, regardless of reporter.
  *   - Filters by status.
  *   - Orders immediateRisk reports first, then newest first.
+ *   - q matches any linked subject's name; strikePending matches any PENDING subject.
  *
  * reviewReport(actorPersonId, id, input):
  *   - Non-manager -> IncidentForbiddenError.
@@ -41,14 +44,15 @@
  *     stamp resolvedById/resolvedAt, other statuses clear them.
  *   - Records an incident.review audit row.
  *
- * decideStrike(actorPersonId, reportId, input):
+ * decideStrike(actorPersonId, reportSubjectId, input):
  *   - Non-manager -> IncidentForbiddenError.
- *   - Missing report -> IncidentNotFoundError.
- *   - Report with no pending strike request -> IncidentValidationError.
+ *   - Missing IncidentReportSubject row -> IncidentNotFoundError.
+ *   - Row with no pending strike request -> IncidentValidationError.
  *   - approve: bad category -> IncidentValidationError.
  *   - approve: creates a linked DisciplinaryAction (reportId, personId = subject),
  *     confidential mirrors the report's anonymous flag, strikeDecision -> APPROVED.
  *   - decline: strikeDecision -> DECLINED, no DisciplinaryAction created.
+ *   - Deciding one subject's row never touches another subject's row on the same report.
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
@@ -130,7 +134,7 @@ beforeEach(resetDb);
 // ---------------------------------------------------------------------------
 
 describe("submitReport", () => {
-  it("creates a SUBMITTED report with the reporter set and strikeDecision null", async () => {
+  it("creates a SUBMITTED report with the reporter set", async () => {
     const reporter = await createPerson("Reporter", "rep001");
 
     const report = await submitReport(reporter.id, {
@@ -141,7 +145,6 @@ describe("submitReport", () => {
 
     expect(report.status).toBe("SUBMITTED");
     expect(report.reporterId).toBe(reporter.id);
-    expect(report.strikeDecision).toBeNull();
     expect(report.anonymous).toBe(false);
     expect(report.immediateRisk).toBe(false);
 
@@ -151,16 +154,14 @@ describe("submitReport", () => {
     expect(row?.subjectDescription).toBe("SCTM volunteer");
   });
 
-  it("persists the optional fields provided (subject, setting, patient impact, issue nature)", async () => {
+  it("persists the optional fields provided (setting, patient impact, issue nature)", async () => {
     const reporter = await createPerson("Reporter", "rep002");
-    const subject = await createPerson("Subject", "sub001");
 
     const report = await submitReport(reporter.id, {
       concernTypes: ["PATIENT_SAFETY", "DOCUMENTATION_WORKFLOW"],
       description: "Medication error during triage.",
       occurredAt: new Date("2026-06-01"),
       setting: "Triage room 2",
-      subjectPersonId: subject.id,
       patientImpact: "YES",
       patientImpactDetail: "Patient received wrong dosage.",
       immediateRisk: true,
@@ -169,7 +170,6 @@ describe("submitReport", () => {
       anonymous: true,
     });
 
-    expect(report.subjectPersonId).toBe(subject.id);
     expect(report.setting).toBe("Triage room 2");
     expect(report.patientImpact).toBe("YES");
     expect(report.patientImpactDetail).toBe("Patient received wrong dosage.");
@@ -178,6 +178,85 @@ describe("submitReport", () => {
     expect(report.priorOccurrence).toBe("NO");
     expect(report.anonymous).toBe(true);
     expect(report.concernTypes).toEqual(["PATIENT_SAFETY", "DOCUMENTATION_WORKFLOW"]);
+  });
+
+  it("persists multiple linked people as IncidentReportSubject rows", async () => {
+    const reporter = await createPerson("Reporter", "rep002");
+    const a = await createPerson("Alex", "sub-a");
+    const b = await createPerson("Bri", "sub-b");
+
+    const report = await submitReport(reporter.id, {
+      concernTypes: ["PATIENT_SAFETY"],
+      description: "Both were involved in the handoff error.",
+      subjectDescription: "two volunteers",
+      subjects: [{ personId: a.id }, { personId: b.id }],
+    });
+
+    const rows = await prisma.incidentReportSubject.findMany({
+      where: { reportId: report.id },
+      orderBy: { createdAt: "asc" },
+    });
+    expect(rows.map((r) => r.personId).sort()).toEqual([a.id, b.id].sort());
+    expect(rows.every((r) => r.strikeDecision === null)).toBe(true);
+    expect(report.subjectDescription).toBe("two volunteers");
+  });
+
+  it("dedupes a repeated personId into a single link", async () => {
+    const reporter = await createPerson("Reporter", "rep002b");
+    const a = await createPerson("Alex", "sub-a2");
+
+    const report = await submitReport(reporter.id, {
+      concernTypes: ["OTHER"],
+      description: "x",
+      subjects: [{ personId: a.id }, { personId: a.id, requestStrike: false }],
+    });
+
+    const rows = await prisma.incidentReportSubject.findMany({ where: { reportId: report.id } });
+    expect(rows).toHaveLength(1);
+  });
+
+  it("rejects a linked person that does not exist -> IncidentNotFoundError", async () => {
+    const reporter = await createPerson("Reporter", "rep002c");
+    await expect(
+      submitReport(reporter.id, {
+        concernTypes: ["OTHER"],
+        description: "x",
+        subjects: [{ personId: "nonexistent-person-id" }],
+      })
+    ).rejects.toBeInstanceOf(IncidentNotFoundError);
+  });
+
+  it("rejects requestStrike against a person the actor does not manage -> IncidentValidationError", async () => {
+    const reporter = await createPerson("Reporter", "rep009");
+    const subject = await createPerson("Subject", "sub002");
+    await expect(
+      submitReport(reporter.id, {
+        concernTypes: ["ATTENDANCE_RELIABILITY"],
+        description: "no-show",
+        subjects: [{ personId: subject.id, requestStrike: true }],
+      })
+    ).rejects.toBeInstanceOf(IncidentValidationError);
+  });
+
+  it("sets strikeDecision PENDING only for the managed volunteer, null for the rest", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("ITCM");
+    const director = await createPerson("Director", "dir001");
+    const managed = await createPerson("Managed Volunteer", "vol001");
+    const other = await createPerson("Unmanaged Person", "oth001");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(managed.id, term.id, dept.id, "VOLUNTEER");
+
+    const report = await submitReport(director.id, {
+      concernTypes: ["ATTENDANCE_RELIABILITY"],
+      description: "No-call/no-show for a scheduled shift.",
+      subjects: [{ personId: managed.id, requestStrike: true }, { personId: other.id }],
+    });
+
+    const rows = await prisma.incidentReportSubject.findMany({ where: { reportId: report.id } });
+    const byPerson = new Map(rows.map((r) => [r.personId, r.strikeDecision]));
+    expect(byPerson.get(managed.id)).toBe("PENDING");
+    expect(byPerson.get(other.id)).toBeNull();
   });
 
   it("rejects an empty concernTypes list", async () => {
@@ -223,65 +302,6 @@ describe("submitReport", () => {
         occurredAt: futureDate,
       })
     ).rejects.toBeInstanceOf(IncidentValidationError);
-  });
-
-  it("rejects a subjectPersonId that does not exist -> IncidentNotFoundError", async () => {
-    const reporter = await createPerson("Reporter", "rep007");
-
-    await expect(
-      submitReport(reporter.id, {
-        concernTypes: ["OTHER"],
-        description: "x",
-        subjectPersonId: "nonexistent-person-id",
-      })
-    ).rejects.toBeInstanceOf(IncidentNotFoundError);
-  });
-
-  it("rejects requestStrike without a subjectPersonId", async () => {
-    const reporter = await createPerson("Reporter", "rep008");
-
-    await expect(
-      submitReport(reporter.id, {
-        concernTypes: ["ATTENDANCE_RELIABILITY"],
-        description: "no-show",
-        requestStrike: true,
-      })
-    ).rejects.toBeInstanceOf(IncidentValidationError);
-  });
-
-  it("rejects requestStrike when the actor does not manage the subject", async () => {
-    const reporter = await createPerson("Reporter", "rep009");
-    const subject = await createPerson("Subject", "sub002");
-
-    await expect(
-      submitReport(reporter.id, {
-        concernTypes: ["ATTENDANCE_RELIABILITY"],
-        description: "no-show",
-        subjectPersonId: subject.id,
-        requestStrike: true,
-      })
-    ).rejects.toBeInstanceOf(IncidentValidationError);
-  });
-
-  it("allows requestStrike when the actor directs a department the subject actively volunteers in, setting strikeDecision PENDING", async () => {
-    const term = await createTerm();
-    const dept = await createDepartment("ITCM");
-    const director = await createPerson("Director", "dir001");
-    const subject = await createPerson("Volunteer", "vol001");
-
-    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
-    await createMembership(subject.id, term.id, dept.id, "VOLUNTEER");
-
-    const report = await submitReport(director.id, {
-      concernTypes: ["ATTENDANCE_RELIABILITY"],
-      description: "No-call/no-show for a scheduled shift.",
-      subjectPersonId: subject.id,
-      requestStrike: true,
-    });
-
-    expect(report.strikeDecision).toBe("PENDING");
-    expect(report.reporterId).toBe(director.id);
-    expect(report.subjectPersonId).toBe(subject.id);
   });
 
   it("records an incident.submit audit row", async () => {
@@ -344,7 +364,7 @@ describe("submitReport notifications", () => {
     const report = await submitReport(reporter.id, {
       concernTypes: ["PROFESSIONAL_CONDUCT"],
       description: "Raised their voice at a patient.",
-      subjectPersonId: subject.id,
+      subjects: [{ personId: subject.id }],
     });
 
     const managerNotes = await prisma.notification.findMany({
@@ -369,21 +389,21 @@ describe("submitReport notifications", () => {
     expect(await prisma.notification.count({ where: { type: "incidents.report_submitted" } })).toBe(0);
   });
 
-  it("also sends a strike_requested alert to reviewers when the report requests a strike", async () => {
+  it("sends one strike_requested alert naming the flagged people when a strike is requested", async () => {
     const term = await createTerm();
     const dept = await createDepartment("ITCM");
     const director = await createPerson("Director", "notif-dir001");
-    const subject = await createPerson("Volunteer", "notif-vol001");
+    const managed = await createPerson("Managed Vol", "notif-vol001");
+    const bystander = await createPerson("Bystander", "notif-by001");
     const manager = await createPerson("Manager", "notif-mgr002");
     await createMembership(director.id, term.id, dept.id, "DIRECTOR");
-    await createMembership(subject.id, term.id, dept.id, "VOLUNTEER");
+    await createMembership(managed.id, term.id, dept.id, "VOLUNTEER");
     await grantPermission(manager.id, "incidents.manage");
 
     await submitReport(director.id, {
       concernTypes: ["ATTENDANCE_RELIABILITY"],
-      description: "No-call/no-show for a scheduled shift.",
-      subjectPersonId: subject.id,
-      requestStrike: true,
+      description: "No-call/no-show.",
+      subjects: [{ personId: managed.id, requestStrike: true }, { personId: bystander.id }],
     });
 
     const submittedNotes = await prisma.notification.findMany({
@@ -395,11 +415,12 @@ describe("submitReport notifications", () => {
       where: { personId: manager.id, type: "incidents.strike_requested" },
     });
     expect(strikeNotes).toHaveLength(1);
-    expect(strikeNotes[0].body).toContain("Volunteer");
+    expect(strikeNotes[0].body).toContain("Managed Vol");
 
-    // Neither the director (reporter) nor the subject receives these alerts.
+    // Neither the director (reporter) nor the subjects receive these alerts.
     expect(await prisma.notification.count({ where: { personId: director.id } })).toBe(0);
-    expect(await prisma.notification.count({ where: { personId: subject.id } })).toBe(0);
+    expect(await prisma.notification.count({ where: { personId: managed.id } })).toBe(0);
+    expect(await prisma.notification.count({ where: { personId: bystander.id } })).toBe(0);
   });
 });
 
@@ -470,13 +491,13 @@ describe("listMyReports", () => {
     await submitReport(reporter.id, {
       concernTypes: ["OTHER"],
       description: "with subject",
-      subjectPersonId: subject.id,
+      subjects: [{ personId: subject.id }],
     });
 
     const rows = await listMyReports(reporter.id);
 
     expect(rows).toHaveLength(1);
-    expect(rows[0].subjectName).toBe("Subject Person");
+    expect(rows[0].subjectNames).toEqual(["Subject Person"]);
   });
 
   it("returns an empty list when the actor has filed nothing", async () => {
@@ -530,7 +551,7 @@ describe("getReport", () => {
     const r = await submitReport(reporter.id, {
       concernTypes: ["OTHER"],
       description: "owner-visible",
-      subjectPersonId: subject.id,
+      subjects: [{ personId: subject.id }],
     });
     await prisma.incidentReport.update({
       where: { id: r.id },
@@ -543,8 +564,20 @@ describe("getReport", () => {
     expect(report.id).toBe(r.id);
     expect(report.reviewNotes).toBeNull();
     expect(report.reporter.name).toBe("Reporter");
-    expect(report.subject?.name).toBe("Subject");
+    expect(report.subjects.map((s) => s.person.name)).toEqual(["Subject"]);
     expect(report.attachments).toEqual([]);
+  });
+
+  it("getReport returns the linked subjects with names", async () => {
+    const owner = await createPerson("Owner", "gr-own");
+    const a = await createPerson("Alex", "gr-a");
+    const report = await submitReport(owner.id, {
+      concernTypes: ["OTHER"],
+      description: "x",
+      subjects: [{ personId: a.id }],
+    });
+    const { report: got } = await getReport(owner.id, report.id);
+    expect(got.subjects.map((s) => s.person.name)).toEqual(["Alex"]);
   });
 
   it("allows a holder of incidents.manage to read any report, including reviewNotes", async () => {
@@ -574,7 +607,7 @@ describe("getReport", () => {
     const r = await submitReport(reporter.id, {
       concernTypes: ["OTHER"],
       description: "about the subject",
-      subjectPersonId: subject.id,
+      subjects: [{ personId: subject.id }],
     });
 
     await expect(getReport(subject.id, r.id)).rejects.toBeInstanceOf(IncidentForbiddenError);
@@ -588,7 +621,7 @@ describe("getReport", () => {
     const r = await submitReport(owner.id, {
       concernTypes: ["OTHER"],
       description: "self-filed",
-      subjectPersonId: owner.id,
+      subjects: [{ personId: owner.id }],
     });
 
     const { report } = await getReport(owner.id, r.id);
@@ -664,7 +697,41 @@ describe("listReviewQueue", () => {
     expect(rows.map((r) => r.report.id)).toEqual([risky.id, newer.id, older.id]);
   });
 
-  it("excludes reports whose subject is the reviewer, while keeping subject-less reports", async () => {
+  it("q matches a report by any linked subject's name", async () => {
+    const reporter = await createPerson("Reporter", "lq-rep");
+    const manager = await createPerson("Manager", "lq-mgr");
+    const zoe = await createPerson("Zoe Zephyr", "lq-zoe");
+    await grantPermission(manager.id, "incidents.manage");
+    const report = await submitReport(reporter.id, {
+      concernTypes: ["OTHER"],
+      description: "x",
+      subjects: [{ personId: zoe.id }],
+    });
+    const { rows } = await listReviewQueue(manager.id, { q: "Zephyr" });
+    expect(rows.map((r) => r.report.id)).toContain(report.id);
+    expect(rows.find((r) => r.report.id === report.id)?.subjectNames).toContain("Zoe Zephyr");
+  });
+
+  it("strikePending matches a report with any PENDING subject", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("ITCM");
+    const director = await createPerson("Director", "lq-dir");
+    const managed = await createPerson("Managed", "lq-vol");
+    const manager = await createPerson("Manager", "lq-mgr2");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(managed.id, term.id, dept.id, "VOLUNTEER");
+    await grantPermission(manager.id, "incidents.manage");
+    const report = await submitReport(director.id, {
+      concernTypes: ["ATTENDANCE_RELIABILITY"],
+      description: "x",
+      subjects: [{ personId: managed.id, requestStrike: true }],
+    });
+    const { rows } = await listReviewQueue(manager.id, { strikePending: true });
+    expect(rows.map((r) => r.report.id)).toContain(report.id);
+    expect(rows.find((r) => r.report.id === report.id)?.strikePendingCount).toBe(1);
+  });
+
+  it("excludes reports that link the reviewer as a subject, while keeping subject-less reports", async () => {
     const reporter = await createPerson("Reporter", "m5-rq-rep001");
     const other = await createPerson("Other", "m5-rq-oth001");
     const managerSubject = await createPerson("ManagerSubject", "m5-rq-ms001");
@@ -673,7 +740,7 @@ describe("listReviewQueue", () => {
     const aboutManager = await submitReport(reporter.id, {
       concernTypes: ["OTHER"],
       description: "about the reviewer themselves",
-      subjectPersonId: managerSubject.id,
+      subjects: [{ personId: managerSubject.id }],
     });
     const noSubject = await submitReport(reporter.id, {
       concernTypes: ["OTHER"],
@@ -682,7 +749,7 @@ describe("listReviewQueue", () => {
     const aboutOther = await submitReport(reporter.id, {
       concernTypes: ["OTHER"],
       description: "about someone else",
-      subjectPersonId: other.id,
+      subjects: [{ personId: other.id }],
     });
 
     const { rows, total } = await listReviewQueue(managerSubject.id, {});
@@ -821,7 +888,7 @@ describe("reviewReport", () => {
     const report = await submitReport(reporter.id, {
       concernTypes: ["OTHER"],
       description: "x",
-      subjectPersonId: subject.id,
+      subjects: [{ personId: subject.id }],
     });
 
     await reviewReport(manager.id, report.id, { status: "RESOLVED" });
@@ -863,7 +930,7 @@ describe("reviewReport", () => {
     const report = await submitReport(reporter.id, {
       concernTypes: ["OTHER"],
       description: "about the subject",
-      subjectPersonId: subject.id,
+      subjects: [{ personId: subject.id }],
     });
 
     await expect(
@@ -879,157 +946,101 @@ describe("reviewReport", () => {
 // decideStrike
 // ---------------------------------------------------------------------------
 
-describe("decideStrike", () => {
-  /**
-   * Seeds a director who manages a department, an ACTIVE VOLUNTEER-kind
-   * subject in that department in the active term, and a central
-   * incidents.manage holder. The director then submits a report against the
-   * subject with requestStrike: true, landing strikeDecision at PENDING.
-   */
-  async function seedPendingStrikeRequest(opts: { anonymous?: boolean } = {}) {
+describe("decideStrike (per subject)", () => {
+  async function seedPendingStrike() {
     const term = await createTerm();
     const dept = await createDepartment("ITCM");
-    const director = await createPerson("Director", "ds-dir001");
-    const subject = await createPerson("Volunteer", "ds-vol001");
-    const manager = await createPerson("Manager", "ds-mgr001");
-
+    const director = await createPerson("Director", "ds-dir");
+    const managed = await createPerson("Managed", "ds-vol");
+    const bystander = await createPerson("Bystander", "ds-by");
+    const manager = await createPerson("Manager", "ds-mgr");
     await createMembership(director.id, term.id, dept.id, "DIRECTOR");
-    await createMembership(subject.id, term.id, dept.id, "VOLUNTEER");
+    await createMembership(managed.id, term.id, dept.id, "VOLUNTEER");
     await grantPermission(manager.id, "incidents.manage");
 
     const report = await submitReport(director.id, {
       concernTypes: ["ATTENDANCE_RELIABILITY"],
-      description: "No-call/no-show for a scheduled shift.",
-      subjectPersonId: subject.id,
-      requestStrike: true,
-      anonymous: opts.anonymous ?? false,
-      patientImpact: "YES",
+      description: "No-call/no-show.",
+      anonymous: true,
+      subjects: [{ personId: managed.id, requestStrike: true }, { personId: bystander.id }],
     });
-
-    expect(report.strikeDecision).toBe("PENDING");
-
-    return { term, dept, director, subject, manager, report };
+    const pending = await prisma.incidentReportSubject.findFirstOrThrow({
+      where: { reportId: report.id, strikeDecision: "PENDING" },
+    });
+    return { report, pending, managed, bystander, manager, director };
   }
 
-  it("approve creates a linked confidential strike for an anonymous report", async () => {
-    const { subject, manager, report } = await seedPendingStrikeRequest({ anonymous: true });
-
-    const updated = await decideStrike(manager.id, report.id, {
-      approve: true,
-      category: DISCIPLINARY_CATEGORIES[0],
-    });
-
-    expect(updated.strikeDecision).toBe("APPROVED");
-    expect(updated.strikeDecidedById).toBe(manager.id);
-    expect(updated.strikeDecidedAt).not.toBeNull();
-
-    const action = await prisma.disciplinaryAction.findUnique({ where: { reportId: report.id } });
-    expect(action).not.toBeNull();
-    expect(action?.personId).toBe(subject.id);
-    expect(action?.reportId).toBe(report.id);
-    expect(action?.confidential).toBe(true);
-    expect(action?.patientInvolved).toBe(true);
-    expect(action?.category).toBe(DISCIPLINARY_CATEGORIES[0]);
-    expect(action?.description).toBe(report.description);
-    expect(action?.issuedById).toBe(manager.id);
-
-    const row = await prisma.incidentReport.findUnique({ where: { id: report.id } });
-    expect(row?.strikeDecision).toBe("APPROVED");
-    expect(row?.strikeDecidedById).toBe(manager.id);
-  });
-
-  it("approve for a non-anonymous report creates a non-confidential strike", async () => {
-    const { subject, manager, report } = await seedPendingStrikeRequest({ anonymous: false });
-
-    await decideStrike(manager.id, report.id, {
-      approve: true,
-      category: DISCIPLINARY_CATEGORIES[0],
-    });
-
-    const action = await prisma.disciplinaryAction.findUnique({ where: { reportId: report.id } });
-    expect(action).not.toBeNull();
-    expect(action?.confidential).toBe(false);
-    expect(action?.personId).toBe(subject.id);
-  });
-
-  it("decline sets strikeDecision DECLINED with no DisciplinaryAction created", async () => {
-    const { manager, report } = await seedPendingStrikeRequest();
-
-    const updated = await decideStrike(manager.id, report.id, { approve: false });
-
-    expect(updated.strikeDecision).toBe("DECLINED");
-    expect(updated.strikeDecidedById).toBe(manager.id);
-    expect(updated.strikeDecidedAt).not.toBeNull();
-
-    const action = await prisma.disciplinaryAction.findUnique({ where: { reportId: report.id } });
-    expect(action).toBeNull();
-
-    const row = await prisma.incidentReport.findUnique({ where: { id: report.id } });
-    expect(row?.strikeDecision).toBe("DECLINED");
-  });
-
-  it("throws IncidentValidationError when the report has no pending strike request", async () => {
-    const reporter = await createPerson("Reporter", "ds-rep001");
-    const manager = await createPerson("Manager", "ds-mgr002");
-    await grantPermission(manager.id, "incidents.manage");
-
-    const report = await submitReport(reporter.id, {
-      concernTypes: ["OTHER"],
-      description: "no strike requested",
-    });
-    expect(report.strikeDecision).toBeNull();
-
+  it("non-manager -> IncidentForbiddenError", async () => {
+    const { pending, director } = await seedPendingStrike();
     await expect(
-      decideStrike(manager.id, report.id, { approve: true, category: DISCIPLINARY_CATEGORIES[0] })
-    ).rejects.toBeInstanceOf(IncidentValidationError);
-
-    const action = await prisma.disciplinaryAction.findUnique({ where: { reportId: report.id } });
-    expect(action).toBeNull();
-  });
-
-  it("throws IncidentValidationError when a decided report's strike is decided again", async () => {
-    const { manager, report } = await seedPendingStrikeRequest();
-    await decideStrike(manager.id, report.id, { approve: false });
-
-    await expect(
-      decideStrike(manager.id, report.id, { approve: true, category: DISCIPLINARY_CATEGORIES[0] })
-    ).rejects.toBeInstanceOf(IncidentValidationError);
-  });
-
-  it("forbids a non-manager, even the director who submitted the request", async () => {
-    const { director, report } = await seedPendingStrikeRequest();
-
-    await expect(
-      decideStrike(director.id, report.id, { approve: true, category: DISCIPLINARY_CATEGORIES[0] })
+      decideStrike(director.id, pending.id, { approve: false })
     ).rejects.toBeInstanceOf(IncidentForbiddenError);
   });
 
-  it("throws IncidentNotFoundError for a missing report", async () => {
-    const manager = await createPerson("Manager", "ds-mgr003");
-    await grantPermission(manager.id, "incidents.manage");
-
+  it("missing subject row -> IncidentNotFoundError", async () => {
+    const { manager } = await seedPendingStrike();
     await expect(
-      decideStrike(manager.id, "nonexistent-report-id", { approve: false })
+      decideStrike(manager.id, "no-such-row", { approve: false })
     ).rejects.toBeInstanceOf(IncidentNotFoundError);
   });
 
+  it("approve issues one DisciplinaryAction for that person, mirrors anonymous->confidential, sets APPROVED", async () => {
+    const { pending, managed, manager } = await seedPendingStrike();
+
+    const row = await decideStrike(manager.id, pending.id, {
+      approve: true,
+      category: DISCIPLINARY_CATEGORIES[0],
+    });
+    expect(row.strikeDecision).toBe("APPROVED");
+    expect(row.strikeDecidedById).toBe(manager.id);
+
+    const actions = await prisma.disciplinaryAction.findMany({ where: { personId: managed.id } });
+    expect(actions).toHaveLength(1);
+    expect(actions[0].reportId).toBe(pending.reportId);
+    expect(actions[0].confidential).toBe(true);
+  });
+
+  it("approving one subject leaves another subject's request untouched", async () => {
+    const { report, pending, manager } = await seedPendingStrike();
+    await decideStrike(manager.id, pending.id, { approve: true, category: DISCIPLINARY_CATEGORIES[0] });
+    const others = await prisma.incidentReportSubject.findMany({
+      where: { reportId: report.id, id: { not: pending.id } },
+    });
+    expect(others.every((r) => r.strikeDecision === null)).toBe(true);
+  });
+
+  it("decline sets DECLINED with no DisciplinaryAction", async () => {
+    const { pending, managed, manager } = await seedPendingStrike();
+    const row = await decideStrike(manager.id, pending.id, { approve: false });
+    expect(row.strikeDecision).toBe("DECLINED");
+    expect(await prisma.disciplinaryAction.count({ where: { personId: managed.id } })).toBe(0);
+  });
+
+  it("row not PENDING -> IncidentValidationError", async () => {
+    const { pending, manager } = await seedPendingStrike();
+    await decideStrike(manager.id, pending.id, { approve: false });
+    await expect(
+      decideStrike(manager.id, pending.id, { approve: true, category: DISCIPLINARY_CATEGORIES[0] })
+    ).rejects.toBeInstanceOf(IncidentValidationError);
+  });
+
   it("rejects approve with an invalid category, and creates no strike", async () => {
-    const { manager, report } = await seedPendingStrikeRequest();
+    const { pending, manager } = await seedPendingStrike();
 
     await expect(
-      decideStrike(manager.id, report.id, { approve: true, category: "NotACategory" })
+      decideStrike(manager.id, pending.id, { approve: true, category: "NotACategory" })
     ).rejects.toBeInstanceOf(IncidentValidationError);
 
-    const action = await prisma.disciplinaryAction.findUnique({ where: { reportId: report.id } });
+    const action = await prisma.disciplinaryAction.findUnique({ where: { reportId_personId: { reportId: pending.reportId, personId: pending.personId } } });
     expect(action).toBeNull();
-    const row = await prisma.incidentReport.findUnique({ where: { id: report.id } });
+    const row = await prisma.incidentReportSubject.findUnique({ where: { id: pending.id } });
     expect(row?.strikeDecision).toBe("PENDING");
   });
 
-  it("notifies the reporter (approve = true) when a strike is approved, and never notifies the subject", async () => {
-    const { director, subject, manager, report } = await seedPendingStrikeRequest();
+  it("notifies the reporter (approve = true) when a strike is approved, and never notifies the linked people", async () => {
+    const { director, managed, bystander, manager, pending } = await seedPendingStrike();
 
-    await decideStrike(manager.id, report.id, {
+    await decideStrike(manager.id, pending.id, {
       approve: true,
       category: DISCIPLINARY_CATEGORIES[0],
     });
@@ -1040,13 +1051,14 @@ describe("decideStrike", () => {
     expect(reporterNotes).toHaveLength(1);
     expect(reporterNotes[0].body).toContain("approved");
 
-    expect(await prisma.notification.count({ where: { personId: subject.id, type: "incidents.strike_decided" } })).toBe(0);
+    expect(await prisma.notification.count({ where: { personId: managed.id, type: "incidents.strike_decided" } })).toBe(0);
+    expect(await prisma.notification.count({ where: { personId: bystander.id, type: "incidents.strike_decided" } })).toBe(0);
   });
 
   it("notifies the reporter (approve = false) when a strike is declined", async () => {
-    const { director, manager, report } = await seedPendingStrikeRequest();
+    const { director, manager, pending } = await seedPendingStrike();
 
-    await decideStrike(manager.id, report.id, { approve: false });
+    await decideStrike(manager.id, pending.id, { approve: false });
 
     const reporterNotes = await prisma.notification.findMany({
       where: { personId: director.id, type: "incidents.strike_decided" },
@@ -1055,34 +1067,31 @@ describe("decideStrike", () => {
     expect(reporterNotes[0].body).toContain("declined");
   });
 
-  it("forbids a subject who holds incidents.manage from deciding a strike on themselves", async () => {
-    const { subject, report } = await seedPendingStrikeRequest();
-    await grantPermission(subject.id, "incidents.manage");
+  it("forbids a linked subject who holds incidents.manage from deciding a strike on themselves", async () => {
+    const { pending, managed } = await seedPendingStrike();
+    await grantPermission(managed.id, "incidents.manage");
 
     await expect(
-      decideStrike(subject.id, report.id, { approve: true, category: DISCIPLINARY_CATEGORIES[0] })
+      decideStrike(managed.id, pending.id, { approve: true, category: DISCIPLINARY_CATEGORIES[0] })
     ).rejects.toBeInstanceOf(IncidentForbiddenError);
 
-    const row = await prisma.incidentReport.findUnique({ where: { id: report.id } });
+    const row = await prisma.incidentReportSubject.findUnique({ where: { id: pending.id } });
     expect(row?.strikeDecision).toBe("PENDING");
-    const action = await prisma.disciplinaryAction.findUnique({ where: { reportId: report.id } });
-    expect(action).toBeNull();
+    expect(await prisma.disciplinaryAction.count({ where: { personId: managed.id } })).toBe(0);
   });
 
   it("rejects a second decideStrike once the strike was approved, leaving exactly one strike (L2 atomic guard)", async () => {
-    const { manager, report } = await seedPendingStrikeRequest();
-    await decideStrike(manager.id, report.id, { approve: true, category: DISCIPLINARY_CATEGORIES[0] });
+    const { pending, managed, manager } = await seedPendingStrike();
+    await decideStrike(manager.id, pending.id, { approve: true, category: DISCIPLINARY_CATEGORIES[0] });
 
-    // A second decision (here a decline) on the now-APPROVED report must be
-    // rejected rather than flipping the report to DECLINED while the strike
-    // stays live.
+    // A second decision (here a decline) on the now-APPROVED subject row must be
+    // rejected rather than flipping it to DECLINED while the strike stays live.
     await expect(
-      decideStrike(manager.id, report.id, { approve: false })
+      decideStrike(manager.id, pending.id, { approve: false })
     ).rejects.toBeInstanceOf(IncidentValidationError);
 
-    const row = await prisma.incidentReport.findUnique({ where: { id: report.id } });
+    const row = await prisma.incidentReportSubject.findUnique({ where: { id: pending.id } });
     expect(row?.strikeDecision).toBe("APPROVED");
-    const actions = await prisma.disciplinaryAction.findMany({ where: { reportId: report.id } });
-    expect(actions).toHaveLength(1);
+    expect(await prisma.disciplinaryAction.count({ where: { personId: managed.id } })).toBe(1);
   });
 });

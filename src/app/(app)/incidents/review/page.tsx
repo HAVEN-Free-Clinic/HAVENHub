@@ -27,6 +27,7 @@ import { Checkbox } from "@/platform/ui/checkbox";
 import { Button, buttonClasses } from "@/platform/ui/button";
 import { Pagination } from "@/platform/ui/pagination";
 import { fmtDate } from "@/platform/dates";
+import { formatSubjectNames } from "@/app/(app)/incidents/subject-display";
 
 // ---------------------------------------------------------------------------
 // Status + concern labels
@@ -206,7 +207,7 @@ export default async function IncidentReviewPage({ searchParams }: PageProps) {
                 </TR>
               </THead>
               <tbody>
-                {rows.map(({ report, reporterName, subjectName }) => (
+                {rows.map(({ report, reporterName, subjectNames, strikePendingCount }) => (
                   <TR key={report.id}>
                     <TD>
                       <Link
@@ -218,7 +219,7 @@ export default async function IncidentReviewPage({ searchParams }: PageProps) {
                     </TD>
                     <TD className="text-sm text-foreground-soft">{reporterName}</TD>
                     <TD className="text-sm text-foreground-soft">
-                      {subjectName ?? "(described in report)"}
+                      {formatSubjectNames(subjectNames)}
                     </TD>
                     <TD className="max-w-xs text-sm text-foreground-soft">
                       {report.concernTypes.map((c) => CONCERN_LABELS[c] ?? c).join(", ")}
@@ -227,9 +228,7 @@ export default async function IncidentReviewPage({ searchParams }: PageProps) {
                       {report.immediateRisk && <Badge tone="critical">Immediate risk</Badge>}
                     </TD>
                     <TD>
-                      {report.strikeDecision === "PENDING" && (
-                        <Badge tone="warning">Strike pending</Badge>
-                      )}
+                      {strikePendingCount > 0 && <Badge tone="warning">Strike pending</Badge>}
                     </TD>
                     <TD>
                       <Badge tone={STATUS_TONES[report.status]}>{STATUS_LABELS[report.status]}</Badge>

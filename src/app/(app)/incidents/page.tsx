@@ -124,7 +124,7 @@ export default async function ReportConcernPage({ searchParams }: PageProps) {
             </Field>
           </div>
 
-          {/* Section 4: subject */}
+          {/* Section 4: subjects */}
           <Field label="4. Name, role, or department of the individual(s) of concern">
             <Textarea name="subjectDescription" rows={2} placeholder="If unknown, describe as observed" />
           </Field>

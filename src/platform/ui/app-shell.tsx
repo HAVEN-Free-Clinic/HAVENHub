@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { LogOut } from "lucide-react";
 import { signOut } from "@/platform/auth/auth";
 import { MODULES } from "@/platform/modules/registry";
 import { getAccessibleModules } from "@/platform/modules/access";
@@ -56,14 +57,14 @@ export async function AppShell({
       {/* Floating glass nav: a transparent sticky wrapper holds a centered pill
           that detaches from the top/sides so canvas shows around it and page
           content blurs beneath it on scroll. */}
-      <header className="sticky top-0 z-30 px-4 pt-3">
-        <div className="glass-bar mx-auto flex max-w-6xl items-center gap-4 rounded-full h-14 px-6">
-          <div className="flex items-center gap-2">
+      <header className="sticky top-0 z-30 px-3 pt-3 sm:px-4">
+        <div className="glass-bar mx-auto flex max-w-6xl items-center gap-2 rounded-full h-14 px-3 sm:gap-4 sm:px-6">
+          <div className="flex shrink-0 items-center gap-2">
             <Link href="/" aria-label="Go to hub home" className="flex items-center hover:opacity-80 transition-opacity">
               <HavenLogo className="h-8 text-brand-fg" />
             </Link>
             {termLabel && (
-              <span className="border-l border-border-strong pl-2.5 text-xs font-medium text-foreground-soft">
+              <span className="hidden whitespace-nowrap border-l border-border-strong pl-2.5 text-xs font-medium text-foreground-soft sm:inline-block">
                 {termLabel}
               </span>
             )}
@@ -73,7 +74,7 @@ export async function AppShell({
             <GlobalNav items={navModules} />
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex shrink-0 items-center gap-2 sm:gap-3">
             <ThemeToggle initial={resolvedTheme} />
             <NotificationBell />
             <div className="hidden items-center gap-2.5 sm:flex">
@@ -84,7 +85,9 @@ export async function AppShell({
                 {initials}
               </span>
               {userName && (
-                <span className="text-sm font-medium text-foreground-soft">{userName}</span>
+                <span className="hidden whitespace-nowrap text-sm font-medium text-foreground-soft lg:inline">
+                  {userName}
+                </span>
               )}
             </div>
             <form
@@ -95,9 +98,11 @@ export async function AppShell({
             >
               <button
                 type="submit"
-                className="rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground-soft transition-colors hover:border-border-strong hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                aria-label="Sign out"
+                className="inline-flex items-center whitespace-nowrap rounded-md border border-border px-2 py-1.5 text-sm font-medium text-foreground-soft transition-colors hover:border-border-strong hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:px-3"
               >
-                Sign out
+                <LogOut aria-hidden className="h-4 w-4 sm:hidden" />
+                <span className="hidden sm:inline">Sign out</span>
               </button>
             </form>
           </div>

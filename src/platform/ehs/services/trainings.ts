@@ -1,5 +1,5 @@
 import type { EhsTraining } from "@prisma/client";
-import { prisma } from "@/platform/db";
+import { prisma, isUniqueConstraintError, isForeignKeyConstraintError } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { EhsValidationError } from "./errors";
 
@@ -22,15 +22,23 @@ export async function createTraining(
 ): Promise<EhsTraining> {
   const name = normalizeName(input.name);
   const max = await prisma.ehsTraining.aggregate({ _max: { position: true } });
-  const training = (await prisma.ehsTraining.create({
-    data: {
-      name,
-      description: input.description ?? null,
-      isActive: input.isActive ?? true,
-      requiredForAll: input.requiredForAll ?? false,
-      position: (max._max.position ?? -1) + 1,
-    },
-  })) as EhsTraining & { requiredForAll: boolean };
+  let training: EhsTraining & { requiredForAll: boolean };
+  try {
+    training = (await prisma.ehsTraining.create({
+      data: {
+        name,
+        description: input.description ?? null,
+        isActive: input.isActive ?? true,
+        requiredForAll: input.requiredForAll ?? false,
+        position: (max._max.position ?? -1) + 1,
+      },
+    })) as EhsTraining & { requiredForAll: boolean };
+  } catch (err) {
+    if (isUniqueConstraintError(err)) {
+      throw new EhsValidationError("A training with that name already exists.");
+    }
+    throw err;
+  }
   await recordAudit({
     actorPersonId: actorId,
     action: "ehs.training_create",
@@ -47,15 +55,23 @@ export async function updateTraining(
   actorId: string
 ): Promise<EhsTraining> {
   const name = normalizeName(input.name);
-  const training = (await prisma.ehsTraining.update({
-    where: { id },
-    data: {
-      name,
-      description: input.description ?? null,
-      isActive: input.isActive ?? true,
-      requiredForAll: input.requiredForAll ?? false,
-    },
-  })) as EhsTraining & { requiredForAll: boolean };
+  let training: EhsTraining & { requiredForAll: boolean };
+  try {
+    training = (await prisma.ehsTraining.update({
+      where: { id },
+      data: {
+        name,
+        description: input.description ?? null,
+        isActive: input.isActive ?? true,
+        requiredForAll: input.requiredForAll ?? false,
+      },
+    })) as EhsTraining & { requiredForAll: boolean };
+  } catch (err) {
+    if (isUniqueConstraintError(err)) {
+      throw new EhsValidationError("A training with that name already exists.");
+    }
+    throw err;
+  }
   await recordAudit({
     actorPersonId: actorId,
     action: "ehs.training_update",
@@ -86,16 +102,23 @@ export async function setTrainingDepartments(
     };
     $transaction: typeof prisma.$transaction;
   };
-  await db.$transaction(async (tx) => {
-    const txDb = tx as unknown as typeof db;
-    await txDb.ehsTrainingDepartment.deleteMany({ where: { trainingId } });
-    if (departmentIds.length > 0) {
-      await txDb.ehsTrainingDepartment.createMany({
-        data: departmentIds.map((departmentId) => ({ trainingId, departmentId })),
-        skipDuplicates: true,
-      });
+  try {
+    await db.$transaction(async (tx) => {
+      const txDb = tx as unknown as typeof db;
+      await txDb.ehsTrainingDepartment.deleteMany({ where: { trainingId } });
+      if (departmentIds.length > 0) {
+        await txDb.ehsTrainingDepartment.createMany({
+          data: departmentIds.map((departmentId) => ({ trainingId, departmentId })),
+          skipDuplicates: true,
+        });
+      }
+    });
+  } catch (err) {
+    if (isForeignKeyConstraintError(err)) {
+      throw new EhsValidationError("One or more selected departments no longer exist.");
     }
-  });
+    throw err;
+  }
   await recordAudit({
     actorPersonId: actorId,
     action: "ehs.training_set_departments",

@@ -14,6 +14,14 @@ describe("ehs trainings service", () => {
     );
   });
 
+  it("rejects a duplicate name with a friendly domain error", async () => {
+    const actor = await prisma.person.create({ data: { name: "Actor", status: "ACTIVE" } });
+    await createTraining({ name: "Duplicate item" }, actor.id);
+    await expect(
+      createTraining({ name: "Duplicate item" }, actor.id)
+    ).rejects.toBeInstanceOf(EhsValidationError);
+  });
+
   it("creates a training with an auto-incremented position", async () => {
     const actor = await prisma.person.create({ data: { name: "Actor", status: "ACTIVE" } });
     const created = await createTraining({ name: "Test EHS item" }, actor.id);

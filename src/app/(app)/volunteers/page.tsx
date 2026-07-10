@@ -159,6 +159,8 @@ export default async function VolunteersPage({ searchParams }: PageProps) {
             chips.push({ label: "expiring", count: counts.EXPIRING_SOON, tone: "warning" });
           if (counts.EXPIRED > 0)
             chips.push({ label: "expired", count: counts.EXPIRED, tone: "critical" });
+          if (counts.PENDING_VERIFICATION > 0)
+            chips.push({ label: "needs verification", count: counts.PENDING_VERIFICATION, tone: "warning" });
           if (counts.UNKNOWN_DATE > 0)
             chips.push({ label: "date unknown", count: counts.UNKNOWN_DATE, tone: "default" });
           if (counts.NO_CERTIFICATE > 0)

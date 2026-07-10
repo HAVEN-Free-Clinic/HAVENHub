@@ -59,6 +59,26 @@ import { Checkbox } from "@/platform/ui/checkbox";
 import { AlertTriangle } from "lucide-react";
 
 // ---------------------------------------------------------------------------
+// Booked-count parsing
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse a booked-count form field: empty -> null; otherwise require a
+ * non-negative integer. Rejects NaN, negatives, and fractional input so a blank
+ * or malformed value never persists as NaN or a negative count. Throws
+ * BuilderValidationError (a domain error runAction turns into an inline error
+ * redirect); call it inside an action's `work` closure so the throw is caught.
+ */
+function parseBookedCount(raw: string, label: string): number | null {
+  if (raw.trim() === "") return null;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 0) {
+    throw new BuilderValidationError(`${label} must be a whole number of 0 or more.`);
+  }
+  return n;
+}
+
+// ---------------------------------------------------------------------------
 // Page props
 // ---------------------------------------------------------------------------
 
@@ -304,10 +324,14 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     const departmentId = (formData.get("departmentId") as string) ?? "";
     const dateKey = (formData.get("dateKey") as string) ?? "";
     const raw = (formData.get("patientsBooked") as string) ?? "";
-    const patientsBooked = raw === "" ? null : Number(raw);
     const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode });
     await runAction({
-      work: () => setPatientsBooked(actor.personId, { departmentId, dateKey, patientsBooked }),
+      work: () =>
+        setPatientsBooked(actor.personId, {
+          departmentId,
+          dateKey,
+          patientsBooked: parseBookedCount(raw, "Patients booked"),
+        }),
       domainErrors: [BuilderValidationError, BuilderForbiddenError],
       errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message }),
       revalidate: "/schedule/builder",
@@ -324,10 +348,15 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     const rawProceduresBooked = (formData.get("proceduresBooked") as string) ?? "";
     const attendingId = rawAttendingId === "" ? null : rawAttendingId;
     const directorName = rawDirectorName.trim() === "" ? null : rawDirectorName.trim();
-    const proceduresBooked = rawProceduresBooked === "" ? null : Number(rawProceduresBooked);
     const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode });
     await runAction({
-      work: () => upsertRhdClinic(actor.personId, { dateKey, attendingId, directorName, proceduresBooked }),
+      work: () =>
+        upsertRhdClinic(actor.personId, {
+          dateKey,
+          attendingId,
+          directorName,
+          proceduresBooked: parseBookedCount(rawProceduresBooked, "Procedures booked"),
+        }),
       domainErrors: [BuilderValidationError, BuilderForbiddenError],
       errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message }),
       revalidate: "/schedule/builder",
@@ -559,7 +588,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                 <a
                   href={href({ gmode: "shadow" })}
                   aria-current={gmode === "shadow" ? "true" : undefined}
-                  className={`px-3 py-1.5 text-xs font-medium transition-colors border-l ${gmode === "shadow" ? "border-border bg-amber-400 text-white" : "border-transparent text-muted-foreground hover:text-foreground-soft"}`}
+                  className={`px-3 py-1.5 text-xs font-medium transition-colors border-l ${gmode === "shadow" ? "border-border bg-amber-700 text-white" : "border-transparent text-muted-foreground hover:text-foreground-soft"}`}
                 >
                   Shadow
                 </a>
@@ -679,7 +708,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                             <input type="hidden" name="departmentId" value={dept.id} />
                             <input type="hidden" name="dateKey" value={selectedDateKey ?? ""} />
                             <input type="hidden" name="personId" value={pid} />
-                            <Input name="reason" aria-label="Removal reason" placeholder="Reason (optional)" className="flex-1 min-w-32 py-1 text-xs" />
+                            <Input name="reason" aria-label="Removal reason" placeholder="Reason (optional)" className="flex-1 min-w-32" />
                             <ConfirmButton label="Remove" confirmLabel="Remove this volunteer?" />
                           </form>
                         </Card>

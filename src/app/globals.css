@@ -10,6 +10,7 @@
   --color-success: #16a34a;
   --color-warning: #d97706;
   --color-critical: #dc2626;
+  --color-critical-faint: #fef2f2; /* red-50; faint danger tint, dark variant below */
   --color-info: #2563eb;
 
   /* Calm cool-neutral canvas the hub shell sits on (vs. flat white). */
@@ -86,6 +87,8 @@ html.dark {
   --color-brand-fg: color-mix(in srgb, var(--color-brand) 55%, white);
   --color-brand-faint: color-mix(in srgb, var(--color-brand) 22%, #0b1220);
   --color-brand-light: color-mix(in srgb, var(--color-brand) 30%, #0b1220);
+  /* Faint danger tint tracks the critical hue on a dark base (mirrors brand-faint). */
+  --color-critical-faint: color-mix(in srgb, var(--color-critical) 22%, #0b1220);
 }
 
 /* Tell the UA which native scheme to use (form controls, scrollbars). */

@@ -4,7 +4,7 @@ import { cx } from "./cx";
 const controlBase =
   "rounded-lg border border-border-strong px-3 py-2 text-sm w-full outline-none " +
   "focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15 " +
-  "disabled:opacity-50 disabled:bg-muted";
+  "disabled:opacity-50 disabled:bg-muted bg-surface";
 
 export function Input({
   className,

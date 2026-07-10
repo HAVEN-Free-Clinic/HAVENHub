@@ -18,12 +18,8 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { Pagination } from "@/platform/ui/pagination";
 import { listAllRequests, PAGE_SIZE } from "@/modules/support/services/tech-request";
 import { RequestList } from "@/modules/support/components/request-list";
-import {
-  RequestFilters,
-  ALL_STATUSES,
-  ALL_CATEGORIES,
-  ALL_PRIORITIES,
-} from "@/modules/support/components/request-filters";
+import { RequestFilters } from "@/modules/support/components/request-filters";
+import { ALL_STATUSES, ALL_CATEGORIES, ALL_PRIORITIES } from "@/modules/support/filter-options";
 import type { TechRequestStatus, TechRequestCategory, TechRequestPriority } from "@prisma/client";
 
 type PageProps = {

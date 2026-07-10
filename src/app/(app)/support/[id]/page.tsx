@@ -34,7 +34,7 @@ import {
 import type { EpicTemplateKey } from "@/platform/email/templates/epic";
 import { peopleWithAnyPermission } from "@/platform/rbac/holders";
 import { TicketDetail } from "@/modules/support/components/ticket-detail";
-import { ALL_STATUSES, ALL_PRIORITIES } from "@/modules/support/components/request-filters";
+import { ALL_STATUSES, ALL_PRIORITIES } from "@/modules/support/filter-options";
 import { Alert } from "@/platform/ui/alert";
 
 const EPIC_EMAIL_TEMPLATES: EpicTemplateKey[] = [

@@ -25,10 +25,13 @@ export type CompletionRow = {
  *  term, with their SCORM completion status + score. assignToAll covers all depts. */
 export async function getCourseCompletion(courseId: string, viewerId: string): Promise<CompletionRow[]> {
   await requireViewer(viewerId);
-  const course = await prisma.course.findUniqueOrThrow({
+  // findUnique (not ...OrThrow): the course id comes from the user-editable
+  // ?course= param, so an unknown id must yield an empty table, not a 500.
+  const course = await prisma.course.findUnique({
     where: { id: courseId },
     include: { departments: { select: { departmentId: true } } },
   });
+  if (!course) return [];
   // Mirror coursesForMember's assignment gate: an inactive or package-less course
   // is assigned to no one (per the package-less gate), so it has no required
   // learners to track. Returning [] keeps the dashboard's counting/labeling

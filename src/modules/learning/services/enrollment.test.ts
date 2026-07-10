@@ -116,6 +116,26 @@ it("rounds a fractional SCO score to fit the Int column", async () => {
   expect(row.scos[0].cmi.scoreRaw).toBe(84);
 });
 
+it("clamps an out-of-range SCO score so the int4 column never overflows", async () => {
+  const { learner, course } = await seed();
+  await persistScoCmi(learner.id, course.id, "ITEM-A", {
+    lessonStatus: "passed", scoreRaw: 2147483648, suspendData: null, lessonLocation: null,
+  });
+  const row = await getCourseForLearner(learner.id, course.id);
+  expect(row.scos[0].cmi.scoreRaw).toBe(100);
+  const cp = await prisma.courseProgress.findFirstOrThrow({ where: { personId: learner.id, courseId: course.id } });
+  expect(cp.scoreRaw).toBe(100);
+});
+
+it("stores a non-finite SCO score as null instead of throwing", async () => {
+  const { learner, course } = await seed();
+  await persistScoCmi(learner.id, course.id, "ITEM-A", {
+    lessonStatus: "passed", scoreRaw: NaN, suspendData: null, lessonLocation: null,
+  });
+  const row = await getCourseForLearner(learner.id, course.id);
+  expect(row.scos[0].cmi.scoreRaw).toBeNull();
+});
+
 it("getMyCourses reports COMPLETE only after the rollup completes", async () => {
   const { learner, course } = await seed();
   await persistScoCmi(learner.id, course.id, "ITEM-A", {

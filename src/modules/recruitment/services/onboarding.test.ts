@@ -120,6 +120,26 @@ it("submitContract validates signatures + hipaa and stores SUBMITTED", async () 
   })).rejects.toBeInstanceOf(ContractError);
 });
 
+it("a repeated submit is rejected without orphaning a HIPAA blob or duplicating the audit row", async () => {
+  const { srr, acceptance } = await seed();
+  const c = await createOrResendContract(acceptance.id, srr.id, "http://test");
+  const base = {
+    firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu",
+    signatures: { agreement: "Ada", professionalism: "Ada", training: "Ada" }, initials: "AL",
+    epicNeeded: false, hasEpic: false, worksWithYnhh: false,
+    hipaaCompletedAt: "2026-01-01",
+  };
+  await submitContract(c.token, { ...base, hipaaFile: { fileName: "first.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") } });
+  // A second submit must not flip the row again, orphan a distinct blob, or write a
+  // second audit row (the atomic PENDING claim, plus the up-front already-submitted guard).
+  await expect(
+    submitContract(c.token, { ...base, hipaaFile: { fileName: "second.pdf", mimeType: "application/pdf", bytes: Buffer.from("y") } }),
+  ).rejects.toBeInstanceOf(ContractError);
+  expect(await prisma.auditLog.count({ where: { action: "recruitment.onboarding_submit" } })).toBe(1);
+  const files = await fs.readdir(path.join(config.UPLOAD_DIR, "onboarding", c.id));
+  expect(files).toHaveLength(1);
+});
+
 it("listOnboarding returns acceptances with contract status", async () => {
   const { srr, cycle, acceptance } = await seed();
   await createOrResendContract(acceptance.id, srr.id, "http://test");

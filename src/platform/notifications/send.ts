@@ -20,6 +20,9 @@ export type QueueTeamsInput = {
 };
 
 export const TEAMS_MAX_ATTEMPTS = 8;
+/** A per-row send claim older than this is treated as abandoned (crashed worker)
+ *  and may be reclaimed by another drain. Mirrors EmailLog's STALE_LOCK_MS. */
+const STALE_LOCK_MS = 5 * 60 * 1000;
 
 /** Append a Teams message job, mirroring queueEmail (any Db handle). */
 export async function queueTeamsMessage(db: Db, input: QueueTeamsInput): Promise<TeamsMessage> {
@@ -52,7 +55,14 @@ export async function queueTeamsMessage(db: Db, input: QueueTeamsInput): Promise
  * mirrors drainEmailQueue and avoids the retry-budget collapse of issue #63
  * (the caller invokes this once, not in a `while (processed > 0)` loop).
  *
- * Single-worker assumption (no SKIP LOCKED), same as drainEmailQueue.
+ * Concurrency: before sending, each row is claimed with an atomic
+ * updateMany(status=QUEUED, lock free) -> lockedAt=now, so only one worker wins a
+ * given row. The sole /api/cron/email route drains email then Teams back-to-back,
+ * and the external scheduler does not skip overlapping runs, so two ticks can
+ * reach this drain at once when a Teams backlog outlives the 60s interval; the
+ * claim is what stops both from sending the same message. The claim is released
+ * on completion; a lock left by a crashed worker is reclaimable after
+ * STALE_LOCK_MS, preserving at-least-once delivery. Mirrors drainEmailQueue.
  */
 export async function drainTeamsQueue(
   transport: TeamsTransport,
@@ -60,6 +70,10 @@ export async function drainTeamsQueue(
 ): Promise<number> {
   let processed = 0;
   let cursor: { createdAt: Date; id: string } | null = null;
+  const claimedAt = new Date();
+  const staleBefore = new Date(claimedAt.getTime() - STALE_LOCK_MS);
+  // A row is claimable when it is unlocked, or its lock is stale (crashed worker).
+  const claimable = { OR: [{ lockedAt: null }, { lockedAt: { lt: staleBefore } }] };
 
   for (;;) {
     // Annotate the result so the cursor (read below from the last row) does not
@@ -67,11 +81,16 @@ export async function drainTeamsQueue(
     const rows: TeamsMessage[] = await prisma.teamsMessage.findMany({
       where: {
         status: "QUEUED",
+        ...claimable,
         ...(cursor
           ? {
-              OR: [
-                { createdAt: { gt: cursor.createdAt } },
-                { createdAt: cursor.createdAt, id: { gt: cursor.id } },
+              AND: [
+                {
+                  OR: [
+                    { createdAt: { gt: cursor.createdAt } },
+                    { createdAt: cursor.createdAt, id: { gt: cursor.id } },
+                  ],
+                },
               ],
             }
           : {}),
@@ -82,6 +101,14 @@ export async function drainTeamsQueue(
     if (rows.length === 0) break;
 
     for (const row of rows) {
+      // Atomic claim. If a concurrent drain already took this row (or it is no
+      // longer QUEUED) the count is 0 and we skip it without sending.
+      const claim = await prisma.teamsMessage.updateMany({
+        where: { id: row.id, status: "QUEUED", ...claimable },
+        data: { lockedAt: claimedAt },
+      });
+      if (claim.count === 0) continue;
+
       try {
         const person = await prisma.person.findUnique({
           where: { id: row.personId },
@@ -101,8 +128,8 @@ export async function drainTeamsQueue(
         await prisma.teamsMessage.update({
           where: { id: row.id },
           data: result.logged
-            ? { status: "LOGGED", chatId: result.chatId }
-            : { status: "SENT", sentAt: new Date(), chatId: result.chatId },
+            ? { status: "LOGGED", chatId: result.chatId, lockedAt: null }
+            : { status: "SENT", sentAt: new Date(), chatId: result.chatId, lockedAt: null },
         });
       } catch (error) {
         const attempts = row.attempts + 1;
@@ -142,12 +169,14 @@ export async function drainTeamsQueue(
             // (retryTeamsMessage resets status to QUEUED but preserves this flag)
             // that also fails permanently does not queue the same email a second
             // time (#74 dedup must hold on the retry path, not just first send).
-            data: { attempts, lastError, status: emailLands ? "FALLBACK" : "FAILED", emailAlreadyQueued: emailLands },
+            data: { attempts, lastError, status: emailLands ? "FALLBACK" : "FAILED", emailAlreadyQueued: emailLands, lockedAt: null },
           });
         } else {
           await prisma.teamsMessage.update({
             where: { id: row.id },
-            data: { attempts, lastError: message, status: "QUEUED" },
+            // Release the claim so the row is retryable on the next tick (it sits
+            // behind this invocation's cursor, so it is not re-attempted now).
+            data: { attempts, lastError: message, status: "QUEUED", lockedAt: null },
           });
         }
       }

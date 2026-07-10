@@ -19,6 +19,7 @@ import {
   approveRequest,
   denyRequest,
   eligibleSwapPartners,
+  requestApproverRecipients,
   RequestForbiddenError,
   RequestNotFoundError,
   RequestValidationError,
@@ -1119,5 +1120,95 @@ describe("createRequest approver notifications (L1)", () => {
     });
     expect(notice).not.toBeNull();
     expect(notice?.toEmail).toBe("pcar@example.org");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// requestApproverRecipients (audit M3)
+//
+// The exported helper backs both the createRequest/remindDirectors notifications
+// AND the 48h pending-request reminder cron. It must return the department's
+// ACTUAL approvers (directors by ACTIVE membership + one-hop delegated directors
+// + in-department schedule.manage_requests holders), NOT whoever holds a DIRECTOR
+// shift on the calendar. Mirrors the createRequest L1 recipient tests above.
+// ---------------------------------------------------------------------------
+
+describe("requestApproverRecipients (M3)", () => {
+  it("includes a director who holds a DIRECTOR membership but NO DIRECTOR shift", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("APR1");
+
+    const director = await createPersonWithEmail("Off-shift Dir", "dir@example.org");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+
+    const recipients = await requestApproverRecipients(dept.id);
+
+    expect(recipients.map((r) => r.id)).toContain(director.id);
+    expect(recipients.find((r) => r.id === director.id)?.contactEmail).toBe("dir@example.org");
+  });
+
+  it("includes a one-hop delegated director (PCAR director for an SCTP request)", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const pcar = await createDepartment("PCAR");
+    const sctp = await createDepartment("SCTP");
+    await delegate(pcar.id, sctp.id);
+
+    const pcarDirector = await createPersonWithEmail("PCAR Dir", "pcar@example.org");
+    await createMembership(pcarDirector.id, term.id, pcar.id, "DIRECTOR");
+
+    const recipients = await requestApproverRecipients(sctp.id);
+
+    expect(recipients.map((r) => r.id)).toContain(pcarDirector.id);
+  });
+
+  it("includes an in-department schedule.manage_requests holder", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("APR2");
+
+    const manager = await createPersonWithEmail("Manage Reqs", "mgr@example.org");
+    await createMembership(manager.id, term.id, dept.id, "VOLUNTEER");
+    await grantPermission(manager.id, "schedule.manage_requests");
+
+    const recipients = await requestApproverRecipients(dept.id);
+
+    expect(recipients.map((r) => r.id)).toContain(manager.id);
+  });
+
+  it("excludes a blanket schedule.edit_all admin who is not a member or director", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("APR3");
+
+    // A real director so the set is non-empty and we prove the admin is dropped
+    // rather than everyone being dropped.
+    const director = await createPersonWithEmail("Real Dir", "real@example.org");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+
+    const admin = await createPersonWithEmail("Org Admin", "admin@example.org");
+    await grantPermission(admin.id, "schedule.edit_all");
+
+    const recipients = await requestApproverRecipients(dept.id);
+
+    expect(recipients.map((r) => r.id)).toContain(director.id);
+    expect(recipients.map((r) => r.id)).not.toContain(admin.id);
+  });
+
+  it("excludes someone who only holds a DIRECTOR shift but has no DIRECTOR membership", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("APR4");
+
+    // On a DIRECTOR shift, but their membership is VOLUNTEER-kind -- the old
+    // shift-assignment heuristic would have reminded them; the approver set does not.
+    const shiftOnlyDirector = await createPersonWithEmail("Shift Dir", "shift@example.org");
+    await createMembership(shiftOnlyDirector.id, term.id, dept.id, "VOLUNTEER");
+    await createShift(term.id, dept.id, shiftOnlyDirector.id, dates[0], "DIRECTOR");
+
+    const recipients = await requestApproverRecipients(dept.id);
+
+    expect(recipients.map((r) => r.id)).not.toContain(shiftOnlyDirector.id);
   });
 });

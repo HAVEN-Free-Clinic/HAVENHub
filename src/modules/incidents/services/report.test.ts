@@ -348,6 +348,26 @@ describe("submitReport", () => {
     expect(attachments[0].storedName).not.toBe("pending");
     expect(attachments[0].storedName).toBe(`incidents/${report.id}/${attachments[0].id}.png`);
   });
+
+  it("rejects an oversized attachment before creating any report row (M4)", async () => {
+    const reporter = await createPerson("Reporter", "rep-oversized");
+
+    // uploads.maxMb defaults to 5 MB in tests; a 6 MB file exceeds the cap, so
+    // validateUploadedFile throws IncidentValidationError. That validation now
+    // runs before prisma.incidentReport.create, so no report row is committed.
+    const oversized = Buffer.alloc(6 * 1024 * 1024);
+    await expect(
+      submitReport(reporter.id, {
+        concernTypes: ["OTHER"],
+        description: "See attached oversized file.",
+        files: [{ fileName: "huge.png", mimeType: "image/png", bytes: oversized }],
+      })
+    ).rejects.toBeInstanceOf(IncidentValidationError);
+
+    // The submission rejected before any report or attachment row existed.
+    expect(await prisma.incidentReport.count({ where: { reporterId: reporter.id } })).toBe(0);
+    expect(await prisma.incidentReportAttachment.count()).toBe(0);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -421,6 +441,31 @@ describe("submitReport notifications", () => {
     expect(await prisma.notification.count({ where: { personId: director.id } })).toBe(0);
     expect(await prisma.notification.count({ where: { personId: managed.id } })).toBe(0);
     expect(await prisma.notification.count({ where: { personId: bystander.id } })).toBe(0);
+  });
+
+  it("excludes a linked subject who holds incidents.manage from the reviewer alerts, while still notifying a separate manager (M7)", async () => {
+    const reporter = await createPerson("Reporter", "notif-m7-rep");
+    const subjectManager = await createPerson("Subject Manager", "notif-m7-subm");
+    const otherManager = await createPerson("Other Manager", "notif-m7-oth");
+    await grantPermission(subjectManager.id, "incidents.manage");
+    await grantPermission(otherManager.id, "incidents.manage");
+
+    const report = await submitReport(reporter.id, {
+      concernTypes: ["PROFESSIONAL_CONDUCT"],
+      description: "Concerns the subject, who also manages incidents.",
+      subjects: [{ personId: subjectManager.id }],
+    });
+
+    // The separate manager is alerted about the new report.
+    const otherNotes = await prisma.notification.findMany({
+      where: { personId: otherManager.id, type: "incidents.report_submitted" },
+    });
+    expect(otherNotes).toHaveLength(1);
+    expect(otherNotes[0].body).toContain(String(report.number));
+
+    // The linked subject, though they hold incidents.manage, is filtered out of
+    // the reviewer set and receives no notification about a report about them.
+    expect(await prisma.notification.count({ where: { personId: subjectManager.id } })).toBe(0);
   });
 });
 

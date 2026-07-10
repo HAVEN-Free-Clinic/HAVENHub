@@ -213,18 +213,26 @@ export async function listSubjectOptions(actorPersonId: string): Promise<{
  * Alerts every incidents.manage holder that a report was just submitted
  * (incidents.report_submitted), and, when the report also carries at least
  * one pending strike request, alerts the same reviewers a second time
- * (incidents.strike_requested), naming every flagged person. The subject(s)
- * are never a recipient here -- only reviewers. Called after the report row
- * (and any attachments) commit; a delivery failure is logged and swallowed so
- * it can never roll back or throw out of submitReport.
+ * (incidents.strike_requested), naming every flagged person. Every linked
+ * subject of the report (subjectPersonIds) is removed from the reviewer set
+ * first, so a subject who also holds incidents.manage never receives an alert
+ * about a report concerning them (they could otherwise unmask an anonymous
+ * reporter or learn of a pending strike against themselves). Called after the
+ * report row (and any attachments) commit; a delivery failure is logged and
+ * swallowed so it can never roll back or throw out of submitReport.
  */
 async function notifyReviewersOfSubmission(
   report: IncidentReport,
+  subjectPersonIds: string[],
   pendingSubjectNames: string[],
   actorPersonId: string
 ): Promise<void> {
   try {
-    const reviewers = await peopleWithAnyPermission(["incidents.manage"]);
+    // Exclude every linked subject from the reviewer set, even one who requested
+    // no strike, so no subject is ever alerted about a report about themselves.
+    const reviewers = (await peopleWithAnyPermission(["incidents.manage"])).filter(
+      (r) => !subjectPersonIds.includes(r.id)
+    );
     if (reviewers.length === 0) return;
 
     const baseUrl = await getSetting<string>("app.baseUrl");
@@ -384,10 +392,10 @@ async function notifyReporterOfResolution(report: IncidentReport, actorPersonId:
  * is true when any linked subject requested a strike.
  *
  * Attachments (input.files): validated with validateUploadedFile (rules: null,
- * the uploads.maxMb global cap) BEFORE any attachment row is created, so a bad
- * file rejects the whole submission without leaving partial rows around --
- * the already-created report itself is left in place, matching how a plain
- * validation failure earlier in this function never touches the report row.
+ * the uploads.maxMb global cap) BEFORE the report row is created, alongside the
+ * field and subject validations above, so a bad file rejects the whole
+ * submission before any report row exists and before any reviewer is notified
+ * (never orphaning a committed report behind a failed attachment validation).
  * Each valid file then gets an IncidentReportAttachment row (storedName
  * "pending" -> derived from the row id -> putObject), mirroring the
  * create-row/derive-key/write-bytes pattern in my-info's saveCertificate. If
@@ -398,11 +406,13 @@ async function notifyReporterOfResolution(report: IncidentReport, actorPersonId:
  * later file's failure does not orphan the earlier files' bytes in storage.
  *
  * Notifications: after everything above commits, every incidents.manage
- * holder is alerted (incidents.report_submitted), plus a second
- * incidents.strike_requested alert naming every subject whose strike request
- * landed at PENDING, when there is at least one. Delivery is best-effort
- * (notifyReviewersOfSubmission swallows and logs its own errors) so a
- * notification failure never rolls back or fails the submission.
+ * holder except a linked subject of this report is alerted
+ * (incidents.report_submitted), plus a second incidents.strike_requested
+ * alert naming every subject whose strike request landed at PENDING, when
+ * there is at least one. Excluding linked subjects keeps a subject who also
+ * holds incidents.manage from being alerted about a report concerning them.
+ * Delivery is best-effort (notifyReviewersOfSubmission swallows and logs its
+ * own errors) so a notification failure never rolls back or fails the submission.
  */
 export async function submitReport(actorPersonId: string, input: SubmitReportInput): Promise<IncidentReport> {
   const concernTypes = input.concernTypes ?? [];
@@ -443,6 +453,18 @@ export async function submitReport(actorPersonId: string, input: SubmitReportInp
   }
   const strikeRequested = subjects.some((s) => s.requestStrike);
 
+  // Validate every uploaded file BEFORE the report row is created (next to the
+  // field and subject validations above), so an invalid attachment rejects the
+  // submission without ever committing a report row or notifying a reviewer.
+  const files = input.files ?? [];
+  if (files.length > 0) {
+    const maxMb = await getSetting<number>("uploads.maxMb");
+    for (const file of files) {
+      const problem = validateUploadedFile(file, null, maxMb);
+      if (problem) throw new IncidentValidationError(problem.message);
+    }
+  }
+
   const report = await prisma.incidentReport.create({
     data: {
       reporterId: actorPersonId,
@@ -475,16 +497,8 @@ export async function submitReport(actorPersonId: string, input: SubmitReportInp
     after: { number: report.number, concernTypes, immediateRisk: report.immediateRisk, strikeRequested },
   });
 
-  const files = input.files ?? [];
   if (files.length > 0) {
-    // Validate every file before creating any attachment row, so a rejected
-    // file never leaves a partial row behind.
-    const maxMb = await getSetting<number>("uploads.maxMb");
-    for (const file of files) {
-      const problem = validateUploadedFile(file, null, maxMb);
-      if (problem) throw new IncidentValidationError(problem.message);
-    }
-
+    // Files were already validated before the report row was created above.
     const createdAttachmentIds: string[] = [];
     const uploadedStoredNames: string[] = [];
     try {
@@ -548,7 +562,11 @@ export async function submitReport(actorPersonId: string, input: SubmitReportInp
           })
         ).map((p) => p.name);
 
-  await notifyReviewersOfSubmission(report, pendingSubjectNames, actorPersonId);
+  // Exclude every linked subject (not only strike-flagged ones) from the
+  // reviewer alerts, so a subject who also holds incidents.manage is never
+  // notified about a report concerning them.
+  const subjectPersonIds = subjects.map((s) => s.personId);
+  await notifyReviewersOfSubmission(report, subjectPersonIds, pendingSubjectNames, actorPersonId);
 
   return report;
 }

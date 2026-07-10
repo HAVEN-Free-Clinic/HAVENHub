@@ -24,7 +24,7 @@ import { Card, cardClasses } from "@/platform/ui/card";
 import { ClinicChannelCard } from "./clinic-channel-card";
 import { mySchedule } from "@/modules/schedule/services/schedule";
 import { listMyCertificates } from "@/modules/my-info/services/my-info";
-import { requiredTrainingTracks, resolveTrainingState } from "@/modules/recruitment/services/training";
+import { getOnboardingStatus, type OnboardingTask } from "@/modules/onboarding/services/onboarding";
 import { isInterviewPanelist } from "@/modules/recruitment/services/interviews";
 import { complianceStatus, certExpiresAt } from "@/platform/compliance/rules";
 import { getSetting } from "@/platform/settings/service";
@@ -97,6 +97,34 @@ function shiftTags(tags: { triage: boolean; walkin: boolean; cc: boolean; remote
   return out;
 }
 
+/**
+ * One "Your status" row from a semester-clearance task. Mirrors My Info's
+ * Clearance card: same labels and satisfied/not-satisfied split. HIPAA keeps the
+ * dashboard's richer expiry-aware sub (passed in); other tasks use short status
+ * text. Links point at the real module page, not the /get-started gate, so they
+ * are valid whether or not the person is already cleared.
+ */
+function clearanceRow(
+  task: OnboardingTask,
+  hipaaSub: string
+): { ok: boolean; title: string; sub: string; href: string } {
+  const href =
+    task.key === "training" || task.key === "directorTraining"
+      ? "/training"
+      : task.key === "learning"
+        ? "/learning"
+        : "/my-info"; // profile, hipaa, ehs
+  const sub =
+    task.key === "hipaa"
+      ? hipaaSub
+      : task.state === "COMPLETE"
+        ? "Complete"
+        : task.state === "IN_PROGRESS"
+          ? "In progress"
+          : "Not started"; // INCOMPLETE
+  return { ok: task.state === "COMPLETE", title: task.label, sub, href };
+}
+
 // ---------------------------------------------------------------------------
 // Module tile
 // ---------------------------------------------------------------------------
@@ -147,25 +175,14 @@ export default async function HubPage() {
   // One permission fetch per render; tiles filter in memory (never can() in a loop).
   const permissions = await getEffectivePermissions(person.personId);
 
-  const [schedule, certificates, isPanelist, orgName] = await Promise.all([
+  const [schedule, certificates, isPanelist, orgName, onboarding] = await Promise.all([
     mySchedule(person.personId),
     listMyCertificates(person.personId),
     isInterviewPanelist(person.personId),
     getSetting<string>("branding.orgName"),
+    getOnboardingStatus(person.personId),
   ]);
   const { term, shifts } = schedule;
-  const tracks = term ? await requiredTrainingTracks(person.personId, term.id) : [];
-  const trainingLines = term
-    ? await Promise.all(
-        tracks.map(async (track) => {
-          const state = await resolveTrainingState(person.personId, term.id, track);
-          const label = track === "DIRECTOR" ? "Director training" : "Volunteer training";
-          return state === "COMPLETE"
-            ? { ok: true, title: `${label} complete`, sub: "You're cleared for this term", href: "/training" }
-            : { ok: false, title: `Complete your ${label.toLowerCase()}`, sub: "Required to be cleared", href: "/training" };
-        })
-      )
-    : [];
 
   // --- Module visibility ---
   const activeModules = MODULES.filter(
@@ -191,23 +208,36 @@ export default async function HubPage() {
   const expiry =
     newestCert?.completionDate != null ? fmtMonthYear(certExpiresAt(newestCert.completionDate)) : null;
 
-  const hipaaLine =
+  // HIPAA sub copy, expiry aware. Reused for the clearance row and the no-term fallback.
+  const hipaaSub =
     status === "COMPLIANT"
-      ? { ok: true, title: "HIPAA training current", sub: expiry ? `Valid through ${expiry}` : "On file" }
+      ? (expiry ? `Valid through ${expiry}` : "On file")
       : status === "EXPIRING_SOON"
-        ? { ok: false, title: "HIPAA training expiring soon", sub: expiry ? `Renew before ${expiry}` : "Renew soon" }
+        ? (expiry ? `Renew before ${expiry}` : "Renew soon")
         : status === "EXPIRED"
-          ? { ok: false, title: "HIPAA training expired", sub: "Upload a current certificate" }
+          ? "Upload a current certificate"
           : status === "UNKNOWN_DATE"
-            ? { ok: false, title: "HIPAA completion date pending", sub: "A compliance manager will verify it; no action needed" }
+            ? "Completion date pending review"
             : status === "PENDING_VERIFICATION"
-              ? { ok: false, title: "HIPAA certificate awaiting verification", sub: "A coordinator will confirm your completion date" }
-              : { ok: false, title: "Upload your HIPAA certificate", sub: "Required for clinic clearance" };
+              ? "Awaiting verification"
+              : "Required for clinic clearance"; // NO_CERTIFICATE
 
-  const statusLines: Array<{ ok: boolean; title: string; sub: string; href: string }> = [
-    { ...hipaaLine, href: "/my-info" },
-    ...trainingLines,
-  ];
+  // Full semester clearance checklist: same source and items as My Info's Clearance
+  // card. Non-applicable tasks (NOT_REQUIRED) are hidden, matching My Info.
+  const clearanceTasks = onboarding.tasks.filter((t) => t.state !== "NOT_REQUIRED");
+  const statusLines: Array<{ ok: boolean; title: string; sub: string; href: string }> =
+    clearanceTasks.length > 0
+      ? clearanceTasks.map((t) => clearanceRow(t, hipaaSub))
+      : [
+          // No active term: onboarding has no tasks. Fall back to the term-independent
+          // HIPAA line so the card is never empty.
+          {
+            ok: status === "COMPLIANT" || status === "EXPIRING_SOON",
+            title: "HIPAA certificate",
+            sub: hipaaSub,
+            href: "/my-info",
+          },
+        ];
 
   // --- Quick actions (real links, access-filtered, capped at 4) ---
   const hipaaShort =
@@ -410,7 +440,22 @@ export default async function HubPage() {
           </Suspense>
 
           <Card>
-            <h3 className="text-xs font-bold uppercase tracking-wider text-subtle-foreground">Your status</h3>
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-subtle-foreground">Your status</h3>
+              {clearanceTasks.length > 0 && (
+                <span
+                  className={`inline-flex items-center gap-1.5 text-xs font-semibold ${
+                    onboarding.cleared ? "text-success" : "text-warning"
+                  }`}
+                >
+                  <span
+                    aria-hidden
+                    className={`h-1.5 w-1.5 rounded-full ${onboarding.cleared ? "bg-success" : "bg-warning"}`}
+                  />
+                  {onboarding.cleared ? "Cleared" : "Not yet cleared"}
+                </span>
+              )}
+            </div>
             <div className="mt-2">
               {statusLines.map((line) => (
                 <Link

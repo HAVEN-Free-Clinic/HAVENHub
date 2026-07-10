@@ -25,7 +25,6 @@ import { Select } from "@/platform/ui/select";
 import { Button, buttonClasses } from "@/platform/ui/button";
 import { StatCard } from "@/platform/ui/stat-card";
 import { Alert } from "@/platform/ui/alert";
-import { ConfirmButton } from "@/platform/ui/confirm-button";
 import {
   masterCompliance,
   setCompletionDateAsManager,
@@ -35,7 +34,6 @@ import {
 } from "@/modules/volunteers/services/compliance";
 import { CompletionDateError } from "@/platform/compliance/completion-date";
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 import { CertificateViewer } from "@/modules/my-info/components/certificate-viewer";
 import type { ComplianceStatus } from "@/platform/compliance/rules";
 import { certExpiresAt } from "@/platform/compliance/rules";
@@ -149,24 +147,22 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
     return {};
   }
 
-  // Server action: verify a certificate. Gated to volunteers.manage_compliance,
-  // the master-view persona. verifyCertificate's scope check (canViewCertificate)
-  // treats manage_compliance as a master key, so a compliance manager may verify
-  // any member's cert here. A ComplianceForbiddenError is therefore defensive.
-  async function verifyAction(formData: FormData) {
+  // Server action: verify a certificate. certId is bound per-row. Gated to
+  // volunteers.manage_compliance, the master-view persona. verifyCertificate
+  // treats manage_compliance as a master key, so a ComplianceForbiddenError is
+  // defensive; it is surfaced in the viewer modal like setDateAction's errors.
+  async function verifyAction(certId: string): Promise<{ error?: string }> {
     "use server";
     const actor = await requirePermission("volunteers.manage_compliance");
-    const certId = formData.get("certId") as string;
-    if (!certId) return;
     try {
       await verifyCertificate(actor.personId, certId);
     } catch (err) {
-      if (err instanceof ComplianceForbiddenError) {
-        redirect(`/volunteers/master?error=${encodeURIComponent(err.message)}`);
-      }
+      if (err instanceof ComplianceForbiddenError) return { error: err.message };
+      if (err instanceof CertificateNotFoundError) return { error: "Certificate not found." };
       throw err;
     }
     revalidatePath("/volunteers/master");
+    return {};
   }
 
   // Build filter-preserving hrefs for pagination
@@ -385,13 +381,10 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
                               canEditDate
                               canEditExistingDate={isAdmin}
                               onSetDate={setDateAction.bind(null, row.cert.id)}
+                              canVerify
+                              verified={Boolean(row.cert.verifiedAt)}
+                              onVerify={verifyAction.bind(null, row.cert.id)}
                             />
-                          )}
-                          {row.cert && row.cert.completionDate && !row.cert.verifiedAt && (
-                            <form action={verifyAction}>
-                              <input type="hidden" name="certId" value={row.cert.id} />
-                              <ConfirmButton label="Verify" confirmLabel="Confirm?" />
-                            </form>
                           )}
                         </div>
                       </TD>

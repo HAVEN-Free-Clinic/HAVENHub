@@ -11,7 +11,6 @@ import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { complianceStatus, overallClearance } from "@/platform/compliance/rules";
 import type { ComplianceStatus, TrainingState, OverallClearance } from "@/platform/compliance/rules";
-import { canViewCertificate } from "@/platform/compliance/access";
 import { manageableDepartmentIds } from "@/platform/departments";
 import { can } from "@/platform/rbac/engine";
 import { parseCompletionDate, CompletionDateError } from "@/platform/compliance/completion-date";
@@ -442,7 +441,15 @@ export async function masterCompliance(
  * Re-verify is allowed and updates the stamp. Audits with action
  * "compliance.verify" and payload { certId, ownerPersonId }.
  *
- * Throws CertificateNotFoundError when the cert does not exist.
+ * Authorization mirrors setCompletionDateAsManager: only holders of
+ * `volunteers.manage_compliance` or `admin.access` may verify. Department
+ * directors keep read access to their members' certificates (canViewCertificate)
+ * but attesting a certificate is a compliance-manager/admin action, not a
+ * director one. The existence check fires first, so an unauthorized actor
+ * probing a nonexistent certId still gets CertificateNotFoundError.
+ *
+ * Throws CertificateNotFoundError when the cert does not exist, or
+ * ComplianceForbiddenError when the actor is neither manager nor admin.
  */
 export async function verifyCertificate(
   actorPersonId: string,
@@ -451,13 +458,11 @@ export async function verifyCertificate(
   const cert = await prisma.hipaaCertificate.findUnique({ where: { id: certId } });
   if (!cert) throw new CertificateNotFoundError(certId);
 
-  // The mutation scope must match the read scope: actors may only verify
-  // certificates they are also permitted to view (self, manage_compliance, or
-  // director of a department the certificate owner belongs to in the active term).
-  const allowed = await canViewCertificate(actorPersonId, cert.personId);
-  if (!allowed) {
+  const isManager = await can(actorPersonId, "volunteers.manage_compliance");
+  const isAdmin = await can(actorPersonId, "admin.access");
+  if (!isManager && !isAdmin) {
     throw new ComplianceForbiddenError(
-      "You can only verify certificates for members of your departments."
+      "Only compliance managers or admins can verify certificates."
     );
   }
 

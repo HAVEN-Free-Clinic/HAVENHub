@@ -119,23 +119,31 @@ export async function addPanelist(interviewId: string, personId: string, isLead:
   if (!iv) throw new InterviewError("Interview not found.");
   await assertCanManage(iv.departmentCode, actorId);
 
-  // Notify the panelist of the assignment. Skip self-adds: a manager adding
-  // themselves already knows. Built before the write so the notification commits
-  // in the same transaction as the panel row (a P2002 duplicate rolls back both).
-  const assignment = personId === actorId ? null : await buildPanelistAssignmentNotify(iv, personId, actorId);
-
+  let created: InterviewPanelist;
   try {
-    return await prisma.$transaction(async (tx) => {
-      const created = await tx.interviewPanelist.create({ data: { interviewId, personId, isLead } });
-      if (assignment) await notify(tx, assignment);
-      return created;
-    });
+    created = await prisma.interviewPanelist.create({ data: { interviewId, personId, isLead } });
   } catch (err) {
     if (isUniqueConstraintError(err)) {
       throw new InterviewError("That person is already on the panel.");
     }
     throw err;
   }
+
+  // Notify the panelist AFTER the panel row commits. Skip self-adds: a manager
+  // adding themselves already knows. Notifications are best-effort side effects,
+  // so they run post-commit on the global client, the pattern every other notify
+  // caller uses. This keeps notify()'s Microsoft Graph identity lookup out of the
+  // panel-row transaction, where a slow, un-timed lookup could exceed Prisma's
+  // interactive-transaction timeout and roll back an otherwise-valid panelist add
+  // (audit M11); it also means a rejected duplicate never enqueues a stray
+  // notification. All data the notify needs (iv, personId, actorId) is available
+  // here, and buildPanelistAssignmentNotify re-reads the person fresh.
+  if (personId !== actorId) {
+    const assignment = await buildPanelistAssignmentNotify(iv, personId, actorId);
+    if (assignment) await notify(prisma, assignment);
+  }
+
+  return created;
 }
 
 /**

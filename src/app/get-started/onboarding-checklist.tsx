@@ -65,11 +65,13 @@ function TaskRow({ task }: { task: OnboardingTask }) {
         <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-success text-white">
           <Check aria-hidden className="h-4 w-4" strokeWidth={3} />
         </span>
-      ) : (
+      ) : task.href ? (
+        // Non-actionable tasks (e.g. EHS, recorded by a coordinator) carry no href,
+        // so no CTA is rendered; the status pill communicates their state instead.
         <Link href={task.href} className={buttonClasses(task.state === "INCOMPLETE" ? "primary" : "outline", "sm")}>
           {task.ctaLabel}
         </Link>
-      )}
+      ) : null}
     </li>
   );
 }

@@ -26,8 +26,11 @@ export type OnboardingTask = {
   key: OnboardingTaskKey;
   label: string;
   description: string;
-  href: string;
-  ctaLabel: string;
+  // Actionable tasks link to an allowlisted /get-started fix-it page. Tasks the
+  // volunteer cannot self-serve (EHS is recorded by a coordinator) omit these so
+  // the checklist shows status only, with no CTA that dead-ends at the gate.
+  href?: string;
+  ctaLabel?: string;
   state: OnboardingTaskState;
   blocking: boolean;
 };
@@ -42,8 +45,9 @@ export type OnboardingStatus = {
   cleared: boolean;
 };
 
-/** Static presentation copy per task (HAVEN voice; sentence case; no em-dashes). */
-const COPY: Record<OnboardingTaskKey, { label: string; description: string; href: string; ctaLabel: string }> = {
+/** Static presentation copy per task (HAVEN voice; sentence case; no em-dashes).
+ *  href/ctaLabel are omitted for non-actionable tasks (see EHS below). */
+const COPY: Record<OnboardingTaskKey, { label: string; description: string; href?: string; ctaLabel?: string }> = {
   profile: {
     label: "Profile & agreements",
     description: "Confirm your contact details so we can reach you about shifts.",
@@ -75,10 +79,11 @@ const COPY: Record<OnboardingTaskKey, { label: string; description: string; href
     ctaLabel: "Open courses",
   },
   ehs: {
+    // No href: EHS is not self-serviceable during onboarding, and /my-info is
+    // gated for not-yet-cleared members, so a CTA here would bounce back to the
+    // gate. The status pill and description carry the state instead.
     label: "EHS training",
     description: "Environmental Health and Safety trainings are recorded by your coordinator once you complete them in Yale's EHS system.",
-    href: "/my-info",
-    ctaLabel: "View status",
   },
 };
 

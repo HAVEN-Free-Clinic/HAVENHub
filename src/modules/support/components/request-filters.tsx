@@ -17,16 +17,13 @@
 
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { useState, type FormEvent } from "react";
-import type { TechRequestStatus, TechRequestCategory, TechRequestPriority } from "@prisma/client";
+import type { TechRequestStatus } from "@prisma/client";
 import { Field, Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Button } from "@/platform/ui/button";
 import { STATUS_LABELS } from "./status-badge";
 import { CATEGORY_LABELS, PRIORITY_LABELS } from "@/modules/support/labels";
-
-export const ALL_STATUSES = Object.keys(STATUS_LABELS) as TechRequestStatus[];
-export const ALL_CATEGORIES = Object.keys(CATEGORY_LABELS) as TechRequestCategory[];
-export const ALL_PRIORITIES = Object.keys(PRIORITY_LABELS) as TechRequestPriority[];
+import { ALL_STATUSES, ALL_CATEGORIES, ALL_PRIORITIES } from "@/modules/support/filter-options";
 
 type RequestFiltersProps = {
   counts: Record<TechRequestStatus, number>;

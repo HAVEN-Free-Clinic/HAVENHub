@@ -329,7 +329,7 @@ export default async function HubPage() {
               <div className="mt-5 flex flex-wrap gap-2.5">
                 <Link
                   href="/schedule"
-                  className="inline-flex items-center gap-2 rounded-lg bg-white px-4 py-2.5 text-sm font-semibold text-brand transition hover:bg-brand-faint"
+                  className="inline-flex items-center gap-2 rounded-lg bg-white px-4 py-2.5 text-sm font-semibold text-brand transition hover:bg-white/90"
                 >
                   View my schedule <ArrowRight aria-hidden className="h-4 w-4" />
                 </Link>

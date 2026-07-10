@@ -257,8 +257,8 @@ function optionClass({
   isWrong: boolean;
 }): string {
   const base = "flex items-center gap-3 rounded-xl border px-3.5 py-3 transition";
-  if (isCorrect) return `${base} pointer-events-none border-success bg-green-50`;
-  if (isWrong) return `${base} pointer-events-none border-critical bg-red-50`;
+  if (isCorrect) return `${base} pointer-events-none border-success bg-green-50 dark:bg-green-950/40`;
+  if (isWrong) return `${base} pointer-events-none border-critical bg-red-50 dark:bg-red-950/40`;
   if (reviewing) return `${base} pointer-events-none border-border-strong bg-surface opacity-90`;
   if (sel) return `${base} cursor-pointer border-brand bg-brand-faint ring-1 ring-inset ring-brand`;
   return `${base} cursor-pointer border-border-strong bg-surface hover:border-brand hover:bg-brand-faint`;

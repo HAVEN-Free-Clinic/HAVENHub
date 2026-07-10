@@ -107,7 +107,7 @@ export function NotificationBell() {
       </button>
 
       {open && (
-        <div className="glass-panel absolute right-0 top-10 z-40 w-80 overflow-hidden rounded-xl border border-border shadow-lg">
+        <div className="glass-panel absolute right-0 top-10 z-40 w-80 overflow-hidden rounded-xl">
           <div className="flex items-center justify-between border-b border-border-subtle px-4 py-2.5">
             <span className="text-sm font-semibold text-foreground">Notifications</span>
             {count > 0 && (

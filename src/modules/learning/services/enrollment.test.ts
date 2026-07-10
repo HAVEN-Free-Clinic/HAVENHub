@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
-import { LearningAuthError } from "./errors";
+import { LearningAuthError, LearningValidationError } from "./errors";
 import { getMyCourses, getCourseForLearner, persistScoCmi, isCourseAssignedTo } from "./enrollment";
 
 /** A learner assigned to one active, department-scoped course with a package. */
@@ -186,6 +186,35 @@ it("persistScoCmi refuses an unassigned course", async () => {
   await expect(
     persistScoCmi(learner.id, unassigned.id, "ITEM-A", { lessonStatus: "completed", scoreRaw: null, suspendData: null, lessonLocation: null })
   ).rejects.toBeInstanceOf(LearningAuthError);
+});
+
+it("persistScoCmi rejects a scoId that is not in the course manifest (no orphan row written)", async () => {
+  const { learner, course } = await seed();
+  await expect(
+    persistScoCmi(learner.id, course.id, "NOT-A-REAL-SCO", { lessonStatus: "completed", scoreRaw: null, suspendData: "x".repeat(70000), lessonLocation: null })
+  ).rejects.toBeInstanceOf(LearningValidationError);
+  const rows = await prisma.scoProgress.findMany({ where: { personId: learner.id, courseId: course.id } });
+  expect(rows).toHaveLength(0);
+});
+
+it("caps oversized suspendData and lessonLocation before persisting", async () => {
+  const { learner, course } = await seed();
+  await persistScoCmi(learner.id, course.id, "ITEM-A", {
+    lessonStatus: "completed", scoreRaw: null, suspendData: "x".repeat(70000), lessonLocation: "y".repeat(2000),
+  });
+  const row = await getCourseForLearner(learner.id, course.id);
+  expect(row.scos[0].cmi.suspendData?.length).toBe(64000);
+  expect(row.scos[0].cmi.lessonLocation?.length).toBe(1000);
+});
+
+it("leaves a normal-sized suspendData untouched", async () => {
+  const { learner, course } = await seed();
+  await persistScoCmi(learner.id, course.id, "ITEM-A", {
+    lessonStatus: "completed", scoreRaw: null, suspendData: "a=1;b=2", lessonLocation: "page-3",
+  });
+  const row = await getCourseForLearner(learner.id, course.id);
+  expect(row.scos[0].cmi.suspendData).toBe("a=1;b=2");
+  expect(row.scos[0].cmi.lessonLocation).toBe("page-3");
 });
 
 it("excludes a DIRECTORS course from a volunteer's assigned courses", async () => {

@@ -3,7 +3,7 @@ import { getActiveTerm } from "@/platform/terms/active-term";
 import { coursesForMember, type AssignableCourse, type MemberMembership } from "../engine/assignment";
 import { deriveStatus, rollupStatus } from "../engine/status";
 import type { ScoEntry } from "../engine/manifest";
-import { LearningAuthError } from "./errors";
+import { LearningAuthError, LearningValidationError } from "./errors";
 
 /** Active term used for assignment (newest ACTIVE term). */
 async function activeTermId(): Promise<string | null> {
@@ -198,6 +198,28 @@ function sanitizeScore(raw: number | null): number | null {
 }
 
 /**
+ * Upper bounds on the untrusted TEXT fields of a persisted CMI snapshot. Like
+ * cmi.scoreRaw, suspendData/lessonLocation/lessonStatus arrive from the client and
+ * land in unbounded TEXT columns, so without a bound an assigned learner could loop
+ * persistScoCmi with megabyte payloads (storage bloat). The caps sit well above real
+ * SCORM traffic: SCORM 1.2 formally limits suspend_data to 4096 and lesson_location
+ * to 255 chars, and lesson_status is a short fixed vocabulary token; these use the
+ * more generous SCORM 2004 ceilings (64000 / 1000) plus headroom so no legitimate
+ * package is ever affected. We truncate rather than reject so a genuine (merely large)
+ * commit still saves its status/score instead of the client's fire-and-forget save
+ * silently dropping everything.
+ */
+const MAX_SUSPEND_DATA = 64000;
+const MAX_LESSON_LOCATION = 1000;
+const MAX_LESSON_STATUS = 100;
+
+/** Truncate an untrusted client string to a bound, leaving null and short values as-is. */
+function capText(value: string | null, max: number): string | null {
+  if (value == null) return null;
+  return value.length > max ? value.slice(0, max) : value;
+}
+
+/**
  * Persist one SCO's CMI snapshot, then recompute the course rollup. Idempotent:
  * re-commits update state; per-SCO and course completedAt are each stamped once
  * (the first time that level becomes COMPLETE) and preserved afterwards.
@@ -216,7 +238,24 @@ export async function persistScoCmi(
     throw new LearningAuthError("This course is not assigned to you.");
   }
 
-  // 1. Upsert this SCO's state.
+  // Load the course's manifest once: it both validates the incoming scoId and drives
+  // the rollup in step 2 (no second query).
+  const course = await prisma.course.findUniqueOrThrow({
+    where: { id: courseId },
+    select: { scormScos: true, scormEntryHref: true, title: true },
+  });
+  const scos = courseScos(course);
+
+  // Reject a scoId that is not one of the course's manifest SCOs, mirroring how
+  // sanitizeScore guards scoreRaw. persistScoCmi is gated only by learning.access and
+  // the unique key is (personId,courseId,scoId), so without this an assigned learner
+  // could loop the persist action with fresh random scoIds and pile up orphan
+  // ScoProgress rows that no reader ever surfaces (self-service storage bloat).
+  if (!scos.some((s) => s.id === scoId)) {
+    throw new LearningValidationError("This SCO is not part of the course.");
+  }
+
+  // 1. Upsert this SCO's state (untrusted TEXT fields bounded before they hit the row).
   const sco = deriveStatus(cmi.lessonStatus);
   const existingSco = await prisma.scoProgress.findUnique({
     where: { personId_courseId_scoId: { personId, courseId, scoId } },
@@ -225,10 +264,10 @@ export async function persistScoCmi(
   const scoCompletedAt = sco.completed ? (existingSco?.completedAt ?? new Date()) : null;
   const scoData = {
     completedAt: scoCompletedAt,
-    lessonStatus: cmi.lessonStatus,
+    lessonStatus: capText(cmi.lessonStatus, MAX_LESSON_STATUS),
     scoreRaw: sanitizeScore(cmi.scoreRaw),
-    suspendData: cmi.suspendData,
-    lessonLocation: cmi.lessonLocation,
+    suspendData: capText(cmi.suspendData, MAX_SUSPEND_DATA),
+    lessonLocation: capText(cmi.lessonLocation, MAX_LESSON_LOCATION),
   };
   await prisma.scoProgress.upsert({
     where: { personId_courseId_scoId: { personId, courseId, scoId } },
@@ -237,11 +276,6 @@ export async function persistScoCmi(
   });
 
   // 2. Recompute the course rollup over every SCO in the manifest.
-  const course = await prisma.course.findUniqueOrThrow({
-    where: { id: courseId },
-    select: { scormScos: true, scormEntryHref: true, title: true },
-  });
-  const scos = courseScos(course);
   const rows = await prisma.scoProgress.findMany({
     where: { personId, courseId },
     select: { scoId: true, lessonStatus: true, scoreRaw: true },

@@ -649,10 +649,13 @@ export async function listReviewQueue(
   if (!(await can(actorPersonId, "incidents.manage"))) throw new IncidentForbiddenError();
 
   const page = Math.max(1, filters.page ?? 1);
-  // Never surface a report about the reviewer to that same reviewer. Prisma's
-  // `not` includes rows where subjectPersonId is null, so subject-less reports
-  // still appear.
-  const where: Prisma.IncidentReportWhereInput = { subjectPersonId: { not: actorPersonId } };
+  // Never surface a report about the reviewer to that same reviewer. A bare
+  // `{ not: actorPersonId }` would also drop subject-less reports, because
+  // Postgres excludes NULLs from a `<>` comparison, so spell out the null branch
+  // to keep unassigned-subject reports in the queue.
+  const where: Prisma.IncidentReportWhereInput = {
+    OR: [{ subjectPersonId: null }, { subjectPersonId: { not: actorPersonId } }],
+  };
   if (filters.status && (INCIDENT_REPORT_STATUSES as string[]).includes(filters.status)) {
     where.status = filters.status as IncidentReportStatus;
   }
@@ -667,10 +670,16 @@ export async function listReviewQueue(
     // out-of-range value simply skips the numeric branch.
     const numMatch =
       Number.isFinite(asNumber) && asNumber >= 0 && asNumber <= MAX_INT4 ? [{ number: asNumber }] : [];
-    where.OR = [
-      { subject: { name: { contains: q, mode: "insensitive" } } },
-      { reporter: { name: { contains: q, mode: "insensitive" } } },
-      ...numMatch,
+    // AND these search alternatives with the subject-exclusion OR above; a second
+    // top-level `OR` would overwrite it and defeat the self-exclusion.
+    where.AND = [
+      {
+        OR: [
+          { subject: { name: { contains: q, mode: "insensitive" } } },
+          { reporter: { name: { contains: q, mode: "insensitive" } } },
+          ...numMatch,
+        ],
+      },
     ];
   }
 

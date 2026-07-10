@@ -17,6 +17,13 @@ import { Prisma } from "@prisma/client";
 import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { MODULES } from "@/platform/modules/registry";
+import { getActiveTerm } from "@/platform/terms/active-term";
+import { LastAdminError } from "@/platform/rbac/last-admin";
+
+// Re-export so callers that historically imported LastAdminError from this
+// module keep working. The class now lives in the platform layer so the
+// volunteers offboard path (which may not import modules/admin) can share it.
+export { LastAdminError };
 
 // ---------------------------------------------------------------------------
 // Valid permission set (built from registry at module load time)
@@ -80,22 +87,6 @@ export class RoleNotFoundError extends Error {
   constructor(public id: string) {
     super(`Role ${id} not found.`);
     this.name = "RoleNotFoundError";
-  }
-}
-
-/**
- * Thrown when a mutation would remove every admin-conferring grant or
- * assignment, leaving no way to access the admin module.
- *
- * Recovery at the shell level: `npm run db:seed` re-seeds the Platform Admin
- * role and assigns it to the configured admin user. This is the intended
- * escape hatch if the invariant is ever violated through a direct DB
- * manipulation rather than through this service.
- */
-export class LastAdminError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "LastAdminError";
   }
 }
 
@@ -434,6 +425,12 @@ export async function deleteAssignment(actorPersonId: string, id: string): Promi
     (g) => g.permission === "*" || g.permission === "admin.access"
   );
   if (isAdminConferring) {
+    // Count only the assignments the engine actually honors: a live grant is one
+    // scoped to no term (global) or to the ACTIVE term. Assignments scoped to a
+    // non-active/archived term confer nothing (see getEffectivePermissions), so
+    // counting them could let the last LIVE admin assignment be deleted into a
+    // full lockout while an inert row keeps the naive count above one.
+    const activeTerm = await getActiveTerm();
     // Re-check the count and delete inside one serializable transaction. A plain
     // check-then-delete lets two concurrent deletes of the same admin-conferring
     // role both read count > 1, both pass the guard, and both delete (write skew),
@@ -441,10 +438,15 @@ export async function deleteAssignment(actorPersonId: string, id: string): Promi
     // loser instead of locking everyone out.
     await prisma.$transaction(
       async (tx) => {
-        const count = await tx.roleAssignment.count({ where: { roleId: assignment.roleId } });
-        if (count === 1) {
+        const liveCount = await tx.roleAssignment.count({
+          where: {
+            roleId: assignment.roleId,
+            OR: [{ termId: null }, ...(activeTerm ? [{ termId: activeTerm.id }] : [])],
+          },
+        });
+        if (liveCount === 1) {
           throw new LastAdminError(
-            "This is the last assignment of an admin-conferring role; deleting it would lock everyone out."
+            "This is the last live assignment of an admin-conferring role; deleting it would lock everyone out."
           );
         }
         await tx.roleAssignment.delete({ where: { id } });

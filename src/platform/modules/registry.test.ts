@@ -47,6 +47,7 @@ describe("module registry", () => {
         "recruitment",
         "referrals",
         "schedule",
+        "support",
         "triage",
         "volunteers",
       ].sort()

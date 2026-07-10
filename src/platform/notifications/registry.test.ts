@@ -18,6 +18,11 @@ describe("notification registry", () => {
         "incidents.strike_decided",
         "incidents.strike_requested",
         "recruitment.interview_assignment",
+        "support.ticket_submitted",
+        "support.request_assigned",
+        "support.status_changed",
+        "support.comment_added",
+        "support.request_resolved",
         "shift-reminder",
       ].sort()
     );

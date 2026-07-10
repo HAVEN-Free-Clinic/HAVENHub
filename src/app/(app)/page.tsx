@@ -42,9 +42,6 @@ const HUE_BY_MODULE: Record<string, string> = {
   recruitment: "recruit",
   "my-interviews": "recruit",
   admin: "admin",
-  triage: "schedule",
-  referrals: "info",
-  "patient-trackers": "volunteers",
 };
 
 /** Inline CSS vars so Tailwind's static scan never has to see dynamic hues. */

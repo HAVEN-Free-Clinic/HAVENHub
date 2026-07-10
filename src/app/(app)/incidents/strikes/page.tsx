@@ -259,7 +259,12 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
         </Alert>
       )}
 
-      {/* Issue form */}
+      {/* Issue form -- only reviewers with incidents.manage may record an action
+          here. Directors hold incidents.view_strikes but not incidents.manage, so
+          issueActionForm would reject their submit; they request strikes through
+          an incident report instead. Gate the form so they see the read-only
+          ledger without a dead-end form. */}
+      {canManageAll && (
       <section className="mt-8">
         <h2 className="mb-3 text-base font-semibold">Record Disciplinary Action</h2>
         <form action={issueActionForm}>
@@ -376,6 +381,7 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
           </Card>
         </form>
       </section>
+      )}
 
       {/* Filter bar */}
       <form

@@ -34,7 +34,7 @@ import {
   strikeDecidedContext,
   reportResolvedContext,
 } from "@/platform/email/templates/incidents";
-import { issueAction, issuablePeople, DISCIPLINARY_CATEGORIES } from "./disciplinary";
+import { issueAction, DISCIPLINARY_CATEGORIES } from "./disciplinary";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -142,15 +142,18 @@ export type SubjectOption = { id: string; name: string; hint: string | null };
  * list client-side, so linking is not limited to the reporter's own volunteers.
  *
  * `strikeEligibleIds`: the ACTIVE VOLUNTEER-kind members in the reporter's
- * manageable departments (from issuablePeople). The "Request a strike" control is
- * only offered for these; submitReport re-checks eligibility server-side.
+ * manageable departments in the active term, matching canRequestStrikeAgainst
+ * exactly. Directors are excluded, since that guard rejects strike requests
+ * against non-volunteers. The "Request a strike" control is only offered for
+ * these; submitReport re-checks eligibility server-side.
  */
 export async function listSubjectOptions(actorPersonId: string): Promise<{
   people: SubjectOption[];
   strikeEligibleIds: string[];
 }> {
   const activeTerm = await getActiveTerm();
-  const [persons, memberships, issuable] = await Promise.all([
+  const deptIds = await manageableDepartmentIds(actorPersonId);
+  const [persons, memberships, strikeEligible] = await Promise.all([
     prisma.person.findMany({
       where: { status: "ACTIVE" },
       select: { id: true, name: true },
@@ -162,7 +165,21 @@ export async function listSubjectOptions(actorPersonId: string): Promise<{
           select: { personId: true, kind: true, department: { select: { code: true } } },
         })
       : [],
-    issuablePeople(actorPersonId),
+    // Strike eligibility mirrors canRequestStrikeAgainst exactly: ACTIVE
+    // VOLUNTEER-kind members in the reporter's manageable departments in the
+    // active term. Directors are deliberately excluded so the affordance is
+    // never shown for subjects the guard would reject.
+    activeTerm && deptIds.length > 0
+      ? prisma.termMembership.findMany({
+          where: {
+            termId: activeTerm.id,
+            departmentId: { in: deptIds },
+            status: "ACTIVE",
+            kind: "VOLUNTEER",
+          },
+          select: { personId: true },
+        })
+      : [],
   ]);
 
   // Build a "SCTM, JCTM volunteer/director" style hint per person from their
@@ -183,7 +200,7 @@ export async function listSubjectOptions(actorPersonId: string): Promise<{
     return { id: p.id, name: p.name, hint: hint || null };
   });
 
-  const strikeEligibleIds = issuable.people.map((p) => p.id);
+  const strikeEligibleIds = [...new Set(strikeEligible.map((m) => m.personId))];
   return { people, strikeEligibleIds };
 }
 

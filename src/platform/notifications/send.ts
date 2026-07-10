@@ -174,9 +174,12 @@ export async function drainTeamsQueue(
         } else {
           await prisma.teamsMessage.update({
             where: { id: row.id },
-            // Release the claim so the row is retryable on the next tick (it sits
-            // behind this invocation's cursor, so it is not re-attempted now).
-            data: { attempts, lastError: message, status: "QUEUED", lockedAt: null },
+            // Keep the claim (do NOT null lockedAt): a failed row stays locked so
+            // its retry is gated by the STALE_LOCK_MS window, not by how often a
+            // drain is triggered. Delivery now fires on enqueue, so an enqueue
+            // burst during an outage must not re-attempt this row until the lock
+            // goes stale (mirrors drainEmailQueue; issue #63).
+            data: { attempts, lastError: message, status: "QUEUED", lockedAt: claimedAt },
           });
         }
       }

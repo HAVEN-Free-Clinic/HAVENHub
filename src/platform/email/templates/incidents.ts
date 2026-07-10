@@ -120,7 +120,7 @@ export const incidentsDescriptors: TemplateDescriptor[] = [
       { name: "immediateRisk", label: "True when flagged as immediate risk", sampleValue: "false" },
       { name: "reviewLink", label: "Link to the review queue", sampleValue: "https://hub.havenfreeclinic.org/incidents/review" },
     ],
-    defaultSubject: "[HAVEN] New incident report #{{ reportNumber }}",
+    defaultSubject: "New incident report #{{ reportNumber }}",
     defaultBody: `<p>Hello {{ reviewerName }},</p>
 {{#if immediateRisk}}<p><strong>This report is flagged as an immediate risk and needs urgent attention.</strong></p>{{/if}}
 <p>Incident report #{{ reportNumber }} was submitted ({{ concernSummary }}).</p>
@@ -138,7 +138,7 @@ export const incidentsDescriptors: TemplateDescriptor[] = [
       { name: "subjectNames", label: "Names the strike is requested against (comma-separated)", sampleValue: "Jane Doe, John Roe" },
       { name: "reviewLink", label: "Link to the review queue", sampleValue: "https://hub.havenfreeclinic.org/incidents/review" },
     ],
-    defaultSubject: "[HAVEN] Strike requested on incident report #{{ reportNumber }}",
+    defaultSubject: "Strike requested on incident report #{{ reportNumber }}",
     defaultBody: `<p>Hello {{ reviewerName }},</p>
 <p>Incident report #{{ reportNumber }} includes a request to issue a disciplinary strike against {{ subjectNames }}.</p>
 <p><a href="{{ reviewLink }}">Open the review queue</a></p>
@@ -154,7 +154,7 @@ export const incidentsDescriptors: TemplateDescriptor[] = [
       { name: "reportNumber", label: "Report number", sampleValue: "42" },
       { name: "approved", label: "True when the strike was approved, false when declined", sampleValue: "true" },
     ],
-    defaultSubject: "[HAVEN] Strike decision on incident report #{{ reportNumber }}",
+    defaultSubject: "Strike decision on incident report #{{ reportNumber }}",
     defaultBody: `<p>Hello {{ reporterName }},</p>
 {{#if approved}}<p>A reviewer has approved the strike you requested on incident report #{{ reportNumber }}.</p>{{else}}<p>A reviewer has declined the strike you requested on incident report #{{ reportNumber }}.</p>{{/if}}
 <p>Thank you,<br>HAVEN Free Clinic</p>`,
@@ -170,7 +170,7 @@ export const incidentsDescriptors: TemplateDescriptor[] = [
       { name: "outcome", label: "Precomputed outcome word: resolved or dismissed", sampleValue: "resolved" },
       { name: "reportLink", label: "Link to the reporter's own report", sampleValue: "https://hub.havenfreeclinic.org/incidents/mine" },
     ],
-    defaultSubject: "[HAVEN] Incident report #{{ reportNumber }} {{ outcome }}",
+    defaultSubject: "Incident report #{{ reportNumber }} {{ outcome }}",
     defaultBody: `<p>Hello {{ reporterName }},</p>
 <p>Your incident report #{{ reportNumber }} has been {{ outcome }}.</p>
 <p><a href="{{ reportLink }}">View your report</a></p>
@@ -188,15 +188,15 @@ export const incidentsDescriptors: TemplateDescriptor[] = [
       { name: "issuedBy", label: "Issued by name", sampleValue: "Caprice Culkin" },
       { name: "issuedDate", label: "Date issued", sampleValue: "July 15, 2026" },
     ],
-    defaultSubject: "A disciplinary action has been recorded against your HAVEN account",
+    defaultSubject: "A disciplinary action has been recorded against you",
     defaultBody: `<p>Hi {{ subjectName }},</p>
-<p>A disciplinary action has been officially recorded against your HAVEN volunteer account.</p>
+<p>A disciplinary action has been officially recorded against you.</p>
 <table role="presentation" style="border-collapse:collapse;margin:16px 0">
   <tr><td style="font-weight:600;padding-right:12px">Category</td><td>{{ category }}</td></tr>
   <tr><td style="font-weight:600;padding-right:12px">Date</td><td>{{ issuedDate }}</td></tr>
   <tr><td style="font-weight:600;padding-right:12px">Issued by</td><td>{{ issuedBy }}</td></tr>
 </table>
 <p><strong>Details:</strong><br>{{ description }}</p>
-<p>If you have questions or believe this was issued in error, please reach out to your department directors or the HAVEN IT &amp; Communications team at <a href="mailto:hfc.it@yale.edu">hfc.it@yale.edu</a>.</p>`,
+<p>If you have questions or believe this was issued in error, please reach out to your department directors or the HAVEN Executive Directors at <a href="mailto:haven.free.clinic@yale.edu">haven.free.clinic@yale.edu</a>.</p>`,
   },
 ];

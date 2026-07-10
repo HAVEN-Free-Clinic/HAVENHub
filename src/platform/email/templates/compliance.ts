@@ -160,6 +160,12 @@ export function complianceReminderContext(p: ComplianceReminderParams): Record<s
 
 /**
  * Build the flat render-engine context for the compliance-escalation template.
+ *
+ * UNKNOWN_DATE and PENDING_VERIFICATION are waiting on a coordinator (to set the
+ * completion date / verify the cert), so the volunteer cannot act on them. The
+ * template must not tell the director the volunteer "has not responded" for
+ * those statuses -- `hipaaPendingCoordinator` selects the non-blaming copy,
+ * mirroring the reassurance the reminder already gives the volunteer.
  */
 export function complianceEscalationContext(p: ComplianceEscalationParams): Record<string, unknown> {
   return {
@@ -170,6 +176,8 @@ export function complianceEscalationContext(p: ComplianceEscalationParams): Reco
     ehsMissingList: (p.ehsMissing ?? []).join(", "),
     hasEhsGap: (p.ehsMissing ?? []).length > 0,
     hipaaActionable: p.status !== "COMPLIANT",
+    hipaaPendingCoordinator:
+      p.status === "UNKNOWN_DATE" || p.status === "PENDING_VERIFICATION",
   };
 }
 
@@ -257,11 +265,12 @@ export const complianceDescriptors: TemplateDescriptor[] = [
       { name: "ehsMissingList", label: "Comma-separated list of missing required EHS training names", sampleValue: "Blood Borne Pathogens" },
       { name: "hasEhsGap", label: "True when one or more required EHS trainings are incomplete", sampleValue: "false" },
       { name: "hipaaActionable", label: "True when the HIPAA status itself is non-compliant (false when only EHS is outstanding)", sampleValue: "true" },
+      { name: "hipaaPendingCoordinator", label: "True when the HIPAA status is waiting on a coordinator (UNKNOWN_DATE / PENDING_VERIFICATION), so the volunteer cannot act", sampleValue: "false" },
     ],
     defaultSubject: "[HAVEN] Volunteer compliance needs attention",
     defaultBody: `<p>Hello {{ directorName }},</p>
 
-{{#if hipaaActionable}}<p>{{ volunteerName }} in {{ departmentName }} is not HIPAA compliant ({{ readableStatus }}) and has not responded to reminders. Please follow up.</p>{{else}}<p>{{ volunteerName }} in {{ departmentName }} has outstanding required EHS training and has not responded to reminders. Please follow up.</p>{{/if}}{{#if hasEhsGap}}
+{{#if hipaaActionable}}{{#if hipaaPendingCoordinator}}<p>{{ volunteerName }} in {{ departmentName }} has a HIPAA certificate on file that is pending action from the compliance team ({{ readableStatus }}). Only a coordinator can clear this, so no follow-up with {{ volunteerName }} is needed for HIPAA yet.</p>{{else}}<p>{{ volunteerName }} in {{ departmentName }} is not HIPAA compliant ({{ readableStatus }}) and has not responded to reminders. Please follow up.</p>{{/if}}{{else}}<p>{{ volunteerName }} in {{ departmentName }} has outstanding required EHS training and has not responded to reminders. Please follow up.</p>{{/if}}{{#if hasEhsGap}}
 
 <p>Outstanding EHS training: {{ ehsMissingList }}.</p>{{/if}}
 

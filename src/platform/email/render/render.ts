@@ -9,7 +9,11 @@ function truthy(v: unknown): boolean {
   return Boolean(v);
 }
 
-export function renderTemplate(source: string, context: Record<string, unknown>): string {
+export function renderTemplate(source: string, context: Record<string, unknown>, opts: { escape?: boolean } = {}): string {
+  // Bodies and layouts render HTML, so {{var}} is HTML-escaped by default. Plain-text
+  // contexts (e.g. an email Subject header) pass { escape: false } so an ampersand or
+  // apostrophe in a value is emitted as-is rather than turned into an entity.
+  const escapeVars = opts.escape ?? true;
   const tokens = tokenize(source);
   let i = 0;
 
@@ -25,7 +29,7 @@ export function renderTemplate(source: string, context: Record<string, unknown>)
         out += t.value;
       } else if (t.type === "var") {
         const v = context[t.name];
-        out += v === null || v === undefined ? "" : esc(String(v));
+        out += v === null || v === undefined ? "" : (escapeVars ? esc(String(v)) : String(v));
       } else if (t.type === "rawVar") {
         const v = context[t.name];
         out += v === null || v === undefined ? "" : String(v);

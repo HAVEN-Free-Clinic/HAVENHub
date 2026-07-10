@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getCycle } from "@/modules/recruitment/services/cycles";
+import { requirePersonSession } from "@/platform/auth/session";
+import { can } from "@/platform/rbac/engine";
 import { portalUrl } from "@/modules/recruitment/services/portal-url";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
@@ -37,6 +39,12 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
   const { error, deptsaved, deptwarn, windowsaved } = await searchParams;
   const cycle = await getCycle(id);
   if (!cycle) notFound();
+
+  // The /recruitment layout admits any recruitment.access holder (reviewers), but the
+  // cycle-lifecycle controls below are all gated on recruitment.manage_cycles server-side.
+  // Hide them from reviewers so they do not see controls that would only error on submit.
+  const session = await requirePersonSession();
+  const canManage = await can(session.personId, "recruitment.manage_cycles");
 
   const activeDepts = await prisma.department.findMany({ where: { isActive: true }, select: { code: true, name: true }, orderBy: { code: "asc" } });
   const apps = await prisma.application.findMany({ where: { cycleId: id }, select: { departmentChoices: true } });
@@ -111,7 +119,7 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
         <SectionHeader>Departments</SectionHeader>
         {deptsaved && <Alert tone="success">Departments updated.</Alert>}
         {deptwarn && <Alert tone="warning">Saved. These removed departments still have applicants: {deptwarn}. Existing applications keep their choices, but you can no longer accept into a removed department.</Alert>}
-        {cycle.status === "ARCHIVED" ? (
+        {cycle.status === "ARCHIVED" || !canManage ? (
           <div className="flex flex-wrap gap-2">
             {cycle.departments.length === 0 ? (
               <p className="text-sm text-subtle-foreground">No departments.</p>
@@ -140,7 +148,7 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
         )}
       </Card>
 
-      {(cycle.status === "DRAFT" || cycle.status === "OPEN") && (
+      {canManage && (cycle.status === "DRAFT" || cycle.status === "OPEN") && (
         <Card className="space-y-3">
           <SectionHeader>Application window</SectionHeader>
           {windowsaved && <Alert tone="success">Application window updated.</Alert>}
@@ -163,6 +171,7 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
         </Card>
       )}
 
+      {canManage && (
       <div className="flex flex-wrap items-center gap-3">
         {cycle.status === "DRAFT" && (
           <form action={publishCycleAction.bind(null, id)}>
@@ -195,6 +204,7 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
           </form>
         )}
       </div>
+      )}
 
       {(cycle.track === "VOLUNTEER" || cycle.track === "DIRECTOR") && (
         <Card className="space-y-4">
@@ -203,24 +213,28 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
             <Link href={`/recruitment/cycles/${id}/builder/quiz`} className={navLink}>Edit quiz</Link>
             <Link href={`/recruitment/cycles/${id}/training`} className={navLink}>Training roster</Link>
           </div>
-          <form action={setTrainingCycleAction.bind(null, id, !cycle.isTermTraining)}>
-            <SubmitButton size="sm" variant="ghost">
-              {cycle.isTermTraining ? "Stop using as this term's training" : "Use as this term's training"}
-            </SubmitButton>
-          </form>
-          <form action={updateQuizSettingsAction.bind(null, id)} className="flex flex-wrap items-end gap-3">
-            <div className="w-28">
-              <Field label="Pass %">
-                <Input name="quizPassPercent" type="number" min={0} max={100} defaultValue={cycle.quizPassPercent} />
-              </Field>
-            </div>
-            <div className="w-28">
-              <Field label="Max attempts">
-                <Input name="quizMaxAttempts" type="number" min={1} defaultValue={cycle.quizMaxAttempts} />
-              </Field>
-            </div>
-            <SubmitButton size="sm" variant="outline" pendingLabel="Saving…">Save quiz settings</SubmitButton>
-          </form>
+          {canManage && (
+            <>
+              <form action={setTrainingCycleAction.bind(null, id, !cycle.isTermTraining)}>
+                <SubmitButton size="sm" variant="ghost">
+                  {cycle.isTermTraining ? "Stop using as this term's training" : "Use as this term's training"}
+                </SubmitButton>
+              </form>
+              <form action={updateQuizSettingsAction.bind(null, id)} className="flex flex-wrap items-end gap-3">
+                <div className="w-28">
+                  <Field label="Pass %">
+                    <Input name="quizPassPercent" type="number" min={0} max={100} defaultValue={cycle.quizPassPercent} />
+                  </Field>
+                </div>
+                <div className="w-28">
+                  <Field label="Max attempts">
+                    <Input name="quizMaxAttempts" type="number" min={1} defaultValue={cycle.quizMaxAttempts} />
+                  </Field>
+                </div>
+                <SubmitButton size="sm" variant="outline" pendingLabel="Saving…">Save quiz settings</SubmitButton>
+              </form>
+            </>
+          )}
         </Card>
       )}
     </div>

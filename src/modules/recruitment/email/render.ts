@@ -53,7 +53,9 @@ export async function resolveCycleEmail(cycleId: string, key: CycleEmailKey): Pr
 /** Render already-resolved sources with a context. Pure and synchronous, so the
  *  acceptance loop can resolve once and render per applicant. */
 export function renderResolvedEmail(sources: EmailSources, context: Record<string, unknown>): { subject: string; html: string } {
-  const subject = renderTemplate(sources.subjectSource, context);
+  // The subject is a plain-text header, so render it without HTML-escaping;
+  // otherwise a value with "&" or "'" (e.g. a department name) is garbled into an entity.
+  const subject = renderTemplate(sources.subjectSource, context, { escape: false });
   const body = renderTemplate(sources.bodySource, context);
   // brandColor first so a caller-supplied context value (rare) still wins.
   const html = renderTemplate(sources.layoutSource, { brandColor: sources.brandColor, ...context, subject, body });

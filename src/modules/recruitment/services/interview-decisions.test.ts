@@ -29,6 +29,19 @@ it("ACCEPT records the decision and creates an Acceptance", async () => {
   expect(acc).not.toBeNull();
 });
 
+it("refuses to flip a decision away from ACCEPT once an onboarding contract exists (audit M1)", async () => {
+  const { iv, director, application } = await seedInterview();
+  await decideInterview(iv.id, "ACCEPT", director.id, null);
+  const acc = await prisma.acceptance.findUniqueOrThrow({ where: { applicationId_departmentCode: { applicationId: application.id, departmentCode: "EDUC" } } });
+  // Onboarding was started/promoted without the acceptance ever being emailed.
+  await prisma.onboardingContract.create({ data: { acceptanceId: acc.id, token: "tok-m1", status: "PROMOTED", firstName: "C", lastName: "I", email: "c@y.edu" } });
+  await expect(decideInterview(iv.id, "REJECT", director.id, null)).rejects.toBeInstanceOf(AcceptanceError);
+  // The contract and its acceptance are preserved and the decision stays ACCEPT.
+  expect(await prisma.onboardingContract.findFirst({ where: { acceptanceId: acc.id } })).not.toBeNull();
+  expect(await prisma.acceptance.findUnique({ where: { id: acc.id } })).not.toBeNull();
+  expect((await prisma.interview.findUniqueOrThrow({ where: { id: iv.id } })).decision).toBe("ACCEPT");
+});
+
 it("changing ACCEPT to REJECT removes the not-yet-emailed Acceptance", async () => {
   const { iv, director, application } = await seedInterview();
   await decideInterview(iv.id, "ACCEPT", director.id, null);

@@ -91,9 +91,21 @@ export async function submitReportAction(formData: FormData): Promise<void> {
 export async function reviewReportAction(formData: FormData): Promise<void> {
   const actor = await requirePermission("incidents.manage");
   const id = String(formData.get("reportId"));
+  // Validate the status against the enum allowlist (same optEnum guard
+  // submitReportAction uses) so a malformed value is rejected cleanly instead
+  // of being written or surfacing as a raw Prisma error.
+  const status = optEnum<IncidentReportStatus>(formData.get("status"), [
+    "SUBMITTED",
+    "UNDER_REVIEW",
+    "RESOLVED",
+    "DISMISSED",
+  ]);
+  if (!status) {
+    redirect(`/incidents/${id}?error=validation&message=${encodeURIComponent("Select a valid status.")}`);
+  }
   try {
     await reviewReport(actor.personId, id, {
-      status: String(formData.get("status") ?? "UNDER_REVIEW") as IncidentReportStatus,
+      status,
       reviewNotes: (String(formData.get("reviewNotes") ?? "").trim() || null),
     });
   } catch (err) {

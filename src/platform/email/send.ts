@@ -16,6 +16,9 @@ export type QueueEmailInput = {
 };
 
 const MAX_ATTEMPTS = 8;
+/** A per-row send claim older than this is treated as abandoned (crashed worker)
+ *  and may be reclaimed by another drain. Bounds the worst-case redelivery delay. */
+const STALE_LOCK_MS = 5 * 60 * 1000;
 
 /**
  * Append an email send job in the SAME transaction as the domain write, so a
@@ -55,10 +58,16 @@ export async function queueEmail(db: Db, input: QueueEmailInput): Promise<EmailL
  * re-attempted the same rows pass after pass until all 8 retries burned and the
  * queue mass-FAILED in seconds (issue #63). The caller now invokes this once.
  *
- * Returns the number of rows attempted this invocation (succeeded or not).
+ * Returns the number of rows this invocation claimed and attempted.
  *
- * Single-worker deployment assumed: no SELECT FOR UPDATE SKIP LOCKED, so two
- * concurrent drains would double-send.
+ * Concurrency: before sending, each row is claimed with an atomic
+ * updateMany(status=QUEUED, lock free) -> lockedAt=now, so only one worker wins a
+ * given row. Two overlapping drains (a backlog that outlives the 60s cron
+ * interval, plus an external scheduler that does not skip overlapping runs)
+ * therefore cannot both send the same row. The claim is released on completion; a
+ * lock left by a crashed worker is reclaimable after STALE_LOCK_MS, which
+ * preserves at-least-once delivery (a crash between claim and send re-sends once
+ * the lock goes stale).
  */
 export async function drainEmailQueue(
   transport: EmailTransport,
@@ -66,6 +75,10 @@ export async function drainEmailQueue(
 ): Promise<number> {
   let processed = 0;
   let cursor: { createdAt: Date; id: string } | null = null;
+  const claimedAt = new Date();
+  const staleBefore = new Date(claimedAt.getTime() - STALE_LOCK_MS);
+  // A row is claimable when it is unlocked, or its lock is stale (crashed worker).
+  const claimable = { OR: [{ lockedAt: null }, { lockedAt: { lt: staleBefore } }] };
 
   for (;;) {
     // Annotate the result so the cursor (read below from the last row) does not
@@ -73,11 +86,16 @@ export async function drainEmailQueue(
     const rows: EmailLog[] = await prisma.emailLog.findMany({
       where: {
         status: "QUEUED",
+        ...claimable,
         ...(cursor
           ? {
-              OR: [
-                { createdAt: { gt: cursor.createdAt } },
-                { createdAt: cursor.createdAt, id: { gt: cursor.id } },
+              AND: [
+                {
+                  OR: [
+                    { createdAt: { gt: cursor.createdAt } },
+                    { createdAt: cursor.createdAt, id: { gt: cursor.id } },
+                  ],
+                },
               ],
             }
           : {}),
@@ -88,6 +106,14 @@ export async function drainEmailQueue(
     if (rows.length === 0) break;
 
     for (const row of rows) {
+      // Atomic claim. If a concurrent drain already took this row (or it is no
+      // longer QUEUED) the count is 0 and we skip it without sending.
+      const claim = await prisma.emailLog.updateMany({
+        where: { id: row.id, status: "QUEUED", ...claimable },
+        data: { lockedAt: claimedAt },
+      });
+      if (claim.count === 0) continue;
+
       try {
         await transport.send({
           to: row.toEmail,
@@ -97,10 +123,10 @@ export async function drainEmailQueue(
           fromName: row.fromName ?? undefined,
         });
         // At-least-once: a crash between send and this update re-sends the row
-        // on the next drain pass.
+        // once its claim goes stale.
         await prisma.emailLog.update({
           where: { id: row.id },
-          data: { status: "SENT", sentAt: new Date() },
+          data: { status: "SENT", sentAt: new Date(), lockedAt: null },
         });
       } catch (error) {
         const attempts = row.attempts + 1;
@@ -110,14 +136,17 @@ export async function drainEmailQueue(
             attempts,
             lastError: error instanceof Error ? error.message.slice(0, 500) : String(error),
             status: attempts >= MAX_ATTEMPTS ? "FAILED" : "QUEUED",
+            // Release the claim so the row is retryable on the next tick (it sits
+            // behind this invocation's cursor, so it is not re-attempted now).
+            lockedAt: null,
           },
         });
       }
       processed += 1;
     }
 
-    // Advance past the last row processed. A row that failed and stayed QUEUED
-    // is now behind the cursor and will not be re-attempted this invocation.
+    // Advance past the last row fetched. A row that failed and stayed QUEUED is
+    // now behind the cursor and will not be re-attempted this invocation.
     const last = rows[rows.length - 1];
     cursor = { createdAt: last.createdAt, id: last.id };
   }

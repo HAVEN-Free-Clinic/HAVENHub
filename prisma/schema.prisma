@@ -854,6 +854,9 @@ model EmailLog {
   attempts      Int               @default(0)
   lastError     String?
   sentAt        DateTime?
+  /// Set while a drain worker is sending this row so a concurrent drain skips it.
+  /// Cleared on completion; a stale lock (crashed worker) is reclaimable after a timeout.
+  lockedAt      DateTime?
   createdAt     DateTime          @default(now())
   /// SetNull: email logs outlive the people they reference.
   person        Person?           @relation("emailLogPerson", fields: [personId], references: [id], onDelete: SetNull)

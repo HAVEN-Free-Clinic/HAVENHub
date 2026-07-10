@@ -78,6 +78,32 @@ describe("notify", () => {
     expect(after?.status).toBe("FALLBACK");
   });
 
+  // Retrying a FALLBACK row (which already queued its fallback email) must not
+  // queue the email a second time when it fails permanently again.
+  it("retrying a FALLBACK message does not re-send the fallback email", async () => {
+    vi.spyOn(channel, "resolveChannel").mockResolvedValue("teams");
+    const p = await makePerson({ entraObjectId: "e1", contactEmail: "sam@x.com" });
+    await notify(prisma, { type: "epic-onboarding", person: p, email, teams });
+    const tm = await prisma.teamsMessage.findFirstOrThrow({ where: { personId: p.id } });
+    const failing: TeamsTransport = { send: vi.fn().mockRejectedValue(new Error("graph 500")) };
+
+    // First permanent failure: channel "teams" queued no up-front email, so the
+    // fallback email is queued here and the row records that it landed.
+    await prisma.teamsMessage.update({ where: { id: tm.id }, data: { attempts: TEAMS_MAX_ATTEMPTS - 1 } });
+    await drainTeamsQueue(failing);
+    expect(await prisma.emailLog.count({ where: { personId: p.id } })).toBe(1);
+    let after = await prisma.teamsMessage.findUniqueOrThrow({ where: { id: tm.id } });
+    expect(after.status).toBe("FALLBACK");
+    expect(after.emailAlreadyQueued).toBe(true);
+
+    // Admin retries; it fails permanently again. The fallback email must not re-send.
+    await prisma.teamsMessage.update({ where: { id: tm.id }, data: { status: "QUEUED", attempts: TEAMS_MAX_ATTEMPTS - 1, lastError: null } });
+    await drainTeamsQueue(failing);
+    expect(await prisma.emailLog.count({ where: { personId: p.id } })).toBe(1);
+    after = await prisma.teamsMessage.findUniqueOrThrow({ where: { id: tm.id } });
+    expect(after.status).toBe("FALLBACK");
+  });
+
   it("channel=teams with no identity falls back to email at queue time", async () => {
     vi.spyOn(channel, "resolveChannel").mockResolvedValue("teams");
     const p = await makePerson({ entraObjectId: null });

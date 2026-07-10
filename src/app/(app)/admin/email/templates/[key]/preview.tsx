@@ -42,7 +42,13 @@ export function TemplateEditor(props: {
   // Sample context: each variable mapped to its sample value, for the live preview.
   const sample = useMemo(() => {
     const ctx: Record<string, unknown> = {};
-    for (const v of props.variables) ctx[v.name] = v.sampleValue;
+    for (const v of props.variables) {
+      // A boolean-flag variable carries a "true"/"false" sample string, but the
+      // template engine treats any non-empty string as truthy, so a "false" flag
+      // would still render its {{#if}} block here. Coerce those to real booleans so
+      // the preview matches how the flag renders at send time.
+      ctx[v.name] = v.sampleValue === "true" ? true : v.sampleValue === "false" ? false : v.sampleValue;
+    }
     // The layout's {{ brandColor }} is injected at render time, not a per-template
     // variable, so seed it with the resolved setting; the preview band and links
     // then match what recipients actually see.

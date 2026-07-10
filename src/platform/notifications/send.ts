@@ -138,7 +138,11 @@ export async function drainTeamsQueue(
           // retryable from the dashboard.
           await prisma.teamsMessage.update({
             where: { id: row.id },
-            data: { attempts, lastError, status: emailLands ? "FALLBACK" : "FAILED" },
+            // Persist that the fallback email has landed so a later admin retry
+            // (retryTeamsMessage resets status to QUEUED but preserves this flag)
+            // that also fails permanently does not queue the same email a second
+            // time (#74 dedup must hold on the retry path, not just first send).
+            data: { attempts, lastError, status: emailLands ? "FALLBACK" : "FAILED", emailAlreadyQueued: emailLands },
           });
         } else {
           await prisma.teamsMessage.update({

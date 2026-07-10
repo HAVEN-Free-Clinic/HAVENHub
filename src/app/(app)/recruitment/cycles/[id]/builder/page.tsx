@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowRight } from "lucide-react";
 import { getCycle } from "@/modules/recruitment/services/cycles";
+import { requirePermission } from "@/platform/auth/session";
 import { prisma } from "@/platform/db";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
@@ -10,6 +11,7 @@ import { FormBuilder } from "./form-builder";
 import type { BuilderSection } from "./section-card";
 
 export default async function BuilderPage({ params }: { params: Promise<{ id: string }> }) {
+  await requirePermission("recruitment.manage_cycles");
   const { id } = await params;
   const cycle = await getCycle(id);
   if (!cycle) notFound();

@@ -40,10 +40,35 @@ async function assignedCourseIds(personId: string): Promise<string[]> {
   return coursesForMember({ courses: assignable, memberships });
 }
 
-/** True when the course is currently assigned to this person (for the play route). */
+/**
+ * True when the course is currently assigned to this person (for the play route).
+ *
+ * Targeted equivalent of `assignedCourseIds(personId).includes(courseId)`: it loads
+ * only this one course instead of every active course, then runs the exact same pure
+ * `coursesForMember` resolver over it. `coursesForMember` evaluates each course
+ * independently and only ever emits a course's own id, so restricting its input to
+ * this single course yields the identical isActive/hasPackage/scope/kind decision for
+ * this courseId. Same authorization guarantee, far cheaper on the per-file SCORM asset
+ * route (one indexed lookup + the memberships query, not a full course scan per request).
+ */
 export async function isCourseAssignedTo(personId: string, courseId: string): Promise<boolean> {
-  const ids = await assignedCourseIds(personId);
-  return ids.includes(courseId);
+  const termId = await activeTermId();
+  if (!termId) return false;
+  const course = await prisma.course.findUnique({
+    where: { id: courseId },
+    select: { id: true, isActive: true, assignToAll: true, audience: true, scormEntryHref: true, departments: { select: { departmentId: true } } },
+  });
+  if (!course) return false;
+  const memberships = await memberMemberships(personId, termId);
+  const assignable: AssignableCourse = {
+    id: course.id,
+    isActive: course.isActive,
+    assignToAll: course.assignToAll,
+    departmentIds: course.departments.map((d) => d.departmentId),
+    hasPackage: course.scormEntryHref != null,
+    audience: course.audience,
+  };
+  return coursesForMember({ courses: [assignable], memberships }).includes(courseId);
 }
 
 /**

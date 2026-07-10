@@ -78,6 +78,24 @@ export async function resolveTrainingState(personId: string, termId: string, tra
   return row?.status === "COMPLETE" ? "COMPLETE" : "PENDING";
 }
 
+/** Training state plus attempts used in the current window (after any lock reset).
+ *  The onboarding checklist needs the attempt count to distinguish IN_PROGRESS
+ *  (a quiz was attempted but not passed) from INCOMPLETE (never started). */
+export async function resolveTrainingProgress(
+  personId: string,
+  termId: string,
+  track: Track
+): Promise<{ state: TrainingState; attemptsUsed: number }> {
+  const row = await prisma.training.findUnique({ where: { personId_termId_track: { personId, termId, track } } });
+  const state: TrainingState = row?.status === "COMPLETE" ? "COMPLETE" : "PENDING";
+  const attemptsUsed = row
+    ? await prisma.quizAttempt.count({
+        where: { trainingId: row.id, ...(row.lockResetAt ? { takenAt: { gte: row.lockResetAt } } : {}) },
+      })
+    : 0;
+  return { state, attemptsUsed };
+}
+
 /** The training tracks a person must complete this term: a track is required when
  *  the person holds an active membership of that kind AND the term has a designated
  *  training cycle for that track. Generalizes the volunteer-only check. */

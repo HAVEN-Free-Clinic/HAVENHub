@@ -41,6 +41,35 @@ describe("runImport", () => {
     expect(await prisma.person.count()).toBe(0);
   });
 
+  it("dry-run does not count memberships for skipped people", async () => {
+    // recB collides with recA on netId and is skipped, so its roster link must not
+    // be counted: apply would create only recA's membership, not recB's.
+    const reader: AirtableReader = {
+      async listAll(_b: string, table: string) {
+        if (table === "people-table") {
+          return [
+            { id: "recA", fields: { [F.name]: "A Person", [F.netId]: "ap1" } },
+            { id: "recB", fields: { [F.name]: "B Person", [F.netId]: "AP1" } },
+          ];
+        }
+        return [
+          { id: "recITCM", fields: { [R.departmentName]: "ITCM", [R.directors]: ["recA"], [R.volunteers]: ["recB"] } },
+        ];
+      },
+    };
+    const report = await runImport(reader, { ...OPTS, dryRun: true });
+    expect(report.people.skipped).toHaveLength(1); // recB (duplicate netId)
+    expect(report.memberships).toBe(1); // recA director link only; recB's is dropped
+  });
+
+  it("does not overwrite an existing department's customized name on re-import", async () => {
+    // Admin renamed ITCM after the first import; a re-run must preserve that name.
+    await prisma.department.create({ data: { code: "ITCM", name: "IT & Case Management" } });
+    await runImport(fakeReader(), { ...OPTS, dryRun: false });
+    const dept = await prisma.department.findUniqueOrThrow({ where: { code: "ITCM" } });
+    expect(dept.name).toBe("IT & Case Management");
+  });
+
   it("imports people, departments, term, and memberships idempotently", async () => {
     // Pre-existing unlinked person (like the dev seed): must be linked, not duplicated.
     await prisma.person.create({

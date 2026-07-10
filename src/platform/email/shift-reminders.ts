@@ -232,19 +232,25 @@ export async function runShiftReminders(now: Date = new Date()): Promise<ShiftRe
       continue;
     }
 
-    const rendered = await renderEmail("shift-reminder", item.context);
-    await notify(prisma, {
-      type: "shift-reminder",
-      person: {
-        id: item.person.id,
-        entraObjectId: item.person.entraObjectId,
-        contactEmail: item.person.contactEmail,
-      },
-      email: { subject: rendered.subject, html: rendered.html },
-      teams: { title: "Shift reminder", summary: item.teamsSummary, link: `${baseUrl}/schedule` },
-    });
-
-    result.remindersSent++;
+    try {
+      const rendered = await renderEmail("shift-reminder", item.context);
+      await notify(prisma, {
+        type: "shift-reminder",
+        person: {
+          id: item.person.id,
+          entraObjectId: item.person.entraObjectId,
+          contactEmail: item.person.contactEmail,
+        },
+        email: { subject: rendered.subject, html: rendered.html },
+        teams: { title: "Shift reminder", summary: item.teamsSummary, link: `${baseUrl}/schedule` },
+      });
+      result.remindersSent++;
+    } catch (err) {
+      // Per-recipient isolation: a single failed render/notify must not abort the
+      // rest of the weekly batch. Log and continue; the 6-day idempotency guard
+      // means this person is retried on the next Monday cron tick.
+      console.error(`[shift-reminders] Failed to remind person ${item.person.id}:`, err);
+    }
   }
 
   return result;

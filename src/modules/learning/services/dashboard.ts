@@ -29,6 +29,13 @@ export async function getCourseCompletion(courseId: string, viewerId: string): P
     where: { id: courseId },
     include: { departments: { select: { departmentId: true } } },
   });
+  // Mirror coursesForMember's assignment gate: an inactive or package-less course
+  // is assigned to no one (per the package-less gate), so it has no required
+  // learners to track. Returning [] keeps the dashboard's counting/labeling
+  // consistent with the canonical resolver instead of listing every active member
+  // as a NOT_STARTED (required-incomplete) learner for a course they were never
+  // actually assigned.
+  if (!course.isActive || course.scormEntryHref == null) return [];
   const term = await getActiveTerm();
   if (!term) return [];
 
@@ -80,8 +87,13 @@ export async function resetCourseProgress(personId: string, courseId: string, ac
   if (!(await can(actorId, "learning.manage_courses"))) {
     throw new LearningAuthError("You do not have permission to reset progress.");
   }
-  await prisma.courseProgress.deleteMany({ where: { personId, courseId } });
-  await prisma.scoProgress.deleteMany({ where: { personId, courseId } });
+  // Delete both progress records in one transaction (mirrors the ingest-time
+  // resetProgress reset) so we never leave an orphaned course rollup or per-SCO
+  // rows if one delete fails.
+  await prisma.$transaction([
+    prisma.courseProgress.deleteMany({ where: { personId, courseId } }),
+    prisma.scoProgress.deleteMany({ where: { personId, courseId } }),
+  ]);
   await recordAudit({
     actorPersonId: actorId,
     action: "learning.progress_reset",
@@ -91,8 +103,14 @@ export async function resetCourseProgress(personId: string, courseId: string, ac
   });
 }
 
-/** Active courses for the dashboard's course picker. */
+/** Active, packaged courses for the dashboard's course picker. Package-less courses
+ *  are assigned to no one (per the package-less gate), so offering them would only
+ *  surface an empty completion table. */
 export async function listCoursesForDashboard(viewerId: string): Promise<{ id: string; title: string }[]> {
   await requireViewer(viewerId);
-  return prisma.course.findMany({ where: { isActive: true }, orderBy: { position: "asc" }, select: { id: true, title: true } });
+  return prisma.course.findMany({
+    where: { isActive: true, scormEntryHref: { not: null } },
+    orderBy: { position: "asc" },
+    select: { id: true, title: true },
+  });
 }

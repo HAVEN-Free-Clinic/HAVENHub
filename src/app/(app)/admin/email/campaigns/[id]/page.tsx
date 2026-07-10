@@ -28,6 +28,7 @@ import { TemplateEditor } from "../../templates/[key]/preview";
 import { AudienceBuilder } from "./audience-builder";
 import { CronPresets } from "./cron-presets";
 import { SubmitButton } from "./submit-button";
+import { ReviewActions } from "./review-actions";
 
 type Props = {
   params: Promise<{ id: string }>;
@@ -266,7 +267,7 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
 
       {/* Main save form: editable only while a draft */}
       {isDraft && (
-        <form action={saveAction} className="space-y-8">
+        <form id="campaign-compose" action={saveAction} className="space-y-8">
           {/* Section 1: Compose */}
           <div className="space-y-6">
             <h2 className="text-base font-semibold text-foreground">1. Compose</h2>
@@ -326,37 +327,14 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
         <div id="review" className="space-y-4 border-t border-border pt-6">
           <h2 className="text-base font-semibold text-foreground">3. Review &amp; send</h2>
 
-          <div className="flex flex-wrap gap-3">
-            {/* Preview audience */}
-            <form action={previewAction}>
-              <SubmitButton variant="outline" pendingLabel="Previewing...">
-                Preview audience
-              </SubmitButton>
-            </form>
-
-            {/* Test send */}
-            <form action={testAction}>
-              <SubmitButton variant="outline" pendingLabel="Sending test...">
-                Send test to me
-              </SubmitButton>
-            </form>
-
-            {/* Live send */}
-            <form action={sendAction} className="flex items-end gap-2">
-              <Field label="Confirm count (required for >25 recipients)">
-                <Input
-                  name="confirmCount"
-                  type="number"
-                  min={1}
-                  placeholder="e.g. 42"
-                  className="w-24"
-                />
-              </Field>
-              <SubmitButton variant="danger" pendingLabel="Sending...">
-                Send now
-              </SubmitButton>
-            </form>
-          </div>
+          {/* Preview / Test / Send. These operate on the last-saved campaign, so
+              ReviewActions disables them while the compose form has unsaved edits. */}
+          <ReviewActions
+            formId="campaign-compose"
+            previewAction={previewAction}
+            testAction={testAction}
+            sendAction={sendAction}
+          />
 
           {/* Inline audience preview result */}
           {sp.preview === "1" && !errorMessage && (
@@ -390,7 +368,7 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
             <p className="text-sm text-brand-fg">
               <strong>Recurring:</strong> {campaign.cronExpr}
               {campaign.nextRunAt && (
-                <> &mdash; next run {campaign.nextRunAt.toLocaleString()}</>
+                <> (next run {campaign.nextRunAt.toLocaleString()})</>
               )}
             </p>
           )}
@@ -411,7 +389,7 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
           <div className="space-y-2">
             <p className="text-sm font-medium text-foreground-soft">Schedule for later</p>
             <form action={scheduleLaterAction} className="flex flex-wrap items-end gap-3">
-              <Field label="Send at">
+              <Field label="Send at (UTC)">
                 <Input
                   name="scheduledAt"
                   type="datetime-local"
@@ -421,6 +399,9 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
               </Field>
               <Button type="submit">Schedule</Button>
             </form>
+            <p className="text-xs text-muted-foreground">
+              The send time is interpreted in UTC, not your local time zone.
+            </p>
           </div>
 
           {/* Recurring */}

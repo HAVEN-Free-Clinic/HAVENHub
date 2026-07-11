@@ -41,10 +41,21 @@ test("director interview: schedule, decide accept, release", async ({
   await pub.addCookies([applicantSessionCookie(applicantEmail)]);
   const apply = await pub.newPage();
   await apply.goto(`/apply/${slug}`);
-  await apply.fill('input[name="first_name"]', "Dee");
-  await apply.fill('input[name="last_name"]', "Rector");
-  await apply.fill('input[name="email"]', applicantEmail);
-  await apply.click('button:has-text("Submit application")');
+  // The application is a multi-step wizard: fill the identity section while it is the
+  // visible step, advance with Continue, and Submit only on the final Review step.
+  const submit = apply.getByRole("button", { name: "Submit application" });
+  const firstNameField = apply.locator('input[name="first_name"]');
+  for (let i = 0; i < 8; i++) {
+    if (await submit.isVisible().catch(() => false)) break;
+    if (await firstNameField.isVisible().catch(() => false)) {
+      await firstNameField.fill("Dee");
+      await apply.fill('input[name="last_name"]', "Rector");
+      await apply.fill('input[name="email"]', applicantEmail);
+    }
+    await apply.getByRole("button", { name: "Continue" }).click();
+  }
+  await expect(submit).toBeVisible();
+  await submit.click();
   await expect(apply.getByText(/your application was received/i)).toBeVisible();
   await pub.close();
 

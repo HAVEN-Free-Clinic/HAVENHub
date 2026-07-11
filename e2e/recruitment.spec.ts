@@ -77,3 +77,18 @@ test("recruitment: build (TypePicker), publish, public apply via portal, view su
   await page.goto(`/recruitment/cycles/${cycleId}/applicants`);
   await expect(page.getByText(applicantEmail)).toBeVisible();
 });
+
+// A slug that matches no cycle must not masquerade as a real-but-closed form.
+// An anonymous visitor is bounced to the portal sign-in (redirect to /apply) so
+// they can sign in and see what is actually open, rather than landing on a bare
+// "Applications are closed" notice for an arbitrary URL. Regression for the apply
+// subdomain not prompting sign-in on random slugs.
+test("recruitment: unknown apply slug redirects an anonymous visitor to portal sign-in", async ({ context }) => {
+  const anon = await context.browser()!.newContext();
+  const page = await anon.newPage();
+  await page.goto(`/apply/does-not-exist-${Date.now()}`);
+  await expect(page).toHaveURL((url) => url.pathname === "/apply");
+  await expect(page.getByRole("link", { name: /Sign in with Yale/i })).toBeVisible();
+  await expect(page.getByText(/Applications are closed/i)).toHaveCount(0);
+  await anon.close();
+});

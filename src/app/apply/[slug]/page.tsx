@@ -22,7 +22,13 @@ export default async function ApplyPage({ params, searchParams }: { params: Prom
   const now = new Date();
   const open = cycle && cycle.status === "OPEN" && (!cycle.opensAt || cycle.opensAt <= now) && (!cycle.closesAt || cycle.closesAt >= now);
 
-  if (!cycle || !open) {
+  // Unknown slug (no such cycle): send to the portal entrance rather than imply a
+  // real-but-closed form exists. Signed out lands on the sign-in page; signed in
+  // lands on the applications dashboard. A real cycle that is merely closed keeps
+  // the friendly public notice below.
+  if (!cycle) redirect("/apply");
+
+  if (!open) {
     const support = await getSupportContact();
     return (
       <PortalShell>

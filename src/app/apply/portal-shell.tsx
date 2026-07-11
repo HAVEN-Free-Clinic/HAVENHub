@@ -24,11 +24,14 @@ export async function PortalShell({
   children,
   action,
   className,
+  width = "prose",
 }: {
   children: ReactNode;
   /** Optional trailing masthead control (e.g. a sign-out button). */
   action?: ReactNode;
   className?: string;
+  /** Content column width. `prose` (default) is the reading column; `wide` fits the two-column wizard. */
+  width?: "prose" | "wide";
 }) {
   const orgName = await resolveOrgName();
   return (
@@ -46,7 +49,15 @@ export async function PortalShell({
           {action}
         </div>
       </header>
-      <main className={cx("mx-auto w-full max-w-2xl grow px-6 py-10", className)}>{children}</main>
+      <main
+        className={cx(
+          "mx-auto w-full grow px-6 py-10",
+          width === "wide" ? "max-w-4xl" : "max-w-2xl",
+          className,
+        )}
+      >
+        {children}
+      </main>
     </div>
   );
 }

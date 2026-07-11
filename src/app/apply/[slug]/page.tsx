@@ -9,7 +9,7 @@ import { getSupportContact } from "@/platform/branding/support";
 import { SupportLink } from "@/platform/branding/support-link";
 import { PortalShell } from "../portal-shell";
 import { PortalNotice } from "../portal-notice";
-import { ApplyForm } from "./apply-form";
+import { ApplyWizard } from "./apply-wizard";
 
 export default async function ApplyPage({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<{ type?: string }> }) {
   const { slug } = await params;
@@ -96,9 +96,8 @@ export default async function ApplyPage({ params, searchParams }: { params: Prom
   const initialApplicantType: ApplicantType = type === "renewal" ? "RENEWAL" : type === "transfer" ? "TRANSFER" : "NEW";
 
   return (
-    <PortalShell>
-      <h1 className="text-2xl font-bold tracking-tight text-foreground">{def.title}</h1>
-      <ApplyForm def={def} signedIn={signedIn} signedInName={signedInName} eligible={eligible} isReturning={isReturning} prefill={prefill} currentDepartments={currentDepartments} initialApplicantType={initialApplicantType} initialAnswers={draft?.answers ?? {}} initialApplicantTypeFromDraft={draft?.applicantType} initialRenewalDepartment={draft?.renewalDepartment ?? null} />
+    <PortalShell width="wide">
+      <ApplyWizard def={def} signedIn={signedIn} signedInName={signedInName} eligible={eligible} isReturning={isReturning} prefill={prefill} currentDepartments={currentDepartments} initialApplicantType={initialApplicantType} initialAnswers={draft?.answers ?? {}} initialApplicantTypeFromDraft={draft?.applicantType} initialRenewalDepartment={draft?.renewalDepartment ?? null} />
     </PortalShell>
   );
 }

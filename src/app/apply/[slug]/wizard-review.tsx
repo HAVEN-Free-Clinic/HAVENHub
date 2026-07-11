@@ -1,6 +1,5 @@
 import { Card } from "@/platform/ui/card";
 import { Alert } from "@/platform/ui/alert";
-import { Button } from "@/platform/ui/button";
 import type { WizardField } from "./wizard-steps";
 
 export type ReviewRow = { label: string; value: string };
@@ -51,18 +50,13 @@ export function WizardReview({
   return (
     <div className="space-y-3">
       {groups.map((g) => (
-        <Card key={g.title} className="space-y-3">
+        <Card key={g.stepIndex} className="space-y-3">
           <div className="flex items-center justify-between gap-3 border-b border-border-subtle pb-3">
             <h3 className="text-sm font-semibold text-foreground">{g.title}</h3>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => onEdit(g.stepIndex)}
-              className="text-brand-fg hover:underline"
-            >
+            {/* eslint-disable-next-line no-restricted-syntax -- token-styled avoids primitive className override */}
+            <button type="button" onClick={() => onEdit(g.stepIndex)} aria-label={`Edit ${g.title}`} className="rounded-md px-2 py-1 text-xs font-medium text-brand-fg hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand">
               Edit
-            </Button>
+            </button>
           </div>
           <dl className="space-y-2">
             {g.rows.map((r) => (

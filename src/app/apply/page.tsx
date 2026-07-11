@@ -92,8 +92,16 @@ export default async function PortalHome({ searchParams }: { searchParams: Promi
   const actionRow = cx(cardClasses({ interactive: true, pad: false }), "group flex items-center justify-between gap-4 px-4 py-3.5");
   const actionCue = "inline-flex shrink-0 items-center gap-1 text-sm font-medium text-brand-fg";
   const arrow = <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />;
-  const firstNameRaw = identity.email.split("@")[0].split(".")[0];
-  const firstName = firstNameRaw ? firstNameRaw.charAt(0).toUpperCase() + firstNameRaw.slice(1) : firstNameRaw;
+  // Prefer the signed-in person's real name. An email local part like "j.carney"
+  // would otherwise greet "J", so fall back to the email only when its first
+  // segment is not an initials-style single character; else greet without a name.
+  const person = identity.personId
+    ? await prisma.person.findUnique({ where: { id: identity.personId }, select: { name: true } })
+    : null;
+  const nameFromPerson = person?.name?.trim().split(/\s+/)[0] ?? "";
+  const emailLocalFirst = identity.email.split("@")[0].split(".")[0];
+  const firstNameRaw = nameFromPerson || (emailLocalFirst.length > 1 ? emailLocalFirst : "");
+  const firstName = firstNameRaw ? firstNameRaw.charAt(0).toUpperCase() + firstNameRaw.slice(1) : "";
 
   return (
     <PortalShell
@@ -104,7 +112,7 @@ export default async function PortalHome({ searchParams }: { searchParams: Promi
       }
     >
       <div className="mb-8">
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">Welcome back, {firstName}</h1>
+        <h1 className="text-2xl font-bold tracking-tight text-foreground">{firstName ? `Welcome back, ${firstName}` : "Welcome back"}</h1>
         <p className="mt-1 text-sm text-muted-foreground">Track your applications, pick up a draft, or start something new.</p>
       </div>
 

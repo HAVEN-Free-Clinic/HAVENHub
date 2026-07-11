@@ -12,6 +12,7 @@
 
 - Tokens only (`brand`, `brand-fg`, `brand-faint`, `surface`, `canvas`, `foreground`, `muted-foreground`, `border`, `border-subtle`, `border-strong`, `critical`, `success`); style light and dark; no hardcoded colors.
 - No `tailwind-merge`; do not override primitive base classes by passing conflicting utilities.
+- ESLint `no-restricted-syntax` bans styled raw `<button|input|select|textarea className>`: use a `@/platform/ui` primitive, or if a raw element is genuinely required for custom layout, add `// eslint-disable-next-line no-restricted-syntax -- <reason>` on the line directly above, keeping `className` on the same line as the tag. `<a>`/`<div>`/`<span>` are not restricted.
 - No new dependencies. Motion is CSS transitions only and must respect `prefers-reduced-motion`.
 - Copy contains no em-dashes (use commas, periods, or parentheses). This is ESLint-enforced.
 - Do not change server actions (`submitPublicApplication`, `saveDraftAction`, `uploadDraftFileAction`), the visibility engine, draft/renewal services, auth, or `getApplicantStatus`.
@@ -697,11 +698,11 @@ export function WizardProgress({
             return (
               <li key={s.id}>
                 {done ? (
-                  <button
-                    type="button"
-                    onClick={() => onJump(i)}
-                    className="w-full rounded-lg text-left hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-                  >
+                  // A full-width rail step needs custom layout, so it is a raw button, not
+                  // the Button primitive. The repo's no-restricted-syntax rule flags styled
+                  // raw controls; keep className on the button line and disable it there.
+                  // eslint-disable-next-line no-restricted-syntax -- rail step needs custom full-width layout, not a Button primitive
+                  <button type="button" onClick={() => onJump(i)} className="w-full rounded-lg text-left hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand">
                     {label}
                   </button>
                 ) : (

@@ -51,6 +51,25 @@ describe("branding.supportEmail setting", () => {
   });
 });
 
+describe("branding.applyPortalTitle setting", () => {
+  const def = SETTINGS.find((s) => s.key === "branding.applyPortalTitle");
+
+  it("is registered under Branding as a text input", () => {
+    expect(def).toBeDefined();
+    expect(def!.category).toBe("Branding");
+    expect(def!.input).toEqual({ type: "text" });
+  });
+
+  it("defaults to 'HAVEN Application Portal'", () => {
+    expect(def!.envDefault()).toBe("HAVEN Application Portal");
+  });
+
+  it("requires a non-empty title", () => {
+    expect(def!.schema.safeParse("Apply Here").success).toBe(true);
+    expect(def!.schema.safeParse("").success).toBe(false);
+  });
+});
+
 describe("ui.defaultTheme setting", () => {
   const def = SETTINGS.find((s) => s.key === "ui.defaultTheme");
 

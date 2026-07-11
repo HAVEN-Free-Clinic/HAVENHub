@@ -169,6 +169,16 @@ export const SETTINGS: SettingDef<unknown>[] = [
     secret: false,
   }),
   define<string>({
+    key: "branding.applyPortalTitle",
+    category: "Branding",
+    label: "Application portal title",
+    help: "The browser-tab title for the public application portal (the /apply pages and the apply subdomain). Overrides the application name there only; the rest of the hub keeps the application name above.",
+    input: { type: "text" },
+    schema: z.string().min(1),
+    envDefault: () => "HAVEN Application Portal",
+    secret: false,
+  }),
+  define<string>({
     key: "branding.orgName",
     category: "Branding",
     label: "Organization name",

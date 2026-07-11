@@ -174,6 +174,13 @@ describe("phase 2a branding settings", () => {
     expect(await getSetting<string>("branding.appName")).toBe("Clinic Hub");
   });
 
+  it("resolves branding.applyPortalTitle default then DB override", async () => {
+    expect(await getSetting<string>("branding.applyPortalTitle")).toBe("HAVEN Application Portal");
+    await prisma.setting.create({ data: { key: "branding.applyPortalTitle", value: "Clinic Application Portal" } });
+    _resetSettingsCache();
+    expect(await getSetting<string>("branding.applyPortalTitle")).toBe("Clinic Application Portal");
+  });
+
   it("resolves branding.orgName default then DB override", async () => {
     expect(await getSetting<string>("branding.orgName")).toBe("HAVEN Free Clinic");
     await prisma.setting.create({ data: { key: "branding.orgName", value: "Open Door Clinic" } });

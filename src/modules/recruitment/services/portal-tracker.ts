@@ -17,8 +17,7 @@ const LABELS: Record<TrackerNodeKey, string> = {
 };
 const ORDER: TrackerNodeKey[] = ["submitted", "in_review", "interview", "decision"];
 
-// currentIndex = which node is highlighted; every earlier node is done. A null
-// currentIndex with allDone marks a terminal all-complete state.
+// Assemble a stage from an explicit per-node status list (done/current/upcoming) plus a terminal flag.
 function build(statuses: TrackerNodeStatus[], terminal: TrackerStage["terminal"]): TrackerStage {
   return {
     showTracker: true,

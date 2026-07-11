@@ -278,8 +278,8 @@ export function ApplyWizard({
   const showContinue = !(current.kind === "intro" && renewalGate) && current.kind !== "review";
 
   return (
-    <form ref={formRef} onSubmit={onSubmit} onChange={scheduleSave} className="grid gap-8 md:grid-cols-[220px_1fr]">
-      <WizardProgress steps={steps.map((s) => ({ id: s.id, title: s.title }))} current={stepIndex} onJump={goTo} />
+    <form ref={formRef} noValidate onSubmit={onSubmit} onChange={scheduleSave} className="grid gap-8 md:grid-cols-[220px_1fr]">
+      <WizardProgress steps={steps.map((s) => ({ id: s.id, title: s.title }))} current={stepIndex} onJump={(i) => { setEditingReturn(false); goTo(i); }} />
 
       <div className="min-w-0 space-y-5">
         <div>
@@ -388,7 +388,7 @@ export function ApplyWizard({
 
         <div className="flex items-center justify-between gap-3 border-t border-border-subtle pt-5">
           {stepIndex > 0 ? (
-            <Button type="button" variant="outline" onClick={() => goTo(stepIndex - 1)}>Back</Button>
+            <Button type="button" variant="outline" onClick={() => { setEditingReturn(false); goTo(stepIndex - 1); }}>Back</Button>
           ) : <span />}
           {showContinue && (
             <Button type="button" size="lg" onClick={handleNext} disabled={transferIntoCurrent}>Continue</Button>

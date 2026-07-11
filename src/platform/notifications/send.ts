@@ -1,7 +1,8 @@
 import type { Prisma, PrismaClient, TeamsMessage } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { queueEmail } from "@/platform/email/send";
-import type { TeamsTransport } from "./teams-transport";
+import { resolveTeamsTransport, type TeamsTransport } from "./teams-transport";
+import { createEnqueueFlusher } from "@/platform/flush-on-enqueue";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -24,9 +25,19 @@ export const TEAMS_MAX_ATTEMPTS = 8;
  *  and may be reclaimed by another drain. Mirrors EmailLog's STALE_LOCK_MS. */
 const STALE_LOCK_MS = 5 * 60 * 1000;
 
+const teamsFlusher = createEnqueueFlusher(async () => {
+  const transport = await resolveTeamsTransport();
+  await drainTeamsQueue(transport);
+});
+
+/** Run the Teams drain now, coalescing overlapping calls. Exposed for tests;
+ *  delivery normally fires via queueTeamsMessage on enqueue, and the 30-min
+ *  cron backstop calls drainTeamsQueue directly. */
+export const flushTeamsQueue = teamsFlusher.flushNow;
+
 /** Append a Teams message job, mirroring queueEmail (any Db handle). */
 export async function queueTeamsMessage(db: Db, input: QueueTeamsInput): Promise<TeamsMessage> {
-  return db.teamsMessage.create({
+  const row = await db.teamsMessage.create({
     data: {
       personId: input.personId,
       type: input.type,
@@ -39,6 +50,10 @@ export async function queueTeamsMessage(db: Db, input: QueueTeamsInput): Promise
       emailAlreadyQueued: input.emailAlreadyQueued ?? false,
     },
   });
+  // Deliver on enqueue: after the response commits, drain so the DM goes out in
+  // ~1s instead of waiting for the safety-net cron. No-ops outside a request scope.
+  teamsFlusher.schedule();
+  return row;
 }
 
 /**
@@ -174,9 +189,12 @@ export async function drainTeamsQueue(
         } else {
           await prisma.teamsMessage.update({
             where: { id: row.id },
-            // Release the claim so the row is retryable on the next tick (it sits
-            // behind this invocation's cursor, so it is not re-attempted now).
-            data: { attempts, lastError: message, status: "QUEUED", lockedAt: null },
+            // Keep the claim (do NOT null lockedAt): a failed row stays locked so
+            // its retry is gated by the STALE_LOCK_MS window, not by how often a
+            // drain is triggered. Delivery now fires on enqueue, so an enqueue
+            // burst during an outage must not re-attempt this row until the lock
+            // goes stale (mirrors drainEmailQueue; issue #63).
+            data: { attempts, lastError: message, status: "QUEUED", lockedAt: claimedAt },
           });
         }
       }

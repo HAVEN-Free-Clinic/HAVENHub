@@ -1,7 +1,8 @@
 import type { Prisma, PrismaClient, EmailLog } from "@prisma/client";
 import { prisma } from "@/platform/db";
-import type { EmailTransport } from "./transport";
+import { resolveEmailTransport, type EmailTransport } from "./transport";
 import { resolveSenderForTemplate } from "./sender-rules";
+import { createEnqueueFlusher } from "@/platform/flush-on-enqueue";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -20,6 +21,16 @@ const MAX_ATTEMPTS = 8;
  *  and may be reclaimed by another drain. Bounds the worst-case redelivery delay. */
 const STALE_LOCK_MS = 5 * 60 * 1000;
 
+const emailFlusher = createEnqueueFlusher(async () => {
+  const transport = await resolveEmailTransport();
+  await drainEmailQueue(transport);
+});
+
+/** Run the email drain now, coalescing overlapping calls. Exposed for tests;
+ *  delivery normally fires via queueEmail on enqueue, and the 30-min cron
+ *  backstop calls drainEmailQueue directly. */
+export const flushEmailQueue = emailFlusher.flushNow;
+
 /**
  * Append an email send job in the SAME transaction as the domain write, so a
  * rolled-back mutation never leaks a phantom send. Callers pass any Db handle
@@ -27,7 +38,7 @@ const STALE_LOCK_MS = 5 * 60 * 1000;
  */
 export async function queueEmail(db: Db, input: QueueEmailInput): Promise<EmailLog> {
   const sender = await resolveSenderForTemplate(input.template);
-  return db.emailLog.create({
+  const row = await db.emailLog.create({
     data: {
       toEmail: input.to,
       subject: input.subject,
@@ -40,6 +51,11 @@ export async function queueEmail(db: Db, input: QueueEmailInput): Promise<EmailL
       fromName: sender?.fromName ?? null,
     },
   });
+  // Deliver on enqueue: after the response commits (post-transaction, so this row
+  // is visible), drain the queue so the message goes out in ~1s instead of
+  // waiting for the safety-net cron. No-ops outside a request scope.
+  emailFlusher.schedule();
+  return row;
 }
 
 /**
@@ -64,10 +80,11 @@ export async function queueEmail(db: Db, input: QueueEmailInput): Promise<EmailL
  * updateMany(status=QUEUED, lock free) -> lockedAt=now, so only one worker wins a
  * given row. Two overlapping drains (a backlog that outlives the 60s cron
  * interval, plus an external scheduler that does not skip overlapping runs)
- * therefore cannot both send the same row. The claim is released on completion; a
- * lock left by a crashed worker is reclaimable after STALE_LOCK_MS, which
- * preserves at-least-once delivery (a crash between claim and send re-sends once
- * the lock goes stale).
+ * therefore cannot both send the same row. The claim is released on success or
+ * permanent failure (a transient failure keeps it to gate the retry); a lock left
+ * by a crashed worker is reclaimable after STALE_LOCK_MS, which preserves
+ * at-least-once delivery (a crash between claim and send re-sends once the lock
+ * goes stale).
  */
 export async function drainEmailQueue(
   transport: EmailTransport,
@@ -130,15 +147,22 @@ export async function drainEmailQueue(
         });
       } catch (error) {
         const attempts = row.attempts + 1;
+        const failed = attempts >= MAX_ATTEMPTS;
         await prisma.emailLog.update({
           where: { id: row.id },
           data: {
             attempts,
             lastError: error instanceof Error ? error.message.slice(0, 500) : String(error),
-            status: attempts >= MAX_ATTEMPTS ? "FAILED" : "QUEUED",
-            // Release the claim so the row is retryable on the next tick (it sits
-            // behind this invocation's cursor, so it is not re-attempted now).
-            lockedAt: null,
+            status: failed ? "FAILED" : "QUEUED",
+            // Transient failure: keep the claim (lockedAt stays set) so the retry
+            // is gated by the STALE_LOCK_MS window, not by how often a drain is
+            // triggered. Delivery now fires on enqueue, so an enqueue burst during
+            // an outage must not re-attempt this row until the lock goes stale, or
+            // it would burn all 8 retries in seconds (issue #63).
+            // Permanent failure: release the lock so an admin Retry / Retry-all
+            // (FAILED -> QUEUED) is immediately claimable instead of stuck behind a
+            // stale lock for up to STALE_LOCK_MS.
+            lockedAt: failed ? null : claimedAt,
           },
         });
       }

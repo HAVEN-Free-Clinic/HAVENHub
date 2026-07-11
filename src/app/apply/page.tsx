@@ -6,11 +6,12 @@ import { getApplicantStatus } from "@/modules/recruitment/services/portal-status
 import { applicantSignOutAction } from "./portal-actions";
 import { SignInForm } from "./sign-in-form";
 import { PortalShell } from "./portal-shell";
+import { StatusCard } from "./status-card";
 import { BrandBackdrop } from "@/platform/branding/brand-backdrop";
 import { HavenLogo } from "@/platform/ui/haven-logo";
 import { buttonClasses, Button } from "@/platform/ui/button";
 import { Alert } from "@/platform/ui/alert";
-import { Card, cardClasses } from "@/platform/ui/card";
+import { cardClasses } from "@/platform/ui/card";
 import { getSetting } from "@/platform/settings/service";
 import { getSupportContact } from "@/platform/branding/support";
 import { SupportLink } from "@/platform/branding/support-link";
@@ -91,6 +92,7 @@ export default async function PortalHome({ searchParams }: { searchParams: Promi
   const actionRow = cx(cardClasses({ interactive: true, pad: false }), "group flex items-center justify-between gap-4 px-4 py-3.5");
   const actionCue = "inline-flex shrink-0 items-center gap-1 text-sm font-medium text-brand-fg";
   const arrow = <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />;
+  const firstName = identity.email.split("@")[0].split(".")[0];
 
   return (
     <PortalShell
@@ -101,34 +103,17 @@ export default async function PortalHome({ searchParams }: { searchParams: Promi
       }
     >
       <div className="mb-8">
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">Your applications</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Signed in as {identity.email}.</p>
+        <h1 className="text-2xl font-bold capitalize tracking-tight text-foreground">Welcome back, {firstName}</h1>
+        <p className="mt-1 text-sm text-muted-foreground">Track your applications, pick up a draft, or start something new.</p>
       </div>
 
       {myApps.length > 0 && (
-        <ul className="mb-10 space-y-2">
-          {myApps.map((a) => (
-            <li key={a.slug}>
-              {a.canContinue ? (
-                <Link href={`/apply/${a.slug}`} className={actionRow}>
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm font-medium text-foreground">{a.cycleTitle}</span>
-                    <span className="block truncate text-xs text-muted-foreground">{a.detail}</span>
-                  </span>
-                  <span className={actionCue}>Continue{arrow}</span>
-                </Link>
-              ) : (
-                <Card size="compact" pad={false} className="flex items-center justify-between gap-4 px-4 py-3.5">
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm font-medium text-foreground">{a.cycleTitle}</span>
-                    <span className="block truncate text-xs text-muted-foreground">{a.detail}</span>
-                  </span>
-                  <span className="shrink-0 text-sm font-medium text-foreground">{a.headline}</span>
-                </Card>
-              )}
-            </li>
-          ))}
-        </ul>
+        <section className="mb-10 space-y-3">
+          <SectionHeader>Your applications</SectionHeader>
+          <div className="space-y-3">
+            {myApps.map((a) => <StatusCard key={a.slug} app={a} />)}
+          </div>
+        </section>
       )}
 
       <section className="space-y-3">
@@ -136,9 +121,7 @@ export default async function PortalHome({ searchParams }: { searchParams: Promi
         {openCycles.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-border px-5 py-8 text-center">
             <p className="text-sm font-medium text-foreground">No applications are open right now</p>
-            <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
-              Recruitment opens each term. Check back soon for the next cycle.
-            </p>
+            <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">Recruitment opens each term. Check back soon for the next cycle.</p>
           </div>
         ) : (
           <ul className="space-y-2">

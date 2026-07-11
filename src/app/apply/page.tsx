@@ -92,7 +92,8 @@ export default async function PortalHome({ searchParams }: { searchParams: Promi
   const actionRow = cx(cardClasses({ interactive: true, pad: false }), "group flex items-center justify-between gap-4 px-4 py-3.5");
   const actionCue = "inline-flex shrink-0 items-center gap-1 text-sm font-medium text-brand-fg";
   const arrow = <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />;
-  const firstName = identity.email.split("@")[0].split(".")[0];
+  const firstNameRaw = identity.email.split("@")[0].split(".")[0];
+  const firstName = firstNameRaw ? firstNameRaw.charAt(0).toUpperCase() + firstNameRaw.slice(1) : firstNameRaw;
 
   return (
     <PortalShell
@@ -103,7 +104,7 @@ export default async function PortalHome({ searchParams }: { searchParams: Promi
       }
     >
       <div className="mb-8">
-        <h1 className="text-2xl font-bold capitalize tracking-tight text-foreground">Welcome back, {firstName}</h1>
+        <h1 className="text-2xl font-bold tracking-tight text-foreground">Welcome back, {firstName}</h1>
         <p className="mt-1 text-sm text-muted-foreground">Track your applications, pick up a draft, or start something new.</p>
       </div>
 

@@ -283,6 +283,7 @@ export function ApplyWizard({
 
       <div className="min-w-0 space-y-5">
         <div>
+          <p className="text-sm font-medium text-muted-foreground">{def.title}</p>
           <p className="hidden text-xs font-semibold uppercase tracking-wider text-brand-fg md:block">Step {stepIndex + 1} of {steps.length}</p>
           <h2 ref={headingRef} tabIndex={-1} className="mt-1 text-xl font-bold tracking-tight text-foreground outline-none">
             {current.kind === "intro" ? "Getting started" : current.kind === "review" ? "Review your application" : current.title}

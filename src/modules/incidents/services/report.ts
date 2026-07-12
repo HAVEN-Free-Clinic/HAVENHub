@@ -28,6 +28,8 @@ import { getSetting } from "@/platform/settings/service";
 import { putObject, deleteObject } from "@/platform/storage";
 import { validateUploadedFile } from "@/modules/recruitment/services/upload";
 import { peopleWithAnyPermission } from "@/platform/rbac/holders";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
+import { formatDateOnly } from "@/platform/dates";
 import { notify } from "@/platform/notifications/notify";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
 import {
@@ -1004,7 +1006,8 @@ export async function decideStrike(
         }),
       ]);
       if (volunteer?.contactEmail) {
-        const issuedDate = new Date().toLocaleDateString("en-US", {
+        const zone = await getDisplayTimeZone();
+        const issuedDate = formatDateOnly(new Date(), zone, {
           month: "long", day: "numeric", year: "numeric",
         });
         const html = renderTemplate(descriptor.defaultBody, {

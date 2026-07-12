@@ -9,6 +9,8 @@ import { renderEmail } from "@/platform/email/templates/renderEmail";
 import { notify, type NotifyInput } from "@/platform/notifications/notify";
 import { getSetting } from "@/platform/settings/service";
 import { esc } from "@/platform/email/render/escape";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
+import { formatDateTime } from "@/platform/dates";
 
 export class InterviewError extends Error {
   constructor(message: string) { super(message); this.name = "InterviewError"; }
@@ -178,7 +180,8 @@ export async function sendInterviewInvite(interviewId: string, actorId: string):
   if (!iv.scheduledAt) throw new InterviewError("Set an interview time first.");
   const dept = await prisma.department.findUnique({ where: { code: iv.departmentCode }, select: { name: true } });
   const applicant = iv.application.applicant;
-  const interviewTime = iv.scheduledAt.toLocaleString("en-US", { dateStyle: "full", timeStyle: "short", timeZone: "America/New_York" });
+  const zone = await getDisplayTimeZone();
+  const interviewTime = formatDateTime(iv.scheduledAt, zone, { dateStyle: "full", timeStyle: "short" });
   const joinLink = iv.zoomLink ? `<a href="${esc(iv.zoomLink)}">${esc(iv.zoomLink)}</a>` : "link to follow";
   const email = await renderCycleEmail(iv.application.cycle.id, "recruitment.interview_invite", {
     firstName: applicant.firstName || "there",

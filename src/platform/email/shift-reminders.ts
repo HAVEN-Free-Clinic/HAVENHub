@@ -4,7 +4,7 @@ import { shiftReminderContext } from "./templates/shift";
 import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { getSetting } from "@/platform/settings/service";
-import { isoDateKey } from "@/platform/dates";
+import { formatCalendarDate, isoDateKey } from "@/platform/dates";
 import { selectCurrentClinicDate, getCurrentClinicChannelLink } from "@/platform/teams/channel-link";
 import { notify } from "@/platform/notifications/notify";
 import { renderEmail } from "./templates/renderEmail";
@@ -64,12 +64,11 @@ function uniqueNamesById(entries: { id: string; name: string }[]): string[] {
 export function buildShiftReminders(input: BuildShiftRemindersInput): PreparedReminder[] {
   const { assignments, targetDate, teamsChannelUrl, baseUrl } = input;
 
-  const clinicDateLabel = targetDate.toLocaleDateString("en-US", {
+  const clinicDateLabel = formatCalendarDate(targetDate, {
     weekday: "long",
     month: "long",
     day: "numeric",
     year: "numeric",
-    timeZone: "UTC",
   });
 
   const hipaaComplianceUrl = `${baseUrl}/my-info`;

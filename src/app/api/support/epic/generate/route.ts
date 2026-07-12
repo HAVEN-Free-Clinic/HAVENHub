@@ -31,6 +31,8 @@ import {
 } from "@/modules/support/services/itcm-pdf";
 import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
+import { formatDateOnly } from "@/platform/dates";
 
 
 
@@ -117,7 +119,8 @@ async function generateSpreadsheet(args: {
 }): Promise<Buffer> {
   const ExcelJS = (await import("exceljs")).default;
   const { requestType, people, endDate } = args;
-  const today = new Date().toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
+  const zone = await getDisplayTimeZone();
+  const today = formatDateOnly(new Date(), zone, { month: "2-digit", day: "2-digit", year: "numeric" });
   const isNew = requestType.includes("new");
 
   const wb = new ExcelJS.Workbook();
@@ -306,8 +309,8 @@ export async function POST(req: Request) {
   });
 
   // Build date string for filenames.
-  const now = new Date();
-  const dateStr = `${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}${now.getFullYear()}`;
+  const filenameZone = await getDisplayTimeZone();
+  const dateStr = formatDateOnly(new Date(), filenameZone, { month: "2-digit", day: "2-digit", year: "numeric" }).replace(/\//g, "");
   // Build filename using validated switch to satisfy CodeQL dynamic call check.
   // The authorizer's initials (derived from their name) stand in for the old
   // hardcoded CC/RT/JC keys in the filename.

@@ -44,6 +44,8 @@ import {
   PDFString,
   StandardFonts,
 } from "pdf-lib";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
+import { formatDateOnly } from "@/platform/dates";
 
 /**
  * Section I authorizer details. Resolved by the caller from the current term's
@@ -199,7 +201,8 @@ export async function generatePdf(args: {
   templateBytes: Uint8Array;
 }): Promise<Uint8Array> {
   const { requestType, authorizer: auth, person, endDate, mirrorPerson, templateBytes } = args;
-  const today = new Date().toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
+  const zone = await getDisplayTimeZone();
+  const today = formatDateOnly(new Date(), zone, { month: "2-digit", day: "2-digit", year: "numeric" });
   // The access-type checkbox that marks a request as a termination/deactivation.
   // Confirmed against the YNHH template (controller-verified, Task 6 Step 1):
   // "Check Box60" is the "Delete Access (Systems: ... Date: ...)" box in Section V.

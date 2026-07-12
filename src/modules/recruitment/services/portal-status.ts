@@ -1,6 +1,8 @@
 import { prisma } from "@/platform/db";
 import type { ApplicantIdentity } from "./portal-auth";
 import { isCycleOpen } from "./cycle-window";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
+import { formatDateTime } from "@/platform/dates";
 
 export type ApplicantStatusView = {
   slug: string;
@@ -82,7 +84,8 @@ export async function getApplicantStatus(identity: ApplicantIdentity): Promise<A
       // fall through to the neutral state rather than showing a false rejection.
       views.push({ ...base, state: "NOT_SELECTED", headline: "Not selected this cycle", detail: "Thank you for applying.", canContinue: false });
     } else if (scheduledInterview?.scheduledAt) {
-      const when = scheduledInterview.scheduledAt.toLocaleString("en-US", { dateStyle: "long", timeStyle: "short", timeZone: "America/New_York" });
+      const zone = await getDisplayTimeZone();
+      const when = formatDateTime(scheduledInterview.scheduledAt, zone, { dateStyle: "long", timeStyle: "short" });
       views.push({ ...base, state: "INTERVIEW", headline: "Interview scheduled", detail: scheduledInterview.zoomLink ? `${when} (join link in your email)` : when, canContinue: false });
     } else {
       views.push({ ...base, state: "SUBMITTED", headline: "Submitted", detail: "Under review", canContinue: false });

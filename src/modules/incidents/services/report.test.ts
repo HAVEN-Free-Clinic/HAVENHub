@@ -1029,6 +1029,36 @@ describe("decideStrike (per subject)", () => {
     ).rejects.toBeInstanceOf(IncidentNotFoundError);
   });
 
+  it("a co-subject of the report cannot adjudicate another subject's strike, even holding incidents.manage", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("ITCM");
+    const director = await createPerson("Director", "ds-cosub-dir");
+    const managed = await createPerson("Managed", "ds-cosub-vol");
+    const coSubjectManager = await createPerson("Co Subject Manager", "ds-cosub-mgr");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(managed.id, term.id, dept.id, "VOLUNTEER");
+    await grantPermission(coSubjectManager.id, "incidents.manage");
+
+    // A report linking the managed volunteer (strike requested) and the manager as a
+    // co-subject. The manager holds incidents.manage but is a subject of this report.
+    const report = await submitReport(director.id, {
+      concernTypes: ["ATTENDANCE_RELIABILITY"],
+      description: "Both were involved.",
+      anonymous: true,
+      subjects: [{ personId: managed.id, requestStrike: true }, { personId: coSubjectManager.id }],
+    });
+    const pending = await prisma.incidentReportSubject.findFirstOrThrow({
+      where: { reportId: report.id, strikeDecision: "PENDING" },
+    });
+
+    await expect(
+      decideStrike(coSubjectManager.id, pending.id, { approve: true, category: DISCIPLINARY_CATEGORIES[0] })
+    ).rejects.toBeInstanceOf(IncidentForbiddenError);
+    // The co-subject's attempt leaves the pending strike untouched.
+    const row = await prisma.incidentReportSubject.findUnique({ where: { id: pending.id } });
+    expect(row?.strikeDecision).toBe("PENDING");
+  });
+
   it("approve issues one DisciplinaryAction for that person, mirrors anonymous->confidential, sets APPROVED", async () => {
     const { pending, managed, manager } = await seedPendingStrike();
 

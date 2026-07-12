@@ -180,7 +180,7 @@ export const incidentsDescriptors: TemplateDescriptor[] = [
     key: "incidents.strike_issued",
     name: "Incident: strike issued (subject)",
     category: "transactional" as const,
-    group: "compliance" as const,
+    group: "incidents" as const,
     variables: [
       { name: "subjectName", label: "Subject first name", sampleValue: "Alex" },
       { name: "category", label: "Strike category", sampleValue: "Attendance" },

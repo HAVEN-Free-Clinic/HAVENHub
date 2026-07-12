@@ -56,8 +56,8 @@ export default async function GetStartedPage() {
               aria-label="Onboarding progress"
             >
               <div
-                className="h-full rounded-full bg-white transition-[width] duration-300"
-                style={{ width: `${pct}%` }}
+                className="h-full w-full origin-left rounded-full bg-white transition-transform duration-300 motion-reduce:transition-none"
+                style={{ transform: `scaleX(${pct / 100})` }}
               />
             </div>
           </div>

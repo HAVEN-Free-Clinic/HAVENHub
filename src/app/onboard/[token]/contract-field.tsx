@@ -25,6 +25,13 @@ export function ContractField({
   const iso = (d: Date) => d.toISOString().slice(0, 10);
   const today = new Date();
 
+  // Tie each field's error message to its control so screen readers announce it
+  // on focus and mark the input invalid. errorId derives a stable id per field
+  // name; errorProps wires aria-invalid + aria-describedby onto the input.
+  const errorId = (name: string) => `${name.replace(/[^\w-]/g, "_")}-error`;
+  const errorProps = (name: string): { "aria-invalid": boolean; "aria-describedby"?: string } =>
+    err(name) ? { "aria-invalid": true, "aria-describedby": errorId(name) } : { "aria-invalid": false };
+
   if (block.kind === "agreement") {
     return (
       <div className="space-y-2">
@@ -35,9 +42,9 @@ export function ContractField({
           </>
         )}
         <Field label={`${block.title} (${block.signatureLabel})`} required>
-          <Input name={`sig__${block.id}`} required />
+          <Input name={`sig__${block.id}`} required {...errorProps(`sig__${block.id}`)} />
         </Field>
-        {err(`sig__${block.id}`) && <p className="mt-1 text-xs text-critical">{err(`sig__${block.id}`)}</p>}
+        {err(`sig__${block.id}`) && <p id={errorId(`sig__${block.id}`)} className="mt-1 text-xs text-critical">{err(`sig__${block.id}`)}</p>}
       </div>
     );
   }
@@ -66,8 +73,8 @@ export function ContractField({
           <label className="flex items-center gap-2 text-sm"><Checkbox name="hasEpic" checked={hasEpic} onChange={(e) => setHasEpic(e.target.checked)} /><span>I already have an Epic ID</span></label>
           {hasEpic && (
             <div>
-              <Field label="Existing Epic ID" required><Input name="existingEpicId" required /></Field>
-              {err("existingEpicId") && <p className="mt-1 text-xs text-critical">{err("existingEpicId")}</p>}
+              <Field label="Existing Epic ID" required><Input name="existingEpicId" required {...errorProps("existingEpicId")} /></Field>
+              {err("existingEpicId") && <p id={errorId("existingEpicId")} className="mt-1 text-xs text-critical">{err("existingEpicId")}</p>}
             </div>
           )}
           <Field label="Access type (if known)"><Input name="epicAccessType" /></Field>
@@ -80,13 +87,13 @@ export function ContractField({
       return (
         <div className="space-y-2">
           <p className="text-sm font-medium text-foreground">{label}</p>
-          <Field label="HIPAA completion date" required><Input name="hipaaCompletedAt" type="date" required min={minHipaa} max={maxHipaa} /></Field>
-          {err("hipaaCompletedAt") && <p className="mt-1 text-xs text-critical">{err("hipaaCompletedAt")}</p>}
+          <Field label="HIPAA completion date" required><Input name="hipaaCompletedAt" type="date" required min={minHipaa} max={maxHipaa} {...errorProps("hipaaCompletedAt")} /></Field>
+          {err("hipaaCompletedAt") && <p id={errorId("hipaaCompletedAt")} className="mt-1 text-xs text-critical">{err("hipaaCompletedAt")}</p>}
           <Field label="HIPAA certificate (PDF)" required>
             {/* eslint-disable-next-line no-restricted-syntax -- native file input, no file primitive exists */}
-            <input name="hipaaFile" type="file" accept="application/pdf,image/*" className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground-soft hover:file:bg-muted-strong" />
+            <input name="hipaaFile" type="file" accept="application/pdf,image/*" {...errorProps("hipaaFile")} className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground-soft hover:file:bg-muted-strong" />
           </Field>
-          {err("hipaaFile") && <p className="mt-1 text-xs text-critical">{err("hipaaFile")}</p>}
+          {err("hipaaFile") && <p id={errorId("hipaaFile")} className="mt-1 text-xs text-critical">{err("hipaaFile")}</p>}
         </div>
       );
     }
@@ -98,12 +105,12 @@ export function ContractField({
         return (
           <div className="space-y-4">
             <div>
-              <Field label="First name" required><Input name="firstName" defaultValue={prefill.firstName} required /></Field>
-              {err("firstName") && <p className="mt-1 text-xs text-critical">{err("firstName")}</p>}
+              <Field label="First name" required><Input name="firstName" defaultValue={prefill.firstName} required {...errorProps("firstName")} /></Field>
+              {err("firstName") && <p id={errorId("firstName")} className="mt-1 text-xs text-critical">{err("firstName")}</p>}
             </div>
             <div>
-              <Field label="Last name" required><Input name="lastName" defaultValue={prefill.lastName} required /></Field>
-              {err("lastName") && <p className="mt-1 text-xs text-critical">{err("lastName")}</p>}
+              <Field label="Last name" required><Input name="lastName" defaultValue={prefill.lastName} required {...errorProps("lastName")} /></Field>
+              {err("lastName") && <p id={errorId("lastName")} className="mt-1 text-xs text-critical">{err("lastName")}</p>}
             </div>
           </div>
         );
@@ -115,8 +122,8 @@ export function ContractField({
       const inputName = nameByKey[block.systemKey];
       return (
         <div>
-          <Field label={label} required={required}><Input name={inputName} type={type} defaultValue={defaults[block.systemKey]} required={required} /></Field>
-          {err(inputName) && <p className="mt-1 text-xs text-critical">{err(inputName)}</p>}
+          <Field label={label} required={required}><Input name={inputName} type={type} defaultValue={defaults[block.systemKey]} required={required} {...errorProps(inputName)} /></Field>
+          {err(inputName) && <p id={errorId(inputName)} className="mt-1 text-xs text-critical">{err(inputName)}</p>}
         </div>
       );
     }

@@ -56,6 +56,8 @@ import { displayDate } from "@/modules/schedule/engine/display";
 import { rolesForDept } from "@/modules/schedule/engine/capacity";
 import { isoDateKey, formatCalendarDate } from "@/platform/dates";
 import { Checkbox } from "@/platform/ui/checkbox";
+import { NavForm } from "@/platform/ui/nav-form";
+import Link from "next/link";
 import { AlertTriangle } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -514,23 +516,23 @@ export default async function BuilderPage({ searchParams }: PageProps) {
           </div>
           <div className="flex items-center gap-3">
             {mode === "availability" ? (
-              <a href={href({ mode: "assign" })} className="inline-flex items-center min-h-11 px-3 py-1.5 rounded-lg bg-white/10 text-xs font-medium text-white/80 hover:text-white transition-colors">
+              <Link href={href({ mode: "assign" })} className="inline-flex items-center min-h-11 px-3 py-1.5 rounded-lg bg-white/10 text-xs font-medium text-white/80 hover:text-white transition-colors">
                 &larr; Back to assigning
-              </a>
+              </Link>
             ) : (
               <>
                 {/* View toggle */}
                 <div className="flex items-center rounded-lg bg-white/10 overflow-hidden">
-                  <a href={href({ view: "saturday" })} className={`inline-flex items-center min-h-11 px-3 py-1.5 text-xs font-medium transition-colors ${view === "saturday" ? "bg-white text-brand" : "text-white/70 hover:text-white"}`}>Day view</a>
-                  <a href={href({ view: "grid" })} className={`inline-flex items-center min-h-11 px-3 py-1.5 text-xs font-medium transition-colors border-l border-white/20 ${view === "grid" ? "bg-white text-brand" : "text-white/70 hover:text-white"}`}>Grid view</a>
+                  <Link href={href({ view: "saturday" })} className={`inline-flex items-center min-h-11 px-3 py-1.5 text-xs font-medium transition-colors ${view === "saturday" ? "bg-white text-brand" : "text-white/70 hover:text-white"}`}>Day view</Link>
+                  <Link href={href({ view: "grid" })} className={`inline-flex items-center min-h-11 px-3 py-1.5 text-xs font-medium transition-colors border-l border-white/20 ${view === "grid" ? "bg-white text-brand" : "text-white/70 hover:text-white"}`}>Grid view</Link>
                 </div>
-                <a href={href({ mode: "availability" })} className="inline-flex items-center min-h-11 px-3 py-1.5 rounded-lg bg-white/10 text-xs font-medium text-white/80 hover:text-white transition-colors">
+                <Link href={href({ mode: "availability" })} className="inline-flex items-center min-h-11 px-3 py-1.5 rounded-lg bg-white/10 text-xs font-medium text-white/80 hover:text-white transition-colors">
                   Edit availability
-                </a>
+                </Link>
               </>
             )}
             {/* Department selector */}
-            <form method="GET" action="/schedule/builder" className="flex items-center gap-2">
+            <NavForm action="/schedule/builder" className="flex items-center gap-2">
               {dateParam && <input type="hidden" name="date" value={dateParam} />}
               {view !== "saturday" && <input type="hidden" name="view" value={view} />}
               {mode !== "assign" && <input type="hidden" name="mode" value={mode} />}
@@ -541,7 +543,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                 ))}
               </Select>
               <Button type="submit" variant="outline" size="sm" className="text-foreground border-border-strong bg-surface">Go</Button>
-            </form>
+            </NavForm>
           </div>
         </div>
       </div>
@@ -553,14 +555,16 @@ export default async function BuilderPage({ searchParams }: PageProps) {
         </Alert>
       )}
 
-      {/* Date strip -- hidden in the Grid view, which already shows every date as a column */}
-      {clinicDates.length > 0 && !(view === "grid" && mode !== "availability") && (
+      {/* Date strip -- hidden in Grid view (dates are already columns there) and in
+          edit-availability mode (availability is edited per member across all dates, so the
+          per-date picker is just noise). */}
+      {clinicDates.length > 0 && mode !== "availability" && view !== "grid" && (
         <nav className="flex flex-wrap gap-2 mb-6" aria-label="Clinic dates">
           {clinicDates.map((d) => {
             const key = isoDateKey(d);
             const isSelected = key === selectedDateKey;
             return (
-              <a
+              <Link
                 key={key}
                 href={href({ date: key })}
                 aria-current={isSelected ? "page" : undefined}
@@ -571,7 +575,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                 }
               >
                 {displayDate(key)}
-              </a>
+              </Link>
             );
           })}
         </nav>
@@ -593,20 +597,20 @@ export default async function BuilderPage({ searchParams }: PageProps) {
             <div className="mb-4 flex items-center gap-3">
               <span className="text-sm font-semibold text-foreground-soft">Assigning as:</span>
               <div className="flex items-center rounded-lg border border-border overflow-hidden">
-                <a
+                <Link
                   href={href({ gmode: "assign" })}
                   aria-current={gmode === "assign" ? "true" : undefined}
                   className={`inline-flex items-center min-h-11 px-3 py-1.5 text-xs font-medium transition-colors ${gmode === "assign" ? "bg-brand text-white" : "text-muted-foreground hover:text-foreground-soft"}`}
                 >
                   Volunteer
-                </a>
-                <a
+                </Link>
+                <Link
                   href={href({ gmode: "shadow" })}
                   aria-current={gmode === "shadow" ? "true" : undefined}
                   className={`inline-flex items-center min-h-11 px-3 py-1.5 text-xs font-medium transition-colors border-l ${gmode === "shadow" ? "border-border bg-warning text-white" : "border-transparent text-muted-foreground hover:text-foreground-soft"}`}
                 >
                   Shadow
-                </a>
+                </Link>
               </div>
             </div>
             <BuilderGrid
@@ -633,16 +637,16 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                 </span>
               </div>
 
-              {/* HIPAA banner */}
+              {/* Clearance banner: volunteers scheduled here who are not fully cleared */}
               {data.banner.length > 0 && (
                 <Card size="compact" pad={false} role="status" className="mb-4 px-4 py-3 text-sm text-foreground-soft">
                   <p className="font-semibold mb-1 flex items-center gap-1.5 text-foreground">
                     <AlertTriangle className="h-4 w-4 shrink-0 text-warning" aria-hidden />
-                    HIPAA issues on this date
+                    Clearance issues on this date
                   </p>
                   <ul className="list-disc list-inside space-y-0.5">
                     {data.banner.flatMap((b) =>
-                      b.nonCompliant.map((v) => (
+                      b.notCleared.map((v) => (
                         <li key={v.id}>{v.name}</li>
                       ))
                     )}

@@ -17,6 +17,7 @@ async function selectDeptByCode(page: import("@playwright/test").Page, code: str
   }, code);
   if (!value) throw new Error(`Department option not found for code: ${code}`);
   await deptSelect.selectOption(value);
+  return value;
 }
 
 // ---------------------------------------------------------------------------
@@ -435,9 +436,9 @@ test("Capacity panel is gated to departments with capacity config", async ({ pag
     await page.waitForURL((url) => url.pathname === "/schedule/builder");
 
     // VADM has no capacity config, so the Capacity panel must NOT render.
-    await selectDeptByCode(page, "VADM");
+    const vadmId = await selectDeptByCode(page, "VADM");
     await page.getByRole("button", { name: "Go" }).click();
-    await page.waitForLoadState("networkidle");
+    await page.waitForURL((url) => url.searchParams.get("dept") === vadmId);
     await page.locator('nav[aria-label="Clinic dates"]').getByRole("link").first().click();
     await page.waitForLoadState("networkidle");
     await expect(
@@ -445,9 +446,9 @@ test("Capacity panel is gated to departments with capacity config", async ({ pag
     ).toHaveCount(0);
 
     // SCTP has capacity config (idealHeadcount/patientCapacityPerProvider), so it renders.
-    await selectDeptByCode(page, "SCTP");
+    const sctpId = await selectDeptByCode(page, "SCTP");
     await page.getByRole("button", { name: "Go" }).click();
-    await page.waitForLoadState("networkidle");
+    await page.waitForURL((url) => url.searchParams.get("dept") === sctpId);
     await page.locator('nav[aria-label="Clinic dates"]').getByRole("link").first().click();
     await page.waitForLoadState("networkidle");
 
@@ -546,17 +547,17 @@ test("Builder grid shadow assign: Jack toggles Shadow and assigns from a grid ce
   await page.goto("/schedule/builder");
   await page.waitForURL((url) => url.pathname === "/schedule/builder");
 
-  await selectDeptByCode(page, "VADM");
+  const vadmId = await selectDeptByCode(page, "VADM");
   await page.getByRole("button", { name: "Go" }).click();
-  await page.waitForLoadState("networkidle");
+  await page.waitForURL((url) => url.searchParams.get("dept") === vadmId);
 
   await page.locator('nav[aria-label="Clinic dates"]').getByRole("link").first().click();
-  await page.waitForLoadState("networkidle");
+  await page.waitForURL((url) => url.searchParams.get("date") !== null);
   await page.getByRole("link", { name: "Grid view" }).click();
-  await page.waitForLoadState("networkidle");
+  await page.waitForURL((url) => url.searchParams.get("view") === "grid");
 
   await page.getByRole("link", { name: "Shadow" }).click();
-  await page.waitForLoadState("networkidle");
+  await page.waitForURL((url) => url.searchParams.get("gmode") === "shadow");
 
   // Use the seeded vadmMember (guaranteed unassigned from beforeEach) so the test is
   // independent of ambient DB state. Directors are sorted first in the grid, so the
@@ -584,7 +585,7 @@ test("Builder grid shadow assign: Jack toggles Shadow and assigns from a grid ce
   // Switch to Day view for cleanup. The grid's force:true click can land in an adjacent
   // row due to the sticky member column's z-index geometry; Day view remove is reliable.
   await page.getByRole("link", { name: "Day view" }).click();
-  await page.waitForLoadState("networkidle");
+  await page.waitForURL((url) => url.searchParams.get("view") === "saturday");
 
   // Remove the seeded member's shadow assignment from the Day view Assigned section.
   const assignedSection = page.locator("section").filter({

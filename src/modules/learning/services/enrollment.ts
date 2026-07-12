@@ -1,4 +1,4 @@
-import { prisma } from "@/platform/db";
+import { prisma, runSerializable } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { coursesForMember, type AssignableCourse, type MemberMembership } from "../engine/assignment";
 import { deriveStatus, rollupStatus } from "../engine/status";
@@ -255,62 +255,73 @@ export async function persistScoCmi(
     throw new LearningValidationError("This SCO is not part of the course.");
   }
 
-  // 1. Upsert this SCO's state (untrusted TEXT fields bounded before they hit the row).
   const sco = deriveStatus(cmi.lessonStatus);
-  const existingSco = await prisma.scoProgress.findUnique({
-    where: { personId_courseId_scoId: { personId, courseId, scoId } },
-    select: { completedAt: true },
-  });
-  const scoCompletedAt = sco.completed ? (existingSco?.completedAt ?? new Date()) : null;
-  const scoData = {
-    completedAt: scoCompletedAt,
-    lessonStatus: capText(cmi.lessonStatus, MAX_LESSON_STATUS),
-    scoreRaw: sanitizeScore(cmi.scoreRaw),
-    suspendData: capText(cmi.suspendData, MAX_SUSPEND_DATA),
-    lessonLocation: capText(cmi.lessonLocation, MAX_LESSON_LOCATION),
-  };
-  await prisma.scoProgress.upsert({
-    where: { personId_courseId_scoId: { personId, courseId, scoId } },
-    create: { personId, courseId, scoId, ...scoData },
-    update: scoData,
-  });
 
-  // 2. Recompute the course rollup over every SCO in the manifest.
-  const rows = await prisma.scoProgress.findMany({
-    where: { personId, courseId },
-    select: { scoId: true, lessonStatus: true, scoreRaw: true },
-  });
-  const statusById = new Map(rows.map((r) => [r.scoId, r.lessonStatus]));
-  const roll = rollupStatus(scos.map((s) => statusById.get(s.id) ?? null));
+  // Steps 1+2 (upsert this SCO, then recompute the course rollup from ALL SCOs) run
+  // in one Serializable transaction. Without it, two concurrent commits for
+  // different SCOs of the same (person, course) -- e.g. the course open in two tabs
+  // -- can each read the SCO set before the other's write is visible and the last
+  // writer clobbers a COMPLETE rollup with a stale IN_PROGRESS one, silently
+  // blocking a learner who finished every SCO. Serializable makes Postgres abort the
+  // loser of a conflicting pair; runSerializable retries it, and the retry reads the
+  // winner's committed SCO and rolls up correctly.
+  await runSerializable(async (tx) => {
+    // 1. Upsert this SCO's state (untrusted TEXT fields bounded before they hit the row).
+    const existingSco = await tx.scoProgress.findUnique({
+      where: { personId_courseId_scoId: { personId, courseId, scoId } },
+      select: { completedAt: true },
+    });
+    const scoCompletedAt = sco.completed ? (existingSco?.completedAt ?? new Date()) : null;
+    const scoData = {
+      completedAt: scoCompletedAt,
+      lessonStatus: capText(cmi.lessonStatus, MAX_LESSON_STATUS),
+      scoreRaw: sanitizeScore(cmi.scoreRaw),
+      suspendData: capText(cmi.suspendData, MAX_SUSPEND_DATA),
+      lessonLocation: capText(cmi.lessonLocation, MAX_LESSON_LOCATION),
+    };
+    await tx.scoProgress.upsert({
+      where: { personId_courseId_scoId: { personId, courseId, scoId } },
+      create: { personId, courseId, scoId, ...scoData },
+      update: scoData,
+    });
 
-  // Roll up the course score as the HIGHEST score among the SCOs that reported one
-  // (eXeLearning/Moodle convention: the learner's best quiz score), or null when none
-  // did. For a single-SCO course this is just that SCO's score.
-  const scoreById = new Map(rows.map((r) => [r.scoId, r.scoreRaw]));
-  const scoScores = scos
-    .map((s) => scoreById.get(s.id))
-    .filter((v): v is number => v != null);
-  const rolledScore = scoScores.length ? sanitizeScore(Math.max(...scoScores)) : null;
+    // 2. Recompute the course rollup over every SCO in the manifest.
+    const rows = await tx.scoProgress.findMany({
+      where: { personId, courseId },
+      select: { scoId: true, lessonStatus: true, scoreRaw: true },
+    });
+    const statusById = new Map(rows.map((r) => [r.scoId, r.lessonStatus]));
+    const roll = rollupStatus(scos.map((s) => statusById.get(s.id) ?? null));
 
-  const existingCourse = await prisma.courseProgress.findUnique({
-    where: { personId_courseId: { personId, courseId } },
-    select: { completedAt: true },
-  });
-  const completedAt = roll.completed ? (existingCourse?.completedAt ?? new Date()) : null;
+    // Roll up the course score as the HIGHEST score among the SCOs that reported one
+    // (eXeLearning/Moodle convention: the learner's best quiz score), or null when none
+    // did. For a single-SCO course this is just that SCO's score.
+    const scoreById = new Map(rows.map((r) => [r.scoId, r.scoreRaw]));
+    const scoScores = scos
+      .map((s) => scoreById.get(s.id))
+      .filter((v): v is number => v != null);
+    const rolledScore = scoScores.length ? sanitizeScore(Math.max(...scoScores)) : null;
 
-  // lessonStatus is a rollup token so existing readers (dashboard, getMyCourses)
-  // keep deriving the course status from CourseProgress unchanged.
-  const courseData = {
-    status: roll.status,
-    completedAt,
-    lessonStatus: roll.completed ? "completed" : "incomplete",
-    scoreRaw: rolledScore,
-    suspendData: null,
-    lessonLocation: null,
-  };
-  await prisma.courseProgress.upsert({
-    where: { personId_courseId: { personId, courseId } },
-    create: { personId, courseId, ...courseData },
-    update: courseData,
+    const existingCourse = await tx.courseProgress.findUnique({
+      where: { personId_courseId: { personId, courseId } },
+      select: { completedAt: true },
+    });
+    const completedAt = roll.completed ? (existingCourse?.completedAt ?? new Date()) : null;
+
+    // lessonStatus is a rollup token so existing readers (dashboard, getMyCourses)
+    // keep deriving the course status from CourseProgress unchanged.
+    const courseData = {
+      status: roll.status,
+      completedAt,
+      lessonStatus: roll.completed ? "completed" : "incomplete",
+      scoreRaw: rolledScore,
+      suspendData: null,
+      lessonLocation: null,
+    };
+    await tx.courseProgress.upsert({
+      where: { personId_courseId: { personId, courseId } },
+      create: { personId, courseId, ...courseData },
+      update: courseData,
+    });
   });
 }

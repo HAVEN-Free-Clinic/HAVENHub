@@ -951,6 +951,21 @@ model ComplianceReminder {
   person         Person    @relation(fields: [personId], references: [id], onDelete: Cascade)
 }
 
+/// Idempotency marker for periodic reminder dispatches (shift reminders + schedule
+/// request reminders, which have no per-person state table of their own). One row
+/// per (kind, personId, periodKey); the unique index turns "insert the marker" into
+/// an atomic claim, so two overlapping cron runs cannot both send the same reminder.
+/// Rows are lightweight (one per person per period) and retained.
+model ReminderDispatch {
+  id        String   @id @default(cuid())
+  kind      String
+  personId  String
+  periodKey String
+  createdAt DateTime @default(now())
+
+  @@unique([kind, personId, periodKey])
+}
+
 /// Single-row store for the delegated Graph mail credential (the rotating
 /// refresh token and connection metadata). id defaults to a fixed sentinel so
 /// there is at most one row.
@@ -1318,6 +1333,10 @@ model OnboardingContract {
   hipaaSize                Int?
   hipaaCompletedAt         DateTime?
   sentAt                   DateTime?
+  /// When the onboarding link stops being usable. Set (and refreshed) on every
+  /// send/resend. Null on contracts created before this field existed: those are
+  /// grandfathered (no expiry) until the next resend stamps one.
+  expiresAt                DateTime?
   submittedAt              DateTime?
   promotedAt               DateTime?
   promotedById             String?

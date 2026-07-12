@@ -1,95 +1,92 @@
 /**
- * Tests for the HIPAA compliance banner summarizer.
- *
- * New module (no legacy equivalent); TDD from scratch.
+ * Tests for the clearance banner summarizer.
  */
 
 import { describe, it, expect } from "vitest";
-import { summarizeNonCompliant, type DeptBanner } from "./banner";
-import type { ComplianceStatus } from "@/platform/compliance/rules";
+import { summarizeNotCleared, type DeptBanner } from "./banner";
 
-function vol(id: string, name: string, status: ComplianceStatus) {
-  return { id, name, status };
+function vol(id: string, name: string, cleared: boolean) {
+  return { id, name, cleared };
 }
 
-describe("summarizeNonCompliant", () => {
+describe("summarizeNotCleared", () => {
   it("returns an empty array for empty input", () => {
-    expect(summarizeNonCompliant([])).toEqual([]);
+    expect(summarizeNotCleared([])).toEqual([]);
   });
 
-  it("omits departments where every volunteer is COMPLIANT", () => {
-    const result = summarizeNonCompliant([
+  it("omits departments where every volunteer is cleared", () => {
+    const result = summarizeNotCleared([
       {
         departmentId: "d1",
         departmentName: "SCTS",
-        volunteers: [vol("v1", "Alice", "COMPLIANT"), vol("v2", "Bob", "COMPLIANT")],
+        volunteers: [vol("v1", "Alice", true), vol("v2", "Bob", true)],
       },
     ]);
     expect(result).toEqual([]);
   });
 
-  it("includes a department that has at least one non-compliant volunteer", () => {
-    const result = summarizeNonCompliant([
+  it("includes a department that has at least one not-cleared volunteer", () => {
+    const result = summarizeNotCleared([
       {
         departmentId: "d1",
         departmentName: "SCTS",
-        volunteers: [vol("v1", "Alice", "COMPLIANT"), vol("v2", "Bob", "EXPIRED")],
+        volunteers: [vol("v1", "Alice", true), vol("v2", "Bob", false)],
       },
     ]);
     expect(result).toEqual<DeptBanner[]>([
       {
         departmentId: "d1",
         departmentName: "SCTS",
-        nonCompliant: [{ id: "v2", name: "Bob" }],
+        notCleared: [{ id: "v2", name: "Bob" }],
       },
     ]);
   });
 
-  it("treats EXPIRED, EXPIRING_SOON, UNKNOWN_DATE, and NO_CERTIFICATE all as non-compliant", () => {
-    const result = summarizeNonCompliant([
+  it("lists every not-cleared volunteer in order", () => {
+    const result = summarizeNotCleared([
       {
         departmentId: "d1",
         departmentName: "JCTS",
         volunteers: [
-          vol("v1", "Alice", "EXPIRED"),
-          vol("v2", "Bob", "EXPIRING_SOON"),
-          vol("v3", "Carol", "UNKNOWN_DATE"),
-          vol("v4", "Dan", "NO_CERTIFICATE"),
-          vol("v5", "Eve", "COMPLIANT"),
+          vol("v1", "Alice", false),
+          vol("v2", "Bob", false),
+          vol("v3", "Carol", false),
+          vol("v4", "Dan", false),
+          vol("v5", "Eve", true),
         ],
       },
     ]);
     expect(result).toHaveLength(1);
-    expect(result[0].nonCompliant.map((v) => v.id)).toEqual(["v1", "v2", "v3", "v4"]);
+    expect(result[0].notCleared.map((v) => v.id)).toEqual(["v1", "v2", "v3", "v4"]);
   });
 
   it("preserves the input ordering of departments", () => {
-    const result = summarizeNonCompliant([
+    const result = summarizeNotCleared([
       {
         departmentId: "d2",
         departmentName: "EXEC",
-        volunteers: [vol("v2", "Bob", "EXPIRED")],
+        volunteers: [vol("v2", "Bob", false)],
       },
       {
         departmentId: "d1",
         departmentName: "SCTS",
-        volunteers: [vol("v1", "Alice", "EXPIRING_SOON")],
+        volunteers: [vol("v1", "Alice", false)],
       },
     ]);
     expect(result.map((d) => d.departmentId)).toEqual(["d2", "d1"]);
   });
 
-  it("omits compliant departments even in a mixed list", () => {
-    const result = summarizeNonCompliant([
+  it("omits cleared departments even in a mixed list", () => {
+    const result = summarizeNotCleared([
       {
         departmentId: "d1",
         departmentName: "SCTS",
-        volunteers: [vol("v1", "Alice", "COMPLIANT")],
+        volunteers: [vol("v1", "Alice", true)],
       },
       {
         departmentId: "d2",
         departmentName: "JCTS",
-        volunteers: [vol("v2", "Bob", "EXPIRED")],
+        volunteers: [vol("v2", "Bob", false)],
       },
       {
         departmentId: "d3",
@@ -102,7 +99,7 @@ describe("summarizeNonCompliant", () => {
   });
 
   it("handles a department with zero volunteers (omits it)", () => {
-    const result = summarizeNonCompliant([
+    const result = summarizeNotCleared([
       { departmentId: "d1", departmentName: "EXEC", volunteers: [] },
     ]);
     expect(result).toEqual([]);

@@ -201,6 +201,9 @@ export async function generatePdf(args: {
   templateBytes: Uint8Array;
 }): Promise<Uint8Array> {
   const { requestType, authorizer: auth, person, endDate, mirrorPerson, templateBytes } = args;
+  // Configured display zone (default Eastern), not the server's UTC wall clock, so the
+  // Section I authorization date and New-Hire start date match the filename and the
+  // client-computed email subject instead of dating a day ahead late-evening Eastern.
   const zone = await getDisplayTimeZone();
   const today = formatDateOnly(new Date(), zone, { month: "2-digit", day: "2-digit", year: "numeric" });
   // The access-type checkbox that marks a request as a termination/deactivation.

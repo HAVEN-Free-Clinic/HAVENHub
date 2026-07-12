@@ -8,6 +8,7 @@ describe("notification registry", () => {
     expect(keys).toEqual(
       [
         "compliance-date-review",
+        "compliance-verification-review",
         "compliance-escalation",
         "compliance-reminder",
         "epic-activation",

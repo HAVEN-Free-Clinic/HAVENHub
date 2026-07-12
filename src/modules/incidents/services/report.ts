@@ -40,8 +40,6 @@ import {
 } from "@/platform/email/templates/incidents";
 import { issueAction, DISCIPLINARY_CATEGORIES } from "./disciplinary";
 import { queueEmail } from "@/platform/email/send";
-import { renderTemplate } from "@/platform/email/render/render";
-import { getDescriptor } from "@/platform/email/templates/registry";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -898,8 +896,16 @@ export async function decideStrike(
     include: { report: true },
   });
   if (!subject) throw new IncidentNotFoundError();
-  // A linked subject may never decide a strike on themselves, even holding incidents.manage.
-  if (subject.personId === actorPersonId) throw new IncidentForbiddenError();
+  // A linked subject of the report may never decide ANY strike on it, even holding
+  // incidents.manage and even against a co-subject (mirrors reviewReport). The prior
+  // `subject.personId === actorPersonId` check only blocked the actor's own row, so a
+  // reviewer who was a co-subject of a multi-subject report could adjudicate a peer's
+  // strike on a report they are otherwise barred from viewing.
+  const actorIsSubject = await prisma.incidentReportSubject.findFirst({
+    where: { reportId: subject.reportId, personId: actorPersonId },
+    select: { id: true },
+  });
+  if (actorIsSubject) throw new IncidentForbiddenError();
   if (subject.strikeDecision !== "PENDING") {
     throw new IncidentValidationError("This linked person has no pending strike request.");
   }
@@ -992,41 +998,41 @@ export async function decideStrike(
   await notifyReporterOfStrikeDecision(report, actorPersonId, true);
 
   // Notify the subject that a strike has been officially issued against them.
+  // Route through renderEmail so the message gets the shared branded layout and
+  // honors any admin template override, matching the other four incident emails
+  // (a direct renderTemplate call shipped a bare, unstyled fragment and ignored
+  // /admin/email/templates edits).
   try {
-    const descriptor = getDescriptor("incidents.strike_issued");
-    if (descriptor) {
-      const [volunteer, issuer] = await Promise.all([
-        prisma.person.findUnique({
-          where: { id: subject.personId },
-          select: { name: true, contactEmail: true },
-        }),
-        prisma.person.findUnique({
-          where: { id: actorPersonId },
-          select: { name: true },
-        }),
-      ]);
-      if (volunteer?.contactEmail) {
-        const zone = await getDisplayTimeZone();
-        const issuedDate = formatDateOnly(new Date(), zone, {
-          month: "long", day: "numeric", year: "numeric",
-        });
-        const html = renderTemplate(descriptor.defaultBody, {
-          subjectName: volunteer.name?.split(" ")[0] ?? volunteer.name ?? "",
-          category,
-          description: report.description ?? "",
-          issuedBy: issuer?.name ?? "HAVEN Directors",
-          issuedDate,
-        });
-        const emailSubject = renderTemplate(descriptor.defaultSubject, {});
-        await queueEmail(prisma, {
-          to: volunteer.contactEmail,
-          subject: emailSubject,
-          html,
-          template: "incidents.strike_issued",
-          personId: subject.personId,
-          triggeredById: actorPersonId,
-        });
-      }
+    const [volunteer, issuer] = await Promise.all([
+      prisma.person.findUnique({
+        where: { id: subject.personId },
+        select: { name: true, contactEmail: true },
+      }),
+      prisma.person.findUnique({
+        where: { id: actorPersonId },
+        select: { name: true },
+      }),
+    ]);
+    if (volunteer?.contactEmail) {
+      const zone = await getDisplayTimeZone();
+      const issuedDate = formatDateOnly(new Date(), zone, {
+        month: "long", day: "numeric", year: "numeric",
+      });
+      const rendered = await renderEmail("incidents.strike_issued", {
+        subjectName: volunteer.name?.split(" ")[0] ?? volunteer.name ?? "",
+        category,
+        description: report.description ?? "",
+        issuedBy: issuer?.name ?? "HAVEN Directors",
+        issuedDate,
+      });
+      await queueEmail(prisma, {
+        to: volunteer.contactEmail,
+        subject: rendered.subject,
+        html: rendered.html,
+        template: "incidents.strike_issued",
+        personId: subject.personId,
+        triggeredById: actorPersonId,
+      });
     }
   } catch {
     // Best-effort notifications.

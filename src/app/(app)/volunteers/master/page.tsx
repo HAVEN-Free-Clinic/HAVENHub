@@ -25,6 +25,7 @@ import { Select } from "@/platform/ui/select";
 import { Button, buttonClasses } from "@/platform/ui/button";
 import { StatCard } from "@/platform/ui/stat-card";
 import { Alert } from "@/platform/ui/alert";
+import { NavForm } from "@/platform/ui/nav-form";
 import {
   masterCompliance,
   setCompletionDateAsManager,
@@ -39,6 +40,7 @@ import type { ComplianceStatus } from "@/platform/compliance/rules";
 import { certExpiresAt } from "@/platform/compliance/rules";
 import { CalendarDate, DateOnly } from "@/platform/dates/display";
 import Link from "next/link";
+import type { OnboardingTaskKey, OnboardingTaskState } from "@/modules/onboarding/engine/status";
 
 type PageProps = {
   searchParams: Promise<{
@@ -82,6 +84,28 @@ const ALL_STATUSES: ComplianceStatus[] = [
   "UNKNOWN_DATE",
   "NO_CERTIFICATE",
 ];
+
+// Clearance task display (learning + EHS columns).
+function taskState(
+  clearance: { tasks: { key: OnboardingTaskKey; state: OnboardingTaskState }[] },
+  key: OnboardingTaskKey
+): OnboardingTaskState | null {
+  return clearance.tasks.find((t) => t.key === key)?.state ?? null;
+}
+
+const TASK_STATE_LABEL: Record<OnboardingTaskState, string> = {
+  COMPLETE: "Complete",
+  IN_PROGRESS: "In progress",
+  INCOMPLETE: "Incomplete",
+  NOT_REQUIRED: "Not required",
+};
+
+const TASK_STATE_TONE: Record<OnboardingTaskState, Tone> = {
+  COMPLETE: "success",
+  IN_PROGRESS: "warning",
+  INCOMPLETE: "critical",
+  NOT_REQUIRED: "default",
+};
 
 // ---------------------------------------------------------------------------
 // Page
@@ -179,7 +203,7 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
     <div>
       <PageHeader
         title="Master compliance view"
-        description="HIPAA compliance status across all active clinic members."
+        description="Full clearance status across all active clinic members: HIPAA, training, learning, and EHS."
       />
 
       {errorMessage && (
@@ -222,9 +246,14 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
         />
       </div>
 
+      {/* Clearance summary (full clearance, not just HIPAA) */}
+      <div className="mt-3 grid grid-cols-2 gap-3">
+        <StatCard label="Fully cleared" value={result.clearedCount} tone="success" />
+        <StatCard label="Missing EHS" value={result.ehsMissingCount} tone="warning" />
+      </div>
+
       {/* Filter bar - GET form so filters are in the URL */}
-      <form
-        method="GET"
+      <NavForm
         action="/volunteers/master"
         className="mt-6 flex flex-wrap items-end gap-3"
       >
@@ -277,7 +306,7 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
             Clear
           </Link>
         )}
-      </form>
+      </NavForm>
 
       {/* Results */}
       <div className="mt-4">
@@ -296,7 +325,9 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
                   <TH>Departments</TH>
                   <TH>Status</TH>
                   <TH>Training</TH>
-                  <TH>Overall</TH>
+                  <TH>Learning</TH>
+                  <TH>EHS</TH>
+                  <TH>Cleared</TH>
                   <TH>Completed</TH>
                   <TH>Expires</TH>
                   <TH>Verified</TH>
@@ -308,20 +339,18 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
                   const expiresAt = row.cert?.completionDate
                     ? certExpiresAt(row.cert.completionDate)
                     : null;
+                  const learningState = taskState(row.clearance, "learning");
+                  const ehsState = taskState(row.clearance, "ehs");
 
                   return (
                     <TR key={row.person.id}>
                       <TD className="font-medium">
-                        {isAdmin ? (
-                          <Link
-                            href={`/admin/people/${row.person.id}`}
-                            className="text-brand-fg underline underline-offset-2 hover:opacity-75"
-                          >
-                            {row.person.name}
-                          </Link>
-                        ) : (
-                          row.person.name
-                        )}
+                        <Link
+                          href={`/volunteers/compliance/${row.person.id}`}
+                          className="text-brand-fg underline underline-offset-2 hover:opacity-75"
+                        >
+                          {row.person.name}
+                        </Link>
                       </TD>
                       <TD className="text-foreground-soft text-sm">
                         {row.departments.join(", ")}
@@ -343,17 +372,23 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
                         )}
                       </TD>
                       <TD>
-                        {row.isVolunteer ? (
-                          <Badge
-                            tone={
-                              row.overallClearance === "CLEARED" ? "success" : "critical"
-                            }
-                          >
-                            {row.overallClearance === "CLEARED" ? "Cleared" : "Not Cleared"}
-                          </Badge>
+                        {learningState ? (
+                          <Badge tone={TASK_STATE_TONE[learningState]}>{TASK_STATE_LABEL[learningState]}</Badge>
                         ) : (
                           <span className="text-subtle-foreground">-</span>
                         )}
+                      </TD>
+                      <TD>
+                        {ehsState ? (
+                          <Badge tone={TASK_STATE_TONE[ehsState]}>{TASK_STATE_LABEL[ehsState]}</Badge>
+                        ) : (
+                          <span className="text-subtle-foreground">-</span>
+                        )}
+                      </TD>
+                      <TD>
+                        <Badge tone={row.clearance.cleared ? "success" : "critical"}>
+                          {row.clearance.cleared ? "Cleared" : "Not cleared"}
+                        </Badge>
                       </TD>
                       <TD className="text-foreground-soft tabular-nums">
                         <CalendarDate value={row.cert?.completionDate} />

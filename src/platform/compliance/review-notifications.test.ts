@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
-import { notifyDatelessCertReview } from "./review-notifications";
+import { notifyDatelessCertReview, notifyCertNeedsVerification } from "./review-notifications";
 
 beforeEach(resetDb);
 
@@ -57,6 +57,48 @@ describe("notifyDatelessCertReview", () => {
 
     expect(count).toBe(1);
     const notes = await prisma.notification.findMany({ where: { type: "compliance-date-review" } });
+    expect(notes.map((n) => n.personId)).toEqual([other.id]);
+  });
+});
+
+describe("notifyCertNeedsVerification", () => {
+  it("notifies every compliance manager for verification and returns the count", async () => {
+    const m1 = await createComplianceManager("Cathy", "cathy@x.org");
+    const m2 = await createComplianceManager("Carl", "carl@x.org");
+    const volunteer = await prisma.person.create({ data: { name: "Val Volunteer" } });
+
+    const count = await notifyCertNeedsVerification(prisma, { id: volunteer.id, name: volunteer.name });
+
+    expect(count).toBe(2);
+    const notes = await prisma.notification.findMany({
+      where: { type: "compliance-verification-review" },
+      orderBy: { personId: "asc" },
+    });
+    expect(notes.map((n) => n.personId).sort()).toEqual([m1.id, m2.id].sort());
+    for (const note of notes) {
+      expect(note.body).toContain("Val Volunteer");
+      expect(note.link).toMatch(/\/volunteers\/master$/);
+    }
+  });
+
+  it("returns 0 and creates no notifications when there are no managers", async () => {
+    const volunteer = await prisma.person.create({ data: { name: "Val Volunteer" } });
+
+    const count = await notifyCertNeedsVerification(prisma, { id: volunteer.id, name: volunteer.name });
+
+    expect(count).toBe(0);
+    const notes = await prisma.notification.findMany({ where: { type: "compliance-verification-review" } });
+    expect(notes).toEqual([]);
+  });
+
+  it("does not notify the volunteer even when they are themselves a compliance manager", async () => {
+    const other = await createComplianceManager("Cathy", "cathy@x.org");
+    const selfManager = await createComplianceManager("Sam Self", "sam@x.org");
+
+    const count = await notifyCertNeedsVerification(prisma, { id: selfManager.id, name: selfManager.name });
+
+    expect(count).toBe(1);
+    const notes = await prisma.notification.findMany({ where: { type: "compliance-verification-review" } });
     expect(notes.map((n) => n.personId)).toEqual([other.id]);
   });
 });

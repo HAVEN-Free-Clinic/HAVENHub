@@ -15,6 +15,20 @@ import { resolveContractLayout } from "../contract/resolve";
 import { parseContractLayout, type ContractLayout } from "../contract/layout";
 import { DEFAULT_CONTRACT_LAYOUT } from "../contract/system-fields";
 
+/**
+ * How long an onboarding link stays usable after a send. The link is a standing
+ * credential (opening it lets someone submit onboarding data as the applicant), so
+ * it must not live forever; 21 days comfortably covers a real applicant while
+ * bounding the window if the URL later leaks. Refreshed on every resend.
+ */
+const ONBOARDING_LINK_TTL_MS = 21 * 24 * 60 * 60 * 1000;
+
+/** True when the contract's link has passed its expiry. Null expiresAt (contracts
+ *  created before the field existed) is grandfathered as non-expiring. */
+function isContractExpired(contract: { expiresAt: Date | null }): boolean {
+  return contract.expiresAt != null && contract.expiresAt.getTime() < Date.now();
+}
+
 /** Parse a frozen snapshot, falling back to the code default if it is null or invalid. */
 function safeParseLayout(value: unknown): ContractLayout {
   if (value == null) return DEFAULT_CONTRACT_LAYOUT;
@@ -136,7 +150,9 @@ export async function createOrResendContract(
     });
     await tx.onboardingContract.update({
       where: { id: c.id },
-      data: { sentAt: new Date() },
+      // Refresh the expiry on every (re)send so a resend revives a lapsed link and
+      // a fresh send bounds the credential's lifetime.
+      data: { sentAt: new Date(), expiresAt: new Date(Date.now() + ONBOARDING_LINK_TTL_MS) },
     });
   });
   await recordAudit({
@@ -149,7 +165,11 @@ export async function createOrResendContract(
 }
 
 export async function getContractByToken(token: string) {
-  return prisma.onboardingContract.findUnique({ where: { token } });
+  const contract = await prisma.onboardingContract.findUnique({ where: { token } });
+  // An expired link is treated as invalid (the page shows the not-valid state). An
+  // SRR can revive it by resending, which refreshes expiresAt on the same token.
+  if (contract && isContractExpired(contract)) return null;
+  return contract;
 }
 
 export type ContractSubmission = {
@@ -186,6 +206,9 @@ export async function submitContract(
   if (!contract) throw new ContractError("This onboarding link is not valid.");
   if (contract.status !== "PENDING") {
     throw new ContractError("This onboarding form has already been submitted.");
+  }
+  if (isContractExpired(contract)) {
+    throw new ContractError("This onboarding link has expired. Please ask your recruitment lead to resend it.");
   }
 
   const e: Record<string, string> = {};

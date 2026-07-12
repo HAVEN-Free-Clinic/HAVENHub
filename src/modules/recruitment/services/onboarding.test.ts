@@ -92,6 +92,47 @@ it("getContractByToken returns the contract", async () => {
   expect((await getContractByToken(c.token))?.id).toBe(c.id);
 });
 
+describe("onboarding link expiry", () => {
+  it("sets a future expiry on send and refreshes it on resend", async () => {
+    const { srr, acceptance } = await seed();
+    const c1 = await createOrResendContract(acceptance.id, srr.id, "http://test");
+    expect(c1.expiresAt).not.toBeNull();
+    expect(c1.expiresAt!.getTime()).toBeGreaterThan(Date.now());
+
+    // Backdate the expiry, then resend: the same link's expiry is pushed back out.
+    await prisma.onboardingContract.update({ where: { id: c1.id }, data: { expiresAt: new Date(Date.now() - 1000) } });
+    const c2 = await createOrResendContract(acceptance.id, srr.id, "http://test");
+    expect(c2.id).toBe(c1.id);
+    expect(c2.expiresAt!.getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it("getContractByToken treats an expired link as invalid (null)", async () => {
+    const { srr, acceptance } = await seed();
+    const c = await createOrResendContract(acceptance.id, srr.id, "http://test");
+    await prisma.onboardingContract.update({ where: { id: c.id }, data: { expiresAt: new Date(Date.now() - 1000) } });
+    expect(await getContractByToken(c.token)).toBeNull();
+  });
+
+  it("grandfathers a contract whose expiresAt is null (pre-existing link, no expiry)", async () => {
+    const { srr, acceptance } = await seed();
+    const c = await createOrResendContract(acceptance.id, srr.id, "http://test");
+    await prisma.onboardingContract.update({ where: { id: c.id }, data: { expiresAt: null } });
+    expect((await getContractByToken(c.token))?.id).toBe(c.id);
+  });
+
+  it("submitContract rejects an expired link before validating", async () => {
+    const { srr, acceptance } = await seed();
+    const c = await createOrResendContract(acceptance.id, srr.id, "http://test");
+    await prisma.onboardingContract.update({ where: { id: c.id }, data: { expiresAt: new Date(Date.now() - 1000) } });
+    await expect(
+      submitContract(c.token, {
+        firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu", initials: "AL",
+        epicNeeded: false, hasEpic: false, worksWithYnhh: false,
+      } as ContractSubmission),
+    ).rejects.toBeInstanceOf(ContractError);
+  });
+});
+
 it("submitContract validates signatures + hipaa and stores SUBMITTED", async () => {
   const { srr, acceptance } = await seed();
   const c = await createOrResendContract(acceptance.id, srr.id, "http://test");

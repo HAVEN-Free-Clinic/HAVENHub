@@ -27,6 +27,8 @@ import {
 import { searchPeople } from "@/modules/admin/services/people";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
+import { NavForm } from "@/platform/ui/nav-form";
+import Link from "next/link";
 import { Card } from "@/platform/ui/card";
 import { Input, Field } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
@@ -289,7 +291,7 @@ export async function AssignmentForm({
         <h3 className="text-sm font-semibold text-foreground-soft">Assign role to person</h3>
 
         {/* Person search box */}
-        <form method="GET" className="flex items-end gap-3">
+        <NavForm className="flex items-end gap-3">
           <Field label="Search people">
             <Input
               type="search"
@@ -303,14 +305,14 @@ export async function AssignmentForm({
             Search
           </Button>
           {assignq && (
-            <a
+            <Link
               href={pageHref}
               className="self-end pb-2 text-sm text-muted-foreground hover:text-foreground"
             >
               Clear
-            </a>
+            </Link>
           )}
-        </form>
+        </NavForm>
 
         {/* Person search results */}
         {assignq && assignq.trim() && (

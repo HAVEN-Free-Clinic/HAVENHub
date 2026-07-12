@@ -242,6 +242,18 @@ export async function POST(req: Request) {
     );
   }
 
+  // Individual (non-bulk) request types operate on exactly one person: the PDF is
+  // filled only for people[0], but the tracking rows below are written for EVERY id
+  // in personIds. Reject a multi-person individual request (the client UI prevents
+  // it, but this route is a directly-callable POST) so it cannot manufacture phantom
+  // EpicRequests for people whose single-person PDF YNHH never receives.
+  if (!requestType.startsWith("bulk") && new Set(personIds).size !== 1) {
+    return NextResponse.json(
+      { error: "This request type applies to exactly one person." },
+      { status: 400 }
+    );
+  }
+
   // Resolve the active term once and reuse it for both membership lookups.
   const activeTerm = await getActiveTerm();
 
@@ -308,7 +320,10 @@ export async function POST(req: Request) {
     templateBytes,
   });
 
-  // Build date string for filenames.
+  // Build the filename date in the configured display zone (default Eastern), not the
+  // server's UTC wall clock (which rolls a day ahead late-evening Eastern, dating the
+  // artifacts a day ahead of their own cover email), so filename, PDF dates, and email
+  // subject all agree.
   const filenameZone = await getDisplayTimeZone();
   const dateStr = formatDateOnly(new Date(), filenameZone, { month: "2-digit", day: "2-digit", year: "numeric" }).replace(/\//g, "");
   // Build filename using validated switch to satisfy CodeQL dynamic call check.

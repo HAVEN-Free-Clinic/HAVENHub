@@ -29,6 +29,7 @@ import { isInterviewPanelist } from "@/modules/recruitment/services/interviews";
 import { complianceStatus, certExpiresAt } from "@/platform/compliance/rules";
 import { getSetting } from "@/platform/settings/service";
 import { isoDateKey, formatCalendarDate } from "@/platform/dates";
+import { buildPageMetadata } from "@/platform/branding/metadata";
 
 // ---------------------------------------------------------------------------
 // Presentation helpers (pure)
@@ -155,6 +156,10 @@ function ModuleTile({ m }: { m: ModuleManifest }) {
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
+
+export function generateMetadata() {
+  return buildPageMetadata({ title: "Dashboard" });
+}
 
 /**
  * The hub lives at the root: the deployed domain is hub.havenfreeclinic.org,

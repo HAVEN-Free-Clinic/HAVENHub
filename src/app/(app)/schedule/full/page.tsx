@@ -5,6 +5,7 @@ import { fullSchedule } from "@/modules/schedule/services/schedule";
 import { isoDateKey } from "@/modules/schedule/engine/map";
 import { displayDate } from "@/modules/schedule/engine/display";
 import { formatCalendarDate } from "@/platform/dates";
+import Link from "next/link";
 
 type PageProps = {
   searchParams: Promise<{ date?: string; [key: string]: string | string[] | undefined }>;
@@ -52,7 +53,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
                 const key = isoDateKey(d);
                 const isSelected = key === selectedKey;
                 return (
-<a                  
+                  <Link
                     key={key}
                     href={`/schedule/full?date=${key}`}
                     aria-current={isSelected ? "page" : undefined}
@@ -63,7 +64,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
                     }
                   >
                     {displayDate(key)}
-                  </a>
+                  </Link>
                 );
               })}
             </nav>

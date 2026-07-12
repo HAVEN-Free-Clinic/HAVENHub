@@ -1,44 +1,43 @@
 /**
- * HIPAA compliance banner summarizer for the schedule view.
+ * Clearance banner summarizer for the schedule view.
  *
- * New module (no legacy equivalent). Returns only departments with at least
- * one scheduled volunteer whose compliance status is not COMPLIANT.
+ * Returns only departments with at least one scheduled volunteer who is not fully
+ * cleared to volunteer (any outstanding onboarding/clearance item: profile, HIPAA,
+ * training, learning, or EHS), so a director can see who cannot work that date.
  */
-
-import type { ComplianceStatus } from "@/platform/compliance/rules";
 
 export type BannerVolunteer = { id: string; name: string };
 
 export type DeptBanner = {
   departmentId: string;
   departmentName: string;
-  nonCompliant: BannerVolunteer[];
+  notCleared: BannerVolunteer[];
 };
 
 /**
- * Departments with at least one scheduled volunteer whose HIPAA status is not
- * COMPLIANT; compliant departments are omitted. Input order is preserved.
+ * Departments with at least one scheduled volunteer who is not cleared; fully
+ * cleared departments are omitted. Input order is preserved.
  */
-export function summarizeNonCompliant(
+export function summarizeNotCleared(
   depts: Array<{
     departmentId: string;
     departmentName: string;
-    volunteers: Array<{ id: string; name: string; status: ComplianceStatus }>;
+    volunteers: Array<{ id: string; name: string; cleared: boolean }>;
   }>,
 ): DeptBanner[] {
   const result: DeptBanner[] = [];
 
   for (const dept of depts) {
-    const nonCompliant = dept.volunteers
-      .filter((v) => v.status !== "COMPLIANT")
+    const notCleared = dept.volunteers
+      .filter((v) => !v.cleared)
       .map((v) => ({ id: v.id, name: v.name }));
 
-    if (nonCompliant.length === 0) continue;
+    if (notCleared.length === 0) continue;
 
     result.push({
       departmentId: dept.departmentId,
       departmentName: dept.departmentName,
-      nonCompliant,
+      notCleared,
     });
   }
 

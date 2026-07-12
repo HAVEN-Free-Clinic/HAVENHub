@@ -28,6 +28,7 @@ import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Field, Input, Textarea } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Button, buttonClasses } from "@/platform/ui/button";
+import { NavForm } from "@/platform/ui/nav-form";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
@@ -384,8 +385,7 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
       )}
 
       {/* Filter bar */}
-      <form
-        method="GET"
+      <NavForm
         action="/incidents/strikes"
         className="mt-10 flex flex-wrap items-end gap-3"
       >
@@ -438,7 +438,7 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
             Clear
           </Link>
         )}
-      </form>
+      </NavForm>
 
       {/* Records table */}
       <section className="mt-6">

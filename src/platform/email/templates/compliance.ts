@@ -176,6 +176,19 @@ export function complianceDateReviewContext(p: ComplianceDateReviewParams): Reco
   };
 }
 
+/**
+ * Build the context for the compliance-verification-review template, sent to
+ * compliance managers when a volunteer's certificate is saved WITH a machine-read
+ * completion date but still needs a manager to verify it (PENDING_VERIFICATION).
+ * Same shape as the date-review context (volunteer name + master-view link).
+ */
+export function complianceVerificationReviewContext(p: ComplianceDateReviewParams): Record<string, unknown> {
+  return {
+    volunteerName: p.volunteerName,
+    reviewLink: p.reviewLink,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Descriptors
 // ---------------------------------------------------------------------------
@@ -276,6 +289,28 @@ export const complianceDescriptors: TemplateDescriptor[] = [
     defaultBody: `<p>Hello,</p>
 
 <p>{{ volunteerName }} uploaded a HIPAA certificate, but the completion date could not be read automatically. Please review the certificate and set the completion date so the volunteer can be cleared.</p>
+
+<p><a href="{{ reviewLink }}">Open the compliance master view</a></p>
+
+<p>Thank you,<br>HAVEN Free Clinic</p>`,
+  },
+  {
+    key: "compliance-verification-review",
+    name: "Compliance: verification review",
+    category: "transactional",
+    group: "compliance",
+    variables: [
+      { name: "volunteerName", label: "Volunteer name", sampleValue: "Jane Doe" },
+      {
+        name: "reviewLink",
+        label: "Link to the compliance master view",
+        sampleValue: "https://hub.havenfreeclinic.org/volunteers/master",
+      },
+    ],
+    defaultSubject: "[HAVEN] HIPAA certificate awaiting verification",
+    defaultBody: `<p>Hello,</p>
+
+<p>{{ volunteerName }} uploaded a HIPAA certificate with a completion date, but it must be verified before the volunteer can be cleared. Please review the certificate and verify it.</p>
 
 <p><a href="{{ reviewLink }}">Open the compliance master view</a></p>
 

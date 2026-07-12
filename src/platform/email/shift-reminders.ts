@@ -8,6 +8,7 @@ import { formatCalendarDate, isoDateKey } from "@/platform/dates";
 import { selectCurrentClinicDate, getCurrentClinicChannelLink } from "@/platform/teams/channel-link";
 import { notify } from "@/platform/notifications/notify";
 import { renderEmail } from "./templates/renderEmail";
+import { claimReminderDispatch } from "./reminder-dispatch";
 
 export const ROLE_LABEL: Record<ShiftRole, string> = {
   DIRECTOR: "Director",
@@ -227,6 +228,16 @@ export async function runShiftReminders(now: Date = new Date()): Promise<ShiftRe
       select: { id: true },
     });
     if (already) {
+      result.skipped++;
+      continue;
+    }
+
+    // Atomic per-clinic-week claim: even if two Monday runs overlap and both pass
+    // the EmailLog check above (no row written yet), only one wins this insert, so
+    // no volunteer is double-reminded for the same Saturday. Also covers the
+    // Teams-only case the EmailLog guard misses.
+    const claimed = await claimReminderDispatch("shift-reminder", item.person.id, targetKey);
+    if (!claimed) {
       result.skipped++;
       continue;
     }

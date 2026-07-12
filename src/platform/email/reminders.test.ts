@@ -81,7 +81,10 @@ async function createPerson(
   contactEmail: string | null = null,
   status: "ACTIVE" | "OFFBOARDED" = "ACTIVE"
 ) {
-  return prisma.person.create({ data: { name, contactEmail, status } });
+  // Default a phone so a person WITH a contactEmail has a complete profile: full
+  // clearance now requires profile (contactEmail + phone), and these fixtures test
+  // HIPAA/EHS state, not the profile gap (which is covered by its own test).
+  return prisma.person.create({ data: { name, contactEmail, phone: "555-0000", status } });
 }
 
 async function addMembership(
@@ -619,5 +622,27 @@ describe("EHS gap reminder", () => {
     expect(result.remindersSent).toBe(1);
     const emailCount = await emailLogCount("compliance-reminder");
     expect(emailCount).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// HIPAA-compliant person with an incomplete profile still receives a reminder
+// (full-clearance coverage: the reminder now spans profile/training/learning too)
+// ---------------------------------------------------------------------------
+
+describe("profile gap reminder", () => {
+  it("sends a compliance-reminder to a HIPAA-compliant person whose profile is incomplete", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("PCAR");
+    const person = await createPerson("Profile Gap Volunteer", "profilegap@example.com");
+    // Clear the phone so the profile is incomplete (contactEmail present, phone missing).
+    await prisma.person.update({ where: { id: person.id }, data: { phone: null } });
+    await addMembership(person.id, term.id, dept.id, "VOLUNTEER");
+    await addCert(person.id, COMPLIANT_COMPLETION);
+
+    const result = await runComplianceReminders(NOW);
+
+    expect(result.remindersSent).toBe(1);
+    expect(await emailLogCount("compliance-reminder")).toBe(1);
   });
 });

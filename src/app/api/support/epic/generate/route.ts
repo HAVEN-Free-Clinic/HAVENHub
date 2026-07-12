@@ -239,6 +239,18 @@ export async function POST(req: Request) {
     );
   }
 
+  // Individual (non-bulk) request types operate on exactly one person: the PDF is
+  // filled only for people[0], but the tracking rows below are written for EVERY id
+  // in personIds. Reject a multi-person individual request (the client UI prevents
+  // it, but this route is a directly-callable POST) so it cannot manufacture phantom
+  // EpicRequests for people whose single-person PDF YNHH never receives.
+  if (!requestType.startsWith("bulk") && new Set(personIds).size !== 1) {
+    return NextResponse.json(
+      { error: "This request type applies to exactly one person." },
+      { status: 400 }
+    );
+  }
+
   // Resolve the active term once and reuse it for both membership lookups.
   const activeTerm = await getActiveTerm();
 
@@ -305,9 +317,22 @@ export async function POST(req: Request) {
     templateBytes,
   });
 
-  // Build date string for filenames.
-  const now = new Date();
-  const dateStr = `${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}${now.getFullYear()}`;
+  // Build the filename date in the clinic's civil timezone (America/New_York) so it
+  // matches the PDF's dates and the client-computed email subject, rather than the
+  // server's UTC wall clock (which rolls to the next day late in the evening Eastern,
+  // dating the artifacts a day ahead of their own cover email).
+  const dateParts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    })
+      .formatToParts(new Date())
+      .filter((x) => x.type !== "literal")
+      .map((x) => [x.type, x.value])
+  );
+  const dateStr = `${dateParts.month}${dateParts.day}${dateParts.year}`;
   // Build filename using validated switch to satisfy CodeQL dynamic call check.
   // The authorizer's initials (derived from their name) stand in for the old
   // hardcoded CC/RT/JC keys in the filename.

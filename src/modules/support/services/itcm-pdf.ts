@@ -199,7 +199,15 @@ export async function generatePdf(args: {
   templateBytes: Uint8Array;
 }): Promise<Uint8Array> {
   const { requestType, authorizer: auth, person, endDate, mirrorPerson, templateBytes } = args;
-  const today = new Date().toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
+  // Clinic-local (America/New_York), not the server's UTC wall clock, so the
+  // Section I authorization date and New-Hire start date match the filename and the
+  // client-computed email subject instead of dating a day ahead late-evening Eastern.
+  const today = new Date().toLocaleDateString("en-US", {
+    month: "2-digit",
+    day: "2-digit",
+    year: "numeric",
+    timeZone: "America/New_York",
+  });
   // The access-type checkbox that marks a request as a termination/deactivation.
   // Confirmed against the YNHH template (controller-verified, Task 6 Step 1):
   // "Check Box60" is the "Delete Access (Systems: ... Date: ...)" box in Section V.

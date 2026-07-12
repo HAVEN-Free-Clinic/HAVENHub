@@ -918,7 +918,7 @@ git commit -m "feat(dates): support/learning timestamps zoned, clinic-date edito
 **Files:** `src/platform/teams/channel-link.ts`, `src/platform/email/templates/compliance.ts`.
 
 - [ ] **Step 1: Apply edits** (both **calendar**, no zone needed)
-  - `channel-link.ts`: reimplement local `formatClinicDate` (def L61) to delegate to `formatCalendarDate(date, { year: "2-digit", month: "2-digit", day: "2-digit" })` (matching the current numeric output shape). Add `import { formatCalendarDate } from "@/platform/dates";`. Leave `nyDateInt` (L31, a comparison integer, not display) untouched. Call site L170 untouched.
+  - `channel-link.ts`: **EXCLUDED (do not migrate).** Its `formatClinicDate` produces the hyphenated `MM-DD-YY` string that names Teams channels ("06-13-26 Clinic"), matched by `startsWith`. `formatCalendarDate` (Intl `en-US`) emits slashes (`06/13/26`) and cannot reproduce the hyphen shape, so delegating would silently rename channels and break matching. This is a stable external identifier, not a user-facing display timestamp, and it uses `Intl.DateTimeFormat` (not `toLocaleDateString`), so the Task 16 guard does not flag it. Leave the whole file (including `formatClinicDate` and `nyDateInt`) untouched.
   - `compliance.ts`: reimplement the local `fmtDate` (def L74, manual UTC getters) to delegate to `formatCalendarDate(d, { month: "long", day: "numeric", year: "numeric" })` if that matches the intended wording, else keep the manual UTC version (it is already UTC-correct; migrating is optional-consistency only). Add the import if migrated. Call sites L114/L118 untouched.
 
 - [ ] **Step 2: Verify + commit**

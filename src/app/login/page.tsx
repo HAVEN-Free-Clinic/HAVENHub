@@ -11,12 +11,17 @@ import { Input, Field } from "@/platform/ui/input";
 import { Button } from "@/platform/ui/button";
 import { FormActions } from "@/platform/ui/form";
 import { SignInButton } from "./sign-in-button";
+import { buildPageMetadata } from "@/platform/branding/metadata";
 
 const ERROR_MESSAGES: Record<string, string> = {
   CredentialsSignin:
     "We couldn't sign you in. That email isn't in our records or the account isn't active.",
 };
 const DEFAULT_ERROR = "Sign-in failed. Please try again, or contact the IT team.";
+
+export function generateMetadata() {
+  return buildPageMetadata({ title: "Sign in" });
+}
 
 export default async function LoginPage({
   searchParams,

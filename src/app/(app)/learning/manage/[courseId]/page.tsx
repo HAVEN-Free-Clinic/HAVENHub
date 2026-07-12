@@ -11,6 +11,8 @@ import { Alert } from "@/platform/ui/alert";
 import { FormActions } from "@/platform/ui/form";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { getCourseForEdit } from "@/modules/learning/services/courses";
+import { formatDateOnly } from "@/platform/dates";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { usingBlobStorage } from "@/platform/storage";
 import { updateCourseAction, setAssignmentAction } from "../actions";
 import { UploadPackageForm } from "./UploadPackageForm";
@@ -20,6 +22,7 @@ export default async function EditCoursePage({ params }: { params: Promise<{ cou
   const { courseId } = await params;
   const course = await getCourseForEdit(courseId);
   if (!course) notFound();
+  const zone = await getDisplayTimeZone();
   const departments = await prisma.department.findMany({ where: { isActive: true }, orderBy: { name: "asc" } });
   const assignedDeptIds = new Set(course.departments.map((d) => d.departmentId));
   const isAssigned = course.assignToAll || course.departments.length > 0;
@@ -88,7 +91,7 @@ export default async function EditCoursePage({ params }: { params: Promise<{ cou
           <SectionHeader level="title">SCORM package</SectionHeader>
           <p className="text-sm text-muted-foreground">
             {course.scormEntryHref
-              ? `Uploaded${course.scormUploadedAt ? ` ${course.scormUploadedAt.toLocaleDateString()}` : ""} · launch: ${course.scormEntryHref} · SCORM ${course.scormVersion ?? "1.2"}`
+              ? `Uploaded${course.scormUploadedAt ? ` ${formatDateOnly(course.scormUploadedAt, zone)}` : ""} · launch: ${course.scormEntryHref} · SCORM ${course.scormVersion ?? "1.2"}`
               : "No package uploaded yet."}
           </p>
           <UploadPackageForm courseId={course.id} hasPackage={course.scormEntryHref != null} usingBlob={usingBlobStorage} />

@@ -14,10 +14,10 @@ import type { ReactNode } from "react";
 import { Input, Field } from "@/platform/ui/input";
 import { Button } from "@/platform/ui/button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
+import { formatCalendarDate } from "@/platform/dates";
 
 function formatClinicDate(d: Date): string {
-  return d.toLocaleDateString("en-US", {
-    timeZone: "UTC",
+  return formatCalendarDate(d, {
     weekday: "short",
     month: "short",
     day: "numeric",

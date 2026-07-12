@@ -38,7 +38,8 @@ import { SubmitButton } from "@/platform/ui/submit-button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
-import { fmtDate } from "@/platform/dates";
+import { formatDateOnly } from "@/platform/dates";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import type { TechRequestStatus, TechRequestPriority, EpicRequestKind, EpicRequestStatus } from "@prisma/client";
 import { SupportStatusBadge, STATUS_LABELS } from "./status-badge";
 import { CommentThread } from "./comment-thread";
@@ -133,7 +134,7 @@ type TicketDetailProps = {
   epicError?: string;
 };
 
-export function TicketDetail({
+export async function TicketDetail({
   detail,
   canManage = false,
   isRequester = false,
@@ -156,6 +157,7 @@ export function TicketDetail({
   epicError,
 }: TicketDetailProps) {
   const isOpen = !TERMINAL_STATUSES.includes(detail.status);
+  const zone = await getDisplayTimeZone();
 
   // The current assignee may have lost support.manage_requests since being
   // assigned; make sure they still show up as a selectable (and selected)
@@ -167,8 +169,9 @@ export function TicketDetail({
     <div className="space-y-8">
       <PageHeader
         title={detail.subject}
-        description={`#${detail.number} · ${CATEGORY_LABELS[detail.category]} · Submitted ${fmtDate(
-          detail.createdAt
+        description={`#${detail.number} · ${CATEGORY_LABELS[detail.category]} · Submitted ${formatDateOnly(
+          detail.createdAt,
+          zone
         )}`}
         action={<SupportStatusBadge status={detail.status} />}
       />

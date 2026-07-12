@@ -56,6 +56,7 @@ export function SubjectPicker({
             <Combobox
               key={comboKey}
               name="subjectSearch"
+              ariaLabel="Link the people involved (optional)"
               placeholder="Search by name..."
               options={people
                 .filter((p) => !addedIds.has(p.id))

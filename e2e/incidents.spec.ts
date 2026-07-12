@@ -54,7 +54,7 @@ async function submitReport(
   // combobox (clearing its text), so each loop iteration starts from the
   // same clean state as the last.
   for (const subject of subjects) {
-    const subjectInput = page.getByRole("combobox", { name: "Search people to link to this report" });
+    const subjectInput = page.getByRole("combobox", { name: "Link the people involved (optional)" });
     await subjectInput.click();
     await subjectInput.fill(subject.optionText);
     await page.getByRole("option").filter({ hasText: subject.optionText }).first().click();

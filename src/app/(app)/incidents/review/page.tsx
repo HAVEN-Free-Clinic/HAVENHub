@@ -25,6 +25,7 @@ import { Field, Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Button, buttonClasses } from "@/platform/ui/button";
+import { NavForm } from "@/platform/ui/nav-form";
 import { Pagination } from "@/platform/ui/pagination";
 import { fmtDate } from "@/platform/dates";
 import { formatSubjectNames } from "@/app/(app)/incidents/subject-display";
@@ -117,8 +118,7 @@ export default async function IncidentReviewPage({ searchParams }: PageProps) {
       />
 
       {/* Filter bar */}
-      <form
-        method="GET"
+      <NavForm
         action="/incidents/review"
         className="mt-8 flex flex-wrap items-end gap-3"
       >
@@ -179,7 +179,7 @@ export default async function IncidentReviewPage({ searchParams }: PageProps) {
             Clear
           </Link>
         )}
-      </form>
+      </NavForm>
 
       {/* Queue table */}
       <section className="mt-6">

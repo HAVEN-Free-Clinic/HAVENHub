@@ -3,6 +3,7 @@ import { requirePermission } from "@/platform/auth/session";
 import { can } from "@/platform/rbac/engine";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Button } from "@/platform/ui/button";
+import { NavForm } from "@/platform/ui/nav-form";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Card } from "@/platform/ui/card";
 import { Select } from "@/platform/ui/select";
@@ -56,7 +57,7 @@ export default async function LearningDashboardPage({
     <>
       <PageHeader title="Course completion" description="Who has completed each course, by department." />
       <div className="mt-6 max-w-3xl space-y-4">
-        <form method="get" className="flex items-center gap-2 text-sm">
+        <NavForm className="flex items-center gap-2 text-sm">
           <label htmlFor="course">Course</label>
           <Select id="course" name="course" defaultValue={selected} className="w-auto">
             {courses.map((c) => (
@@ -64,7 +65,7 @@ export default async function LearningDashboardPage({
             ))}
           </Select>
           <Button type="submit" size="sm">View</Button>
-        </form>
+        </NavForm>
 
         <Table>
           <THead>

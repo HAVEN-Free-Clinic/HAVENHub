@@ -25,6 +25,7 @@ import { Select } from "@/platform/ui/select";
 import { Button, buttonClasses } from "@/platform/ui/button";
 import { StatCard } from "@/platform/ui/stat-card";
 import { Alert } from "@/platform/ui/alert";
+import { NavForm } from "@/platform/ui/nav-form";
 import {
   masterCompliance,
   setCompletionDateAsManager,
@@ -223,8 +224,7 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
       </div>
 
       {/* Filter bar - GET form so filters are in the URL */}
-      <form
-        method="GET"
+      <NavForm
         action="/volunteers/master"
         className="mt-6 flex flex-wrap items-end gap-3"
       >
@@ -277,7 +277,7 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
             Clear
           </Link>
         )}
-      </form>
+      </NavForm>
 
       {/* Results */}
       <div className="mt-4">

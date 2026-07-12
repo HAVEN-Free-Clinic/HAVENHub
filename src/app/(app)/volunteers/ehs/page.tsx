@@ -1,14 +1,29 @@
 import Link from "next/link";
 import { requirePermission } from "@/platform/auth/session";
 import { PageHeader } from "@/platform/ui/page-header";
-import { Button } from "@/platform/ui/button";
+import { Button, buttonClasses } from "@/platform/ui/button";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
+import { Pagination } from "@/platform/ui/pagination";
 import { getEhsDashboard } from "@/platform/ehs/services/status";
 import { toggleEhsCompletionAction, toggleAddedToEhsAction } from "./actions";
 
-export default async function EhsDashboardPage() {
+const PAGE_SIZE = 25;
+
+export default async function EhsDashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ page?: string }>;
+}) {
   await requirePermission("volunteers.manage_compliance");
   const { trainings, rows } = await getEhsDashboard();
+  const sp = await searchParams;
+
+  // Render-level pagination: bounds the DOM (one form per row plus one per
+  // training cell) for large active-volunteer rosters. Mirrors master/page.tsx.
+  const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const page = Math.min(Math.max(1, parseInt(sp.page ?? "1", 10) || 1), pageCount);
+  const pageRows = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const buildHref = (targetPage: number) => `/volunteers/ehs?page=${targetPage}`;
 
   return (
     <>
@@ -18,14 +33,15 @@ export default async function EhsDashboardPage() {
       />
       <div className="mt-6 max-w-fit space-y-4">
         <div className="mb-4">
-          <Link href="/volunteers/ehs/manage">
-            <Button variant="outline" size="sm">Manage trainings</Button>
+          <Link href="/volunteers/ehs/manage" className={buttonClasses("outline", "sm")}>
+            Manage trainings
           </Link>
         </div>
 
         {trainings.length === 0 ? (
           <p className="text-sm text-subtle-foreground">No active EHS trainings configured.</p>
         ) : (
+          <>
           <Table>
             <THead>
               <TR className="border-t-0">
@@ -38,7 +54,7 @@ export default async function EhsDashboardPage() {
               </TR>
             </THead>
             <tbody>
-              {rows.map((row) => (
+              {pageRows.map((row) => (
                 <TR key={row.personId}>
                   <TD>{row.name}</TD>
                   <TD>{row.departmentCodes.join(", ")}</TD>
@@ -94,6 +110,8 @@ export default async function EhsDashboardPage() {
               )}
             </tbody>
           </Table>
+          <Pagination page={page} pageCount={pageCount} hrefFor={buildHref} />
+          </>
         )}
       </div>
     </>

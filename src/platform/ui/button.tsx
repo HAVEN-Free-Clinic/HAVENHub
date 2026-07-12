@@ -10,7 +10,7 @@ const variantClasses: Record<Variant, string> = {
   outline:
     "border border-border-strong text-foreground-soft hover:bg-muted",
   danger:
-    "bg-critical text-white hover:bg-red-700",
+    "bg-critical text-white hover:bg-critical-hover",
   ghost:
     "text-muted-foreground hover:text-foreground",
 };

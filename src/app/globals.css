@@ -13,6 +13,16 @@
   --color-critical-faint: #fef2f2; /* red-50; faint danger tint, dark variant below */
   --color-info: #2563eb;
 
+  /* Status-as-text tokens. The vivid success/warning above are tuned for icons and
+     fills (3:1 non-text); as small text on a light surface they fall to ~3.2:1 and
+     fail WCAG AA. These *-foreground variants are darkened to clear 4.5:1 on white
+     (5.0:1) for status labels; dark-mode overrides below lift them back for dark. */
+  --color-success-foreground: #15803d; /* green-700 */
+  --color-warning-foreground: #b45309; /* amber-700 */
+  /* Darker critical for the danger button hover, so it tracks the red family via a
+     token instead of a hard-coded Tailwind shade (mirrors brand-hover). */
+  --color-critical-hover: #b91c1c;     /* red-700 */
+
   /* Calm cool-neutral canvas the hub shell sits on (vs. flat white). */
   --color-canvas: #eef1f5;
 
@@ -81,6 +91,11 @@ html.dark {
   --color-border: #334155;            /* slate-700 */
   --color-border-strong: #475569;     /* slate-600 */
   --color-border-subtle: #1e293b;     /* slate-800 */
+
+  /* Status text lifted for AA on dark surfaces (the vivid success/warning already
+     read on dark; these are the text-only variants used for status labels). */
+  --color-success-foreground: #4ade80; /* green-400; AA text on dark surfaces */
+  --color-warning-foreground: #fbbf24; /* amber-300; AA text on dark surfaces */
 
   /* Brand tints become dark-tinted surfaces; brand text is lifted to read on dark.
      color-mix keeps these tracking the admin-chosen brand hue. */

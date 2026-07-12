@@ -43,7 +43,7 @@ export function ThemeToggle({ initial }: { initial: ThemePreference }) {
       onClick={cycle}
       aria-label={`Current theme: ${LABEL[pref]}. Activate to switch to ${LABEL[NEXT[pref]]}.`}
       title={`Theme: ${LABEL[pref]}`}
-      className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+      className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
     >
       <Icon aria-hidden className="h-4 w-4" />
     </button>

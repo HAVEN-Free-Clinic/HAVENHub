@@ -350,7 +350,7 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                               const key = isoDateKey(d);
                               const checked = availability.dates.some((ad) => isoDateKey(ad) === key);
                               return (
-                                <label key={key} className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs cursor-pointer transition-colors whitespace-nowrap ${checked ? "border-brand bg-brand/5 text-brand-fg font-semibold" : "border-border bg-brand/5 text-brand-fg hover:border-brand/40"}`}>
+                                <label key={key} className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs cursor-pointer transition-colors whitespace-nowrap min-h-11 ${checked ? "border-brand bg-brand/5 text-brand-fg font-semibold" : "border-border text-muted-foreground hover:border-brand/40"}`}>
                                   <Checkbox
                                     name="dates"
                                     value={key}

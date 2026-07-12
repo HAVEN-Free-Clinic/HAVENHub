@@ -268,7 +268,7 @@ export function ApplyWizard({
 
   if (result?.ok) {
     return (
-      <PortalNotice tone="success" titleAs="h2" title="Application received" className="mt-4">
+      <PortalNotice tone="success" titleAs="h1" title="Application received" className="mt-4">
         <p>Thanks, your application was received. Check your email for a confirmation.</p>
       </PortalNotice>
     );
@@ -283,7 +283,7 @@ export function ApplyWizard({
 
       <div className="min-w-0 space-y-5">
         <div>
-          <p className="text-sm font-medium text-muted-foreground">{def.title}</p>
+          <h1 className="text-sm font-medium text-muted-foreground">{def.title}</h1>
           <p className="hidden text-xs font-semibold uppercase tracking-wider text-brand-fg md:block">Step {stepIndex + 1} of {steps.length}</p>
           <h2 ref={headingRef} tabIndex={-1} className="mt-1 text-xl font-bold tracking-tight text-foreground outline-none">
             {current.kind === "intro" ? "Getting started" : current.kind === "review" ? "Review your application" : current.title}
@@ -360,9 +360,12 @@ export function ApplyWizard({
                   {st.section.fields.map((f) =>
                     f.type === "FILE" ? (
                       <div key={f.key} onChange={(e) => { e.stopPropagation(); handleFileChange(f.key, e as unknown as React.ChangeEvent<HTMLInputElement>); }}>
+                        {/* The wizard owns the attached-file status line below (fileStatus),
+                            so it must not also hand the draft file object to FieldPreview,
+                            which would render a second "Attached: <file>" span. */}
                         <FieldPreview f={f} departments={def.departments} subcommittees={def.subcommittees}
                           fieldError={fieldErrors[f.key]} onDeptChoice={undefined}
-                          prefill={prefill?.values[f.key] ?? initialAnswers[f.key]} locked={lockedKeys.has(f.key)} />
+                          prefill={undefined} locked={lockedKeys.has(f.key)} />
                         {fileStatus[f.key] && <p className="mt-1 text-xs text-muted-foreground" role="status" aria-live="polite">{fileStatus[f.key]}</p>}
                       </div>
                     ) : (

@@ -32,10 +32,14 @@ function hueStyle(key: OnboardingTaskKey): CSSProperties {
   } as CSSProperties;
 }
 
-function StatusPill({ state }: { state: OnboardingTaskState }) {
+function StatusPill({ state, actionable }: { state: OnboardingTaskState; actionable: boolean }) {
   if (state === "COMPLETE") return <Badge tone="success">Done</Badge>;
   if (state === "NOT_REQUIRED") return <Badge tone="default">Not required</Badge>;
   if (state === "IN_PROGRESS") return <Badge tone="brand">In progress</Badge>;
+  // A task with no CTA (e.g. EHS, recorded by a coordinator) is not something the
+  // member can act on, so "Action needed" would misdirect them. Show a neutral
+  // "Pending" instead of the warning-toned call to action.
+  if (!actionable) return <Badge tone="default">Pending</Badge>;
   return <Badge tone="warning">Action needed</Badge>;
 }
 
@@ -57,7 +61,7 @@ function TaskRow({ task }: { task: OnboardingTask }) {
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-[15px] font-bold tracking-tight text-foreground">{task.label}</span>
-          <StatusPill state={task.state} />
+          <StatusPill state={task.state} actionable={!!task.href} />
         </div>
         <p className="mt-0.5 text-[13px] leading-snug text-foreground-soft">{task.description}</p>
       </div>

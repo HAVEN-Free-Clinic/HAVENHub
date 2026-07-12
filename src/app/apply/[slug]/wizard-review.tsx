@@ -54,7 +54,7 @@ export function WizardReview({
           <div className="flex items-center justify-between gap-3 border-b border-border-subtle pb-3">
             <h3 className="text-sm font-semibold text-foreground">{g.title}</h3>
             {/* eslint-disable-next-line no-restricted-syntax -- token-styled avoids primitive className override */}
-            <button type="button" onClick={() => onEdit(g.stepIndex)} aria-label={`Edit ${g.title}`} className="rounded-md px-2 py-1 text-xs font-medium text-brand-fg hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand">
+            <button type="button" onClick={() => onEdit(g.stepIndex)} aria-label={`Edit ${g.title}`} className="-my-2 inline-flex min-h-[44px] items-center rounded-md px-2 text-xs font-medium text-brand-fg hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand">
               Edit
             </button>
           </div>

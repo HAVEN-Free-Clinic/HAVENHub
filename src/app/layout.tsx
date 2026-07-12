@@ -6,6 +6,7 @@ import { cookies } from "next/headers";
 import { auth } from "@/platform/auth/auth";
 import { InactivityTracker } from "@/platform/auth/inactivity";
 import { getSetting } from "@/platform/settings/service";
+import { buildPageMetadata } from "@/platform/branding/metadata";
 import { brandStyleVars } from "@/platform/ui/brand-style";
 import { TopProgressBar } from "@/platform/ui/top-progress-bar";
 import { prisma } from "@/platform/db";
@@ -20,15 +21,11 @@ import {
 const hanken = Hanken_Grotesk({ subsets: ["latin"], variable: "--font-hanken" });
 
 export async function generateMetadata(): Promise<Metadata> {
-  const [name, favicon] = await Promise.all([
-    getSetting<string>("branding.appName"),
+  const [base, favicon] = await Promise.all([
+    buildPageMetadata(),
     getSetting<{ contentType: string; version: number }>("branding.favicon"),
   ]);
-  return {
-    title: name,
-    description: `The unified platform for ${name}`,
-    icons: { icon: `/api/branding/favicon?v=${favicon.version}` },
-  };
+  return { ...base, icons: { icon: `/api/branding/favicon?v=${favicon.version}` } };
 }
 
 export default async function RootLayout({ children }: { children: ReactNode }) {

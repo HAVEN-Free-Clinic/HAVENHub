@@ -4,6 +4,11 @@ import { getEffectivePermissions } from "@/platform/rbac/engine";
 import { getModule } from "@/platform/modules/registry";
 import { filterNavItems } from "@/platform/modules/access";
 import { ModuleNav } from "@/platform/ui/module-nav";
+import { moduleMetadata } from "@/platform/branding/metadata";
+
+export function generateMetadata() {
+  return moduleMetadata("support");
+}
 
 export default async function SupportLayout({ children }: { children: ReactNode }) {
   const { personId } = await requireModuleAccess("support");

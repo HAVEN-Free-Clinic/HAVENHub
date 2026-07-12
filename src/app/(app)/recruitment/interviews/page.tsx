@@ -6,6 +6,7 @@ import { recruitmentTrail } from "@/modules/recruitment/breadcrumbs";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { Badge } from "@/platform/ui/badge";
+import { fmtClinicDateTime } from "@/platform/dates";
 
 export default async function MyInterviewsPage() {
   const person = await requirePersonSession();
@@ -35,7 +36,7 @@ export default async function MyInterviewsPage() {
                 </Link>
               </TD>
               <TD className="text-foreground-soft">{iv.departmentCode}</TD>
-              <TD className="text-foreground-soft">{iv.scheduledAt ? iv.scheduledAt.toLocaleString() : "TBD"}</TD>
+              <TD className="text-foreground-soft">{fmtClinicDateTime(iv.scheduledAt, "TBD")}</TD>
               <TD>
                 {iv.evaluations.length > 0 ? (
                   <Badge tone="brand">{iv.evaluations[0].recommendation.replace("_", " ")}</Badge>

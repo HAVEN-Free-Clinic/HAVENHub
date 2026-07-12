@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
-import { getEhsDashboard } from "./status";
+import { getEhsDashboard, loadEhsItemsMap } from "./status";
 import { createTraining, setTrainingDepartments } from "./trainings";
 import { markEhsComplete } from "./completion";
 
@@ -155,5 +155,33 @@ describe("getEhsDashboard", () => {
     // Non-student: BBP Clinical = MISSING, BBP Student = NA.
     expect(nonStudentRow!.cells.find((c) => c.trainingId === bbpClinical.id)!.state).toBe("MISSING");
     expect(nonStudentRow!.cells.find((c) => c.trainingId === bbpStudent.id)!.state).toBe("NA");
+  });
+});
+
+describe("loadEhsItemsMap", () => {
+  it("returns required trainings per person with completion flags", async () => {
+    const { actor, term, person } = await buildBaseFixtures();
+    const training = await createTraining({ name: "BBP Clinical", requiredForAll: true }, actor.id);
+
+    const before = await loadEhsItemsMap(term.id);
+    const beforeItems = before.get(person.id);
+    expect(beforeItems).toBeDefined();
+    expect(beforeItems!.find((i) => i.id === training.id)).toEqual({
+      id: training.id,
+      name: "BBP Clinical",
+      complete: false,
+    });
+
+    await markEhsComplete(person.id, training.id, actor.id);
+
+    const after = await loadEhsItemsMap(term.id);
+    expect(after.get(person.id)!.find((i) => i.id === training.id)!.complete).toBe(true);
+  });
+
+  it("maps a member with no required trainings to an empty array", async () => {
+    const { term, person } = await buildBaseFixtures();
+    // No active trainings created, so nothing is required.
+    const map = await loadEhsItemsMap(term.id);
+    expect(map.get(person.id)).toEqual([]);
   });
 });

@@ -25,7 +25,8 @@ import {
 } from "@/modules/schedule/services/requests";
 import { isoDateKey } from "@/modules/schedule/engine/map";
 import { displayDate } from "@/modules/schedule/engine/display";
-import { fmtDate } from "@/platform/dates";
+import { CalendarDate } from "@/platform/dates/display";
+import { formatCalendarDate } from "@/platform/dates";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Clock } from "lucide-react";
 
@@ -224,7 +225,7 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                     return (
                       <Card key={cardKey} pad={false} className="px-5 py-4">
                         <div className="flex flex-wrap items-center gap-2 mb-2">
-                          <span className="text-base font-bold text-foreground tabular-nums">{fmtDate(shift.clinicDate)}</span>
+                          <span className="text-base font-bold text-foreground tabular-nums"><CalendarDate value={shift.clinicDate} /></span>
                           <span className="text-xs font-bold uppercase tracking-widest text-subtle-foreground">{shift.department.code}</span>
                           <Badge tone={roleBadgeTone[shift.role] ?? "default"}>
                             {shift.role === "DIRECTOR" ? "Director" : shift.role === "VOLUNTEER" ? "Volunteer" : "Shadow"}
@@ -344,7 +345,7 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                     <div className="flex flex-col gap-6">
                       {Object.entries(
                         clinicDates.reduce((acc, d) => {
-                          const month = d.toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
+                          const month = formatCalendarDate(d, { month: "long", year: "numeric" });
                           if (!acc[month]) acc[month] = [];
                           acc[month].push(d);
                           return acc;

@@ -4,6 +4,7 @@ import { cardClasses } from "@/platform/ui/card";
 import { fullSchedule } from "@/modules/schedule/services/schedule";
 import { isoDateKey } from "@/modules/schedule/engine/map";
 import { displayDate } from "@/modules/schedule/engine/display";
+import { formatCalendarDate } from "@/platform/dates";
 
 type PageProps = {
   searchParams: Promise<{ date?: string; [key: string]: string | string[] | undefined }>;
@@ -17,13 +18,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
   const selectedKey = selectedDate ? isoDateKey(selectedDate) : null;
 
   const selectedDisplay = selectedDate
-    ? selectedDate.toLocaleDateString("en-US", {
-        weekday: "long",
-        month: "long",
-        day: "numeric",
-        year: "numeric",
-        timeZone: "UTC",
-      })
+    ? formatCalendarDate(selectedDate, { weekday: "long", month: "long", day: "numeric", year: "numeric" })
     : null;
 
   const totalVolunteers = departments.reduce((acc, d) => acc + d.volunteers.length, 0);

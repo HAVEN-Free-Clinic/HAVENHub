@@ -54,7 +54,7 @@ import { ReadinessPanel } from "@/modules/schedule/components/readiness-panel";
 import { PendingRequests } from "@/modules/schedule/components/pending-requests";
 import { displayDate } from "@/modules/schedule/engine/display";
 import { rolesForDept } from "@/modules/schedule/engine/capacity";
-import { isoDateKey } from "@/platform/dates";
+import { isoDateKey, formatCalendarDate } from "@/platform/dates";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { AlertTriangle } from "lucide-react";
 
@@ -426,12 +426,11 @@ export default async function BuilderPage({ searchParams }: PageProps) {
   }
 
   const selectedDisplay = selectedDateKey
-    ? new Date(selectedDateKey + "T12:00:00Z").toLocaleDateString("en-US", {
+    ? formatCalendarDate(new Date(selectedDateKey + "T12:00:00Z"), {
         weekday: "long",
         month: "long",
         day: "numeric",
         year: "numeric",
-        timeZone: "UTC",
       })
     : null;
 

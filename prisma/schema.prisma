@@ -1333,6 +1333,10 @@ model OnboardingContract {
   hipaaSize                Int?
   hipaaCompletedAt         DateTime?
   sentAt                   DateTime?
+  /// When the onboarding link stops being usable. Set (and refreshed) on every
+  /// send/resend. Null on contracts created before this field existed: those are
+  /// grandfathered (no expiry) until the next resend stamps one.
+  expiresAt                DateTime?
   submittedAt              DateTime?
   promotedAt               DateTime?
   promotedById             String?

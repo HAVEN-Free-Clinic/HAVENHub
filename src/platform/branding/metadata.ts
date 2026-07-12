@@ -30,7 +30,7 @@ export async function buildPageMetadata(
     getSetting<string>("app.baseUrl"),
   ]);
 
-  const description = opts.description ?? `The unified platform for ${appName}`;
+  const description = opts.description ?? `The unified platform for ${orgName}`;
 
   // A standalone title (the public application portal is a separate brand) opts
   // out of the "<Page> · <appName>" suffix in both the browser tab and the card.

@@ -24,7 +24,7 @@ describe("buildPageMetadata", () => {
     const m = await buildPageMetadata();
     expect(m.title).toEqual({ default: "HAVEN Hub", template: "%s · HAVEN Hub" });
     expect(m.openGraph?.title).toBe("HAVEN Hub");
-    expect(m.description).toBe("The unified platform for HAVEN Hub");
+    expect(m.description).toBe("The unified platform for HAVEN Free Clinic");
   });
 
   it("child call composes the OG title and keeps a raw tab title", async () => {

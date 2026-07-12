@@ -80,12 +80,39 @@ export async function ingestScormPackage(
   const course = await prisma.course.findUnique({ where: { id: courseId } });
   if (!course) throw new LearningValidationError("Course not found.");
 
+  // Bound decompression AS entries are read, not after: a decompression bomb
+  // inflates to gigabytes, so reject on each entry's declared uncompressed size
+  // (from the zip directory) BEFORE fflate materializes it, keeping peak memory at
+  // ~MAX_TOTAL_BYTES instead of loading the whole inflated archive first. The
+  // post-unzip byteLength checks below stay as defense in depth (a directory that
+  // understates a size is still caught, just after that one entry inflates).
   let entries: Record<string, Uint8Array>;
+  let declaredBytes = 0;
+  let acceptedFiles = 0;
+  let tooManyFiles = false;
+  let tooLarge = false;
   try {
-    entries = unzipSync(new Uint8Array(zipBytes));
+    entries = unzipSync(new Uint8Array(zipBytes), {
+      filter: (file) => {
+        if (file.name.endsWith("/")) return false; // directory entry: never inflate
+        if (acceptedFiles + 1 > MAX_FILES) {
+          tooManyFiles = true;
+          return false;
+        }
+        if (file.originalSize > MAX_TOTAL_BYTES || declaredBytes + file.originalSize > MAX_TOTAL_BYTES) {
+          tooLarge = true;
+          return false;
+        }
+        declaredBytes += file.originalSize;
+        acceptedFiles += 1;
+        return true;
+      },
+    });
   } catch {
     throw new LearningValidationError("Could not read the uploaded file as a .zip.");
   }
+  if (tooManyFiles) throw new LearningValidationError("The package has too many files.");
+  if (tooLarge) throw new LearningValidationError("The package is too large.");
 
   // Drop directory entries (zero-length, trailing slash).
   const files = Object.entries(entries).filter(([name]) => !name.endsWith("/"));

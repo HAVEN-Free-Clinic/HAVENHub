@@ -58,6 +58,15 @@ it("rejects a zip with no imsmanifest.xml", async () => {
   await expect(ingestScormPackage(course.id, bad, manager.id)).rejects.toBeInstanceOf(LearningValidationError);
 });
 
+it("rejects a package with too many files (the decompression-guard filter counts as it reads)", async () => {
+  const { manager, course } = await seed();
+  const { zipSync, strToU8 } = await import("fflate");
+  const entries: Record<string, Uint8Array> = {};
+  for (let i = 0; i < 2001; i++) entries[`f${i}.txt`] = strToU8("x"); // MAX_FILES is 2000
+  const zip = Buffer.from(zipSync(entries));
+  await expect(ingestScormPackage(course.id, zip, manager.id)).rejects.toThrow(/too many files/);
+});
+
 it("re-ingesting with resetProgress clears prior course and per-SCO progress", async () => {
   const { manager, plain, course } = await seed();
   await ingestScormPackage(course.id, makeMultiScoZip(), manager.id);

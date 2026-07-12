@@ -167,3 +167,32 @@ test("offboarding: Jack flags an ITCM member and verifies the executor table, th
   // After unflag the row must be gone (table shows "No one is flagged." or fewer rows)
   await expect(flaggedRow).not.toBeVisible();
 });
+
+// ---------------------------------------------------------------------------
+// Per-person compliance view (dedicated clearance detail, not the admin record)
+// ---------------------------------------------------------------------------
+
+test("Jack opens a member's per-person compliance view and sees the clearance detail", async ({ page }) => {
+  await devLogin(page, "j.carney@yale.edu");
+  await page.goto(`/volunteers/compliance/${member.person.id}`);
+  await page.waitForURL((url) => url.pathname === `/volunteers/compliance/${member.person.id}`);
+
+  // The dedicated view (not /admin/people) links back to the master list.
+  await expect(page.getByRole("link", { name: "Back to master compliance" })).toBeVisible();
+  // And it is titled with the member's name.
+  await expect(page.getByRole("heading", { name: member.person.name })).toBeVisible();
+});
+
+test("master view links a member's name to their per-person compliance view", async ({ page }) => {
+  await devLogin(page, "j.carney@yale.edu");
+  await page.goto("/volunteers/master");
+  await page.waitForURL((url) => url.pathname === "/volunteers/master");
+
+  // Filter to the seeded member so their row is on the current page regardless of roster size.
+  await page.getByPlaceholder("Name or NetID...").fill(member.person.name);
+  await page.getByRole("button", { name: "Filter", exact: true }).click();
+  await page.waitForURL((url) => url.searchParams.get("q") !== null);
+
+  const link = page.getByRole("link", { name: member.person.name });
+  await expect(link).toHaveAttribute("href", `/volunteers/compliance/${member.person.id}`);
+});

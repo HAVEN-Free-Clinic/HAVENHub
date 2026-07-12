@@ -18,6 +18,7 @@ import type { ComplianceStatus } from "@/platform/compliance/rules";
 import { certExpiresAt } from "@/platform/compliance/rules";
 import { fmtDate } from "@/platform/dates";
 import { revalidatePath } from "next/cache";
+import type { OnboardingTaskKey, OnboardingTaskState } from "@/modules/onboarding/engine/status";
 
 // requireModuleAccess("volunteers") is already enforced by the layout.
 // We additionally require the same permission here in the server action for defense in depth.
@@ -48,6 +49,28 @@ const STATUS_TONE: Record<ComplianceStatus, Tone> = {
   PENDING_VERIFICATION: "warning",
   UNKNOWN_DATE: "default",
   NO_CERTIFICATE: "default",
+};
+
+// Clearance task display (EHS column).
+function taskState(
+  clearance: { tasks: { key: OnboardingTaskKey; state: OnboardingTaskState }[] },
+  key: OnboardingTaskKey
+): OnboardingTaskState | null {
+  return clearance.tasks.find((t) => t.key === key)?.state ?? null;
+}
+
+const TASK_STATE_LABEL: Record<OnboardingTaskState, string> = {
+  COMPLETE: "Complete",
+  IN_PROGRESS: "In progress",
+  INCOMPLETE: "Incomplete",
+  NOT_REQUIRED: "Not required",
+};
+
+const TASK_STATE_TONE: Record<OnboardingTaskState, Tone> = {
+  COMPLETE: "success",
+  IN_PROGRESS: "warning",
+  INCOMPLETE: "critical",
+  NOT_REQUIRED: "default",
 };
 
 // ---------------------------------------------------------------------------
@@ -136,7 +159,7 @@ export default async function VolunteersPage({ searchParams }: PageProps) {
     <div>
       <PageHeader
         title="Compliance"
-        description="HIPAA compliance status for your departments."
+        description="Clearance status for your departments: HIPAA, training, learning, and EHS."
       />
 
       {errorMessage && (
@@ -182,7 +205,8 @@ export default async function VolunteersPage({ searchParams }: PageProps) {
                     <TH>Role</TH>
                     <TH>Status</TH>
                     <TH>Training</TH>
-                    <TH>Overall</TH>
+                    <TH>EHS</TH>
+                    <TH>Cleared</TH>
                     <TH>Completed</TH>
                     <TH>Expires</TH>
                     <TH>Verified</TH>
@@ -194,6 +218,7 @@ export default async function VolunteersPage({ searchParams }: PageProps) {
                     const expiresAt = m.cert?.completionDate
                       ? certExpiresAt(m.cert.completionDate)
                       : null;
+                    const ehsState = taskState(m.clearance, "ehs");
 
                     return (
                       <TR key={m.person.id}>
@@ -220,17 +245,16 @@ export default async function VolunteersPage({ searchParams }: PageProps) {
                           )}
                         </TD>
                         <TD>
-                          {m.kind === "VOLUNTEER" ? (
-                            <Badge
-                              tone={
-                                m.overallClearance === "CLEARED" ? "success" : "critical"
-                              }
-                            >
-                              {m.overallClearance === "CLEARED" ? "Cleared" : "Not Cleared"}
-                            </Badge>
+                          {ehsState ? (
+                            <Badge tone={TASK_STATE_TONE[ehsState]}>{TASK_STATE_LABEL[ehsState]}</Badge>
                           ) : (
                             <span className="text-subtle-foreground">-</span>
                           )}
+                        </TD>
+                        <TD>
+                          <Badge tone={m.clearance.cleared ? "success" : "critical"}>
+                            {m.clearance.cleared ? "Cleared" : "Not cleared"}
+                          </Badge>
                         </TD>
                         <TD className="text-foreground-soft tabular-nums">
                           {fmtDate(m.cert?.completionDate)}

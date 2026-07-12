@@ -9,14 +9,20 @@
 import type { Department, HipaaCertificate, Person } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
-import { complianceStatus, overallClearance } from "@/platform/compliance/rules";
-import type { ComplianceStatus, TrainingState, OverallClearance } from "@/platform/compliance/rules";
+import { complianceStatus } from "@/platform/compliance/rules";
+import type { ComplianceStatus, TrainingState } from "@/platform/compliance/rules";
 import { manageableDepartmentIds } from "@/platform/departments";
 import { can } from "@/platform/rbac/engine";
 import { parseCompletionDate, CompletionDateError } from "@/platform/compliance/completion-date";
 import { getActiveTerm } from "@/platform/terms/active-term";
+import { loadClearanceMap, type ClearanceSummary } from "@/platform/clearance";
 
 export type { ComplianceStatus };
+export type { ClearanceSummary };
+
+/** Placeholder used before loadClearanceMap fills the real value; also the value
+ *  for a person the map has no entry for (should not happen for active members). */
+const EMPTY_CLEARANCE: ClearanceSummary = { onboarded: true, cleared: true, tasks: [], missing: [] };
 
 // ---------------------------------------------------------------------------
 // Typed errors
@@ -47,7 +53,8 @@ export type MemberCompliance = {
   status: ComplianceStatus;
   verifiedByName: string | null;
   trainingState: TrainingState;
-  overallClearance: OverallClearance;
+  /** Full clearance: profile + HIPAA + training + learning + EHS (the real gate). */
+  clearance: ClearanceSummary;
 };
 
 type DepartmentCompliance = {
@@ -187,8 +194,17 @@ export async function departmentCompliance(
       status,
       verifiedByName,
       trainingState,
-      overallClearance: overallClearance(status, trainingState === "COMPLETE"),
+      clearance: EMPTY_CLEARANCE,
     });
+  }
+
+  // Attach full clearance (profile + HIPAA + training + learning + EHS) per member.
+  const allMemberIds = [...deptMap.values()].flatMap((e) => e.members.map((m) => m.person.id));
+  const clearanceMap = await loadClearanceMap(allMemberIds, activeTerm.id);
+  for (const entry of deptMap.values()) {
+    for (const m of entry.members) {
+      m.clearance = clearanceMap.get(m.person.id) ?? EMPTY_CLEARANCE;
+    }
   }
 
   // 6. Sort members and build counts per department.
@@ -252,6 +268,10 @@ export type MasterComplianceResult = {
   page: number;
   pageCount: number;
   summary: Record<ComplianceStatus, number>;
+  /** People fully cleared (all six requirements) across the pre-status scope. */
+  clearedCount: number;
+  /** People with at least one outstanding required EHS training across the scope. */
+  ehsMissingCount: number;
 };
 
 const EMPTY_SUMMARY: Record<ComplianceStatus, number> = {
@@ -289,6 +309,8 @@ export async function masterCompliance(
       page: 1,
       pageCount: 0,
       summary: { ...EMPTY_SUMMARY },
+      clearedCount: 0,
+      ehsMissingCount: 0,
     };
   }
 
@@ -404,9 +426,18 @@ export async function masterCompliance(
       departments: Array.from(deptCodes).sort(),
       isVolunteer,
       trainingState,
-      overallClearance: overallClearance(computedStatus, trainingState === "COMPLETE"),
+      clearance: EMPTY_CLEARANCE,
     };
   });
+
+  // Full clearance for the whole scope (matches how summary is computed pre-pagination).
+  const scopeIds = scopeRows.map((r) => r.person.id);
+  const clearanceMap = await loadClearanceMap(scopeIds, activeTerm.id);
+  for (const row of scopeRows) {
+    row.clearance = clearanceMap.get(row.person.id) ?? EMPTY_CLEARANCE;
+  }
+  const clearedCount = scopeRows.filter((r) => r.clearance.cleared).length;
+  const ehsMissingCount = scopeRows.filter((r) => r.clearance.missing.includes("ehs")).length;
 
   // 7. Compute summary over the FULL scope (before status filter).
   const summary: Record<ComplianceStatus, number> = { ...EMPTY_SUMMARY };
@@ -432,7 +463,7 @@ export async function masterCompliance(
   const offset = (page - 1) * pageSize;
   const rows = filteredRows.slice(offset, offset + pageSize);
 
-  return { rows, total, page, pageCount, summary };
+  return { rows, total, page, pageCount, summary, clearedCount, ehsMissingCount };
 }
 
 /**

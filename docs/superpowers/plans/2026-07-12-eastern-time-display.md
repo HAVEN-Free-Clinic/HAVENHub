@@ -41,7 +41,8 @@ Each display site is classified in the inventory as **instant** or **calendar**.
 ### Task 1: Zone module, env var, and setting
 
 **Files:**
-- Create: `src/platform/dates/zone.ts`
+- Create: `src/platform/dates/zone.ts` (pure: constants, `DisplayTimeZone`, `normalizeZone` — NO imports, client-safe)
+- Create: `src/platform/dates/resolve.ts` (server-only `getDisplayTimeZone`, split out of `zone.ts` so the pure constants never drag `@/platform/settings/service` -> `@prisma/client` into a client bundle; `index.ts` must NOT re-export it)
 - Modify: `src/platform/config.ts` (add `DISPLAY_TIME_ZONE` after the last schema field, before the `z.object` closes at ~line 134)
 - Modify: `src/platform/settings/registry.ts` (append one `define<...>` to the `SETTINGS` array before its close at ~line 291)
 - Test: `src/platform/dates/zone.test.ts`
@@ -586,7 +587,7 @@ git commit -m "refactor(dates): split into dates/ folder with logic + legacy shi
 - Test: `src/platform/dates/display.test.tsx`
 
 **Interfaces:**
-- Consumes: `getDisplayTimeZone` from `./zone`; formatters from `./format`.
+- Consumes: `getDisplayTimeZone` from `./resolve`; formatters from `./format`.
 - Produces server components `DateTime`, `DateOnly`, `TimeOnly` (async) and `CalendarDate` (sync), each `{ value: Date | null | undefined; fallback?: string; opts?: Intl.DateTimeFormatOptions }`.
 
 - [ ] **Step 1: Write the failing test (sync CalendarDate is unit-testable)**
@@ -618,7 +619,7 @@ Expected: FAIL, "Cannot find module './display'".
 
 ```tsx
 // src/platform/dates/display.tsx
-import { getDisplayTimeZone } from "./zone";
+import { getDisplayTimeZone } from "./resolve";
 import { formatDateTime, formatDateOnly, formatTimeOnly, formatCalendarDate } from "./format";
 
 type Props = {
@@ -678,7 +679,7 @@ git commit -m "feat(dates): add server display components for instants and calen
 
 **Interfaces:**
 - Produces: `TimeZoneProvider({ zone, children })` and `useTimeZone(): string`.
-- Consumes in AppShell: `getDisplayTimeZone` from `@/platform/dates/zone`.
+- Consumes in AppShell: `getDisplayTimeZone` from `@/platform/dates/resolve`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -740,7 +741,7 @@ In `src/platform/ui/app-shell.tsx`, add imports near line 13:
 
 ```ts
 import { TimeZoneProvider } from "@/platform/dates/client";
-import { getDisplayTimeZone } from "@/platform/dates/zone";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
 ```
 
 Add `getDisplayTimeZone()` to the parallel fetch (lines 43-47) so it becomes:
@@ -858,7 +859,7 @@ git commit -m "feat(dates): incidents timestamps zoned, occurred-on dates stay U
   - `volunteers/offboarding/page.tsx` L216 `{fmtDate(flag.createdAt)}` -> `<DateOnly value={flag.createdAt} />` (**instant**).
   - `ehs-panel.tsx` L30 `completed {fmtDate(item.completedAt)}` -> `completed <DateOnly value={item.completedAt} />` (**instant**).
   - `person-form.tsx` L139 `Verified on {new Date(person.spanishVerifiedAt).toLocaleDateString()}` -> `Verified on <DateOnly value={new Date(person.spanishVerifiedAt)} />` (**instant**; check whether person-form is a client component — see note).
-  - `hipaa-panel.tsx`: make the component `async`; add `const zone = await getDisplayTimeZone();` and `import { getDisplayTimeZone } from "@/platform/dates/zone";` + `import { formatCalendarDate, formatDateOnly } from "@/platform/dates";`. Remove the local `formatDate` (def L28). Then: L62/L65/L68 `formatDate(expiresAt)` -> `formatCalendarDate(expiresAt)` (**calendar**); L103 `formatDate(latest.completionDate)` -> `formatCalendarDate(latest.completionDate)` (**calendar**); L94 `` `Uploaded ${formatDate(latest.uploadedAt)}` `` -> `` `Uploaded ${formatDateOnly(latest.uploadedAt, zone)}` `` (**instant**, string context); L157 `formatDate(cert.uploadedAt)` -> `formatDateOnly(cert.uploadedAt, zone)` (**instant**).
+  - `hipaa-panel.tsx`: make the component `async`; add `const zone = await getDisplayTimeZone();` and `import { getDisplayTimeZone } from "@/platform/dates/resolve";` + `import { formatCalendarDate, formatDateOnly } from "@/platform/dates";`. Remove the local `formatDate` (def L28). Then: L62/L65/L68 `formatDate(expiresAt)` -> `formatCalendarDate(expiresAt)` (**calendar**); L103 `formatDate(latest.completionDate)` -> `formatCalendarDate(latest.completionDate)` (**calendar**); L94 `` `Uploaded ${formatDate(latest.uploadedAt)}` `` -> `` `Uploaded ${formatDateOnly(latest.uploadedAt, zone)}` `` (**instant**, string context); L157 `formatDate(cert.uploadedAt)` -> `formatDateOnly(cert.uploadedAt, zone)` (**instant**).
   - Replace the `fmtDate` imports in the volunteers pages / ehs-panel with `import { CalendarDate, DateOnly } from "@/platform/dates/display";` (only what is used).
 
 **Note on `person-form.tsx`:** if the first line is `"use client"`, do NOT use `<DateOnly>`; instead read `const zone = useTimeZone();` (`import { useTimeZone } from "@/platform/dates/client"`) and render `{formatDateOnly(new Date(person.spanishVerifiedAt), zone)}`. Verify before editing.
@@ -896,7 +897,7 @@ git commit -m "feat(dates): route schedule/dashboard calendar dates through shar
 **Files:** `src/modules/support/components/ticket-detail.tsx`, `src/modules/support/components/comment-thread.tsx`, `src/modules/support/components/request-list.tsx`, `src/app/(app)/learning/dashboard/page.tsx`, `src/app/(app)/learning/manage/[courseId]/page.tsx`, `src/app/(app)/training/page.tsx`, `src/modules/admin/components/clinic-dates-editor.tsx`.
 
 - [ ] **Step 1: Apply edits**
-  - `ticket-detail.tsx` L170 `description={`... Submitted ${fmtDate(detail.createdAt)}`}` (**instant**, string prop). Make the component `async`; `const zone = await getDisplayTimeZone();`; replace with `${formatDateOnly(detail.createdAt, zone)}`. Imports: `getDisplayTimeZone` from `@/platform/dates/zone`, `formatDateOnly` from `@/platform/dates`; drop `fmtDate`. (If `ticket-detail` is a client component, use `useTimeZone()` instead of awaiting.)
+  - `ticket-detail.tsx` L170 `description={`... Submitted ${fmtDate(detail.createdAt)}`}` (**instant**, string prop). Make the component `async`; `const zone = await getDisplayTimeZone();`; replace with `${formatDateOnly(detail.createdAt, zone)}`. Imports: `getDisplayTimeZone` from `@/platform/dates/resolve`, `formatDateOnly` from `@/platform/dates`; drop `fmtDate`. (If `ticket-detail` is a client component, use `useTimeZone()` instead of awaiting.)
   - `comment-thread.tsx` L42 `{fmtDateTime(comment.createdAt)}` -> `<DateTime value={comment.createdAt} />` (**instant**, JSX child). Import `DateTime`; drop `fmtDateTime`. (Confirm server component; the inventory lists it under server call-sites.)
   - `request-list.tsx` L69 `{fmtDate(row.updatedAt)}` -> `<DateOnly value={row.updatedAt} />` (**instant**). Import `DateOnly`; drop `fmtDate`.
   - `learning/dashboard/page.tsx` L87 `{r.completedAt ? r.completedAt.toLocaleDateString() : ""}` -> `<DateOnly value={r.completedAt} fallback="" />` (**instant**; fixes a viewer-local bug). Import `DateOnly`.
@@ -936,7 +937,7 @@ git commit -m "feat(dates): route Teams channel + compliance-email dates through
 - Campaign: `src/app/(app)/admin/email/campaigns/[id]/page.tsx` (input L394-399, action parse L193, copy L393/L404/L418-419).
 - Terms copy: `src/app/(app)/admin/terms/[id]/page.tsx` (L201).
 
-**Interfaces:** consumes `getDisplayTimeZone` from `@/platform/dates/zone`; `formatForDateTimeInput`, `parseZonedInput` from `@/platform/dates`; `US_TIME_ZONES` for a friendly label helper.
+**Interfaces:** consumes `getDisplayTimeZone` from `@/platform/dates/resolve`; `formatForDateTimeInput`, `parseZonedInput` from `@/platform/dates`; `US_TIME_ZONES` for a friendly label helper.
 
 - [ ] **Step 1: Add a zone-label helper to `zone.ts`**
 
@@ -952,12 +953,12 @@ export function zoneLabel(zone: string): string {
 - [ ] **Step 2: Interview input + action**
   - `interviews/[interviewId]/page.tsx`: this page is async; add `const zone = await getDisplayTimeZone();`. Replace the L46 prefill:
     `const scheduledValue = formatForDateTimeInput(iv.scheduledAt, zone);`
-    Add a hint under the input at L78: `<p className="text-xs text-muted-foreground">Times are in {zoneLabel(zone)}.</p>`. Imports: `getDisplayTimeZone`, `zoneLabel` from `@/platform/dates/zone`; `formatForDateTimeInput` from `@/platform/dates`.
+    Add a hint under the input at L78: `<p className="text-xs text-muted-foreground">Times are in {zoneLabel(zone)}.</p>`. Imports: `getDisplayTimeZone` from `@/platform/dates/resolve`, `zoneLabel` from `@/platform/dates/zone`; `formatForDateTimeInput` from `@/platform/dates`.
   - `interviews/actions.ts` L25: replace `const scheduledAt = rawAt ? new Date(rawAt) : null;` with:
     ```ts
     const scheduledAt = rawAt ? parseZonedInput(rawAt, await getDisplayTimeZone()) : null;
     ```
-    Imports: `parseZonedInput` from `@/platform/dates`, `getDisplayTimeZone` from `@/platform/dates/zone`.
+    Imports: `parseZonedInput` from `@/platform/dates`, `getDisplayTimeZone` from `@/platform/dates/resolve`.
 
 - [ ] **Step 3: Window inputs + action + copy**
   - `cycles/[id]/page.tsx`: page is async; add `const zone = await getDisplayTimeZone();`. Reimplement `toLocalInput` (L25-30) to `formatForDateTimeInput(d, zone)` at each call, i.e. replace `defaultValue={toLocalInput(cycle.opensAt)}` -> `defaultValue={formatForDateTimeInput(cycle.opensAt, zone)}` (and `closesAt`), then delete `toLocalInput`. Replace the L155-157 copy sentence "Times use the server timezone." with "Times are in {zoneLabel(zone)}." Imports as in Step 2.
@@ -970,7 +971,7 @@ export function zoneLabel(zone: string): string {
     schedules run on UTC, independent of the display zone). Example:{" "}
     <code className="font-mono">0 13 * * 1</code> = Mondays 13:00 UTC (9:00 AM ET in summer).
     ```
-    In `scheduleLaterAction` (the page's own action, L193): replace `const scheduledAt = new Date(raw);` with `const scheduledAt = parseZonedInput(raw, await getDisplayTimeZone());` and guard `if (!scheduledAt) { /* existing invalid-input path */ }`. Imports: `parseZonedInput` from `@/platform/dates`, `getDisplayTimeZone`, `zoneLabel` from `@/platform/dates/zone`.
+    In `scheduleLaterAction` (the page's own action, L193): replace `const scheduledAt = new Date(raw);` with `const scheduledAt = parseZonedInput(raw, await getDisplayTimeZone());` and guard `if (!scheduledAt) { /* existing invalid-input path */ }`. Imports: `parseZonedInput` from `@/platform/dates`, `getDisplayTimeZone` from `@/platform/dates/resolve`, `zoneLabel` from `@/platform/dates/zone`.
   - Leave `src/platform/email/campaigns/cron.ts` (`tz: "UTC"`) unchanged: recurring cron stays UTC, matching the copy.
 
 - [ ] **Step 5: Terms copy**
@@ -994,7 +995,7 @@ git commit -m "feat(dates): interpret datetime-local inputs in the display zone;
   - `api/cron/schedule-reminders/route.ts` L84 + L88: replace both `toLocaleDateString("en-US", { ... })` (no timeZone) with `formatCalendarDate(pending.requesterDate, { <same opts> })` and `formatCalendarDate(pending.targetDate, { month: "long", day: "numeric", year: "numeric" })`. Import `formatCalendarDate`.
 
 - [ ] **Step 2: Instant email/PDF fixes (resolve zone; these are async)**
-  - `interviews.ts` L181: replace with `const zone = await getDisplayTimeZone(); const interviewTime = formatDateTime(iv.scheduledAt, zone, { dateStyle: "full", timeStyle: "short" });`. Imports: `getDisplayTimeZone` from `@/platform/dates/zone`, `formatDateTime` from `@/platform/dates`.
+  - `interviews.ts` L181: replace with `const zone = await getDisplayTimeZone(); const interviewTime = formatDateTime(iv.scheduledAt, zone, { dateStyle: "full", timeStyle: "short" });`. Imports: `getDisplayTimeZone` from `@/platform/dates/resolve`, `formatDateTime` from `@/platform/dates`.
   - `portal-status.ts` L85: if the enclosing function is async, `const zone = await getDisplayTimeZone(); const when = formatDateTime(scheduledInterview.scheduledAt, zone, { dateStyle: "long", timeStyle: "short" });`. If it is sync, thread `zone` in from its async caller as a parameter. (Verify async-ness before editing.)
   - `itcm-pdf.ts` L202 (`generatePdf` is async): `const zone = await getDisplayTimeZone(); const today = formatDateOnly(new Date(), zone, { month: "2-digit", day: "2-digit", year: "numeric" });`. Imports as above.
   - `api/support/epic/generate/route.ts` L120 (async): same pattern as itcm-pdf for `today`. L309-310 filename `dateStr`: `const zone = await getDisplayTimeZone(); const dateStr = formatForDateInput(new Date(), zone).replace(/-/g, "").replace(/^(\d{4})(\d{2})(\d{2})$/, "$2$3$1");` OR simpler, build MMDDYYYY from `formatDateOnly(new Date(), zone, { month:"2-digit", day:"2-digit", year:"numeric" })` stripped of "/". Keep it a filename-safe string.

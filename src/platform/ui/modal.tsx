@@ -8,6 +8,8 @@ type ModalProps = {
   open: boolean;
   onClose: () => void;
   title?: ReactNode;
+  /** Accessible name for the dialog when `title` is omitted (role="dialog" must always be named). */
+  ariaLabel?: string;
   children: ReactNode;
   footer?: ReactNode;
 };
@@ -17,7 +19,7 @@ type ModalProps = {
  * closes on Escape and backdrop click, locks body scroll while open, and restores
  * focus to the previously focused element on close. Renders nothing when closed.
  */
-export function Modal({ open, onClose, title, children, footer }: ModalProps) {
+export function Modal({ open, onClose, title, ariaLabel, children, footer }: ModalProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const previouslyFocused = useRef<HTMLElement | null>(null);
   const titleId = useId();
@@ -84,6 +86,7 @@ export function Modal({ open, onClose, title, children, footer }: ModalProps) {
         role="dialog"
         aria-modal="true"
         aria-labelledby={title ? titleId : undefined}
+        aria-label={!title ? ariaLabel : undefined}
         tabIndex={-1}
         className="flex max-h-[90vh] w-full max-w-4xl flex-col rounded-2xl glass-panel outline-none"
       >

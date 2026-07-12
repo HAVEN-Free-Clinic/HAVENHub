@@ -6,6 +6,7 @@ import { MODULES } from "@/platform/modules/registry";
 import { getAccessibleModules } from "@/platform/modules/access";
 import { getSetting } from "@/platform/settings/service";
 import { getOrgIdentity, formatOrgLine } from "@/platform/branding/org";
+import { Button } from "./button";
 import { HavenLogo } from "./haven-logo";
 import { GlobalNav } from "./global-nav";
 import { Breadcrumbs } from "./breadcrumbs";
@@ -54,6 +55,14 @@ export async function AppShell({
 
   return (
     <div className="min-h-screen flex flex-col bg-canvas">
+      {/* Skip link (WCAG 2.4.1): first focusable element, hidden until focused,
+          lets keyboard users bypass the repeated global nav. */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-surface focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-foreground focus:shadow-lg focus:outline-2 focus:outline-offset-2 focus:outline-brand"
+      >
+        Skip to content
+      </a>
       {/* Floating glass nav: a transparent sticky wrapper holds a centered pill
           that detaches from the top/sides so canvas shows around it and page
           content blurs beneath it on scroll. */}
@@ -96,14 +105,16 @@ export async function AppShell({
                 await signOut({ redirectTo: "/login" });
               }}
             >
-              <button
+              <Button
                 type="submit"
+                variant="outline"
+                size="sm"
                 aria-label="Sign out"
-                className="inline-flex items-center whitespace-nowrap rounded-md border border-border px-2 py-1.5 text-sm font-medium text-foreground-soft transition-colors hover:border-border-strong hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:px-3"
+                className="whitespace-nowrap"
               >
                 <LogOut aria-hidden className="h-4 w-4 sm:hidden" />
                 <span className="hidden sm:inline">Sign out</span>
-              </button>
+              </Button>
             </form>
           </div>
         </div>
@@ -112,7 +123,11 @@ export async function AppShell({
       <BreadcrumbProvider>
         <Breadcrumbs modules={breadcrumbModules} />
 
-        <main className="mx-auto w-full max-w-6xl px-6 py-10 flex-1">
+        <main
+          id="main-content"
+          tabIndex={-1}
+          className="mx-auto w-full max-w-6xl px-6 py-10 flex-1 outline-none"
+        >
           {children}
         </main>
       </BreadcrumbProvider>

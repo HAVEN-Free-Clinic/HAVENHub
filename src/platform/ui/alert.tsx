@@ -52,7 +52,7 @@ export function Alert({
       role={role ?? (tone === "error" ? "alert" : "status")}
       {...rest}
       className={cx(
-        "flex w-fit max-w-full items-start gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground",
+        "flex w-fit max-w-full items-start gap-2 rounded-xl border border-border bg-surface px-3 py-2 text-sm text-foreground",
         className,
       )}
     >

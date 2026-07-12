@@ -17,7 +17,7 @@ export function HavenMark({ className }: { className?: string }) {
         y="38"
         textAnchor="middle"
         dominantBaseline="central"
-        fontFamily="Poppins, sans-serif"
+        style={{ fontFamily: "var(--font-hanken), ui-sans-serif, system-ui, sans-serif" }}
         fontWeight="600"
         fontSize="11"
         fill="currentColor"

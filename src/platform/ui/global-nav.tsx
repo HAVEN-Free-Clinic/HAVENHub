@@ -179,7 +179,7 @@ export function GlobalNav({ items }: { items: NavModule[] }) {
           <div ref={moreRef} className="relative">
             <button
               type="button"
-              aria-haspopup="menu"
+              aria-haspopup="true"
               aria-expanded={moreOpen}
               onClick={() => setMoreOpen((v) => !v)}
               className={`inline-flex items-center gap-1 ${linkClasses(overflowHasActive)}`}
@@ -188,8 +188,10 @@ export function GlobalNav({ items }: { items: NavModule[] }) {
               <ChevronDown aria-hidden className="h-3.5 w-3.5" />
             </button>
             {moreOpen && (
-              <div
-                role="menu"
+              // A labelled container of navigation links, not an APG menu widget
+              // (we implement only Tab + Escape, not arrow-key roving focus), so it
+              // is a <nav> of links rather than role="menu"/"menuitem".
+              <nav
                 aria-label="More modules"
                 className="absolute right-0 top-full z-20 mt-1 flex min-w-44 flex-col gap-1 rounded-xl border border-border bg-surface p-1.5 shadow-lg"
               >
@@ -199,7 +201,6 @@ export function GlobalNav({ items }: { items: NavModule[] }) {
                     <Link
                       key={m.id}
                       href={m.href}
-                      role="menuitem"
                       aria-current={active ? "page" : undefined}
                       onClick={() => setMoreOpen(false)}
                       className={`block ${linkClasses(active)}`}
@@ -208,7 +209,7 @@ export function GlobalNav({ items }: { items: NavModule[] }) {
                     </Link>
                   );
                 })}
-              </div>
+              </nav>
             )}
           </div>
         )}

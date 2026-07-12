@@ -27,6 +27,7 @@ export function TR({ className, ...rest }: ComponentProps<"tr">) {
 export function TH({ className, ...rest }: ComponentProps<"th">) {
   return (
     <th
+      scope="col"
       {...rest}
       className={cx(
         "px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-subtle-foreground",

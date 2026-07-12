@@ -57,7 +57,10 @@ export function InactivityTracker({ authenticated }: { authenticated: boolean })
   if (!authenticated || !showWarning) return null;
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 max-w-sm rounded-xl border border-border bg-surface px-5 py-4 shadow-lg">
+    <div
+      role="alert"
+      className="fixed bottom-4 right-4 z-50 max-w-sm rounded-xl border border-border bg-surface px-5 py-4 shadow-lg"
+    >
       <p className="text-sm font-semibold text-foreground mb-1">Still there?</p>
       <p className="text-sm text-foreground-soft mb-3">
         You&apos;ll be signed out in 5 minutes due to inactivity.

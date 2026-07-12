@@ -2,14 +2,12 @@
 
 import { Fragment, useReducer, useState } from "react";
 import { X } from "lucide-react";
-import { pdf } from "@react-pdf/renderer";
 import { Alert } from "@/platform/ui/alert";
 import { Button } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
 import { Field, Input, Textarea } from "@/platform/ui/input";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Select } from "@/platform/ui/select";
-import { AvsDocument } from "./avs-pdf";
 import { buildSummary } from "./build-summary";
 import { avsReducer, initialAvsData, type StringFieldKey } from "./form-state";
 import {
@@ -22,32 +20,54 @@ import {
 } from "./strings";
 import type { AvsData } from "./types";
 
-function validate(data: AvsData): string[] {
-  const errs: string[] = [];
-  if (!data.lastName.trim()) errs.push("Last name is required.");
-  if (!data.visitDate.trim()) errs.push("Visit date is required.");
-  if (!data.primaryReason.trim()) errs.push("Reason for visit is required.");
-  return errs;
+function validate(data: AvsData): { messages: string[]; fields: StringFieldKey[] } {
+  const messages: string[] = [];
+  const fields: StringFieldKey[] = [];
+  if (!data.lastName.trim()) {
+    messages.push("Last name is required.");
+    fields.push("lastName");
+  }
+  if (!data.visitDate.trim()) {
+    messages.push("Visit date is required.");
+    fields.push("visitDate");
+  }
+  if (!data.primaryReason.trim()) {
+    messages.push("Reason for visit is required.");
+    fields.push("primaryReason");
+  }
+  return { messages, fields };
 }
 
 export function AvsTool({ brandColor }: { brandColor: string }) {
   const [data, dispatch] = useReducer(avsReducer, initialAvsData);
   const [errors, setErrors] = useState<string[]>([]);
+  const [invalidFields, setInvalidFields] = useState<StringFieldKey[]>([]);
   const [busy, setBusy] = useState(false);
 
-  const setField = (key: StringFieldKey) => (e: { target: { value: string } }) =>
+  const setField = (key: StringFieldKey) => (e: { target: { value: string } }) => {
     dispatch({ type: "setField", key, value: e.target.value });
+    setInvalidFields((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : prev));
+  };
 
   async function handleGenerate() {
-    const errs = validate(data);
-    if (errs.length) {
-      setErrors(errs);
-      window.scrollTo({ top: 0, behavior: "smooth" });
+    const { messages, fields } = validate(data);
+    if (messages.length) {
+      setErrors(messages);
+      setInvalidFields(fields);
+      const first = fields[0];
+      if (first) {
+        document.getElementById(`avs-${first}`)?.focus();
+      } else {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
       return;
     }
     setErrors([]);
+    setInvalidFields([]);
     setBusy(true);
     try {
+      const { pdf } = await import("@react-pdf/renderer");
+      const { AvsDocument } = await import("./avs-pdf");
       const summary = buildSummary(data, data.preferredLang);
       const blob = await pdf(<AvsDocument summary={summary} brandColor={brandColor} />).toBlob();
       const url = URL.createObjectURL(blob);
@@ -102,18 +122,32 @@ export function AvsTool({ brandColor }: { brandColor: string }) {
             </Select>
           </label>
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="First name">
             <Input value={data.firstName} onChange={setField("firstName")} placeholder="Maria" />
           </Field>
-          <Field label="Last name *">
-            <Input required value={data.lastName} onChange={setField("lastName")} placeholder="Garcia" />
+          <Field label="Last name" required>
+            <Input
+              id="avs-lastName"
+              required
+              aria-invalid={invalidFields.includes("lastName") ? true : undefined}
+              value={data.lastName}
+              onChange={setField("lastName")}
+              placeholder="Garcia"
+            />
           </Field>
           <Field label="Date of birth">
             <Input type="date" value={data.dob} onChange={setField("dob")} />
           </Field>
-          <Field label="Visit date *">
-            <Input type="date" required value={data.visitDate} onChange={setField("visitDate")} />
+          <Field label="Visit date" required>
+            <Input
+              id="avs-visitDate"
+              type="date"
+              required
+              aria-invalid={invalidFields.includes("visitDate") ? true : undefined}
+              value={data.visitDate}
+              onChange={setField("visitDate")}
+            />
           </Field>
           <Field label="Provider / clinician">
             <Input value={data.provider} onChange={setField("provider")} placeholder="Dr. Smith" />
@@ -126,9 +160,11 @@ export function AvsTool({ brandColor }: { brandColor: string }) {
 
       <Card className="space-y-4">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-brand-fg">Visit details</h2>
-        <Field label="Reason for visit *">
+        <Field label="Reason for visit" required>
           <Input
+            id="avs-primaryReason"
             required
+            aria-invalid={invalidFields.includes("primaryReason") ? true : undefined}
             value={data.primaryReason}
             onChange={setField("primaryReason")}
             placeholder="Hypertension follow-up"
@@ -151,7 +187,7 @@ export function AvsTool({ brandColor }: { brandColor: string }) {
       <Card className="space-y-4">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-brand-fg">Medications</h2>
         {data.medications.map((m, i) => (
-          <div key={i} className="grid grid-cols-[1fr_1fr_1fr_auto] items-end gap-2">
+          <div key={i} className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end">
             <Field label="Medication">
               <Input
                 value={m.name}
@@ -182,7 +218,7 @@ export function AvsTool({ brandColor }: { brandColor: string }) {
 
       <Card className="space-y-4">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-brand-fg">Next steps</h2>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Follow-up">
             <Select value={data.followUpTimeframe} onChange={setField("followUpTimeframe")}>
               <option value="">Select timeframe</option>
@@ -203,15 +239,18 @@ export function AvsTool({ brandColor }: { brandColor: string }) {
           selected={data.labs}
           onToggle={(value) => dispatch({ type: "toggle", key: "labs", value })}
         />
-        <div className="space-y-2">
-          <span className="text-xs font-medium text-muted-foreground">Action items</span>
+        <div className="space-y-2" role="group" aria-labelledby="avs-action-items-label">
+          <span id="avs-action-items-label" className="text-xs font-medium text-muted-foreground">
+            Action items
+          </span>
           {data.actionItems.map((item, i) => (
             <div key={i} className="flex items-center gap-2">
               <Input
+                aria-label={`Action item ${i + 1}`}
                 value={item}
                 onChange={(e) => dispatch({ type: "updateActionItem", index: i, value: e.target.value })}
               />
-              <Button type="button" variant="ghost" onClick={() => dispatch({ type: "removeActionItem", index: i })} aria-label="Remove action item">
+              <Button type="button" variant="ghost" onClick={() => dispatch({ type: "removeActionItem", index: i })} aria-label={`Remove action item ${i + 1}`}>
                 <X className="h-4 w-4" />
               </Button>
             </div>
@@ -268,10 +307,13 @@ function ChipGroup({
   selected: string[];
   onToggle: (value: string) => void;
 }) {
+  const labelId = `chip-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
   return (
     <div className="space-y-1.5">
-      <span className="text-xs font-medium text-muted-foreground">{label}</span>
-      <div className="flex flex-wrap gap-2">
+      <span id={labelId} className="text-xs font-medium text-muted-foreground">
+        {label}
+      </span>
+      <div className="flex flex-wrap gap-2" role="group" aria-labelledby={labelId}>
         {list.map((o) => {
           const on = selected.includes(o.key);
           return (

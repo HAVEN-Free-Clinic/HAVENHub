@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { getSetting } from "@/platform/settings/service";
+import { buildPageMetadata } from "@/platform/branding/metadata";
 
 /**
  * Metadata-only layout for the public application portal. The root layout sets
@@ -16,7 +17,7 @@ export async function generateMetadata(): Promise<Metadata> {
     getSetting<string>("branding.applyPortalTitle"),
     getSetting<string>("branding.orgName"),
   ]);
-  return { title, description: `Apply to ${orgName}` };
+  return buildPageMetadata({ title, description: `Apply to ${orgName}` });
 }
 
 export default function ApplyPortalLayout({ children }: { children: ReactNode }) {

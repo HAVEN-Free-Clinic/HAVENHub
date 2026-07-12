@@ -43,7 +43,7 @@ export function TicketNumberField({
           onClick={handleSave}
           disabled={saving}
           aria-label="Save"
-          className="h-6 w-6 grid place-items-center p-0"
+          className="min-h-11 min-w-11 grid place-items-center p-0"
         >
           <Check className="h-3.5 w-3.5" aria-hidden />
         </Button>
@@ -56,7 +56,7 @@ export function TicketNumberField({
             setValue(serviceRequestNumber ?? "");
           }}
           aria-label="Cancel"
-          className="h-6 w-6 grid place-items-center p-0"
+          className="min-h-11 min-w-11 grid place-items-center p-0"
         >
           <X className="h-3.5 w-3.5" aria-hidden />
         </Button>

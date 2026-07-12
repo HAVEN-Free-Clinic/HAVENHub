@@ -131,6 +131,9 @@ const schema = z
           }
         })
       ),
+    // IANA display time zone for rendering real timestamps. Deploy-time seed;
+    // admins can override live via the display.timeZone setting.
+    DISPLAY_TIME_ZONE: z.string().default("America/New_York"),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV !== "production") return;

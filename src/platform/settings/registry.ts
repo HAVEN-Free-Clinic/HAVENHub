@@ -2,6 +2,7 @@ import { z } from "zod";
 import { config, type AppConfig } from "@/platform/config";
 import { brandingAssetSchema, type BrandingAsset } from "@/platform/branding/asset-types";
 import { NOTIFICATION_TYPES, channelSettingKey, type NotificationChannel } from "@/platform/notifications/registry";
+import { US_TIME_ZONES, US_TIME_ZONE_IDS } from "@/platform/dates/zone";
 
 export interface SettingValidateCtx {
   /** Env config, for checking that required secrets are present. */
@@ -288,6 +289,16 @@ export const SETTINGS: SettingDef<unknown>[] = [
       secret: false,
     })
   ),
+  define<string>({
+    key: "display.timeZone",
+    category: "Operations",
+    label: "Display time zone",
+    help: "All dates and times across the app are shown in this time zone. Calendar dates (clinic days, term dates) are unaffected.",
+    input: { type: "select", options: US_TIME_ZONES.map((z) => ({ value: z.value, label: z.label })) },
+    schema: z.enum(US_TIME_ZONE_IDS),
+    envDefault: () => config.DISPLAY_TIME_ZONE,
+    secret: false,
+  }),
 ];
 
 const BY_KEY = new Map(SETTINGS.map((d) => [d.key, d]));

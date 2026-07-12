@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requirePersonSession } from "@/platform/auth/session";
+import { DateTime } from "@/platform/dates/display";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { listInterviewsForReview } from "@/modules/recruitment/services/interviews";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
@@ -65,7 +66,7 @@ export default async function InterviewsPage({ params }: { params: Promise<{ id:
                 <TD>
                   <Badge tone={s.tone}>{s.label}</Badge>
                 </TD>
-                <TD className="text-foreground-soft">{iv.scheduledAt ? iv.scheduledAt.toLocaleString() : "TBD"}</TD>
+                <TD className="text-foreground-soft"><DateTime value={iv.scheduledAt} fallback="TBD" /></TD>
                 <TD className="text-foreground-soft">{iv.panelists.length}</TD>
                 <TD className="text-foreground-soft">
                   {iv.evaluations.length}/{iv.panelists.length}

@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { requirePersonSession } from "@/platform/auth/session";
+import { DateTime } from "@/platform/dates/display";
 import { can } from "@/platform/rbac/engine";
 import { getInterview, listPanelistCandidates } from "@/modules/recruitment/services/interviews";
 import { reviewScope } from "@/modules/recruitment/services/review";
@@ -91,7 +92,7 @@ export default async function InterviewDetail({ params, searchParams }: { params
               <SubmitButton size="sm" variant="outline" pendingLabel="Sending…">
                 {iv.invitedAt ? "Resend invite" : "Send invite"}
               </SubmitButton>
-              {iv.invitedAt && <span className="text-xs text-subtle-foreground">sent {iv.invitedAt.toLocaleString()}</span>}
+              {iv.invitedAt && <span className="text-xs text-subtle-foreground">sent <DateTime value={iv.invitedAt} /></span>}
             </form>
           </Card>
 
@@ -126,7 +127,7 @@ export default async function InterviewDetail({ params, searchParams }: { params
           <dl className="mt-3 space-y-3 text-sm">
             <div>
               <dt className="text-xs text-subtle-foreground">Time</dt>
-              <dd className="text-foreground">{iv.scheduledAt ? iv.scheduledAt.toLocaleString() : "To be determined"}</dd>
+              <dd className="text-foreground"><DateTime value={iv.scheduledAt} fallback="To be determined" /></dd>
             </div>
             <div>
               <dt className="text-xs text-subtle-foreground">Zoom link</dt>

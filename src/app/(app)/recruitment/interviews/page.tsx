@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { requirePersonSession } from "@/platform/auth/session";
+import { DateTime } from "@/platform/dates/display";
 import { myAssignedInterviews } from "@/modules/recruitment/services/interviews";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { recruitmentTrail } from "@/modules/recruitment/breadcrumbs";
@@ -35,7 +36,7 @@ export default async function MyInterviewsPage() {
                 </Link>
               </TD>
               <TD className="text-foreground-soft">{iv.departmentCode}</TD>
-              <TD className="text-foreground-soft">{iv.scheduledAt ? iv.scheduledAt.toLocaleString() : "TBD"}</TD>
+              <TD className="text-foreground-soft"><DateTime value={iv.scheduledAt} fallback="TBD" /></TD>
               <TD>
                 {iv.evaluations.length > 0 ? (
                   <Badge tone="brand">{iv.evaluations[0].recommendation.replace("_", " ")}</Badge>

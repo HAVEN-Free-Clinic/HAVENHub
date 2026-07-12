@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { DateTime } from "@/platform/dates/display";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { requirePersonSession } from "@/platform/auth/session";
 import { can } from "@/platform/rbac/engine";
@@ -101,13 +102,13 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
               <p className="text-sm text-muted-foreground">{applyUrl}</p>
             )}
             {beforeOpen && (
-              <p className="text-xs text-subtle-foreground">Scheduled to open {cycle.opensAt!.toLocaleString()}. Not accepting applications yet.</p>
+              <p className="text-xs text-subtle-foreground">Scheduled to open <DateTime value={cycle.opensAt} />. Not accepting applications yet.</p>
             )}
             {afterClose && (
-              <p className="text-xs text-subtle-foreground">Application window closed {cycle.closesAt!.toLocaleString()}. No longer accepting applications.</p>
+              <p className="text-xs text-subtle-foreground">Application window closed <DateTime value={cycle.closesAt} />. No longer accepting applications.</p>
             )}
             {liveByWindow && cycle.closesAt && (
-              <p className="text-xs text-subtle-foreground">Accepting applications until {cycle.closesAt.toLocaleString()}.</p>
+              <p className="text-xs text-subtle-foreground">Accepting applications until <DateTime value={cycle.closesAt} />.</p>
             )}
           </div>
         ) : (

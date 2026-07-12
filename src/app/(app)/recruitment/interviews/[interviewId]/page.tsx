@@ -21,6 +21,7 @@ import { FormActions } from "@/platform/ui/form";
 
 const RECS = ["STRONG_YES", "YES", "MAYBE", "NO"];
 const decisionTone = { PENDING: "default", ACCEPT: "success", REJECT: "critical", WAITLIST: "warning" } as const;
+const decisionLabel = { PENDING: "Pending", ACCEPT: "Accepted", REJECT: "Rejected", WAITLIST: "Waitlisted" } as const;
 
 export default async function InterviewDetail({ params, searchParams }: { params: Promise<{ interviewId: string }>; searchParams: Promise<{ error?: string }> }) {
   const { interviewId } = await params;
@@ -64,7 +65,7 @@ export default async function InterviewDetail({ params, searchParams }: { params
       <PageHeader
         title={`${iv.application.applicant.firstName} ${iv.application.applicant.lastName}`}
         description={`${iv.departmentCode} director interview`}
-        action={<Badge tone={decisionTone[iv.decision as keyof typeof decisionTone] ?? "default"}>{iv.decision}</Badge>}
+        action={<Badge tone={decisionTone[iv.decision as keyof typeof decisionTone] ?? "default"}>{decisionLabel[iv.decision as keyof typeof decisionLabel] ?? iv.decision}</Badge>}
       />
       {error && <Alert tone="error">{error}</Alert>}
 
@@ -117,6 +118,35 @@ export default async function InterviewDetail({ params, searchParams }: { params
             <p className="mt-2 text-xs text-subtle-foreground">Panel members can submit an evaluation from their My interviews page.</p>
           </Card>
         </>
+      )}
+
+      {isPanelist && !canManage && (
+        <Card>
+          <SectionHeader>Schedule</SectionHeader>
+          <dl className="mt-3 space-y-3 text-sm">
+            <div>
+              <dt className="text-xs text-subtle-foreground">Time</dt>
+              <dd className="text-foreground">{iv.scheduledAt ? iv.scheduledAt.toLocaleString() : "To be determined"}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-subtle-foreground">Zoom link</dt>
+              <dd>
+                {iv.zoomLink ? (
+                  <a
+                    className="break-all font-medium text-brand-fg hover:text-brand-hover"
+                    href={iv.zoomLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    {iv.zoomLink}
+                  </a>
+                ) : (
+                  <span className="text-muted-foreground">Not shared yet</span>
+                )}
+              </dd>
+            </div>
+          </dl>
+        </Card>
       )}
 
       <Card>

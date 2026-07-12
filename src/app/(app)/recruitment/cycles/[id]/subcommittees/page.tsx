@@ -76,7 +76,7 @@ export default async function AssignSubcommitteesPage({ params, searchParams }: 
               </TD>
               <TD>
                 <form action={assignSubcommitteeAction.bind(null, id, r.applicationId)} className="flex items-center gap-2">
-                  <Select name="subcommitteeId" defaultValue={r.assignedSubcommitteeId ?? ""} className="w-44">
+                  <Select name="subcommitteeId" defaultValue={r.assignedSubcommitteeId ?? ""} className="w-44" aria-label={`Subcommittee for ${r.applicant.firstName} ${r.applicant.lastName}`}>
                     <option value="">Unassigned</option>
                     {subcommittees.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                   </Select>

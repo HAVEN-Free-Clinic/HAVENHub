@@ -9,7 +9,7 @@ import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 import { PageHeader } from "@/platform/ui/page-header";
 import { StatCard } from "@/platform/ui/stat-card";
 import { Alert } from "@/platform/ui/alert";
-import { SubmitButton } from "@/platform/ui/submit-button";
+import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { cardClasses } from "@/platform/ui/card";
 import { SectionHeader } from "@/platform/ui/section-header";
 
@@ -67,7 +67,7 @@ export default async function DecisionsPage({ params, searchParams }: { params: 
       </section>
 
       <form action={releaseDecisionsAction.bind(null, id)} className="space-y-2">
-        <SubmitButton pendingLabel="Releasing…">Release decisions</SubmitButton>
+        <ConfirmButton label="Release decisions" confirmLabel="Send acceptance emails?" />
         <p className="text-xs text-subtle-foreground">
           Emails every accepted, non-conflicted applicant who hasn&apos;t been notified yet.
         </p>

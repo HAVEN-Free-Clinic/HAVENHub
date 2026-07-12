@@ -80,13 +80,29 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
           <dl className="mt-3 grid gap-3 sm:grid-cols-2">
             {section.fields.map((f) => {
               const val = answers[f.key];
-              const display = f.type === "FILE" && val && typeof val === "object"
-                ? (val as { fileName?: string }).fileName ?? "(file)"
+              const fileVal = f.type === "FILE" && val && typeof val === "object"
+                ? (val as { storedName?: string; fileName?: string })
+                : null;
+              const display = fileVal
+                ? fileVal.fileName ?? "(file)"
                 : Array.isArray(val) ? val.join(", ") : val === undefined || val === "" ? "(none)" : String(val);
               return (
                 <div key={f.id}>
                   <dt className="text-xs text-subtle-foreground">{f.label}</dt>
-                  <dd className="mt-0.5 text-sm text-foreground">{display}</dd>
+                  <dd className="mt-0.5 text-sm text-foreground">
+                    {fileVal?.storedName ? (
+                      <a
+                        href={`/api/recruitment/applications/${applicationId}/files/${encodeURIComponent(f.key)}?inline=1`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-medium text-brand-fg hover:underline"
+                      >
+                        {display}
+                      </a>
+                    ) : (
+                      display
+                    )}
+                  </dd>
                 </div>
               );
             })}

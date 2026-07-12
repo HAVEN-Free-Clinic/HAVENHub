@@ -14,6 +14,11 @@ const statusTone = {
   ARCHIVED: "default",
 } as const;
 
+const trackLabels: Record<string, string> = { VOLUNTEER: "Volunteer", DIRECTOR: "Director" };
+function trackLabel(track: string): string {
+  return trackLabels[track] ?? track.charAt(0) + track.slice(1).toLowerCase();
+}
+
 export default async function RecruitmentPage() {
   // Sits above the cycles/ subtree layout, so it carries the recruitment.access
   // gate itself (the root recruitment layout is now only a session check).
@@ -52,7 +57,7 @@ export default async function RecruitmentPage() {
                   {c.title}
                 </Link>
               </TD>
-              <TD className="text-foreground-soft">{c.track}</TD>
+              <TD className="text-foreground-soft">{trackLabel(c.track)}</TD>
               <TD>
                 <Badge tone={statusTone[c.status as keyof typeof statusTone] ?? "default"}>{c.status}</Badge>
               </TD>
@@ -90,7 +95,7 @@ export default async function RecruitmentPage() {
                         {c.title}
                       </Link>
                     </TD>
-                    <TD className="text-foreground-soft">{c.track}</TD>
+                    <TD className="text-foreground-soft">{trackLabel(c.track)}</TD>
                     <TD>
                       <Badge tone={statusTone[c.status as keyof typeof statusTone] ?? "default"}>{c.status}</Badge>
                     </TD>

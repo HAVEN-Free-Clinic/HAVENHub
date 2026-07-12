@@ -83,7 +83,9 @@ test("director interview: schedule, decide accept, release", async ({
 
   // --- Decisions page: release and assert acceptance email queued ---
   await page.goto(`/recruitment/cycles/${cycleId}/decisions`);
+  // "Release decisions" is now a two-click ConfirmButton (arms, then confirms).
   await page.click('button:has-text("Release decisions")');
+  await page.click('button:has-text("Send acceptance emails?")');
 
   await page.waitForURL((url) =>
     url.pathname.includes("/decisions") && url.searchParams.has("sent")

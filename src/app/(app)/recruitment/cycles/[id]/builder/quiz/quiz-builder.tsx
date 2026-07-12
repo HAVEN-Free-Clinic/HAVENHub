@@ -51,7 +51,7 @@ export function QuizBuilder({
 
       <Card pad={false} className="overflow-hidden">
         <div className="h-2 bg-brand" aria-hidden />
-        <div className="p-5"><h1 className="text-lg font-semibold text-foreground">{cycleTitle}</h1><p className="text-sm text-muted-foreground">Training quiz</p></div>
+        <div className="p-5"><h2 className="text-lg font-semibold text-foreground">{cycleTitle}</h2><p className="text-sm text-muted-foreground">Training quiz</p></div>
       </Card>
 
       {sections.map((section) => (

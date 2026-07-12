@@ -55,13 +55,13 @@ export function FieldCard({
     <Card size="compact" className="group">
       <div className="flex items-start gap-2">
         {/* eslint-disable-next-line no-restricted-syntax -- DnD drag-handle button, needs raw attribute/listener spread for dnd-kit */}
-        <button type="button" className="mt-1 cursor-grab text-subtle-foreground opacity-0 group-hover:opacity-100 disabled:cursor-not-allowed" disabled={!editable} aria-label="Drag to reorder field" {...(handle.attributes as HTMLAttributes<HTMLButtonElement>)} {...((handle.listeners ?? {}) as HTMLAttributes<HTMLButtonElement>)}>
+        <button type="button" className="mt-1 cursor-grab text-subtle-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 disabled:cursor-not-allowed" disabled={!editable} aria-label="Drag to reorder field" {...(handle.attributes as HTMLAttributes<HTMLButtonElement>)} {...((handle.listeners ?? {}) as HTMLAttributes<HTMLButtonElement>)}>
           <GripVertical className="h-4 w-4" aria-hidden />
         </button>
         <div className="flex-1">
           <FieldPreview f={field} departments={departments} subcommittees={subcommittees} disabled />
         </div>
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
+        <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100">
           <span title={meta.label} className="px-1 text-subtle-foreground"><Icon className="h-4 w-4" aria-hidden /></span>
           <Button type="button" variant="ghost" size="sm" onClick={() => setOpen((v) => !v)} aria-label="Edit field"><Pencil className="h-4 w-4" aria-hidden /></Button>
           <Button type="button" variant="ghost" size="sm" disabled={!editable || pending}

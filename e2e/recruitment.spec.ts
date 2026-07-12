@@ -47,7 +47,7 @@ test("recruitment: build (TypePicker), publish, public apply via portal, view su
     .filter({ has: page.locator("h2").filter({ hasText: "Your information" }) })
     .first();
   await identitySection.getByRole("button", { name: /Add field/ }).click();
-  await page.getByRole("menuitem", { name: "Paragraph" }).click();
+  await page.getByRole("button", { name: "Paragraph", exact: true }).click();
   // The new field renders with its default label; it is optional so it does not
   // affect the submission below.
   await expect(identitySection.getByText("Paragraph", { exact: true })).toBeVisible();

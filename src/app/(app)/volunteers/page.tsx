@@ -1,6 +1,7 @@
 import { requirePermission } from "@/platform/auth/session";
 import { can } from "@/platform/rbac/engine";
 import { PageHeader } from "@/platform/ui/page-header";
+import { SectionHeader } from "@/platform/ui/section-header";
 import { Badge } from "@/platform/ui/badge";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { Alert } from "@/platform/ui/alert";
@@ -164,9 +165,9 @@ export default async function VolunteersPage({ searchParams }: PageProps) {
           return (
             <section key={department.id}>
               <div className="mb-3 flex flex-wrap items-baseline gap-3">
-                <h2 className="text-base font-semibold">
+                <SectionHeader level="title">
                   {department.code} · {department.name}
-                </h2>
+                </SectionHeader>
                 <span className="flex flex-wrap gap-1.5">
                   {chips.map((c) => (
                     <CountChip key={c.label} {...c} />

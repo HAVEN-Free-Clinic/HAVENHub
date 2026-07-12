@@ -33,6 +33,9 @@ export default async function ManageEhsPage({
             <Button type="submit">Create</Button>
           </form>
         </Card>
+        {trainings.length === 0 && (
+          <p className="text-sm text-muted-foreground">No EHS trainings yet. Create one above.</p>
+        )}
         <ul className="space-y-2">
           {trainings.map((t) => (
             <li key={t.id}>

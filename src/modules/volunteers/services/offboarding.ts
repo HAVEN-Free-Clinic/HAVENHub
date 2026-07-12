@@ -122,7 +122,7 @@ export async function flagForOffboarding(
   note?: string
 ): Promise<OffboardFlag> {
   const activeTerm = await getActiveTerm();
-  if (!activeTerm) throw new OffboardForbiddenError("No active term -- cannot flag for offboarding.");
+  if (!activeTerm) throw new OffboardForbiddenError("No active term. Cannot flag for offboarding.");
 
   const allowed = await actorCanManageTarget(actorPersonId, personId, activeTerm);
   if (!allowed) throw new OffboardForbiddenError();
@@ -162,7 +162,7 @@ export async function flagForOffboarding(
  */
 export async function unflag(actorPersonId: string, personId: string): Promise<void> {
   const activeTerm = await getActiveTerm();
-  if (!activeTerm) throw new OffboardForbiddenError("No active term -- cannot unflag.");
+  if (!activeTerm) throw new OffboardForbiddenError("No active term. Cannot unflag.");
 
   const allowed = await actorCanManageTarget(actorPersonId, personId, activeTerm);
   if (!allowed) throw new OffboardForbiddenError();

@@ -9,8 +9,8 @@
 import type { Department, HipaaCertificate, Person } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
-import { complianceStatus, overallClearance } from "@/platform/compliance/rules";
-import type { ComplianceStatus, TrainingState, OverallClearance } from "@/platform/compliance/rules";
+import { complianceStatus } from "@/platform/compliance/rules";
+import type { ComplianceStatus, TrainingState } from "@/platform/compliance/rules";
 import { manageableDepartmentIds } from "@/platform/departments";
 import { can } from "@/platform/rbac/engine";
 import { parseCompletionDate, CompletionDateError } from "@/platform/compliance/completion-date";
@@ -53,7 +53,6 @@ export type MemberCompliance = {
   status: ComplianceStatus;
   verifiedByName: string | null;
   trainingState: TrainingState;
-  overallClearance: OverallClearance;
   /** Full clearance: profile + HIPAA + training + learning + EHS (the real gate). */
   clearance: ClearanceSummary;
 };
@@ -195,7 +194,6 @@ export async function departmentCompliance(
       status,
       verifiedByName,
       trainingState,
-      overallClearance: overallClearance(status, trainingState === "COMPLETE"),
       clearance: EMPTY_CLEARANCE,
     });
   }
@@ -428,7 +426,6 @@ export async function masterCompliance(
       departments: Array.from(deptCodes).sort(),
       isVolunteer,
       trainingState,
-      overallClearance: overallClearance(computedStatus, trainingState === "COMPLETE"),
       clearance: EMPTY_CLEARANCE,
     };
   });

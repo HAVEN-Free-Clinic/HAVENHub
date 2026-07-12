@@ -885,6 +885,8 @@ describe("training clearance on compliance rows", () => {
     const dept = await createDepartment("SRHD");
     const viewer = await createPerson("Dir");
     const vol = await createPerson("Vol");
+    // Full clearance also needs profile contact fields filled.
+    await prisma.person.update({ where: { id: vol.id }, data: { contactEmail: "vol@x.edu", phone: "555-0001" } });
     await createMembership(viewer.id, term.id, dept.id, "DIRECTOR");
     await createMembership(vol.id, term.id, dept.id, "VOLUNTEER");
     await createCert(vol.id, daysFromNow(-1), undefined, new Date()); // recent completion -> COMPLIANT
@@ -896,16 +898,16 @@ describe("training clearance on compliance rows", () => {
     const cards = await departmentCompliance(viewer.id);
     const row = cards.flatMap((c) => c.members).find((m) => m.person.id === vol.id)!;
     expect(row.trainingState).toBe("COMPLETE");
-    expect(row.overallClearance).toBe("CLEARED");
+    expect(row.clearance.cleared).toBe(true);
 
-    // A volunteer with a valid cert but NO training row is PENDING / NOT_CLEARED.
+    // A volunteer with a valid cert but NO training row is PENDING / not cleared.
     const vol2 = await createPerson("Vol2");
     await createMembership(vol2.id, term.id, dept.id, "VOLUNTEER");
     await createCert(vol2.id, daysFromNow(-1), undefined, new Date());
     const cards2 = await departmentCompliance(viewer.id);
     const row2 = cards2.flatMap((c) => c.members).find((m) => m.person.id === vol2.id)!;
     expect(row2.trainingState).toBe("PENDING");
-    expect(row2.overallClearance).toBe("NOT_CLEARED");
+    expect(row2.clearance.cleared).toBe(false);
   });
 
   it("masterCompliance rows carry training state and overall clearance", async () => {
@@ -913,6 +915,7 @@ describe("training clearance on compliance rows", () => {
     const dept = await createDepartment("SRHD");
     const viewer = await createPerson("Dir");
     const vol = await createPerson("Vol");
+    await prisma.person.update({ where: { id: vol.id }, data: { contactEmail: "vol@x.edu", phone: "555-0001" } });
     await createMembership(viewer.id, term.id, dept.id, "DIRECTOR");
     await createMembership(vol.id, term.id, dept.id, "VOLUNTEER");
     await createCert(vol.id, daysFromNow(-1), undefined, new Date());
@@ -923,7 +926,7 @@ describe("training clearance on compliance rows", () => {
     const res = await masterCompliance({});
     const row = res.rows.find((r) => r.person.id === vol.id)!;
     expect(row.trainingState).toBe("COMPLETE");
-    expect(row.overallClearance).toBe("CLEARED");
+    expect(row.clearance.cleared).toBe(true);
   });
 
   it("does not flag a director-only member for missing volunteer-track training in masterCompliance (issue: M2)", async () => {
@@ -989,7 +992,7 @@ describe("PENDING_VERIFICATION gate", () => {
     const result = await departmentCompliance(viewer.id);
     const volMember = result[0].members.find((m) => m.person.id === vol.id)!;
     expect(volMember.status).toBe("PENDING_VERIFICATION");
-    expect(volMember.overallClearance).toBe("NOT_CLEARED");
+    expect(volMember.clearance.cleared).toBe(false);
   });
 
   it("calling verifyCertificate flips a PENDING cert to COMPLIANT", async () => {
@@ -1015,7 +1018,7 @@ describe("PENDING_VERIFICATION gate", () => {
     const after = await departmentCompliance(director.id);
     const afterMember = after[0].members.find((m) => m.person.id === vol.id)!;
     expect(afterMember.status).toBe("COMPLIANT");
-    expect(afterMember.overallClearance).toBe("NOT_CLEARED"); // training still pending
+    expect(afterMember.clearance.cleared).toBe(false); // profile still incomplete
   });
 });
 

@@ -1176,3 +1176,39 @@ describe("setCompletionDateAsManager", () => {
     );
   });
 });
+
+describe("masterCompliance clearance field", () => {
+  it("reports cleared=true when profile + HIPAA are satisfied and nothing else is required", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("PCAR");
+    const person = await prisma.person.update({
+      where: { id: (await createPerson("Cleared Cathy", "cc1")).id },
+      data: { contactEmail: "cc@x.edu", phone: "555-1000" },
+    });
+    await createMembership(person.id, term.id, dept.id, "VOLUNTEER");
+    await createCert(person.id, daysFromNow(0), new Date(), daysFromNow(0));
+
+    const res = await masterCompliance({});
+    const row = res.rows.find((r) => r.person.id === person.id)!;
+    expect(row.clearance.cleared).toBe(true);
+    expect(res.clearedCount).toBeGreaterThanOrEqual(1);
+  });
+
+  it("reports cleared=false and counts EHS when a required EHS training is incomplete", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("PCAR");
+    const person = await prisma.person.update({
+      where: { id: (await createPerson("Ehs Eddie", "ee1")).id },
+      data: { contactEmail: "ee@x.edu", phone: "555-2000" },
+    });
+    await createMembership(person.id, term.id, dept.id, "VOLUNTEER");
+    await createCert(person.id, daysFromNow(0), new Date(), daysFromNow(0));
+    await prisma.ehsTraining.create({ data: { name: "BBP", requiredForAll: true, isActive: true } });
+
+    const res = await masterCompliance({});
+    const row = res.rows.find((r) => r.person.id === person.id)!;
+    expect(row.clearance.cleared).toBe(false);
+    expect(row.clearance.missing).toContain("ehs");
+    expect(res.ehsMissingCount).toBeGreaterThanOrEqual(1);
+  });
+});

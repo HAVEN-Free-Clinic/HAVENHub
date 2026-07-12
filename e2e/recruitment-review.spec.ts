@@ -88,7 +88,9 @@ test("review: accept, conflict, release", async ({ page, context }) => {
   // Conflict row shows "{name} accepted by SRHD + MDIC" (order may vary)
   await expect(page.getByText(/SRHD \+ MDIC|MDIC \+ SRHD/)).toBeVisible();
 
+  // "Release decisions" is now a two-click ConfirmButton (arms, then confirms).
   await page.click('button:has-text("Release decisions")');
+  await page.click('button:has-text("Send acceptance emails?")');
 
   // The action redirects back with ?sent=N&skipped=M query params; wait for the banner
   await page.waitForURL((url) =>

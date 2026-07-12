@@ -73,6 +73,74 @@ describe("buildApplicationSchema", () => {
   });
 });
 
+describe("MULTI_SELECT normalization", () => {
+  const build = (required: boolean, max?: number) => {
+    const secs: SectionDef[] = [
+      {
+        id: "s", appliesTo: "BOTH", departmentCode: null,
+        fields: [{
+          key: "shifts", type: "MULTI_SELECT", required,
+          options: [{ value: "am", label: "AM" }, { value: "pm", label: "PM" }],
+          validation: max !== undefined ? { max } : null,
+        }],
+      },
+    ];
+    return buildApplicationSchema(secs, { applicantType: "NEW", selectedDepartmentCodes: [] });
+  };
+
+  it("accepts a single checked box serialized as a scalar string", () => {
+    const r = build(true).safeParse({ shifts: "am" });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.shifts).toEqual(["am"]);
+  });
+
+  it("accepts multiple checked boxes (array)", () => {
+    expect(build(true).safeParse({ shifts: ["am", "pm"] }).success).toBe(true);
+  });
+
+  it("rejects a required multi-select with nothing checked", () => {
+    expect(build(true).safeParse({}).success).toBe(false);
+  });
+
+  it("treats an absent optional multi-select as undefined", () => {
+    const r = build(false).safeParse({});
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.shifts).toBeUndefined();
+  });
+
+  it("still enforces the option enum and max", () => {
+    expect(build(true).safeParse({ shifts: "bogus" }).success).toBe(false);
+    expect(build(true, 1).safeParse({ shifts: ["am", "pm"] }).success).toBe(false);
+  });
+});
+
+describe("NUMBER blank handling", () => {
+  const build = (required: boolean) => {
+    const secs: SectionDef[] = [
+      {
+        id: "s", appliesTo: "BOTH", departmentCode: null,
+        fields: [{ key: "years", type: "NUMBER", required, options: null, validation: null }],
+      },
+    ];
+    return buildApplicationSchema(secs, { applicantType: "NEW", selectedDepartmentCodes: [] });
+  };
+
+  it("does not coerce a blank optional number to 0", () => {
+    const r = build(false).safeParse({ years: "" });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.years).toBeUndefined();
+  });
+
+  it("rejects a blank required number instead of accepting 0", () => {
+    expect(build(true).safeParse({ years: "" }).success).toBe(false);
+  });
+
+  it("still parses a provided numeric string", () => {
+    const r = build(false).safeParse({ years: "3" });
+    expect(r.success && r.data.years).toBe(3);
+  });
+});
+
 describe("requiredFileKeys", () => {
   it("returns required FILE keys only in visible sections", () => {
     const withFiles: SectionDef[] = [

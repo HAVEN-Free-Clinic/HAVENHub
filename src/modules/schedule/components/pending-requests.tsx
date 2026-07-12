@@ -9,7 +9,7 @@
 
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
-import { cardClasses } from "@/platform/ui/card";
+import { Card, cardClasses } from "@/platform/ui/card";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Input } from "@/platform/ui/input";
 import { displayDate } from "@/modules/schedule/engine/display";
@@ -75,9 +75,11 @@ export function PendingRequests({
               }`;
 
         return (
-          <div
+          <Card
             key={request.id}
-            className="rounded-2xl border border-border bg-muted px-3 py-2 flex flex-col gap-2"
+            size="compact"
+            pad={false}
+            className="px-3 py-2 flex flex-col gap-2"
           >
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div className="flex flex-col gap-0.5">
@@ -112,7 +114,7 @@ export function PendingRequests({
                 </Button>
               </form>
             </div>
-          </div>
+          </Card>
         );
       })}
 

@@ -448,11 +448,10 @@ export default async function BuilderPage({ searchParams }: PageProps) {
   function assignCard(member: (typeof unassignedMembers)[number], available: boolean) {
     const isDirectorKind = member.kind === "DIRECTOR";
     return (
-      <div
+      <Card
         key={member.person.id}
-        className={`rounded-2xl border px-3 py-3 ${
-          available ? "border-border bg-surface" : "border-border bg-muted opacity-75"
-        }`}
+        pad={false}
+        className={`px-3 py-3${available ? "" : " opacity-75"}`}
       >
         <div className="flex flex-wrap items-center gap-2 mb-2">
           <span className="text-sm font-semibold text-foreground">{member.person.name}</span>
@@ -500,7 +499,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
           />
         </div>
         <IntakeNotes intake={member.intake} />
-      </div>
+      </Card>
     );
   }
 
@@ -516,17 +515,17 @@ export default async function BuilderPage({ searchParams }: PageProps) {
           </div>
           <div className="flex items-center gap-3">
             {mode === "availability" ? (
-              <a href={href({ mode: "assign" })} className="px-3 py-1.5 rounded-lg bg-white/10 text-xs font-medium text-white/80 hover:text-white transition-colors">
+              <a href={href({ mode: "assign" })} className="inline-flex items-center min-h-11 px-3 py-1.5 rounded-lg bg-white/10 text-xs font-medium text-white/80 hover:text-white transition-colors">
                 &larr; Back to assigning
               </a>
             ) : (
               <>
                 {/* View toggle */}
                 <div className="flex items-center rounded-lg bg-white/10 overflow-hidden">
-                  <a href={href({ view: "saturday" })} className={`px-3 py-1.5 text-xs font-medium transition-colors ${view === "saturday" ? "bg-white text-brand" : "text-white/70 hover:text-white"}`}>Day view</a>
-                  <a href={href({ view: "grid" })} className={`px-3 py-1.5 text-xs font-medium transition-colors border-l border-white/20 ${view === "grid" ? "bg-white text-brand" : "text-white/70 hover:text-white"}`}>Grid view</a>
+                  <a href={href({ view: "saturday" })} className={`inline-flex items-center min-h-11 px-3 py-1.5 text-xs font-medium transition-colors ${view === "saturday" ? "bg-white text-brand" : "text-white/70 hover:text-white"}`}>Day view</a>
+                  <a href={href({ view: "grid" })} className={`inline-flex items-center min-h-11 px-3 py-1.5 text-xs font-medium transition-colors border-l border-white/20 ${view === "grid" ? "bg-white text-brand" : "text-white/70 hover:text-white"}`}>Grid view</a>
                 </div>
-                <a href={href({ mode: "availability" })} className="px-3 py-1.5 rounded-lg bg-white/10 text-xs font-medium text-white/80 hover:text-white transition-colors">
+                <a href={href({ mode: "availability" })} className="inline-flex items-center min-h-11 px-3 py-1.5 rounded-lg bg-white/10 text-xs font-medium text-white/80 hover:text-white transition-colors">
                   Edit availability
                 </a>
               </>
@@ -568,8 +567,8 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                 aria-current={isSelected ? "page" : undefined}
                 className={
                   isSelected
-                    ? "rounded-full px-3 py-1 text-sm font-medium bg-brand text-white"
-                    : "rounded-full px-3 py-1 text-sm font-medium bg-muted-strong text-foreground-soft hover:bg-muted-strong transition-colors"
+                    ? "inline-flex items-center justify-center min-h-11 rounded-full px-3 py-1 text-sm font-medium bg-brand text-white"
+                    : "inline-flex items-center justify-center min-h-11 rounded-full px-3 py-1 text-sm font-medium bg-muted text-foreground-soft hover:bg-muted-strong transition-colors"
                 }
               >
                 {displayDate(key)}
@@ -598,14 +597,14 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                 <a
                   href={href({ gmode: "assign" })}
                   aria-current={gmode === "assign" ? "true" : undefined}
-                  className={`px-3 py-1.5 text-xs font-medium transition-colors ${gmode === "assign" ? "bg-brand text-white" : "text-muted-foreground hover:text-foreground-soft"}`}
+                  className={`inline-flex items-center min-h-11 px-3 py-1.5 text-xs font-medium transition-colors ${gmode === "assign" ? "bg-brand text-white" : "text-muted-foreground hover:text-foreground-soft"}`}
                 >
                   Volunteer
                 </a>
                 <a
                   href={href({ gmode: "shadow" })}
                   aria-current={gmode === "shadow" ? "true" : undefined}
-                  className={`px-3 py-1.5 text-xs font-medium transition-colors border-l ${gmode === "shadow" ? "border-border bg-amber-700 text-white" : "border-transparent text-muted-foreground hover:text-foreground-soft"}`}
+                  className={`inline-flex items-center min-h-11 px-3 py-1.5 text-xs font-medium transition-colors border-l ${gmode === "shadow" ? "border-border bg-warning text-white" : "border-transparent text-muted-foreground hover:text-foreground-soft"}`}
                 >
                   Shadow
                 </a>

@@ -55,15 +55,22 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
     await mySchedule(session.personId);
 
   type SwapPartner = { personId: string; name: string; dateKey: string };
-  const swapPartnersByKey = new Map<string, SwapPartner[]>();
-  for (const shift of shifts) {
-    const dateKey = isoDateKey(shift.clinicDate);
-    const cardKey = `${dateKey}|${shift.department.id}`;
-    if (!pendingRequests.has(cardKey)) {
-      const partners = await eligibleSwapPartners(session.personId, dateKey, shift.department.id);
-      swapPartnersByKey.set(cardKey, partners);
-    }
-  }
+  // Look up eligible swap partners for every non-pending shift card concurrently
+  // rather than awaiting each in series, so the page's swap data is one round of
+  // parallel queries instead of an N-deep await waterfall.
+  const swapPartnerEntries = await Promise.all(
+    shifts
+      .map((shift) => {
+        const dateKey = isoDateKey(shift.clinicDate);
+        return { dateKey, cardKey: `${dateKey}|${shift.department.id}`, departmentId: shift.department.id };
+      })
+      .filter(({ cardKey }) => !pendingRequests.has(cardKey))
+      .map(async ({ dateKey, cardKey, departmentId }) => {
+        const partners = await eligibleSwapPartners(session.personId, dateKey, departmentId);
+        return [cardKey, partners] as const;
+      }),
+  );
+  const swapPartnersByKey = new Map<string, SwapPartner[]>(swapPartnerEntries);
 
   async function saveAvailabilityAction(formData: FormData) {
     "use server";
@@ -350,7 +357,7 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                               const key = isoDateKey(d);
                               const checked = availability.dates.some((ad) => isoDateKey(ad) === key);
                               return (
-                                <label key={key} className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs cursor-pointer transition-colors whitespace-nowrap ${checked ? "border-brand bg-brand/5 text-brand-fg font-semibold" : "border-border bg-brand/5 text-brand-fg hover:border-brand/40"}`}>
+                                <label key={key} className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs cursor-pointer transition-colors whitespace-nowrap min-h-11 ${checked ? "border-brand bg-brand/5 text-brand-fg font-semibold" : "border-border text-muted-foreground hover:border-brand/40"}`}>
                                   <Checkbox
                                     name="dates"
                                     value={key}

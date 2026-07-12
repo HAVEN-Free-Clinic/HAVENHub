@@ -15,7 +15,7 @@ import { manageableDepartmentIds } from "@/platform/departments";
 import { can } from "@/platform/rbac/engine";
 import { parseCompletionDate, CompletionDateError } from "@/platform/compliance/completion-date";
 import { getActiveTerm } from "@/platform/terms/active-term";
-import { loadClearanceMap, type ClearanceSummary } from "@/modules/onboarding/services/clearance";
+import { loadClearanceMap, type ClearanceSummary } from "@/platform/clearance";
 
 export type { ComplianceStatus };
 export type { ClearanceSummary };

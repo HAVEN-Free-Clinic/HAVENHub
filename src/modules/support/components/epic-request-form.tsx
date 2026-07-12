@@ -89,6 +89,7 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
   const [loading, setLoading] = useState(false);
   const [emailDraft, setEmailDraft] = useState<{ subject: string; body: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
 
   const isBulk = requestType.startsWith("bulk");
   const isDeactivate = requestType.startsWith("deactivate") || requestType === "bulk_deactivate";
@@ -203,6 +204,20 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
       setError((e as Error).message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleCopyEmail() {
+    if (!emailDraft) return;
+    const text = `To: helpdesk@ynhh.org\nSubject: ${emailDraft.subject}\n\n${emailDraft.body}`;
+    try {
+      if (!navigator.clipboard) throw new Error("Clipboard unavailable");
+      await navigator.clipboard.writeText(text);
+      setCopyState("copied");
+      window.setTimeout(() => setCopyState("idle"), 2000);
+    } catch {
+      setCopyState("error");
+      window.setTimeout(() => setCopyState("idle"), 4000);
     }
   }
 
@@ -490,14 +505,27 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
                 {emailDraft.body}
               </pre>
             </div>
-            <Button
-              variant="outline"
-              onClick={() => navigator.clipboard?.writeText(
-                `To: helpdesk@ynhh.org\nSubject: ${emailDraft.subject}\n\n${emailDraft.body}`
-              )}
-            >
-              Copy email
-            </Button>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button variant="outline" onClick={handleCopyEmail}>
+                Copy email
+              </Button>
+              <span
+                aria-live="polite"
+                className={`text-xs font-medium ${
+                  copyState === "copied"
+                    ? "text-success-foreground"
+                    : copyState === "error"
+                      ? "text-critical"
+                      : "text-muted-foreground"
+                }`}
+              >
+                {copyState === "copied"
+                  ? "Copied to clipboard"
+                  : copyState === "error"
+                    ? "Copy failed. Select the text above and copy manually."
+                    : ""}
+              </span>
+            </div>
           </div>
         )}
       </Card>

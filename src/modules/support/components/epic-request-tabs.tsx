@@ -75,7 +75,7 @@ function TabNav({ activeTab }: { activeTab: Tab }) {
       {(["generate", "tracker", "history"] as Tab[]).map((tab) => (
         <Fragment key={tab}>
           {/* eslint-disable-next-line no-restricted-syntax -- tab control with border-b-2 active-state indicator; segmented toggle pattern */}
-          <button onClick={() => goTo(tab)} className={`pb-3 text-sm font-semibold border-b-2 transition-colors ${activeTab === tab ? "border-brand text-brand-fg" : "border-transparent text-muted-foreground hover:text-foreground-soft"}`}>{labels[tab]}</button>
+          <button onClick={() => goTo(tab)} aria-current={activeTab === tab ? "page" : undefined} className={`pb-3 text-sm font-semibold border-b-2 transition-colors ${activeTab === tab ? "border-brand text-brand-fg" : "border-transparent text-muted-foreground hover:text-foreground-soft"}`}>{labels[tab]}</button>
         </Fragment>
       ))}
     </div>
@@ -263,7 +263,7 @@ function TrackerTable({
                 </p>
                 <p className="text-xs text-muted-foreground">
                   Submitted {new Date(ticket.submittedAt).toLocaleDateString()} by {ticket.submittedBy.name}
-                  <span className={`ml-2 font-medium ${days > 5 ? "text-red-600" : "text-amber-600"}`}>
+                  <span className={`ml-2 font-medium ${days > 5 ? "text-critical" : "text-warning-foreground"}`}>
                     · {days} business day{days !== 1 ? "s" : ""} open
                   </span>
                 </p>
@@ -279,9 +279,15 @@ function TrackerTable({
                 {isIncident ? (
                   <IncidentResolveAction ticketId={ticket.id} resolveIncidentAction={resolveIncidentAction} />
                 ) : (
-                  <Button size="sm" onClick={() => closeTicketAction(ticket.id)}>
-                    Mark complete
-                  </Button>
+                  <form
+                    action={async () => {
+                      await closeTicketAction(ticket.id);
+                    }}
+                  >
+                    <SubmitButton size="sm" pendingLabel="Completing…">
+                      Mark complete
+                    </SubmitButton>
+                  </form>
                 )}
               </div>
             </div>
@@ -330,7 +336,7 @@ function HistoryTable({ history }: { history: EpicRequestHistoryRow[] }) {
     <div className="space-y-8">
       {[...groups.entries()].map(([month, rows]) => (
         <div key={month}>
-          <h3 className="text-sm font-semibold text-foreground mb-3">{month}</h3>
+          <h2 className="text-sm font-semibold text-foreground mb-3">{month}</h2>
           <div className="space-y-4">
             {rows.map((row) => {
               const { ticket, requests } = row;

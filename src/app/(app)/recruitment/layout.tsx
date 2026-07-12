@@ -6,6 +6,11 @@ import { canAccessModule, filterNavItems } from "@/platform/modules/access";
 import { isInterviewPanelist } from "@/modules/recruitment/services/interviews";
 import { recruitmentNavItems } from "@/modules/recruitment/nav";
 import { ModuleNav } from "@/platform/ui/module-nav";
+import { moduleMetadata } from "@/platform/branding/metadata";
+
+export function generateMetadata() {
+  return moduleMetadata("recruitment");
+}
 
 export default async function RecruitmentLayout({ children }: { children: ReactNode }) {
   // The recruitment area is open to a bare session so interview panelists (who

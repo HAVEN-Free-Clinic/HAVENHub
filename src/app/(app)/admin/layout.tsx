@@ -4,6 +4,11 @@ import { getEffectivePermissions } from "@/platform/rbac/engine";
 import { getModule } from "@/platform/modules/registry";
 import { filterNavItems } from "@/platform/modules/access";
 import { ModuleNav } from "@/platform/ui/module-nav";
+import { moduleMetadata } from "@/platform/branding/metadata";
+
+export function generateMetadata() {
+  return moduleMetadata("admin");
+}
 
 // Admin declares accessPermission: "admin.access", so requireModuleAccess
 // resolves to requirePermission("admin.access"). Sub-tabs each enforce a

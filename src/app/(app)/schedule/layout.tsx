@@ -4,6 +4,11 @@ import { getModule } from "@/platform/modules/registry";
 import { canManageAnyScheduleDept } from "@/modules/schedule/services/builder";
 import { canManageAnyRhdDept } from "@/modules/schedule/services/attendings";
 import { ModuleNav } from "@/platform/ui/module-nav";
+import { moduleMetadata } from "@/platform/branding/metadata";
+
+export function generateMetadata() {
+  return moduleMetadata("schedule");
+}
 
 // Builder and Attendings are management tools. Unlike the other schedule
 // sub-tabs (which gate on schedule.view = module access), their access is a

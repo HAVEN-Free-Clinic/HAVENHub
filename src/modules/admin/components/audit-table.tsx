@@ -1,19 +1,8 @@
 import type { AuditRow } from "@/modules/admin/services/audit";
+import { DateTime } from "@/platform/dates/display";
 import { Badge } from "@/platform/ui/badge";
 import { Card } from "@/platform/ui/card";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
-
-function formatUtc(date: Date): string {
-  return date.toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "UTC",
-    hour12: false,
-  }) + " UTC";
-}
 
 function truncate(s: string | null | undefined, max = 12): string {
   if (!s) return "";
@@ -48,7 +37,7 @@ export function AuditTable({ rows }: { rows: AuditRow[] }) {
           return (
             <TR key={row.id}>
               <TD className="whitespace-nowrap text-muted-foreground text-xs">
-                {formatUtc(row.createdAt)}
+                <DateTime value={row.createdAt} />
               </TD>
               <TD className="max-w-[140px] truncate text-xs text-foreground-soft">
                 {actor}

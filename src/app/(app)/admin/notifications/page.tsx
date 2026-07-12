@@ -30,7 +30,7 @@ import { Pagination } from "@/platform/ui/pagination";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Alert } from "@/platform/ui/alert";
 import { StatCard } from "@/platform/ui/stat-card";
-import { fmtDateTime } from "@/platform/dates";
+import { DateTime } from "@/platform/dates/display";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -307,10 +307,10 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
                     )}
                   </TD>
                   <TD className="tabular-nums text-sm text-foreground-soft whitespace-nowrap">
-                    {fmtDateTime(row.createdAt)}
+                    <DateTime value={row.createdAt} />
                   </TD>
                   <TD className="tabular-nums text-sm text-foreground-soft whitespace-nowrap">
-                    {fmtDateTime(row.sentAt)}
+                    <DateTime value={row.sentAt} />
                   </TD>
                   <TD>
                     {(row.status === "FAILED" || row.status === "FALLBACK" || row.status === "LOGGED") && (

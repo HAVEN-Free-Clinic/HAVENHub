@@ -19,6 +19,7 @@ import { PERSON_VARIABLES } from "@/platform/email/audience/variables";
 import { isAudience } from "@/platform/email/audience/types";
 import type { Audience } from "@/platform/email/audience/types";
 import { prisma } from "@/platform/db";
+import { DateTime } from "@/platform/dates/display";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Button } from "@/platform/ui/button";
 import { Input, Field } from "@/platform/ui/input";
@@ -362,14 +363,14 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
           {isScheduled && campaign.scheduledAt && (
             <p className="text-sm text-brand-fg">
               <strong>Scheduled to send on</strong>{" "}
-              {campaign.scheduledAt.toLocaleString()}
+              <DateTime value={campaign.scheduledAt} />
             </p>
           )}
           {isActive && (
             <p className="text-sm text-brand-fg">
               <strong>Recurring:</strong> {campaign.cronExpr}
               {campaign.nextRunAt && (
-                <> (next run {campaign.nextRunAt.toLocaleString()})</>
+                <> (next run <DateTime value={campaign.nextRunAt} />)</>
               )}
             </p>
           )}
@@ -436,7 +437,7 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
             <tbody>
               {campaign.runs.map((run) => (
                 <TR key={run.id}>
-                  <TD className="text-foreground-soft">{run.runAt.toLocaleString()}</TD>
+                  <TD className="text-foreground-soft"><DateTime value={run.runAt} /></TD>
                   <TD className="text-foreground-soft">{run.recipientCount}</TD>
                 </TR>
               ))}

@@ -22,7 +22,8 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { Fragment, Suspense, useState } from "react";
 import { EpicRequestForm } from "./epic-request-form";
-import { businessDaysSince } from "@/platform/dates";
+import { businessDaysSince, formatDateOnly } from "@/platform/dates";
+import { useTimeZone } from "@/platform/dates/client";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
@@ -238,6 +239,7 @@ function TrackerTable({
   updateServiceRequestNumberAction: (ticketId: string, value: string) => Promise<void>;
   resolveIncidentAction: (ticketId: string, resolution: string) => Promise<void>;
 }) {
+  const zone = useTimeZone();
   const openTickets = history.filter((h) => h.ticket.status === "OPEN");
 
   if (openTickets.length === 0) {
@@ -253,7 +255,7 @@ function TrackerTable({
       {openTickets.map((row) => {
         const { ticket, requests } = row;
         const isIncident = Boolean(ticket.subject);
-        const days = businessDaysSince(new Date(ticket.submittedAt));
+        const days = businessDaysSince(new Date(ticket.submittedAt), new Date(), zone);
         return (
           <Card key={ticket.id} className="space-y-3">
             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -262,7 +264,7 @@ function TrackerTable({
                   {ticket.subject ?? ticket.description ?? "Epic request"}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Submitted {new Date(ticket.submittedAt).toLocaleDateString()} by {ticket.submittedBy.name}
+                  Submitted {formatDateOnly(new Date(ticket.submittedAt), zone)} by {ticket.submittedBy.name}
                   <span className={`ml-2 font-medium ${days > 5 ? "text-critical" : "text-warning-foreground"}`}>
                     · {days} business day{days !== 1 ? "s" : ""} open
                   </span>
@@ -318,6 +320,7 @@ function TrackerTable({
 // ---------------------------------------------------------------------------
 
 function HistoryTable({ history }: { history: EpicRequestHistoryRow[] }) {
+  const zone = useTimeZone();
   const closedTickets = history.filter((h) => h.ticket.status === "CLOSED");
 
   if (closedTickets.length === 0) {
@@ -326,8 +329,7 @@ function HistoryTable({ history }: { history: EpicRequestHistoryRow[] }) {
 
   const groups = new Map<string, EpicRequestHistoryRow[]>();
   for (const row of closedTickets) {
-    const d = row.ticket.closedAt ?? row.ticket.submittedAt;
-    const key = new Date(d).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+    const key = formatDateOnly(new Date(row.ticket.closedAt ?? row.ticket.submittedAt), zone, { month: "long", year: "numeric" });
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key)!.push(row);
   }
@@ -347,8 +349,8 @@ function HistoryTable({ history }: { history: EpicRequestHistoryRow[] }) {
                     <div className="space-y-1">
                       <p className="text-sm font-semibold text-foreground">{ticket.subject ?? ticket.description ?? "Epic request"}</p>
                       <p className="text-xs text-muted-foreground">
-                        Submitted {new Date(ticket.submittedAt).toLocaleDateString()} by {ticket.submittedBy.name}
-                        {ticket.closedAt && <span className="ml-2">· Closed {new Date(ticket.closedAt).toLocaleDateString()}</span>}
+                        Submitted {formatDateOnly(new Date(ticket.submittedAt), zone)} by {ticket.submittedBy.name}
+                        {ticket.closedAt && <span className="ml-2">· Closed {formatDateOnly(new Date(ticket.closedAt), zone)}</span>}
                       </p>
                       {ticket.serviceRequestNumber && (
                         <p className="text-xs text-muted-foreground">

@@ -1054,14 +1054,19 @@ git commit -m "feat(dates): client components read zone from context for timesta
 ### Task 16: Remove legacy shims + guard test + full verification
 
 **Files:**
+- Modify: `src/app/(app)/notifications/page.tsx` (missed straggler: migrate `fmtDateTime`)
 - Modify: `src/platform/dates/index.ts` (delete `fmtDate`/`fmtDateTime`)
 - Modify: `src/platform/dates/logic.test.ts` (remove the legacy-shim test block)
 - Create: `src/platform/dates/no-raw-locale.guard.test.ts`
 
-- [ ] **Step 1: Confirm no remaining consumers of the shims**
+- [ ] **Step 0: Migrate the one missed straggler**
 
-Run: `grep -rn "fmtDate\b\|fmtDateTime\b" src --include=*.ts --include=*.tsx | grep -v "src/platform/dates/"`
-Expected: **no output**. If any line appears, migrate it using the transformation rules before continuing.
+The user-facing notification inbox `src/app/(app)/notifications/page.tsx` still imports `fmtDateTime` (it was omitted from the earlier task decomposition; distinct from `admin/notifications/page.tsx`). Migrate it: `{fmtDateTime(n.createdAt)}` (an INSTANT) -> `<DateTime value={n.createdAt} />`; add `import { DateTime } from "@/platform/dates/display";`; remove the `fmtDateTime` import.
+
+- [ ] **Step 1: Confirm no remaining IMPORTERS of the shims**
+
+Run: `grep -rn 'from "@/platform/dates"' src --include='*.ts' --include='*.tsx' | grep -E 'fmtDate|fmtDateTime'`
+Expected: **no output**. This checks IMPORTERS of the shared shims specifically. Do NOT grep the bare word `fmtDate` (that would false-positive on `src/platform/email/templates/compliance.ts`, which has a *local* helper named `fmtDate` that already delegates to `formatCalendarDate` and must be left untouched).
 
 - [ ] **Step 2: Delete the shims**
 

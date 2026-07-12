@@ -1,6 +1,9 @@
 import { notFound } from "next/navigation";
 import { requirePersonSession } from "@/platform/auth/session";
 import { DateTime } from "@/platform/dates/display";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
+import { zoneLabel } from "@/platform/dates/zone";
+import { formatForDateTimeInput } from "@/platform/dates";
 import { can } from "@/platform/rbac/engine";
 import { getInterview, listPanelistCandidates } from "@/modules/recruitment/services/interviews";
 import { reviewScope } from "@/modules/recruitment/services/review";
@@ -44,7 +47,8 @@ export default async function InterviewDetail({ params, searchParams }: { params
   const canManage = scope.all || scope.departmentCodes.includes(iv.departmentCode);
   const candidates = canManage ? await listPanelistCandidates(interviewId) : [];
   const summary = evaluationSummary(iv.evaluations);
-  const scheduledValue = iv.scheduledAt ? new Date(iv.scheduledAt.getTime() - iv.scheduledAt.getTimezoneOffset() * 60000).toISOString().slice(0, 16) : "";
+  const zone = await getDisplayTimeZone();
+  const scheduledValue = formatForDateTimeInput(iv.scheduledAt, zone);
   const myEval = iv.evaluations.find((e) => e.evaluator.id === person.personId);
   // Once this department's acceptance has been emailed, the applicant has been
   // told they're in. decideInterview blocks moving the decision off ACCEPT until
@@ -78,6 +82,7 @@ export default async function InterviewDetail({ params, searchParams }: { params
               <Field label="Time">
                 <Input type="datetime-local" name="scheduledAt" defaultValue={scheduledValue} />
               </Field>
+              <p className="text-xs text-muted-foreground">Times are in {zoneLabel(zone)}.</p>
               <Field label="Zoom link">
                 <Input name="zoomLink" defaultValue={iv.zoomLink ?? ""} />
               </Field>

@@ -29,3 +29,8 @@ export function normalizeZone(raw: string | null | undefined): DisplayTimeZone {
     ? (raw as DisplayTimeZone)
     : DEFAULT_TIME_ZONE;
 }
+
+/** Friendly picker label for a zone id, e.g. "Eastern (New York)". */
+export function zoneLabel(zone: string): string {
+  return US_TIME_ZONES.find((z) => z.value === zone)?.label ?? zone;
+}

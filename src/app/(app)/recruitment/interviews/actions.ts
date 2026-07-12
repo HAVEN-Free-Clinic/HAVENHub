@@ -2,6 +2,8 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requirePersonSession } from "@/platform/auth/session";
+import { parseZonedInput } from "@/platform/dates";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { updateInterview, addPanelist, removePanelist, sendInterviewInvite, InterviewError } from "@/modules/recruitment/services/interviews";
 import { decideInterview, type InterviewOutcome } from "@/modules/recruitment/services/interview-decisions";
 import { RecruitmentAuthError, AcceptanceError, revokeAcceptance } from "@/modules/recruitment/services/review";
@@ -22,7 +24,7 @@ function isDomain(err: unknown) {
 export async function scheduleAction(interviewId: string, formData: FormData) {
   const person = await requirePersonSession();
   const rawAt = String(formData.get("scheduledAt") ?? "").trim();
-  const scheduledAt = rawAt ? new Date(rawAt) : null;
+  const scheduledAt = rawAt ? parseZonedInput(rawAt, await getDisplayTimeZone()) : null;
   const zoomLink = String(formData.get("zoomLink") ?? "").trim() || null;
   const notes = String(formData.get("notes") ?? "").trim() || null;
   try { await updateInterview(interviewId, { scheduledAt, zoomLink, notes }, person.personId); }

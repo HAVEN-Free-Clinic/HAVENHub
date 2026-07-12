@@ -20,6 +20,9 @@ import { isAudience } from "@/platform/email/audience/types";
 import type { Audience } from "@/platform/email/audience/types";
 import { prisma } from "@/platform/db";
 import { DateTime } from "@/platform/dates/display";
+import { parseZonedInput } from "@/platform/dates";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
+import { zoneLabel } from "@/platform/dates/zone";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Button } from "@/platform/ui/button";
 import { Input, Field } from "@/platform/ui/input";
@@ -79,6 +82,8 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
   const parsedAudience: Audience = isAudience(campaign.audienceJson)
     ? campaign.audienceJson
     : EMPTY_AUDIENCE;
+
+  const zone = await getDisplayTimeZone();
 
   // ---------------------------------------------------------------------------
   // Server actions
@@ -191,8 +196,8 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
     const actor = await requirePermission("admin.send_email_campaign");
     const raw = (formData.get("scheduledAt") as string | null) ?? "";
     if (!raw) redirect(`/admin/email/campaigns/${id}?error=${encodeURIComponent("Pick a date and time")}`);
-    const scheduledAt = new Date(raw);
-    if (Number.isNaN(scheduledAt.getTime())) {
+    const scheduledAt = parseZonedInput(raw, await getDisplayTimeZone());
+    if (!scheduledAt) {
       redirect(`/admin/email/campaigns/${id}?error=${encodeURIComponent("Pick a valid date and time")}`);
     }
     try {
@@ -391,7 +396,7 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
           <div className="space-y-2">
             <p className="text-sm font-medium text-foreground-soft">Schedule for later</p>
             <form action={scheduleLaterAction} className="flex flex-wrap items-end gap-3">
-              <Field label="Send at (UTC)">
+              <Field label={`Send at (${zoneLabel(zone)})`}>
                 <Input
                   name="scheduledAt"
                   type="datetime-local"
@@ -402,7 +407,7 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
               <Button type="submit">Schedule</Button>
             </form>
             <p className="text-xs text-muted-foreground">
-              The send time is interpreted in UTC, not your local time zone.
+              The send time is interpreted in {zoneLabel(zone)}.
             </p>
           </div>
 
@@ -416,8 +421,9 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
               <Button type="submit">Start recurring</Button>
             </form>
             <p className="text-xs text-muted-foreground">
-              Cron format: minute hour day month weekday, in UTC. Example:{" "}
-              <code className="font-mono">0 13 * * 1</code> = Mondays at 13:00 UTC.
+              Cron format: minute hour day month weekday, evaluated in UTC (recurring
+              schedules run on UTC, independent of the display zone). Example:{" "}
+              <code className="font-mono">0 13 * * 1</code> = Mondays 13:00 UTC (9:00 AM ET in summer).
             </p>
           </div>
         </div>

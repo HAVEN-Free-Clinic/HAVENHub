@@ -55,15 +55,22 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
     await mySchedule(session.personId);
 
   type SwapPartner = { personId: string; name: string; dateKey: string };
-  const swapPartnersByKey = new Map<string, SwapPartner[]>();
-  for (const shift of shifts) {
-    const dateKey = isoDateKey(shift.clinicDate);
-    const cardKey = `${dateKey}|${shift.department.id}`;
-    if (!pendingRequests.has(cardKey)) {
-      const partners = await eligibleSwapPartners(session.personId, dateKey, shift.department.id);
-      swapPartnersByKey.set(cardKey, partners);
-    }
-  }
+  // Look up eligible swap partners for every non-pending shift card concurrently
+  // rather than awaiting each in series, so the page's swap data is one round of
+  // parallel queries instead of an N-deep await waterfall.
+  const swapPartnerEntries = await Promise.all(
+    shifts
+      .map((shift) => {
+        const dateKey = isoDateKey(shift.clinicDate);
+        return { dateKey, cardKey: `${dateKey}|${shift.department.id}`, departmentId: shift.department.id };
+      })
+      .filter(({ cardKey }) => !pendingRequests.has(cardKey))
+      .map(async ({ dateKey, cardKey, departmentId }) => {
+        const partners = await eligibleSwapPartners(session.personId, dateKey, departmentId);
+        return [cardKey, partners] as const;
+      }),
+  );
+  const swapPartnersByKey = new Map<string, SwapPartner[]>(swapPartnerEntries);
 
   async function saveAvailabilityAction(formData: FormData) {
     "use server";

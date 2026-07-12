@@ -8,7 +8,7 @@ import {
   NOTIFICATIONS_PAGE_SIZE,
 } from "@/platform/notifications/inbox";
 import { markAllReadAction } from "@/platform/notifications/inbox-actions";
-import { fmtDateTime } from "@/platform/dates";
+import { DateTime } from "@/platform/dates/display";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Pagination } from "@/platform/ui/pagination";
 import { Button } from "@/platform/ui/button";
@@ -75,7 +75,7 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
                     <span className="font-medium text-foreground">{n.title}</span>
                   </span>
                   <span className="text-sm text-muted-foreground">{n.body}</span>
-                  <span className="text-xs text-subtle-foreground">{fmtDateTime(n.createdAt)}</span>
+                  <span className="text-xs text-subtle-foreground"><DateTime value={n.createdAt} /></span>
                 </button>
               </form>
             </li>

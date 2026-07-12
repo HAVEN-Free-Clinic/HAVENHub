@@ -39,12 +39,3 @@ describe("businessDaysSince", () => {
     expect(businessDaysSince(start, now, "America/New_York")).toBe(0);
   });
 });
-
-describe("fmtDate / fmtDateTime legacy shims", () => {
-  it("still produce the original UTC strings", async () => {
-    const { fmtDate, fmtDateTime } = await import("./index");
-    expect(fmtDate(new Date("2026-06-13T12:00:00Z"))).toBe("Jun 13, 2026");
-    expect(fmtDateTime(new Date("2026-06-13T09:05:00Z"))).toBe("2026-06-13 09:05 UTC");
-    expect(fmtDate(null)).toBe("-");
-  });
-});

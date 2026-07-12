@@ -35,6 +35,7 @@ import { prisma } from "@/platform/db";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
+import { NavForm } from "@/platform/ui/nav-form";
 import { Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
@@ -413,7 +414,7 @@ export default async function EmailPage({ searchParams }: PageProps) {
       )}
 
       {/* Filter bar (GET form) */}
-      <form method="GET" className="flex flex-wrap items-end gap-3">
+      <NavForm className="flex flex-wrap items-end gap-3">
         <div className="w-36">
           <Select
             name="status"
@@ -453,7 +454,7 @@ export default async function EmailPage({ searchParams }: PageProps) {
         <Button type="submit" variant="outline" size="sm">
           Filter
         </Button>
-      </form>
+      </NavForm>
 
       {/* Table */}
       {rows.length === 0 ? (

@@ -6,6 +6,7 @@ import { Pagination } from "@/platform/ui/pagination";
 import { Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Button } from "@/platform/ui/button";
+import { NavForm } from "@/platform/ui/nav-form";
 
 type PageProps = {
   searchParams: Promise<{ action?: string; entityType?: string; page?: string }>;
@@ -43,7 +44,7 @@ export default async function AuditPage({ searchParams }: PageProps) {
       />
 
       {/* Filter bar (GET form) */}
-      <form method="GET" className="flex flex-wrap items-end gap-3">
+      <NavForm className="flex flex-wrap items-end gap-3">
         <div className="flex-1 min-w-48">
           <Input
             name="action"
@@ -69,7 +70,7 @@ export default async function AuditPage({ searchParams }: PageProps) {
         <Button type="submit" variant="outline" size="sm">
           Filter
         </Button>
-      </form>
+      </NavForm>
 
       <AuditTable rows={rows} />
 

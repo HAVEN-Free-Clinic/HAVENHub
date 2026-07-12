@@ -9,6 +9,7 @@ import { Pagination } from "@/platform/ui/pagination";
 import { Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Button, buttonClasses } from "@/platform/ui/button";
+import { NavForm } from "@/platform/ui/nav-form";
 
 type PageProps = {
   searchParams: Promise<{ q?: string; status?: string; page?: string }>;
@@ -90,7 +91,7 @@ export default async function PeopleListPage({ searchParams }: PageProps) {
       />
 
       {/* Search form (GET) */}
-      <form method="GET" className="flex flex-wrap items-end gap-3">
+      <NavForm className="flex flex-wrap items-end gap-3">
         <div className="flex-1 min-w-48">
           <Input
             name="q"
@@ -113,7 +114,7 @@ export default async function PeopleListPage({ searchParams }: PageProps) {
         <Button type="submit" variant="outline" size="sm">
           Search
         </Button>
-      </form>
+      </NavForm>
 
       <PeopleTable rows={rowsWithCounts} />
 

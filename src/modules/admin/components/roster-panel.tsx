@@ -24,6 +24,8 @@ import { listTerms, TermNotFoundError } from "@/modules/admin/services/terms";
 import { LastAdminError } from "@/platform/rbac/last-admin";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
+import { NavForm } from "@/platform/ui/nav-form";
+import Link from "next/link";
 import { Card } from "@/platform/ui/card";
 import { Input, Field } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
@@ -269,7 +271,7 @@ export async function RosterPanel({
       )}
 
       {/* Add-member search box (global, above cards) */}
-      <form method="GET" className="flex items-end gap-3">
+      <NavForm className="flex items-end gap-3">
         {/* No other params are preserved; this form resets all query state. */}
         <Field label="Search people to add">
           <Input
@@ -284,14 +286,14 @@ export async function RosterPanel({
           Search
         </Button>
         {addq && (
-          <a
+          <Link
             href={termDetailHref}
             className="text-sm text-muted-foreground hover:text-foreground self-end pb-2"
           >
             Clear
-          </a>
+          </Link>
         )}
-      </form>
+      </NavForm>
 
       {/* Search results panel */}
       {addq && addq.trim() && (

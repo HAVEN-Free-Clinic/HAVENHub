@@ -18,6 +18,7 @@ import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { AddPanelistForm } from "./add-panelist-form";
 import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
+import { toZonedInputValue, fmtClinicDateTime } from "@/platform/dates";
 
 const RECS = ["STRONG_YES", "YES", "MAYBE", "NO"];
 const decisionTone = { PENDING: "default", ACCEPT: "success", REJECT: "critical", WAITLIST: "warning" } as const;
@@ -43,7 +44,11 @@ export default async function InterviewDetail({ params, searchParams }: { params
   const canManage = scope.all || scope.departmentCodes.includes(iv.departmentCode);
   const candidates = canManage ? await listPanelistCandidates(interviewId) : [];
   const summary = evaluationSummary(iv.evaluations);
-  const scheduledValue = iv.scheduledAt ? new Date(iv.scheduledAt.getTime() - iv.scheduledAt.getTimezoneOffset() * 60000).toISOString().slice(0, 16) : "";
+  // Render the datetime-local value in clinic-local (Eastern) time so the form
+  // round-trips with parseZonedWallClock; the previous getTimezoneOffset() math
+  // used the server's zone (UTC on Vercel), which disagreed with the Eastern
+  // display everywhere else.
+  const scheduledValue = toZonedInputValue(iv.scheduledAt);
   const myEval = iv.evaluations.find((e) => e.evaluator.id === person.personId);
   // Once this department's acceptance has been emailed, the applicant has been
   // told they're in. decideInterview blocks moving the decision off ACCEPT until
@@ -74,7 +79,7 @@ export default async function InterviewDetail({ params, searchParams }: { params
           <Card>
             <SectionHeader>Schedule</SectionHeader>
             <form action={scheduleAction.bind(null, interviewId)} className="mt-3 space-y-3">
-              <Field label="Time">
+              <Field label="Time (Eastern)">
                 <Input type="datetime-local" name="scheduledAt" defaultValue={scheduledValue} />
               </Field>
               <Field label="Zoom link">
@@ -126,7 +131,7 @@ export default async function InterviewDetail({ params, searchParams }: { params
           <dl className="mt-3 space-y-3 text-sm">
             <div>
               <dt className="text-xs text-subtle-foreground">Time</dt>
-              <dd className="text-foreground">{iv.scheduledAt ? iv.scheduledAt.toLocaleString() : "To be determined"}</dd>
+              <dd className="text-foreground">{fmtClinicDateTime(iv.scheduledAt, "To be determined")}</dd>
             </div>
             <div>
               <dt className="text-xs text-subtle-foreground">Zoom link</dt>

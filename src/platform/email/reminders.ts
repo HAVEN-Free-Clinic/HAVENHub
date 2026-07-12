@@ -166,19 +166,11 @@ export async function runComplianceReminders(
 
     // --- Non-compliant ---
 
-    // a. Dedup window: skip entirely if within the interval.
-    if (existing?.lastRemindedAt !== null && existing?.lastRemindedAt !== undefined) {
-      const elapsed = now.getTime() - existing.lastRemindedAt.getTime();
-      if (elapsed < intervalMs) {
-        result.skipped++;
-        continue;
-      }
-    }
-
-    // b. No way to reach the member: skip (do not advance state). A member
+    // a. No way to reach the member: skip without advancing state. A member
     //    reachable on Teams but without a contactEmail is still reminded --
     //    notify() delivers via Teams and skips the email leg -- mirroring how
-    //    sendEscalations reaches directors that have only an entraObjectId.
+    //    sendEscalations reaches directors that have only an entraObjectId. This
+    //    check runs BEFORE the claim so an unreachable person never gets a row.
     if (!person.contactEmail && !person.entraObjectId) {
       console.log(
         `[reminders] Skipping person ${person.id} (${person.name}): no contactEmail or Teams identity.`
@@ -186,6 +178,36 @@ export async function runComplianceReminders(
       result.skipped++;
       continue;
     }
+
+    // b. Atomic dedup claim. Ensure a row exists, then claim it for THIS tick only
+    //    when it is outside the reminder interval, incrementing remindersSent in the
+    //    same statement. updateMany is atomic, so two overlapping cron runs cannot
+    //    both win the claim, which prevents duplicate reminders and duplicate
+    //    escalations. count === 0 means we are inside the dedup window (previously an
+    //    early `continue`) or a concurrent run already claimed this tick. Claiming
+    //    before the send trades a possible lost reminder on a mid-run crash
+    //    (recovered next interval) for guaranteed no-duplicate delivery.
+    const cutoff = new Date(now.getTime() - intervalMs);
+    await prisma.complianceReminder.upsert({
+      where: { personId: person.id },
+      create: { personId: person.id, remindersSent: 0 },
+      update: {},
+    });
+    const claim = await prisma.complianceReminder.updateMany({
+      where: {
+        personId: person.id,
+        OR: [{ lastRemindedAt: null }, { lastRemindedAt: { lt: cutoff } }],
+      },
+      data: { lastRemindedAt: now, remindersSent: { increment: 1 }, lastStatus: status },
+    });
+    if (claim.count === 0) {
+      result.skipped++;
+      continue;
+    }
+    const claimed = await prisma.complianceReminder.findUniqueOrThrow({
+      where: { personId: person.id },
+      select: { remindersSent: true, escalatedAt: true },
+    });
 
     // c. Send reminder.
     const expiresAt =
@@ -217,37 +239,18 @@ export async function runComplianceReminders(
       },
     });
 
-    const newRemindersSent = (existing?.remindersSent ?? 0) + 1;
-
-    // Determine whether escalation fires in this step.
-    const shouldEscalate =
-      newRemindersSent >= threshold && (existing?.escalatedAt ?? null) === null;
-
-    // d. Queue escalation emails BEFORE writing escalatedAt. This way a crash
-    //    between the queue call and the upsert re-queues on the next run
-    //    (at-least-once) rather than leaving escalatedAt set with no emails sent.
+    // d. Escalate once per non-compliant streak when the threshold is reached.
+    //    Queue the escalation emails BEFORE stamping escalatedAt (guarded on
+    //    escalatedAt: null so it is atomic and idempotent) so a crash between the two
+    //    re-queues next run rather than marking escalated with nothing sent.
+    const shouldEscalate = claimed.remindersSent >= threshold && claimed.escalatedAt === null;
     if (shouldEscalate) {
       await sendEscalations(person, termId, status, ehsMissing, result);
+      await prisma.complianceReminder.updateMany({
+        where: { personId: person.id, escalatedAt: null },
+        data: { escalatedAt: now },
+      });
     }
-
-    // Upsert the ComplianceReminder row. escalatedAt is set here, after
-    // escalation emails have already been queued above.
-    await prisma.complianceReminder.upsert({
-      where: { personId: person.id },
-      create: {
-        personId: person.id,
-        remindersSent: newRemindersSent,
-        lastRemindedAt: now,
-        lastStatus: status,
-        escalatedAt: shouldEscalate ? now : null,
-      },
-      update: {
-        remindersSent: newRemindersSent,
-        lastRemindedAt: now,
-        lastStatus: status,
-        escalatedAt: shouldEscalate ? now : existing?.escalatedAt ?? null,
-      },
-    });
 
     result.remindersSent++;
   }

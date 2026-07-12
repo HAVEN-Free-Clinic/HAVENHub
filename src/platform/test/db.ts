@@ -12,7 +12,7 @@ export async function resetDb() {
               "ShiftAssignment", "HipaaCertificate", "RoleAssignment", "RoleGrant", "Role", "TermMembership",
               "DepartmentDelegation", "Department", "Term", "Person", "AuditLog",
               "OffboardFlag", "EpicRequest", "YnhhTicket", "TechRequest", "TechRequestComment", "TechRequestAttachment", "DisciplinaryAction", "Notification", "EmailLog", "EmailCampaignRun", "EmailCampaign", "EmailTemplate",
-              "ComplianceReminder", "MailCredential", "Setting", "EmailSenderRule",
+              "ComplianceReminder", "ReminderDispatch", "MailCredential", "Setting", "EmailSenderRule",
               "ApplicantPortalToken" CASCADE`
   );
   // The settings resolver holds a process-global 30s in-memory cache. We just

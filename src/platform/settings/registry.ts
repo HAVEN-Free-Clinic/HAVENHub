@@ -294,7 +294,7 @@ export const SETTINGS: SettingDef<unknown>[] = [
     category: "Operations",
     label: "Display time zone",
     help: "All dates and times across the app are shown in this time zone. Calendar dates (clinic days, term dates) are unaffected.",
-    input: { type: "select", options: US_TIME_ZONES.map((z) => ({ value: z.value, label: z.label })) },
+    input: { type: "select", options: US_TIME_ZONES.map((tz) => ({ value: tz.value, label: tz.label })) },
     schema: z.enum(US_TIME_ZONE_IDS),
     envDefault: () => config.DISPLAY_TIME_ZONE,
     secret: false,

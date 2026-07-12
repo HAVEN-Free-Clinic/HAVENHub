@@ -16,6 +16,7 @@ import { requirePersonSession } from "@/platform/auth/session";
 import { listMyReports, CONCERN_TYPES } from "@/modules/incidents/services/report";
 import type { IncidentReportStatus } from "@prisma/client";
 import { PageHeader } from "@/platform/ui/page-header";
+import { buttonClasses } from "@/platform/ui/button";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { Badge } from "@/platform/ui/badge";
 import { Alert } from "@/platform/ui/alert";
@@ -77,6 +78,9 @@ export default async function MyReportsPage({ searchParams }: PageProps) {
       {rows.length === 0 ? (
         <div className="mt-12 flex flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground">
           <p>You have not filed any incident reports.</p>
+          <Link href="/incidents" className={buttonClasses("primary", "sm")}>
+            Report a concern
+          </Link>
         </div>
       ) : (
         <div className="mt-8">

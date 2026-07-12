@@ -56,7 +56,6 @@ export function SubjectPicker({
             <Combobox
               key={comboKey}
               name="subjectSearch"
-              ariaLabel="Search people to link to this report"
               placeholder="Search by name..."
               options={people
                 .filter((p) => !addedIds.has(p.id))
@@ -90,7 +89,7 @@ export function SubjectPicker({
                 onClick={() => remove(p.id)}
                 aria-label={`Remove ${p.name}`}
                 // eslint-disable-next-line no-restricted-syntax -- inline text-link remove action, not a full Button
-                className="ml-auto text-xs text-subtle-foreground underline hover:text-foreground"
+                className="ml-auto -my-1 inline-flex min-h-[44px] items-center rounded-md px-2 text-xs text-subtle-foreground underline hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
               >
                 Remove
               </button>

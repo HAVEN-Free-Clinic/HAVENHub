@@ -336,7 +336,7 @@ export default async function IncidentReportDetailPage({ params, searchParams }:
 
           {report.subjects.filter((s) => s.strikeDecision === "PENDING").length > 0 && (
             <div className="mt-6 space-y-6 border-t border-border-subtle pt-6">
-              <SectionHeader level="title">Strike requests</SectionHeader>
+              <SectionHeader level="title" as="h3">Strike requests</SectionHeader>
               {report.subjects
                 .filter((s) => s.strikeDecision === "PENDING")
                 .map((s) => (

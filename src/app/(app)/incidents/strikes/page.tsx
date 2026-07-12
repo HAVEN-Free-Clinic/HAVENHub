@@ -274,7 +274,7 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
               {/* Person picker: free input for central, select for directors */}
               {issuable.all ? (
                 <div className="w-56">
-                  <Field label="NetID or email">
+                  <Field label="NetID or email" required>
                     <Input
                       name="personKey"
                       placeholder="netid or email@yale.edu"
@@ -284,7 +284,7 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
                 </div>
               ) : (
                 <div className="w-64">
-                  <Field label="Person">
+                  <Field label="Person" required>
                     <Select name="personId" required>
                       <option value="">Select person...</option>
                       {issuable.people.map((p) => (
@@ -300,14 +300,14 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
 
               {/* Date */}
               <div className="w-44">
-                <Field label="Date of incident">
+                <Field label="Date of incident" required>
                   <Input type="date" name="occurredAt" required />
                 </Field>
               </div>
 
               {/* Category */}
               <div className="w-52">
-                <Field label="Category">
+                <Field label="Category" required>
                   <Select name="category" required>
                     <option value="">Select category...</option>
                     {DISCIPLINARY_CATEGORIES.map((c) => (
@@ -321,7 +321,7 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
 
               {/* Description */}
               <div className="w-full">
-                <Field label="Description *">
+                <Field label="Description" required>
                   <Textarea
                     name="description"
                     rows={3}
@@ -374,7 +374,7 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
             </div>
 
             <FormActions>
-              <Button type="submit" variant="outline" size="sm">
+              <Button type="submit" variant="primary" size="sm">
                 Record action
               </Button>
             </FormActions>

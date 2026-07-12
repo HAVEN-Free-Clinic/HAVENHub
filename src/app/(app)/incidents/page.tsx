@@ -18,7 +18,7 @@
 
 import { requirePersonSession } from "@/platform/auth/session";
 import { PageHeader } from "@/platform/ui/page-header";
-import { Field, Input, Textarea } from "@/platform/ui/input";
+import { Field, Input, ReadonlyField, Textarea } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Radio, RadioGroup } from "@/platform/ui/radio";
@@ -184,9 +184,7 @@ export default async function ReportConcernPage({ searchParams }: PageProps) {
           {/* Section 10: name / anonymity / strike request */}
           <div className="space-y-3 border-t border-border pt-6">
             <h2 className="text-sm font-medium">10. Your information</h2>
-            <Field label="Your name">
-              <Input defaultValue={actor.name ?? ""} disabled />
-            </Field>
+            <ReadonlyField label="Your name" value={actor.name ?? ""} />
             <label className="flex items-center gap-2 text-sm">
               <Checkbox name="anonymous" /> I would prefer to remain anonymous (your name is not shared with the
               subject)

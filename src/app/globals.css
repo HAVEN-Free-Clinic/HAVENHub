@@ -75,6 +75,25 @@ body {
 }
 
 /*
+ * Dark variants for the module accent hues. The light `-bg` values are near-white
+ * (L~0.96) tints; on the dark card surface they would render as bright islands,
+ * so in dark mode the chip background darkens (L~0.30 tint) and the icon hue lifts
+ * (L~0.80) to keep the same quiet category coding without breaking the theme.
+ */
+html.dark {
+  --mod-schedule:    oklch(0.80 0.09 250);
+  --mod-schedule-bg: oklch(0.30 0.045 250);
+  --mod-info:        oklch(0.80 0.08 210);
+  --mod-info-bg:     oklch(0.30 0.045 210);
+  --mod-volunteers:    oklch(0.80 0.09 160);
+  --mod-volunteers-bg: oklch(0.30 0.05 160);
+  --mod-admin:    oklch(0.82 0.10 70);
+  --mod-admin-bg: oklch(0.30 0.05 70);
+  --mod-recruit:    oklch(0.80 0.09 300);
+  --mod-recruit-bg: oklch(0.30 0.045 300);
+}
+
+/*
  * Dark theme. Activated by the `dark` class on <html> (set server-side for an
  * explicit light/dark preference, or by the inline no-flash script for system).
  * Values are tuned for WCAG AA body-text contrast on the surface/canvas pair.

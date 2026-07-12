@@ -360,12 +360,6 @@ export default async function HubPage() {
                 >
                   View my schedule <ArrowRight aria-hidden className="h-4 w-4" />
                 </Link>
-                <Link
-                  href="/schedule"
-                  className="inline-flex items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-white/20"
-                >
-                  <Repeat aria-hidden className="h-4 w-4" /> Request a change
-                </Link>
               </div>
             </div>
           ) : (
@@ -445,7 +439,7 @@ export default async function HubPage() {
               {clearanceTasks.length > 0 && (
                 <span
                   className={`inline-flex items-center gap-1.5 text-xs font-semibold ${
-                    onboarding.cleared ? "text-success" : "text-warning"
+                    onboarding.cleared ? "text-success-foreground" : "text-warning-foreground"
                   }`}
                 >
                   <span

@@ -7,13 +7,14 @@ import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Card } from "@/platform/ui/card";
 import { Select } from "@/platform/ui/select";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
+import { Pagination } from "@/platform/ui/pagination";
 import { listCoursesForDashboard, getCourseCompletion } from "@/modules/learning/services/dashboard";
 import { resetCourseProgressAction } from "./actions";
 
 export default async function LearningDashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ course?: string }>;
+  searchParams: Promise<{ course?: string; page?: string }>;
 }) {
   const person = await requirePermission("learning.view_progress");
   const canManage = await can(person.personId, "learning.manage_courses");
@@ -43,6 +44,13 @@ export default async function LearningDashboardPage({
   const sp = await searchParams;
   const selected = sp.course ?? courses[0]?.id;
   const rows = selected ? await getCourseCompletion(selected, person.personId) : [];
+  // Bound the rendered table: a full clinic roster can be hundreds of learners,
+  // each emitting a Reset form. Page in-memory (the sorted roster is one bounded
+  // query) so the DOM stays small, mirroring the master-compliance view.
+  const PAGE_SIZE = 25;
+  const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const page = Math.min(Math.max(1, parseInt(sp.page ?? "1", 10) || 1), pageCount);
+  const pageRows = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   return (
     <>
@@ -69,7 +77,7 @@ export default async function LearningDashboardPage({
             </TR>
           </THead>
           <tbody>
-            {rows.map((r) => (
+            {pageRows.map((r) => (
               <TR key={r.personId}>
                 <TD>{r.name}</TD>
                 <TD>{r.departmentCode}</TD>
@@ -94,6 +102,13 @@ export default async function LearningDashboardPage({
             )}
           </tbody>
         </Table>
+        {selected && (
+          <Pagination
+            page={page}
+            pageCount={pageCount}
+            hrefFor={(p) => `/learning/dashboard?course=${encodeURIComponent(selected)}&page=${p}`}
+          />
+        )}
       </div>
     </>
   );

@@ -113,7 +113,7 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
   return (
     <div className="space-y-4">
       <div>
-        <label className="block text-sm font-medium text-foreground-soft">Audience</label>
+        <p className="text-sm font-medium text-foreground-soft">Audience</p>
         <p className="mt-0.5 text-xs text-muted-foreground">
           Choose who receives this campaign. Add at least one condition; an empty audience matches nobody (a safeguard against an accidental send-all).
         </p>
@@ -124,11 +124,11 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
         <span className="text-sm text-foreground-soft">Match</span>
         <div className="inline-flex overflow-hidden rounded-lg border border-border text-xs">
           {/* eslint-disable-next-line no-restricted-syntax -- segmented match-mode toggle, active state applied inline */}
-          <button type="button" onClick={() => setMatch("ALL")} className={`px-3 py-1.5 ${match === "ALL" ? "bg-brand text-white" : "bg-surface text-foreground-soft hover:bg-muted"}`}>
+          <button type="button" aria-pressed={match === "ALL"} onClick={() => setMatch("ALL")} className={`px-3 py-1.5 ${match === "ALL" ? "bg-brand text-white" : "bg-surface text-foreground-soft hover:bg-muted"}`}>
             ALL conditions
           </button>
           {/* eslint-disable-next-line no-restricted-syntax -- segmented match-mode toggle, active state applied inline */}
-          <button type="button" onClick={() => setMatch("ANY")} className={`px-3 py-1.5 ${match === "ANY" ? "bg-brand text-white" : "bg-surface text-foreground-soft hover:bg-muted"}`}>
+          <button type="button" aria-pressed={match === "ANY"} onClick={() => setMatch("ANY")} className={`px-3 py-1.5 ${match === "ANY" ? "bg-brand text-white" : "bg-surface text-foreground-soft hover:bg-muted"}`}>
             ANY condition
           </button>
         </div>
@@ -155,6 +155,7 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
             >
               {/* Field selector, grouped */}
               <Select
+                aria-label="Field"
                 value={cond.field}
                 onChange={(e) => changeField(idx, e.target.value)}
                 className="w-auto"
@@ -174,6 +175,7 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
               {def?.kind === "text" && (
                 <>
                   <Select
+                    aria-label="Operator"
                     value={cond.op}
                     onChange={(e) => changeTextOp(idx, e.target.value as ConditionOp)}
                     className="w-auto"
@@ -187,6 +189,7 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
 
                   {cond.op === "in" ? (
                     <Textarea
+                      aria-label="Value"
                       value={textValue}
                       onChange={(e) => changeTextValue(idx, e.target.value)}
                       rows={2}
@@ -195,6 +198,7 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
                     />
                   ) : !VALUELESS_OPS.has(cond.op) ? (
                     <Input
+                      aria-label="Value"
                       type="text"
                       value={textValue}
                       onChange={(e) => changeTextValue(idx, e.target.value)}
@@ -208,6 +212,7 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
               {/* Enum value */}
               {def?.kind === "enum" && (
                 <Select
+                  aria-label="Value"
                   value={typeof cond.value === "string" ? cond.value : ""}
                   onChange={(e) => changeEnumValue(idx, e.target.value)}
                   className="w-auto"
@@ -241,6 +246,7 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
               {/* Boolean yes/no */}
               {def?.kind === "boolean" && (
                 <Select
+                  aria-label="Yes or no"
                   value={cond.op}
                   onChange={(e) => changeBooleanOp(idx, e.target.value as "isTrue" | "isFalse")}
                   className="w-auto"

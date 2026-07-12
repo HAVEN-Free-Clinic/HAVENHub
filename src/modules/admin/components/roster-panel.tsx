@@ -300,7 +300,7 @@ export async function RosterPanel({
             <p className="text-sm font-medium text-foreground-soft">
               {searchResults.length === 0
                 ? `No results for "${addq}"`
-                : `${searchResults.length} result(s) for "${addq}" -- select department and role, then Add`}
+                : `${searchResults.length} result(s) for "${addq}" · select department and role, then Add`}
             </p>
           </div>
           {searchResults.length > 0 && (
@@ -322,7 +322,7 @@ export async function RosterPanel({
                       <Select name="departmentId" className="w-48">
                         {allActiveDepts.map((dept) => (
                           <option key={dept.id} value={dept.id}>
-                            {dept.code} -- {dept.name}
+                            {dept.code} · {dept.name}
                           </option>
                         ))}
                       </Select>
@@ -358,7 +358,7 @@ export async function RosterPanel({
               className="rounded-2xl border border-border bg-muted p-5"
             >
               <h3 className="mb-4 text-sm font-semibold text-foreground-soft">
-                {dept.code} -- {dept.name}
+                {dept.code} · {dept.name}
               </h3>
 
               {isEmpty ? (
@@ -432,7 +432,7 @@ export async function RosterPanel({
                   <Select name="fromTermId" className="w-56">
                     {sourceTerms.map((t) => (
                       <option key={t.id} value={t.id}>
-                        {t.code} -- {t.name}
+                        {t.code} · {t.name}
                       </option>
                     ))}
                   </Select>

@@ -36,7 +36,7 @@ export function TermForm({ action, term, error, saved }: TermFormProps) {
         {saved && <Alert tone="success">{saved}</Alert>}
 
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Code" hint="E.g. FA26. Will be uppercased automatically.">
+          <Field label="Code" required hint="E.g. FA26. Will be uppercased automatically.">
             <Input
               name="code"
               defaultValue={term?.code ?? ""}
@@ -45,7 +45,7 @@ export function TermForm({ action, term, error, saved }: TermFormProps) {
             />
           </Field>
 
-          <Field label="Name">
+          <Field label="Name" required>
             <Input
               name="name"
               defaultValue={term?.name ?? ""}
@@ -54,7 +54,7 @@ export function TermForm({ action, term, error, saved }: TermFormProps) {
             />
           </Field>
 
-          <Field label="Start date">
+          <Field label="Start date" required>
             <Input
               name="startDate"
               type="date"
@@ -63,7 +63,7 @@ export function TermForm({ action, term, error, saved }: TermFormProps) {
             />
           </Field>
 
-          <Field label="End date">
+          <Field label="End date" required>
             <Input
               name="endDate"
               type="date"

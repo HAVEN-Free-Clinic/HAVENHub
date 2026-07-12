@@ -1,11 +1,12 @@
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { requirePermission } from "@/platform/auth/session";
 import {
   getTemplateForEdit,
   saveTemplateOverride,
   resetTemplateOverride,
   TemplateValidationError,
+  type TemplateForEdit,
 } from "@/modules/admin/services/email-templates";
 import { saveSenderRule, clearSenderRule, SenderRuleValidationError } from "@/platform/email/sender-rules";
 import { sendSenderTest } from "@/modules/admin/services/email";
@@ -28,7 +29,18 @@ export default async function EditTemplatePage({ params, searchParams }: Props) 
   const { key } = await params;
   const { error } = await searchParams;
   const decodedKey = decodeURIComponent(key);
-  const t = await getTemplateForEdit(decodedKey);
+  // A mistyped, stale, or renamed template key throws "Unknown email template:
+  // ...". Render the standard not-found page for that case instead of letting the
+  // raw error bubble to Next's default error screen.
+  let t: TemplateForEdit;
+  try {
+    t = await getTemplateForEdit(decodedKey);
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith("Unknown email template")) {
+      notFound();
+    }
+    throw err;
+  }
 
   async function saveAction(formData: FormData) {
     "use server";

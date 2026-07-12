@@ -24,6 +24,7 @@ import { Button } from "@/platform/ui/button";
 import { Input, Field } from "@/platform/ui/input";
 import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
+import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { TemplateEditor } from "../../templates/[key]/preview";
 import { AudienceBuilder } from "./audience-builder";
 import { CronPresets } from "./cron-presets";
@@ -425,22 +426,22 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
       {campaign.runs.length > 0 && (
         <div className="space-y-3 border-t border-border pt-6">
           <h2 className="text-base font-semibold text-foreground">Sent runs</h2>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs font-medium text-muted-foreground border-b border-border">
-                <th className="pb-2 pr-6">Sent at</th>
-                <th className="pb-2">Recipients</th>
-              </tr>
-            </thead>
+          <Table>
+            <THead>
+              <TR>
+                <TH>Sent at</TH>
+                <TH>Recipients</TH>
+              </TR>
+            </THead>
             <tbody>
               {campaign.runs.map((run) => (
-                <tr key={run.id} className="border-b border-border-subtle last:border-0">
-                  <td className="py-2 pr-6 text-foreground-soft">{run.runAt.toLocaleString()}</td>
-                  <td className="py-2 text-foreground-soft">{run.recipientCount}</td>
-                </tr>
+                <TR key={run.id}>
+                  <TD className="text-foreground-soft">{run.runAt.toLocaleString()}</TD>
+                  <TD className="text-foreground-soft">{run.recipientCount}</TD>
+                </TR>
               ))}
             </tbody>
-          </table>
+          </Table>
         </div>
       )}
     </div>

@@ -23,7 +23,7 @@ export function SubcommitteeForm({ action, mode, subcommittee, error, saved }: S
         {saved && <Alert tone="success">Changes saved.</Alert>}
 
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Name">
+          <Field label="Name" required>
             <Input name="name" defaultValue={subcommittee?.name ?? ""} required placeholder="Community Outreach" />
           </Field>
           <Field label="Order" hint="Lower shows first. Optional.">

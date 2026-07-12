@@ -25,6 +25,7 @@ export function DepartmentForm({ action, mode, department, error, saved }: Depar
         <div className="grid gap-4 sm:grid-cols-2">
           <Field
             label="Code"
+            required={mode === "create"}
             hint={mode === "edit" ? "Code cannot be changed after creation." : "2-12 letters/digits, e.g. SCTS. Uppercased automatically."}
           >
             <Input
@@ -36,7 +37,7 @@ export function DepartmentForm({ action, mode, department, error, saved }: Depar
             />
           </Field>
 
-          <Field label="Name">
+          <Field label="Name" required>
             <Input name="name" defaultValue={department?.name ?? ""} required placeholder="Surgical Care Team" />
           </Field>
 

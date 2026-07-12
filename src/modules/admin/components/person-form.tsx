@@ -49,7 +49,7 @@ export function PersonForm({ action, person, error, saved, children }: PersonFor
         {saved && <Alert tone="success">{saved}</Alert>}
 
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Full Name">
+          <Field label="Full Name" required>
             <Input
               name="name"
               defaultValue={person?.name ?? ""}

@@ -84,7 +84,7 @@ export default async function AdminOverviewPage() {
         <StatCard
           label="Active Departments"
           value={activeDeptCount}
-          href="/admin/people"
+          href="/admin/departments"
         />
         <StatCard
           label="Roles"

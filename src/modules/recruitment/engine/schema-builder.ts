@@ -68,7 +68,12 @@ function fieldSchema(field: FieldDef): z.ZodTypeAny {
       let n = z.coerce.number();
       if (v.min !== undefined) n = n.min(v.min);
       if (v.max !== undefined) n = n.max(v.max);
-      return field.required ? n : n.optional();
+      // HTML number inputs always submit their key ("" when blank) and Number("") === 0,
+      // so a bare z.coerce.number() would silently accept a required blank as 0 and store
+      // 0 for an untouched optional field. Normalize "" (and null) to undefined: the
+      // required branch then rejects it (coerces to NaN), the optional branch drops it.
+      const blankToUndefined = (val: unknown) => (val === "" || val == null ? undefined : val);
+      return field.required ? z.preprocess(blankToUndefined, n) : z.preprocess(blankToUndefined, n.optional());
     }
     case "DATE": {
       const s = z.string().refine((val) => !Number.isNaN(Date.parse(val)), "invalid date");
@@ -88,7 +93,17 @@ function fieldSchema(field: FieldDef): z.ZodTypeAny {
       let arr = z.array(item);
       if (field.required) arr = arr.min(1);
       if (v.max !== undefined) arr = arr.max(v.max);
-      return field.required ? arr : arr.optional();
+      // Checkboxes sharing one name serialize to a scalar string when exactly one is
+      // checked, an array when several are, and are absent when none are (see the apply
+      // action serializer). Without normalization a single selection reaches the schema
+      // as a string and fails "expected array", hard-blocking an applicant who answered.
+      const toRequired = (val: unknown) => (val == null || val === "" ? [] : Array.isArray(val) ? val : [val]);
+      const toOptional = (val: unknown) => {
+        if (val == null || val === "") return undefined;
+        const a = Array.isArray(val) ? val : [val];
+        return a.length > 0 ? a : undefined;
+      };
+      return field.required ? z.preprocess(toRequired, arr) : z.preprocess(toOptional, arr.optional());
     }
     case "FILE":
       return z.any().optional();

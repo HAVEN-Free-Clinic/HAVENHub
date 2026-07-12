@@ -44,7 +44,7 @@ import { Select } from "@/platform/ui/select";
 import { Button } from "@/platform/ui/button";
 import { FormActions } from "@/platform/ui/form";
 import { Alert } from "@/platform/ui/alert";
-import { fmtDate } from "@/platform/dates";
+import { CalendarDate, DateOnly } from "@/platform/dates/display";
 
 // ---------------------------------------------------------------------------
 // Labels
@@ -175,7 +175,9 @@ export default async function IncidentReportDetailPage({ params, searchParams }:
           </div>
           <div>
             <dt className="text-xs text-subtle-foreground">Date of the incident</dt>
-            <dd className="mt-0.5 text-sm text-foreground">{fmtDate(report.occurredAt, "Unknown")}</dd>
+            <dd className="mt-0.5 text-sm text-foreground">
+              <CalendarDate value={report.occurredAt} fallback="Unknown" />
+            </dd>
           </div>
           <div>
             <dt className="text-xs text-subtle-foreground">Setting</dt>
@@ -270,7 +272,9 @@ export default async function IncidentReportDetailPage({ params, searchParams }:
           </div>
           <div>
             <dt className="text-xs text-subtle-foreground">Submitted</dt>
-            <dd className="mt-0.5 text-sm text-foreground">{fmtDate(report.createdAt)}</dd>
+            <dd className="mt-0.5 text-sm text-foreground">
+              <DateOnly value={report.createdAt} />
+            </dd>
           </div>
           <div>
             <dt className="text-xs text-subtle-foreground">Strike requests</dt>

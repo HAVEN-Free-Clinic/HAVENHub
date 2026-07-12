@@ -26,7 +26,7 @@ import { Select } from "@/platform/ui/select";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Button, buttonClasses } from "@/platform/ui/button";
 import { Pagination } from "@/platform/ui/pagination";
-import { fmtDate } from "@/platform/dates";
+import { DateOnly } from "@/platform/dates/display";
 import { formatSubjectNames } from "@/app/(app)/incidents/subject-display";
 
 // ---------------------------------------------------------------------------
@@ -234,7 +234,7 @@ export default async function IncidentReviewPage({ searchParams }: PageProps) {
                       <Badge tone={STATUS_TONES[report.status]}>{STATUS_LABELS[report.status]}</Badge>
                     </TD>
                     <TD className="whitespace-nowrap text-sm text-foreground-soft">
-                      {fmtDate(report.createdAt)}
+                      <DateOnly value={report.createdAt} />
                     </TD>
                   </TR>
                 ))}

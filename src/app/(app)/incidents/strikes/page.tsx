@@ -44,7 +44,7 @@ import {
 } from "@/modules/incidents/services/disciplinary";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { fmtDate } from "@/platform/dates";
+import { CalendarDate } from "@/platform/dates/display";
 import Link from "next/link";
 
 // ---------------------------------------------------------------------------
@@ -473,7 +473,7 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
                 {rows.map(({ action, personName, issuedByName, strikes }) => (
                   <TR key={action.id}>
                     <TD className="tabular-nums text-sm text-foreground-soft whitespace-nowrap">
-                      {fmtDate(action.occurredAt)}
+                      <CalendarDate value={action.occurredAt} />
                     </TD>
                     <TD className="font-medium">{personName}</TD>
                     <TD>

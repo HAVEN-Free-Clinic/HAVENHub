@@ -20,7 +20,7 @@ import { buttonClasses } from "@/platform/ui/button";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { Badge } from "@/platform/ui/badge";
 import { Alert } from "@/platform/ui/alert";
-import { fmtDate } from "@/platform/dates";
+import { DateOnly } from "@/platform/dates/display";
 import { formatSubjectNames, aggregateStrikeLabel } from "@/app/(app)/incidents/subject-display";
 
 // ---------------------------------------------------------------------------
@@ -113,7 +113,9 @@ export default async function MyReportsPage({ searchParams }: PageProps) {
                   <TD className="text-sm text-foreground-soft">
                     {aggregateStrikeLabel(strikePendingCount, strikeIssuedCount)}
                   </TD>
-                  <TD className="whitespace-nowrap text-sm text-foreground-soft">{fmtDate(report.createdAt)}</TD>
+                  <TD className="whitespace-nowrap text-sm text-foreground-soft">
+                    <DateOnly value={report.createdAt} />
+                  </TD>
                 </TR>
               ))}
             </tbody>

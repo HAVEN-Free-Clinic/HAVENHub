@@ -35,6 +35,18 @@ describe("buildPageMetadata", () => {
     expect(m.description).toBe("Courses");
   });
 
+  it("standalone title opts out of the app-name suffix in tab and card", async () => {
+    const m = await buildPageMetadata({
+      title: "HAVEN Application Portal",
+      description: "Apply to HAVEN Free Clinic",
+      standalone: true,
+    });
+    expect(m.title).toEqual({ absolute: "HAVEN Application Portal" });
+    expect(m.openGraph?.title).toBe("HAVEN Application Portal");
+    expect(m.twitter?.title).toBe("HAVEN Application Portal");
+    expect(m.description).toBe("Apply to HAVEN Free Clinic");
+  });
+
   it("resolves metadataBase from app.baseUrl", async () => {
     const m = await buildPageMetadata();
     expect(m.metadataBase?.toString()).toBe("https://hub.example.org/");

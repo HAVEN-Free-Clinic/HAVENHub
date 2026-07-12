@@ -16,9 +16,13 @@ const SEP = " · ";
  * Root pages call this with no title: the title becomes a template so child pages
  * that set a plain-string title read "<Page> · <appName>" in the browser tab.
  * Child pages pass a title; the Open Graph title is composed the same way.
+ *
+ * Pass `standalone: true` for a page that is its own public brand (the
+ * application portal): its title renders without the "· <appName>" suffix in
+ * both the browser tab and the card, while still using the shared branded image.
  */
 export async function buildPageMetadata(
-  opts: { title?: string; description?: string } = {},
+  opts: { title?: string; description?: string; standalone?: boolean } = {},
 ): Promise<Metadata> {
   const [appName, orgName, baseUrl] = await Promise.all([
     getSetting<string>("branding.appName"),
@@ -27,11 +31,26 @@ export async function buildPageMetadata(
   ]);
 
   const description = opts.description ?? `The unified platform for ${appName}`;
-  const ogTitle = opts.title ? `${opts.title}${SEP}${appName}` : appName;
+
+  // A standalone title (the public application portal is a separate brand) opts
+  // out of the "<Page> · <appName>" suffix in both the browser tab and the card.
+  const standalone = Boolean(opts.title && opts.standalone);
+  let title: Metadata["title"];
+  let ogTitle: string;
+  if (!opts.title) {
+    title = { default: appName, template: `%s${SEP}${appName}` };
+    ogTitle = appName;
+  } else if (standalone) {
+    title = { absolute: opts.title };
+    ogTitle = opts.title;
+  } else {
+    title = opts.title;
+    ogTitle = `${opts.title}${SEP}${appName}`;
+  }
 
   return {
     metadataBase: new URL(baseUrl),
-    title: opts.title ?? { default: appName, template: `%s${SEP}${appName}` },
+    title,
     description,
     openGraph: {
       title: ogTitle,

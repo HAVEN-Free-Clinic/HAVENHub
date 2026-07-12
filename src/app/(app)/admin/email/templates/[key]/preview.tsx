@@ -34,7 +34,7 @@ export function TemplateEditor(props: {
     ],
     content: props.initialBody,
     editorProps: {
-      attributes: { class: "tt-content" },
+      attributes: { class: "tt-content", "aria-label": "Message body" },
     },
     onUpdate: ({ editor }) => setBody(editor.getHTML()),
   });
@@ -111,27 +111,28 @@ export function TemplateEditor(props: {
         </Field>
 
         <div className="mt-4 flex items-center justify-between">
-          <label className="text-sm font-medium text-foreground-soft">Message body</label>
+          <span className="text-sm font-medium text-foreground-soft">Message body</span>
           <div className="inline-flex overflow-hidden rounded-lg border border-border text-xs">
             {/* eslint-disable-next-line no-restricted-syntax -- segmented editor-mode toggle, active state applied inline */}
-            <button type="button" onClick={() => switchMode("rich")} className={`px-2 py-1 ${mode === "rich" ? "bg-brand text-white" : "bg-surface text-foreground-soft"}`}>
+            <button type="button" aria-pressed={mode === "rich"} onClick={() => switchMode("rich")} className={`px-2 py-1 ${mode === "rich" ? "bg-brand text-white" : "bg-surface text-foreground-soft"}`}>
               Formatted
             </button>
             {/* eslint-disable-next-line no-restricted-syntax -- segmented editor-mode toggle, active state applied inline */}
-            <button type="button" onClick={() => switchMode("source")} className={`px-2 py-1 ${mode === "source" ? "bg-brand text-white" : "bg-surface text-foreground-soft"}`}>
+            <button type="button" aria-pressed={mode === "source"} onClick={() => switchMode("source")} className={`px-2 py-1 ${mode === "source" ? "bg-brand text-white" : "bg-surface text-foreground-soft"}`}>
               HTML
             </button>
           </div>
         </div>
 
         {mode === "rich" ? (
-          <div className="mt-1 rounded-xl border border-border">
+          <div className="mt-1 overflow-hidden rounded-xl border border-border">
             <Toolbar editor={editor} />
             <EditorContent editor={editor} />
           </div>
         ) : (
           <Textarea
             ref={sourceRef}
+            aria-label="Message body"
             value={body}
             onChange={(e) => setBody(e.target.value)}
             rows={16}
@@ -205,38 +206,38 @@ function Toolbar({ editor }: { editor: Editor | null }) {
   return (
     <div className="flex flex-wrap items-center gap-1 border-b border-border p-1">
       {/* eslint-disable-next-line no-restricted-syntax -- editor toolbar toggle, active state applied via btn() helper */}
-      <button type="button" className={btn(editor.isActive("bold"))} onClick={() => editor.chain().focus().toggleBold().run()}>
+      <button type="button" aria-pressed={editor.isActive("bold")} className={btn(editor.isActive("bold"))} onClick={() => editor.chain().focus().toggleBold().run()}>
         <strong>B</strong>
       </button>
       {/* eslint-disable-next-line no-restricted-syntax -- editor toolbar toggle, active state applied via btn() helper */}
-      <button type="button" className={btn(editor.isActive("italic"))} onClick={() => editor.chain().focus().toggleItalic().run()}>
+      <button type="button" aria-pressed={editor.isActive("italic")} className={btn(editor.isActive("italic"))} onClick={() => editor.chain().focus().toggleItalic().run()}>
         <em>I</em>
       </button>
       <span className="mx-1 h-5 w-px bg-border" />
       {/* eslint-disable-next-line no-restricted-syntax -- editor toolbar toggle, active state applied via btn() helper */}
-      <button type="button" className={btn(editor.isActive("heading", { level: 2 }))} onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}>
+      <button type="button" aria-pressed={editor.isActive("heading", { level: 2 })} className={btn(editor.isActive("heading", { level: 2 }))} onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}>
         H2
       </button>
       {/* eslint-disable-next-line no-restricted-syntax -- editor toolbar toggle, active state applied via btn() helper */}
-      <button type="button" className={btn(editor.isActive("heading", { level: 3 }))} onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}>
+      <button type="button" aria-pressed={editor.isActive("heading", { level: 3 })} className={btn(editor.isActive("heading", { level: 3 }))} onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}>
         H3
       </button>
       <span className="mx-1 h-5 w-px bg-border" />
       {/* eslint-disable-next-line no-restricted-syntax -- editor toolbar toggle, active state applied via btn() helper */}
-      <button type="button" className={btn(editor.isActive("bulletList"))} onClick={() => editor.chain().focus().toggleBulletList().run()}>
+      <button type="button" aria-pressed={editor.isActive("bulletList")} className={btn(editor.isActive("bulletList"))} onClick={() => editor.chain().focus().toggleBulletList().run()}>
         • List
       </button>
       {/* eslint-disable-next-line no-restricted-syntax -- editor toolbar toggle, active state applied via btn() helper */}
-      <button type="button" className={btn(editor.isActive("orderedList"))} onClick={() => editor.chain().focus().toggleOrderedList().run()}>
+      <button type="button" aria-pressed={editor.isActive("orderedList")} className={btn(editor.isActive("orderedList"))} onClick={() => editor.chain().focus().toggleOrderedList().run()}>
         1. List
       </button>
       {/* eslint-disable-next-line no-restricted-syntax -- editor toolbar toggle, active state applied via btn() helper */}
-      <button type="button" className={btn(editor.isActive("blockquote"))} onClick={() => editor.chain().focus().toggleBlockquote().run()}>
+      <button type="button" aria-pressed={editor.isActive("blockquote")} className={btn(editor.isActive("blockquote"))} onClick={() => editor.chain().focus().toggleBlockquote().run()}>
         &ldquo; Quote
       </button>
       <span className="mx-1 h-5 w-px bg-border" />
       {/* eslint-disable-next-line no-restricted-syntax -- editor toolbar toggle, active state applied via btn() helper */}
-      <button type="button" className={btn(editor.isActive("link"))} onClick={setLink}>
+      <button type="button" aria-pressed={editor.isActive("link")} className={btn(editor.isActive("link"))} onClick={setLink}>
         Link
       </button>
       <span className="mx-1 h-5 w-px bg-border" />
@@ -256,7 +257,9 @@ function Toolbar({ editor }: { editor: Editor | null }) {
 function EditorStyles() {
   return (
     <style>{`
-      .tt-content { min-height: 16rem; padding: 12px 14px; font-size: 14px; line-height: 1.6; color: #1e293b; outline: none; }
+      /* The editing surface mirrors the light email output and stays light in
+         both app themes, so the dark body text always has a readable background. */
+      .tt-content { min-height: 16rem; padding: 12px 14px; font-size: 14px; line-height: 1.6; color: #1e293b; background: #ffffff; outline: none; }
       .tt-content:focus { outline: none; }
       .tt-content p { margin: 0 0 10px; }
       .tt-content h2 { font-size: 18px; font-weight: 600; margin: 16px 0 8px; }

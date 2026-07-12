@@ -13,8 +13,9 @@ const levelClasses: Record<SectionHeaderLevel, string> = {
 /**
  * Section heading beneath a page's PageHeader. `eyebrow` is the small uppercase
  * label; `title` is the larger non-uppercase subsection heading. Renders an h2
- * by default (or h3 if as="h3") and sets no outer spacing: pass margin (e.g. mb-4)
- * via className.
+ * by default (or h3/h4 via `as`) and sets no outer spacing: pass margin (e.g. mb-4)
+ * via className. Use a lower `as` level when the header nests under another
+ * heading so the document outline never skips or reverses a level.
  */
 export function SectionHeader({
   level = "eyebrow",
@@ -23,7 +24,7 @@ export function SectionHeader({
   children,
 }: {
   level?: SectionHeaderLevel;
-  as?: "h2" | "h3";
+  as?: "h2" | "h3" | "h4";
   className?: string;
   children: ReactNode;
 }) {

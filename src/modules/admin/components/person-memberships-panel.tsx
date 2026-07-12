@@ -179,7 +179,7 @@ export async function PersonMembershipsPanel({
                 <Select name="departmentId" className="w-56">
                   {departments.map((d) => (
                     <option key={d.id} value={d.id}>
-                      {d.code} -- {d.name}
+                      {d.code} · {d.name}
                     </option>
                   ))}
                 </Select>

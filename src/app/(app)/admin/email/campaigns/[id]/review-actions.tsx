@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Input, Field } from "@/platform/ui/input";
 import { Alert } from "@/platform/ui/alert";
+import { Button } from "@/platform/ui/button";
 import { SubmitButton } from "./submit-button";
 
 type FormAction = (formData: FormData) => void | Promise<void>;
@@ -29,6 +30,10 @@ export function ReviewActions({
   sendAction: FormAction;
 }) {
   const [dirty, setDirty] = useState(false);
+  // "Send now" arms on the first click and only sends on the second, so even a
+  // small audience (25 or fewer, where no typed count is required) gets an
+  // explicit confirmation before real email is dispatched.
+  const [armed, setArmed] = useState(false);
 
   useEffect(() => {
     const form = document.getElementById(formId);
@@ -81,11 +86,28 @@ export function ReviewActions({
               className="w-24"
             />
           </Field>
-          <SubmitButton variant="danger" pendingLabel="Sending..." disabled={dirty}>
-            Send now
-          </SubmitButton>
+          {armed ? (
+            <SubmitButton variant="danger" pendingLabel="Sending..." disabled={dirty}>
+              Confirm send
+            </SubmitButton>
+          ) : (
+            <Button
+              type="button"
+              variant="danger"
+              disabled={dirty}
+              onClick={() => setArmed(true)}
+            >
+              Send now
+            </Button>
+          )}
         </form>
       </div>
+
+      {armed && !dirty && (
+        <Alert tone="warning">
+          Click Confirm send to dispatch this campaign to real recipients. This cannot be undone.
+        </Alert>
+      )}
 
       {dirty && (
         <Alert tone="warning">

@@ -314,7 +314,7 @@ export async function AssignmentForm({
 
         {/* Person search results */}
         {assignq && assignq.trim() && (
-          <div className="rounded-2xl border border-border">
+          <div className="overflow-hidden rounded-xl border border-border-subtle">
             <div className="border-b border-border-subtle px-4 py-3">
               <p className="text-sm font-medium text-foreground-soft">
                 {personResults.length === 0
@@ -369,7 +369,7 @@ export async function AssignmentForm({
             <Select name="departmentId" className="w-56">
               {departments.map((d) => (
                 <option key={d.id} value={d.id}>
-                  {d.code} -- {d.name}
+                  {d.code} · {d.name}
                 </option>
               ))}
             </Select>

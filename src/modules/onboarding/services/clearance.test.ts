@@ -104,4 +104,31 @@ describe("loadClearanceMap", () => {
     expect(summary.cleared).toBe(single.cleared);
     expect(summary.onboarded).toBe(single.onboarded);
   });
+
+  it("honors the `now` argument for HIPAA cert expiry", async () => {
+    const term = await activeTerm();
+    const dept = await prisma.department.create({ data: { code: "PCAR", name: "Primary Care" } });
+    const person = await memberWithProfile("Tex", dept.id, term.id);
+    // Completed 2026-01-01 -> valid through ~2027-01-01, verified.
+    await prisma.hipaaCertificate.create({
+      data: {
+        personId: person.id,
+        fileName: "c.pdf",
+        storedName: `c2-${person.id}.pdf`,
+        size: 100,
+        mimeType: "application/pdf",
+        completionDate: new Date("2026-01-01T12:00:00Z"),
+        verifiedAt: new Date("2026-01-02T12:00:00Z"),
+        uploadedAt: new Date("2026-01-01T12:00:00Z"),
+      },
+    });
+
+    const near = await loadClearanceMap([person.id], term.id, new Date("2026-06-01T12:00:00Z"));
+    expect(near.get(person.id)!.cleared).toBe(true);
+
+    const far = await loadClearanceMap([person.id], term.id, new Date("2027-06-01T12:00:00Z"));
+    const farSummary = far.get(person.id)!;
+    expect(farSummary.cleared).toBe(false);
+    expect(farSummary.missing).toContain("hipaa");
+  });
 });

@@ -34,10 +34,15 @@ export type ClearanceSummary = {
  * path on the onboarded/cleared gates. Training here is COMPLETE-or-INCOMPLETE only (the
  * IN_PROGRESS nuance the checklist shows is irrelevant to gating), which is why it does not
  * count quiz attempts. Every input personId is present in the result.
+ *
+ * `now` (optional) is the reference time for HIPAA cert expiry; it defaults to the
+ * current time. Callers that evaluate clearance "as of" a specific moment (e.g. the
+ * schedule builder passing a test/clinic reference time) thread it through here.
  */
 export async function loadClearanceMap(
   personIds: string[],
-  termId: string
+  termId: string,
+  now?: Date
 ): Promise<Map<string, ClearanceSummary>> {
   const out = new Map<string, ClearanceSummary>();
   if (personIds.length === 0) return out;
@@ -159,7 +164,7 @@ export async function loadClearanceMap(
 
     const tasks: ClearanceTask[] = [
       { key: "profile", state: deriveProfileTaskState(profile), blocking: true },
-      { key: "hipaa", state: deriveHipaaTaskState(complianceStatus(cert, termEnd)), blocking: true },
+      { key: "hipaa", state: deriveHipaaTaskState(complianceStatus(cert, termEnd, now)), blocking: true },
       ...trainingTasks,
       { key: "learning", state: deriveLearningTaskState(learningCourses), blocking: true },
       { key: "ehs", state: deriveEhsTaskState(ehsItems), blocking: false },

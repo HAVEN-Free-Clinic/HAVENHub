@@ -29,6 +29,8 @@ import { prisma } from "@/platform/db";
 import { queueEmail } from "@/platform/email/send";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
 import { requestApproverRecipients } from "@/modules/schedule/services/requests";
+import { isoDateKey } from "@/platform/dates";
+import { claimReminderDispatch } from "@/platform/email/reminder-dispatch";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -48,6 +50,8 @@ export async function GET(req: Request): Promise<Response> {
 
   const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000);
   const throttleCutoff = new Date(Date.now() - REMINDER_THROTTLE_MS);
+  // UTC day key used as the atomic per-day claim scope (below).
+  const todayKey = isoDateKey(new Date());
 
   const pendingRequests = await prisma.shiftRequest.findMany({
     where: {
@@ -108,6 +112,16 @@ export async function GET(req: Request): Promise<Response> {
         select: { id: true },
       });
       if (already) {
+        skipped++;
+        continue;
+      }
+
+      // Atomic per-day claim so two overlapping daily runs cannot both enqueue the
+      // same approver's reminder. The 3-day EmailLog throttle above still governs
+      // day-to-day spacing; this only guards same-tick concurrency and per-run
+      // dedup across an approver's multiple pending requests.
+      const claimed = await claimReminderDispatch("schedule-request-reminder", approver.id, todayKey);
+      if (!claimed) {
         skipped++;
         continue;
       }

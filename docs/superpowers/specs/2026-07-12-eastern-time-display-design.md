@@ -50,12 +50,23 @@ them separate:
 
 1. **Real instants** — `createdAt`, `updatedAt`, email `sentAt`, notification times,
    audit-log times, interview `scheduledAt`. These are true moments in time. **These are
-   the target for zone conversion.**
-2. **Calendar dates** — clinic dates, term start/end, shift dates. Stored anchored at
-   **noon UTC** on purpose so they are timezone-stable, and compared by UTC day key.
-   Formatting a noon-UTC value in Eastern yields **the same calendar day** (noon UTC =
-   7-8 AM ET), so there is **no visible shift**. Their comparison logic (`isoDateKey`,
-   availability arrays) **stays UTC** and is never routed through the display zone.
+   the target for zone conversion** — they render in the configured zone (Eastern) with a
+   DST-correct label. Even instants currently shown *date-only* (e.g. a ticket's "Submitted
+   Jun 13") render the zone's calendar day, which is a correctness improvement over today's
+   UTC day for late-evening events.
+2. **Calendar-day markers** — clinic dates, term start/end, shift dates, incident
+   `occurredAt`, cert `completionDate`. These carry no real time-of-day; they mark a wall
+   day. Most are anchored at **noon UTC**, but some (date-input values like `occurredAt`)
+   are anchored at **midnight UTC**. Formatting a *midnight-UTC* value in Eastern would show
+   the **previous day**. Therefore calendar-day markers are always formatted in **UTC**
+   (the anchor is UTC, so UTC formatting reproduces the stored day for *both* anchors). This
+   is visually identical to today and shows no clock, so it fully satisfies "no UTC times on
+   screen." Their comparison logic (`isoDateKey`, availability arrays) also **stays UTC**.
+
+**The distinction is enforced by two separate components** (Architecture below): instants go
+through `<DateTime>` / `<DateOnly>` / `<TimeOnly>` (zone-aware); calendar markers go through
+`<CalendarDate>` (UTC). They look identical for a date-only render but differ in zone, which
+is exactly the safety property we need.
 
 ## Architecture (Approach 1)
 
@@ -65,9 +76,9 @@ between **display** (zone-aware) and **logic** (UTC-only):
 | File | Responsibility |
 |---|---|
 | `zone.ts` | `DEFAULT_TIME_ZONE = "America/New_York"`, the curated `US_TIME_ZONES` option list (`{ value, label }[]`), the `US_TIME_ZONE_IDS` tuple for the zod enum, and `getDisplayTimeZone()` — a React `cache()`-wrapped async that reads the `display.timeZone` setting once per request and falls back to the default. |
-| `format.ts` | Pure, **sync** formatters, each taking an **explicit `zone` argument** (no default): `formatDateTime(d, zone)`, `formatDate(d, zone)`, `formatTime(d, zone)`, `zoneAbbrev(d, zone)`, and input helpers `formatForDateTimeInput(d, zone)` / `parseZonedInput(str, zone)`. Built on `Intl.DateTimeFormat` — no new dependency. |
-| `display.tsx` | Async **server components** `<DateTime>`, `<DateOnly>`, `<TimeOnly>` that self-resolve the zone via `getDisplayTimeZone()` and render. They emit semantic `<time dateTime={iso}>…</time>` for accessibility. Props: `value: Date | null | undefined`, optional `fallback`. |
-| `client.tsx` | `"use client"` `TimeZoneProvider` + `useTimeZone()` hook + a client `<DateTime>` for the 3 client components. Mirrors the existing `BreadcrumbProvider`. |
+| `format.ts` | Pure, **sync** formatters. Instant formatters take an **explicit `zone` argument** (no default): `formatDateTime(d, zone, opts?)`, `formatDateOnly(d, zone, opts?)`, `formatTimeOnly(d, zone, opts?)`, `zoneAbbrev(d, zone)`, and input helpers `formatForDateTimeInput(d, zone)` / `parseZonedInput(str, zone)`. The calendar-marker formatter `formatCalendarDate(d, opts?)` hardcodes UTC. All accept an optional `Intl.DateTimeFormatOptions` override for per-site shapes (weekday-long, month-year). Built on `Intl.DateTimeFormat` — no new dependency. |
+| `display.tsx` | Async **server components** for instants — `<DateTime>`, `<DateOnly>`, `<TimeOnly>` — that self-resolve the zone via `getDisplayTimeZone()`, plus `<CalendarDate>` for UTC calendar markers (no resolve needed). They emit semantic `<time dateTime={iso}>…</time>` for accessibility. Props: `value: Date | null | undefined`, optional `fallback`, optional `opts`. |
+| `client.tsx` | `"use client"` `TimeZoneProvider` + `useTimeZone()` hook, for the **2** client components that render instants (`certificate-viewer`, `epic-request-tabs`; `request-filters` renders no dates). Client code reads the zone from the hook and calls the pure `format.ts` functions. Mirrors the existing `BreadcrumbProvider`. |
 | `logic.ts` | The UTC-only, **non-display** utilities: `isoDateKey` (comparison key) and availability day math. `businessDaysSince` moves here and gains an optional `zone` parameter (see Edge Cases). Behavior for existing callers preserved. |
 
 `index.ts` re-exports the public surface. Because `getDisplayTimeZone()` is React-cached,
@@ -117,7 +128,8 @@ zone's wall-clock `"YYYY-MM-DDTHH:mm"` for the input's default value.
 ## The setting
 
 New registry entry in `src/platform/settings/registry.ts`, following the existing
-`theme.default` select pattern exactly:
+`ui.defaultTheme` select pattern exactly (verified: that is the real key; there is no
+`theme.default`):
 
 ```ts
 define<string>({
@@ -152,26 +164,40 @@ Interview time (`recruitment/interviews/[interviewId]`), recruitment open/close 
 
 ## Migration scope
 
-Mechanical but broad — roughly **45 display call sites across ~30 files**. Categories:
+Broad but mechanical — the inventory found **88 display sites across 42 files** (48 calendar
+markers, 40 instants). The transformation rule, applied per site by its classified kind:
 
-- **Server pages** using `fmtDate` / `fmtDateTime` / ad-hoc `toLocaleDateString(…, timeZone:"UTC")`
-  → `<DateOnly>` / `<DateTime>` / `<TimeOnly>`.
-- **3 client components** (`my-info/components/certificate-viewer`,
-  `support/components/request-filters`, `support/components/epic-request-tabs`) →
-  wrapped by `TimeZoneProvider`, formatting via `useTimeZone()`.
+- **Instant, date + time** (`fmtDateTime`, `.toLocaleString()`) → `<DateTime value={…} />`.
+- **Instant, date only** (`fmtDate(instant)`, `.toLocaleDateString(instant)`) → `<DateOnly value={…} />`.
+- **Instant, time only** → `<TimeOnly value={…} />`.
+- **Calendar marker** (`fmtDate(clinicDate)`, `toLocaleDateString(…, timeZone:"UTC")`, noon- or
+  midnight-anchored) → `<CalendarDate value={…} />` (UTC). Weekday/long/month-year shapes pass
+  an `opts` prop.
+- **2 client components** (`certificate-viewer`, `epic-request-tabs`) → read the zone from
+  `useTimeZone()` and call the pure `format.ts` functions. (`request-filters` renders no dates.)
 - **3 `datetime-local` inputs** (see above).
-- **Non-JSX string renders**: emails (`platform/email/shift-reminders` + any timestamped
-  mail), PDFs (`modules/support/services/itcm-pdf`, `modules/clinic/avs/build-summary`) —
-  resolve the zone once, call the sync `formatDateTime(d, zone)`.
+- **Non-JSX string renders**: emails (`platform/email/shift-reminders`,
+  `recruitment/services/interviews`, `schedule/services/requests`), PDFs
+  (`modules/support/services/itcm-pdf`, `api/support/epic/generate`), and the client-side AVS
+  PDF (`modules/clinic/avs/build-summary`). Instant renders resolve the zone once and call the
+  sync `formatDateTime(d, zone)`; calendar renders use `formatCalendarDate(d)` (no zone).
+- **Sites that hardcode `America/New_York` today** (`interviews.ts`, `portal-status.ts`,
+  `channel-link.ts`, `shift-reminders.ts`) switch to the resolved setting so they follow the
+  admin's choice.
+- **Sites with no `timeZone` today** (`learning/*`, `person-form`, several cron/PDF routes,
+  `fmtEmailDate`) are latent viewer/server-local bugs that this migration fixes.
 - **Cron / copy** updates (see Edge Cases).
 
-The old `fmtDate` / `fmtDateTime` names are removed after migration; call sites move to the
-components or the explicit-zone sync functions.
+The old `fmtDate` / `fmtDateTime` names are removed in the final task, after every call site
+has moved to the components or the explicit-zone sync functions.
 
 ## Edge cases & honest limits
 
-- **Calendar dates** (noon-UTC): format in the zone → same calendar day, no visible shift.
-  Comparison logic (`isoDateKey`, availability) stays UTC and never touches the display zone.
+- **Calendar-day markers** format in **UTC** via `<CalendarDate>` / `formatCalendarDate`. This
+  is required, not cosmetic: some markers (`occurredAt` from date inputs) are midnight-UTC
+  anchored, and formatting those in Eastern would show the previous day. UTC formatting
+  reproduces the stored day for both noon- and midnight-UTC anchors. Comparison logic
+  (`isoDateKey`, availability) also stays UTC and never touches the display zone.
 - **Relative "days pending"** (`businessDaysSince`): today it counts UTC day boundaries.
   Since everything should be Eastern, it gains a `zone` parameter and computes day
   boundaries against the configured zone's midnights, so "pending 3 days" matches what a

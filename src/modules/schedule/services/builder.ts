@@ -15,14 +15,14 @@ import { recordAudit } from "@/platform/audit";
 import { isoDateKey } from "@/platform/dates";
 import { manageableDepartmentIds, memberDepartmentIds } from "@/platform/departments";
 import { can } from "@/platform/rbac/engine";
-import { complianceStatus } from "@/platform/compliance/rules";
+import { loadClearanceMap } from "@/platform/clearance";
 import { resolveAvailability } from "../engine/availability";
 import type { ResolvedAvailability } from "../engine/availability";
 import { toScheduleEntries } from "../engine/map";
 import { computeConflicts } from "../engine/conflicts";
 import { computeDayMetrics } from "../engine/capacity";
 import type { DayMetrics } from "../engine/capacity";
-import { summarizeNonCompliant } from "../engine/banner";
+import { summarizeNotCleared } from "../engine/banner";
 import type { DeptBanner } from "../engine/banner";
 import { computeClinicReadiness } from "../engine/rhd";
 import type { ClinicReadiness, RhdPersonLite, Attending } from "../engine/rhd";
@@ -719,11 +719,7 @@ export async function builderView(
     }),
     prisma.termMembership.findMany({
       where: { termId: term.id, departmentId: selectedDept.id, status: "ACTIVE" },
-      include: {
-        person: {
-          include: { hipaaCertificates: { orderBy: { uploadedAt: "desc" }, take: 1 } },
-        },
-      },
+      include: { person: true },
       orderBy: { person: { name: "asc" } },
     }),
     selectedDate
@@ -832,26 +828,26 @@ export async function builderView(
     }
   );
 
-  // Banner: compliance status for VOLUNTEER assignees on selected date.
+  // Banner: full clearance for VOLUNTEER assignees on the selected date. Anyone not
+  // fully cleared (profile, HIPAA, training, learning, or EHS) cannot work that date.
   const volunteerAssigneesOnDate = selectedAssignments.filter((a) => a.role === "VOLUNTEER");
 
   // Build a memberById Map for O(1) lookups instead of O(n) linear scan per assignee.
   const memberById = new Map(members.map((m) => [m.person.id, m]));
 
+  const bannerClearance = await loadClearanceMap(
+    volunteerAssigneesOnDate.map((a) => a.personId),
+    term.id,
+    now
+  );
+
   const bannerVolunteers = volunteerAssigneesOnDate.map((a) => {
-    const memberEntry = memberById.get(a.personId);
-    const certs = memberEntry?.person.hipaaCertificates ?? [];
-    const newestCert = certs.length > 0 ? certs[0] : null;
-    const status = complianceStatus(
-      newestCert ? { completionDate: newestCert.completionDate, verifiedAt: newestCert.verifiedAt } : null,
-      term.endDate,
-      now
-    );
-    const person = memberEntry?.person ?? a.person;
-    return { id: person.id, name: person.name, status };
+    const person = memberById.get(a.personId)?.person ?? a.person;
+    const cleared = bannerClearance.get(a.personId)?.cleared ?? true;
+    return { id: person.id, name: person.name, cleared };
   });
 
-  const banner = summarizeNonCompliant([
+  const banner = summarizeNotCleared([
     {
       departmentId: selectedDept.id,
       departmentName: selectedDept.name,

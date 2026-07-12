@@ -1216,6 +1216,9 @@ describe("builderView", () => {
     const director = await createPerson("Director");
     const noCertVol = await createPerson("NoCert");
     const compliantVol = await createPerson("Compliant");
+    // Full clearance also needs profile contact fields; give them to compliantVol
+    // so a valid cert makes them fully cleared (and thus excluded from the banner).
+    await prisma.person.update({ where: { id: compliantVol.id }, data: { contactEmail: "c@x.edu", phone: "555-0100" } });
     await createMembership(director.id, term.id, dept.id, "DIRECTOR");
     await createMembership(noCertVol.id, term.id, dept.id, "VOLUNTEER");
     await createMembership(compliantVol.id, term.id, dept.id, "VOLUNTEER");
@@ -1237,11 +1240,11 @@ describe("builderView", () => {
     });
 
     const view = await builderView(director.id, { departmentId: dept.id, dateKey: isoDateKey(dates[0]) });
-    // Banner should list noCertVol but not compliantVol.
+    // Banner should list noCertVol but not the fully-cleared compliantVol.
     expect(view.banner).toHaveLength(1);
-    const nonCompliantIds = view.banner[0].nonCompliant.map((v) => v.id);
-    expect(nonCompliantIds).toContain(noCertVol.id);
-    expect(nonCompliantIds).not.toContain(compliantVol.id);
+    const notClearedIds = view.banner[0].notCleared.map((v) => v.id);
+    expect(notClearedIds).toContain(noCertVol.id);
+    expect(notClearedIds).not.toContain(compliantVol.id);
   });
 
   it("conflicts: person assigned in two departments on same date appears in conflicts map", async () => {
@@ -1329,12 +1332,14 @@ describe("builderView", () => {
     expect(view.rhd!.readiness.procedures.iudIn).toBe("yes");
   });
 
-  it("threads opts.now into complianceStatus: a cert compliant today reads EXPIRED when now is far future", async () => {
+  it("threads opts.now into clearance: a cert compliant today reads EXPIRED when now is far future", async () => {
     const dates = sixSaturdays();
     const term = await createTerm(dates);
     const dept = await createDepartment("PCAR");
     const director = await createPerson("Director");
     const certVol = await createPerson("CertVol");
+    // Profile filled so cert validity is the only thing gating clearance.
+    await prisma.person.update({ where: { id: certVol.id }, data: { contactEmail: "cv@x.edu", phone: "555-0200" } });
     await createMembership(director.id, term.id, dept.id, "DIRECTOR");
     await createMembership(certVol.id, term.id, dept.id, "VOLUNTEER");
     await createShift(term.id, dept.id, certVol.id, dates[0], "VOLUNTEER");
@@ -1361,8 +1366,8 @@ describe("builderView", () => {
       dateKey: isoDateKey(dates[0]),
       now: today,
     });
-    const nonCompliantIdsToday = viewToday.banner.flatMap((b) => b.nonCompliant.map((v) => v.id));
-    expect(nonCompliantIdsToday).not.toContain(certVol.id);
+    const notClearedIdsToday = viewToday.banner.flatMap((b) => b.notCleared.map((v) => v.id));
+    expect(notClearedIdsToday).not.toContain(certVol.id);
 
     // Verify EXPIRED in the future: banner should include certVol.
     const farFuture = new Date("2027-02-01T12:00:00Z");
@@ -1371,8 +1376,8 @@ describe("builderView", () => {
       dateKey: isoDateKey(dates[0]),
       now: farFuture,
     });
-    const nonCompliantIdsFuture = viewFuture.banner.flatMap((b) => b.nonCompliant.map((v) => v.id));
-    expect(nonCompliantIdsFuture).toContain(certVol.id);
+    const notClearedIdsFuture = viewFuture.banner.flatMap((b) => b.notCleared.map((v) => v.id));
+    expect(notClearedIdsFuture).toContain(certVol.id);
   });
 
   it("rhd block is null for a non-RHD department", async () => {

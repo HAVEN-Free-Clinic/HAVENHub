@@ -556,8 +556,10 @@ export default async function BuilderPage({ searchParams }: PageProps) {
         </Alert>
       )}
 
-      {/* Date strip -- hidden in the Grid view, which already shows every date as a column */}
-      {clinicDates.length > 0 && !(view === "grid" && mode !== "availability") && (
+      {/* Date strip -- hidden in Grid view (dates are already columns there) and in
+          edit-availability mode (availability is edited per member across all dates, so the
+          per-date picker is just noise). */}
+      {clinicDates.length > 0 && mode !== "availability" && view !== "grid" && (
         <nav className="flex flex-wrap gap-2 mb-6" aria-label="Clinic dates">
           {clinicDates.map((d) => {
             const key = isoDateKey(d);
@@ -636,16 +638,16 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                 </span>
               </div>
 
-              {/* HIPAA banner */}
+              {/* Clearance banner: volunteers scheduled here who are not fully cleared */}
               {data.banner.length > 0 && (
                 <Card size="compact" pad={false} role="status" className="mb-4 px-4 py-3 text-sm text-foreground-soft">
                   <p className="font-semibold mb-1 flex items-center gap-1.5 text-foreground">
                     <AlertTriangle className="h-4 w-4 shrink-0 text-warning" aria-hidden />
-                    HIPAA issues on this date
+                    Clearance issues on this date
                   </p>
                   <ul className="list-disc list-inside space-y-0.5">
                     {data.banner.flatMap((b) =>
-                      b.nonCompliant.map((v) => (
+                      b.notCleared.map((v) => (
                         <li key={v.id}>{v.name}</li>
                       ))
                     )}

@@ -52,7 +52,7 @@ export default async function OnboardingPage({ params, searchParams }: { params:
         <Table>
           <THead>
             <tr>
-              <TH className="w-10"></TH>
+              <TH className="w-10"><span className="sr-only">Select</span></TH>
               <TH>Applicant</TH>
               <TH>Dept</TH>
               <TH>Status</TH>
@@ -63,7 +63,7 @@ export default async function OnboardingPage({ params, searchParams }: { params:
               const s = statusLabel(r.contract);
               return (
                 <TR key={r.id}>
-                  <TD>{!r.contract && !r.conflicted && <Checkbox name="acceptanceId" value={r.id} />}</TD>
+                  <TD>{!r.contract && !r.conflicted && <Checkbox name="acceptanceId" value={r.id} aria-label={`Select ${r.application.applicant.firstName} ${r.application.applicant.lastName}`} />}</TD>
                   <TD className="font-medium text-foreground">
                     {r.application.applicant.firstName} {r.application.applicant.lastName}
                   </TD>

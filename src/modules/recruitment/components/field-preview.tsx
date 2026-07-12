@@ -30,7 +30,7 @@ export function FieldPreview({
 }) {
   const required = f.required;
   const invalid = fieldError ? true : undefined;
-  const req = required ? <span className="text-critical"> *</span> : null;
+  const req = required ? <span className="text-critical" aria-hidden="true"> *</span> : null;
   const help = f.helpText ? <span className="mt-1 block text-xs text-muted-foreground">{f.helpText}</span> : null;
   const err = fieldError ? <span className="mt-1 block text-xs text-critical">{fieldError}</span> : null;
 
@@ -130,6 +130,18 @@ export function FieldPreview({
       break;
     }
     default: control = <Input type="text" name={f.key} required={required} disabled={disabled} aria-invalid={invalid} className={cx("mt-1.5", lockedCls)} {...textProps} />;
+  }
+  // Group field types (MULTI_SELECT, SUBCOMMITTEE_RANK) render multiple controls,
+  // so wrapping them in one <label> would nest labels (invalid) or bind the group
+  // name to only the first control. Use a fieldset/legend for those; a single
+  // <label> keeps implicit association for all single-control types.
+  if (f.type === "MULTI_SELECT" || f.type === "SUBCOMMITTEE_RANK") {
+    return (
+      <fieldset className="block min-w-0 border-0 p-0">
+        <legend className="block p-0 text-sm font-medium text-foreground">{f.label}{req}</legend>
+        {help}{control}{err}
+      </fieldset>
+    );
   }
   return <label className="block">{labelEl}{help}{control}{err}</label>;
 }

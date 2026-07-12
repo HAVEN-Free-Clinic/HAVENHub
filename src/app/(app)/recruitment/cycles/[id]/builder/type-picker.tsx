@@ -14,8 +14,8 @@ function renderMenuItem(t: FieldType, onPick: (type: FieldType) => void, setOpen
   const meta = FIELD_TYPE_META[t];
   const Icon = meta.icon;
   return (
-    // eslint-disable-next-line no-restricted-syntax -- popover dropdown menu item with role="menuitem"
-    <button key={t} type="button" role="menuitem" onClick={() => { onPick(t); setOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-foreground hover:bg-muted">
+    // eslint-disable-next-line no-restricted-syntax -- styled full-width option button inside the add-field popover
+    <button key={t} type="button" onClick={() => { onPick(t); setOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-foreground hover:bg-muted">
       <Icon className="h-4 w-4 text-subtle-foreground" aria-hidden /> {meta.label}
     </button>
   );
@@ -41,12 +41,12 @@ export function TypePicker({
   return (
     <div ref={ref} className="relative">
       <Button type="button" variant="outline" size="sm" disabled={disabled}
-        onClick={() => setOpen((v) => !v)} aria-haspopup="menu" aria-expanded={open}>
+        onClick={() => setOpen((v) => !v)} aria-expanded={open}>
         <Plus className="h-4 w-4" aria-hidden /> {label}
       </Button>
       {open && (
-        <div role="menu"
-          className="absolute left-0 z-20 mt-1 max-h-80 w-64 overflow-auto rounded-xl border border-border bg-surface p-2 shadow-lg">
+        <div
+          className="absolute left-0 z-20 mt-1 max-h-80 w-64 overflow-auto rounded-xl glass-panel p-2">
           {types ? (
             types.map((t) => renderMenuItem(t, onPick, setOpen))
           ) : (

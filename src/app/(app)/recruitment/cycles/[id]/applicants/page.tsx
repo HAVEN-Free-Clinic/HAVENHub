@@ -8,7 +8,10 @@ import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { Badge } from "@/platform/ui/badge";
+import { Pagination } from "@/platform/ui/pagination";
 import { applicantTypeLabel } from "@/modules/recruitment/engine/visibility";
+
+const PAGE_SIZE = 50;
 
 function decision(depts: string[]): { label: string; tone: "default" | "success" | "critical" } {
   if (depts.length === 0) return { label: "None", tone: "default" };
@@ -18,11 +21,15 @@ function decision(depts: string[]): { label: string; tone: "default" | "success"
     : { label: `Accepted: ${distinct[0]}`, tone: "success" };
 }
 
-export default async function ApplicantsPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ApplicantsPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ page?: string }> }) {
   const { id } = await params;
+  const { page: pageParam } = await searchParams;
   const [person, cycle] = await Promise.all([requirePersonSession(), getCycle(id)]);
   if (!cycle) notFound();
   const apps = await listApplicantsForReview(id, person.personId);
+  const pageCount = Math.max(1, Math.ceil(apps.length / PAGE_SIZE));
+  const page = Math.min(Math.max(1, Number(pageParam) || 1), pageCount);
+  const pageApps = apps.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   return (
     <div className="space-y-6">
       <SetBreadcrumb
@@ -44,7 +51,7 @@ export default async function ApplicantsPage({ params }: { params: Promise<{ id:
           </tr>
         </THead>
         <tbody>
-          {apps.map((a) => {
+          {pageApps.map((a) => {
             const d = decision(a.acceptances.map((x) => x.departmentCode));
             return (
               <TR key={a.id}>
@@ -74,6 +81,11 @@ export default async function ApplicantsPage({ params }: { params: Promise<{ id:
           )}
         </tbody>
       </Table>
+      <Pagination
+        page={page}
+        pageCount={pageCount}
+        hrefFor={(p) => `/recruitment/cycles/${id}/applicants?page=${p}`}
+      />
     </div>
   );
 }

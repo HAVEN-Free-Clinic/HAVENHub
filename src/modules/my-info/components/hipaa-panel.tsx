@@ -23,15 +23,8 @@ import { CertificateViewer } from "@/modules/my-info/components/certificate-view
 import { certExpiresAt } from "@/platform/compliance/rules";
 import type { ComplianceStatus } from "@/platform/compliance/rules";
 import { SectionHeader } from "@/platform/ui/section-header";
-
-function formatDate(date: Date): string {
-  return date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    timeZone: "UTC",
-  });
-}
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
+import { formatCalendarDate, formatDateOnly } from "@/platform/dates";
 
 function formatSize(bytes: number): string {
   const kb = bytes / 1024;
@@ -59,24 +52,25 @@ function StatusBadge({ status, cert }: { status: ComplianceStatus; cert: HipaaCe
   if (!cert?.completionDate) return null;
   const expiresAt = certExpiresAt(cert.completionDate);
   if (status === "COMPLIANT") {
-    return <Badge tone="success">Compliant through {formatDate(expiresAt)}</Badge>;
+    return <Badge tone="success">Compliant through {formatCalendarDate(expiresAt)}</Badge>;
   }
   if (status === "EXPIRING_SOON") {
-    return <Badge tone="warning">Expires {formatDate(expiresAt)}, renew soon</Badge>;
+    return <Badge tone="warning">Expires {formatCalendarDate(expiresAt)}, renew soon</Badge>;
   }
   if (status === "EXPIRED") {
-    return <Badge tone="critical">Expired {formatDate(expiresAt)}</Badge>;
+    return <Badge tone="critical">Expired {formatCalendarDate(expiresAt)}</Badge>;
   }
   return null;
 }
 
-export function HipaaPanel({
+export async function HipaaPanel({
   certificates,
   uploadAction,
   error,
   certSaved,
   status,
 }: HipaaPanelProps) {
+  const zone = await getDisplayTimeZone();
   const latest = certificates[0] ?? null;
   const history = certificates.slice(1);
 
@@ -91,7 +85,7 @@ export function HipaaPanel({
               <span>
                 {latest.source === "IMPORT"
                   ? "On file (imported from previous records)"
-                  : `Uploaded ${formatDate(latest.uploadedAt)}`}
+                  : `Uploaded ${formatDateOnly(latest.uploadedAt, zone)}`}
               </span>
               <CertificateViewer certId={latest.id} fileName={latest.fileName} />
             </div>
@@ -100,7 +94,7 @@ export function HipaaPanel({
               <StatusBadge status={status} cert={latest} />
               {latest.completionDate && (
                 <span className="text-xs text-subtle-foreground">
-                  Detected completion date: {formatDate(latest.completionDate)}
+                  Detected completion date: {formatCalendarDate(latest.completionDate)}
                 </span>
               )}
             </div>
@@ -154,7 +148,7 @@ export function HipaaPanel({
                 <span>
                   {cert.source === "IMPORT"
                     ? "On file (imported from previous records)"
-                    : formatDate(cert.uploadedAt)}
+                    : formatDateOnly(cert.uploadedAt, zone)}
                 </span>
                 <span className="text-subtle-foreground">{formatSize(cert.size)}</span>
                 <CertificateViewer certId={cert.id} fileName={cert.fileName} />

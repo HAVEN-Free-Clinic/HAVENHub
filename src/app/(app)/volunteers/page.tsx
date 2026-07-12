@@ -16,7 +16,7 @@ import {
 import { CompletionDateError } from "@/platform/compliance/completion-date";
 import type { ComplianceStatus } from "@/platform/compliance/rules";
 import { certExpiresAt } from "@/platform/compliance/rules";
-import { fmtDate } from "@/platform/dates";
+import { CalendarDate, DateOnly } from "@/platform/dates/display";
 import { revalidatePath } from "next/cache";
 
 // requireModuleAccess("volunteers") is already enforced by the layout.
@@ -233,15 +233,15 @@ export default async function VolunteersPage({ searchParams }: PageProps) {
                           )}
                         </TD>
                         <TD className="text-foreground-soft tabular-nums">
-                          {fmtDate(m.cert?.completionDate)}
+                          <CalendarDate value={m.cert?.completionDate} />
                         </TD>
                         <TD className="text-foreground-soft tabular-nums">
-                          {fmtDate(expiresAt)}
+                          <CalendarDate value={expiresAt} />
                         </TD>
                         <TD className="text-foreground-soft text-xs">
                           {m.cert?.verifiedAt ? (
                             <span>
-                              {m.verifiedByName} {fmtDate(m.cert.verifiedAt)}
+                              {m.verifiedByName} <DateOnly value={m.cert.verifiedAt} />
                             </span>
                           ) : (
                             "-"

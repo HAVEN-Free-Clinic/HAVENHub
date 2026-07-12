@@ -37,7 +37,7 @@ import { revalidatePath } from "next/cache";
 import { CertificateViewer } from "@/modules/my-info/components/certificate-viewer";
 import type { ComplianceStatus } from "@/platform/compliance/rules";
 import { certExpiresAt } from "@/platform/compliance/rules";
-import { fmtDate } from "@/platform/dates";
+import { CalendarDate, DateOnly } from "@/platform/dates/display";
 import Link from "next/link";
 
 type PageProps = {
@@ -356,15 +356,15 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
                         )}
                       </TD>
                       <TD className="text-foreground-soft tabular-nums">
-                        {fmtDate(row.cert?.completionDate)}
+                        <CalendarDate value={row.cert?.completionDate} />
                       </TD>
                       <TD className="text-foreground-soft tabular-nums">
-                        {fmtDate(expiresAt)}
+                        <CalendarDate value={expiresAt} />
                       </TD>
                       <TD className="text-foreground-soft text-xs">
                         {row.cert?.verifiedAt ? (
                           <span>
-                            {row.verifiedByName} {fmtDate(row.cert.verifiedAt)}
+                            {row.verifiedByName} <DateOnly value={row.cert.verifiedAt} />
                           </span>
                         ) : (
                           "-"

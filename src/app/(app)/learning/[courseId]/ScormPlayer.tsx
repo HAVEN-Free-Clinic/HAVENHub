@@ -157,6 +157,7 @@ export function ScormPlayer({ courseId, scos }: Props) {
           ref={iframeRef}
           title="Course content"
           src={`/learning/play/${courseId}/${scos[0].href}`}
+          sandbox="allow-scripts allow-same-origin allow-forms"
           className="h-[80vh] w-full rounded-xl border border-border"
         />
       </div>

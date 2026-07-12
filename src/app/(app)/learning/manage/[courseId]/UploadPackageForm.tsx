@@ -88,7 +88,7 @@ function BlobUploadForm({ courseId, hasPackage }: FormProps) {
       router.refresh();
     } catch (err) {
       console.error("[learning] SCORM upload failed:", err);
-      setError(err instanceof Error ? err.message : "Upload failed. See the browser console for details.");
+      setError(err instanceof Error ? err.message : "Upload failed. Please check the file and try again, or contact support.");
     } finally {
       setBusy(false);
       setPhase("");

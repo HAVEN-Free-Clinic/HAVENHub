@@ -62,6 +62,8 @@ type Props = {
   logIncidentAction: (formData: FormData) => Promise<void>;
   resolveIncidentAction: (ticketId: string, resolution: string) => Promise<void>;
   createTicketFromPendingAction: (formData: FormData) => Promise<void>;
+  completeEpicRequestAction: (formData: FormData) => Promise<void>;
+  sendEpicEmailFromTrackerAction: (formData: FormData) => Promise<void>;
 };
 
 // ---------------------------------------------------------------------------
@@ -247,11 +249,15 @@ function TrackerTable({
   closeTicketAction,
   updateServiceRequestNumberAction,
   resolveIncidentAction,
+  completeEpicRequestAction,
+  sendEpicEmailFromTrackerAction,
 }: {
   history: EpicRequestHistoryRow[];
   closeTicketAction: (ticketId: string) => Promise<void>;
   updateServiceRequestNumberAction: (ticketId: string, value: string) => Promise<void>;
   resolveIncidentAction: (ticketId: string, resolution: string) => Promise<void>;
+  completeEpicRequestAction: (formData: FormData) => Promise<void>;
+  sendEpicEmailFromTrackerAction: (formData: FormData) => Promise<void>;
 }) {
   const zone = useTimeZone();
   const openTickets = history.filter((h) => h.ticket.status === "OPEN");
@@ -309,13 +315,46 @@ function TrackerTable({
             </div>
 
             {!isIncident && (
-              <div className="space-y-1">
+              <div className="space-y-2">
                 {requests.map((r) => (
-                  <div key={r.id} className="flex items-center gap-2 text-xs text-foreground-soft">
+                  <div key={r.id} className="flex flex-wrap items-center gap-2 text-xs text-foreground-soft">
                     <Badge>{r.kind}</Badge>
                     <span>{r.person.name}</span>
                     {r.person.epicId && (
                       <span className="text-subtle-foreground">{r.person.epicId}</span>
+                    )}
+                    <Badge>{r.status}</Badge>
+
+                    {(r.status === "PENDING" || r.status === "SUBMITTED") && (
+                      <form action={completeEpicRequestAction} className="flex items-center gap-1">
+                        <input type="hidden" name="requestId" value={r.id} />
+                        {r.kind === "NEW" || r.kind === "MODIFY" ? (
+                          <>
+                            <Input name="epicId" aria-label="Epic ID" placeholder="Epic ID" className="w-32" required />
+                            <SubmitButton size="sm" variant="outline" pendingLabel="Completing…">
+                              Complete
+                            </SubmitButton>
+                          </>
+                        ) : (
+                          <SubmitButton size="sm" variant="outline" pendingLabel="Completing…">
+                            Complete
+                          </SubmitButton>
+                        )}
+                      </form>
+                    )}
+
+                    {(r.status === "PENDING" || r.status === "SUBMITTED" || r.status === "COMPLETED") && (
+                      <div className="flex flex-wrap gap-1">
+                        {(["epic-onboarding", "epic-activation", "epic-password-reset"] as const).map((tpl) => (
+                          <form key={tpl} action={sendEpicEmailFromTrackerAction}>
+                            <input type="hidden" name="requestId" value={r.id} />
+                            <input type="hidden" name="template" value={tpl} />
+                            <SubmitButton size="sm" variant="ghost" pendingLabel="Sending…">
+                              {tpl === "epic-onboarding" ? "Onboarding" : tpl === "epic-activation" ? "Activation" : "Password reset"}
+                            </SubmitButton>
+                          </form>
+                        ))}
+                      </div>
                     )}
                   </div>
                 ))}
@@ -476,6 +515,8 @@ export function EpicRequestTabs({
   logIncidentAction,
   resolveIncidentAction,
   createTicketFromPendingAction,
+  completeEpicRequestAction,
+  sendEpicEmailFromTrackerAction,
 }: Props) {
   return (
     <div>
@@ -494,6 +535,8 @@ export function EpicRequestTabs({
             closeTicketAction={closeTicketAction}
             updateServiceRequestNumberAction={updateServiceRequestNumberAction}
             resolveIncidentAction={resolveIncidentAction}
+            completeEpicRequestAction={completeEpicRequestAction}
+            sendEpicEmailFromTrackerAction={sendEpicEmailFromTrackerAction}
           />
         </div>
       ) : (

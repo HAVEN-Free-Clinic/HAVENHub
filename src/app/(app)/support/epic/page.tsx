@@ -29,9 +29,19 @@ import {
 } from "@/modules/support/services/itcm";
 import { persistAttachment } from "@/modules/support/services/attachments";
 import { SupportForbiddenError, SupportStateError } from "@/modules/support/services/tech-request";
-import { createTicket, EpicForbiddenError, EpicStateError } from "@/modules/support/services/epic";
+import {
+  createTicket,
+  completeRequest,
+  sendEpicEmail,
+  EpicForbiddenError,
+  EpicNotFoundError,
+  EpicStateError,
+} from "@/modules/support/services/epic";
+import type { EpicTemplateKey } from "@/platform/email/templates/epic";
 import { PageHeader } from "@/platform/ui/page-header";
 import { EpicRequestTabs } from "@/modules/support/components/epic-request-tabs";
+
+const EPIC_EMAIL_TEMPLATES: EpicTemplateKey[] = ["epic-onboarding", "epic-activation", "epic-password-reset"];
 
 async function closeTicketAction(ticketId: string) {
   "use server";
@@ -107,6 +117,43 @@ async function createTicketFromPendingAction(formData: FormData) {
   redirect("/support/epic?tab=pending");
 }
 
+async function completeEpicRequestAction(formData: FormData) {
+  "use server";
+  const session = await requirePermission("support.manage_requests");
+  const requestId = String(formData.get("requestId") ?? "");
+  const epicId = String(formData.get("epicId") ?? "").trim() || undefined;
+  try {
+    await completeRequest(session.personId, requestId, epicId);
+  } catch (err) {
+    if (err instanceof EpicForbiddenError || err instanceof EpicNotFoundError || err instanceof EpicStateError) {
+      redirect(`/support/epic?tab=tracker&error=${encodeURIComponent(err.message)}`);
+    }
+    throw err;
+  }
+  revalidatePath("/support/epic");
+  redirect("/support/epic?tab=tracker");
+}
+
+async function sendEpicEmailFromTrackerAction(formData: FormData) {
+  "use server";
+  const session = await requirePermission("support.manage_requests");
+  const requestId = String(formData.get("requestId") ?? "");
+  const template = String(formData.get("template") ?? "");
+  if (!(EPIC_EMAIL_TEMPLATES as string[]).includes(template)) {
+    redirect(`/support/epic?tab=tracker&error=${encodeURIComponent("Invalid email template.")}`);
+  }
+  try {
+    await sendEpicEmail(session.personId, requestId, template as EpicTemplateKey);
+  } catch (err) {
+    if (err instanceof EpicForbiddenError || err instanceof EpicNotFoundError || err instanceof EpicStateError) {
+      redirect(`/support/epic?tab=tracker&error=${encodeURIComponent(err.message)}`);
+    }
+    throw err;
+  }
+  revalidatePath("/support/epic");
+  redirect("/support/epic?tab=tracker");
+}
+
 type PageProps = {
   searchParams: Promise<{ tab?: string; error?: string }>;
 };
@@ -148,6 +195,8 @@ export default async function EpicRequestsPage({ searchParams }: PageProps) {
         logIncidentAction={logIncidentAction}
         resolveIncidentAction={resolveIncidentAction}
         createTicketFromPendingAction={createTicketFromPendingAction}
+        completeEpicRequestAction={completeEpicRequestAction}
+        sendEpicEmailFromTrackerAction={sendEpicEmailFromTrackerAction}
       />
     </div>
   );

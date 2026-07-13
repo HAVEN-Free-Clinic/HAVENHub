@@ -20,10 +20,10 @@
  *   those transitions only happen through resolveRequest/cancelRequest, which
  *   carry their own required-reason and notification behavior.
  *
- * Every mutation is audited. assignRequest, setStatus(AWAITING_REQUESTER),
- * and resolveRequest also notify (render once, then notify the one recipient);
- * setPriority and the two cancel paths are quiet administrative actions with
- * no notification, matching cancelRequest in epic.ts.
+ * Every mutation is audited. assignRequest, setStatus (on any actual status
+ * change), and resolveRequest also notify (render once, then notify the one
+ * recipient); setPriority and the two cancel paths are quiet administrative
+ * actions with no notification, matching cancelRequest in epic.ts.
  */
 
 import type { TechRequest, TechRequestStatus, TechRequestPriority } from "@prisma/client";
@@ -134,8 +134,9 @@ export async function assignRequest(
  * target values (SupportStateError) -- those transitions only happen through
  * resolveRequest/cancelRequest, which require a reason and notify the
  * requester. Ticket must exist (SupportNotFoundError) and must not already
- * be terminal (SupportStateError). Moving to AWAITING_REQUESTER notifies the
- * requester (support.status_changed).
+ * be terminal (SupportStateError). Any actual status change (before != after)
+ * notifies the requester (support.status_changed); a no-op re-set of the
+ * current status is silent.
  *
  * Audits "support.status_change" with before/after status.
  */
@@ -172,7 +173,7 @@ export async function setStatus(
     after: { status },
   });
 
-  if (status === "AWAITING_REQUESTER") {
+  if (before.status !== status) {
     const requester = await prisma.person.findUnique({
       where: { id: updated.requesterId },
       select: { id: true, name: true, entraObjectId: true, contactEmail: true },

@@ -33,6 +33,9 @@ export type ComplianceReminderParams = {
   brandColor?: string;
   /** Names of required EHS trainings the member has not yet completed. */
   ehsMissing?: string[];
+  /** Other outstanding clearance items beyond HIPAA/EHS (profile, training, learning),
+   *  as ready-to-display sentences. */
+  otherItems?: string[];
 };
 
 export type ComplianceEscalationParams = {
@@ -42,6 +45,8 @@ export type ComplianceEscalationParams = {
   status: ComplianceStatus;
   /** Names of required EHS trainings the volunteer has not yet completed. */
   ehsMissing?: string[];
+  /** Other outstanding clearance items beyond HIPAA/EHS (profile, training, learning). */
+  otherItems?: string[];
 };
 
 export type ComplianceDateReviewParams = {
@@ -77,6 +82,12 @@ function fmtDate(d: Date | null): string {
   const day = d.getUTCDate();
   const year = d.getUTCFullYear();
   return `${month} ${day}, ${year}`;
+}
+
+/** Render outstanding-item sentences as <li> rows for the {{{ otherItemsHtml }}} slot.
+ *  Items are internal, hardcoded labels (no user input), so no escaping is needed. */
+function itemsToHtml(items: string[]): string {
+  return items.map((i) => `<li>${i}</li>`).join("");
 }
 
 const READABLE_STATUS: Record<ComplianceStatus, string> = {
@@ -155,6 +166,8 @@ export function complianceReminderContext(p: ComplianceReminderParams): Record<s
     brandColor: p.brandColor ?? "",
     ehsMissingList: (p.ehsMissing ?? []).join(", "),
     hasEhsGap: (p.ehsMissing ?? []).length > 0,
+    otherItemsHtml: itemsToHtml(p.otherItems ?? []),
+    hasOtherItems: (p.otherItems ?? []).length > 0,
   };
 }
 
@@ -175,6 +188,8 @@ export function complianceEscalationContext(p: ComplianceEscalationParams): Reco
     readableStatus: READABLE_STATUS[p.status],
     ehsMissingList: (p.ehsMissing ?? []).join(", "),
     hasEhsGap: (p.ehsMissing ?? []).length > 0,
+    otherItemsHtml: itemsToHtml(p.otherItems ?? []),
+    hasOtherItems: (p.otherItems ?? []).length > 0,
     hipaaActionable: p.status !== "COMPLIANT",
     hipaaPendingCoordinator:
       p.status === "UNKNOWN_DATE" || p.status === "PENDING_VERIFICATION",
@@ -245,6 +260,8 @@ export const complianceDescriptors: TemplateDescriptor[] = [
       },
       { name: "ehsMissingList", label: "Comma-separated list of missing required EHS training names", sampleValue: "Blood Borne Pathogens" },
       { name: "hasEhsGap", label: "True when one or more required EHS trainings are incomplete", sampleValue: "false" },
+      { name: "otherItemsHtml", label: "Pre-rendered <li> rows for other outstanding items (profile, training, learning)", sampleValue: "<li>Complete your assigned learning courses</li>" },
+      { name: "hasOtherItems", label: "True when there are outstanding items beyond HIPAA/EHS", sampleValue: "false" },
     ],
     defaultSubject: "[HAVEN] Compliance reminder",
     defaultBody: `<p>Hello {{ personName }},</p>
@@ -261,7 +278,10 @@ export const complianceDescriptors: TemplateDescriptor[] = [
   </tr>
 </table>{{else}}<p>{{ actionLine }}</p>{{/if}}{{#if hasEhsGap}}
 
-<p>Your EHS training is incomplete. The following item(s) still need to be completed: {{ ehsMissingList }}.</p><p>Please complete these through Yale EHS. Reach out to your director if you are unsure how.</p>{{/if}}
+<p>Your EHS training is incomplete. The following item(s) still need to be completed: {{ ehsMissingList }}.</p><p>Please complete these through Yale EHS. Reach out to your director if you are unsure how.</p>{{/if}}{{#if hasOtherItems}}
+
+<p>You still have the following to finish before you are cleared to volunteer:</p>
+<ul>{{{ otherItemsHtml }}}</ul>{{/if}}
 
 <p>Thank you,<br>HAVEN Free Clinic</p>`,
   },
@@ -279,13 +299,18 @@ export const complianceDescriptors: TemplateDescriptor[] = [
       { name: "hasEhsGap", label: "True when one or more required EHS trainings are incomplete", sampleValue: "false" },
       { name: "hipaaActionable", label: "True when the HIPAA status itself is non-compliant (false when only EHS is outstanding)", sampleValue: "true" },
       { name: "hipaaPendingCoordinator", label: "True when the HIPAA status is waiting on a coordinator (UNKNOWN_DATE / PENDING_VERIFICATION), so the volunteer cannot act", sampleValue: "false" },
+      { name: "otherItemsHtml", label: "Pre-rendered <li> rows for other outstanding items (profile, training, learning)", sampleValue: "<li>Finish this term's volunteer training</li>" },
+      { name: "hasOtherItems", label: "True when there are outstanding items beyond HIPAA/EHS", sampleValue: "false" },
     ],
     defaultSubject: "[HAVEN] Volunteer compliance needs attention",
     defaultBody: `<p>Hello {{ directorName }},</p>
 
-{{#if hipaaActionable}}{{#if hipaaPendingCoordinator}}<p>{{ volunteerName }} in {{ departmentName }} has a HIPAA certificate on file that is pending action from the compliance team ({{ readableStatus }}). Only a coordinator can clear this, so no follow-up with {{ volunteerName }} is needed for HIPAA yet.</p>{{else}}<p>{{ volunteerName }} in {{ departmentName }} is not HIPAA compliant ({{ readableStatus }}) and has not responded to reminders. Please follow up.</p>{{/if}}{{else}}<p>{{ volunteerName }} in {{ departmentName }} has outstanding required EHS training and has not responded to reminders. Please follow up.</p>{{/if}}{{#if hasEhsGap}}
+{{#if hipaaActionable}}{{#if hipaaPendingCoordinator}}<p>{{ volunteerName }} in {{ departmentName }} has a HIPAA certificate on file that is pending action from the compliance team ({{ readableStatus }}). Only a coordinator can clear this, so no follow-up with {{ volunteerName }} is needed for HIPAA yet.</p>{{else}}<p>{{ volunteerName }} in {{ departmentName }} is not HIPAA compliant ({{ readableStatus }}) and has not responded to reminders. Please follow up.</p>{{/if}}{{else}}<p>{{ volunteerName }} in {{ departmentName }} has outstanding clearance requirements and has not responded to reminders. Please follow up.</p>{{/if}}{{#if hasEhsGap}}
 
-<p>Outstanding EHS training: {{ ehsMissingList }}.</p>{{/if}}
+<p>Outstanding EHS training: {{ ehsMissingList }}.</p>{{/if}}{{#if hasOtherItems}}
+
+<p>Other outstanding items for {{ volunteerName }}:</p>
+<ul>{{{ otherItemsHtml }}}</ul>{{/if}}
 
 <p>Thank you,<br>HAVEN Free Clinic</p>`,
   },

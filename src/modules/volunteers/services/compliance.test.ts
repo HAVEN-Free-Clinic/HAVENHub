@@ -502,6 +502,35 @@ describe("verifyCertificate", () => {
     expect(updated.verifiedById).toBe(actor2.id);
   });
 
+  it("blocks a manager from verifying their own certificate (separation of duties)", async () => {
+    const actor = await createPerson("Self Manager", "self01");
+    await grantPermission(actor.id, "volunteers.manage_compliance");
+    const cert = await createCert(actor.id, noon(2025, 6, 1));
+
+    await expect(verifyCertificate(actor.id, cert.id)).rejects.toBeInstanceOf(
+      ComplianceForbiddenError
+    );
+
+    const unchanged = await prisma.hipaaCertificate.findUniqueOrThrow({ where: { id: cert.id } });
+    expect(unchanged.verifiedById).toBeNull();
+    expect(unchanged.verifiedAt).toBeNull();
+
+    const auditRow = await prisma.auditLog.findFirst({
+      where: { action: "compliance.verify", entityId: cert.id },
+    });
+    expect(auditRow).toBeNull();
+  });
+
+  it("blocks an admin from verifying their own certificate", async () => {
+    const actor = await createPerson("Self Admin", "adm001");
+    await grantPermission(actor.id, "admin.access");
+    const cert = await createCert(actor.id, noon(2025, 6, 1));
+
+    await expect(verifyCertificate(actor.id, cert.id)).rejects.toBeInstanceOf(
+      ComplianceForbiddenError
+    );
+  });
+
   it("throws CertificateNotFoundError when cert does not exist", async () => {
     // The existence check fires before the scope check, so no permissions needed.
     const actor = await createPerson("Director", "dir001");
@@ -1070,6 +1099,34 @@ describe("setCompletionDateAsManager", () => {
 
     const unchanged = await prisma.hipaaCertificate.findUniqueOrThrow({ where: { id: cert.id } });
     expect(unchanged.completionDate).toBeNull();
+  });
+
+  it("blocks a manager from setting the date on their own certificate (separation of duties)", async () => {
+    const actor = await createPerson("Self Manager", "self01");
+    await grantPermission(actor.id, "volunteers.manage_compliance");
+    const cert = await createCert(actor.id, null);
+
+    await expect(
+      setCompletionDateAsManager(actor.id, cert.id, "2025-06-01")
+    ).rejects.toBeInstanceOf(ComplianceForbiddenError);
+
+    const unchanged = await prisma.hipaaCertificate.findUniqueOrThrow({ where: { id: cert.id } });
+    expect(unchanged.completionDate).toBeNull();
+
+    const auditRow = await prisma.auditLog.findFirst({
+      where: { action: "compliance.set_date", entityId: cert.id },
+    });
+    expect(auditRow).toBeNull();
+  });
+
+  it("blocks an admin from setting the date on their own certificate", async () => {
+    const actor = await createPerson("Self Admin", "adm001");
+    await grantPermission(actor.id, "admin.access");
+    const cert = await createCert(actor.id, null);
+
+    await expect(
+      setCompletionDateAsManager(actor.id, cert.id, "2025-06-01")
+    ).rejects.toBeInstanceOf(ComplianceForbiddenError);
   });
 
   it("throws CertificateNotFoundError when the cert does not exist", async () => {

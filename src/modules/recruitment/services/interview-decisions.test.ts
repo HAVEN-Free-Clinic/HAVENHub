@@ -71,6 +71,22 @@ it("rejects a decider outside the interview's department scope", async () => {
   await expect(decideInterview(iv.id, "ACCEPT", outsider.id, null)).rejects.toBeInstanceOf(RecruitmentAuthError);
 });
 
+it("blocks a director from deciding their own interview (self-approval, separation of duties)", async () => {
+  const { iv, director, application } = await seedInterview();
+  // The applicant is the director themselves (a signed-in incumbent re-applying).
+  await prisma.applicant.update({ where: { id: application.applicantId }, data: { applicantPersonId: director.id } });
+  await expect(decideInterview(iv.id, "ACCEPT", director.id, null)).rejects.toBeInstanceOf(RecruitmentAuthError);
+  expect(await prisma.acceptance.count({ where: { applicationId: application.id } })).toBe(0);
+  expect((await prisma.interview.findUniqueOrThrow({ where: { id: iv.id } })).decidedById).toBeNull();
+});
+
+it("still lets a director decide an interview for a different signed-in applicant", async () => {
+  const { iv, director, outsider, application } = await seedInterview();
+  await prisma.applicant.update({ where: { id: application.applicantId }, data: { applicantPersonId: outsider.id } });
+  const updated = await decideInterview(iv.id, "ACCEPT", director.id, null);
+  expect(updated.decision).toBe("ACCEPT");
+});
+
 it("throws InterviewError for a missing interview", async () => {
   const { director } = await seedInterview();
   await expect(decideInterview("nope", "ACCEPT", director.id, null)).rejects.toBeInstanceOf(InterviewError);

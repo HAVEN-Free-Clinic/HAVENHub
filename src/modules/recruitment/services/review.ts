@@ -61,11 +61,19 @@ export async function acceptApplicant(
   approvedById: string,
   notes: string | null
 ): Promise<Acceptance> {
-  const app = await prisma.application.findUnique({ where: { id: applicationId }, include: { cycle: true } });
+  const app = await prisma.application.findUnique({
+    where: { id: applicationId },
+    include: { cycle: true, applicant: { select: { applicantPersonId: true } } },
+  });
   if (!app) throw new AcceptanceError("Application not found.");
   if (app.status !== "SUBMITTED") throw new AcceptanceError("This application hasn't been submitted yet.");
   if (app.cycle.track !== "VOLUNTEER") throw new AcceptanceError("Review for this track is handled separately.");
   if (!app.cycle.departments.includes(departmentCode)) throw new AcceptanceError("That department is not part of this cycle.");
+  // Separation of duties: a signed-in incumbent (e.g. a director re-applying into a
+  // department they manage) must not accept their own application.
+  if (app.applicant.applicantPersonId && app.applicant.applicantPersonId === approvedById) {
+    throw new RecruitmentAuthError("You can't accept your own application.");
+  }
 
   const scope = await reviewScope(approvedById);
   const inScope = scope.all || scope.departmentCodes.includes(departmentCode);

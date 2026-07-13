@@ -87,6 +87,19 @@ describe("acceptApplicant", () => {
     await prisma.application.update({ where: { id: appSrhd.id }, data: { status: "DRAFT" } });
     await expect(acceptApplicant(appSrhd.id, "SRHD", director.id, null)).rejects.toBeInstanceOf(AcceptanceError);
   });
+  it("blocks a director from accepting their own application (self-approval, separation of duties)", async () => {
+    const { director, appSrhd } = await seed();
+    // The applicant is the director themselves (a signed-in incumbent re-applying into SRHD).
+    await prisma.applicant.update({ where: { id: appSrhd.applicantId }, data: { applicantPersonId: director.id } });
+    await expect(acceptApplicant(appSrhd.id, "SRHD", director.id, null)).rejects.toBeInstanceOf(RecruitmentAuthError);
+    expect(await prisma.acceptance.count({ where: { applicationId: appSrhd.id } })).toBe(0);
+  });
+  it("still lets a director accept a different signed-in applicant's application", async () => {
+    const { director, srr, appSrhd } = await seed();
+    await prisma.applicant.update({ where: { id: appSrhd.applicantId }, data: { applicantPersonId: srr.id } });
+    const acc = await acceptApplicant(appSrhd.id, "SRHD", director.id, null);
+    expect(acc.departmentCode).toBe("SRHD");
+  });
 });
 
 describe("listAcceptances", () => {

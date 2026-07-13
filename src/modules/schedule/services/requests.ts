@@ -667,6 +667,24 @@ export async function approveRequest(
       );
     }
 
+    // Re-assert that anyone being ASSIGNED here is still ACTIVE (audit F5).
+    // validateRequest / the swap-partner list are derived purely from
+    // ShiftAssignment rows, which outlive an offboarded person, so without this an
+    // offboarded volunteer with a leftover future assignment could be swapped onto
+    // a shift. Only "add" ops need the check ("remove" of an offboarded person is
+    // desirable).
+    const addPersonIds = [...new Set(mutations.filter((m) => m.op !== "remove").map((m) => m.personId))];
+    if (addPersonIds.length > 0) {
+      const activeCount = await tx.person.count({
+        where: { id: { in: addPersonIds }, status: "ACTIVE" },
+      });
+      if (activeCount !== addPersonIds.length) {
+        throw new RequestValidationError(
+          "A participant has been offboarded and can no longer be scheduled.",
+        );
+      }
+    }
+
     // Capture each moved person's existing role tags BEFORE any delete, so a swap
     // carries triage/walk-in/cc/remote onto the person's new date instead of
     // silently resetting them to defaults. Each person is removed from exactly one
@@ -970,7 +988,7 @@ export async function eligibleSwapPartners(
       select: {
         personId: true,
         clinicDate: true,
-        person: { select: { name: true } },
+        person: { select: { name: true, status: true } },
       },
     }),
     prisma.shiftAssignment.findMany({
@@ -994,6 +1012,11 @@ export async function eligibleSwapPartners(
   return partners
     .filter(
       (p) =>
+        // Partners are read from ShiftAssignment rows, which outlive an offboarded
+        // membership, so an offboarded person with a leftover future shift would
+        // otherwise be offered (and, once approved, re-scheduled). Skip them
+        // (audit F5); approveRequest re-checks this on the write path.
+        p.person.status === "ACTIVE" &&
         !actorBusyDateKeys.has(isoDateKey(p.clinicDate)) &&
         !partnerIdsOnRequesterDate.has(p.personId),
     )
@@ -1009,10 +1032,20 @@ export async function eligibleSwapPartners(
 // remindDirectors
 // ---------------------------------------------------------------------------
 
+/** The director-notification template, reused for the manual reminder. */
+const REMINDER_TEMPLATE = "schedule-request-submitted-director";
+/** An approver notified with REMINDER_TEMPLATE within this window is skipped, so
+ *  repeated manual reminders can't flood directors (mirrors the cron throttle). */
+const REMINDER_THROTTLE_MS = 3 * 24 * 60 * 60 * 1000;
+
 /**
  * Re-sends the director notification for a PENDING shift request.
  * Only callable by the requester. Only allowed if the request has been
  * pending for more than 5 calendar days.
+ *
+ * Per-approver throttled (REMINDER_THROTTLE_MS): an approver who already received
+ * this template recently is skipped, so a requester clicking "Remind" repeatedly
+ * cannot flood every director (audit F15).
  */
 export async function remindDirectors(
   actorPersonId: string,
@@ -1043,12 +1076,21 @@ export async function remindDirectors(
   // one-hop delegated directors, and in-department schedule.manage_requests
   // holders -- the people who can actually decide this request.
   const approvers = await requestApproverRecipients(req.departmentId);
+  const throttleCutoff = new Date(Date.now() - REMINDER_THROTTLE_MS);
 
   await Promise.all(
     approvers.map(async (approver) => {
       if (!approver.contactEmail) return;
+      // Throttle: skip an approver already notified with this template inside the
+      // window (a prior reminder or the original submission notice), so repeated
+      // clicks are a no-op rather than an email flood (audit F15).
+      const already = await prisma.emailLog.findFirst({
+        where: { personId: approver.id, template: REMINDER_TEMPLATE, createdAt: { gte: throttleCutoff } },
+        select: { id: true },
+      });
+      if (already) return;
       // Shared render path: branded layout + admin override, not a bare fragment.
-      const { subject, html } = await renderEmail("schedule-request-submitted-director", {
+      const { subject, html } = await renderEmail(REMINDER_TEMPLATE, {
         directorName: approver.name?.split(" ")[0] ?? approver.name ?? "",
         requesterName: req.requester.name,
         requestType: isSwap ? "swap" : "drop",
@@ -1061,7 +1103,7 @@ export async function remindDirectors(
         to: approver.contactEmail,
         subject,
         html,
-        template: "schedule-request-submitted-director",
+        template: REMINDER_TEMPLATE,
         personId: approver.id,
         triggeredById: actorPersonId,
       });

@@ -10,6 +10,40 @@ export const ADAPTIVE_PERMISSION_CATALOG: string[] = [
 ].sort();
 
 /**
+ * Data-driven adaptive claims that are deliberately NOT registry permissions.
+ * A few pages gate on a runtime capability rather than a permission string:
+ * managing a schedule department (Builder) or an RHD-family department
+ * (Attendings) comes from an active directorship or delegation, which the
+ * registry does not, and should not, model as a permission (see
+ * src/app/(app)/schedule/layout.tsx). Their leaves still need to exist in the
+ * published schema and the signed token so a GitBook condition can reference
+ * them; unlike catalog leaves, their VALUE is computed by a service call in the
+ * auth route (canManageAnyScheduleDept / canManageAnyRhdDept) and passed into
+ * buildAdaptiveClaims, not derived from the permission set via hasPermission.
+ * Regenerate the committed schema after editing this list, same as for a
+ * registry permission change.
+ */
+export const ADAPTIVE_DERIVED_CLAIMS = [
+  {
+    module: "schedule",
+    action: "manages_any_dept",
+    description:
+      "Whether the visitor manages at least one schedule department (via an active directorship, a delegation, or schedule.edit_all) and can therefore use the schedule Builder. Data-driven, not a registry permission.",
+  },
+  {
+    module: "schedule",
+    action: "manages_any_rhd_dept",
+    description:
+      "Whether the visitor manages at least one reproductive-health (RHD-family) department and can therefore use the Attendings roster. Data-driven, not a registry permission.",
+  },
+] as const;
+
+/** Dotted `module.action` key for a derived claim, used to key its computed value. */
+export function derivedClaimKey(claim: { module: string; action: string }): string {
+  return `${claim.module}.${claim.action}`;
+}
+
+/**
  * Split "learning.manage_courses" into ["learning", "manage_courses"] on the first dot.
  * The module segment becomes a GitBook dot-access key (visitor.claims.can.<module>.<action>),
  * so if a permission-bearing module id ever contains a hyphen (e.g. "my-info"), the generated
@@ -49,6 +83,10 @@ export function buildAdaptiveSchema() {
     type: "boolean" as const,
     description: `Whether the visitor holds the ${permission} permission in HAVEN Hub.`,
   }));
+  // Merge in the data-driven claims (not permissions, so absent from the catalog).
+  for (const { module, action, description } of ADAPTIVE_DERIVED_CLAIMS) {
+    (canProperties[module] ??= {})[action] = { type: "boolean" as const, description };
+  }
   const moduleProperties: Record<string, unknown> = {};
   for (const [mod, actions] of Object.entries(canProperties)) {
     const title = MODULES.find((m) => m.id === mod)?.title ?? mod;

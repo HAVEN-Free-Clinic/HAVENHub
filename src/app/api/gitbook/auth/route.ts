@@ -6,6 +6,8 @@ import { config } from "@/platform/config";
 import { recordAudit } from "@/platform/audit";
 import { getEffectivePermissions } from "@/platform/rbac/engine";
 import { buildAdaptiveClaims } from "@/platform/gitbook/adaptive-claims";
+import { canManageAnyScheduleDept } from "@/modules/schedule/services/builder";
+import { canManageAnyRhdDept } from "@/modules/schedule/services/attendings";
 
 /**
  * GET /api/gitbook/auth
@@ -87,7 +89,15 @@ export async function GET(request: NextRequest): Promise<Response> {
   // Effective permissions become a nested `can` claim GitBook adaptive content
   // reads (visitor.claims.can.<module>.<action>). Inert until Adaptive content
   // is enabled on the site: GitBook ignores claims no condition references.
-  const perms = await getEffectivePermissions(person.id);
+  //
+  // The schedule Builder/Attendings pages gate on a data-driven capability, not
+  // a permission string (see schedule/layout.tsx), so those two leaves are
+  // computed here and passed in, not derived from `perms`.
+  const [perms, managesAnyScheduleDept, managesAnyRhdDept] = await Promise.all([
+    getEffectivePermissions(person.id),
+    canManageAnyScheduleDept(person.id),
+    canManageAnyRhdDept(person.id),
+  ]);
   const now = Math.floor(Date.now() / 1000);
   const token = signJwt(
     {
@@ -95,7 +105,10 @@ export async function GET(request: NextRequest): Promise<Response> {
       email: person.contactEmail ?? session.user?.email ?? undefined,
       iat: now,
       exp: now + 60 * 60, // 1 hour, matching GitBook's reference backend
-      ...buildAdaptiveClaims(perms),
+      ...buildAdaptiveClaims(perms, {
+        "schedule.manages_any_dept": managesAnyScheduleDept,
+        "schedule.manages_any_rhd_dept": managesAnyRhdDept,
+      }),
     },
     GITBOOK_JWT_KEY
   );

@@ -8,12 +8,21 @@ Every condition below is a `visitor.claims.can.<module>.<action>` boolean read o
 visitor-auth JWT. The claim shape is committed at `docs/gitbook/adaptive-schema.json`; every
 path used in this table is a leaf in that schema (verified below).
 
+Most leaves mirror a registry permission one-to-one. Two do not: `schedule.manages_any_dept`
+and `schedule.manages_any_rhd_dept` are data-driven capability claims (an active directorship or
+delegation is not a permission string), computed in the auth route and signed into the token
+rather than derived from the permission set. They are declared in `ADAPTIVE_DERIVED_CLAIMS` in
+`src/platform/gitbook/catalog.ts`. See the two sections at the end for how they were derived.
+
 ## Maintenance: keeping the schema in sync
 
-Adding or removing a permission in `src/platform/modules/registry.ts` changes the shape of the
+Adding or removing a permission in `src/platform/modules/registry.ts`, or editing the data-driven
+`ADAPTIVE_DERIVED_CLAIMS` list in `src/platform/gitbook/catalog.ts`, changes the shape of the
 visitor-claims schema. When that happens, regenerate `docs/gitbook/adaptive-schema.json` with
 `npx tsx scripts/gen-gitbook-adaptive-schema.ts` (needed to pass the drift-guard test), and then
 also re-push the regenerated file to GitBook via the adaptive-schema update, not just commit it.
+A derived claim also needs its value wired in `src/app/api/gitbook/auth/route.ts` (permission
+leaves are filled automatically; a derived leaf with no computed value signs as `false`).
 Committing without re-pushing leaves the live GitBook schema out of sync: once Adaptive content
 is enabled, a signed token can carry a new `can.<module>.<action>` leaf that the live schema does
 not know about and rejects, which can break docs auth for everyone until the push catches up.
@@ -53,9 +62,9 @@ needs the condition applied separately.
 | Clinic Schedule | *(landing)* | `UgcnVL76IeZLd87xyTcf` | `visitor.claims.can.schedule.view == true` |
 | Clinic Schedule | Viewing your shifts & setting availability | `EhN56UyDlWJBOUuJBOkI` | `visitor.claims.can.schedule.view == true` |
 | Clinic Schedule | Requesting a swap or drop | `soyJ8T4LpGQzXPPJdSqb` | `visitor.claims.can.schedule.view == true` |
-| Clinic Schedule | Building the schedule | `734zBb0ciwqmMetJGOfg` | NEEDS REVIEW (see note below) |
-| Clinic Schedule | Capacity & clinic readiness | `qxa613ZdLEJc8kXpqvdX` | NEEDS REVIEW (see note below) |
-| Clinic Schedule | Attendings & reproductive-health readiness | `qYdK7gK8kqImHQ976Hzu` | NEEDS REVIEW (see note below) |
+| Clinic Schedule | Building the schedule | `734zBb0ciwqmMetJGOfg` | `visitor.claims.can.schedule.manages_any_dept == true` |
+| Clinic Schedule | Capacity & clinic readiness | `qxa613ZdLEJc8kXpqvdX` | `visitor.claims.can.schedule.manages_any_dept == true` |
+| Clinic Schedule | Attendings & reproductive-health readiness | `qYdK7gK8kqImHQ976Hzu` | `visitor.claims.can.schedule.manages_any_rhd_dept == true` |
 | Learning | *(landing)* | `hU35XDBNX1dvSXar5qZC` | `visitor.claims.can.learning.access == true` |
 | Learning | Taking your courses | `REBLPvWFKzbj6Nwgcn7x` | `visitor.claims.can.learning.access == true` |
 | Learning | Managing courses | `TInlyYfJVFSTaVoWnLqJ` | `visitor.claims.can.learning.manage_courses == true` |
@@ -80,7 +89,7 @@ needs the condition applied separately.
 | Recruitment | Running a cycle | `lYCaW2ryvEpXvgcMxANj` | `visitor.claims.can.recruitment.manage_cycles == true` |
 | Recruitment | Building the application | `spzcXrEV3BxvLZgyORCE` | `visitor.claims.can.recruitment.manage_cycles == true` |
 | Recruitment | Reviewing applicants | `6f45jaeddDMnVxLcm6yz` | `visitor.claims.can.recruitment.access == true` |
-| Recruitment | Interviews | `q3deTJsTW78Wr0CpLdUy` | NEEDS REVIEW (see note below) |
+| Recruitment | Interviews | `q3deTJsTW78Wr0CpLdUy` | none (always visible; panelist carve-out, see note below) |
 | Recruitment | Making decisions | `gdvvRd8UtBYm7SBUNbPr` | `visitor.claims.can.recruitment.review_all == true` |
 | Recruitment | Onboarding new members | `5bzPYfOBwzTdp5uCoGT4` | `visitor.claims.can.recruitment.review_all == true` |
 | Recruitment | Subcommittees & training | `yvgmh1ecxzpaSPcPjTRH` | `visitor.claims.can.recruitment.access == true` |
@@ -101,8 +110,9 @@ needs the condition applied separately.
 ## Always visible (no condition)
 
 These pages carry no condition, either because the module has no `accessPermission` (open to
-any signed-in matched person, per the registry) or because the section is applicant-facing and
-runs before a person ever gets a HAVEN Hub account:
+any signed-in matched person, per the registry), because the section is applicant-facing and
+runs before a person ever gets a HAVEN Hub account, or (Recruitment > Interviews) because the
+page is written for interview panelists who deliberately hold no permission at all:
 
 - Getting Started (landing, Signing in, Your dashboard, Notifications)
 - Applying to HAVEN (landing, Starting an application, The application wizard, Checking your
@@ -111,6 +121,7 @@ runs before a person ever gets a HAVEN Hub account:
   certificate, Getting cleared for the term)
 - IT Support (landing, Submitting a request, Tracking your requests)
 - Incident Reports (landing, Reporting a concern, Your reports)
+- Recruitment (Interviews only; panelist carve-out, see note below)
 
 ## Notes on how conditions were derived
 
@@ -143,9 +154,9 @@ the nav array alone provides.
 the **Interviews** doc page) is a different case: it is reached through the panelist branch of
 `recruitment/layout.tsx`, a permission-less branch kept open on a bare session precisely so
 panelists without `recruitment.access` can reach it, so it is not gated by `recruitment.access`
-at all. See the NEEDS REVIEW note below.
+at all. See the resolution note below.
 
-## NEEDS REVIEW: Clinic Schedule manager pages
+## Resolved: Clinic Schedule manager pages (data-driven claims)
 
 **Building the schedule**, **Capacity & clinic readiness**, and
 **Attendings & reproductive-health readiness** document the Builder and Attendings tools. Unlike
@@ -171,13 +182,26 @@ sidebar panel that only appears inside Builder, so it inherits the same gate.
 
 Leaving these three pages unconditioned would show director/manager-only workflow docs to every
 volunteer with `schedule.view`. Gating them on `schedule.edit_all` would hide them from the
-department directors who are their actual primary audience. Per the task instructions, no new
-permission was invented and no existing permission was guessed at to paper over this; these
-three rows are marked `NEEDS REVIEW` for a human decision, for example: extend the visitor-claims
-schema with a data-driven `can.schedule.manages_any_dept` claim, or accept the
-`schedule.edit_all` under-match as good enough for documentation purposes.
+department directors who are their actual primary audience.
 
-## NEEDS REVIEW: Recruitment Interviews page (panelists)
+**Resolution (applied).** Rather than under-match with an existing permission, the visitor-claims
+schema was extended with two data-driven leaves that reproduce the real gates exactly:
+
+- `schedule.manages_any_dept` mirrors `canManageAnyScheduleDept()`, and backs **Building the
+  schedule** and **Capacity & clinic readiness** (the Capacity panel lives inside Builder, so it
+  shares Builder's gate).
+- `schedule.manages_any_rhd_dept` mirrors `canManageAnyRhdDept()`, and backs
+  **Attendings & reproductive-health readiness**. A single `manages_any_dept` claim would not do
+  here: RHD management is the subset that intersects reproductive-health departments, so
+  `manages_any_dept` would over-show the Attendings docs to a schedule manager who directs only
+  non-RHD departments.
+
+Both leaves are declared in `ADAPTIVE_DERIVED_CLAIMS` in `src/platform/gitbook/catalog.ts`,
+published into `adaptive-schema.json`, and computed in the auth route
+(`src/app/api/gitbook/auth/route.ts`) from the same two service functions the app itself gates
+on, then signed into the token. No registry permission was invented.
+
+## Resolved: Recruitment Interviews page (panelists, always visible)
 
 **Interviews** documents `src/app/(app)/recruitment/interviews/page.tsx`, the "My interview
 assignments" page shown to interview panelists. Panelists are not recruitment staff and hold no
@@ -190,13 +214,16 @@ grant, so no `can.recruitment.*` leaf in the schema captures the panelist audien
 
 Gating this row on `recruitment.access` (as it previously was) would hide the page from the
 panelists it is written for, while showing it to recruitment staff who are not necessarily
-panelists. Per the task instructions, no new permission was invented and no existing permission
-was guessed at to paper over this; this row is marked `NEEDS REVIEW` for a human decision.
-Recommended resolution: leave this page with no condition (always visible) so panelists keep
-access, since a signed-in non-panelist landing here only sees an empty assignments table. If
-that residual exposure to non-panelist staff is unacceptable, the alternative is to split the
-page into a panelist-only view (left unconditioned) and any staff-only portions into a
-separately conditioned page.
+panelists.
+
+**Resolution (applied).** This page carries no condition (always visible), so panelists keep
+access. A signed-in non-panelist who lands here only sees an empty assignments table, so the
+residual exposure is a blank page, not sensitive content. A data-driven claim like the schedule
+ones above was considered and rejected: panel membership is per-interview assignment data with no
+stable person-level "is a panelist" capability to reduce to a single boolean, and the empty-table
+fallback makes one unnecessary. If that residual exposure to non-panelist staff ever becomes
+unacceptable, the fallback is to split the page into a panelist-only view (left unconditioned)
+and move any staff-only portions to a separately conditioned page.
 
 ## Schema cross-check
 
@@ -210,8 +237,12 @@ Every distinct `visitor.claims.can.<module>.<action>` path used above is a leaf 
 - `incidents.manage`, `incidents.view_strikes`
 - `learning.access`, `learning.manage_courses`, `learning.view_progress`
 - `recruitment.access`, `recruitment.manage_cycles`, `recruitment.review_all`
-- `schedule.view`
+- `schedule.view`, `schedule.manages_any_dept`, `schedule.manages_any_rhd_dept`
 - `support.manage_requests`
 - `volunteers.view`, `volunteers.manage_compliance`, `volunteers.verify_spanish`
 
-All confirmed present as `boolean` leaves in the schema.
+All confirmed present as `boolean` leaves in the schema. `schedule.manages_any_dept` and
+`schedule.manages_any_rhd_dept` are the two data-driven leaves (`ADAPTIVE_DERIVED_CLAIMS`); every
+other path mirrors a registry permission. The `schema-artifact.test.ts` drift guard asserts the
+committed `adaptive-schema.json` still equals `buildAdaptiveSchema()`, so the schedule leaves stay
+in the file as long as they stay in the catalog.

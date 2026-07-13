@@ -67,6 +67,17 @@ test("admin opens SU26 term detail and sees Clinic dates section with dates", as
   await expect(page.getByText("Sat, May 30, 2026")).toBeVisible();
 });
 
+test("admin opens SU26 term detail and sees the editable onboarding steps", async ({ page }) => {
+  await devLogin(page, "j.carney@yale.edu");
+  await page.goto("/admin/terms");
+  await page.getByRole("link", { name: "SU26" }).click();
+  await page.waitForURL((url) => url.pathname.startsWith("/admin/terms/"));
+  // The onboarding-steps editor renders with the built-in steps and a save button.
+  await expect(page.getByRole("heading", { name: /onboarding steps/i })).toBeVisible();
+  await expect(page.getByText("HIPAA certificate").first()).toBeVisible();
+  await expect(page.getByRole("button", { name: /save onboarding steps/i })).toBeVisible();
+});
+
 test("admin opens SU26 term detail and sees roster department cards and Directors label", async ({ page }) => {
   await devLogin(page, "j.carney@yale.edu");
   await page.goto("/admin/terms");

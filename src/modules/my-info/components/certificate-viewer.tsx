@@ -7,6 +7,8 @@ import { Alert } from "@/platform/ui/alert";
 import { Modal } from "@/platform/ui/modal";
 import { Button, buttonClasses } from "@/platform/ui/button";
 import { Field, Input } from "@/platform/ui/input";
+import { formatForDateInput } from "@/platform/dates";
+import { useTimeZone } from "@/platform/dates/client";
 
 type CertificateViewerProps = {
   certId: string;
@@ -60,6 +62,7 @@ export function CertificateViewer({
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
+  const zone = useTimeZone();
 
   const inlineHref = `/my-info/certificate/${certId}?inline=1`;
   const downloadHref = `/my-info/certificate/${certId}`;
@@ -110,8 +113,8 @@ export function CertificateViewer({
     });
   }
 
-  // Local-time YYYY-MM-DD so the date input's max matches the user's "today".
-  const today = new Date().toLocaleDateString("en-CA");
+  // Clinic-local YYYY-MM-DD so the date input's max matches the clinic's "today".
+  const today = formatForDateInput(new Date(), zone);
 
   return (
     <>

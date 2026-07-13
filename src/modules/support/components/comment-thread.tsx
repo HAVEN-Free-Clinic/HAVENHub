@@ -18,7 +18,7 @@ import { SubmitButton } from "@/platform/ui/submit-button";
 import { FormActions } from "@/platform/ui/form";
 import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
-import { fmtDateTime } from "@/platform/dates";
+import { DateTime } from "@/platform/dates/display";
 import type { CommentRow } from "../services/comments";
 import { SUPPORT_UPLOAD_ACCEPT } from "../upload-constants";
 import { AttachmentList } from "./attachment-list";
@@ -39,7 +39,7 @@ function CommentCard({ comment, internal }: { comment: CommentRow; internal?: bo
           {comment.author.name ?? "Unknown"}
           {internal && <Badge tone="warning">Internal</Badge>}
         </span>
-        <span className="shrink-0 text-xs text-muted-foreground">{fmtDateTime(comment.createdAt)}</span>
+        <span className="shrink-0 text-xs text-muted-foreground"><DateTime value={comment.createdAt} /></span>
       </div>
       <p className="mt-1 whitespace-pre-wrap text-sm text-foreground-soft">{comment.body}</p>
       <AttachmentList attachments={comment.attachments} />

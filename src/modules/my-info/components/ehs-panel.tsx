@@ -1,6 +1,6 @@
 import { Card } from "@/platform/ui/card";
 import type { MyEhsItem } from "@/platform/ehs/services/my-ehs";
-import { fmtDate } from "@/platform/dates";
+import { DateOnly } from "@/platform/dates/display";
 
 export function EhsPanel({ items }: { items: MyEhsItem[] }) {
   if (items.length === 0) {
@@ -27,7 +27,7 @@ export function EhsPanel({ items }: { items: MyEhsItem[] }) {
             </span>
             {item.complete && item.completedAt && (
               <span className="shrink-0 text-xs text-subtle-foreground">
-                completed {fmtDate(item.completedAt)}
+                completed <DateOnly value={item.completedAt} />
               </span>
             )}
           </li>

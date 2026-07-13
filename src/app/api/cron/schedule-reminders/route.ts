@@ -29,7 +29,7 @@ import { prisma } from "@/platform/db";
 import { queueEmail } from "@/platform/email/send";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
 import { requestApproverRecipients } from "@/modules/schedule/services/requests";
-import { isoDateKey } from "@/platform/dates";
+import { isoDateKey, formatCalendarDate } from "@/platform/dates";
 import { claimReminderDispatch } from "@/platform/email/reminder-dispatch";
 
 export const runtime = "nodejs";
@@ -85,11 +85,11 @@ export async function GET(req: Request): Promise<Response> {
 
   for (const pending of pendingRequests) {
     const isSwap = !!(pending.targetId && pending.targetDate);
-    const requesterDateStr = pending.requesterDate.toLocaleDateString("en-US", {
+    const requesterDateStr = formatCalendarDate(pending.requesterDate, {
       month: "long", day: "numeric", year: "numeric",
     });
     const partnerDateStr = pending.targetDate
-      ? pending.targetDate.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
+      ? formatCalendarDate(pending.targetDate, { month: "long", day: "numeric", year: "numeric" })
       : "";
 
     // The department's actual approvers: directors by ACTIVE membership, one-hop

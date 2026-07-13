@@ -34,7 +34,7 @@ import {
   CertificateNotFoundError,
 } from "@/modules/volunteers/services/compliance";
 import { CompletionDateError } from "@/platform/compliance/completion-date";
-import { fmtDate } from "@/platform/dates";
+import { CalendarDate } from "@/platform/dates/display";
 
 type PageProps = { params: Promise<{ personId: string }> };
 
@@ -127,7 +127,7 @@ export default async function PersonCompliancePage({ params }: PageProps) {
             <div className="flex flex-wrap items-center gap-4">
               <Badge tone={certReq.tone}>{certReq.statusLabel}</Badge>
               <span className="text-sm text-foreground-soft tabular-nums">
-                Completed {fmtDate(newestCert.completionDate)} &middot; Expires {fmtDate(expiresAt)}
+                Completed <CalendarDate value={newestCert.completionDate} /> &middot; Expires <CalendarDate value={expiresAt} />
               </span>
               <CertificateViewer
                 certId={newestCert.id}

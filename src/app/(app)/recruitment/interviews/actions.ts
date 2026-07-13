@@ -2,11 +2,12 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requirePersonSession } from "@/platform/auth/session";
+import { parseZonedInput } from "@/platform/dates";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { updateInterview, addPanelist, removePanelist, sendInterviewInvite, InterviewError } from "@/modules/recruitment/services/interviews";
 import { decideInterview, type InterviewOutcome } from "@/modules/recruitment/services/interview-decisions";
 import { RecruitmentAuthError, AcceptanceError, revokeAcceptance } from "@/modules/recruitment/services/review";
 import { submitEvaluation } from "@/modules/recruitment/services/evaluations";
-import { parseZonedWallClock } from "@/platform/dates";
 import type { Recommendation } from "@prisma/client";
 
 // The interview detail page now lives at /recruitment/interviews/[id] (outside the
@@ -23,11 +24,7 @@ function isDomain(err: unknown) {
 export async function scheduleAction(interviewId: string, formData: FormData) {
   const person = await requirePersonSession();
   const rawAt = String(formData.get("scheduledAt") ?? "").trim();
-  // The datetime-local field carries a naive wall-clock string with no zone. Read
-  // it as clinic-local (Eastern), not the server timezone, so the instant stored
-  // matches the Eastern time the applicant and panel are shown (issue: interviews
-  // were landing 4-5h off because new Date() parsed it as UTC on Vercel).
-  const scheduledAt = rawAt ? parseZonedWallClock(rawAt) : null;
+  const scheduledAt = rawAt ? parseZonedInput(rawAt, await getDisplayTimeZone()) : null;
   const zoomLink = String(formData.get("zoomLink") ?? "").trim() || null;
   const notes = String(formData.get("notes") ?? "").trim() || null;
   try { await updateInterview(interviewId, { scheduledAt, zoomLink, notes }, person.personId); }

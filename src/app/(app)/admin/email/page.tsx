@@ -44,7 +44,7 @@ import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Alert } from "@/platform/ui/alert";
 import { StatCard } from "@/platform/ui/stat-card";
 import { Card } from "@/platform/ui/card";
-import { fmtDateTime } from "@/platform/dates";
+import { DateTime } from "@/platform/dates/display";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -315,7 +315,7 @@ export default async function EmailPage({ searchParams }: PageProps) {
           <p className="text-sm font-medium text-foreground-soft">Mailer connection</p>
           {mailConn.connected ? (
             <p className="mt-1 text-sm text-muted-foreground">
-              Connected as {mailConn.account ?? "unknown"} since {fmtDateTime(mailConn.connectedAt)}
+              Connected as {mailConn.account ?? "unknown"} since <DateTime value={mailConn.connectedAt} />
             </p>
           ) : (
             <p className="mt-1 text-sm text-muted-foreground">
@@ -504,10 +504,10 @@ export default async function EmailPage({ searchParams }: PageProps) {
                     )}
                   </TD>
                   <TD className="tabular-nums text-sm text-foreground-soft whitespace-nowrap">
-                    {fmtDateTime(row.createdAt)}
+                    <DateTime value={row.createdAt} />
                   </TD>
                   <TD className="tabular-nums text-sm text-foreground-soft whitespace-nowrap">
-                    {fmtDateTime(row.sentAt)}
+                    <DateTime value={row.sentAt} />
                   </TD>
                   <TD>
                     {row.status === "FAILED" && (

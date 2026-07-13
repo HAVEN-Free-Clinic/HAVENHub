@@ -2,7 +2,7 @@
  * Weekly shift reminders. Sent Monday mornings to everyone scheduled for the
  * upcoming Saturday clinic day.
  *
- * Triggered WEEKLY on Mondays at 13:00 UTC by an EXTERNAL scheduler
+ * Triggered WEEKLY on Mondays at 13:00 UTC (9:00 AM ET in summer) by an EXTERNAL scheduler
  * (cron-job.org) hitting this path with `Authorization: Bearer $CRON_SECRET`,
  * not by Vercel Cron; this route is intentionally absent from vercel.json (see
  * docs/cron-jobs.md). This route only ENQUEUES; delivery is handled by the

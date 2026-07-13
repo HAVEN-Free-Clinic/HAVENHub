@@ -6,6 +6,8 @@ import { MODULES } from "@/platform/modules/registry";
 import { getAccessibleModules } from "@/platform/modules/access";
 import { getSetting } from "@/platform/settings/service";
 import { getOrgIdentity, formatOrgLine } from "@/platform/branding/org";
+import { TimeZoneProvider } from "@/platform/dates/client";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { Button } from "./button";
 import { HavenLogo } from "./haven-logo";
 import { GlobalNav } from "./global-nav";
@@ -40,10 +42,11 @@ export async function AppShell({
   personThemePreference: string | null;
   children: ReactNode;
 }) {
-  const [navModules, themeDefault, org] = await Promise.all([
+  const [navModules, themeDefault, org, displayZone] = await Promise.all([
     getAccessibleModules(personId),
     getSetting<string>("ui.defaultTheme"),
     getOrgIdentity(),
+    getDisplayTimeZone(),
   ]);
   const resolvedTheme = resolvePreference(personThemePreference, themeDefault);
   const breadcrumbModules: BreadcrumbModule[] = MODULES.map((m) => ({
@@ -120,17 +123,19 @@ export async function AppShell({
         </div>
       </header>
 
-      <BreadcrumbProvider>
-        <Breadcrumbs modules={breadcrumbModules} />
+      <TimeZoneProvider zone={displayZone}>
+        <BreadcrumbProvider>
+          <Breadcrumbs modules={breadcrumbModules} />
 
-        <main
-          id="main-content"
-          tabIndex={-1}
-          className="mx-auto w-full max-w-6xl px-6 py-10 flex-1 outline-none"
-        >
-          {children}
-        </main>
-      </BreadcrumbProvider>
+          <main
+            id="main-content"
+            tabIndex={-1}
+            className="mx-auto w-full max-w-6xl px-6 py-10 flex-1 outline-none"
+          >
+            {children}
+          </main>
+        </BreadcrumbProvider>
+      </TimeZoneProvider>
 
       <footer className="border-t border-border-subtle">
         <div className="mx-auto max-w-6xl px-6 py-8 text-xs text-subtle-foreground">

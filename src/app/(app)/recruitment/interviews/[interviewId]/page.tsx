@@ -1,5 +1,9 @@
 import { notFound } from "next/navigation";
 import { requirePersonSession } from "@/platform/auth/session";
+import { DateTime } from "@/platform/dates/display";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
+import { zoneLabel } from "@/platform/dates/zone";
+import { formatForDateTimeInput } from "@/platform/dates";
 import { can } from "@/platform/rbac/engine";
 import { getInterview, listPanelistCandidates } from "@/modules/recruitment/services/interviews";
 import { reviewScope } from "@/modules/recruitment/services/review";
@@ -18,7 +22,6 @@ import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { AddPanelistForm } from "./add-panelist-form";
 import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
-import { toZonedInputValue, fmtClinicDateTime } from "@/platform/dates";
 
 const RECS = ["STRONG_YES", "YES", "MAYBE", "NO"];
 const decisionTone = { PENDING: "default", ACCEPT: "success", REJECT: "critical", WAITLIST: "warning" } as const;
@@ -44,11 +47,8 @@ export default async function InterviewDetail({ params, searchParams }: { params
   const canManage = scope.all || scope.departmentCodes.includes(iv.departmentCode);
   const candidates = canManage ? await listPanelistCandidates(interviewId) : [];
   const summary = evaluationSummary(iv.evaluations);
-  // Render the datetime-local value in clinic-local (Eastern) time so the form
-  // round-trips with parseZonedWallClock; the previous getTimezoneOffset() math
-  // used the server's zone (UTC on Vercel), which disagreed with the Eastern
-  // display everywhere else.
-  const scheduledValue = toZonedInputValue(iv.scheduledAt);
+  const zone = await getDisplayTimeZone();
+  const scheduledValue = formatForDateTimeInput(iv.scheduledAt, zone);
   const myEval = iv.evaluations.find((e) => e.evaluator.id === person.personId);
   // Once this department's acceptance has been emailed, the applicant has been
   // told they're in. decideInterview blocks moving the decision off ACCEPT until
@@ -79,9 +79,10 @@ export default async function InterviewDetail({ params, searchParams }: { params
           <Card>
             <SectionHeader>Schedule</SectionHeader>
             <form action={scheduleAction.bind(null, interviewId)} className="mt-3 space-y-3">
-              <Field label="Time (Eastern)">
+              <Field label="Time">
                 <Input type="datetime-local" name="scheduledAt" defaultValue={scheduledValue} />
               </Field>
+              <p className="text-xs text-muted-foreground">Times are in {zoneLabel(zone)}.</p>
               <Field label="Zoom link">
                 <Input name="zoomLink" defaultValue={iv.zoomLink ?? ""} />
               </Field>
@@ -96,7 +97,7 @@ export default async function InterviewDetail({ params, searchParams }: { params
               <SubmitButton size="sm" variant="outline" pendingLabel="Sending…">
                 {iv.invitedAt ? "Resend invite" : "Send invite"}
               </SubmitButton>
-              {iv.invitedAt && <span className="text-xs text-subtle-foreground">sent {iv.invitedAt.toLocaleString()}</span>}
+              {iv.invitedAt && <span className="text-xs text-subtle-foreground">sent <DateTime value={iv.invitedAt} /></span>}
             </form>
           </Card>
 
@@ -131,7 +132,7 @@ export default async function InterviewDetail({ params, searchParams }: { params
           <dl className="mt-3 space-y-3 text-sm">
             <div>
               <dt className="text-xs text-subtle-foreground">Time</dt>
-              <dd className="text-foreground">{fmtClinicDateTime(iv.scheduledAt, "To be determined")}</dd>
+              <dd className="text-foreground"><DateTime value={iv.scheduledAt} fallback="To be determined" /></dd>
             </div>
             <div>
               <dt className="text-xs text-subtle-foreground">Zoom link</dt>

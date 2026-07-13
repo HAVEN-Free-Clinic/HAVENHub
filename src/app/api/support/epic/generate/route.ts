@@ -31,6 +31,8 @@ import {
 } from "@/modules/support/services/itcm-pdf";
 import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
+import { formatDateOnly } from "@/platform/dates";
 
 
 
@@ -117,7 +119,8 @@ async function generateSpreadsheet(args: {
 }): Promise<Buffer> {
   const ExcelJS = (await import("exceljs")).default;
   const { requestType, people, endDate } = args;
-  const today = new Date().toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
+  const zone = await getDisplayTimeZone();
+  const today = formatDateOnly(new Date(), zone, { month: "2-digit", day: "2-digit", year: "numeric" });
   const isNew = requestType.includes("new");
 
   const wb = new ExcelJS.Workbook();
@@ -317,22 +320,12 @@ export async function POST(req: Request) {
     templateBytes,
   });
 
-  // Build the filename date in the clinic's civil timezone (America/New_York) so it
-  // matches the PDF's dates and the client-computed email subject, rather than the
-  // server's UTC wall clock (which rolls to the next day late in the evening Eastern,
-  // dating the artifacts a day ahead of their own cover email).
-  const dateParts = Object.fromEntries(
-    new Intl.DateTimeFormat("en-US", {
-      timeZone: "America/New_York",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    })
-      .formatToParts(new Date())
-      .filter((x) => x.type !== "literal")
-      .map((x) => [x.type, x.value])
-  );
-  const dateStr = `${dateParts.month}${dateParts.day}${dateParts.year}`;
+  // Build the filename date in the configured display zone (default Eastern), not the
+  // server's UTC wall clock (which rolls a day ahead late-evening Eastern, dating the
+  // artifacts a day ahead of their own cover email), so filename, PDF dates, and email
+  // subject all agree.
+  const filenameZone = await getDisplayTimeZone();
+  const dateStr = formatDateOnly(new Date(), filenameZone, { month: "2-digit", day: "2-digit", year: "numeric" }).replace(/\//g, "");
   // Build filename using validated switch to satisfy CodeQL dynamic call check.
   // The authorizer's initials (derived from their name) stand in for the old
   // hardcoded CC/RT/JC keys in the filename.

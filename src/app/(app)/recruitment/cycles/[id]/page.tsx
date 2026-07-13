@@ -1,5 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { DateTime } from "@/platform/dates/display";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
+import { zoneLabel } from "@/platform/dates/zone";
+import { formatForDateTimeInput } from "@/platform/dates";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { requirePersonSession } from "@/platform/auth/session";
 import { can } from "@/platform/rbac/engine";
@@ -22,13 +26,6 @@ import { SectionHeader } from "@/platform/ui/section-header";
 
 const statusTone = { DRAFT: "default", OPEN: "success", CLOSED: "warning", ARCHIVED: "default" } as const;
 
-/** Format a stored instant for a <input type="datetime-local"> default value
- *  (local wall-clock, "YYYY-MM-DDTHH:mm"). Mirrors the interview scheduler so the
- *  format here and the `new Date(raw)` parse in setApplicationWindowAction agree. */
-function toLocalInput(d: Date | null): string {
-  return d ? new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16) : "";
-}
-
 type PageProps = {
   params: Promise<{ id: string }>;
   searchParams: Promise<{ error?: string; deptsaved?: string; deptwarn?: string; windowsaved?: string }>;
@@ -45,6 +42,7 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
   // Hide them from reviewers so they do not see controls that would only error on submit.
   const session = await requirePersonSession();
   const canManage = await can(session.personId, "recruitment.manage_cycles");
+  const zone = await getDisplayTimeZone();
 
   const activeDepts = await prisma.department.findMany({ where: { isActive: true }, select: { code: true, name: true }, orderBy: { code: "asc" } });
   const apps = await prisma.application.findMany({ where: { cycleId: id }, select: { departmentChoices: true } });
@@ -101,13 +99,13 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
               <p className="text-sm text-muted-foreground">{applyUrl}</p>
             )}
             {beforeOpen && (
-              <p className="text-xs text-subtle-foreground">Scheduled to open {cycle.opensAt!.toLocaleString()}. Not accepting applications yet.</p>
+              <p className="text-xs text-subtle-foreground">Scheduled to open <DateTime value={cycle.opensAt} />. Not accepting applications yet.</p>
             )}
             {afterClose && (
-              <p className="text-xs text-subtle-foreground">Application window closed {cycle.closesAt!.toLocaleString()}. No longer accepting applications.</p>
+              <p className="text-xs text-subtle-foreground">Application window closed <DateTime value={cycle.closesAt} />. No longer accepting applications.</p>
             )}
             {liveByWindow && cycle.closesAt && (
-              <p className="text-xs text-subtle-foreground">Accepting applications until {cycle.closesAt.toLocaleString()}.</p>
+              <p className="text-xs text-subtle-foreground">Accepting applications until <DateTime value={cycle.closesAt} />.</p>
             )}
           </div>
         ) : (
@@ -153,15 +151,15 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
           <SectionHeader>Application window</SectionHeader>
           {windowsaved && <Alert tone="success">Application window updated.</Alert>}
           <p className="text-sm text-muted-foreground">
-            Optional. While the cycle is open, the public form only accepts applications inside this window. Leave a field blank for no bound, or clear both to accept whenever the cycle is open. Times use the server timezone.
+            Optional. While the cycle is open, the public form only accepts applications inside this window. Leave a field blank for no bound, or clear both to accept whenever the cycle is open. Times are in {zoneLabel(zone)}.
           </p>
           <form action={setApplicationWindowAction.bind(null, id)} className="space-y-3">
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="Opens" hint="Blank means open as soon as the cycle is published.">
-                <Input type="datetime-local" name="opensAt" defaultValue={toLocalInput(cycle.opensAt)} />
+                <Input type="datetime-local" name="opensAt" defaultValue={formatForDateTimeInput(cycle.opensAt, zone)} />
               </Field>
               <Field label="Closes" hint="Blank means stay open until the cycle is closed.">
-                <Input type="datetime-local" name="closesAt" defaultValue={toLocalInput(cycle.closesAt)} />
+                <Input type="datetime-local" name="closesAt" defaultValue={formatForDateTimeInput(cycle.closesAt, zone)} />
               </Field>
             </div>
             <FormActions>

@@ -1,6 +1,8 @@
 "use server";
 import { redirect } from "next/navigation";
 import { requirePermission } from "@/platform/auth/session";
+import { parseZonedInput } from "@/platform/dates";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { isUniqueConstraintError } from "@/platform/db";
 import { runAction } from "@/platform/actions";
 import {
@@ -114,9 +116,10 @@ export async function setApplicationWindowAction(cycleId: string, formData: Form
   const person = await requirePermission("recruitment.manage_cycles");
   const rawOpens = String(formData.get("opensAt") ?? "").trim();
   const rawCloses = String(formData.get("closesAt") ?? "").trim();
-  const opensAt = rawOpens ? new Date(rawOpens) : null;
-  const closesAt = rawCloses ? new Date(rawCloses) : null;
-  if ((opensAt && Number.isNaN(opensAt.getTime())) || (closesAt && Number.isNaN(closesAt.getTime()))) {
+  const zone = await getDisplayTimeZone();
+  const opensAt = rawOpens ? parseZonedInput(rawOpens, zone) : null;
+  const closesAt = rawCloses ? parseZonedInput(rawCloses, zone) : null;
+  if ((rawOpens && !opensAt) || (rawCloses && !closesAt)) {
     redirect(`/recruitment/cycles/${cycleId}?error=${encodeURIComponent("Enter valid dates for the application window.")}`);
   }
   try {

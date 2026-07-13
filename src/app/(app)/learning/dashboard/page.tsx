@@ -10,6 +10,7 @@ import { Select } from "@/platform/ui/select";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { Pagination } from "@/platform/ui/pagination";
 import { listCoursesForDashboard, getCourseCompletion } from "@/modules/learning/services/dashboard";
+import { DateOnly } from "@/platform/dates/display";
 import { resetCourseProgressAction } from "./actions";
 
 export default async function LearningDashboardPage({
@@ -85,7 +86,7 @@ export default async function LearningDashboardPage({
                 <TD>{r.status === "COMPLETE" ? "Complete" : r.status === "IN_PROGRESS" ? "In progress" : "Not started"}</TD>
                 <TD>{r.scoreRaw != null ? `${r.scoreRaw}%` : ""}</TD>
                 <TD className="text-right text-xs text-subtle-foreground">
-                  {r.completedAt ? r.completedAt.toLocaleDateString() : ""}
+                  <DateOnly value={r.completedAt} fallback="" />
                   {canManage && r.status !== "NOT_STARTED" && selected && (
                     <form action={resetCourseProgressAction} className="inline ml-2">
                       <input type="hidden" name="personId" value={r.personId} />

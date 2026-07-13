@@ -13,6 +13,7 @@
  */
 
 import type { ComplianceStatus } from "@/platform/compliance/rules";
+import { formatCalendarDate } from "@/platform/dates";
 import type { TemplateDescriptor } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -60,28 +61,10 @@ export type ComplianceDateReviewParams = {
 // Private helpers
 // ---------------------------------------------------------------------------
 
-const MONTH_NAMES = [
-  "January",
-  "February",
-  "March",
-  "April",
-  "May",
-  "June",
-  "July",
-  "August",
-  "September",
-  "October",
-  "November",
-  "December",
-];
-
 /** Format a Date as "Month D, YYYY" using UTC; returns "soon" when null. */
 function fmtDate(d: Date | null): string {
   if (d === null) return "soon";
-  const month = MONTH_NAMES[d.getUTCMonth()];
-  const day = d.getUTCDate();
-  const year = d.getUTCFullYear();
-  return `${month} ${day}, ${year}`;
+  return formatCalendarDate(d, { month: "long", day: "numeric", year: "numeric" });
 }
 
 /** Render outstanding-item sentences as <li> rows for the {{{ otherItemsHtml }}} slot.

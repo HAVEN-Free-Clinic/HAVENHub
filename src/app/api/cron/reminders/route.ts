@@ -1,9 +1,9 @@
 /**
  * Daily compliance reminders (HIPAA + EHS training) + director escalations.
- * Replaces the worker's REMINDERS_QUEUE (13:00 UTC) schedule. Per-person 7-day
+ * Replaces the worker's REMINDERS_QUEUE (13:00 UTC, 9:00 AM ET in summer) schedule. Per-person 7-day
  * dedup lives inside runComplianceReminders, so a daily trigger is safe.
  *
- * Triggered DAILY at 13:00 UTC by an EXTERNAL scheduler (cron-job.org) hitting
+ * Triggered DAILY at 13:00 UTC (9:00 AM ET in summer) by an EXTERNAL scheduler (cron-job.org) hitting
  * this path with `Authorization: Bearer $CRON_SECRET`, not by Vercel Cron; this
  * route is intentionally absent from vercel.json (see the /api/cron/email note
  * and docs/cron-jobs.md). If that external schedule is lost on re-provision,
@@ -11,8 +11,8 @@
  *
  * This route only ENQUEUES reminder emails. Delivery is handled by the
  * per-minute /api/cron/email route (the sole queue drainer), which picks these
- * up within ~60s. Draining here would run concurrently with that route at 13:00
- * UTC and double-send.
+ * up within ~60s. Draining here would run concurrently with that route at
+ * 13:00 UTC (9:00 AM ET in summer) and double-send.
  */
 import { authorizeCron } from "@/platform/cron";
 import { runComplianceReminders } from "@/platform/email/reminders";

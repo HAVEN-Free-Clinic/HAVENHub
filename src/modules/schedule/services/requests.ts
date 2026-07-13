@@ -15,7 +15,7 @@
 import type { ShiftRequest } from "@prisma/client";
 import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
-import { isoDateKey } from "@/platform/dates";
+import { formatCalendarDate, isoDateKey } from "@/platform/dates";
 import {
   departmentDirectorPersonIds,
   manageableDepartmentIds,
@@ -241,7 +241,7 @@ async function sendScheduleEmail(
 }
 
 function fmtEmailDate(d: Date): string {
-  return d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+  return formatCalendarDate(d, { month: "long", day: "numeric", year: "numeric" });
 }
 
 // ---------------------------------------------------------------------------

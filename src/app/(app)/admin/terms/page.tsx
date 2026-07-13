@@ -1,18 +1,14 @@
 import Link from "next/link";
 import { requirePermission } from "@/platform/auth/session";
 import { listTerms } from "@/modules/admin/services/terms";
+import { formatCalendarDate } from "@/platform/dates";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { buttonClasses } from "@/platform/ui/button";
 
 function formatUtcDate(d: Date): string {
-  return d.toLocaleDateString("en-US", {
-    timeZone: "UTC",
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
+  return formatCalendarDate(d, { month: "short", day: "numeric", year: "numeric" });
 }
 
 export default async function TermsListPage() {

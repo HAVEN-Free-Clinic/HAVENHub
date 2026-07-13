@@ -13,7 +13,7 @@
 import Link from "next/link";
 import { Card } from "@/platform/ui/card";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
-import { fmtDate } from "@/platform/dates";
+import { DateOnly } from "@/platform/dates/display";
 import { SupportStatusBadge } from "./status-badge";
 import { CATEGORY_LABELS } from "@/modules/support/labels";
 import type { TechRequestListRow } from "../services/tech-request";
@@ -66,7 +66,7 @@ export function RequestList({ rows, hrefBase, showRequester = false }: RequestLi
             <TD>
               <SupportStatusBadge status={row.status} />
             </TD>
-            <TD className="text-muted-foreground">{fmtDate(row.updatedAt)}</TD>
+            <TD className="text-muted-foreground"><DateOnly value={row.updatedAt} /></TD>
           </TR>
         ))}
       </tbody>

@@ -19,6 +19,8 @@ import { SectionHeader } from "@/platform/ui/section-header";
 import { requirePersonSession } from "@/platform/auth/session";
 import { getAccessibleModules } from "@/platform/modules/access";
 import { getMyTraining, type MyTraining } from "@/modules/recruitment/services/training";
+import { formatDateOnly } from "@/platform/dates";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { TrainingQuiz } from "./training-quiz";
 
 /** "live session" / "quiz" for human-readable copy. */
@@ -28,15 +30,11 @@ function viaLabel(via: TrainingMethod | null): string {
   return "";
 }
 
-function fmtDate(d: Date): string {
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
-}
-
 // ---------------------------------------------------------------------------
 // Clearance hero (the one thing that matters): am I cleared for the term?
 // ---------------------------------------------------------------------------
 
-function ClearanceHero({ my }: { my: MyTraining }) {
+function ClearanceHero({ my, zone }: { my: MyTraining; zone: string }) {
   const term = my.term.name;
 
   if (my.state === "COMPLETE") {
@@ -55,7 +53,7 @@ function ClearanceHero({ my }: { my: MyTraining }) {
         </div>
         {my.completedAt && (
           <span className="shrink-0 whitespace-nowrap rounded-full border border-border bg-muted px-3 py-1.5 text-xs font-semibold text-foreground-soft">
-            Completed {fmtDate(my.completedAt)}
+            Completed {formatDateOnly(my.completedAt, zone)}
           </span>
         )}
       </Card>
@@ -270,6 +268,7 @@ function BackToHub() {
 export default async function TrainingPage() {
   const person = await requirePersonSession();
   const trainings = await getMyTraining(person.personId);
+  const zone = await getDisplayTimeZone();
   const canSchedule =
     trainings.length > 0 &&
     trainings.every((m) => m.state === "COMPLETE") &&
@@ -294,7 +293,7 @@ export default async function TrainingPage() {
           return (
             <section key={my.track} className="mb-9">
               <SectionHeader level="title" className="mb-3">{my.trackLabel}</SectionHeader>
-              <ClearanceHero my={my} />
+              <ClearanceHero my={my} zone={zone} />
               {pending && (
                 <>
                   <PathCards my={my} />

@@ -198,7 +198,7 @@ export default async function TermDetailPage({ params, searchParams }: PageProps
         <section>
           <SectionHeader className="mb-4">Clinic dates</SectionHeader>
           <p className="mb-4 text-sm text-muted-foreground">
-            {term.clinicDates.length} date(s) scheduled. All dates are stored and rendered in UTC.
+            {term.clinicDates.length} date(s) scheduled. These are calendar dates with no time of day, so they read the same in every time zone.
           </p>
           <ClinicDatesEditor
             termId={id}

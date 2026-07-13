@@ -15,7 +15,7 @@ import {
   OffboardNotFoundError,
 } from "@/modules/volunteers/services/offboarding";
 import { revalidatePath } from "next/cache";
-import { fmtDate } from "@/platform/dates";
+import { DateOnly } from "@/platform/dates/display";
 import { redirect } from "next/navigation";
 
 // The volunteers layout gates module access. Here we additionally require
@@ -213,7 +213,7 @@ export default async function OffboardingPage({ searchParams }: PageProps) {
                     </TD>
                     <TD className="text-foreground-soft text-sm">{flaggedByName ?? "-"}</TD>
                     <TD className="text-foreground-soft tabular-nums text-sm">
-                      {fmtDate(flag.createdAt)}
+                      <DateOnly value={flag.createdAt} />
                     </TD>
                     <TD className="text-muted-foreground text-sm">{flag.note ?? "-"}</TD>
                     <TD>

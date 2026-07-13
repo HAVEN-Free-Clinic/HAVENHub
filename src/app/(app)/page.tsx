@@ -28,7 +28,7 @@ import { getOnboardingStatus, type OnboardingTask } from "@/modules/onboarding/s
 import { isInterviewPanelist } from "@/modules/recruitment/services/interviews";
 import { complianceStatus, certExpiresAt } from "@/platform/compliance/rules";
 import { getSetting } from "@/platform/settings/service";
-import { isoDateKey } from "@/platform/dates";
+import { isoDateKey, formatCalendarDate } from "@/platform/dates";
 import { buildPageMetadata } from "@/platform/branding/metadata";
 
 // ---------------------------------------------------------------------------
@@ -63,17 +63,12 @@ function timeGreeting(now = new Date()): string {
 
 /** "Saturday, June 13" (clinic dates are stored at noon UTC, so format in UTC). */
 function fmtLongDate(d: Date): string {
-  return d.toLocaleDateString("en-US", {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-    timeZone: "UTC",
-  });
+  return formatCalendarDate(d, { weekday: "long", month: "long", day: "numeric" });
 }
 
 /** "Aug 2026" */
 function fmtMonthYear(d: Date): string {
-  return d.toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
+  return formatCalendarDate(d, { month: "short", year: "numeric" });
 }
 
 /** Whole calendar days between two YYYY-MM-DD keys. */

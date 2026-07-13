@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client";
+import type { Prisma, TechRequestStatus } from "@prisma/client";
 import type { ComplianceStatus } from "@/platform/compliance/rules";
 import type { AudienceCondition, ConditionOp } from "./types";
 
@@ -42,6 +42,9 @@ const COMPLIANCE_OPTIONS: { value: ComplianceStatus; label: string }[] = [
 ];
 
 const MATCH_NOBODY: Prisma.PersonWhereInput = { id: { in: [] } };
+
+/** IT support ticket statuses that count as "open" (not resolved/closed/cancelled). */
+const OPEN_TECH_STATUSES: TechRequestStatus[] = ["SUBMITTED", "IN_PROGRESS", "AWAITING_REQUESTER", "AWAITING_YNHH"];
 
 const TEXT_OPERATORS: ConditionOp[] = [
   "contains",
@@ -252,6 +255,73 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
       cond.op === "isFalse"
         ? { disciplinaryActions: { none: {} } }
         : { disciplinaryActions: { some: {} } },
+  },
+  {
+    key: "hasApprovedStrike",
+    label: "Has an approved strike",
+    group: "Records",
+    kind: "boolean",
+    operators: ["isTrue", "isFalse"],
+    compile: (cond) =>
+      cond.op === "isFalse"
+        ? { incidentSubjectLinks: { none: { strikeDecision: "APPROVED" } } }
+        : { incidentSubjectLinks: { some: { strikeDecision: "APPROVED" } } },
+  },
+  {
+    key: "hasOpenTechTicket",
+    label: "Has an open IT support ticket",
+    group: "Records",
+    kind: "boolean",
+    operators: ["isTrue", "isFalse"],
+    compile: (cond) =>
+      cond.op === "isFalse"
+        ? { techRequests: { none: { status: { in: OPEN_TECH_STATUSES } } } }
+        : { techRequests: { some: { status: { in: OPEN_TECH_STATUSES } } } },
+  },
+  {
+    key: "hasVerifiedCertificate",
+    label: "Has a verified HIPAA certificate",
+    group: "Records",
+    kind: "boolean",
+    operators: ["isTrue", "isFalse"],
+    compile: (cond) =>
+      cond.op === "isFalse"
+        ? { hipaaCertificates: { none: { verifiedAt: { not: null } } } }
+        : { hipaaCertificates: { some: { verifiedAt: { not: null } } } },
+  },
+  {
+    key: "addedToEhs",
+    label: "Added to Yale EHS",
+    group: "Attributes",
+    kind: "boolean",
+    operators: ["isTrue", "isFalse"],
+    compile: (cond) => ({ addedToEhs: cond.op === "isTrue" }),
+  },
+  {
+    key: "completedVolunteerTraining",
+    label: "Completed volunteer training (this term)",
+    group: "Status & roles",
+    kind: "boolean",
+    operators: ["isTrue", "isFalse"],
+    compile: (cond, ctx) => {
+      const some = { termId: ctx.activeTermId ?? "", track: "VOLUNTEER" as const, status: "COMPLETE" as const };
+      return cond.op === "isFalse"
+        ? { trainings: { none: some } }
+        : { trainings: { some } };
+    },
+  },
+  {
+    key: "flaggedForOffboarding",
+    label: "Flagged for offboarding (this term)",
+    group: "Status & roles",
+    kind: "boolean",
+    operators: ["isTrue", "isFalse"],
+    compile: (cond, ctx) => {
+      const some = { termId: ctx.activeTermId ?? "" };
+      return cond.op === "isFalse"
+        ? { offboardFlags: { none: some } }
+        : { offboardFlags: { some } };
+    },
   },
 ];
 

@@ -34,10 +34,17 @@ import { Alert } from "@/platform/ui/alert";
 import { FormActions } from "@/platform/ui/form";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { SUPPORT_UPLOAD_ACCEPT } from "@/modules/support/upload-constants";
-import type { DepartmentWithMembers, EpicAuthorizer, EpicRequestHistoryRow, PendingDeactivation } from "@/modules/support/services/itcm";
+import type {
+  DepartmentWithMembers,
+  EpicAuthorizer,
+  EpicRequestHistoryRow,
+  PendingDeactivation,
+  PendingEpicRequestRow,
+} from "@/modules/support/services/itcm";
+import { Checkbox } from "@/platform/ui/checkbox";
 import { TicketNumberField } from "./ticket-number-field";
 
-type Tab = "generate" | "tracker" | "history";
+type Tab = "generate" | "pending" | "tracker" | "history";
 
 type IncidentPerson = { id: string; name: string };
 
@@ -48,11 +55,13 @@ type Props = {
   pendingDeactivations: PendingDeactivation[];
   authorizers: EpicAuthorizer[];
   incidentPeople: IncidentPerson[];
+  pending: PendingEpicRequestRow[];
   error?: string;
   closeTicketAction: (ticketId: string) => Promise<void>;
   updateServiceRequestNumberAction: (ticketId: string, value: string) => Promise<void>;
   logIncidentAction: (formData: FormData) => Promise<void>;
   resolveIncidentAction: (ticketId: string, resolution: string) => Promise<void>;
+  createTicketFromPendingAction: (formData: FormData) => Promise<void>;
 };
 
 // ---------------------------------------------------------------------------
@@ -69,11 +78,16 @@ function TabNav({ activeTab }: { activeTab: Tab }) {
     router.push(`?${params.toString()}`);
   }
 
-  const labels: Record<Tab, string> = { generate: "Generate", tracker: "Tracker", history: "History" };
+  const labels: Record<Tab, string> = {
+    generate: "Generate",
+    pending: "Pending",
+    tracker: "Tracker",
+    history: "History",
+  };
 
   return (
     <div className="flex gap-4 border-b border-border mb-8">
-      {(["generate", "tracker", "history"] as Tab[]).map((tab) => (
+      {(["generate", "pending", "tracker", "history"] as Tab[]).map((tab) => (
         <Fragment key={tab}>
           {/* eslint-disable-next-line no-restricted-syntax -- tab control with border-b-2 active-state indicator; segmented toggle pattern */}
           <button onClick={() => goTo(tab)} aria-current={activeTab === tab ? "page" : undefined} className={`pb-3 text-sm font-semibold border-b-2 transition-colors ${activeTab === tab ? "border-brand text-brand-fg" : "border-transparent text-muted-foreground hover:text-foreground-soft"}`}>{labels[tab]}</button>
@@ -388,6 +402,58 @@ function HistoryTable({ history }: { history: EpicRequestHistoryRow[] }) {
 }
 
 // ---------------------------------------------------------------------------
+// Pending tab -- attached (un-submitted) Epic requests, batched into a ticket
+// ---------------------------------------------------------------------------
+
+function PendingTab({
+  pending,
+  action,
+}: {
+  pending: PendingEpicRequestRow[];
+  action: (formData: FormData) => Promise<void>;
+}) {
+  if (pending.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        No pending Epic requests. Attach some from a support ticket.
+      </p>
+    );
+  }
+  return (
+    <form action={action} className="space-y-4">
+      <Card className="space-y-3">
+        <SectionHeader level="title">Pending Epic requests</SectionHeader>
+        <p className="text-xs text-subtle-foreground">
+          Select requests and open one YNHH ticket for them. They then appear under Tracker.
+        </p>
+        <ul className="space-y-1">
+          {pending.map((r) => (
+            <li key={r.id} className="flex flex-wrap items-center gap-2 text-sm">
+              <Checkbox name="requestIds" value={r.id} />
+              <Badge>{r.kind}</Badge>
+              <span className="font-medium">{r.person.name}</span>
+              {r.techRequest && (
+                <a href={`/support/${r.techRequest.id}`} className="text-xs text-brand-fg underline underline-offset-2">
+                  #{r.techRequest.number}
+                </a>
+              )}
+            </li>
+          ))}
+        </ul>
+        <Field label="YNHH ticket description (optional)">
+          <Input name="description" placeholder="Optional" className="w-72" />
+        </Field>
+        <FormActions>
+          <SubmitButton variant="primary" pendingLabel="Creating…">
+            Create YNHH ticket
+          </SubmitButton>
+        </FormActions>
+      </Card>
+    </form>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main export
 // ---------------------------------------------------------------------------
 
@@ -398,11 +464,13 @@ export function EpicRequestTabs({
   pendingDeactivations,
   authorizers,
   incidentPeople,
+  pending,
   error,
   closeTicketAction,
   updateServiceRequestNumberAction,
   logIncidentAction,
   resolveIncidentAction,
+  createTicketFromPendingAction,
 }: Props) {
   return (
     <div>
@@ -411,6 +479,8 @@ export function EpicRequestTabs({
       </Suspense>
       {activeTab === "generate" ? (
         <EpicRequestForm departments={departments} pendingDeactivations={pendingDeactivations} authorizers={authorizers} />
+      ) : activeTab === "pending" ? (
+        <PendingTab pending={pending} action={createTicketFromPendingAction} />
       ) : activeTab === "tracker" ? (
         <div className="space-y-8">
           <LogIncidentForm incidentPeople={incidentPeople} logIncidentAction={logIncidentAction} error={error} />

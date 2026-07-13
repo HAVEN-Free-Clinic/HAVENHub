@@ -21,6 +21,7 @@ import {
   listPendingDeactivations,
   listEpicAuthorizers,
   listIncidentPeople,
+  listPendingEpicRequests,
   closeTicket,
   updateServiceRequestNumber,
   logYnhhIncident,
@@ -28,6 +29,7 @@ import {
 } from "@/modules/support/services/itcm";
 import { persistAttachment } from "@/modules/support/services/attachments";
 import { SupportForbiddenError, SupportStateError } from "@/modules/support/services/tech-request";
+import { createTicket, EpicForbiddenError, EpicStateError } from "@/modules/support/services/epic";
 import { PageHeader } from "@/platform/ui/page-header";
 import { EpicRequestTabs } from "@/modules/support/components/epic-request-tabs";
 
@@ -88,6 +90,23 @@ async function resolveIncidentAction(ticketId: string, resolution: string) {
   revalidatePath("/support/epic");
 }
 
+async function createTicketFromPendingAction(formData: FormData) {
+  "use server";
+  const session = await requirePermission("support.manage_requests");
+  const requestIds = formData.getAll("requestIds").map(String).filter(Boolean);
+  const description = ((formData.get("description") as string) ?? "").trim() || null;
+  try {
+    await createTicket(session.personId, { requestIds, description });
+  } catch (err) {
+    if (err instanceof EpicForbiddenError || err instanceof EpicStateError) {
+      redirect(`/support/epic?tab=pending&error=${encodeURIComponent(err.message)}`);
+    }
+    throw err;
+  }
+  revalidatePath("/support/epic");
+  redirect("/support/epic?tab=pending");
+}
+
 type PageProps = {
   searchParams: Promise<{ tab?: string; error?: string }>;
 };
@@ -96,15 +115,17 @@ export default async function EpicRequestsPage({ searchParams }: PageProps) {
   await requirePermission("support.manage_requests");
 
   const { tab, error } = await searchParams;
-  const activeTab = tab === "tracker" ? "tracker" : tab === "history" ? "history" : "generate";
+  const activeTab =
+    tab === "pending" ? "pending" : tab === "tracker" ? "tracker" : tab === "history" ? "history" : "generate";
 
   // Load data for both tabs in parallel.
-  const [departments, history, pendingDeactivations, authorizers, incidentPeople] = await Promise.all([
+  const [departments, history, pendingDeactivations, authorizers, incidentPeople, pending] = await Promise.all([
     listDepartmentsWithMembers(),
     getEpicRequestHistory(),
     listPendingDeactivations(),
     listEpicAuthorizers(),
     listIncidentPeople(),
+    listPendingEpicRequests(),
   ]);
 
   return (
@@ -120,11 +141,13 @@ export default async function EpicRequestsPage({ searchParams }: PageProps) {
         pendingDeactivations={pendingDeactivations}
         authorizers={authorizers}
         incidentPeople={incidentPeople}
+        pending={pending}
         error={error ? decodeURIComponent(error) : undefined}
         closeTicketAction={closeTicketAction}
         updateServiceRequestNumberAction={updateServiceRequestNumberAction}
         logIncidentAction={logIncidentAction}
         resolveIncidentAction={resolveIncidentAction}
+        createTicketFromPendingAction={createTicketFromPendingAction}
       />
     </div>
   );

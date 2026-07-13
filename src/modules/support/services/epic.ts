@@ -9,6 +9,7 @@
  *     completeRequest        - support.manage_requests
  *     sendEpicEmail          - support.manage_requests
  *     cancelEpicRequest      - support.manage_requests
+ *     linkEpicRequestToTicket - support.manage_requests
  *
  * updatePersonFields (from @/platform/people) is used for all epicId writes:
  * it diffs and audits person.update. Do not duplicate that logic here.
@@ -484,6 +485,55 @@ export async function cancelEpicRequest(actorPersonId: string, requestId: string
     entityType: "EpicRequest",
     entityId: requestId,
     after: { status: "CANCELLED" },
+  });
+}
+
+/**
+ * Links an EXISTING Epic request to a support ticket by ticket number. Pure
+ * association: does not change the request's status, kind, or YNHH ticket.
+ *
+ * Requires support.manage_requests. The request must exist (EpicNotFoundError).
+ * The number must resolve to a TechRequest (EpicStateError otherwise). Refuses
+ * to silently move a request already linked to a DIFFERENT ticket
+ * (EpicStateError naming the current ticket); a no-op if already linked to this
+ * same ticket. Audits "epic.link_ticket".
+ */
+export async function linkEpicRequestToTicket(
+  actorPersonId: string,
+  epicRequestId: string,
+  ticketNumber: number
+): Promise<void> {
+  await requireManageEpic(actorPersonId);
+
+  const req = await prisma.epicRequest.findUnique({ where: { id: epicRequestId } });
+  if (!req) throw new EpicNotFoundError(`EpicRequest not found: ${epicRequestId}`);
+
+  const ticket = await prisma.techRequest.findUnique({ where: { number: ticketNumber } });
+  if (!ticket) throw new EpicStateError(`No support ticket #${ticketNumber} found.`);
+
+  if (req.techRequestId === ticket.id) return; // already linked to this ticket
+
+  if (req.techRequestId) {
+    const current = await prisma.techRequest.findUnique({
+      where: { id: req.techRequestId },
+      select: { number: true },
+    });
+    throw new EpicStateError(
+      `This Epic request is already linked to support ticket #${current?.number ?? "?"}.`
+    );
+  }
+
+  await prisma.epicRequest.update({
+    where: { id: epicRequestId },
+    data: { techRequestId: ticket.id },
+  });
+
+  await recordAudit({
+    actorPersonId,
+    action: "epic.link_ticket",
+    entityType: "EpicRequest",
+    entityId: epicRequestId,
+    after: { techRequestId: ticket.id, ticketNumber },
   });
 }
 

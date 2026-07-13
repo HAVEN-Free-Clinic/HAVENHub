@@ -259,6 +259,7 @@ export type EpicRequestHistoryRow = {
     kind: "NEW" | "MODIFY" | "RENEW" | "DEACTIVATE";
     status: string;
     person: { name: string; epicId: string | null };
+    techRequest: { id: string; number: number } | null;
   }[];
 };
 
@@ -272,6 +273,7 @@ export async function getEpicRequestHistory(): Promise<EpicRequestHistoryRow[]> 
       requests: {
         include: {
           person: { select: { name: true, epicId: true } },
+          techRequest: { select: { id: true, number: true } },
         },
       },
     },
@@ -296,6 +298,7 @@ export async function getEpicRequestHistory(): Promise<EpicRequestHistoryRow[]> 
       kind: r.kind as "NEW" | "MODIFY" | "RENEW" | "DEACTIVATE",
       status: r.status,
       person: { name: r.person.name, epicId: r.person.epicId },
+      techRequest: r.techRequest ? { id: r.techRequest.id, number: r.techRequest.number } : null,
     })),
   }));
 }

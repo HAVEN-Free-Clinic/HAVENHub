@@ -209,6 +209,10 @@ test("support epic: volunteer submits an Epic access request; a manager attaches
     .locator("section")
     .filter({ has: page.locator("h2").filter({ hasText: "Epic access" }) })
     .first();
+  // Scope attached-row assertions to the list (a <ul>): the kind label text
+  // ("New account") also appears as an <option> in the attach form's "Request
+  // type" Select, so an unscoped getByText would match both (strict-mode error).
+  const attachedList = epicSection.locator("ul");
   await expect(page.getByRole("heading", { name: "Epic access", exact: true })).toBeVisible();
   await expect(page.getByLabel("Request type")).toHaveValue("NEW");
   await page.getByRole("button", { name: /Add requester/ }).click();
@@ -219,14 +223,14 @@ test("support epic: volunteer submits an Epic access request; a manager attaches
   // Attaching succeeded: a new row renders with the kind and status badges.
   // (Do not assert on [role="alert"]: the Next.js dev overlay adds one under
   // `next dev`, which CI also uses.)
-  await expect(epicSection.getByText("New account")).toBeVisible();
-  await expect(epicSection.getByText("Pending", { exact: true })).toBeVisible();
+  await expect(attachedList.getByText("New account")).toBeVisible();
+  await expect(attachedList.getByText("Pending", { exact: true })).toBeVisible();
 
   // Cancel the attached request so the shared dev.volunteer persona is left
   // clean: a CANCELLED Epic request, no open request, epicId never set.
-  await epicSection.getByRole("button", { name: "Cancel" }).click();
+  await attachedList.getByRole("button", { name: "Cancel" }).click();
   await page.waitForURL((url) => url.pathname === `/support/${id}`);
   await page.waitForLoadState("networkidle");
-  await expect(epicSection.getByText("Pending", { exact: true })).toHaveCount(0);
-  await expect(epicSection.getByRole("button", { name: "Cancel" })).toHaveCount(0);
+  await expect(attachedList.getByText("Pending", { exact: true })).toHaveCount(0);
+  await expect(attachedList.getByRole("button", { name: "Cancel" })).toHaveCount(0);
 });

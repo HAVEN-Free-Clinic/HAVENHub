@@ -49,7 +49,7 @@ describe("buildAdaptiveSchema", () => {
 
   it("does not forbid additional top-level claims (name/email/iat/exp survive)", () => {
     const schema = buildAdaptiveSchema() as { additionalProperties?: boolean };
-    // omitted or true — never false, or GitBook would reject standard JWT claims
+    // omitted or true, never false: GitBook would reject standard JWT claims otherwise
     expect(schema.additionalProperties).not.toBe(false);
   });
 });

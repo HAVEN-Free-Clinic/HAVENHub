@@ -21,6 +21,7 @@ import {
   listPendingDeactivations,
   listEpicAuthorizers,
   listIncidentPeople,
+  listPendingEpicRequests,
   closeTicket,
   updateServiceRequestNumber,
   logYnhhIncident,
@@ -28,8 +29,20 @@ import {
 } from "@/modules/support/services/itcm";
 import { persistAttachment } from "@/modules/support/services/attachments";
 import { SupportForbiddenError, SupportStateError } from "@/modules/support/services/tech-request";
+import {
+  createTicket,
+  completeRequest,
+  sendEpicEmail,
+  linkEpicRequestToTicket,
+  EpicForbiddenError,
+  EpicNotFoundError,
+  EpicStateError,
+} from "@/modules/support/services/epic";
+import type { EpicTemplateKey } from "@/platform/email/templates/epic";
 import { PageHeader } from "@/platform/ui/page-header";
 import { EpicRequestTabs } from "@/modules/support/components/epic-request-tabs";
+
+const EPIC_EMAIL_TEMPLATES: EpicTemplateKey[] = ["epic-onboarding", "epic-activation", "epic-password-reset"];
 
 async function closeTicketAction(ticketId: string) {
   "use server";
@@ -88,6 +101,80 @@ async function resolveIncidentAction(ticketId: string, resolution: string) {
   revalidatePath("/support/epic");
 }
 
+async function createTicketFromPendingAction(formData: FormData) {
+  "use server";
+  const session = await requirePermission("support.manage_requests");
+  const requestIds = formData.getAll("requestIds").map(String).filter(Boolean);
+  const description = ((formData.get("description") as string) ?? "").trim() || null;
+  try {
+    await createTicket(session.personId, { requestIds, description });
+  } catch (err) {
+    if (err instanceof EpicForbiddenError || err instanceof EpicStateError) {
+      redirect(`/support/epic?tab=pending&error=${encodeURIComponent(err.message)}`);
+    }
+    throw err;
+  }
+  revalidatePath("/support/epic");
+  redirect("/support/epic?tab=pending");
+}
+
+async function completeEpicRequestAction(formData: FormData) {
+  "use server";
+  const session = await requirePermission("support.manage_requests");
+  const requestId = String(formData.get("requestId") ?? "");
+  const epicId = String(formData.get("epicId") ?? "").trim() || undefined;
+  try {
+    await completeRequest(session.personId, requestId, epicId);
+  } catch (err) {
+    if (err instanceof EpicForbiddenError || err instanceof EpicNotFoundError || err instanceof EpicStateError) {
+      redirect(`/support/epic?tab=tracker&error=${encodeURIComponent(err.message)}`);
+    }
+    throw err;
+  }
+  revalidatePath("/support/epic");
+  redirect("/support/epic?tab=tracker");
+}
+
+async function sendEpicEmailFromTrackerAction(formData: FormData) {
+  "use server";
+  const session = await requirePermission("support.manage_requests");
+  const requestId = String(formData.get("requestId") ?? "");
+  const template = String(formData.get("template") ?? "");
+  if (!(EPIC_EMAIL_TEMPLATES as string[]).includes(template)) {
+    redirect(`/support/epic?tab=tracker&error=${encodeURIComponent("Invalid email template.")}`);
+  }
+  try {
+    await sendEpicEmail(session.personId, requestId, template as EpicTemplateKey);
+  } catch (err) {
+    if (err instanceof EpicForbiddenError || err instanceof EpicNotFoundError || err instanceof EpicStateError) {
+      redirect(`/support/epic?tab=tracker&error=${encodeURIComponent(err.message)}`);
+    }
+    throw err;
+  }
+  revalidatePath("/support/epic");
+  redirect("/support/epic?tab=tracker");
+}
+
+async function linkEpicRequestAction(formData: FormData) {
+  "use server";
+  const session = await requirePermission("support.manage_requests");
+  const requestId = String(formData.get("requestId") ?? "");
+  const ticketNumber = Number.parseInt(String(formData.get("ticketNumber") ?? ""), 10);
+  if (!Number.isFinite(ticketNumber) || ticketNumber <= 0) {
+    redirect(`/support/epic?tab=tracker&error=${encodeURIComponent("Enter a valid support ticket number.")}`);
+  }
+  try {
+    await linkEpicRequestToTicket(session.personId, requestId, ticketNumber);
+  } catch (err) {
+    if (err instanceof EpicForbiddenError || err instanceof EpicNotFoundError || err instanceof EpicStateError) {
+      redirect(`/support/epic?tab=tracker&error=${encodeURIComponent(err.message)}`);
+    }
+    throw err;
+  }
+  revalidatePath("/support/epic");
+  redirect("/support/epic?tab=tracker");
+}
+
 type PageProps = {
   searchParams: Promise<{ tab?: string; error?: string }>;
 };
@@ -96,15 +183,17 @@ export default async function EpicRequestsPage({ searchParams }: PageProps) {
   await requirePermission("support.manage_requests");
 
   const { tab, error } = await searchParams;
-  const activeTab = tab === "tracker" ? "tracker" : tab === "history" ? "history" : "generate";
+  const activeTab =
+    tab === "pending" ? "pending" : tab === "tracker" ? "tracker" : tab === "history" ? "history" : "generate";
 
   // Load data for both tabs in parallel.
-  const [departments, history, pendingDeactivations, authorizers, incidentPeople] = await Promise.all([
+  const [departments, history, pendingDeactivations, authorizers, incidentPeople, pending] = await Promise.all([
     listDepartmentsWithMembers(),
     getEpicRequestHistory(),
     listPendingDeactivations(),
     listEpicAuthorizers(),
     listIncidentPeople(),
+    listPendingEpicRequests(),
   ]);
 
   return (
@@ -120,11 +209,16 @@ export default async function EpicRequestsPage({ searchParams }: PageProps) {
         pendingDeactivations={pendingDeactivations}
         authorizers={authorizers}
         incidentPeople={incidentPeople}
+        pending={pending}
         error={error ? decodeURIComponent(error) : undefined}
         closeTicketAction={closeTicketAction}
         updateServiceRequestNumberAction={updateServiceRequestNumberAction}
         logIncidentAction={logIncidentAction}
         resolveIncidentAction={resolveIncidentAction}
+        createTicketFromPendingAction={createTicketFromPendingAction}
+        completeEpicRequestAction={completeEpicRequestAction}
+        sendEpicEmailFromTrackerAction={sendEpicEmailFromTrackerAction}
+        linkEpicRequestAction={linkEpicRequestAction}
       />
     </div>
   );

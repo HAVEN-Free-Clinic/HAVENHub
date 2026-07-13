@@ -5,6 +5,7 @@ import {
   authorizerInitials,
   listEpicAuthorizers,
   listPendingDeactivations,
+  listPendingEpicRequests,
   reconcileDeactivationRequests,
   submitEpicRequests,
   logYnhhIncident,
@@ -13,7 +14,7 @@ import {
   listIncidentPeople,
 } from "./itcm";
 import { persistAttachment } from "./attachments";
-import { SupportForbiddenError, SupportNotFoundError, SupportStateError } from "./tech-request";
+import { createTechRequest, SupportForbiddenError, SupportNotFoundError, SupportStateError } from "./tech-request";
 
 // ---------------------------------------------------------------------------
 // Helpers (copied from tech-request.test.ts / epic.test.ts)
@@ -158,6 +159,73 @@ describe("listPendingDeactivations", () => {
     const rows = await listPendingDeactivations();
     expect(rows.map((r) => r.name)).toEqual(["Alice"]);
     expect(rows[0].epicId).toBe("EA");
+  });
+});
+
+describe("listPendingEpicRequests", () => {
+  beforeEach(resetDb);
+
+  it("returns an attach-origin request (PENDING, ticketId null, techRequestId set)", async () => {
+    const mgr = await createPerson("Manager");
+    const requester = await createPerson("Requester");
+    const t = await createTechRequest(requester.id, {
+      category: "EPIC",
+      subject: "Need Epic access",
+      description: "d",
+    });
+    const attached = await prisma.epicRequest.create({
+      data: {
+        personId: requester.id,
+        kind: "NEW",
+        status: "PENDING",
+        requestedById: mgr.id,
+        techRequestId: t.id,
+      },
+    });
+
+    const rows = await listPendingEpicRequests();
+    expect(rows.map((r) => r.id)).toEqual([attached.id]);
+    expect(rows[0].techRequest).toMatchObject({ id: t.id, number: t.number, subject: t.subject });
+  });
+
+  it("excludes PENDING requests with no techRequestId (offboarding DEACTIVATE, recruitment NEW)", async () => {
+    const mgr = await createPerson("Manager");
+    const offboarded = await createPerson("Offboarded", { status: "OFFBOARDED" });
+    const promoted = await createPerson("Promoted");
+
+    // Offboarding queues a DEACTIVATE with no ticket and no techRequestId.
+    await prisma.epicRequest.create({
+      data: { personId: offboarded.id, kind: "DEACTIVATE", status: "PENDING", requestedById: mgr.id },
+    });
+    // Recruitment promotion queues a NEW the same way.
+    await prisma.epicRequest.create({
+      data: { personId: promoted.id, kind: "NEW", status: "PENDING", requestedById: mgr.id },
+    });
+
+    expect(await listPendingEpicRequests()).toEqual([]);
+  });
+
+  it("excludes a request already grouped under a YnhhTicket", async () => {
+    const mgr = await createPerson("Manager");
+    const requester = await createPerson("Requester");
+    const t = await createTechRequest(requester.id, {
+      category: "EPIC",
+      subject: "Need Epic access",
+      description: "d",
+    });
+    const ticket = await prisma.ynhhTicket.create({ data: { submittedById: mgr.id, status: "OPEN" } });
+    await prisma.epicRequest.create({
+      data: {
+        personId: requester.id,
+        kind: "NEW",
+        status: "PENDING",
+        requestedById: mgr.id,
+        techRequestId: t.id,
+        ticketId: ticket.id,
+      },
+    });
+
+    expect(await listPendingEpicRequests()).toEqual([]);
   });
 });
 

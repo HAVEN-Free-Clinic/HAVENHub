@@ -34,6 +34,20 @@
  *   - Queues EmailLog row with right template/to/personId/triggeredById.
  *   - No contactEmail -> EpicStateError.
  *   - No permission -> EpicForbiddenError.
+ *
+ * cancelEpicRequest(actorPersonId, requestId):
+ *   - Cancels a PENDING request; audits epic.cancel.
+ *   - Non-PENDING request -> EpicStateError.
+ *   - No permission -> EpicForbiddenError.
+ *   - Not found -> EpicNotFoundError.
+ *
+ * linkEpicRequestToTicket(actorPersonId, epicRequestId, ticketNumber):
+ *   - Links an unlinked request to a ticket by number; audits epic.link_ticket.
+ *   - Idempotent: linking again to the SAME ticket is a no-op success.
+ *   - Already linked to a DIFFERENT ticket -> EpicStateError naming the current ticket.
+ *   - Unknown ticket number -> EpicStateError.
+ *   - Missing epic request -> EpicNotFoundError.
+ *   - No permission -> EpicForbiddenError.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -46,10 +60,13 @@ import {
   setTicketServiceRequestNumber,
   completeRequest,
   sendEpicEmail,
+  cancelEpicRequest,
+  linkEpicRequestToTicket,
   EpicForbiddenError,
   EpicNotFoundError,
   EpicStateError,
 } from "./epic";
+import { createTechRequest } from "./tech-request";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -725,5 +742,183 @@ describe("sendEpicEmail", () => {
     expect(teams).not.toBeNull();
 
     vi.restoreAllMocks();
+  });
+});
+
+describe("cancelEpicRequest", () => {
+  async function pendingRequest(personId: string, requestedById: string) {
+    return prisma.epicRequest.create({
+      data: { personId, kind: "NEW", status: "PENDING", requestedById },
+    });
+  }
+
+  it("cancels a PENDING request and audits", async () => {
+    const person = await createPerson("P", { epicId: "E-123" });
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const req = await pendingRequest(person.id, mgr.id);
+
+    await cancelEpicRequest(mgr.id, req.id);
+
+    const after = await prisma.epicRequest.findUniqueOrThrow({ where: { id: req.id } });
+    expect(after.status).toBe("CANCELLED");
+    const audit = await prisma.auditLog.findFirst({ where: { action: "epic.cancel", entityId: req.id } });
+    expect(audit).not.toBeNull();
+
+    // cancelEpicRequest must not touch Person.epicId.
+    const stillThere = await prisma.person.findUniqueOrThrow({ where: { id: person.id } });
+    expect(stillThere.epicId).toBe("E-123");
+  });
+
+  it("refuses to cancel a non-PENDING request", async () => {
+    const person = await createPerson("P");
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const req = await pendingRequest(person.id, mgr.id);
+    await prisma.epicRequest.update({ where: { id: req.id }, data: { status: "SUBMITTED" } });
+
+    await expect(cancelEpicRequest(mgr.id, req.id)).rejects.toThrow(EpicStateError);
+  });
+
+  it("rejects a non-manager", async () => {
+    const person = await createPerson("P");
+    const other = await createPerson("Other");
+    const req = await pendingRequest(person.id, other.id);
+    await expect(cancelEpicRequest(other.id, req.id)).rejects.toThrow(EpicForbiddenError);
+  });
+
+  it("raises not-found for a missing request", async () => {
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    await expect(cancelEpicRequest(mgr.id, "nope")).rejects.toThrow(EpicNotFoundError);
+  });
+});
+
+describe("linkEpicRequestToTicket", () => {
+  async function pendingEpicRequest(personId: string, requestedById: string) {
+    return prisma.epicRequest.create({
+      data: { personId, kind: "NEW", status: "SUBMITTED", requestedById },
+    });
+  }
+
+  it("links an unlinked request to a ticket by number and audits epic.link_ticket", async () => {
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const person = await createPerson("Alice", { netId: "aaa001" });
+    const req = await pendingEpicRequest(person.id, mgr.id);
+    const ticket = await createTechRequest(mgr.id, {
+      category: "GENERAL_IT",
+      subject: "s",
+      description: "d",
+    });
+
+    await linkEpicRequestToTicket(mgr.id, req.id, ticket.number);
+
+    const updated = await prisma.epicRequest.findUniqueOrThrow({ where: { id: req.id } });
+    expect(updated.techRequestId).toBe(ticket.id);
+    // Pure association: status/kind/ticketId must be untouched.
+    expect(updated.status).toBe("SUBMITTED");
+    expect(updated.kind).toBe("NEW");
+    expect(updated.ticketId).toBeNull();
+
+    const audit = await prisma.auditLog.findFirst({
+      where: { action: "epic.link_ticket", entityId: req.id },
+    });
+    expect(audit).not.toBeNull();
+    const after = audit?.after as Record<string, unknown>;
+    expect(after.techRequestId).toBe(ticket.id);
+    expect(after.ticketNumber).toBe(ticket.number);
+  });
+
+  it("is idempotent: linking again to the SAME ticket is a no-op success", async () => {
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const person = await createPerson("Alice", { netId: "aaa001" });
+    const req = await pendingEpicRequest(person.id, mgr.id);
+    const ticket = await createTechRequest(mgr.id, {
+      category: "GENERAL_IT",
+      subject: "s",
+      description: "d",
+    });
+
+    await linkEpicRequestToTicket(mgr.id, req.id, ticket.number);
+    await expect(linkEpicRequestToTicket(mgr.id, req.id, ticket.number)).resolves.toBeUndefined();
+
+    const updated = await prisma.epicRequest.findUniqueOrThrow({ where: { id: req.id } });
+    expect(updated.techRequestId).toBe(ticket.id);
+  });
+
+  it("rejects when already linked to a DIFFERENT ticket (EpicStateError names the current ticket)", async () => {
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const person = await createPerson("Alice", { netId: "aaa001" });
+    const req = await pendingEpicRequest(person.id, mgr.id);
+    const ticket1 = await createTechRequest(mgr.id, {
+      category: "GENERAL_IT",
+      subject: "s1",
+      description: "d1",
+    });
+    const ticket2 = await createTechRequest(mgr.id, {
+      category: "GENERAL_IT",
+      subject: "s2",
+      description: "d2",
+    });
+
+    await linkEpicRequestToTicket(mgr.id, req.id, ticket1.number);
+
+    let caught: unknown;
+    try {
+      await linkEpicRequestToTicket(mgr.id, req.id, ticket2.number);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(EpicStateError);
+    expect((caught as Error).message).toContain(`#${ticket1.number}`);
+
+    // Still linked to the original ticket.
+    const updated = await prisma.epicRequest.findUniqueOrThrow({ where: { id: req.id } });
+    expect(updated.techRequestId).toBe(ticket1.id);
+  });
+
+  it("rejects an unknown ticket number -> EpicStateError", async () => {
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const person = await createPerson("Alice", { netId: "aaa001" });
+    const req = await pendingEpicRequest(person.id, mgr.id);
+
+    await expect(linkEpicRequestToTicket(mgr.id, req.id, 999999)).rejects.toBeInstanceOf(
+      EpicStateError
+    );
+  });
+
+  it("rejects a missing epic request -> EpicNotFoundError", async () => {
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const ticket = await createTechRequest(mgr.id, {
+      category: "GENERAL_IT",
+      subject: "s",
+      description: "d",
+    });
+
+    await expect(
+      linkEpicRequestToTicket(mgr.id, "cld_nonexistent", ticket.number)
+    ).rejects.toBeInstanceOf(EpicNotFoundError);
+  });
+
+  it("rejects a non-manager -> EpicForbiddenError", async () => {
+    const person = await createPerson("Alice", { netId: "aaa001" });
+    const other = await createPerson("Other");
+    const req = await pendingEpicRequest(person.id, other.id);
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const ticket = await createTechRequest(mgr.id, {
+      category: "GENERAL_IT",
+      subject: "s",
+      description: "d",
+    });
+
+    await expect(linkEpicRequestToTicket(other.id, req.id, ticket.number)).rejects.toBeInstanceOf(
+      EpicForbiddenError
+    );
   });
 });

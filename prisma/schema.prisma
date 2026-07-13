@@ -568,6 +568,7 @@ model EpicRequest {
   notes         String?
   requestedById String
   ticketId      String?
+  techRequestId String?
   completedAt   DateTime?
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
@@ -577,11 +578,12 @@ model EpicRequest {
   requestedBy   Person            @relation("epicRequestRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict)
   /// The YNHH ticket opened for this request (optional).
   ticket        YnhhTicket?       @relation(fields: [ticketId], references: [id], onDelete: SetNull)
-  /// The IT Support ticket that was promoted into this request, if any.
-  techRequest   TechRequest?      @relation("techRequestEpic")
+  /// The IT Support ticket this request is attached to, if any. SetNull: deleting the ticket detaches its requests but keeps them for YNHH/audit history.
+  techRequest   TechRequest?      @relation("techRequestEpic", fields: [techRequestId], references: [id], onDelete: SetNull)
 
   @@index([status])
   @@index([personId, status])
+  @@index([techRequestId])
 }
 
 /// A service request ticket opened with YNHH IT, grouping one or more EPIC
@@ -655,7 +657,6 @@ model TechRequest {
   assignedToId  String?
   resolution    String?
   resolvedAt    DateTime?
-  epicRequestId String?             @unique
   // EPIC intake fields captured at submit, used when promoting to an EpicRequest.
   epicJobTitle  String?
   epicMirrorId  String?
@@ -671,8 +672,8 @@ model TechRequest {
   requester   Person       @relation("techRequestRequester", fields: [requesterId], references: [id], onDelete: Cascade)
   /// Manager assigned to work the ticket. Restrict: an assigned person cannot be deleted out from under open work.
   assignedTo  Person?      @relation("techRequestAssignee", fields: [assignedToId], references: [id], onDelete: Restrict)
-  /// The Epic request this ticket was promoted into (EPIC category only). SetNull: keep the ticket if the EpicRequest is removed.
-  epicRequest EpicRequest? @relation("techRequestEpic", fields: [epicRequestId], references: [id], onDelete: SetNull)
+  /// Epic access requests attached to this ticket (0..n). See EpicRequest.techRequestId.
+  epicRequests EpicRequest[] @relation("techRequestEpic")
 
   comments    TechRequestComment[]
   attachments TechRequestAttachment[]

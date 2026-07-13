@@ -8,6 +8,7 @@
  *     setTicketServiceRequestNumber - support.manage_requests
  *     completeRequest        - support.manage_requests
  *     sendEpicEmail          - support.manage_requests
+ *     cancelEpicRequest      - support.manage_requests
  *
  * updatePersonFields (from @/platform/people) is used for all epicId writes:
  * it diffs and audits person.update. Do not duplicate that logic here.
@@ -449,6 +450,31 @@ export async function sendEpicEmail(
     entityType: "EpicRequest",
     entityId: requestId,
     after: { template },
+  });
+}
+
+/**
+ * Cancels a PENDING Epic request (support.manage_requests). Used to discard a
+ * wrongly-attached or wrong-kind request so a corrected one can be attached.
+ * A SUBMITTED request is already at YNHH and is not cancellable here.
+ * Does not touch Person.epicId. Audits "epic.cancel".
+ */
+export async function cancelEpicRequest(actorPersonId: string, requestId: string): Promise<void> {
+  await requireManageEpic(actorPersonId);
+  const req = await prisma.epicRequest.findUnique({ where: { id: requestId } });
+  if (!req) throw new EpicNotFoundError(`EpicRequest not found: ${requestId}`);
+  if (req.status !== "PENDING") {
+    throw new EpicStateError(
+      `Cannot cancel a request with status ${req.status}. Only a PENDING request can be cancelled.`
+    );
+  }
+  await prisma.epicRequest.update({ where: { id: requestId }, data: { status: "CANCELLED" } });
+  await recordAudit({
+    actorPersonId,
+    action: "epic.cancel",
+    entityType: "EpicRequest",
+    entityId: requestId,
+    after: { status: "CANCELLED" },
   });
 }
 

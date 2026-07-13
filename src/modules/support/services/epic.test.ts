@@ -34,6 +34,12 @@
  *   - Queues EmailLog row with right template/to/personId/triggeredById.
  *   - No contactEmail -> EpicStateError.
  *   - No permission -> EpicForbiddenError.
+ *
+ * cancelEpicRequest(actorPersonId, requestId):
+ *   - Cancels a PENDING request; audits epic.cancel.
+ *   - Non-PENDING request -> EpicStateError.
+ *   - No permission -> EpicForbiddenError.
+ *   - Not found -> EpicNotFoundError.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -46,6 +52,7 @@ import {
   setTicketServiceRequestNumber,
   completeRequest,
   sendEpicEmail,
+  cancelEpicRequest,
   EpicForbiddenError,
   EpicNotFoundError,
   EpicStateError,
@@ -725,5 +732,50 @@ describe("sendEpicEmail", () => {
     expect(teams).not.toBeNull();
 
     vi.restoreAllMocks();
+  });
+});
+
+describe("cancelEpicRequest", () => {
+  async function pendingRequest(personId: string, requestedById: string) {
+    return prisma.epicRequest.create({
+      data: { personId, kind: "NEW", status: "PENDING", requestedById },
+    });
+  }
+
+  it("cancels a PENDING request and audits", async () => {
+    const person = await createPerson("P");
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const req = await pendingRequest(person.id, mgr.id);
+
+    await cancelEpicRequest(mgr.id, req.id);
+
+    const after = await prisma.epicRequest.findUniqueOrThrow({ where: { id: req.id } });
+    expect(after.status).toBe("CANCELLED");
+    const audit = await prisma.auditLog.findFirst({ where: { action: "epic.cancel", entityId: req.id } });
+    expect(audit).not.toBeNull();
+  });
+
+  it("refuses to cancel a non-PENDING request", async () => {
+    const person = await createPerson("P");
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const req = await pendingRequest(person.id, mgr.id);
+    await prisma.epicRequest.update({ where: { id: req.id }, data: { status: "SUBMITTED" } });
+
+    await expect(cancelEpicRequest(mgr.id, req.id)).rejects.toThrow(EpicStateError);
+  });
+
+  it("rejects a non-manager", async () => {
+    const person = await createPerson("P");
+    const other = await createPerson("Other");
+    const req = await pendingRequest(person.id, other.id);
+    await expect(cancelEpicRequest(other.id, req.id)).rejects.toThrow(EpicForbiddenError);
+  });
+
+  it("raises not-found for a missing request", async () => {
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    await expect(cancelEpicRequest(mgr.id, "nope")).rejects.toThrow(EpicNotFoundError);
   });
 });

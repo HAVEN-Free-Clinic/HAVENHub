@@ -28,4 +28,31 @@ describe("compilePersonWhere", () => {
   it("no conditions -> match nothing (guards against an accidental send-all)", () => {
     expect(compilePersonWhere({ recordType: "PERSON", match: "ALL", conditions: [] }, ctx)).toEqual({ id: { in: [] } });
   });
+
+  it("nested groups compose AND/OR recursively", () => {
+    const where = compilePersonWhere(
+      { recordType: "PERSON", match: "ANY", conditions: [
+        { field: "status", op: "eq", value: "ACTIVE" },
+        { match: "ALL", children: [
+          { field: "role", op: "eq", value: "VOLUNTEER" },
+          { field: "licensedRN", op: "isTrue" },
+        ] },
+      ] }, ctx);
+    expect(where).toEqual({ OR: [
+      { status: "ACTIVE" },
+      { AND: [
+        { memberships: { some: { termId: "t1", status: "ACTIVE", kind: "VOLUNTEER" } } },
+        { licensedRN: true },
+      ] },
+    ] });
+  });
+
+  it("an empty nested group matches nobody (never everyone)", () => {
+    const where = compilePersonWhere(
+      { recordType: "PERSON", match: "ALL", conditions: [
+        { field: "status", op: "eq", value: "ACTIVE" },
+        { match: "ALL", children: [] },
+      ] }, ctx);
+    expect(where).toEqual({ AND: [{ status: "ACTIVE" }, { id: { in: [] } }] });
+  });
 });

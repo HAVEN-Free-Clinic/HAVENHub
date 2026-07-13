@@ -12,12 +12,20 @@ export async function decideInterview(
   deciderId: string,
   notes: string | null
 ): Promise<Interview> {
-  const iv = await prisma.interview.findUnique({ where: { id: interviewId }, include: { application: { select: { status: true } } } });
+  const iv = await prisma.interview.findUnique({
+    where: { id: interviewId },
+    include: { application: { select: { status: true, applicant: { select: { applicantPersonId: true } } } } },
+  });
   if (!iv) throw new InterviewError("Interview not found.");
   // Mirror acceptApplicant (review.ts): never turn a DRAFT application into an
   // acceptance. A DRAFT application is not a real submission, so an ACCEPT here
   // must not mint an Acceptance for it (audit3 L1).
   if (iv.application.status !== "SUBMITTED") throw new InterviewError("This application hasn't been submitted yet.");
+  // Separation of duties: a signed-in incumbent (e.g. a director re-applying into a
+  // department they manage) must not decide their own interview.
+  if (iv.application.applicant.applicantPersonId && iv.application.applicant.applicantPersonId === deciderId) {
+    throw new RecruitmentAuthError("You can't decide your own interview.");
+  }
   const scope = await reviewScope(deciderId);
   if (!(scope.all || scope.departmentCodes.includes(iv.departmentCode))) {
     throw new RecruitmentAuthError("You can't decide interviews for that department.");

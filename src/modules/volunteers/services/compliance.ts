@@ -480,7 +480,8 @@ export async function masterCompliance(
  * probing a nonexistent certId still gets CertificateNotFoundError.
  *
  * Throws CertificateNotFoundError when the cert does not exist, or
- * ComplianceForbiddenError when the actor is neither manager nor admin.
+ * ComplianceForbiddenError when the actor is neither manager nor admin, or when
+ * the actor owns the certificate (self-verification is disallowed).
  */
 export async function verifyCertificate(
   actorPersonId: string,
@@ -494,6 +495,15 @@ export async function verifyCertificate(
   if (!isManager && !isAdmin) {
     throw new ComplianceForbiddenError(
       "Only compliance managers or admins can verify certificates."
+    );
+  }
+
+  // Separation of duties: verification must be independent. A compliance
+  // manager/admin who is also a clinical volunteer cannot attest their own
+  // certificate; another manager or admin must verify it.
+  if (cert.personId === actorPersonId) {
+    throw new ComplianceForbiddenError(
+      "You cannot verify your own certificate; another compliance manager or admin must verify it."
     );
   }
 
@@ -529,9 +539,9 @@ export async function verifyCertificate(
  * real prior state (including any existing completionDate) so overwrites are
  * fully traceable.
  *
- * Throws ComplianceForbiddenError (neither manager nor admin),
- * CertificateNotFoundError (no such cert), or CompletionDateError (already set
- * for non-admin, or invalid date).
+ * Throws ComplianceForbiddenError (neither manager nor admin, or the actor owns
+ * the cert, since self-dating is disallowed), CertificateNotFoundError (no such
+ * cert), or CompletionDateError (already set for non-admin, or invalid date).
  */
 export async function setCompletionDateAsManager(
   actorPersonId: string,
@@ -548,6 +558,14 @@ export async function setCompletionDateAsManager(
 
   const cert = await prisma.hipaaCertificate.findUnique({ where: { id: certId } });
   if (!cert) throw new CertificateNotFoundError(certId);
+
+  // Separation of duties: setting a completion date also verifies the cert, so
+  // the actor cannot do it for their own certificate; another manager or admin must.
+  if (cert.personId === actorPersonId) {
+    throw new ComplianceForbiddenError(
+      "You cannot set the completion date on your own certificate; another compliance manager or admin must."
+    );
+  }
 
   // Set-once for compliance managers: a cert that already has a date is rejected.
   // Superadmins (admin.access) may overwrite to correct a wrong date. As before,

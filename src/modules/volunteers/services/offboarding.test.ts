@@ -195,6 +195,33 @@ describe("flagForOffboarding", () => {
     expect(auditRows).toHaveLength(1);
   });
 
+  it("concurrent flags don't 500: both return the same row with one audit (audit F14)", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("ITCM");
+    const actor = await createPerson("Director", "dir001");
+    const target = await createPerson("Volunteer", "vol001");
+
+    await createMembership(actor.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(target.id, term.id, dept.id, "VOLUNTEER");
+
+    // Two near-simultaneous flags both pass the findUnique fast-path; the loser
+    // hits @@unique([personId, termId]) and must be absorbed as the already-flagged
+    // path, not surface a raw P2002 500.
+    const [flag1, flag2] = await Promise.all([
+      flagForOffboarding(actor.id, target.id, "A"),
+      flagForOffboarding(actor.id, target.id, "B"),
+    ]);
+
+    expect(flag1.id).toBe(flag2.id);
+    expect(
+      await prisma.offboardFlag.count({ where: { personId: target.id, termId: term.id } }),
+    ).toBe(1);
+    const auditRows = await prisma.auditLog.findMany({
+      where: { action: "offboard.flag", entityId: flag1.id },
+    });
+    expect(auditRows).toHaveLength(1);
+  });
+
   it("no active term -> OffboardForbiddenError", async () => {
     await createTerm("ARCHIVED");
     const actor = await createPerson("Director", "dir001");

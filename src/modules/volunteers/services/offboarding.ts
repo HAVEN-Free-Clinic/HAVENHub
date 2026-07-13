@@ -27,7 +27,7 @@
  */
 
 import type { Department, OffboardFlag, Person } from "@prisma/client";
-import { prisma } from "@/platform/db";
+import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { can } from "@/platform/rbac/engine";
 import { manageableDepartmentIds } from "@/platform/departments";
@@ -127,20 +127,36 @@ export async function flagForOffboarding(
   const allowed = await actorCanManageTarget(actorPersonId, personId, activeTerm);
   if (!allowed) throw new OffboardForbiddenError();
 
-  // Check for an existing flag first (upsert-safe, avoids double audit).
+  // Check for an existing flag first (fast path, avoids a second audit on the
+  // common sequential re-flag).
   const existing = await prisma.offboardFlag.findUnique({
     where: { personId_termId: { personId, termId: activeTerm.id } },
   });
   if (existing) return existing;
 
-  const flag = await prisma.offboardFlag.create({
-    data: {
-      personId,
-      termId: activeTerm.id,
-      flaggedById: actorPersonId,
-      note: note ?? null,
-    },
-  });
+  let flag: OffboardFlag;
+  try {
+    flag = await prisma.offboardFlag.create({
+      data: {
+        personId,
+        termId: activeTerm.id,
+        flaggedById: actorPersonId,
+        note: note ?? null,
+      },
+    });
+  } catch (err) {
+    // Two concurrent flags both passed the findUnique above; the loser hits
+    // @@unique([personId, termId]). Return the winner's row with no second audit,
+    // honoring the "upsert-safe / never throws a unique-constraint error"
+    // contract instead of surfacing a raw P2002 500 (audit F14).
+    if (isUniqueConstraintError(err)) {
+      const raced = await prisma.offboardFlag.findUnique({
+        where: { personId_termId: { personId, termId: activeTerm.id } },
+      });
+      if (raced) return raced;
+    }
+    throw err;
+  }
 
   await recordAudit({
     actorPersonId,

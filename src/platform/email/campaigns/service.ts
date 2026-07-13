@@ -7,7 +7,7 @@ import { PERSON_VARIABLES } from "@/platform/email/audience/variables";
 import { resolveAudience } from "@/platform/email/audience/resolve";
 import type { Recipient } from "@/platform/email/audience/resolve";
 import { renderInlineEmail, loadLayoutSource } from "@/platform/email/templates/renderEmail";
-import { queueEmail } from "@/platform/email/send";
+import { queueEmail, queueEmails } from "@/platform/email/send";
 import type { Prisma } from "@prisma/client";
 import { isValidCron, nextCronAfter } from "./cron";
 
@@ -198,6 +198,20 @@ export async function executeRun(
   }
   const layoutSource = await loadLayoutSource();
 
+  // Render every recipient BEFORE opening the claim transaction. renderInlineEmail
+  // is pure CPU (no DB round-trips), so doing it up front keeps the transaction
+  // short and independent of recipient count.
+  const rendered = await Promise.all(
+    deduped.map(async (recipient) => {
+      const { subject, html } = await renderInlineEmail(
+        { subject: campaign.subject, body: campaign.body },
+        recipient.variables,
+        layoutSource,
+      );
+      return { to: recipient.email, subject, html, personId: recipient.recordId };
+    }),
+  );
+
   const runId = await prisma.$transaction(async (tx) => {
     // Guard against double-dispatch with an atomic claim: apply the status
     // transition up front as a conditional updateMany gated on claimWhere. This
@@ -205,9 +219,14 @@ export async function executeRun(
     // concurrent writers on the row -- so of two overlapping passes (lapping
     // cron ticks, or a "send now" racing the per-minute drainer) the first
     // commits the transition and the second re-evaluates claimWhere against the
-    // updated row, matches zero rows, and aborts here, before creating a run or
-    // enqueuing anything. The whole transaction commits atomically, so if the
-    // enqueue below throws, the claim rolls back and the campaign stays eligible.
+    // updated row, matches zero rows, and aborts here.
+    //
+    // The per-recipient enqueue is deliberately OUTSIDE this transaction (below).
+    // Enqueuing hundreds of rows inside one interactive tx exceeded the ~5s
+    // timeout and rolled the whole thing back, including the claim -- so a large
+    // SCHEDULED/RECURRING campaign re-dispatched and failed identically every cron
+    // tick forever (audit F1). Keeping only the claim + run row here bounds the tx
+    // to two writes.
     const claimed = await tx.emailCampaign.updateMany({
       where: { id: campaignId, ...opts.claimWhere },
       data: opts.statusUpdate,
@@ -217,19 +236,18 @@ export async function executeRun(
     }
 
     const run = await tx.emailCampaignRun.create({ data: { campaignId, recipientCount: deduped.length } });
-    for (const recipient of deduped) {
-      const { subject, html } = await renderInlineEmail(
-        { subject: campaign.subject, body: campaign.body },
-        recipient.variables,
-        layoutSource,
-      );
-      await queueEmail(tx, {
-        to: recipient.email, subject, html, template: "campaign",
-        personId: recipient.recordId, triggeredById: opts.actorId, campaignRunId: run.id,
-      });
-    }
     return run.id;
   });
+
+  // The claim has committed (campaign marked sent), so enqueue the recipients now
+  // in chunked createMany batches. Trade-off: a crash between the claim commit and
+  // here can leave a marked-sent campaign with un-enqueued recipients -- rare, and
+  // far preferable to the previous fail-forever behavior.
+  await queueEmails(
+    prisma,
+    "campaign",
+    rendered.map((r) => ({ ...r, triggeredById: opts.actorId, campaignRunId: runId })),
+  );
 
   await recordAudit({
     actorPersonId: opts.actorId, action: "campaign.send",

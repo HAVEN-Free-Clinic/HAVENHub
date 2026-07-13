@@ -1512,6 +1512,10 @@ model Course {
   scormUploadedAt DateTime?
   /// Ordered SCO list from imsmanifest.xml: [{ id, title, href }]. Null = legacy single-SCO package.
   scormScos       Json?
+  /// Per-upload storage key: files live under scorm/<courseId>/<scormBlobKey>/ so a
+  /// re-ingest stages the new package without overwriting the live one before the DB
+  /// commit. Null = legacy package stored at the flat scorm/<courseId>/ prefix.
+  scormBlobKey    String?
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
   departments     CourseDepartment[]

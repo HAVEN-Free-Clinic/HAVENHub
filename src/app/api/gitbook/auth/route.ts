@@ -4,6 +4,8 @@ import { auth } from "@/platform/auth/auth";
 import { getActivePerson } from "@/platform/auth/match-person";
 import { config } from "@/platform/config";
 import { recordAudit } from "@/platform/audit";
+import { getEffectivePermissions } from "@/platform/rbac/engine";
+import { buildAdaptiveClaims } from "@/platform/gitbook/adaptive-claims";
 
 /**
  * GET /api/gitbook/auth
@@ -82,6 +84,10 @@ export async function GET(request: NextRequest): Promise<Response> {
     return NextResponse.redirect(new URL("/welcome", request.url));
   }
 
+  // Effective permissions become a nested `can` claim GitBook adaptive content
+  // reads (visitor.claims.can.<module>.<action>). Inert until Adaptive content
+  // is enabled on the site: GitBook ignores claims no condition references.
+  const perms = await getEffectivePermissions(person.id);
   const now = Math.floor(Date.now() / 1000);
   const token = signJwt(
     {
@@ -89,6 +95,7 @@ export async function GET(request: NextRequest): Promise<Response> {
       email: person.contactEmail ?? session.user?.email ?? undefined,
       iat: now,
       exp: now + 60 * 60, // 1 hour, matching GitBook's reference backend
+      ...buildAdaptiveClaims(perms),
     },
     GITBOOK_JWT_KEY
   );

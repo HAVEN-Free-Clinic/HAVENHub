@@ -4,14 +4,14 @@ import {
   UserRoundPen,
   GraduationCap,
   ClipboardCheck,
-  type LucideIcon,
 } from "lucide-react";
+import type { ComponentType } from "react";
 import type { ComplianceStatus } from "@/platform/compliance/rules";
 
 export type ActionCard = {
   key: string;
   href: string;
-  icon: LucideIcon;
+  icon: ComponentType<{ className?: string }>;
   hue: string; // a --mod-<hue> token key
   label: string;
   sub: string;

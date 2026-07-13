@@ -257,7 +257,7 @@ export default async function HubPage() {
   for (const id of ["volunteers", "recruitment"] as const) {
     const m = activeModules.find((mm) => mm.id === id);
     if (m) {
-      backfill.push({ key: m.id, href: `/${m.id}`, icon: m.icon as unknown as ActionCard["icon"], hue: HUE_BY_MODULE[m.id] ?? "schedule", label: m.title, sub: m.description, priority: 0 });
+      backfill.push({ key: m.id, href: `/${m.id}`, icon: m.icon, hue: HUE_BY_MODULE[m.id] ?? "schedule", label: m.title, sub: m.description, priority: 0 });
     }
   }
   if (isPanelist) {
@@ -265,7 +265,7 @@ export default async function HubPage() {
   }
   const adminModule = activeModules.find((mm) => mm.id === "admin");
   if (adminModule) {
-    backfill.push({ key: "admin", href: "/admin", icon: adminModule.icon as unknown as ActionCard["icon"], hue: HUE_BY_MODULE.admin, label: adminModule.title, sub: adminModule.description, priority: 0 });
+    backfill.push({ key: "admin", href: "/admin", icon: adminModule.icon, hue: HUE_BY_MODULE.admin, label: adminModule.title, sub: adminModule.description, priority: 0 });
   }
 
   const cards = buildActionCards({

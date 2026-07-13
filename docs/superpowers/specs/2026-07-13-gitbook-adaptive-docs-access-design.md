@@ -1,4 +1,4 @@
-# GitBook Adaptive Docs Access — Design
+# GitBook Adaptive Docs Access: Design
 
 **Date:** 2026-07-13
 **Branch:** `feat/gitbook-adaptive-access`
@@ -14,7 +14,7 @@ docs visitor; we enrich that JWT with the person's effective permissions, define
 matching visitor-claims schema in GitBook, and gate pages/sections with conditions that
 read those claims.
 
-## Background — current state
+## Background: current state
 
 - **Docs auth today:** `GET /api/gitbook/auth` (`src/app/api/gitbook/auth/route.ts`)
   requires a signed-in, active HAVEN person, then signs a short-lived HS256 JWT with
@@ -37,12 +37,12 @@ read those claims.
 
 1. **Granularity: per-permission (fine-grained), not per-module.** Lets us hide
    individual guide pages (e.g. "Manage courses") from someone who only has base module
-   access. *Discarded:* module-level-only (too coarse — can't hide manager-only pages).
+   access. *Discarded:* module-level-only (too coarse, can't hide manager-only pages).
 2. **Claim shape: a nested `can` object of booleans**, keyed by module then action, so
    conditions read as clean dot access: `visitor.claims.can.learning.manage_courses`.
-   *Discarded:* a flat map with dotted keys (`can["learning.manage_courses"]`) — forces
+   *Discarded:* a flat map with dotted keys (`can["learning.manage_courses"]`): forces
    bracket syntax and risks GitBook's condition builder misreading `.` as nesting.
-   *Discarded:* a raw permissions **array** — arrays are not a documented adaptive-schema
+   *Discarded:* a raw permissions **array**: arrays are not a documented adaptive-schema
    type and array-membership conditions are undocumented in GitBook.
 3. **Catalog source: `MODULES[].permissions`.** Everything (claims + schema) is derived
    from that one list, so they cannot drift. A test enforces this.
@@ -76,7 +76,7 @@ Signed alongside the existing `name` / `email` / `iat` / `exp` claims:
 ```
 
 - Built by iterating the catalog, splitting each `namespace.action` on its **first** dot,
-  and setting each leaf via `hasPermission(perms, permission)` — so Platform Admin (`*`)
+  and setting each leaf via `hasPermission(perms, permission)`, so Platform Admin (`*`)
   gets every leaf `true`.
 - `my-info` declares no permissions, so it has no `can` entry; its docs are always
   visible (no condition). Same for the open sections of incidents/support.
@@ -86,12 +86,12 @@ Signed alongside the existing `name` / `email` / `iat` / `exp` claims:
 All new logic is pure and unit-testable; the route wiring is ~3 lines.
 
 ### `src/platform/gitbook/adaptive-claims.ts` (new)
-- `ADAPTIVE_PERMISSION_CATALOG: string[]` — sorted, de-duped union of
+- `ADAPTIVE_PERMISSION_CATALOG: string[]`: sorted, de-duped union of
   `MODULES.flatMap(m => m.permissions)`. The one derived source.
-- `buildAdaptiveClaims(perms: Set<string>): { can: Record<string, Record<string, boolean>> }`
-  — pure. Splits each catalog permission on its first `.` and sets
+- `buildAdaptiveClaims(perms: Set<string>): { can: Record<string, Record<string, boolean>> }`,
+  pure. Splits each catalog permission on its first `.` and sets
   `can[module][action] = hasPermission(perms, permission)`. No I/O.
-- `buildAdaptiveSchema(): object` — pure. Emits the GitBook JSON Schema (nested objects of
+- `buildAdaptiveSchema(): object`: pure. Emits the GitBook JSON Schema (nested objects of
   `{ type: "boolean" }` leaves with one-line descriptions) from the same catalog. Top
   level permissive (`additionalProperties` not set to false) so standard
   `name`/`email`/`iat`/`exp` claims are not rejected.
@@ -102,7 +102,7 @@ All new logic is pure and unit-testable; the route wiring is ~3 lines.
 - After resolving `person`, call `getEffectivePermissions(person.id)` and spread
   `buildAdaptiveClaims(perms)` into the signed claims object next to `name`/`email`/`iat`/`exp`.
 - Everything else (redirect handling, `resolveTarget`, audit) unchanged. Emitting extra
-  claims is inert while Adaptive content is off — GitBook ignores unreferenced claims —
+  claims is inert while Adaptive content is off (GitBook ignores unreferenced claims),
   so this is safe to ship and deploy before any GitBook change.
 
 ## GitBook artifacts (repo-committed, applied on GitBook)
@@ -135,7 +135,7 @@ user pastes these into the GitBook editor's condition fields.
 - A `schedule.view`-only set → `can.schedule.view === true`, all sibling/other leaves `false`.
 - Empty set → every leaf `false`.
 - **Catalog completeness:** every `MODULES[].permissions` entry appears as exactly one
-  `can[module][action]` leaf, and no extra leaves exist — guards against a new permission
+  `can[module][action]` leaf, and no extra leaves exist: guards against a new permission
   silently missing from docs gating.
 - **Schema drift guard:** committed `docs/gitbook/adaptive-schema.json` deep-equals
   `buildAdaptiveSchema()`; schema leaf paths match the claim leaf paths.
@@ -145,21 +145,21 @@ convention, though these tests touch no DB.
 
 ## Rollout / enablement (order)
 
-1. Ship the code (JWT enrichment) — inert until GitBook is configured.
+1. Ship the code (JWT enrichment), inert until GitBook is configured.
 2. Push `adaptive-schema.json` to the site via `updateSiteAdaptiveSchema` (MCP).
 3. User enables **Adaptive content** in GitBook site settings.
 4. **Verify the signing key:** confirm the Adaptive-content visitor-token signing key
    equals the current `GITBOOK_JWT_KEY`. If GitBook issues a distinct key, update the env
-   var (`GITBOOK_JWT_KEY`) — no code change. Docs auth breaks loudly if the key mismatches,
+   var (`GITBOOK_JWT_KEY`), no code change. Docs auth breaks loudly if the key mismatches,
    so this is caught immediately.
 5. User applies per-page conditions from `adaptive-mapping.md` in the GitBook editor.
 
 ## Risks
 
-- **Signing-key mismatch** (see step 4) — verified at enablement, not a code risk.
-- **Schema `additionalProperties`** — if GitBook rejects undeclared standard claims, add
+- **Signing-key mismatch** (see step 4): verified at enablement, not a code risk.
+- **Schema `additionalProperties`**: if GitBook rejects undeclared standard claims, add
   `name`/`email`/`iat`/`exp` to the schema. Verified when pushing the schema.
-- **Dotted-key confusion** — avoided by the nested shape (no dotted keys anywhere).
+- **Dotted-key confusion**: avoided by the nested shape (no dotted keys anywhere).
 
 ## Non-goals
 

@@ -22,16 +22,16 @@
 
 ## File Structure
 
-- `src/platform/gitbook/catalog.ts` (new) — registry-derived permission catalog, the `buildNested` helper, and `buildAdaptiveSchema()`. Imports only the registry (no RBAC engine, no DB), so the schema generator stays lean.
-- `src/platform/gitbook/catalog.test.ts` (new) — catalog completeness + schema shape.
-- `src/platform/gitbook/adaptive-claims.ts` (new) — `buildAdaptiveClaims(perms)`. Imports `buildNested` + `hasPermission`.
-- `src/platform/gitbook/adaptive-claims.test.ts` (new) — claim-builder behavior.
-- `scripts/gen-gitbook-adaptive-schema.ts` (new) — writes `docs/gitbook/adaptive-schema.json` from `buildAdaptiveSchema()`.
-- `docs/gitbook/adaptive-schema.json` (new, generated) — the JSON Schema pushed to GitBook.
-- `src/platform/gitbook/schema-artifact.test.ts` (new) — drift guard asserting the committed JSON equals `buildAdaptiveSchema()`. (Lives under `src/**` because vitest's `include` only picks up tests there.)
-- `src/app/api/gitbook/auth/route.ts` (modify) — compute perms, spread `buildAdaptiveClaims`.
-- `src/app/api/gitbook/auth/route.test.ts` (new) — asserts the signed JWT carries the `can` claim.
-- `docs/gitbook/adaptive-mapping.md` (new) — page → condition mapping for manual GitBook setup.
+- `src/platform/gitbook/catalog.ts` (new): registry-derived permission catalog, the `buildNested` helper, and `buildAdaptiveSchema()`. Imports only the registry (no RBAC engine, no DB), so the schema generator stays lean.
+- `src/platform/gitbook/catalog.test.ts` (new): catalog completeness + schema shape.
+- `src/platform/gitbook/adaptive-claims.ts` (new): `buildAdaptiveClaims(perms)`. Imports `buildNested` + `hasPermission`.
+- `src/platform/gitbook/adaptive-claims.test.ts` (new): claim-builder behavior.
+- `scripts/gen-gitbook-adaptive-schema.ts` (new): writes `docs/gitbook/adaptive-schema.json` from `buildAdaptiveSchema()`.
+- `docs/gitbook/adaptive-schema.json` (new, generated): the JSON Schema pushed to GitBook.
+- `src/platform/gitbook/schema-artifact.test.ts` (new): drift guard asserting the committed JSON equals `buildAdaptiveSchema()`. (Lives under `src/**` because vitest's `include` only picks up tests there.)
+- `src/app/api/gitbook/auth/route.ts` (modify): compute perms, spread `buildAdaptiveClaims`.
+- `src/app/api/gitbook/auth/route.test.ts` (new): asserts the signed JWT carries the `can` claim.
+- `docs/gitbook/adaptive-mapping.md` (new): page → condition mapping for manual GitBook setup.
 
 ---
 
@@ -44,9 +44,9 @@
 **Interfaces:**
 - Consumes: `MODULES` from `@/platform/modules/registry` (each has `permissions: string[]`).
 - Produces:
-  - `ADAPTIVE_PERMISSION_CATALOG: string[]` — sorted, de-duped union of all `MODULES[].permissions`.
-  - `buildNested<T>(leaf: (permission: string) => T): Record<string, Record<string, T>>` — for each catalog permission, split on the first `.` into `[module, action]` and set `result[module][action] = leaf(permission)`.
-  - `buildAdaptiveSchema(): { type: "object"; properties: { can: unknown } }` — the GitBook visitor-claims JSON Schema.
+  - `ADAPTIVE_PERMISSION_CATALOG: string[]`: sorted, de-duped union of all `MODULES[].permissions`.
+  - `buildNested<T>(leaf: (permission: string) => T): Record<string, Record<string, T>>`: for each catalog permission, split on the first `.` into `[module, action]` and set `result[module][action] = leaf(permission)`.
+  - `buildAdaptiveSchema(): { type: "object"; properties: { can: unknown } }`: the GitBook visitor-claims JSON Schema.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -112,7 +112,7 @@ describe("buildAdaptiveSchema", () => {
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `npx vitest run src/platform/gitbook/catalog.test.ts`
-Expected: FAIL — cannot resolve `./catalog`.
+Expected: FAIL, cannot resolve `./catalog`.
 
 - [ ] **Step 3: Write minimal implementation**
 
@@ -240,7 +240,7 @@ describe("buildAdaptiveClaims", () => {
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `npx vitest run src/platform/gitbook/adaptive-claims.test.ts`
-Expected: FAIL — cannot resolve `./adaptive-claims`.
+Expected: FAIL, cannot resolve `./adaptive-claims`.
 
 - [ ] **Step 3: Write minimal implementation**
 
@@ -328,7 +328,7 @@ describe("committed adaptive-schema.json", () => {
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `npx vitest run src/platform/gitbook/schema-artifact.test.ts`
-Expected: PASS. (If it fails with a mismatch, the artifact is stale — rerun the Step 2 generator.)
+Expected: PASS. (If it fails with a mismatch, the artifact is stale, rerun the Step 2 generator.)
 
 - [ ] **Step 5: Commit**
 
@@ -405,7 +405,7 @@ describe("GET /api/gitbook/auth adaptive claims", () => {
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `npx vitest run src/app/api/gitbook/auth/route.test.ts`
-Expected: FAIL — `payload.can` is undefined (route does not emit it yet).
+Expected: FAIL, `payload.can` is undefined (route does not emit it yet).
 
 - [ ] **Step 3: Add the imports**
 
@@ -487,7 +487,7 @@ GitBook IDs (from project memory `gitbook-user-docs`): org `HpnZmQbk6bbOde4xMDwO
 
 Use the GitBook MCP:
 1. `get_site_structure` for site `site_kvUkR` to list its sections/spaces.
-2. Enumerate the docs space (`tHfYPT1JPCmq1ZcM0VKy`) page tree — the ~11 section landings and their child pages — via `get_site_structure` / `get_page` as needed to capture each page's title and id.
+2. Enumerate the docs space (`tHfYPT1JPCmq1ZcM0VKy`) page tree (the ~11 section landings and their child pages) via `get_site_structure` / `get_page` as needed to capture each page's title and id.
 
 - [ ] **Step 2: Derive each page's condition**
 
@@ -499,7 +499,7 @@ Apply these rules (module → `can` path via `src/platform/modules/registry.ts`)
 
 - [ ] **Step 3: Write the mapping file**
 
-Write `docs/gitbook/adaptive-mapping.md` with a short intro (how to apply a condition in the GitBook editor: page/section actions menu → "Add condition" → paste the expression), then a table with columns: `Section` | `Page` | `GitBook page id` | `Condition` (or `— none —`). One row per section landing and per child page discovered in Step 1. Add a final "Always visible (no condition)" list for the open pages.
+Write `docs/gitbook/adaptive-mapping.md` with a short intro (how to apply a condition in the GitBook editor: page/section actions menu → "Add condition" → paste the expression), then a table with columns: `Section` | `Page` | `GitBook page id` | `Condition` (or `none`). One row per section landing and per child page discovered in Step 1. Add a final "Always visible (no condition)" list for the open pages.
 
 - [ ] **Step 4: Sanity-check the conditions against the schema**
 
@@ -522,7 +522,7 @@ This task mutates the live GitBook site and coordinates with the user. Adaptive 
 
 - [ ] **Step 1: Confirm prerequisite with the user**
 
-Ask the user to enable **Adaptive content** in GitBook site settings for `site_kvUkR`, and to confirm the generated visitor-token **signing key equals the current `GITBOOK_JWT_KEY`** env value. If GitBook shows a different key, the user updates the `GITBOOK_JWT_KEY` env var (Vercel + local) — no code change. Do not proceed until confirmed.
+Ask the user to enable **Adaptive content** in GitBook site settings for `site_kvUkR`, and to confirm the generated visitor-token **signing key equals the current `GITBOOK_JWT_KEY`** env value. If GitBook shows a different key, the user updates the `GITBOOK_JWT_KEY` env var (Vercel + local), no code change. Do not proceed until confirmed.
 
 - [ ] **Step 2: Push the schema via MCP**
 
@@ -552,4 +552,4 @@ Point the user at `docs/gitbook/adaptive-mapping.md` and confirm the rollout: ap
 
 **2. Placeholder scan:** No "TBD"/"add error handling"/"similar to Task N". The only live-data-dependent content (Task 5 page list) is produced by an explicit MCP-fetch procedure with concrete derivation rules and worked examples, not a placeholder.
 
-**3. Type consistency:** `buildNested<T>` returns `Record<string, Record<string, T>>`; `buildAdaptiveClaims` returns `{ can: Record<string, Record<string, boolean>> }` using it with `T = boolean`; `buildAdaptiveSchema` uses it with an object leaf. `ADAPTIVE_PERMISSION_CATALOG`, `hasPermission(perms, permission)`, and `getEffectivePermissions(person.id)` signatures match their sources. Route consumes `buildAdaptiveClaims(perms: Set<string>)` — matches Task 2. Consistent.
+**3. Type consistency:** `buildNested<T>` returns `Record<string, Record<string, T>>`; `buildAdaptiveClaims` returns `{ can: Record<string, Record<string, boolean>> }` using it with `T = boolean`; `buildAdaptiveSchema` uses it with an object leaf. `ADAPTIVE_PERMISSION_CATALOG`, `hasPermission(perms, permission)`, and `getEffectivePermissions(person.id)` signatures match their sources. Route consumes `buildAdaptiveClaims(perms: Set<string>)`, matches Task 2. Consistent.

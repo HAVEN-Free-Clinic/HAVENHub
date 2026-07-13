@@ -8,6 +8,16 @@ Every condition below is a `visitor.claims.can.<module>.<action>` boolean read o
 visitor-auth JWT. The claim shape is committed at `docs/gitbook/adaptive-schema.json`; every
 path used in this table is a leaf in that schema (verified below).
 
+## Maintenance: keeping the schema in sync
+
+Adding or removing a permission in `src/platform/modules/registry.ts` changes the shape of the
+visitor-claims schema. When that happens, regenerate `docs/gitbook/adaptive-schema.json` with
+`npx tsx scripts/gen-gitbook-adaptive-schema.ts` (needed to pass the drift-guard test), and then
+also re-push the regenerated file to GitBook via the adaptive-schema update, not just commit it.
+Committing without re-pushing leaves the live GitBook schema out of sync: once Adaptive content
+is enabled, a signed token can carry a new `can.<module>.<action>` leaf that the live schema does
+not know about and rejects, which can break docs auth for everyone until the push catches up.
+
 ## How to apply a condition in GitBook
 
 1. Open the page (or the section's landing page) in the GitBook editor.

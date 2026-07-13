@@ -9,7 +9,13 @@ export const ADAPTIVE_PERMISSION_CATALOG: string[] = [
   ...new Set(MODULES.flatMap((m) => m.permissions)),
 ].sort();
 
-/** Split "learning.manage_courses" into ["learning", "manage_courses"] on the first dot. */
+/**
+ * Split "learning.manage_courses" into ["learning", "manage_courses"] on the first dot.
+ * The module segment becomes a GitBook dot-access key (visitor.claims.can.<module>.<action>),
+ * so if a permission-bearing module id ever contains a hyphen (e.g. "my-info"), the generated
+ * condition would be an invalid JS expression and the id would need normalizing first. No
+ * permission-bearing module has a hyphenated id today, so this is a caveat, not a live bug.
+ */
 function splitPermission(permission: string): [string, string] {
   const dot = permission.indexOf(".");
   return [permission.slice(0, dot), permission.slice(dot + 1)];

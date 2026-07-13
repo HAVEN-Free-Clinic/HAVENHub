@@ -65,6 +65,7 @@ type Props = {
   createTicketFromPendingAction: (formData: FormData) => Promise<void>;
   completeEpicRequestAction: (formData: FormData) => Promise<void>;
   sendEpicEmailFromTrackerAction: (formData: FormData) => Promise<void>;
+  linkEpicRequestAction: (formData: FormData) => Promise<void>;
 };
 
 // ---------------------------------------------------------------------------
@@ -252,6 +253,7 @@ function TrackerTable({
   resolveIncidentAction,
   completeEpicRequestAction,
   sendEpicEmailFromTrackerAction,
+  linkEpicRequestAction,
 }: {
   history: EpicRequestHistoryRow[];
   closeTicketAction: (ticketId: string) => Promise<void>;
@@ -259,6 +261,7 @@ function TrackerTable({
   resolveIncidentAction: (ticketId: string, resolution: string) => Promise<void>;
   completeEpicRequestAction: (formData: FormData) => Promise<void>;
   sendEpicEmailFromTrackerAction: (formData: FormData) => Promise<void>;
+  linkEpicRequestAction: (formData: FormData) => Promise<void>;
 }) {
   const zone = useTimeZone();
   const openTickets = history.filter((h) => h.ticket.status === "OPEN");
@@ -356,6 +359,30 @@ function TrackerTable({
                           </form>
                         ))}
                       </div>
+                    )}
+
+                    {r.techRequest ? (
+                      <Link
+                        href={`/support/${r.techRequest.id}`}
+                        className="text-xs text-brand-fg underline underline-offset-2"
+                      >
+                        Support #{r.techRequest.number}
+                      </Link>
+                    ) : (
+                      <form action={linkEpicRequestAction} className="flex items-center gap-1">
+                        <input type="hidden" name="requestId" value={r.id} />
+                        <Input
+                          name="ticketNumber"
+                          type="number"
+                          min={1}
+                          placeholder="Ticket #"
+                          aria-label="Link to support ticket number"
+                          className="w-24"
+                        />
+                        <SubmitButton size="sm" variant="ghost" pendingLabel="Linking…">
+                          Link
+                        </SubmitButton>
+                      </form>
                     )}
                   </div>
                 ))}
@@ -518,6 +545,7 @@ export function EpicRequestTabs({
   createTicketFromPendingAction,
   completeEpicRequestAction,
   sendEpicEmailFromTrackerAction,
+  linkEpicRequestAction,
 }: Props) {
   return (
     <div>
@@ -538,6 +566,7 @@ export function EpicRequestTabs({
             resolveIncidentAction={resolveIncidentAction}
             completeEpicRequestAction={completeEpicRequestAction}
             sendEpicEmailFromTrackerAction={sendEpicEmailFromTrackerAction}
+            linkEpicRequestAction={linkEpicRequestAction}
           />
         </div>
       ) : (

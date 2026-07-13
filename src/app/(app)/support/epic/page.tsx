@@ -33,6 +33,7 @@ import {
   createTicket,
   completeRequest,
   sendEpicEmail,
+  linkEpicRequestToTicket,
   EpicForbiddenError,
   EpicNotFoundError,
   EpicStateError,
@@ -154,6 +155,26 @@ async function sendEpicEmailFromTrackerAction(formData: FormData) {
   redirect("/support/epic?tab=tracker");
 }
 
+async function linkEpicRequestAction(formData: FormData) {
+  "use server";
+  const session = await requirePermission("support.manage_requests");
+  const requestId = String(formData.get("requestId") ?? "");
+  const ticketNumber = Number.parseInt(String(formData.get("ticketNumber") ?? ""), 10);
+  if (!Number.isFinite(ticketNumber) || ticketNumber <= 0) {
+    redirect(`/support/epic?tab=tracker&error=${encodeURIComponent("Enter a valid support ticket number.")}`);
+  }
+  try {
+    await linkEpicRequestToTicket(session.personId, requestId, ticketNumber);
+  } catch (err) {
+    if (err instanceof EpicForbiddenError || err instanceof EpicNotFoundError || err instanceof EpicStateError) {
+      redirect(`/support/epic?tab=tracker&error=${encodeURIComponent(err.message)}`);
+    }
+    throw err;
+  }
+  revalidatePath("/support/epic");
+  redirect("/support/epic?tab=tracker");
+}
+
 type PageProps = {
   searchParams: Promise<{ tab?: string; error?: string }>;
 };
@@ -197,6 +218,7 @@ export default async function EpicRequestsPage({ searchParams }: PageProps) {
         createTicketFromPendingAction={createTicketFromPendingAction}
         completeEpicRequestAction={completeEpicRequestAction}
         sendEpicEmailFromTrackerAction={sendEpicEmailFromTrackerAction}
+        linkEpicRequestAction={linkEpicRequestAction}
       />
     </div>
   );

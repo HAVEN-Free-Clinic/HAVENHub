@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import { getObject } from "@/platform/storage";
@@ -33,9 +33,11 @@ it("stores package files and sets the course entry href + version", async () => 
   expect(updated.scormEntryHref).toBe("index.html");
   expect(updated.scormVersion).toBe("1.2");
   expect(updated.scormUploadedAt).not.toBeNull();
+  expect(updated.scormBlobKey).not.toBeNull();
 
-  expect(await getObject(`scorm/${course.id}/index.html`)).not.toBeNull();
-  expect(await getObject(`scorm/${course.id}/assets/app.js`)).not.toBeNull();
+  // Files live under the per-upload versioned prefix scorm/<courseId>/<key>/.
+  expect(await getObject(`scorm/${course.id}/${updated.scormBlobKey}/index.html`)).not.toBeNull();
+  expect(await getObject(`scorm/${course.id}/${updated.scormBlobKey}/assets/app.js`)).not.toBeNull();
 });
 
 it("stores the ordered SCO list on the course", async () => {
@@ -48,7 +50,7 @@ it("stores the ordered SCO list on the course", async () => {
     { id: "ITEM-A", title: "hb", href: "index.html" },
     { id: "ITEM-B", title: "ytf", href: "html/ytf.html" },
   ]);
-  expect(await getObject(`scorm/${course.id}/html/ytf.html`)).not.toBeNull();
+  expect(await getObject(`scorm/${course.id}/${updated.scormBlobKey}/html/ytf.html`)).not.toBeNull();
 });
 
 it("rejects a zip with no imsmanifest.xml", async () => {
@@ -105,10 +107,12 @@ it("re-ingesting without resetProgress preserves prior progress", async () => {
   expect(await prisma.scoProgress.count({ where: { courseId: course.id } })).toBe(1);
 });
 
-it("replacing a package removes files that are no longer present", async () => {
+it("replacing a package stages under a new key and cleans up the old package", async () => {
   const { manager, course } = await seed();
   await ingestScormPackage(course.id, makeScormZip(), manager.id);
-  expect(await getObject(`scorm/${course.id}/assets/app.js`)).not.toBeNull();
+  const afterA = await prisma.course.findUniqueOrThrow({ where: { id: course.id } });
+  const keyA = afterA.scormBlobKey!;
+  expect(await getObject(`scorm/${course.id}/${keyA}/assets/app.js`)).not.toBeNull();
 
   const { zipSync, strToU8 } = await import("fflate");
   const slim = Buffer.from(
@@ -120,6 +124,34 @@ it("replacing a package removes files that are no longer present", async () => {
     })
   );
   await ingestScormPackage(course.id, slim, manager.id);
-  expect(await getObject(`scorm/${course.id}/index.html`)).not.toBeNull();
-  expect(await getObject(`scorm/${course.id}/assets/app.js`)).toBeNull();
+
+  const afterB = await prisma.course.findUniqueOrThrow({ where: { id: course.id } });
+  const keyB = afterB.scormBlobKey!;
+  expect(keyB).not.toBe(keyA);
+  // New package served from the new key.
+  expect(await getObject(`scorm/${course.id}/${keyB}/index.html`)).not.toBeNull();
+  // Old package fully cleaned up.
+  expect(await getObject(`scorm/${course.id}/${keyA}/index.html`)).toBeNull();
+  expect(await getObject(`scorm/${course.id}/${keyA}/assets/app.js`)).toBeNull();
+});
+
+it("keeps the previous package intact when the DB manifest write fails mid-replace (audit F17)", async () => {
+  const { manager, course } = await seed();
+  await ingestScormPackage(course.id, makeScormZip(), manager.id);
+  const afterA = await prisma.course.findUniqueOrThrow({ where: { id: course.id } });
+  const keyA = afterA.scormBlobKey!;
+
+  // Force the manifest update to fail AFTER the new blobs are staged.
+  const spy = vi.spyOn(prisma.course, "update").mockRejectedValueOnce(new Error("db down"));
+  try {
+    await expect(ingestScormPackage(course.id, makeMultiScoZip(), manager.id)).rejects.toThrow(/db down/);
+  } finally {
+    spy.mockRestore();
+  }
+
+  // The course still points at package A (manifest untouched), and A's files are
+  // still present and served -- no broken course pointing at deleted files.
+  const afterFail = await prisma.course.findUniqueOrThrow({ where: { id: course.id } });
+  expect(afterFail.scormBlobKey).toBe(keyA);
+  expect(await getObject(`scorm/${course.id}/${keyA}/index.html`)).not.toBeNull();
 });

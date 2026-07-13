@@ -128,6 +128,25 @@ export async function canManageRequestsForDept(
   return (await manageableRequestDepartmentIds(personId)).includes(departmentId);
 }
 
+/**
+ * How many PENDING shift-change requests this person is responsible for deciding,
+ * across every department they can manage requests for, in the active term. Used
+ * by the dashboard action feed. Returns 0 when there is no active term or the
+ * person manages no departments. One count query; reuses the same scope resolver
+ * as the approve/deny path.
+ */
+export async function countPendingApprovals(personId: string): Promise<number> {
+  const term = await getActiveTerm();
+  if (!term) return 0;
+
+  const departmentIds = await manageableRequestDepartmentIds(personId);
+  if (departmentIds.length === 0) return 0;
+
+  return prisma.shiftRequest.count({
+    where: { termId: term.id, departmentId: { in: departmentIds }, status: "PENDING" },
+  });
+}
+
 async function scopeCheck(actorPersonId: string, departmentId: string): Promise<void> {
   if (!(await canManageRequestsForDept(actorPersonId, departmentId))) {
     throw new RequestForbiddenError();

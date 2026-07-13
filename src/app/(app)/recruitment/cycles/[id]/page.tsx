@@ -42,6 +42,10 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
   // Hide them from reviewers so they do not see controls that would only error on submit.
   const session = await requirePersonSession();
   const canManage = await can(session.personId, "recruitment.manage_cycles");
+  // Decisions/Onboarding destinations require review_all; the edit destinations
+  // require manage_cycles. Gate each link by its target's actual requirement so a
+  // scoped reviewer isn't shown links that only dead-end on /no-access (audit F19).
+  const canReviewAll = await can(session.personId, "recruitment.review_all");
   const zone = await getDisplayTimeZone();
 
   const activeDepts = await prisma.department.findMany({ where: { isActive: true }, select: { code: true, name: true }, orderBy: { code: "asc" } });
@@ -73,18 +77,28 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
       {error && <Alert tone="error">{error}</Alert>}
 
       <div className="flex flex-wrap gap-2">
-        <Link href={`/recruitment/cycles/${id}/builder`} className={navLink}>Edit form</Link>
-        <Link href={`/recruitment/cycles/${id}/builder/contract`} className={navLink}>Edit onboarding contract</Link>
+        {canManage && (
+          <Link href={`/recruitment/cycles/${id}/builder`} className={navLink}>Edit form</Link>
+        )}
+        {canManage && (
+          <Link href={`/recruitment/cycles/${id}/builder/contract`} className={navLink}>Edit onboarding contract</Link>
+        )}
         <Link href={`/recruitment/cycles/${id}/applicants`} className={navLink}>View applicants</Link>
-        <Link href={`/recruitment/cycles/${id}/decisions`} className={navLink}>Decisions</Link>
+        {canReviewAll && (
+          <Link href={`/recruitment/cycles/${id}/decisions`} className={navLink}>Decisions</Link>
+        )}
         {cycle.track === "VOLUNTEER" && (
           <Link href={`/recruitment/cycles/${id}/subcommittees`} className={navLink}>Subcommittees</Link>
         )}
         {cycle.track === "DIRECTOR" && (
           <Link href={`/recruitment/cycles/${id}/interviews`} className={navLink}>Interviews</Link>
         )}
-        <Link href={`/recruitment/cycles/${id}/onboarding`} className={navLink}>Onboarding</Link>
-        <Link href={`/recruitment/cycles/${id}/emails`} className={navLink}>Edit emails</Link>
+        {canReviewAll && (
+          <Link href={`/recruitment/cycles/${id}/onboarding`} className={navLink}>Onboarding</Link>
+        )}
+        {canManage && (
+          <Link href={`/recruitment/cycles/${id}/emails`} className={navLink}>Edit emails</Link>
+        )}
       </div>
 
       <Card>
@@ -208,7 +222,9 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
         <Card className="space-y-4">
           <SectionHeader>{cycle.track === "DIRECTOR" ? "Director training" : "Training"}</SectionHeader>
           <div className="flex flex-wrap gap-2">
-            <Link href={`/recruitment/cycles/${id}/builder/quiz`} className={navLink}>Edit quiz</Link>
+            {canManage && (
+              <Link href={`/recruitment/cycles/${id}/builder/quiz`} className={navLink}>Edit quiz</Link>
+            )}
             <Link href={`/recruitment/cycles/${id}/training`} className={navLink}>Training roster</Link>
           </div>
           {canManage && (

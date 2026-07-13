@@ -743,7 +743,7 @@ describe("cancelEpicRequest", () => {
   }
 
   it("cancels a PENDING request and audits", async () => {
-    const person = await createPerson("P");
+    const person = await createPerson("P", { epicId: "E-123" });
     const mgr = await createPerson("Manager");
     await grantPermission(mgr.id, "support.manage_requests");
     const req = await pendingRequest(person.id, mgr.id);
@@ -754,6 +754,10 @@ describe("cancelEpicRequest", () => {
     expect(after.status).toBe("CANCELLED");
     const audit = await prisma.auditLog.findFirst({ where: { action: "epic.cancel", entityId: req.id } });
     expect(audit).not.toBeNull();
+
+    // cancelEpicRequest must not touch Person.epicId.
+    const stillThere = await prisma.person.findUniqueOrThrow({ where: { id: person.id } });
+    expect(stillThere.epicId).toBe("E-123");
   });
 
   it("refuses to cancel a non-PENDING request", async () => {

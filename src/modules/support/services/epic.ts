@@ -468,7 +468,16 @@ export async function cancelEpicRequest(actorPersonId: string, requestId: string
       `Cannot cancel a request with status ${req.status}. Only a PENDING request can be cancelled.`
     );
   }
-  await prisma.epicRequest.update({ where: { id: requestId }, data: { status: "CANCELLED" } });
+  // Atomic claim: guard against a concurrent createTicket claiming the row PENDING->SUBMITTED between the read above and this write.
+  const claimed = await prisma.epicRequest.updateMany({
+    where: { id: requestId, status: "PENDING" },
+    data: { status: "CANCELLED" },
+  });
+  if (claimed.count !== 1) {
+    throw new EpicStateError(
+      "This request was just submitted by a concurrent action. Refresh and try again."
+    );
+  }
   await recordAudit({
     actorPersonId,
     action: "epic.cancel",

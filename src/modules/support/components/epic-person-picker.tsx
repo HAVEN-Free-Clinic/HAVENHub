@@ -6,7 +6,7 @@
  * department switches and render as removable chips. Selected ids are emitted
  * as hidden inputs named "personIds" for the enclosing server-action form.
  *
- * `quickAdd` (optional) pre-lists the ticket requester as a one-click add.
+ * `quickAdd` (optional) offers the ticket requester as a one-click add.
  */
 import { useMemo, useState } from "react";
 import { X } from "lucide-react";
@@ -26,9 +26,7 @@ export function EpicPersonPicker({
   quickAdd?: QuickAdd;
 }) {
   const [deptId, setDeptId] = useState<string>("");
-  const [selected, setSelected] = useState<Map<string, string>>(() =>
-    quickAdd ? new Map([[quickAdd.id, quickAdd.name ?? "Requester"]]) : new Map()
-  );
+  const [selected, setSelected] = useState<Map<string, string>>(new Map());
 
   const dept = useMemo(
     () => departments.find((d) => d.department.id === deptId),

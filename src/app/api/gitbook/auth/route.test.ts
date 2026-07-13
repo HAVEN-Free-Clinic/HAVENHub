@@ -3,12 +3,12 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 // Mock every dependency so this test is DB-free and deterministic.
 vi.mock("@/platform/auth/auth", () => ({ auth: vi.fn() }));
 vi.mock("@/platform/auth/match-person", () => ({ getActivePerson: vi.fn() }));
-// adaptive-claims.ts also imports hasPermission from this module; stub it with the
-// real (pure, DB-free) implementation so buildAdaptiveClaims resolves correctly.
-vi.mock("@/platform/rbac/engine", () => ({
-  getEffectivePermissions: vi.fn(),
-  hasPermission: (perms: Set<string>, permission: string) => perms.has(permission) || perms.has("*"),
-}));
+// adaptive-claims.ts also imports hasPermission from this module; use importOriginal to keep
+// the real (pure, DB-free) implementation so buildAdaptiveClaims resolves correctly.
+vi.mock("@/platform/rbac/engine", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/platform/rbac/engine")>();
+  return { ...actual, getEffectivePermissions: vi.fn() };
+});
 vi.mock("@/platform/audit", () => ({ recordAudit: vi.fn() }));
 vi.mock("@/platform/config", () => ({
   config: { GITBOOK_JWT_KEY: "test-key", GITBOOK_SITE_URL: "https://docs.example.org" },

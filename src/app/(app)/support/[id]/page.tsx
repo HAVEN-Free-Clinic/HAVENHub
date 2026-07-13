@@ -328,6 +328,16 @@ export default async function TicketPage({ params, searchParams }: PageProps) {
       throw err;
     }
 
+    // Notify BEFORE persisting attachments (audit F9): a rejected attachment below
+    // redirects (NEXT_REDIRECT throws), so with the notify after the loop a committed
+    // reply would go un-notified. Mirrors support/new/page.tsx's ordering.
+    const req = await prisma.techRequest.findUniqueOrThrow({ where: { id } });
+    const author = await prisma.person.findUniqueOrThrow({
+      where: { id: actorSession.personId },
+      select: { id: true, name: true },
+    });
+    await notifyCommentAdded(prisma, req, comment, author);
+
     const files = formData.getAll("attachments").filter((f): f is File => f instanceof File && f.size > 0);
     try {
       for (const file of files) {
@@ -344,12 +354,6 @@ export default async function TicketPage({ params, searchParams }: PageProps) {
       throw err;
     }
 
-    const req = await prisma.techRequest.findUniqueOrThrow({ where: { id } });
-    const author = await prisma.person.findUniqueOrThrow({
-      where: { id: actorSession.personId },
-      select: { id: true, name: true },
-    });
-    await notifyCommentAdded(prisma, req, comment, author);
     redirect(`/support/${id}`);
   }
 

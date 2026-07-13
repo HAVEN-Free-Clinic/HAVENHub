@@ -400,11 +400,10 @@ export async function POST(req: Request) {
 
   if (isDeactivate) {
     // Deactivation requests already exist (queued at offboard) or are created
-    // here for an ad-hoc deactivation; link them to this ticket as SUBMITTED.
-    const ticket = await prisma.ynhhTicket.create({
-      data: { submittedById: actor.id, description: ticketDescription, status: "OPEN" },
-    });
-    await reconcileDeactivationRequests(actor.id, people.map((p) => p.id), ticket.id);
+    // here for an ad-hoc deactivation; link them to a ticket as SUBMITTED. The
+    // ticket is created inside reconcileDeactivationRequests' transaction, so a
+    // mid-batch failure can't leave an orphan OPEN ticket (audit F18).
+    await reconcileDeactivationRequests(actor.id, people.map((p) => p.id), ticketDescription);
   } else {
     // Record access-granting Epic requests for tracking.
     // kind maps: new_individual/bulk_new -> NEW, mod_individual -> MODIFY,

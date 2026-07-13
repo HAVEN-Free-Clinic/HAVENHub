@@ -538,13 +538,20 @@ export async function listPendingDeactivations(): Promise<PendingDeactivation[]>
  * ad-hoc deactivation for someone who was not auto-queued).
  *
  * Trusts its caller for permissions: the generate route gates on support.manage_requests.
+ *
+ * Creates the YnhhTicket INSIDE the same transaction as the request links and
+ * returns it (mirrors submitEpicRequests), so a mid-batch failure rolls the ticket
+ * back too instead of committing an OPEN ticket with zero linked requests (F18).
  */
 export async function reconcileDeactivationRequests(
   actorPersonId: string,
   personIds: string[],
-  ticketId: string
-): Promise<void> {
-  await prisma.$transaction(async (tx) => {
+  ticketDescription: string
+): Promise<YnhhTicket> {
+  return prisma.$transaction(async (tx) => {
+    const ticket = await tx.ynhhTicket.create({
+      data: { submittedById: actorPersonId, description: ticketDescription, status: "OPEN" },
+    });
     for (const personId of personIds) {
       const open = await tx.epicRequest.findFirst({
         where: { personId, kind: "DEACTIVATE", status: { in: ["PENDING", "SUBMITTED"] } },
@@ -553,14 +560,15 @@ export async function reconcileDeactivationRequests(
       if (open) {
         await tx.epicRequest.update({
           where: { id: open.id },
-          data: { status: "SUBMITTED", ticketId },
+          data: { status: "SUBMITTED", ticketId: ticket.id },
         });
       } else {
         await tx.epicRequest.create({
-          data: { personId, kind: "DEACTIVATE", status: "SUBMITTED", ticketId, requestedById: actorPersonId },
+          data: { personId, kind: "DEACTIVATE", status: "SUBMITTED", ticketId: ticket.id, requestedById: actorPersonId },
         });
       }
     }
+    return ticket;
   });
 }
 

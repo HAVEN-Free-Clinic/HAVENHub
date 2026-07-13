@@ -188,14 +188,38 @@ requests:
 - Multi-select + a **"Create YNHH ticket"** action that calls the existing
   `createTicket(actor, { requestIds, description })` from `epic.ts` (already
   atomic-claim safe). After that the request is `SUBMITTED` under a `YnhhTicket`
-  and the existing Tracker pipeline (SR#, complete, email, close) takes over
-  unchanged.
+  and shows on the Tracker.
 - New read in `itcm.ts`: `listPendingEpicRequests()` returning the rows above.
 - New server action on the epic page: `createTicketFromPendingAction(formData)`
   gated on `support.manage_requests`.
 
 This effectively revives the retired `/volunteers/epic` multi-select queue,
 scoped to pending requests, and is bulk-ready for the director case.
+
+#### 4a. Per-request Complete + Email on the Tracker (corrected scope)
+
+Discovered while planning: the Tracker today only does **SR#** and **close the
+YnhhTicket** (`closeTicket` does not complete individual requests). The
+per-request **Complete** (`completeRequest`, which writes `Person.epicId` and
+marks the request `COMPLETED`) and the **Epic emails** (`sendEpicEmail`:
+onboarding / activation / password-reset) live **only** in the inline ticket
+pipeline we are removing. Generate-flow requests currently have no in-app
+Complete or Email at all.
+
+So moving the pipeline home to `/support/epic` requires **adding those two steps
+to the Tracker**, per request row:
+
+- **Complete**: for a `NEW`/`MODIFY` request, an `epicId` input + Complete button
+  wired to the existing `completeRequest(actor, requestId, epicId)`; for `RENEW`,
+  a confirm-only Complete. Only shown for `PENDING`/`SUBMITTED` requests.
+- **Email**: onboarding / activation / password-reset buttons wired to the
+  existing `sendEpicEmail(actor, requestId, template)`, shown for
+  `PENDING`/`SUBMITTED`/`COMPLETED` requests (matches current ticket behavior).
+
+Both services already exist and are unchanged; this is UI + two new server
+actions on the epic page (`completeEpicRequestAction`, `sendEpicEmailAction`).
+Net effect: the Tracker becomes the real pipeline home for **all** Epic requests,
+closing the pre-existing Generate-flow gap as a bonus.
 
 ### 5. Guards and edge cases
 
@@ -237,7 +261,9 @@ scoped to pending requests, and is bulk-ready for the director case.
 3. Ticket detail UI: extract the member-tree picker, build the attached-requests
    list + attach/cancel controls, delete the inline pipeline + its actions.
 4. `/support/epic` Pending queue: read + tab + create-ticket action.
-5. E2E + full check run (`npm run check` or the repo's gate).
+5. `/support/epic` Tracker per-request Complete + Email (section 4a): two new
+   server actions + Tracker row controls.
+6. E2E + full check run (`npm run check` or the repo's gate).
 
 ## Decisions carried from brainstorming
 

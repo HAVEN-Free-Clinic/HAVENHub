@@ -65,12 +65,12 @@ needs the condition applied separately.
 | Volunteer Management | Master view | `NPUzhjC6USm6UhpqvKx1` | `visitor.claims.can.volunteers.manage_compliance == true` |
 | Volunteer Management | EHS training | `58TjuGedA6VfVpRBW6Zj` | `visitor.claims.can.volunteers.manage_compliance == true` |
 | Volunteer Management | Spanish verification | `OVS68MjE9bwO9xWToIT2` | `visitor.claims.can.volunteers.verify_spanish == true` |
-| Volunteer Management | Offboarding | `sKZj4M7EkUy9N06gXtXC` | `visitor.claims.can.volunteers.manage_offboarding == true` |
+| Volunteer Management | Offboarding | `sKZj4M7EkUy9N06gXtXC` | `visitor.claims.can.volunteers.view == true` |
 | Recruitment | *(landing)* | `wE2OL6Zx7fCucbhiXoW4` | `visitor.claims.can.recruitment.access == true` |
 | Recruitment | Running a cycle | `lYCaW2ryvEpXvgcMxANj` | `visitor.claims.can.recruitment.manage_cycles == true` |
 | Recruitment | Building the application | `spzcXrEV3BxvLZgyORCE` | `visitor.claims.can.recruitment.manage_cycles == true` |
 | Recruitment | Reviewing applicants | `6f45jaeddDMnVxLcm6yz` | `visitor.claims.can.recruitment.access == true` |
-| Recruitment | Interviews | `q3deTJsTW78Wr0CpLdUy` | `visitor.claims.can.recruitment.access == true` |
+| Recruitment | Interviews | `q3deTJsTW78Wr0CpLdUy` | NEEDS REVIEW (see note below) |
 | Recruitment | Making decisions | `gdvvRd8UtBYm7SBUNbPr` | `visitor.claims.can.recruitment.review_all == true` |
 | Recruitment | Onboarding new members | `5bzPYfOBwzTdp5uCoGT4` | `visitor.claims.can.recruitment.review_all == true` |
 | Recruitment | Subcommittees & training | `yvgmh1ecxzpaSPcPjTRH` | `visitor.claims.can.recruitment.access == true` |
@@ -119,16 +119,21 @@ page-level gates were checked in the app (`src/app/(app)/recruitment/**`):
   `requirePermission("recruitment.review_all")`, backing **Making decisions** and
   **Onboarding new members**.
 - `cycles/[id]/applicants/page.tsx`, `cycles/[id]/interviews/page.tsx`,
-  `recruitment/interviews/page.tsx`, `cycles/[id]/subcommittees/page.tsx`, and
-  `cycles/[id]/training/page.tsx` have no page-level `requirePermission` call beyond the
-  module's own `recruitment.access` gate (scoping to a reviewer's own departments happens in
-  data, not in a permission check), backing **Reviewing applicants**, **Interviews**, and
-  **Subcommittees & training** staying at `recruitment.access`.
+  `cycles/[id]/subcommittees/page.tsx`, and `cycles/[id]/training/page.tsx` have no page-level
+  `requirePermission` call beyond the module's own `recruitment.access` gate (scoping to a
+  reviewer's own departments happens in data, not in a permission check), backing
+  **Reviewing applicants** and **Subcommittees & training** staying at `recruitment.access`.
 
 Both `recruitment.manage_cycles` and `recruitment.review_all` are already declared on the
 `recruitment` module in the registry and are present as leaves in the schema, so this is not a
 new or invented permission, just a more precise read of an already-approved permission set than
 the nav array alone provides.
+
+**Interviews carve-out.** `recruitment/interviews/page.tsx` (the panelist-facing route backing
+the **Interviews** doc page) is a different case: it is reached through the panelist branch of
+`recruitment/layout.tsx`, a permission-less branch kept open on a bare session precisely so
+panelists without `recruitment.access` can reach it, so it is not gated by `recruitment.access`
+at all. See the NEEDS REVIEW note below.
 
 ## NEEDS REVIEW: Clinic Schedule manager pages
 
@@ -162,6 +167,27 @@ three rows are marked `NEEDS REVIEW` for a human decision, for example: extend t
 schema with a data-driven `can.schedule.manages_any_dept` claim, or accept the
 `schedule.edit_all` under-match as good enough for documentation purposes.
 
+## NEEDS REVIEW: Recruitment Interviews page (panelists)
+
+**Interviews** documents `src/app/(app)/recruitment/interviews/page.tsx`, the "My interview
+assignments" page shown to interview panelists. Panelists are not recruitment staff and hold no
+`recruitment.access` claim; `src/app/(app)/recruitment/layout.tsx` says so directly ("panelists
+... are not recruitment staff and hold no recruitment.access"), and the page itself only calls
+`requirePersonSession()`, no `requirePermission` check of any kind. Panel membership is a
+dynamic, data-driven assignment (is this person on this interview's panel), not a permission
+grant, so no `can.recruitment.*` leaf in the schema captures the panelist audience the same way
+`can.schedule.manages_any_dept` would need to for Builder/Attendings above.
+
+Gating this row on `recruitment.access` (as it previously was) would hide the page from the
+panelists it is written for, while showing it to recruitment staff who are not necessarily
+panelists. Per the task instructions, no new permission was invented and no existing permission
+was guessed at to paper over this; this row is marked `NEEDS REVIEW` for a human decision.
+Recommended resolution: leave this page with no condition (always visible) so panelists keep
+access, since a signed-in non-panelist landing here only sees an empty assignments table. If
+that residual exposure to non-panelist staff is unacceptable, the alternative is to split the
+page into a panelist-only view (left unconditioned) and any staff-only portions into a
+separately conditioned page.
+
 ## Schema cross-check
 
 Every distinct `visitor.claims.can.<module>.<action>` path used above is a leaf under `can` in
@@ -176,7 +202,6 @@ Every distinct `visitor.claims.can.<module>.<action>` path used above is a leaf 
 - `recruitment.access`, `recruitment.manage_cycles`, `recruitment.review_all`
 - `schedule.view`
 - `support.manage_requests`
-- `volunteers.view`, `volunteers.manage_compliance`, `volunteers.manage_offboarding`,
-  `volunteers.verify_spanish`
+- `volunteers.view`, `volunteers.manage_compliance`, `volunteers.verify_spanish`
 
 All confirmed present as `boolean` leaves in the schema.

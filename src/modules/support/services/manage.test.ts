@@ -116,13 +116,39 @@ describe("setStatus", () => {
     expect(logs.map((l) => l.toEmail)).toContain("owner@example.com");
   });
 
-  it("does not notify on a non-AWAITING_REQUESTER transition", async () => {
+  it("notifies the requester on any status transition (e.g. IN_PROGRESS)", async () => {
     const owner = await createPerson("Owner", { contactEmail: "owner@example.com" });
     const mgr = await createPerson("Manager");
     await grantPermission(mgr.id, "support.manage_requests");
     const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
 
     await setStatus(mgr.id, req.id, "IN_PROGRESS");
+
+    const logs = await prisma.emailLog.findMany({ where: { template: "support.status_changed" } });
+    expect(logs.map((l) => l.toEmail)).toContain("owner@example.com");
+  });
+
+  it("notifies on AWAITING_YNHH and CLOSED transitions too", async () => {
+    const owner = await createPerson("Owner", { contactEmail: "owner@example.com" });
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
+
+    await setStatus(mgr.id, req.id, "AWAITING_YNHH");
+    await setStatus(mgr.id, req.id, "CLOSED");
+
+    const logs = await prisma.emailLog.findMany({ where: { template: "support.status_changed" } });
+    expect(logs).toHaveLength(2);
+  });
+
+  it("does not notify on a no-op (same-status) call", async () => {
+    const owner = await createPerson("Owner", { contactEmail: "owner@example.com" });
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    // Fresh tickets start SUBMITTED; re-setting SUBMITTED is not a transition.
+    const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
+
+    await setStatus(mgr.id, req.id, "SUBMITTED");
 
     const logs = await prisma.emailLog.findMany({ where: { template: "support.status_changed" } });
     expect(logs).toHaveLength(0);

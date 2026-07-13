@@ -18,6 +18,7 @@ import {
   type OnboardingTaskKey,
   type OnboardingTaskState,
 } from "../engine/status";
+import { loadEffectiveSteps } from "./step-config";
 
 /** The permission that exempts a person from the gate (IT / super-admin proxy). */
 export const EXEMPT_PERMISSION = "admin.access";
@@ -45,55 +46,15 @@ export type OnboardingStatus = {
   cleared: boolean;
 };
 
-/** Static presentation copy per task (HAVEN voice; sentence case; no em-dashes).
- *  href/ctaLabel are omitted for non-actionable tasks (see EHS below). */
-const COPY: Record<OnboardingTaskKey, { label: string; description: string; href?: string; ctaLabel?: string }> = {
-  profile: {
-    label: "Profile & agreements",
-    description: "Confirm your contact details so we can reach you about shifts.",
-    href: "/get-started/profile",
-    ctaLabel: "Complete profile",
-  },
-  hipaa: {
-    label: "HIPAA certificate",
-    description: "Upload your current HIPAA certificate so we can verify it is valid through the term.",
-    href: "/get-started/hipaa",
-    ctaLabel: "Upload certificate",
-  },
-  training: {
-    label: "Volunteer training",
-    description: "Finish this term's training to be cleared for shifts.",
-    href: "/get-started/training?track=volunteer",
-    ctaLabel: "Go to training",
-  },
-  directorTraining: {
-    label: "Director training",
-    description: "Finish this term's director training to be cleared for shifts.",
-    href: "/get-started/training?track=director",
-    ctaLabel: "Go to training",
-  },
-  learning: {
-    label: "Learning modules",
-    description: "Complete the courses your department assigned to you.",
-    href: "/get-started/learning",
-    ctaLabel: "Open courses",
-  },
-  ehs: {
-    // No href: EHS is not self-serviceable during onboarding, and /my-info is
-    // gated for not-yet-cleared members, so a CTA here would bounce back to the
-    // gate. The status pill and description carry the state instead.
-    label: "EHS training",
-    description: "Environmental Health and Safety trainings are recorded by your coordinator once you complete them in Yale's EHS system.",
-  },
-};
-
-function task(key: OnboardingTaskKey, state: OnboardingTaskState, blocking = true): OnboardingTask {
-  return { key, state, blocking, ...COPY[key] };
-}
+type Entry = { task: OnboardingTask; order: number };
 
 /**
  * Compute a person's onboarding clearance for the active term. Returns a dormant
  * (onboarded:true, cleared:true) status when there is no active term, so the gate never blocks.
+ *
+ * The step list, labels, descriptions, blocking flags, and order come from the
+ * term's effective onboarding-step config (built-in defaults merged with any
+ * per-term overrides). A step whose config is disabled is dropped entirely.
  */
 export const getOnboardingStatus = cache(async function getOnboardingStatus(
   personId: string
@@ -105,30 +66,54 @@ export const getOnboardingStatus = cache(async function getOnboardingStatus(
     return { hasActiveTerm: false, exempt, tasks: [], completedCount: 0, totalCount: 0, onboarded: true, cleared: true };
   }
 
-  const [person, certs, courses, tracks, ehsItems] = await Promise.all([
+  const [person, certs, courses, tracks, ehsItems, steps] = await Promise.all([
     prisma.person.findUniqueOrThrow({ where: { id: personId }, select: { contactEmail: true, phone: true } }),
     listMyCertificates(personId),
     getMyCourses(personId),
     requiredTrainingTracks(personId, term.id),
     getMyEhsStatus(personId),
+    loadEffectiveSteps(term.id),
   ]);
 
-  const trainingTasks: OnboardingTask[] = [];
+  // Build one entry per applicable, enabled step, carrying its (possibly
+  // term-overridden) label/description/blocking/order. A disabled step is dropped.
+  function buildTask(key: OnboardingTaskKey, state: OnboardingTaskState): Entry | null {
+    const s = steps.get(key);
+    if (!s || !s.enabled) return null;
+    return {
+      task: {
+        key,
+        state,
+        blocking: s.blocking,
+        label: s.label,
+        description: s.description,
+        href: s.href,
+        ctaLabel: s.ctaLabel,
+      },
+      order: s.order,
+    };
+  }
+
+  const trainingEntries: Entry[] = [];
   for (const track of tracks) {
     // attemptsUsed lets the checklist render IN_PROGRESS for a started-but-unpassed
     // quiz; the gate itself still only clears on a COMPLETE state.
     const { state, attemptsUsed } = await resolveTrainingProgress(personId, term.id, track);
     const key = track === "DIRECTOR" ? "directorTraining" : "training";
-    trainingTasks.push(task(key, deriveTrainingTaskState({ state, attemptsUsed })));
+    const entry = buildTask(key, deriveTrainingTaskState({ state, attemptsUsed }));
+    if (entry) trainingEntries.push(entry);
   }
 
-  const tasks: OnboardingTask[] = [
-    task("profile", deriveProfileTaskState(person)),
-    task("hipaa", deriveHipaaTaskState(complianceStatus(certs[0] ?? null, term.endDate))),
-    ...trainingTasks,
-    task("learning", deriveLearningTaskState(courses)),
-    task("ehs", deriveEhsTaskState(ehsItems), false),
-  ];
+  const entries = [
+    buildTask("profile", deriveProfileTaskState(person)),
+    buildTask("hipaa", deriveHipaaTaskState(complianceStatus(certs[0] ?? null, term.endDate))),
+    ...trainingEntries,
+    buildTask("learning", deriveLearningTaskState(courses)),
+    buildTask("ehs", deriveEhsTaskState(ehsItems)),
+  ].filter((e): e is Entry => e !== null);
+
+  entries.sort((a, b) => a.order - b.order);
+  const tasks = entries.map((e) => e.task);
 
   const { completedCount, totalCount } = summarize(tasks.map((t) => t.state));
   const { onboarded, cleared } = computeGating(tasks);

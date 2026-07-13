@@ -10,7 +10,7 @@ export async function resetDb() {
               "QuizAttempt", "Training", "Evaluation", "InterviewPanelist", "Interview", "OnboardingContract", "Acceptance", "Application", "Applicant", "Subcommittee", "FormField", "FormSection", "RecruitmentCycleEmail", "RecruitmentCycle",
               "ShiftRequest", "ScheduleDay", "RhdClinic", "RhdAttending",
               "ShiftAssignment", "HipaaCertificate", "RoleAssignment", "RoleGrant", "Role", "TermMembership",
-              "DepartmentDelegation", "Department", "Term", "Person", "AuditLog",
+              "DepartmentDelegation", "Department", "TermOnboardingStep", "Term", "Person", "AuditLog",
               "OffboardFlag", "EpicRequest", "YnhhTicket", "TechRequest", "TechRequestComment", "TechRequestAttachment", "DisciplinaryAction", "Notification", "EmailLog", "EmailCampaignRun", "EmailCampaign", "EmailTemplate",
               "ComplianceReminder", "ReminderDispatch", "MailCredential", "Setting", "EmailSenderRule",
               "ApplicantPortalToken" CASCADE`

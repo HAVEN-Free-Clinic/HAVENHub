@@ -59,6 +59,43 @@ export async function queueEmail(db: Db, input: QueueEmailInput): Promise<EmailL
 }
 
 /**
+ * Batch-append many email jobs of ONE template (e.g. a campaign fan-out). The
+ * sender is resolved once (all rows share the template) and rows are inserted
+ * with a chunked createMany, then a single flush is scheduled.
+ *
+ * Unlike queueEmail, this is meant to run OUTSIDE a long interactive
+ * transaction: enqueuing hundreds of recipients inside one tx can exceed the
+ * interactive-transaction timeout and roll back the whole thing. Each createMany
+ * chunk is itself atomic; callers that need the enqueue to be atomic with a claim
+ * should claim in a short tx first, then call this after it commits.
+ */
+export async function queueEmails(
+  db: Db,
+  template: string,
+  inputs: Omit<QueueEmailInput, "template">[],
+): Promise<void> {
+  if (inputs.length === 0) return;
+  const sender = await resolveSenderForTemplate(template);
+  const rows = inputs.map((input) => ({
+    toEmail: input.to,
+    subject: input.subject,
+    html: input.html,
+    template,
+    personId: input.personId ?? null,
+    triggeredById: input.triggeredById ?? null,
+    campaignRunId: input.campaignRunId ?? null,
+    fromEmail: sender?.fromEmail ?? null,
+    fromName: sender?.fromName ?? null,
+  }));
+  // Chunk to stay well under Postgres' bind-parameter limit on a single INSERT.
+  const CHUNK = 500;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    await db.emailLog.createMany({ data: rows.slice(i, i + CHUNK) });
+  }
+  emailFlusher.schedule();
+}
+
+/**
  * Drain the QUEUED email backlog, oldest-first. For each row, delegates to
  * transport.send(); on success stamps SENT + sentAt; on failure increments
  * attempts and sets lastError. When attempts reaches MAX_ATTEMPTS the row

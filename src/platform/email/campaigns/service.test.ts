@@ -143,32 +143,31 @@ describe("campaign service", () => {
     expect(after.status).toBe("SENT");
   });
 
-  it("rolls back the claim when enqueue fails, leaving the campaign eligible", async () => {
-    // The claim (status flip) and the enqueue commit in one transaction, so a
-    // mid-run failure must revert the claim -- otherwise a transient transport
-    // error would strand the campaign as SENT with nothing actually sent.
+  it("commits the claim before enqueuing, so an enqueue failure does not re-dispatch (F1)", async () => {
+    // F1: the claim (status flip + run row) commits in a short tx BEFORE the
+    // recipient enqueue, which runs outside it. This bounds the tx so a large
+    // fan-out can't exceed the interactive-tx timeout and roll the claim back --
+    // which for a SCHEDULED/RECURRING campaign would otherwise re-dispatch and
+    // fail identically every cron tick forever. The deliberate trade-off: an
+    // enqueue failure leaves the campaign marked SENT rather than reverting.
     await activePerson("Sam Rivera", "sam@example.com");
     const c = await createDraft(null, "Flaky");
     await updateCampaign(null, c.id, { subject: "s", body: "<p>hi</p>", audience: ALL_ACTIVE });
     await scheduleCampaign(null, c.id, { scheduleType: "SCHEDULED", scheduledAt: new Date("2026-06-10T12:00:00Z") });
 
-    const spy = vi.spyOn(sendModule, "queueEmail").mockRejectedValueOnce(new Error("transport down"));
+    const spy = vi.spyOn(sendModule, "queueEmails").mockRejectedValueOnce(new Error("enqueue down"));
     try {
       await expect(
         executeRun(c.id, { actorId: null, claimWhere: { status: "SCHEDULED" }, statusUpdate: { status: "SENT", nextRunAt: null } }),
-      ).rejects.toThrow(/transport down/);
+      ).rejects.toThrow(/enqueue down/);
     } finally {
       spy.mockRestore();
     }
-    const reverted = await prisma.emailCampaign.findUniqueOrThrow({ where: { id: c.id } });
-    expect(reverted.status).toBe("SCHEDULED");
-    expect(await prisma.emailCampaignRun.count({ where: { campaignId: c.id } })).toBe(0);
-
-    // Still eligible: a later run (transport recovered) dispatches normally.
-    const ok = await executeRun(c.id, { actorId: null, claimWhere: { status: "SCHEDULED" }, statusUpdate: { status: "SENT", nextRunAt: null } });
-    expect(ok.recipientCount).toBe(1);
-    const final = await prisma.emailCampaign.findUniqueOrThrow({ where: { id: c.id } });
-    expect(final.status).toBe("SENT");
+    // The claim committed independently, so the campaign is SENT and its run row
+    // exists -- it will NOT be re-selected and time out again on the next tick.
+    const after = await prisma.emailCampaign.findUniqueOrThrow({ where: { id: c.id } });
+    expect(after.status).toBe("SENT");
+    expect(await prisma.emailCampaignRun.count({ where: { campaignId: c.id } })).toBe(1);
   });
 
   it("cancel refuses a non-scheduled campaign", async () => {

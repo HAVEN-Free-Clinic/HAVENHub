@@ -1,0 +1,179 @@
+{
+  "type": "object",
+  "properties": {
+    "can": {
+      "type": "object",
+      "properties": {
+        "admin": {
+          "type": "object",
+          "properties": {
+            "access": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the admin.access permission in HAVEN Hub."
+            },
+            "manage_departments": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the admin.manage_departments permission in HAVEN Hub."
+            },
+            "manage_email_templates": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the admin.manage_email_templates permission in HAVEN Hub."
+            },
+            "manage_people": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the admin.manage_people permission in HAVEN Hub."
+            },
+            "manage_roles": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the admin.manage_roles permission in HAVEN Hub."
+            },
+            "manage_roster": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the admin.manage_roster permission in HAVEN Hub."
+            },
+            "manage_settings": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the admin.manage_settings permission in HAVEN Hub."
+            },
+            "manage_subcommittees": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the admin.manage_subcommittees permission in HAVEN Hub."
+            },
+            "manage_sync": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the admin.manage_sync permission in HAVEN Hub."
+            },
+            "manage_terms": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the admin.manage_terms permission in HAVEN Hub."
+            },
+            "send_email_campaign": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the admin.send_email_campaign permission in HAVEN Hub."
+            },
+            "view_audit": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the admin.view_audit permission in HAVEN Hub."
+            }
+          },
+          "additionalProperties": false
+        },
+        "clinic": {
+          "type": "object",
+          "properties": {
+            "access": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the clinic.access permission in HAVEN Hub."
+            }
+          },
+          "additionalProperties": false
+        },
+        "incidents": {
+          "type": "object",
+          "properties": {
+            "manage": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the incidents.manage permission in HAVEN Hub."
+            },
+            "view_strikes": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the incidents.view_strikes permission in HAVEN Hub."
+            }
+          },
+          "additionalProperties": false
+        },
+        "learning": {
+          "type": "object",
+          "properties": {
+            "access": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the learning.access permission in HAVEN Hub."
+            },
+            "manage_courses": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the learning.manage_courses permission in HAVEN Hub."
+            },
+            "view_progress": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the learning.view_progress permission in HAVEN Hub."
+            }
+          },
+          "additionalProperties": false
+        },
+        "recruitment": {
+          "type": "object",
+          "properties": {
+            "access": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the recruitment.access permission in HAVEN Hub."
+            },
+            "manage_cycles": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the recruitment.manage_cycles permission in HAVEN Hub."
+            },
+            "review_all": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the recruitment.review_all permission in HAVEN Hub."
+            }
+          },
+          "additionalProperties": false
+        },
+        "schedule": {
+          "type": "object",
+          "properties": {
+            "edit_all": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the schedule.edit_all permission in HAVEN Hub."
+            },
+            "edit_own_dept": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the schedule.edit_own_dept permission in HAVEN Hub."
+            },
+            "manage_requests": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the schedule.manage_requests permission in HAVEN Hub."
+            },
+            "view": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the schedule.view permission in HAVEN Hub."
+            }
+          },
+          "additionalProperties": false
+        },
+        "support": {
+          "type": "object",
+          "properties": {
+            "manage_requests": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the support.manage_requests permission in HAVEN Hub."
+            }
+          },
+          "additionalProperties": false
+        },
+        "volunteers": {
+          "type": "object",
+          "properties": {
+            "manage_compliance": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the volunteers.manage_compliance permission in HAVEN Hub."
+            },
+            "manage_offboarding": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the volunteers.manage_offboarding permission in HAVEN Hub."
+            },
+            "verify_spanish": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the volunteers.verify_spanish permission in HAVEN Hub."
+            },
+            "view": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the volunteers.view permission in HAVEN Hub."
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

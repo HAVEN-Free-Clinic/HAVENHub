@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { MODULES } from "@/platform/modules/registry";
-import { ADAPTIVE_PERMISSION_CATALOG, buildNested, buildAdaptiveSchema } from "./catalog";
+import {
+  ADAPTIVE_DERIVED_CLAIMS,
+  ADAPTIVE_PERMISSION_CATALOG,
+  buildNested,
+  buildAdaptiveSchema,
+} from "./catalog";
 
 describe("ADAPTIVE_PERMISSION_CATALOG", () => {
   it("is the sorted, de-duped union of every module's permissions", () => {
@@ -30,7 +35,23 @@ describe("buildNested", () => {
     for (const mod of Object.keys(nested)) {
       for (const action of Object.keys(nested[mod])) leaves.push(`${mod}.${action}`);
     }
+    // buildNested stays pure: only registry permissions, no data-driven claims.
     expect(leaves.sort()).toEqual([...ADAPTIVE_PERMISSION_CATALOG].sort());
+  });
+});
+
+describe("ADAPTIVE_DERIVED_CLAIMS", () => {
+  it("are data-driven leaves that are NOT registry permissions", () => {
+    for (const claim of ADAPTIVE_DERIVED_CLAIMS) {
+      expect(ADAPTIVE_PERMISSION_CATALOG).not.toContain(`${claim.module}.${claim.action}`);
+      expect(claim.description.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("cover the schedule Builder and Attendings capability gates", () => {
+    const keys = ADAPTIVE_DERIVED_CLAIMS.map((c) => `${c.module}.${c.action}`);
+    expect(keys).toContain("schedule.manages_any_dept");
+    expect(keys).toContain("schedule.manages_any_rhd_dept");
   });
 });
 
@@ -45,6 +66,9 @@ describe("buildAdaptiveSchema", () => {
     expect(can.type).toBe("object");
     expect(can.properties.schedule.properties.view.type).toBe("boolean");
     expect(can.properties.admin.properties.access.type).toBe("boolean");
+    // Data-driven claims are published alongside the permission leaves.
+    expect(can.properties.schedule.properties.manages_any_dept.type).toBe("boolean");
+    expect(can.properties.schedule.properties.manages_any_rhd_dept.type).toBe("boolean");
   });
 
   it("satisfies GitBook's SiteAdaptiveJSONSchema contract: every object node has a description and additionalProperties:false", () => {

@@ -143,6 +143,14 @@
             "view": {
               "type": "boolean",
               "description": "Whether the visitor holds the schedule.view permission in HAVEN Hub."
+            },
+            "manages_any_dept": {
+              "type": "boolean",
+              "description": "Whether the visitor manages at least one schedule department (via an active directorship, a delegation, or schedule.edit_all) and can therefore use the schedule Builder. Data-driven, not a registry permission."
+            },
+            "manages_any_rhd_dept": {
+              "type": "boolean",
+              "description": "Whether the visitor manages at least one reproductive-health (RHD-family) department and can therefore use the Attendings roster. Data-driven, not a registry permission."
             }
           },
           "additionalProperties": false

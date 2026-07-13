@@ -22,7 +22,7 @@ describe("person fields", () => {
       "status", "role", "department", "complianceStatus", "hasEpicId",
       "spanishVerified", "spanishSelfReported", "licensedRN", "hasOpenEpicRequest", "hasDisciplinaryAction",
       "hasApprovedStrike", "hasOpenTechTicket", "hasVerifiedCertificate", "addedToEhs",
-      "completedVolunteerTraining", "flaggedForOffboarding",
+      "completedVolunteerTraining", "flaggedForOffboarding", "isCleared", "learningComplete",
     ]);
   });
 

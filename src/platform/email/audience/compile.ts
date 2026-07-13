@@ -1,10 +1,25 @@
 import type { Prisma } from "@prisma/client";
-import type { Audience } from "./types";
+import type { Audience, AudienceNode } from "./types";
+import { isAudienceGroup } from "./types";
 import { personFieldWhere, type AudienceCtx } from "./person-fields";
 
+/** Empty group/audience matches NOTHING; never an accidental "everyone" blast. */
+const MATCH_NOBODY: Prisma.PersonWhereInput = { id: { in: [] } };
+
+function compileGroup(
+  match: "ALL" | "ANY",
+  children: AudienceNode[],
+  ctx: AudienceCtx,
+): Prisma.PersonWhereInput {
+  if (children.length === 0) return MATCH_NOBODY;
+  const fragments = children.map((node) =>
+    isAudienceGroup(node)
+      ? compileGroup(node.match, node.children, ctx)
+      : personFieldWhere(node, ctx),
+  );
+  return match === "ALL" ? { AND: fragments } : { OR: fragments };
+}
+
 export function compilePersonWhere(audience: Audience, ctx: AudienceCtx): Prisma.PersonWhereInput {
-  // Empty condition list matches NOTHING; never an accidental "everyone" blast.
-  if (audience.conditions.length === 0) return { id: { in: [] } };
-  const fragments = audience.conditions.map((c) => personFieldWhere(c, ctx));
-  return audience.match === "ALL" ? { AND: fragments } : { OR: fragments };
+  return compileGroup(audience.match, audience.conditions, ctx);
 }

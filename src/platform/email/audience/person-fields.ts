@@ -1,5 +1,6 @@
 import type { Prisma, TechRequestStatus } from "@prisma/client";
 import type { ComplianceStatus } from "@/platform/compliance/rules";
+import type { ClearanceSummary } from "@/platform/clearance";
 import type { AudienceCondition, ConditionOp } from "./types";
 
 export type PersonFieldKind = "text" | "enum" | "multiEnum" | "boolean";
@@ -13,6 +14,13 @@ export type AudienceCtx = {
    * and injects it here. See loadComplianceStatusMap.
    */
   complianceStatusByPerson?: Map<string, ComplianceStatus>;
+  /**
+   * Full clearance per active-term member, keyed by id. Required only when a
+   * clearance-derived condition (isCleared, learningComplete) is present:
+   * clearance is derived (profile + HIPAA + training + learning + EHS), never a
+   * stored column, so resolveAudience precomputes it via loadClearanceMap.
+   */
+  clearanceByPerson?: Map<string, ClearanceSummary>;
 };
 
 export type PersonFieldDef = {
@@ -321,6 +329,49 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
       return cond.op === "isFalse"
         ? { offboardFlags: { none: some } }
         : { offboardFlags: { some } };
+    },
+  },
+  {
+    key: "isCleared",
+    label: "Cleared to volunteer (full clearance)",
+    group: "Status & roles",
+    kind: "boolean",
+    operators: ["isTrue", "isFalse"],
+    // Derived from full onboarding clearance (profile + HIPAA + training + learning +
+    // EHS), precomputed per active-term member by resolveAudience via loadClearanceMap.
+    compile: (cond, ctx) => {
+      if (!ctx.clearanceByPerson) {
+        throw new Error(
+          "isCleared audience requires a precomputed clearance map; resolveAudience must supply ctx.clearanceByPerson",
+        );
+      }
+      const want = cond.op === "isTrue";
+      const ids: string[] = [];
+      for (const [personId, c] of ctx.clearanceByPerson) {
+        if (c.cleared === want) ids.push(personId);
+      }
+      return { id: { in: ids } };
+    },
+  },
+  {
+    key: "learningComplete",
+    label: "Completed all assigned learning",
+    group: "Status & roles",
+    kind: "boolean",
+    operators: ["isTrue", "isFalse"],
+    compile: (cond, ctx) => {
+      if (!ctx.clearanceByPerson) {
+        throw new Error(
+          "learningComplete audience requires a precomputed clearance map; resolveAudience must supply ctx.clearanceByPerson",
+        );
+      }
+      const wantComplete = cond.op === "isTrue";
+      const ids: string[] = [];
+      for (const [personId, c] of ctx.clearanceByPerson) {
+        const learningDone = !c.missing.includes("learning");
+        if (learningDone === wantComplete) ids.push(personId);
+      }
+      return { id: { in: ids } };
     },
   },
 ];

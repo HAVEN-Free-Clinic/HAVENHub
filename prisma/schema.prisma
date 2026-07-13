@@ -244,8 +244,34 @@ model Term {
   rhdClinics         RhdClinic[]
   recruitmentCycles  RecruitmentCycle[]
   trainings Training[]
+  onboardingSteps    TermOnboardingStep[]
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
+}
+
+/// Per-term override of the onboarding checklist. A missing row for a given kind
+/// means the built-in default (enabled, default label/description/blocking/order).
+/// kind is one of the OnboardingTaskKey values: profile | hipaa | training |
+/// directorTraining | learning | ehs.
+model TermOnboardingStep {
+  id          String   @id @default(cuid())
+  termId      String
+  kind        String
+  enabled     Boolean  @default(true)
+  /// Override the display label; null keeps the built-in copy.
+  label       String?
+  /// Override the description; null keeps the built-in copy.
+  description String?
+  /// Override whether the step blocks clearance; null keeps the built-in default.
+  blocking    Boolean?
+  /// Checklist display order.
+  order       Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  term        Term     @relation(fields: [termId], references: [id], onDelete: Cascade)
+
+  @@unique([termId, kind])
+  @@index([termId])
 }
 
 model Department {

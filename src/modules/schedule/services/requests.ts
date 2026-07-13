@@ -27,6 +27,7 @@ import {
   planApply,
 } from "../engine/requests";
 import type { ScheduleRowForValidation } from "../engine/requests";
+import { manageableScheduleDepartmentIds } from "./builder";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { queueEmail } from "@/platform/email/send";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
@@ -139,7 +140,15 @@ export async function countPendingApprovals(personId: string): Promise<number> {
   const term = await getActiveTerm();
   if (!term) return 0;
 
-  const departmentIds = await manageableRequestDepartmentIds(personId);
+  const [requestDeptIds, builderDeptIds] = await Promise.all([
+    manageableRequestDepartmentIds(personId),
+    manageableScheduleDepartmentIds(personId),
+  ]);
+  // Only departments the person can BOTH act on (approve/deny) AND open in the
+  // builder, so the dashboard Approvals card never links to a page they would
+  // hit /no-access on.
+  const builderDepts = new Set(builderDeptIds);
+  const departmentIds = requestDeptIds.filter((id) => builderDepts.has(id));
   if (departmentIds.length === 0) return 0;
 
   return prisma.shiftRequest.count({

@@ -88,4 +88,34 @@ describe("buildActionCards", () => {
     });
     expect(cards.length).toBe(4);
   });
+
+  it("surfaces EXPIRING_SOON and in-review my-info states", () => {
+    const soon = buildActionCards({ ...base, compliance: "EXPIRING_SOON" }).find((c) => c.key === "my-info");
+    expect(soon?.priority).toBe(70);
+    expect(soon?.sub).toBe("Renew HIPAA soon");
+
+    const review = buildActionCards({ ...base, compliance: "PENDING_VERIFICATION" }).find((c) => c.key === "my-info");
+    expect(review?.priority).toBe(40);
+    expect(review?.sub).toBe("HIPAA in review");
+
+    const unknown = buildActionCards({ ...base, compliance: "UNKNOWN_DATE" }).find((c) => c.key === "my-info");
+    expect(unknown?.sub).toBe("HIPAA in review");
+  });
+
+  it("builds the training card with priority 80 and count-aware sub", () => {
+    const one = buildActionCards({ ...base, trainingIncomplete: 1, trainingHref: "/training" }).find((c) => c.key === "training");
+    expect(one?.priority).toBe(80);
+    expect(one?.sub).toBe("To complete");
+    expect(one?.href).toBe("/training");
+
+    const many = buildActionCards({ ...base, trainingIncomplete: 2, trainingHref: "/learning" }).find((c) => c.key === "training");
+    expect(many?.sub).toBe("2 to complete");
+    expect(many?.href).toBe("/learning");
+  });
+
+  it("shows the pending swap count when the user has submitted changes", () => {
+    const swap = buildActionCards({ ...base, upcomingCount: 2, pendingSwapCount: 1 }).find((c) => c.key === "swap");
+    expect(swap?.priority).toBe(40);
+    expect(swap?.sub).toBe("1 pending");
+  });
 });

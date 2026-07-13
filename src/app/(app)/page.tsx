@@ -169,8 +169,8 @@ export function generateMetadata() {
  * are redirected to /login by requirePersonSession.
  *
  * The home is a personalized dashboard: a greeting, the member's next shift,
- * quick actions, color-coded module tiles, and a side rail with this week's
- * clinic channel and their real compliance status.
+ * a ranked action feed, color-coded module tiles, and a side rail with this
+ * week's clinic channel and their real compliance status.
  */
 export default async function HubPage() {
   const person = await requirePersonSession();

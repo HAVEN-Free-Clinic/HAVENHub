@@ -235,7 +235,13 @@ async function loadDetail(id: string) {
     include: {
       requester: { select: { id: true, name: true, netId: true, contactEmail: true, epicId: true } },
       assignedTo: { select: { id: true, name: true } },
-      epicRequest: { include: { ticket: true } },
+      epicRequests: {
+        include: {
+          ticket: true,
+          person: { select: { id: true, name: true, epicId: true } },
+        },
+        orderBy: { createdAt: "asc" },
+      },
       attachments: true,
     },
   });

@@ -18,7 +18,7 @@
  * mutate data.
  */
 
-import type { Person, Department, YnhhTicket } from "@prisma/client";
+import type { Person, Department, YnhhTicket, EpicRequestKind } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { recordAudit } from "@/platform/audit";
@@ -640,4 +640,40 @@ export async function submitEpicRequests(
 
     return ticket;
   });
+}
+
+// ---------------------------------------------------------------------------
+// listPendingEpicRequests
+// ---------------------------------------------------------------------------
+
+export type PendingEpicRequestRow = {
+  id: string;
+  kind: EpicRequestKind;
+  createdAt: Date;
+  person: { id: string; name: string | null; epicId: string | null };
+  techRequest: { id: string; number: number; subject: string } | null;
+};
+
+/**
+ * Un-submitted Epic requests: PENDING and not yet grouped under a YNHH ticket.
+ * These are the rows the /support/epic "Pending" tab batches into a YNHH ticket.
+ */
+export async function listPendingEpicRequests(): Promise<PendingEpicRequestRow[]> {
+  const rows = await prisma.epicRequest.findMany({
+    where: { status: "PENDING", ticketId: null },
+    orderBy: { createdAt: "asc" },
+    include: {
+      person: { select: { id: true, name: true, epicId: true } },
+      techRequest: { select: { id: true, number: true, subject: true } },
+    },
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    kind: r.kind,
+    createdAt: r.createdAt,
+    person: { id: r.person.id, name: r.person.name, epicId: r.person.epicId },
+    techRequest: r.techRequest
+      ? { id: r.techRequest.id, number: r.techRequest.number, subject: r.techRequest.subject }
+      : null,
+  }));
 }

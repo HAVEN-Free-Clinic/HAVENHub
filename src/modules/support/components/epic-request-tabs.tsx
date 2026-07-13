@@ -408,9 +408,11 @@ function HistoryTable({ history }: { history: EpicRequestHistoryRow[] }) {
 function PendingTab({
   pending,
   action,
+  error,
 }: {
   pending: PendingEpicRequestRow[];
   action: (formData: FormData) => Promise<void>;
+  error?: string;
 }) {
   if (pending.length === 0) {
     return (
@@ -426,6 +428,9 @@ function PendingTab({
         <p className="text-xs text-subtle-foreground">
           Select requests and open one YNHH ticket for them. They then appear under Tracker.
         </p>
+
+        {error && <Alert tone="error">{error}</Alert>}
+
         <ul className="space-y-1">
           {pending.map((r) => (
             <li key={r.id} className="flex flex-wrap items-center gap-2 text-sm">
@@ -480,7 +485,7 @@ export function EpicRequestTabs({
       {activeTab === "generate" ? (
         <EpicRequestForm departments={departments} pendingDeactivations={pendingDeactivations} authorizers={authorizers} />
       ) : activeTab === "pending" ? (
-        <PendingTab pending={pending} action={createTicketFromPendingAction} />
+        <PendingTab pending={pending} action={createTicketFromPendingAction} error={error} />
       ) : activeTab === "tracker" ? (
         <div className="space-y-8">
           <LogIncidentForm incidentPeople={incidentPeople} logIncidentAction={logIncidentAction} error={error} />

@@ -19,6 +19,7 @@
  * the active tab survives a page refresh and is shareable.
  */
 
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Fragment, Suspense, useState } from "react";
 import { EpicRequestForm } from "./epic-request-form";
@@ -477,9 +478,9 @@ function PendingTab({
               <Badge>{r.kind}</Badge>
               <span className="font-medium">{r.person.name}</span>
               {r.techRequest && (
-                <a href={`/support/${r.techRequest.id}`} className="text-xs text-brand-fg underline underline-offset-2">
+                <Link href={`/support/${r.techRequest.id}`} className="text-xs text-brand-fg underline underline-offset-2">
                   #{r.techRequest.number}
-                </a>
+                </Link>
               )}
             </li>
           ))}

@@ -655,12 +655,20 @@ export type PendingEpicRequestRow = {
 };
 
 /**
- * Un-submitted Epic requests: PENDING and not yet grouped under a YNHH ticket.
- * These are the rows the /support/epic "Pending" tab batches into a YNHH ticket.
+ * Un-submitted, attach-origin Epic requests: PENDING, not yet grouped under a
+ * YNHH ticket, and attached from a support ticket (techRequestId set). These
+ * are the rows the /support/epic "Pending" tab batches into a YNHH ticket.
+ *
+ * Scoped to techRequestId: { not: null } to exclude PENDING/ticketId-null
+ * requests created by other flows (offboarding's DEACTIVATE, recruitment
+ * promotion's NEW) that have no techRequestId. Those don't belong in this
+ * tab -- letting a DEACTIVATE leak in here would let a manager batch it
+ * through the generic createTicket pipeline instead of the deactivation
+ * pipeline (reconcileDeactivationRequests / listPendingDeactivations).
  */
 export async function listPendingEpicRequests(): Promise<PendingEpicRequestRow[]> {
   const rows = await prisma.epicRequest.findMany({
-    where: { status: "PENDING", ticketId: null },
+    where: { status: "PENDING", ticketId: null, techRequestId: { not: null } },
     orderBy: { createdAt: "asc" },
     include: {
       person: { select: { id: true, name: true, epicId: true } },

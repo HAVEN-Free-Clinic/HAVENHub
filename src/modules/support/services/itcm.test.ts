@@ -171,9 +171,9 @@ describe("reconcileDeactivationRequests", () => {
     const existing = await prisma.epicRequest.create({
       data: { personId: withReq.id, kind: "DEACTIVATE", status: "PENDING", requestedById: actor.id },
     });
-    const ticket = await prisma.ynhhTicket.create({ data: { submittedById: actor.id, status: "OPEN" } });
 
-    await reconcileDeactivationRequests(actor.id, [withReq.id, withoutReq.id], ticket.id);
+    const ticket = await reconcileDeactivationRequests(actor.id, [withReq.id, withoutReq.id], "Deactivate - HasReq, NoReq");
+    expect(ticket.status).toBe("OPEN");
 
     const reused = await prisma.epicRequest.findUnique({ where: { id: existing.id } });
     expect(reused?.status).toBe("SUBMITTED");
@@ -195,9 +195,9 @@ describe("reconcileDeactivationRequests", () => {
     const existing = await prisma.epicRequest.create({
       data: { personId: person.id, kind: "DEACTIVATE", status: "SUBMITTED", ticketId: oldTicket.id, requestedById: actor.id },
     });
-    const newTicket = await prisma.ynhhTicket.create({ data: { submittedById: actor.id, status: "OPEN" } });
 
-    await reconcileDeactivationRequests(actor.id, [person.id], newTicket.id);
+    const newTicket = await reconcileDeactivationRequests(actor.id, [person.id], "Deactivate - AlreadySubmitted");
+    expect(newTicket.id).not.toBe(oldTicket.id);
 
     const reused = await prisma.epicRequest.findUnique({ where: { id: existing.id } });
     expect(reused?.status).toBe("SUBMITTED");
@@ -205,6 +205,23 @@ describe("reconcileDeactivationRequests", () => {
 
     const all = await prisma.epicRequest.findMany({ where: { personId: person.id, kind: "DEACTIVATE" } });
     expect(all).toHaveLength(1); // no duplicate
+  });
+
+  it("does not leave an orphan OPEN ticket when the batch fails partway (F18)", async () => {
+    const actor = await prisma.person.create({ data: { name: "Actor" } });
+    const ok = await prisma.person.create({ data: { name: "OK", status: "OFFBOARDED" } });
+    const ticketsBefore = await prisma.ynhhTicket.count();
+
+    // A bogus personId makes the second epicRequest.create fail (FK violation)
+    // after the ticket + the first request were written in the same tx.
+    await expect(
+      reconcileDeactivationRequests(actor.id, [ok.id, "does-not-exist"], "Deactivate - batch"),
+    ).rejects.toBeTruthy();
+
+    // The ticket (created at the top of the tx) rolled back with the failed batch:
+    // no orphan OPEN ticket, no partial request.
+    expect(await prisma.ynhhTicket.count()).toBe(ticketsBefore);
+    expect(await prisma.epicRequest.count({ where: { personId: ok.id } })).toBe(0);
   });
 });
 

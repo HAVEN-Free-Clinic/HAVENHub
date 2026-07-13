@@ -48,6 +48,20 @@ async function seedRole(name: string, isSystem = false) {
   return prisma.role.create({ data: { name, isSystem } });
 }
 
+/**
+ * Seed an independent, effective ACTIVE admin (a Platform Admin role with "*"
+ * granted globally to an ACTIVE person) so last-admin guards see a surviving
+ * admin path unrelated to the role under test.
+ */
+async function seedIndependentAdmin() {
+  const role = await prisma.role.create({
+    data: { name: "Platform Admin", isSystem: true, grants: { create: [{ permission: "*" }] } },
+  });
+  const person = await prisma.person.create({ data: { name: "Root Admin", status: "ACTIVE" } });
+  await prisma.roleAssignment.create({ data: { roleId: role.id, personId: person.id } });
+  return { role, person };
+}
+
 async function seedPerson(name: string) {
   return prisma.person.create({ data: { name } });
 }
@@ -149,7 +163,9 @@ describe("setRoleGrants", () => {
 
   it("sets an empty permission list (removes all grants)", async () => {
     const role = await seedRole("Empty Role");
-    await prisma.roleGrant.create({ data: { roleId: role.id, permission: "admin.access" } });
+    // Non-admin grant: emptying it is unconditionally allowed (admin-grant removal
+    // is covered by the dedicated lockout-guard tests below).
+    await prisma.roleGrant.create({ data: { roleId: role.id, permission: "schedule.view" } });
 
     await setRoleGrants(ACTOR, role.id, []);
 
@@ -215,7 +231,8 @@ describe("deleteRole", () => {
 
   it("deletes a non-system role and cascades grants and assignments", async () => {
     const role = await seedRole("Deletable Role");
-    await prisma.roleGrant.create({ data: { roleId: role.id, permission: "admin.access" } });
+    // A non-admin-conferring grant so this exercises the plain (unguarded) delete path.
+    await prisma.roleGrant.create({ data: { roleId: role.id, permission: "admin.manage_people" } });
     const person = await seedPerson("Alice");
     await prisma.roleAssignment.create({ data: { roleId: role.id, personId: person.id } });
 
@@ -230,6 +247,34 @@ describe("deleteRole", () => {
 
     const assignments = await prisma.roleAssignment.findMany({ where: { roleId: role.id } });
     expect(assignments).toHaveLength(0);
+  });
+
+  it("refuses to delete the sole admin-conferring custom role and rolls back (F6)", async () => {
+    // A custom (non-system) role is the only path to admin access.
+    const role = await seedRole("IT Admin");
+    await prisma.roleGrant.create({ data: { roleId: role.id, permission: "admin.access" } });
+    const person = await seedPerson("Only Admin");
+    await prisma.roleAssignment.create({ data: { roleId: role.id, personId: person.id } });
+
+    await expect(deleteRole(ACTOR, role.id)).rejects.toBeInstanceOf(LastAdminError);
+
+    // The whole delete rolled back: role, grant, and assignment all survive.
+    expect(await prisma.role.findUnique({ where: { id: role.id } })).not.toBeNull();
+    expect(await prisma.roleGrant.count({ where: { roleId: role.id } })).toBe(1);
+    expect(await prisma.roleAssignment.count({ where: { roleId: role.id } })).toBe(1);
+  });
+
+  it("deletes an admin-conferring custom role when another admin remains (F6)", async () => {
+    await seedIndependentAdmin();
+    const role = await seedRole("IT Admin");
+    await prisma.roleGrant.create({ data: { roleId: role.id, permission: "admin.access" } });
+    const person = await seedPerson("Second Admin");
+    await prisma.roleAssignment.create({ data: { roleId: role.id, personId: person.id } });
+
+    await deleteRole(ACTOR, role.id);
+
+    expect(await prisma.role.findUnique({ where: { id: role.id } })).toBeNull();
+    expect(await prisma.roleGrant.count({ where: { roleId: role.id } })).toBe(0);
   });
 
   it("throws SystemRoleError when attempting to delete a system role", async () => {
@@ -549,13 +594,49 @@ describe("setRoleGrants lockout guard (Platform Admin)", () => {
     expect(grants.map((g) => g.permission)).toEqual(["*"]);
   });
 
-  it("allows emptying a non-system role's grants (no guard applies)", async () => {
+  it("allows emptying a non-system role's admin grant when another admin remains", async () => {
+    // The removal is not load-bearing: an independent Platform Admin still confers access.
+    await seedIndependentAdmin();
     const role = await seedRole("Regular Role");
     await prisma.roleGrant.create({ data: { roleId: role.id, permission: "admin.access" } });
 
     await expect(setRoleGrants(ACTOR, role.id, [])).resolves.not.toThrow();
     const grants = await prisma.roleGrant.findMany({ where: { roleId: role.id } });
     expect(grants).toHaveLength(0);
+  });
+
+  it("allows emptying a non-admin role's grants unconditionally", async () => {
+    const role = await seedRole("Schedule Viewer");
+    await prisma.roleGrant.create({ data: { roleId: role.id, permission: "schedule.view" } });
+
+    await expect(setRoleGrants(ACTOR, role.id, [])).resolves.not.toThrow();
+    expect(await prisma.roleGrant.count({ where: { roleId: role.id } })).toBe(0);
+  });
+
+  it("refuses to strip admin.access from the sole admin-conferring custom role (F7)", async () => {
+    // A custom (non-system) role is the only admin path; stripping it would lock everyone out.
+    const role = await seedRole("IT Admin");
+    await prisma.roleGrant.create({ data: { roleId: role.id, permission: "admin.access" } });
+    const person = await seedPerson("Only Admin");
+    await prisma.roleAssignment.create({ data: { roleId: role.id, personId: person.id } });
+
+    await expect(setRoleGrants(ACTOR, role.id, ["schedule.view"])).rejects.toBeInstanceOf(LastAdminError);
+
+    // Rolled back: the admin.access grant survives, the intended replacement was not applied.
+    const perms = (await prisma.roleGrant.findMany({ where: { roleId: role.id } })).map((g) => g.permission);
+    expect(perms).toEqual(["admin.access"]);
+  });
+
+  it("allows stripping admin.access from a custom role when another admin remains (F7)", async () => {
+    await seedIndependentAdmin();
+    const role = await seedRole("IT Admin");
+    await prisma.roleGrant.create({ data: { roleId: role.id, permission: "admin.access" } });
+    const person = await seedPerson("Second Admin");
+    await prisma.roleAssignment.create({ data: { roleId: role.id, personId: person.id } });
+
+    await expect(setRoleGrants(ACTOR, role.id, ["schedule.view"])).resolves.not.toThrow();
+    const perms = (await prisma.roleGrant.findMany({ where: { roleId: role.id } })).map((g) => g.permission);
+    expect(perms).toEqual(["schedule.view"]);
   });
 });
 

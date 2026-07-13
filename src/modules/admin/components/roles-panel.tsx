@@ -122,6 +122,11 @@ export async function RolesPanel({ roles, pageHref }: RolesPanelProps): Promise<
           `${pageHref}?rbacError=${encodeURIComponent(err.message)}`
         );
       }
+      if (err instanceof LastAdminError) {
+        redirect(
+          `${pageHref}?rbacError=${encodeURIComponent(err.message)}`
+        );
+      }
       throw err;
     }
     redirect(`${pageHref}?saved=1`);

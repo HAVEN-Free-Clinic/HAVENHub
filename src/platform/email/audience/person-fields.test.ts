@@ -21,6 +21,8 @@ describe("person fields", () => {
       "name", "netId", "contactEmail", "epicId", "phone", "yaleAffiliation", "gradYear",
       "status", "role", "department", "complianceStatus", "hasEpicId",
       "spanishVerified", "spanishSelfReported", "licensedRN", "hasOpenEpicRequest", "hasDisciplinaryAction",
+      "hasApprovedStrike", "hasOpenTechTicket", "hasVerifiedCertificate", "addedToEhs",
+      "completedVolunteerTraining", "flaggedForOffboarding",
     ]);
   });
 
@@ -192,5 +194,58 @@ describe("PERSON_FIELD_VIEWS (RSC-serializable)", () => {
       }
     }
     expect(() => JSON.stringify(PERSON_FIELD_VIEWS)).not.toThrow();
+  });
+});
+
+describe("relation-backed conditions (compliance program additions)", () => {
+  it("hasApprovedStrike -> some/none APPROVED strike", () => {
+    expect(personFieldWhere({ field: "hasApprovedStrike", op: "isTrue" }, ctx)).toEqual({
+      incidentSubjectLinks: { some: { strikeDecision: "APPROVED" } },
+    });
+    expect(personFieldWhere({ field: "hasApprovedStrike", op: "isFalse" }, ctx)).toEqual({
+      incidentSubjectLinks: { none: { strikeDecision: "APPROVED" } },
+    });
+  });
+
+  it("hasOpenTechTicket -> some/none open-status ticket", () => {
+    const open = ["SUBMITTED", "IN_PROGRESS", "AWAITING_REQUESTER", "AWAITING_YNHH"];
+    expect(personFieldWhere({ field: "hasOpenTechTicket", op: "isTrue" }, ctx)).toEqual({
+      techRequests: { some: { status: { in: open } } },
+    });
+    expect(personFieldWhere({ field: "hasOpenTechTicket", op: "isFalse" }, ctx)).toEqual({
+      techRequests: { none: { status: { in: open } } },
+    });
+  });
+
+  it("hasVerifiedCertificate -> some/none verified cert", () => {
+    expect(personFieldWhere({ field: "hasVerifiedCertificate", op: "isTrue" }, ctx)).toEqual({
+      hipaaCertificates: { some: { verifiedAt: { not: null } } },
+    });
+    expect(personFieldWhere({ field: "hasVerifiedCertificate", op: "isFalse" }, ctx)).toEqual({
+      hipaaCertificates: { none: { verifiedAt: { not: null } } },
+    });
+  });
+
+  it("addedToEhs -> direct boolean", () => {
+    expect(personFieldWhere({ field: "addedToEhs", op: "isTrue" }, ctx)).toEqual({ addedToEhs: true });
+    expect(personFieldWhere({ field: "addedToEhs", op: "isFalse" }, ctx)).toEqual({ addedToEhs: false });
+  });
+
+  it("completedVolunteerTraining -> active-term COMPLETE volunteer training", () => {
+    expect(personFieldWhere({ field: "completedVolunteerTraining", op: "isTrue" }, ctx)).toEqual({
+      trainings: { some: { termId: "term1", track: "VOLUNTEER", status: "COMPLETE" } },
+    });
+    expect(personFieldWhere({ field: "completedVolunteerTraining", op: "isFalse" }, ctx)).toEqual({
+      trainings: { none: { termId: "term1", track: "VOLUNTEER", status: "COMPLETE" } },
+    });
+  });
+
+  it("flaggedForOffboarding -> active-term offboard flag", () => {
+    expect(personFieldWhere({ field: "flaggedForOffboarding", op: "isTrue" }, ctx)).toEqual({
+      offboardFlags: { some: { termId: "term1" } },
+    });
+    expect(personFieldWhere({ field: "flaggedForOffboarding", op: "isFalse" }, ctx)).toEqual({
+      offboardFlags: { none: { termId: "term1" } },
+    });
   });
 });

@@ -9,6 +9,7 @@
  * `quickAdd` (optional) pre-lists the ticket requester as a one-click add.
  */
 import { useMemo, useState } from "react";
+import { X } from "lucide-react";
 import type { DepartmentWithMembers, MemberLite } from "@/modules/support/services/itcm";
 import { Select } from "@/platform/ui/select";
 import { Field } from "@/platform/ui/input";
@@ -88,18 +89,18 @@ export function EpicPersonPicker({
           {[...selected.entries()].map(([id, name]) => (
             <span
               key={id}
-              className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs"
+              className="inline-flex items-center gap-1 rounded-full bg-muted py-0.5 pl-2 pr-0.5 text-xs"
             >
               {name}
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="sm"
                 aria-label={`Remove ${name}`}
                 onClick={() => toggle(id, name)}
-                // eslint-disable-next-line no-restricted-syntax -- icon-only chip-remove glyph, not a labeled Button
-                className="text-muted-foreground hover:text-foreground"
               >
-                ×
-              </button>
+                <X className="h-4 w-4" aria-hidden />
+              </Button>
             </span>
           ))}
         </div>

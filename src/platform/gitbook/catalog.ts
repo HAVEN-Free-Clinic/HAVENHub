@@ -35,23 +35,40 @@ export function buildNested<T>(leaf: (permission: string) => T): Record<string, 
 }
 
 /**
- * The GitBook adaptive-content visitor-claims JSON Schema. Describes only our
- * custom `can` object; the top level stays permissive (additionalProperties not
- * set to false) so GitBook does not reject the standard name/email/iat/exp claims.
+ * The GitBook adaptive-content visitor-claims JSON Schema, i.e. the bare schema
+ * GitBook's adaptive-schema editor / `updateSiteAdaptiveSchema` API expects (the
+ * `jsonSchema` value). It must satisfy GitBook's SiteAdaptiveJSONSchema contract:
+ * every object node (top level, `can`, and each module) carries BOTH a `description`
+ * and `additionalProperties: false`; every leaf is a typed primitive with a
+ * `description`. Top-level `additionalProperties: false` is required by GitBook and
+ * does not reject the standard visitor-auth claims (name/email/iat/exp) -- those are
+ * reserved and validated by GitBook outside this adaptive schema.
  */
 export function buildAdaptiveSchema() {
   const canProperties = buildNested((permission) => ({
     type: "boolean" as const,
     description: `Whether the visitor holds the ${permission} permission in HAVEN Hub.`,
   }));
-  const properties: Record<string, unknown> = {};
+  const moduleProperties: Record<string, unknown> = {};
   for (const [mod, actions] of Object.entries(canProperties)) {
-    properties[mod] = { type: "object", properties: actions, additionalProperties: false };
+    const title = MODULES.find((m) => m.id === mod)?.title ?? mod;
+    moduleProperties[mod] = {
+      type: "object",
+      description: `Whether the visitor can access the ${title} area and its actions in HAVEN Hub.`,
+      properties: actions,
+      additionalProperties: false,
+    };
   }
   return {
     type: "object" as const,
     properties: {
-      can: { type: "object", properties, additionalProperties: false },
+      can: {
+        type: "object",
+        description: "Which HAVEN Hub features the visitor can access, mirroring their in-app permissions.",
+        properties: moduleProperties,
+        additionalProperties: false,
+      },
     },
+    additionalProperties: false,
   };
 }

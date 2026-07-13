@@ -92,9 +92,12 @@ All new logic is pure and unit-testable; the route wiring is ~3 lines.
   pure. Splits each catalog permission on its first `.` and sets
   `can[module][action] = hasPermission(perms, permission)`. No I/O.
 - `buildAdaptiveSchema(): object`: pure. Emits the GitBook JSON Schema (nested objects of
-  `{ type: "boolean" }` leaves with one-line descriptions) from the same catalog. Top
-  level permissive (`additionalProperties` not set to false) so standard
-  `name`/`email`/`iat`/`exp` claims are not rejected.
+  `{ type: "boolean" }` leaves with one-line descriptions) from the same catalog. Per
+  GitBook's `SiteAdaptiveJSONSchema` contract, EVERY object node (top level, `can`, and
+  each module) carries a `description` and `additionalProperties: false`. Top-level
+  `additionalProperties: false` is required and does NOT reject the standard
+  `name`/`email`/`iat`/`exp` claims, which GitBook reserves and validates outside the
+  adaptive schema. (An ajv check against GitBook's live meta-schema guards this.)
 - **Dependencies:** `MODULES` (`@/platform/modules/registry`), `hasPermission`
   (`@/platform/rbac/engine`). Both platform→platform (allowed).
 
@@ -157,8 +160,11 @@ convention, though these tests touch no DB.
 ## Risks
 
 - **Signing-key mismatch** (see step 4): verified at enablement, not a code risk.
-- **Schema `additionalProperties`**: if GitBook rejects undeclared standard claims, add
-  `name`/`email`/`iat`/`exp` to the schema. Verified when pushing the schema.
+- **Schema `additionalProperties`**: RESOLVED. GitBook's `SiteAdaptiveJSONSchema` contract
+  requires `additionalProperties: false` on every object node and a `description` on each;
+  standard `name`/`email`/`iat`/`exp` claims are reserved and validated outside the adaptive
+  schema, so they are not rejected. `buildAdaptiveSchema()` emits this shape and it is
+  validated against GitBook's live meta-schema with ajv.
 - **Dotted-key confusion**: avoided by the nested shape (no dotted keys anywhere).
 
 ## Non-goals

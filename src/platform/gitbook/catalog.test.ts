@@ -47,9 +47,35 @@ describe("buildAdaptiveSchema", () => {
     expect(can.properties.admin.properties.access.type).toBe("boolean");
   });
 
-  it("does not forbid additional top-level claims (name/email/iat/exp survive)", () => {
-    const schema = buildAdaptiveSchema() as { additionalProperties?: boolean };
-    // omitted or true, never false: GitBook would reject standard JWT claims otherwise
-    expect(schema.additionalProperties).not.toBe(false);
+  it("satisfies GitBook's SiteAdaptiveJSONSchema contract: every object node has a description and additionalProperties:false", () => {
+    // GitBook requires additionalProperties:false at every object level (standard
+    // name/email/iat/exp claims are reserved and validated outside this schema),
+    // and requires a description on every object node.
+    type ObjNode = {
+      type: string;
+      description?: string;
+      properties: Record<string, ObjNode>;
+      additionalProperties?: boolean;
+    };
+    const schema = buildAdaptiveSchema() as unknown as ObjNode;
+    expect(schema.type).toBe("object");
+    expect(schema.additionalProperties).toBe(false);
+
+    const can = schema.properties.can;
+    expect(can.type).toBe("object");
+    expect(typeof can.description).toBe("string");
+    expect(can.description!.length).toBeGreaterThan(0);
+    expect(can.additionalProperties).toBe(false);
+
+    for (const [mod, moduleNode] of Object.entries(can.properties)) {
+      expect(moduleNode.type, mod).toBe("object");
+      expect(typeof moduleNode.description, mod).toBe("string");
+      expect(moduleNode.description!.length, mod).toBeGreaterThan(0);
+      expect(moduleNode.additionalProperties, mod).toBe(false);
+      for (const [action, leaf] of Object.entries(moduleNode.properties)) {
+        expect(leaf.type, `${mod}.${action}`).toBe("boolean");
+        expect(typeof leaf.description, `${mod}.${action}`).toBe("string");
+      }
+    }
   });
 });

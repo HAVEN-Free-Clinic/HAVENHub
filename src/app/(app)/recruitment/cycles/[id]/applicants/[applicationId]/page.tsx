@@ -59,7 +59,7 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
   });
   const scoreSummary = canScore ? await committeeScoreSummary(applicationId) : null;
   const myScore = scoreSummary?.scores.find((s) => s.scorerId === person.personId) ?? null;
-  const canRoute = scope.all; // recruitment.review_all
+  const canRoute = scope.all && app.cycle.track === "VOLUNTEER"; // recruitment.review_all; routing is volunteer-only
   const routedOffChoice = app.routedDepartmentCode != null && !app.departmentChoices.includes(app.routedDepartmentCode);
   return (
     <div className="max-w-2xl space-y-6">

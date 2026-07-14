@@ -40,4 +40,14 @@ describe("routeApplication", () => {
     const { lead, application } = await seed();
     await expect(routeApplication(application.id, "NOPE", lead.id)).rejects.toBeInstanceOf(RoutingError);
   });
+
+  it("rejects routing a director-track application (routing is volunteer-only)", async () => {
+    const { lead } = await seed();
+    // The director track keeps its ranked-choice flow; it must never be routed.
+    const term = await prisma.term.findFirstOrThrow();
+    const cycle = await prisma.recruitmentCycle.create({ data: { track: "DIRECTOR", termId: term.id, title: "D", publicSlug: "d", departments: ["EDUC", "MDIC"], createdById: lead.id, status: "OPEN" } });
+    const applicant = await prisma.applicant.create({ data: { cycleId: cycle.id, firstName: "D", lastName: "R", email: "dr@y.edu", emailLower: "dr@y.edu" } });
+    const application = await prisma.application.create({ data: { cycleId: cycle.id, applicantId: applicant.id, answers: {}, applicantType: "NEW", departmentChoices: ["EDUC"] } });
+    await expect(routeApplication(application.id, "EDUC", lead.id)).rejects.toBeInstanceOf(RoutingError);
+  });
 });

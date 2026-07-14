@@ -21,10 +21,11 @@ export async function routeApplication(
   }
   const app = await prisma.application.findUnique({
     where: { id: applicationId },
-    include: { cycle: { select: { departments: true } } },
+    include: { cycle: { select: { departments: true, track: true } } },
   });
   if (!app) throw new RoutingError("Application not found.");
   if (app.status !== "SUBMITTED") throw new RoutingError("This application hasn't been submitted yet.");
+  if (app.cycle.track !== "VOLUNTEER") throw new RoutingError("Routing applies to volunteer cycles.");
   if (!app.cycle.departments.includes(departmentCode)) throw new RoutingError("That department is not part of this cycle.");
   const updated = await prisma.application.update({
     where: { id: applicationId },

@@ -32,6 +32,11 @@ describe("canAccessModule", () => {
       canAccessModule(mod({ accessPermission: "admin.access" }), new Set(["admin.access"])),
     ).toBe(true);
   });
+  it("also admits a viewer who holds an additionalAccessPermissions entry instead of accessPermission", () => {
+    const m = mod({ accessPermission: "recruitment.access", additionalAccessPermissions: ["recruitment.score"] });
+    expect(canAccessModule(m, new Set())).toBe(false);
+    expect(canAccessModule(m, new Set(["recruitment.score"]))).toBe(true);
+  });
 });
 
 describe("filterAccessibleModules", () => {
@@ -108,6 +113,11 @@ describe("top-nav module filtering (regression for limited roles)", () => {
     expect(ids).not.toContain("admin");
     expect(ids).not.toContain("recruitment");
     expect(ids).not.toContain("volunteers");
+  });
+
+  it("shows recruitment to a committee scorer (recruitment.score only, no recruitment.access)", () => {
+    const result = filterAccessibleModules(MODULES, new Set(["recruitment.score"]));
+    expect(result.map((m) => m.id)).toContain("recruitment");
   });
 });
 

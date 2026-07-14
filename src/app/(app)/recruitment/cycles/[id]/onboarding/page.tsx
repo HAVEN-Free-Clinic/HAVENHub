@@ -26,6 +26,7 @@ function statusLabel(c: { status: string } | null): { label: string; tone: Tone 
 export default async function OnboardingPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ msg?: string; err?: string }> }) {
   const { id } = await params;
   const { msg, err } = await searchParams;
+  await requirePermission("recruitment.access");
   await requirePermission("recruitment.review_all");
   const cycle = await getCycle(id);
   if (!cycle) notFound();

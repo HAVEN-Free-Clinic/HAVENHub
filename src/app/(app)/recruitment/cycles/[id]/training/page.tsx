@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { requirePersonSession } from "@/platform/auth/session";
+import { requirePermission, requirePersonSession } from "@/platform/auth/session";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { listTrainingRoster, TrainingStateError } from "@/modules/recruitment/services/training";
 import { recordAttendanceAction, resetTrainingAction } from "./actions";
@@ -14,6 +14,7 @@ import { ConfirmButton } from "@/platform/ui/confirm-button";
 export default async function TrainingRosterPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ msg?: string; err?: string }> }) {
   const { id } = await params;
   const { msg, err } = await searchParams;
+  await requirePermission("recruitment.access");
   const viewer = await requirePersonSession();
   const cycle = await getCycle(id);
   if (!cycle) notFound();

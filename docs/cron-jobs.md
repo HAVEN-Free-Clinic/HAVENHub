@@ -24,6 +24,7 @@ the job below silently stops running with no in-repo error.
 | `/api/cron/reminders` | External (cron-job.org) | daily | `0 13 * * *` | Enqueues HIPAA compliance reminders and director escalations (delivered by the enqueue flush after it runs, backstopped by the email tick). | HIPAA reminders and director escalations are never enqueued. |
 | `/api/cron/shift-reminders` | External (cron-job.org) | weekly (Mon) | `0 13 * * 1` | Enqueues weekly shift reminders to everyone scheduled for the upcoming Saturday clinic day (delivered by the enqueue flush after it runs, backstopped by the email tick). | Volunteers stop receiving their Saturday shift reminders. |
 | `/api/cron/recruitment-drafts` | External (cron-job.org) | daily | `0 4 * * *` | Sweeps abandoned onboarding drafts older than 30 days. | Stale draft rows accumulate. |
+| `/api/cron/recruitment-review-digest` | External (cron-job.org) | daily | `0 14 * * *` | Notifies each active department director who has applications awaiting review (volunteer routed-undecided + director-track undecided) in their department(s). Enqueue-only; skips directors with nothing to review. | Directors get no daily reminder of applications waiting on their review (they can still reach them via the roster). |
 
 Notes:
 
@@ -36,8 +37,10 @@ Notes:
   kept locked for `STALE_LOCK_MS` (5 min), so retries are paced by that window
   regardless of how often a drain is triggered; a permanently-failed row (FAILED
   after 8 attempts) releases its lock so an admin retry is immediately claimable.
-- The `reminders` and `shift-reminders` jobs still only **enqueue**; their mail is
-  delivered by the enqueue flush after they run, or by this backstop tick.
+- The `reminders`, `shift-reminders`, and `recruitment-review-digest` jobs still
+  only **enqueue**; their mail is delivered by the enqueue flush after they run, or
+  by this backstop tick. Each is idempotent per (person, day) via
+  `claimReminderDispatch`, so an at-least-once retry never double-sends.
 - `recruitment-drafts` used to be a Vercel Cron but was moved to the external
   scheduler for the same reason as the others (Vercel does not fire `vercel.json`
   crons on the current plan). `vercel.json` no longer declares any crons.

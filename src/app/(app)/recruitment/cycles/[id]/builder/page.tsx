@@ -11,6 +11,7 @@ import { FormBuilder } from "./form-builder";
 import type { BuilderSection } from "./section-card";
 
 export default async function BuilderPage({ params }: { params: Promise<{ id: string }> }) {
+  await requirePermission("recruitment.access");
   await requirePermission("recruitment.manage_cycles");
   const { id } = await params;
   const cycle = await getCycle(id);

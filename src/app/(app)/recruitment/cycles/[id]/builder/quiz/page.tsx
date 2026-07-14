@@ -8,6 +8,7 @@ import { QuizBuilder, type QuizSection } from "./quiz-builder";
 
 export default async function QuizBuilderPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  await requirePermission("recruitment.access");
   await requirePermission("recruitment.manage_cycles");
   const cycle = await getCycle(id);
   if (!cycle) notFound();

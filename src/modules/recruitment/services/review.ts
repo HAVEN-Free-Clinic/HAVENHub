@@ -1,5 +1,5 @@
-import type { Acceptance, Application } from "@prisma/client";
-import { prisma, isUniqueConstraintError } from "@/platform/db";
+import type { Acceptance, Application, CycleStatus, Prisma } from "@prisma/client";
+import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { manageableDepartmentIds } from "@/platform/departments";
 import { recordAudit } from "@/platform/audit";
@@ -30,70 +30,79 @@ export async function reviewScope(personId: string): Promise<ReviewScope> {
 export type ReviewApplication = Application & {
   applicant: { firstName: string; lastName: string; email: string };
   acceptances: Acceptance[];
+  committeeScores: { score: number }[];
+  interviews: { decision: "PENDING" | "ACCEPT" | "REJECT" | "WAITLIST" }[];
 };
 
 /** Applications a viewer may review for a cycle. SRR/review_all (and cycle
- *  managers) see all; a director sees only applications intersecting their
- *  department codes. */
+ *  managers, and committee scorers) see all; a director sees only applications
+ *  intersecting their department codes. */
 export async function listApplicantsForReview(cycleId: string, viewerId: string): Promise<ReviewApplication[]> {
-  const [scope, managesCycles] = await Promise.all([
+  const [scope, managesCycles, canScore] = await Promise.all([
     reviewScope(viewerId),
     can(viewerId, "recruitment.manage_cycles"),
+    can(viewerId, "recruitment.score"),
   ]);
-  const seeAll = scope.all || managesCycles;
+  const seeAll = scope.all || managesCycles || canScore;
   const apps = await prisma.application.findMany({
     where: { cycleId, status: "SUBMITTED" },
-    include: { applicant: { select: { firstName: true, lastName: true, email: true } }, acceptances: true },
+    include: {
+      applicant: { select: { firstName: true, lastName: true, email: true } },
+      acceptances: true,
+      committeeScores: { select: { score: true } },
+      interviews: { select: { decision: true } },
+    },
     orderBy: [{ submittedAt: "desc" }, { createdAt: "desc" }],
   });
   if (seeAll) return apps;
   const mine = new Set(scope.departmentCodes);
+  const cycle = await prisma.recruitmentCycle.findUnique({ where: { id: cycleId }, select: { track: true } });
+  // Volunteer cycles: committee ROUTING drives a director's queue. Director-track
+  // cycles have no routing stage, so directors keep the ranked-choice view.
+  if (cycle?.track === "VOLUNTEER") {
+    return apps.filter((a) => a.routedDepartmentCode != null && mine.has(a.routedDepartmentCode));
+  }
   return apps.filter((a) => a.departmentChoices.some((d) => mine.has(d)));
+}
+
+/** OPEN/CLOSED cycles a non-manager reviewer has something to review in,
+ *  matching listApplicantsForReview's visibility semantics: SRR/review_all and
+ *  cycle managers see every cycle with submitted applications; a committee
+ *  scorer sees volunteer cycles with submitted applications; a scope-director
+ *  sees volunteer cycles with an application ROUTED to their department, and
+ *  director-track cycles with an application that RANKED their department. */
+export async function listReviewableCycles(
+  personId: string,
+): Promise<{ id: string; title: string; track: string; status: string }[]> {
+  const [scope, managesCycles, canScore] = await Promise.all([
+    reviewScope(personId),
+    can(personId, "recruitment.manage_cycles"),
+    can(personId, "recruitment.score"),
+  ]);
+  const activeStatus = { in: ["OPEN", "CLOSED"] as CycleStatus[] };
+  if (scope.all || managesCycles) {
+    return prisma.recruitmentCycle.findMany({
+      where: { status: activeStatus, applications: { some: { status: "SUBMITTED" } } },
+      orderBy: [{ status: "asc" }, { title: "asc" }],
+      select: { id: true, title: true, track: true, status: true },
+    });
+  }
+  const or: Prisma.RecruitmentCycleWhereInput[] = [];
+  if (canScore) or.push({ applications: { some: { status: "SUBMITTED" } } }); // committee scores both tracks
+  if (scope.departmentCodes.length) {
+    or.push({ track: "VOLUNTEER", applications: { some: { status: "SUBMITTED", routedDepartmentCode: { in: scope.departmentCodes } } } });
+    or.push({ track: "DIRECTOR", applications: { some: { status: "SUBMITTED", departmentChoices: { hasSome: scope.departmentCodes } } } });
+  }
+  if (or.length === 0) return [];
+  return prisma.recruitmentCycle.findMany({
+    where: { status: activeStatus, OR: or },
+    orderBy: [{ status: "asc" }, { title: "asc" }],
+    select: { id: true, title: true, track: true, status: true },
+  });
 }
 
 export async function listAcceptances(applicationId: string): Promise<Acceptance[]> {
   return prisma.acceptance.findMany({ where: { applicationId }, orderBy: { createdAt: "asc" } });
-}
-
-export async function acceptApplicant(
-  applicationId: string,
-  departmentCode: string,
-  approvedById: string,
-  notes: string | null
-): Promise<Acceptance> {
-  const app = await prisma.application.findUnique({
-    where: { id: applicationId },
-    include: { cycle: true, applicant: { select: { applicantPersonId: true } } },
-  });
-  if (!app) throw new AcceptanceError("Application not found.");
-  if (app.status !== "SUBMITTED") throw new AcceptanceError("This application hasn't been submitted yet.");
-  if (app.cycle.track !== "VOLUNTEER") throw new AcceptanceError("Review for this track is handled separately.");
-  if (!app.cycle.departments.includes(departmentCode)) throw new AcceptanceError("That department is not part of this cycle.");
-  // Separation of duties: a signed-in incumbent (e.g. a director re-applying into a
-  // department they manage) must not accept their own application.
-  if (app.applicant.applicantPersonId && app.applicant.applicantPersonId === approvedById) {
-    throw new RecruitmentAuthError("You can't accept your own application.");
-  }
-
-  const scope = await reviewScope(approvedById);
-  const inScope = scope.all || scope.departmentCodes.includes(departmentCode);
-  if (!inScope) throw new RecruitmentAuthError("You can't accept applicants for that department.");
-  if (!scope.all && !app.departmentChoices.includes(departmentCode)) {
-    throw new RecruitmentAuthError("This applicant didn't rank your department.");
-  }
-
-  try {
-    const acceptance = await prisma.acceptance.create({
-      data: { applicationId, departmentCode, approvedById, notes },
-    });
-    await recordAudit({ actorPersonId: approvedById, action: "recruitment.accept", entityType: "Acceptance", entityId: acceptance.id, after: { applicationId, departmentCode } });
-    return acceptance;
-  } catch (err) {
-    if (isUniqueConstraintError(err)) {
-      throw new AcceptanceError("Already accepted into that department.");
-    }
-    throw err;
-  }
 }
 
 export async function revokeAcceptance(acceptanceId: string, actorId: string): Promise<void> {

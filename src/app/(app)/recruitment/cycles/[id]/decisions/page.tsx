@@ -16,6 +16,7 @@ import { SectionHeader } from "@/platform/ui/section-header";
 export default async function DecisionsPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ sent?: string; skipped?: string; error?: string }> }) {
   const { id } = await params;
   const sp = await searchParams;
+  await requirePermission("recruitment.access");
   await requirePermission("recruitment.review_all");
   const cycle = await getCycle(id);
   if (!cycle) notFound();

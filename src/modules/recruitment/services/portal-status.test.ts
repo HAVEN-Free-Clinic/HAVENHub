@@ -2,9 +2,12 @@ import { afterEach, beforeEach, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import { getApplicantStatus } from "./portal-status";
-import { acceptApplicant } from "./review";
 import { releaseDecisions } from "./decisions";
 import { createOrResendContract } from "./onboarding";
+
+function accept(applicationId: string, departmentCode: string, approvedById: string) {
+  return prisma.acceptance.create({ data: { applicationId, departmentCode, approvedById } });
+}
 
 beforeEach(async () => { await resetDb(); });
 afterEach(async () => { await resetDb(); });
@@ -36,7 +39,7 @@ it("shows Submitted / under review before any decision", async () => {
 
 it("shows Accepted only after the acceptance email is sent (released)", async () => {
   const { srr, app } = await cycleWithApp("c2", "reed@yale.edu");
-  await acceptApplicant(app.id, "SRHD", srr.id, null);
+  await accept(app.id, "SRHD", srr.id);
   // Accepted but not yet released: still neutral.
   expect((await getApplicantStatus(ID("reed@yale.edu")))[0].state).toBe("SUBMITTED");
   await releaseDecisions((await prisma.recruitmentCycle.findFirstOrThrow({ where: { publicSlug: "c2" } })).id, srr.id);
@@ -54,7 +57,7 @@ it("shows Not selected only after decisions are released", async () => {
 
 it("shows Onboarding once a contract exists", async () => {
   const { srr, app, cycle } = await cycleWithApp("c4", "reed@yale.edu");
-  const acc = await acceptApplicant(app.id, "SRHD", srr.id, null);
+  const acc = await accept(app.id, "SRHD", srr.id);
   await releaseDecisions(cycle.id, srr.id);
   await createOrResendContract(acc.id, srr.id, "http://test");
   const [v] = await getApplicantStatus(ID("reed@yale.edu"));

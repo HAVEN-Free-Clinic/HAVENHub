@@ -236,7 +236,7 @@ Every distinct `visitor.claims.can.<module>.<action>` path used above is a leaf 
 - `clinic.access`
 - `incidents.manage`, `incidents.view_strikes`
 - `learning.access`, `learning.manage_courses`, `learning.view_progress`
-- `recruitment.access`, `recruitment.manage_cycles`, `recruitment.review_all`
+- `recruitment.access`, `recruitment.manage_cycles`, `recruitment.review_all`, `recruitment.score`
 - `schedule.view`, `schedule.manages_any_dept`, `schedule.manages_any_rhd_dept`
 - `support.manage_requests`
 - `volunteers.view`, `volunteers.manage_compliance`, `volunteers.verify_spanish`

@@ -9,6 +9,7 @@ import { ContractEditor } from "./contract-editor";
 
 export default async function ContractBuilderPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  await requirePermission("recruitment.access");
   await requirePermission("recruitment.manage_cycles");
   const cycle = await getCycle(id);
   if (!cycle) notFound();

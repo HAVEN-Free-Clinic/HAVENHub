@@ -701,25 +701,34 @@ git commit -m "feat(recruitment): materializeTemplate writes template rows"
 
 ---
 
-### Task 5: Wire the template into `createCycle`
+### Task 5: Materialize the default template at cycle creation (flag on `createCycle` + UI action)
 
 **Files:**
-- Modify: `src/modules/recruitment/services/cycles.ts:27-55` (`createCycle`)
+- Modify: `src/modules/recruitment/services/cycles.ts` (`createCycle` gains a `seedDefaultForm = false` param; the default path is UNCHANGED)
 - Create: `src/modules/recruitment/templates/term-dates.ts`
-- Modify: `src/modules/recruitment/services/cycles.test.ts:19-31` (update the "seeded identity fields" expectation)
-- Test: `src/modules/recruitment/services/cycles.test.ts` (add materialization assertions)
+- Modify: `src/app/(app)/recruitment/actions.ts:35` (`createCycleAction` passes `true`)
+- Test: `src/modules/recruitment/services/cycles.test.ts` (ADD flag-path tests; do NOT change existing tests)
 
 **Interfaces:**
 - Consumes: `getApplicationTemplate`, `getQuizTemplate`, `materializeTemplate`, `termSaturdays`.
-- Produces: `termSaturdays(startDate: Date, endDate: Date): TemplateOption[]` (each Saturday, `value` = ISO date, `label` = friendly date).
+- Produces: `termSaturdays(start: Date, end: Date): TemplateOption[]` (each Saturday, `value` = `YYYY-MM-DD`, `label` = friendly); `createCycle(input, seedDefaultForm?: boolean)`.
 
-- [ ] **Step 1: Write the failing test** (append to `cycles.test.ts`)
+**Design note (why a flag, not always-on):** ~9 test files AND the real code use `createCycle` as a minimal, controllable primitive; `submissions.test.ts` in particular calls `createCycle` then adds its own `DEPARTMENT_CHOICE` and depends on specific answer keys. If `createCycle` unconditionally materialized the template, those cycles would have two `DEPARTMENT_CHOICE` fields (publish throws) and duplicate identity keys. So the primitive keeps its 3-identity-field seed by default; only the real create-cycle UI action (`createCycleAction`) opts into the full default template via `seedDefaultForm: true`. Same user-facing behavior (new cycles created in the app start from the default). The existing `cycles.test.ts:20-30` "3 identity fields" test stays valid unchanged.
+
+- [ ] **Step 1: Write the failing tests** (append to `cycles.test.ts`; do NOT modify existing tests)
 
 ```ts
-describe("createCycle template materialization", () => {
-  it("materializes the volunteer template (identity + acknowledgements + quiz) not just 3 fields", async () => {
+describe("createCycle seedDefaultForm", () => {
+  it("default (no flag) keeps only the minimal 3 identity fields", async () => {
     const { person, term } = await seedTermAndPerson();
-    const cycle = await createCycle({ track: "VOLUNTEER", termId: term.id, title: "V", publicSlug: "v-tmpl", departments: ["MDIC"], acceptsRenewals: false, createdById: person.id });
+    const cycle = await createCycle({ track: "VOLUNTEER", termId: term.id, title: "V", publicSlug: "v-min", departments: ["MDIC"], acceptsRenewals: false, createdById: person.id });
+    const keys = (await prisma.formField.findMany({ where: { cycleId: cycle.id } })).map((f) => f.key).sort();
+    expect(keys).toEqual(["email", "first_name", "last_name"]);
+  });
+
+  it("with the flag materializes the full track template + quiz + dept supplement", async () => {
+    const { person, term } = await seedTermAndPerson();
+    const cycle = await createCycle({ track: "VOLUNTEER", termId: term.id, title: "V", publicSlug: "v-tmpl", departments: ["MDIC"], acceptsRenewals: false, createdById: person.id }, true);
     const sections = await prisma.formSection.findMany({ where: { cycleId: cycle.id }, include: { fields: true } });
     const keys = sections.flatMap((s) => s.fields.map((f) => f.key));
     expect(keys).toEqual(expect.arrayContaining(["first_name", "last_name", "email", "spanish_proficiency", "volunteer_agreement"]));
@@ -728,26 +737,18 @@ describe("createCycle template materialization", () => {
     expect(sections.filter((s) => s.fields.some((f) => f.type === "DEPARTMENT_CHOICE"))).toHaveLength(1);
   });
 
-  it("publishes a freshly created default cycle with no manual edits", async () => {
+  it("publishes a flag-seeded default cycle with no manual edits", async () => {
     const { person, term } = await seedTermAndPerson();
-    const cycle = await createCycle({ track: "VOLUNTEER", termId: term.id, title: "V", publicSlug: "v-pub", departments: ["MDIC"], acceptsRenewals: false, createdById: person.id });
-    const published = await publishCycle(cycle.id, person.id);
-    expect(published.status).toBe("OPEN");
+    const cycle = await createCycle({ track: "VOLUNTEER", termId: term.id, title: "V", publicSlug: "v-pub", departments: ["MDIC"], acceptsRenewals: false, createdById: person.id }, true);
+    expect((await publishCycle(cycle.id, person.id)).status).toBe("OPEN");
   });
 });
-```
-
-Also update the existing test at `cycles.test.ts:20-30` — it asserts exactly `["email","first_name","last_name"]`; change it to assert those keys are a subset:
-
-```ts
-    const keys = fields.map((f) => f.key);
-    expect(keys).toEqual(expect.arrayContaining(["email", "first_name", "last_name"]));
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `npx vitest run src/modules/recruitment/services/cycles.test.ts`
-Expected: FAIL — new keys absent; only 3 identity fields exist.
+Expected: FAIL — `createCycle` takes no second arg yet, so the flag test sees only the 3 default fields (no `spanish_proficiency`/quiz/`MDIC` section).
 
 - [ ] **Step 3: Write `termSaturdays`**
 
@@ -768,30 +769,54 @@ export function termSaturdays(start: Date, end: Date): TemplateOption[] {
 }
 ```
 
-- [ ] **Step 4: Rewrite `createCycle`** (`services/cycles.ts:27-55`)
+- [ ] **Step 4: Add the flag to `createCycle`** (`services/cycles.ts`) — keep the default (minimal) path byte-for-byte as it is today; add the template path under the flag.
 
 ```ts
+import type { TemplateSection } from "../templates/types";
 import { getApplicationTemplate } from "../templates";
 import { getQuizTemplate } from "../templates/quiz";
 import { materializeTemplate } from "../templates/materialize";
 import { termSaturdays } from "../templates/term-dates";
 
-export async function createCycle(input: CreateCycleInput): Promise<RecruitmentCycle> {
-  const term = await prisma.term.findUniqueOrThrow({ where: { id: input.termId }, select: { startDate: true, endDate: true } });
-  const dates = termSaturdays(term.startDate, term.endDate);
-  const sections = [
-    ...getApplicationTemplate(input.track, input.departments, dates),
-    ...getQuizTemplate(input.track),
-  ];
+export async function createCycle(input: CreateCycleInput, seedDefaultForm = false): Promise<RecruitmentCycle> {
+  let templateSections: TemplateSection[] | null = null;
+  if (seedDefaultForm) {
+    const term = await prisma.term.findUniqueOrThrow({ where: { id: input.termId }, select: { startDate: true, endDate: true } });
+    const dates = termSaturdays(term.startDate, term.endDate);
+    templateSections = [
+      ...getApplicationTemplate(input.track, input.departments, dates),
+      ...getQuizTemplate(input.track),
+    ];
+  }
 
   const cycle = await prisma.$transaction(async (tx) => {
+    if (templateSections) {
+      const created = await tx.recruitmentCycle.create({
+        data: {
+          track: input.track, termId: input.termId, title: input.title, publicSlug: input.publicSlug,
+          departments: input.departments, acceptsRenewals: input.acceptsRenewals, createdById: input.createdById,
+        },
+      });
+      await materializeTemplate(tx, created.id, templateSections);
+      return created;
+    }
+    // Default: the minimal identity seed (unchanged behavior).
     const created = await tx.recruitmentCycle.create({
       data: {
         track: input.track, termId: input.termId, title: input.title, publicSlug: input.publicSlug,
         departments: input.departments, acceptsRenewals: input.acceptsRenewals, createdById: input.createdById,
+        sections: { create: { title: "Your information", order: 0, appliesTo: "BOTH" } },
       },
+      include: { sections: true },
     });
-    await materializeTemplate(tx, created.id, sections);
+    const identity = created.sections[0];
+    await tx.formField.createMany({
+      data: [
+        { sectionId: identity.id, cycleId: created.id, key: "first_name", label: "First name", type: "SHORT_TEXT", required: true, order: 0 },
+        { sectionId: identity.id, cycleId: created.id, key: "last_name", label: "Last name", type: "SHORT_TEXT", required: true, order: 1 },
+        { sectionId: identity.id, cycleId: created.id, key: "email", label: "Yale email", type: "EMAIL", required: true, order: 2 },
+      ],
+    });
     return created;
   });
 
@@ -800,16 +825,26 @@ export async function createCycle(input: CreateCycleInput): Promise<RecruitmentC
 }
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [ ] **Step 5: Opt the UI action into the default form** — in `src/app/(app)/recruitment/actions.ts:35`, change the `createCycle({ ... })` call to pass `true` as the second argument:
 
-Run: `npx vitest run src/modules/recruitment/services/cycles.test.ts`
-Expected: PASS (including the pre-existing publish tests).
+```ts
+    cycle = await createCycle({ track, termId, title, publicSlug: slug, departments, acceptsRenewals: false, createdById: person.personId }, true);
+```
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Run tests to verify pass + no regressions**
+
+Run each and expect PASS:
+- `npx vitest run src/modules/recruitment/services/cycles.test.ts` (new flag tests + all pre-existing tests unchanged)
+- `npx vitest run "src/app/(app)/recruitment/actions.test.ts"` (createCycleAction error-path tests still green)
+- `npx vitest run src/modules/recruitment` (submissions/drafts/subcommittees/etc. call `createCycle` WITHOUT the flag, so their minimal-form setups are unaffected)
+
+If any pre-existing test regresses, STOP and report — do not rewrite unrelated tests.
+
+- [ ] **Step 7: Commit**
 
 ```bash
-git add src/modules/recruitment/services/cycles.ts src/modules/recruitment/templates/term-dates.ts src/modules/recruitment/services/cycles.test.ts
-git commit -m "feat(recruitment): createCycle materializes the track default template"
+git add src/modules/recruitment/services/cycles.ts src/modules/recruitment/templates/term-dates.ts src/modules/recruitment/services/cycles.test.ts "src/app/(app)/recruitment/actions.ts"
+git commit -m "feat(recruitment): seed default template on cycle creation via flag"
 ```
 
 ---

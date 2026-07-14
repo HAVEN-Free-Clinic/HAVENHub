@@ -8,9 +8,12 @@ export function normalizeDeptCode(code: string): string {
   return ALIASES[c] ?? c;
 }
 
-// Canonical (normalized) department codes that carry a supplement section.
-// Populated fully in Task 8; the two below let the mechanism land first.
+// Canonical (normalized) department codes that carry a supplement section,
+// extracted verbatim from the live Airtable application forms.
 export const SUPPLEMENT_DEPARTMENTS: Record<Track, string[]> = {
-  VOLUNTEER: ["MDIC", "SRHD"],
-  DIRECTOR: ["BVHD", "MDIC"],
+  VOLUNTEER: ["CCRH", "EDUC", "JCTP", "JCTS", "LABR", "MDIC", "ORHI", "PATS", "QAQI", "SCTP", "SCTS"],
+  DIRECTOR: [
+    "EXEC", "JONES", "EDUC", "ICDD", "MDIC", "PCAR", "ITCM", "LABR", "ORHI", "QAQI",
+    "REFF", "SOSE", "SRHD", "VADM", "FIND", "INTP", "PHAM", "SRR",
+  ],
 };

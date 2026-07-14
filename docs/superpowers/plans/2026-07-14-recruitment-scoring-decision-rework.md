@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Turn the recruitment volunteer flow into a staged pipeline — committee 1–5 scoring (running average) → lead routes a best-fit department → department interview scoring (1–5) + final decision — retire the categorical `Recommendation` enum, and fix the interview decision-confirmation bug.
+**Goal:** Turn the recruitment volunteer flow into a staged pipeline - committee 1–5 scoring (running average) → lead routes a best-fit department → department interview scoring (1–5) + final decision - retire the categorical `Recommendation` enum, and fix the interview decision-confirmation bug.
 
 **Architecture:** A new application-level `CommitteeScore` (one row per reviewer, averaged) sits before department routing. New `Application.routed*` fields record the committee's best-fit pick. The existing `Interview`/`Evaluation`/`decideInterview` machinery is generalized to numeric 1–5 scoring and made reachable for routed volunteer applications. A new `recruitment.score` permission gates committee scoring, separate from decision/release power. Pipeline stage is derived (a pure `applicationStage()` helper); `Application.status` stays `DRAFT|SUBMITTED`.
 
@@ -11,22 +11,22 @@
 ## Global Constraints
 
 - **Prisma client import:** `import { prisma, isUniqueConstraintError } from "@/platform/db"`. `@/*` → `src/*`.
-- **Services are auth-agnostic in how they get the actor:** they take the actor's `personId` as a string param and self-authorize with `can()` / `reviewScope()`. NEVER call `requirePersonSession()` / `redirect()` inside a service — those live only in `"use server"` action files and Server Components.
+- **Services are auth-agnostic in how they get the actor:** they take the actor's `personId` as a string param and self-authorize with `can()` / `reviewScope()`. NEVER call `requirePersonSession()` / `redirect()` inside a service - those live only in `"use server"` action files and Server Components.
 - **Permission check:** `await can(personId, "recruitment.<perm>")` from `@/platform/rbac/engine`. Wildcard `*` is handled inside `can`.
 - **Audit:** `await recordAudit({ actorPersonId, action: "recruitment.<verb>", entityType, entityId, after? })` from `@/platform/audit`. Fire-and-forget; runs after the mutation.
 - **Error classes:** `RecruitmentAuthError` + `AcceptanceError` are defined in `services/review.ts`; `InterviewError` in `services/interviews.ts`. New services define their own (`CommitteeScoreError`, `RoutingError`) and import `RecruitmentAuthError` from `./review`.
-- **Local test DB ONLY — never Neon.** Repo `.env` points every DB URL at shared Neon; running migrations or vitest against it would wipe production. Use native local Postgres: `postgresql://haven:haven_dev@localhost:5434/havenhub_test_recruit`. Prefix every DB command with `TEST_DATABASE_URL`/`DATABASE_URL` set to that URL.
+- **Local test DB ONLY - never Neon.** Repo `.env` points every DB URL at shared Neon; running migrations or vitest against it would wipe production. Use native local Postgres: `postgresql://haven:haven_dev@localhost:5434/havenhub_test_recruit`. Prefix every DB command with `TEST_DATABASE_URL`/`DATABASE_URL` set to that URL.
 - **Single-test command:** `TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_recruit npx vitest run <path>`. Migrate the test DB first after any schema change: `DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_recruit npx prisma migrate deploy`.
 - **Migrations are hand-authored** here (do not rely on `prisma migrate dev`, which folds pre-existing drift). Folder name = `<14-digit-timestamp>_<snake_case>`; pick a timestamp strictly greater than `ls prisma/migrations | sort | tail -1`. Model-add order: `-- CreateTable`, `-- CreateIndex` (plain `@@index` → `..._idx`, `@@unique` → `..._key`), `-- AddForeignKey` (`ON DELETE <policy> ON UPDATE CASCADE`). After editing `schema.prisma`, run `npx prisma generate`.
 - **New Prisma models MUST be added to the TRUNCATE list** in `src/platform/test/db.ts` or rows leak across tests.
 - **Every new FK-to-`Person` needs a named `@relation` on BOTH sides** or `prisma validate` fails. Append Person back-relations near the recruitment cluster (schema.prisma ~line 169–180).
 - **Tone vocabularies differ:** `Alert` uses `error|success|warning|info`; `Badge` uses `default|brand|success|warning|critical`; `Button` uses `primary|outline|danger|ghost`. Do not cross them (typecheck fails).
-- **`redirect()` throws** — place a success `redirect()` AFTER the `try/catch`, never inside `try`.
+- **`redirect()` throws** - place a success `redirect()` AFTER the `try/catch`, never inside `try`.
 - **Typecheck:** `npx tsc --noEmit`. Directory paths use the route group `(app)` on disk but not in the URL. Use worktree-rooted absolute paths for edits.
 
 ---
 
-## Slice 1 — Foundation
+## Slice 1 - Foundation
 
 ### Task 1: Add the `recruitment.score` permission
 
@@ -75,11 +75,11 @@ git commit -m "feat(recruitment): add grantable recruitment.score permission"
 **Files:**
 - Create: `src/app/(app)/recruitment/cycles/access.ts`
 - Modify: `src/app/(app)/recruitment/cycles/layout.tsx`
-- Modify: `src/app/(app)/recruitment/page.tsx` (the `/recruitment` index — read it first)
+- Modify: `src/app/(app)/recruitment/page.tsx` (the `/recruitment` index - read it first)
 - Modify: every staff-only page under `src/app/(app)/recruitment/cycles/[id]/**` EXCEPT `applicants/**` (re-add their `recruitment.access` gate)
 
 **Interfaces:**
-- Produces: `requireRecruitmentStaff()` — admits anyone with `recruitment.access` OR `recruitment.score` OR a non-empty `reviewScope` (SRR or a directed department); redirects others to `/no-access`.
+- Produces: `requireRecruitmentStaff()` - admits anyone with `recruitment.access` OR `recruitment.score` OR a non-empty `reviewScope` (SRR or a directed department); redirects others to `/no-access`.
 
 **Why:** The current `cycles/layout.tsx` gates the whole subtree on `recruitment.access`, so committee scorers and department directors can't reach the applicants surface. Broaden the layout to admit them, and re-gate the staff-only sibling pages so they keep their `recruitment.access`-only protection (the "layout admits, pages enforce" pattern). The `applicants/**` pages self-authorize via `reviewScope`/`canView`, so they are the intentional exception.
 
@@ -147,7 +147,7 @@ import { requirePermission } from "@/platform/auth/session";
 await requirePermission("recruitment.access");
 ```
 
-For `src/app/(app)/recruitment/page.tsx`: if it currently calls `requireModuleAccess("recruitment")` or `requirePermission("recruitment.access")`, leave it — the index stays `recruitment.access`-only (it is above the broadened layout). Do NOT add `requirePermission` to `applicants/page.tsx` or `applicants/[applicationId]/page.tsx`.
+For `src/app/(app)/recruitment/page.tsx`: if it currently calls `requireModuleAccess("recruitment")` or `requirePermission("recruitment.access")`, leave it - the index stays `recruitment.access`-only (it is above the broadened layout). Do NOT add `requirePermission` to `applicants/page.tsx` or `applicants/[applicationId]/page.tsx`.
 
 - [ ] **Step 5: Verify typecheck + existing recruitment page smoke**
 
@@ -220,7 +220,7 @@ export function scoreAverage(scores: number[]): { average: number | null; count:
 Run: `TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_recruit npx vitest run src/modules/recruitment/engine/scoring.test.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Edit the schema — Evaluation numeric + drop the enum**
+- [ ] **Step 5: Edit the schema - Evaluation numeric + drop the enum**
 
 In `prisma/schema.prisma`, change the `Evaluation` model field:
 
@@ -370,7 +370,7 @@ Replace the Evaluations card header + summary line:
 ```tsx
         <SectionHeader>Evaluations ({summary.count})</SectionHeader>
         <p className="mt-1 text-xs text-subtle-foreground">
-          Average {summary.average != null ? summary.average.toFixed(1) : "—"}
+          Average {summary.average != null ? summary.average.toFixed(1) : "-"}
         </p>
 ```
 
@@ -416,7 +416,7 @@ git commit -m "feat(recruitment): numeric 1-5 interview evaluations, retire Reco
 
 ---
 
-## Slice 2 — Committee scoring
+## Slice 2 - Committee scoring
 
 ### Task 4: `CommitteeScore` model + migration
 
@@ -711,7 +711,7 @@ export async function listApplicantsForReview(cycleId: string, viewerId: string)
 }
 ```
 
-(Note: the director filter still uses `departmentChoices` here — Task 7 switches it to routing.)
+(Note: the director filter still uses `departmentChoices` here - Task 7 switches it to routing.)
 
 - [ ] **Step 2: Add the committee-score action**
 
@@ -747,7 +747,7 @@ import { committeeScoreSummary } from "@/modules/recruitment/services/committee-
 import { committeeScoreAction } from "../actions";
 ```
 
-After the existing data fetches, add (gate matches the service auth — `review_all` or `recruitment.score`, NOT `manage_cycles`):
+After the existing data fetches, add (gate matches the service auth - `review_all` or `recruitment.score`, NOT `manage_cycles`):
 ```tsx
 const canScore = scope.all || (await can(person.personId, "recruitment.score"));
 const scoreSummary = canScore ? await committeeScoreSummary(applicationId) : null;
@@ -760,7 +760,7 @@ Insert a new `<Card>` immediately AFTER the Subcommittee card block and BEFORE t
   <Card>
     <SectionHeader>Committee score</SectionHeader>
     <p className="mt-1 text-xs text-subtle-foreground">
-      Average {scoreSummary.average != null ? scoreSummary.average.toFixed(1) : "—"} · {scoreSummary.count} scored
+      Average {scoreSummary.average != null ? scoreSummary.average.toFixed(1) : "-"} · {scoreSummary.count} scored
     </p>
     <form action={committeeScoreAction.bind(null, id, applicationId)} className="mt-3 flex flex-wrap items-end gap-3">
       <div className="w-28">
@@ -803,7 +803,7 @@ Inside the row map (after the `Type` `<TD>`), add:
                 <TD className="text-foreground-soft">
                   {(() => {
                     const s = scoreAverage(a.committeeScores.map((c) => c.score));
-                    return s.average != null ? `${s.average.toFixed(1)} · ${s.count}` : "—";
+                    return s.average != null ? `${s.average.toFixed(1)} · ${s.count}` : "-";
                   })()}
                 </TD>
 ```
@@ -828,7 +828,7 @@ git commit -m "feat(recruitment): committee scoring UI + roster average column"
 
 ---
 
-## Slice 3 — Routing
+## Slice 3 - Routing
 
 ### Task 7: `Application` routing fields, migration, stage helper, director visibility
 
@@ -1191,7 +1191,7 @@ Insert a Routing `<Card>` AFTER the Committee score card and BEFORE the decision
         {routedOffChoice && <Badge tone="warning" className="ml-2">off-choice</Badge>}
       </p>
     ) : (
-      <p className="mt-3 text-sm text-muted-foreground">Not routed yet. Applicant ranked: {app.departmentChoices.join(", ") || "—"}.</p>
+      <p className="mt-3 text-sm text-muted-foreground">Not routed yet. Applicant ranked: {app.departmentChoices.join(", ") || "-"}.</p>
     )}
     <form action={routeAction.bind(null, id, applicationId)} className="mt-4 flex flex-wrap items-end gap-3 border-t border-border-subtle pt-4">
       <div className="w-40">
@@ -1257,7 +1257,7 @@ git commit -m "feat(recruitment): routing UI (best-fit department) + roster stag
 
 ---
 
-## Slice 4 — Department stage reachability + decision-confirmation fix
+## Slice 4 - Department stage reachability + decision-confirmation fix
 
 ### Task 10: Make interviews reachable for routed volunteers; remove instant-accept
 
@@ -1329,7 +1329,7 @@ with:
 - [ ] **Step 4: Run the interviews test to green**
 
 Run: `TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_recruit npx vitest run src/modules/recruitment/services/interviews.test.ts`
-Expected: PASS (existing director-track cases still pass — routedDepartmentCode is null there).
+Expected: PASS (existing director-track cases still pass - routedDepartmentCode is null there).
 
 - [ ] **Step 5: Remove the instant-accept service + tests**
 
@@ -1339,7 +1339,7 @@ In `src/modules/recruitment/services/review.test.ts`, delete the `describe("acce
 
 - [ ] **Step 6: Remove the instant-accept action**
 
-In `src/app/(app)/recruitment/cycles/[id]/applicants/actions.ts`, delete `acceptApplicantAction` and remove `acceptApplicant` from the `@/modules/recruitment/services/review` import. Keep `revokeAcceptanceAction`? It is only used by the Accept card being removed in Step 7 — delete `revokeAcceptanceAction` too, and drop `revokeAcceptance` from the import. Keep `scheduleInterviewAction` (reused below).
+In `src/app/(app)/recruitment/cycles/[id]/applicants/actions.ts`, delete `acceptApplicantAction` and remove `acceptApplicant` from the `@/modules/recruitment/services/review` import. Keep `revokeAcceptanceAction`? It is only used by the Accept card being removed in Step 7 - delete `revokeAcceptanceAction` too, and drop `revokeAcceptance` from the import. Keep `scheduleInterviewAction` (reused below).
 
 - [ ] **Step 7: Replace the volunteer Accept card with a Department-review card**
 
@@ -1417,7 +1417,7 @@ Replace the whole `{app.cycle.track === "VOLUNTEER" ? ( ...Accept card... ) : ( 
 )}
 ```
 
-If `scheduleChoices` / `interviewedDepts` were only used by the old director branch, keep their definitions (still used above). If `getApplication` uses an explicit `select`, ensure `routedDepartmentCode` is included (it is a scalar; add it if a `select` omits it — check `src/modules/recruitment/services/submissions.ts` `getApplication`).
+If `scheduleChoices` / `interviewedDepts` were only used by the old director branch, keep their definitions (still used above). If `getApplication` uses an explicit `select`, ensure `routedDepartmentCode` is included (it is a scalar; add it if a `select` omits it - check `src/modules/recruitment/services/submissions.ts` `getApplication`).
 
 - [ ] **Step 8: Run affected tests + typecheck**
 
@@ -1426,7 +1426,7 @@ Run:
 TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_recruit npx vitest run src/modules/recruitment/services/review.test.ts src/modules/recruitment/services/interviews.test.ts src/modules/recruitment/services/interview-decisions.test.ts
 npx tsc --noEmit
 ```
-Expected: PASS; no type errors. (Also grep for any remaining `acceptApplicant` references: `grep -rn "acceptApplicant" src` — there should be none.)
+Expected: PASS; no type errors. (Also grep for any remaining `acceptApplicant` references: `grep -rn "acceptApplicant" src` - there should be none.)
 
 - [ ] **Step 9: Commit**
 
@@ -1471,7 +1471,7 @@ In `decideAction`, replace the trailing `revalidatePath(detail(interviewId));` w
   redirect(detail(interviewId, { saved: "decision" }));
 ```
 
-Apply the same pattern to the other actions in the file — replace their final `revalidatePath(detail(interviewId));` with `redirect(detail(interviewId, { saved: "<key>" }));` after the try/catch, using keys: `schedule`, `panelist`, `invite`, `evaluation`, `rescind` (for `scheduleAction`, `addPanelistAction`, `sendInviteAction`, `submitEvaluationAction`, `rescindAcceptanceAction`; `removePanelistAction` uses `panelist` too). Keep `import { revalidatePath } from "next/cache";` only if still referenced; if no longer used, remove it.
+Apply the same pattern to the other actions in the file - replace their final `revalidatePath(detail(interviewId));` with `redirect(detail(interviewId, { saved: "<key>" }));` after the try/catch, using keys: `schedule`, `panelist`, `invite`, `evaluation`, `rescind` (for `scheduleAction`, `addPanelistAction`, `sendInviteAction`, `submitEvaluationAction`, `rescindAcceptanceAction`; `removePanelistAction` uses `panelist` too). Keep `import { revalidatePath } from "next/cache";` only if still referenced; if no longer used, remove it.
 
 - [ ] **Step 3: Read `saved` and render a success Alert + reflect the decision**
 
@@ -1501,7 +1501,7 @@ Render the success Alert right after the existing error Alert (`{error && <Alert
       {saved && savedMessage[saved] && <Alert tone="success">{savedMessage[saved]}</Alert>}
 ```
 
-Make the Decision `<Select>` reflect the recorded outcome — change:
+Make the Decision `<Select>` reflect the recorded outcome - change:
 ```tsx
                 <Select name="outcome" required>
 ```

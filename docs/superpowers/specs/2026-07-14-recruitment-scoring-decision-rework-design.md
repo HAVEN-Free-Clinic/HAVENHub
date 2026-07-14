@@ -34,7 +34,7 @@ What exists today (verified against the codebase):
   only accept/interview into a department the applicant already picked.
 - **Decision-confirmation bug (confirmed):** on the interview page,
   `decideAction` (`src/app/(app)/recruitment/interviews/actions.ts:67`) only
-  calls `revalidatePath` on success — no success signal. The page
+  calls `revalidatePath` on success - no success signal. The page
   (`[interviewId]/page.tsx`) reads only an `?error` param, and the outcome
   `<Select>` has no `defaultValue`, so after recording a decision the form
   resets to "Accept" and looks untouched. The only real indicator is a small
@@ -64,7 +64,7 @@ What exists today (verified against the codebase):
 
 - The **director track keeps its current flow** for now (no committee scoring,
   no routing UI). It does inherit numeric 1-5 interview scoring from the shared
-  `Evaluation` change — that is intended and part of "director-ready".
+  `Evaluation` change - that is intended and part of "director-ready".
 - No hard cycle-wide scoring phase gate. Routing is per-applicant, available
   whenever a lead judges an application ready (informed by the readiness
   signal). One unscored application never blocks routing the rest.
@@ -72,7 +72,7 @@ What exists today (verified against the codebase):
   (`releaseDecisions()`, `OnboardingContract`, `promoteContract()`).
 - No new subcommittee behavior. Subcommittee ranking/assignment stays as-is.
 - Committee scoring is **not** auto-aggregated into the routing or final
-  decision — scores are advisory input a human acts on (mirrors how interview
+  decision - scores are advisory input a human acts on (mirrors how interview
   evaluations are advisory to `decideInterview()` today).
 
 ## Design
@@ -103,7 +103,7 @@ roster filters and badges, derived from `CommitteeScore` rows, the
 
 ### 1. Data model (`prisma/schema.prisma`)
 
-**New — committee scoring (stage 1), application-level per-reviewer score:**
+**New - committee scoring (stage 1), application-level per-reviewer score:**
 
 ```prisma
 model CommitteeScore {
@@ -127,11 +127,11 @@ the per-reviewer `Evaluation` shape lifted one level up (application, not
 interview). Add the back-relations on `Application` (`committeeScores`) and
 `Person` (`committeeScores`, relation `"committeeScorer"`).
 
-**New — routing fields on `Application` (stage 2):**
+**New - routing fields on `Application` (stage 2):**
 
 ```prisma
 routedDepartmentCode String?    // the committee's best-fit pick; null = not routed
-routedById           String?    // Person (the lead who routed) — relation "applicationRoutedBy"
+routedById           String?    // Person (the lead who routed) - relation "applicationRoutedBy"
 routedAt             DateTime?
 ```
 
@@ -140,7 +140,7 @@ binding, and it resolves the old multi-department ambiguity: one routed dept ->
 one interview -> one acceptance. The **off-choice flag is derived**
 (`!departmentChoices.includes(routedDepartmentCode)`), not stored.
 
-**Changed — `Evaluation` goes numeric (stage 3); retire categorical:**
+**Changed - `Evaluation` goes numeric (stage 3); retire categorical:**
 
 - Replace `recommendation Recommendation` with `score Int` (1-5). Keep
   `comments` and `@@unique([interviewId, evaluatorId])`.
@@ -153,7 +153,7 @@ This shared change also switches director-track interviews to 1-5 scoring
 
 ### 2. Permissions & authority
 
-- **New `recruitment.score`** — add to the recruitment module permission
+- **New `recruitment.score`** - add to the recruitment module permission
   catalog in `src/platform/modules/registry.ts`. Grants: read **all** submitted
   applications in a cycle + submit/update **your own** 1-5 committee score.
   Grants **no** routing, decision, or release power. Admin-grantable; not seeded
@@ -161,7 +161,7 @@ This shared change also switches director-track interviews to 1-5 scoring
   string just needs to exist in the catalog to be grantable).
 - **Routing (stage 2)** is gated on existing **`recruitment.review_all`**
   (leads/SRR). (Can be split into a dedicated `recruitment.route` later if
-  non-SRR routing leads are needed; reusing `review_all` for now — YAGNI.)
+  non-SRR routing leads are needed; reusing `review_all` for now - YAGNI.)
 - **Department review (stage 3)** keeps today's authorization: department
   directors (via `manageableDepartmentIds()` from active `DIRECTOR`
   `TermMembership` rows + one-hop `DepartmentDelegation`) and `review_all`
@@ -173,7 +173,7 @@ This shared change also switches director-track interviews to 1-5 scoring
 `cycles/layout.tsx`), and committee scorers would hit the same wall. Broaden the
 `cycles/layout.tsx` gate to admit anyone with **any** relevant capability
 (`recruitment.access` OR `recruitment.score` OR a non-empty `reviewScope()`),
-then gate each tab/action by its specific permission — the established
+then gate each tab/action by its specific permission - the established
 "ModuleNav sub-permissions" pattern (layout admits, pages enforce). Committee
 scorers and directors thereby reach exactly their scoped surfaces without a
 blanket grant.
@@ -181,12 +181,12 @@ blanket grant.
 ### 3. Services (`src/modules/recruitment/services/`)
 
 - **`committee-scoring.ts`** (new): `submitCommitteeScore(applicationId,
-  reviewerId, score, comments)` — validates `score in 1..5`, requires
+  reviewerId, score, comments)` - validates `score in 1..5`, requires
   `recruitment.score` (or `review_all`), upserts on `(applicationId,
   reviewerId)`, records an audit action. `committeeScoreSummary(applicationId)`
   -> `{ average, count, scores[] }`.
 - **`routing.ts`** (new): `routeApplication(applicationId, departmentCode,
-  actorId)` — requires `review_all`; validates `departmentCode` is one of
+  actorId)` - requires `review_all`; validates `departmentCode` is one of
   `cycle.departments`; sets `routedDepartmentCode/routedById/routedAt`; records
   audit. Off-choice routing is allowed but the caller/UI surfaces the derived
   flag (service does not block it).
@@ -210,7 +210,7 @@ blanket grant.
     (cross-department read is the whole point of committee scoring), but with no
     routing/decision controls.
   - department directors (scope by `departmentCodes`, no `review_all`/`score`):
-    see applications **routed to their department** — filter on
+    see applications **routed to their department** - filter on
     `routedDepartmentCode ∈ scope.departmentCodes`. This is a change from
     today's "applications that *chose* my department" filter
     (`departmentChoices ∩ scope`); routing, not applicant choice, now drives a
@@ -226,7 +226,7 @@ blanket grant.
 - **`cycles/[id]/applicants/[applicationId]/page.tsx` (detail):** add
   - a **1-5 committee score input** (the current user's own score) + the running
     average + comments (stage 1);
-  - a **Route to department** control for leads — the applicant's
+  - a **Route to department** control for leads - the applicant's
     `departmentChoices` highlighted, any cycle department selectable, with an
     off-choice confirmation/flag (stage 2);
   - a link into the department interview once routed.
@@ -253,7 +253,7 @@ In `src/app/(app)/recruitment/interviews/`:
    and show "Recorded {label} · {relative date} by {name}".
 4. Sweep the same silent-success fix across the sibling revalidate-only actions
    on this page (`scheduleAction`, `addPanelistAction`, `sendInviteAction`,
-   `submitEvaluationAction`, `rescindAcceptanceAction`) — they share the defect.
+   `submitEvaluationAction`, `rescindAcceptanceAction`) - they share the defect.
 
 ### 6. Migration, testing, rollout
 
@@ -281,7 +281,7 @@ In `src/app/(app)/recruitment/interviews/`:
 
 ## Assumed defaults (called out for confirmation during review)
 
-1. **Instant-accept removed** — all volunteer decisions go through the
+1. **Instant-accept removed** - all volunteer decisions go through the
    interview/decision surface. A department may skip scheduling/panelists and
    just record the decision, but the decision lives on an `Interview` row.
 2. **Routing = `review_all` leads**, not every committee scorer.

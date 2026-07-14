@@ -175,6 +175,7 @@ model Person {
   interviewsDecided         Interview[]          @relation("interviewDecidedBy")
   interviewPanels           InterviewPanelist[]  @relation("interviewPanelistPerson")
   interviewEvaluations      Evaluation[]         @relation("interviewEvaluator")
+  committeeScores           CommitteeScore[]     @relation("committeeScoreScorer")
   trainings                Training[]  @relation("trainingPerson")
   trainingAttendanceMarked Training[]  @relation("trainingAttendanceRecorder")
   subcommitteeAssignments  Application[] @relation("applicationSubcommitteeAssigner")
@@ -1297,6 +1298,7 @@ model Application {
   applicant   Applicant        @relation(fields: [applicantId], references: [id], onDelete: Cascade)
   acceptances Acceptance[]
   interviews  Interview[]
+  committeeScores CommitteeScore[]
   assignedSubcommittee   Subcommittee? @relation("applicationAssignedSubcommittee", fields: [assignedSubcommitteeId], references: [id], onDelete: SetNull)
   assignedSubcommitteeBy Person?       @relation("applicationSubcommitteeAssigner", fields: [assignedSubcommitteeById], references: [id], onDelete: SetNull)
 
@@ -1319,6 +1321,22 @@ model Acceptance {
   contract    OnboardingContract?
 
   @@unique([applicationId, departmentCode])
+  @@index([applicationId])
+}
+
+model CommitteeScore {
+  id            String   @id @default(cuid())
+  applicationId String
+  scorerId      String
+  score         Int
+  comments      String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  scorer      Person      @relation("committeeScoreScorer", fields: [scorerId], references: [id], onDelete: Cascade)
+
+  @@unique([applicationId, scorerId])
   @@index([applicationId])
 }
 

@@ -63,12 +63,13 @@ export const recruitmentDescriptors: TemplateDescriptor[] = [
     variables: [
       { name: "firstName", label: "Director first name", sampleValue: "Sam" },
       { name: "count", label: "Number of applications to review", sampleValue: "3" },
+      { name: "noun", label: "application / applications", sampleValue: "applications" },
       { name: "departmentName", label: "Department name(s)", sampleValue: "Student Run Health Department" },
       { name: "reviewUrl", label: "Recruitment review URL", sampleValue: "https://hub.havenfreeclinic.com/recruitment" },
     ],
-    defaultSubject: "You have {{ count }} application(s) to review",
+    defaultSubject: "You have {{ count }} {{ noun }} to review",
     defaultBody:
-      '<p>Hi {{ firstName }},</p><p>You have <strong>{{ count }}</strong> application(s) awaiting review for {{ departmentName }}.</p><p>Review them here: <a href="{{ reviewUrl }}">{{ reviewUrl }}</a></p>',
+      '<p>Hi {{ firstName }},</p><p>You have <strong>{{ count }}</strong> {{ noun }} awaiting review for {{ departmentName }}.</p><p>Review them here: <a href="{{ reviewUrl }}">{{ reviewUrl }}</a></p>',
   },
   {
     key: "recruitment.onboarding",

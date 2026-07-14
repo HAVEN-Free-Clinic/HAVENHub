@@ -1,10 +1,12 @@
 import type { CycleStatus } from "@prisma/client";
 import { prisma } from "@/platform/db";
+import { isoDateKey } from "@/platform/dates";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { manageableDepartmentIds } from "@/platform/departments";
 import { getSetting } from "@/platform/settings/service";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
 import { notify } from "@/platform/notifications/notify";
+import { claimReminderDispatch } from "@/platform/email/reminder-dispatch";
 
 /**
  * Count applications awaiting a department's review, across both tracks:
@@ -31,7 +33,7 @@ export async function pendingReviewCount(departmentCodes: string[]): Promise<num
         status: "SUBMITTED",
         departmentChoices: { hasSome: departmentCodes },
         cycle: { track: "DIRECTOR", status: activeStatus },
-        // decision on Interview is a non-nullable enum (default PENDING), so
+        // Interview.decision is a non-nullable enum (default PENDING), so
         // `not: "PENDING"` is safe (no NULL-row drop). `none` => no decided interview.
         interviews: { none: { departmentCode: { in: departmentCodes }, decision: { not: "PENDING" } } },
       },
@@ -43,8 +45,10 @@ export async function pendingReviewCount(departmentCodes: string[]): Promise<num
 /**
  * Daily digest: notify each active department director who has applications
  * awaiting review in their department(s). Only sends when the count > 0, so a
- * director with nothing to do is never pinged. Enqueue-only, like the other cron
- * jobs; delivery is handled by the email/Teams drain.
+ * director with nothing to do is never pinged. Idempotent per (director, day) via
+ * claimReminderDispatch, so an at-least-once cron retry or overlapping trigger
+ * cannot double-notify. Enqueue-only, like the other cron jobs; delivery is
+ * handled by the email/Teams drain.
  */
 export async function runRecruitmentReviewDigest(): Promise<{ notified: number; directors: number }> {
   const activeTerm = await getActiveTerm();
@@ -63,6 +67,7 @@ export async function runRecruitmentReviewDigest(): Promise<{ notified: number; 
 
   const baseUrl = await getSetting<string>("app.baseUrl");
   const reviewUrl = `${baseUrl}/recruitment`;
+  const periodKey = isoDateKey(new Date());
   let notified = 0;
 
   for (const personId of directorIds) {
@@ -78,12 +83,17 @@ export async function runRecruitmentReviewDigest(): Promise<{ notified: number; 
     });
     if (!person) continue;
 
+    // Claim the (director, day) slot last, so nothing before this consumes it; a
+    // failed claim means today's digest already went out to this director.
+    if (!(await claimReminderDispatch("recruitment-review-digest", personId, periodKey))) continue;
+
     const firstName = person.name?.trim().split(/\s+/)[0] || "there";
     const departmentName = depts.map((d) => d.name).join(", ");
-    const plural = total === 1 ? "" : "s";
+    const noun = total === 1 ? "application" : "applications";
     const { subject, html } = await renderEmail("recruitment.review_digest", {
       firstName,
       count: total,
+      noun,
       departmentName,
       reviewUrl,
     });
@@ -92,8 +102,8 @@ export async function runRecruitmentReviewDigest(): Promise<{ notified: number; 
       person: { id: person.id, entraObjectId: person.entraObjectId, contactEmail: person.contactEmail },
       email: { subject, html },
       teams: {
-        title: `${total} application${plural} to review`,
-        summary: `You have ${total} application${plural} awaiting review for ${departmentName}.`,
+        title: `${total} ${noun} to review`,
+        summary: `You have ${total} ${noun} awaiting review for ${departmentName}.`,
         link: reviewUrl,
       },
     });

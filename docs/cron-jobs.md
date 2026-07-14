@@ -37,8 +37,10 @@ Notes:
   kept locked for `STALE_LOCK_MS` (5 min), so retries are paced by that window
   regardless of how often a drain is triggered; a permanently-failed row (FAILED
   after 8 attempts) releases its lock so an admin retry is immediately claimable.
-- The `reminders` and `shift-reminders` jobs still only **enqueue**; their mail is
-  delivered by the enqueue flush after they run, or by this backstop tick.
+- The `reminders`, `shift-reminders`, and `recruitment-review-digest` jobs still
+  only **enqueue**; their mail is delivered by the enqueue flush after they run, or
+  by this backstop tick. Each is idempotent per (person, day) via
+  `claimReminderDispatch`, so an at-least-once retry never double-sends.
 - `recruitment-drafts` used to be a Vercel Cron but was moved to the external
   scheduler for the same reason as the others (Vercel does not fire `vercel.json`
   crons on the current plan). `vercel.json` no longer declares any crons.

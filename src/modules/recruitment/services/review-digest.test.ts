@@ -41,6 +41,15 @@ describe("runRecruitmentReviewDigest", () => {
     expect(r.notified).toBe(0);
     expect(await prisma.notification.findMany({ where: { personId: director.id, type: "recruitment.review_digest" } })).toHaveLength(0);
   });
+
+  it("is idempotent per day: a second run does not re-notify", async () => {
+    const { director } = await seed();
+    const first = await runRecruitmentReviewDigest();
+    const second = await runRecruitmentReviewDigest();
+    expect(first.notified).toBe(1);
+    expect(second.notified).toBe(0);
+    expect(await prisma.notification.findMany({ where: { personId: director.id, type: "recruitment.review_digest" } })).toHaveLength(1);
+  });
 });
 
 describe("pendingReviewCount", () => {

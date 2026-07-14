@@ -747,9 +747,9 @@ import { committeeScoreSummary } from "@/modules/recruitment/services/committee-
 import { committeeScoreAction } from "../actions";
 ```
 
-After the existing data fetches, add:
+After the existing data fetches, add (gate matches the service auth — `review_all` or `recruitment.score`, NOT `manage_cycles`):
 ```tsx
-const canScore = seeAll || (await can(person.personId, "recruitment.score"));
+const canScore = scope.all || (await can(person.personId, "recruitment.score"));
 const scoreSummary = canScore ? await committeeScoreSummary(applicationId) : null;
 const myScore = scoreSummary?.scores.find((s) => s.scorerId === person.personId) ?? null;
 ```

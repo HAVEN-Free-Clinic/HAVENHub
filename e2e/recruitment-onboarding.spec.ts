@@ -10,15 +10,47 @@ async function devLogin(page: import("@playwright/test").Page, email: string) {
   await page.waitForURL((url) => url.pathname === "/");
 }
 
+// Task 10 removed the volunteer instant-accept "Accept" button on the applicant
+// detail page. Acceptance now only happens through: route the applicant to a
+// department (Routing card, visible because scope.all && cycle.track ===
+// "VOLUNTEER") -> start an interview (Department-review card; scheduleInterviewAction
+// posts a hidden departmentCode and redirects to the interview page) -> record an
+// ACCEPT decision (Decision card), which transactionally mints the Acceptance the
+// same way the director pipeline always has.
+async function acceptViaInterview(
+  page: import("@playwright/test").Page,
+  cycleId: string,
+  applicantLinkName: RegExp,
+  dept: string,
+) {
+  await page.goto(`/recruitment/cycles/${cycleId}/applicants`);
+  await page.getByRole("link", { name: applicantLinkName }).click();
+  await page.waitForURL((url) => url.pathname.includes("/applicants/"));
+
+  // --- Route (Routing card; src/app/(app)/recruitment/cycles/[id]/applicants/[applicationId]/page.tsx:182-196) ---
+  await page.locator('select[name="departmentCode"]').selectOption(dept);
+  await page.getByRole("button", { name: "Route" }).click();
+
+  // --- Start interview (Department-review card, appears once routed; same file:246-251) ---
+  await page.getByRole("button", { name: "Start interview" }).click();
+  // scheduleInterviewAction calls createInterview then redirects to the interview page.
+  await page.waitForURL((url) => url.pathname.includes("/recruitment/interviews/"));
+
+  // --- Record ACCEPT decision (Decision card; src/app/(app)/recruitment/interviews/[interviewId]/page.tsx:202-218) ---
+  await page.locator('select[name="outcome"]').selectOption("ACCEPT");
+  await page.getByRole("button", { name: "Record decision" }).click();
+  await expect(page.getByText("Decision recorded.")).toBeVisible();
+}
+
 // NOTE: the public /onboard/[token] submit + bulk promote are covered by integration
 // tests (onboarding.test.ts, promotion.test.ts). This e2e verifies the admin flow:
-// accept -> send onboarding link -> status "Sent".
+// route -> start interview -> record ACCEPT decision -> send onboarding link -> status "Sent".
 //
 // Modernized: the application is submitted through the portal as a verified
-// applicant (forged applicant_session cookie; see portal-cookie). The admin picks
+// applicant (forged applicant_session cookie; see portal-cookie). The admin routes
 // the department at accept time (the applicant's own department choice is not
 // required for an admin reviewer), so the builder DEPARTMENT_CHOICE step was dropped.
-test("onboarding: accept then send onboarding link", async ({ page, context }) => {
+test("onboarding: accept via interview, then send onboarding link", async ({ page, context }) => {
   await devLogin(page, "j.carney@yale.edu");
 
   // --- Build + publish a single-department volunteer cycle ---
@@ -59,13 +91,8 @@ test("onboarding: accept then send onboarding link", async ({ page, context }) =
   await expect(apply.getByText(/your application was received/i)).toBeVisible();
   await ctx.close();
 
-  // --- Accept the applicant into SRHD ---
-  await page.goto(`/recruitment/cycles/${cycleId}/applicants`);
-  await page.getByRole("link", { name: /Ona Boarder/ }).click();
-  await page.waitForURL((url) => url.pathname.includes("/applicants/"));
-  await page.locator('select[name="departmentCode"]').selectOption("SRHD");
-  await page.click('button:has-text("Accept")');
-  await expect(page.getByText(/Accepted into/)).toBeVisible();
+  // --- Accept the applicant into SRHD via route -> interview -> record ACCEPT ---
+  await acceptViaInterview(page, cycleId, /Ona Boarder/, "SRHD");
 
   // --- Onboarding page: send link, assert banner + row status ---
   await page.goto(`/recruitment/cycles/${cycleId}/onboarding`);

@@ -179,7 +179,7 @@ model Person {
   trainings                Training[]  @relation("trainingPerson")
   trainingAttendanceMarked Training[]  @relation("trainingAttendanceRecorder")
   subcommitteeAssignments  Application[] @relation("applicationSubcommitteeAssigner")
-  applicationsRouted        Application[]        @relation("applicationRoutedBy")
+  applicationsRouted       Application[] @relation("applicationRoutedBy")
   courseProgress            CourseProgress[]
   scoProgress               ScoProgress[]
   addedToEhs           Boolean         @default(false)

@@ -43,12 +43,16 @@ describe("reviewScope", () => {
 });
 
 describe("listApplicantsForReview", () => {
-  it("scopes a director to applicants routed to their department", async () => {
-    const { director, srr, cycle, appSrhd } = await seed();
-    // Route appSrhd to SRHD (the director's department) as SRR.
-    await prisma.application.update({ where: { id: appSrhd.id }, data: { routedDepartmentCode: "SRHD", routedById: srr.id, routedAt: new Date() } });
+  it("scopes a director to applicants ROUTED to their department, not merely those who ranked it", async () => {
+    const { director, srr, cycle, appSrhd, appMdic } = await seed();
+    // appMdic ranked MDIC but the committee routed it to SRHD (the director's dept);
+    // appSrhd ranked SRHD but was never routed.
+    await prisma.application.update({
+      where: { id: appMdic.id },
+      data: { routedDepartmentCode: "SRHD", routedById: srr.id, routedAt: new Date() },
+    });
     const apps = await listApplicantsForReview(cycle.id, director.id);
-    expect(apps.map((a) => a.id)).toEqual([appSrhd.id]);
+    expect(apps.map((a) => a.id)).toEqual([appMdic.id]);
   });
   it("shows SRR every applicant", async () => {
     const { srr, cycle } = await seed();

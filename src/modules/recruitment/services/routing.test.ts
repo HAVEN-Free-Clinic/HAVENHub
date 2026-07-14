@@ -1,0 +1,43 @@
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { resetDb } from "@/platform/test/db";
+import { prisma } from "@/platform/db";
+import { RecruitmentAuthError } from "./review";
+import { routeApplication, RoutingError } from "./routing";
+
+async function seed() {
+  const term = await prisma.term.create({ data: { code: "FA26", name: "Fall", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
+  await prisma.department.create({ data: { code: "EDUC", name: "Education" } });
+  await prisma.department.create({ data: { code: "MDIC", name: "Medical" } });
+  const lead = await prisma.person.create({ data: { name: "Lead", status: "ACTIVE" } });
+  const other = await prisma.person.create({ data: { name: "Other", status: "ACTIVE" } });
+  const role = await prisma.role.create({ data: { name: "SRR", grants: { create: [{ permission: "recruitment.review_all" }] } } });
+  await prisma.roleAssignment.create({ data: { personId: lead.id, roleId: role.id } });
+  const cycle = await prisma.recruitmentCycle.create({ data: { track: "VOLUNTEER", termId: term.id, title: "V", publicSlug: "v", departments: ["EDUC", "MDIC"], createdById: lead.id, status: "OPEN" } });
+  const applicant = await prisma.applicant.create({ data: { cycleId: cycle.id, firstName: "A", lastName: "B", email: "a@y.edu", emailLower: "a@y.edu" } });
+  const application = await prisma.application.create({ data: { cycleId: cycle.id, applicantId: applicant.id, answers: {}, applicantType: "NEW", departmentChoices: ["EDUC"] } });
+  return { lead, other, application };
+}
+
+beforeEach(async () => { await resetDb(); });
+afterEach(async () => { await resetDb(); });
+
+describe("routeApplication", () => {
+  it("lets a lead route to any cycle department (even off-choice) and audits", async () => {
+    const { lead, application } = await seed();
+    const routed = await routeApplication(application.id, "MDIC", lead.id); // MDIC not in departmentChoices
+    expect(routed.routedDepartmentCode).toBe("MDIC");
+    expect(routed.routedById).toBe(lead.id);
+    const audit = await prisma.auditLog.findFirst({ where: { action: "recruitment.route" } });
+    expect(audit).not.toBeNull();
+  });
+
+  it("rejects a non-lead", async () => {
+    const { other, application } = await seed();
+    await expect(routeApplication(application.id, "EDUC", other.id)).rejects.toBeInstanceOf(RecruitmentAuthError);
+  });
+
+  it("rejects a department not in the cycle", async () => {
+    const { lead, application } = await seed();
+    await expect(routeApplication(application.id, "NOPE", lead.id)).rejects.toBeInstanceOf(RoutingError);
+  });
+});

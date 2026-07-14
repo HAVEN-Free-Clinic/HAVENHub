@@ -32,7 +32,7 @@ export async function createCycleAction(formData: FormData) {
   }
   let cycle;
   try {
-    cycle = await createCycle({ track, termId, title, publicSlug: slug, departments, acceptsRenewals: false, createdById: person.personId });
+    cycle = await createCycle({ track, termId, title, publicSlug: slug, departments, acceptsRenewals: false, createdById: person.personId }, true);
   } catch (err) {
     // publicSlug is unique. A colliding slug throws P2002; surface the same
     // friendly reserved-word flow instead of the generic error page (audit3 L2).

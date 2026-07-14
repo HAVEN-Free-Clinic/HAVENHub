@@ -380,3 +380,29 @@ describe("archiveCycle", () => {
     await expect(archiveCycle("missing", person.id)).rejects.toBeInstanceOf(CyclePublishError);
   });
 });
+
+describe("createCycle seedDefaultForm", () => {
+  it("default (no flag) keeps only the minimal 3 identity fields", async () => {
+    const { person, term } = await seedTermAndPerson();
+    const cycle = await createCycle({ track: "VOLUNTEER", termId: term.id, title: "V", publicSlug: "v-min", departments: ["MDIC"], acceptsRenewals: false, createdById: person.id });
+    const keys = (await prisma.formField.findMany({ where: { cycleId: cycle.id } })).map((f) => f.key).sort();
+    expect(keys).toEqual(["email", "first_name", "last_name"]);
+  });
+
+  it("with the flag materializes the full track template + quiz + dept supplement", async () => {
+    const { person, term } = await seedTermAndPerson();
+    const cycle = await createCycle({ track: "VOLUNTEER", termId: term.id, title: "V", publicSlug: "v-tmpl", departments: ["MDIC"], acceptsRenewals: false, createdById: person.id }, true);
+    const sections = await prisma.formSection.findMany({ where: { cycleId: cycle.id }, include: { fields: true } });
+    const keys = sections.flatMap((s) => s.fields.map((f) => f.key));
+    expect(keys).toEqual(expect.arrayContaining(["first_name", "last_name", "email", "spanish_proficiency", "volunteer_agreement"]));
+    expect(sections.some((s) => s.purpose === "QUIZ")).toBe(true);
+    expect(sections.some((s) => s.departmentCode === "MDIC")).toBe(true);
+    expect(sections.filter((s) => s.fields.some((f) => f.type === "DEPARTMENT_CHOICE"))).toHaveLength(1);
+  });
+
+  it("publishes a flag-seeded default cycle with no manual edits", async () => {
+    const { person, term } = await seedTermAndPerson();
+    const cycle = await createCycle({ track: "VOLUNTEER", termId: term.id, title: "V", publicSlug: "v-pub", departments: ["MDIC"], acceptsRenewals: false, createdById: person.id }, true);
+    expect((await publishCycle(cycle.id, person.id)).status).toBe("OPEN");
+  });
+});

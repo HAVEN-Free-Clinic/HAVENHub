@@ -23,7 +23,7 @@ import { AddPanelistForm } from "./add-panelist-form";
 import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
 
-const RECS = ["STRONG_YES", "YES", "MAYBE", "NO"];
+const SCORES = [1, 2, 3, 4, 5];
 const decisionTone = { PENDING: "default", ACCEPT: "success", REJECT: "critical", WAITLIST: "warning" } as const;
 const decisionLabel = { PENDING: "Pending", ACCEPT: "Accepted", REJECT: "Rejected", WAITLIST: "Waitlisted" } as const;
 
@@ -156,15 +156,15 @@ export default async function InterviewDetail({ params, searchParams }: { params
       )}
 
       <Card>
-        <SectionHeader>Evaluations ({summary.total})</SectionHeader>
+        <SectionHeader>Evaluations ({summary.count})</SectionHeader>
         <p className="mt-1 text-xs text-subtle-foreground">
-          Strong yes {summary.strongYes} · Yes {summary.yes} · Maybe {summary.maybe} · No {summary.no}
+          Average {summary.average != null ? summary.average.toFixed(1) : "—"}
         </p>
         {iv.evaluations.length > 0 ? (
           <ul className="mt-3 divide-y divide-border-subtle">
             {iv.evaluations.map((e) => (
               <li key={e.id} className="py-2 text-sm text-foreground-soft">
-                <strong className="text-foreground">{e.evaluator.name}</strong>: {e.recommendation.replace("_", " ")}
+                <strong className="text-foreground">{e.evaluator.name}</strong>: {e.score}/5
                 {e.comments ? ` (${e.comments})` : ""}
               </li>
             ))}
@@ -216,14 +216,14 @@ export default async function InterviewDetail({ params, searchParams }: { params
           <SectionHeader>Your evaluation</SectionHeader>
           <form action={submitEvaluationAction.bind(null, interviewId)} className="mt-3 flex flex-wrap items-end gap-3">
             <div className="w-44">
-              <Field label="Recommendation">
-                <Select name="recommendation" required defaultValue={myEval?.recommendation ?? ""}>
+              <Field label="Score (1-5)">
+                <Select name="score" required defaultValue={myEval?.score != null ? String(myEval.score) : ""}>
                   <option value="" disabled>
                     Select…
                   </option>
-                  {RECS.map((r) => (
-                    <option key={r} value={r}>
-                      {r.replace("_", " ")}
+                  {SCORES.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
                     </option>
                   ))}
                 </Select>

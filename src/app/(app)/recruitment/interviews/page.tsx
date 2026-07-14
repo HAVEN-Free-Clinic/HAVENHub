@@ -39,7 +39,7 @@ export default async function MyInterviewsPage() {
               <TD className="text-foreground-soft"><DateTime value={iv.scheduledAt} fallback="TBD" /></TD>
               <TD>
                 {iv.evaluations.length > 0 ? (
-                  <Badge tone="brand">{iv.evaluations[0].recommendation.replace("_", " ")}</Badge>
+                  <Badge tone="brand">{iv.evaluations[0].score}/5</Badge>
                 ) : (
                   <Badge tone="warning">Pending</Badge>
                 )}

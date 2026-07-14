@@ -8,7 +8,6 @@ import { updateInterview, addPanelist, removePanelist, sendInterviewInvite, Inte
 import { decideInterview, type InterviewOutcome } from "@/modules/recruitment/services/interview-decisions";
 import { RecruitmentAuthError, AcceptanceError, revokeAcceptance } from "@/modules/recruitment/services/review";
 import { submitEvaluation } from "@/modules/recruitment/services/evaluations";
-import type { Recommendation } from "@prisma/client";
 
 // The interview detail page now lives at /recruitment/interviews/[id] (outside the
 // recruitment-staff gate) so panelists can reach it. These actions self-authorize
@@ -80,12 +79,12 @@ export async function rescindAcceptanceAction(interviewId: string, acceptanceId:
 
 export async function submitEvaluationAction(interviewId: string, formData: FormData) {
   const person = await requirePersonSession();
-  const recommendation = String(formData.get("recommendation") ?? "") as Recommendation;
+  const score = Number(formData.get("score"));
   const comments = String(formData.get("comments") ?? "").trim() || null;
-  if (!(["STRONG_YES", "YES", "MAYBE", "NO"] as Recommendation[]).includes(recommendation)) {
-    redirect(detail(interviewId, "Invalid recommendation."));
+  if (!Number.isInteger(score) || score < 1 || score > 5) {
+    redirect(detail(interviewId, "Score must be 1 to 5."));
   }
-  try { await submitEvaluation(interviewId, person.personId, recommendation, comments); }
+  try { await submitEvaluation(interviewId, person.personId, score, comments); }
   catch (err) { if (isDomain(err)) redirect(detail(interviewId, (err as Error).message)); throw err; }
   revalidatePath(detail(interviewId));
 }

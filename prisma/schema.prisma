@@ -507,13 +507,6 @@ enum InterviewDecision {
   WAITLIST
 }
 
-enum Recommendation {
-  STRONG_YES
-  YES
-  MAYBE
-  NO
-}
-
 enum ContractStatus {
   PENDING
   SUBMITTED
@@ -1463,13 +1456,13 @@ model InterviewPanelist {
 }
 
 model Evaluation {
-  id             String         @id @default(cuid())
-  interviewId    String
-  evaluatorId    String
-  recommendation Recommendation
-  comments       String?
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  id          String   @id @default(cuid())
+  interviewId String
+  evaluatorId String
+  score       Int
+  comments    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   interview Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
   evaluator Person    @relation("interviewEvaluator", fields: [evaluatorId], references: [id], onDelete: Cascade)

@@ -15,6 +15,9 @@ async function seed() {
   const srr = await prisma.person.create({ data: { name: "SRR", status: "ACTIVE" } });
   const role = await prisma.role.create({ data: { name: "Recruitment Admin", grants: { create: [{ permission: "recruitment.review_all" }] } } });
   await prisma.roleAssignment.create({ data: { personId: srr.id, roleId: role.id } });
+  const scorer = await prisma.person.create({ data: { name: "Scorer", status: "ACTIVE" } });
+  const scoreRole = await prisma.role.create({ data: { name: "Committee Scorer", grants: { create: [{ permission: "recruitment.score" }] } } });
+  await prisma.roleAssignment.create({ data: { personId: scorer.id, roleId: scoreRole.id } });
   const cycle = await prisma.recruitmentCycle.create({ data: { track: "VOLUNTEER", termId: term.id, title: "V", publicSlug: "rv", departments: ["SRHD", "MDIC"], createdById: srr.id, status: "OPEN" } });
   const mkApp = async (email: string, choices: string[]) => {
     const applicant = await prisma.applicant.create({ data: { cycleId: cycle.id, firstName: "A", lastName: "B", email, emailLower: email.toLowerCase() } });
@@ -22,7 +25,7 @@ async function seed() {
   };
   const appSrhd = await mkApp("s@yale.edu", ["SRHD"]);
   const appMdic = await mkApp("m@yale.edu", ["MDIC"]);
-  return { term, srhd, mdic, director, srr, cycle, appSrhd, appMdic };
+  return { term, srhd, mdic, director, srr, scorer, cycle, appSrhd, appMdic };
 }
 
 beforeEach(async () => { await resetDb(); });
@@ -49,6 +52,12 @@ describe("listApplicantsForReview", () => {
     const { srr, cycle } = await seed();
     const apps = await listApplicantsForReview(cycle.id, srr.id);
     expect(apps).toHaveLength(2);
+  });
+  it("shows a committee scorer (recruitment.score only) every applicant, with committeeScores included", async () => {
+    const { scorer, cycle } = await seed();
+    const apps = await listApplicantsForReview(cycle.id, scorer.id);
+    expect(apps).toHaveLength(2);
+    expect(apps[0].committeeScores).toEqual([]);
   });
 });
 

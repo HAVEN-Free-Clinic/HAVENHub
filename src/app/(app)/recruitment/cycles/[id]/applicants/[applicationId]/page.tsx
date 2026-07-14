@@ -34,7 +34,8 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
     listAcceptances(applicationId),
   ]);
   const seeAll = scope.all || managesCycles;
-  const canView = seeAll || app.departmentChoices.some((d) => scope.departmentCodes.includes(d));
+  const canScore = scope.all || (await can(person.personId, "recruitment.score"));
+  const canView = seeAll || canScore || app.departmentChoices.some((d) => scope.departmentCodes.includes(d));
   if (!canView) notFound();
   const eligible = seeAll
     ? app.cycle.departments
@@ -54,7 +55,6 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
     applicantType: app.applicantType,
     selectedDepartmentCodes: app.departmentChoices,
   });
-  const canScore = scope.all || (await can(person.personId, "recruitment.score"));
   const scoreSummary = canScore ? await committeeScoreSummary(applicationId) : null;
   const myScore = scoreSummary?.scores.find((s) => s.scorerId === person.personId) ?? null;
   return (

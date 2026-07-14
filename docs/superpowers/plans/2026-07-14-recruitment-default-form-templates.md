@@ -1119,7 +1119,7 @@ async function seed() {
 describe("default template + visibility engine", () => {
   it("hides the NEW-only personal-details section for a renewal, shows it for a new applicant", async () => {
     const { person, term } = await seed();
-    const cycle = await createCycle({ track: "VOLUNTEER", termId: term.id, title: "V", publicSlug: "vis-1", departments: ["MDIC"], acceptsRenewals: true, createdById: person.id });
+    const cycle = await createCycle({ track: "VOLUNTEER", termId: term.id, title: "V", publicSlug: "vis-1", departments: ["MDIC"], acceptsRenewals: true, createdById: person.id }, true);
     const sections = await prisma.formSection.findMany({ where: { cycleId: cycle.id } });
     const personal = sections.find((s) => s.title === "Personal details")!;
     expect(isSectionVisible(personal, { applicantType: "RENEWAL", selectedDepartmentCodes: [] })).toBe(false);
@@ -1128,7 +1128,7 @@ describe("default template + visibility engine", () => {
 
   it("hides a department supplement unless that department is chosen", async () => {
     const { person, term } = await seed();
-    const cycle = await createCycle({ track: "VOLUNTEER", termId: term.id, title: "V", publicSlug: "vis-2", departments: ["MDIC"], acceptsRenewals: false, createdById: person.id });
+    const cycle = await createCycle({ track: "VOLUNTEER", termId: term.id, title: "V", publicSlug: "vis-2", departments: ["MDIC"], acceptsRenewals: false, createdById: person.id }, true);
     const supp = (await prisma.formSection.findMany({ where: { cycleId: cycle.id } })).find((s) => s.departmentCode === "MDIC")!;
     expect(isSectionVisible(supp, { applicantType: "NEW", selectedDepartmentCodes: [] })).toBe(false);
     expect(isSectionVisible(supp, { applicantType: "NEW", selectedDepartmentCodes: ["MDIC"] })).toBe(true);
@@ -1144,7 +1144,7 @@ Expected: PASS.
 - [ ] **Step 3: Full module gate**
 
 Run: `npx vitest run src/modules/recruitment` then `npm run lint`
-Expected: PASS. (Confirm the pre-existing `submissions`/`drafts` suites still pass — they read the form definition the template now populates.)
+Expected: PASS, EXCEPT one known pre-existing environmental failure in `services/promotion.test.ts` (`EpicRequest.techRequestId`) caused by shared-`havenhub_test` schema drift — it fails identically with this branch's changes stashed out, so it is NOT a regression from this work. Every other recruitment test (incl. `submissions`/`drafts`, which use `createCycle` without the flag) must pass. If any OTHER test fails, STOP and report.
 
 - [ ] **Step 4: Commit**
 

@@ -82,10 +82,16 @@ describe("listApplicantsForReview", () => {
 });
 
 describe("listReviewableCycles", () => {
-  it("gives a committee scorer (recruitment.score only) the volunteer cycle with a submitted application", async () => {
-    const { scorer, cycle } = await seed();
-    const cycles = await listReviewableCycles(scorer.id);
-    expect(cycles.map((c) => c.id)).toContain(cycle.id);
+  it("gives a committee scorer (recruitment.score only) any cycle with a submitted application, both tracks", async () => {
+    const { term, scorer, srr, cycle } = await seed();
+    const dCycle = await prisma.recruitmentCycle.create({
+      data: { track: "DIRECTOR", termId: term.id, title: "DS", publicSlug: "dir-scored", departments: ["SRHD"], createdById: srr.id, status: "OPEN" },
+    });
+    const applicant = await prisma.applicant.create({ data: { cycleId: dCycle.id, firstName: "S", lastName: "C", email: "sc@yale.edu", emailLower: "sc@yale.edu" } });
+    await prisma.application.create({ data: { cycleId: dCycle.id, applicantId: applicant.id, answers: {}, applicantType: "NEW", departmentChoices: ["SRHD"] } });
+    const ids = (await listReviewableCycles(scorer.id)).map((c) => c.id);
+    expect(ids).toContain(cycle.id); // volunteer seed cycle
+    expect(ids).toContain(dCycle.id); // director cycle: committee scores both tracks
   });
   it("gives a scope-director a volunteer cycle with an app ROUTED to their department, but not one with only a ranked (unrouted) app", async () => {
     const { term, director, srr, cycle: unroutedCycle } = await seed();

@@ -88,7 +88,7 @@ export async function listReviewableCycles(
     });
   }
   const or: Prisma.RecruitmentCycleWhereInput[] = [];
-  if (canScore) or.push({ track: "VOLUNTEER", applications: { some: { status: "SUBMITTED" } } });
+  if (canScore) or.push({ applications: { some: { status: "SUBMITTED" } } }); // committee scores both tracks
   if (scope.departmentCodes.length) {
     or.push({ track: "VOLUNTEER", applications: { some: { status: "SUBMITTED", routedDepartmentCode: { in: scope.departmentCodes } } } });
     or.push({ track: "DIRECTOR", applications: { some: { status: "SUBMITTED", departmentChoices: { hasSome: scope.departmentCodes } } } });

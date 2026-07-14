@@ -32,7 +32,6 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
   const pageCount = Math.max(1, Math.ceil(apps.length / PAGE_SIZE));
   const page = Math.min(Math.max(1, Number(pageParam) || 1), pageCount);
   const pageApps = apps.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-  const isVolunteer = cycle.track === "VOLUNTEER";
   return (
     <div className="space-y-6">
       <SetBreadcrumb
@@ -49,8 +48,8 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
             <TH>Name</TH>
             <TH>Email</TH>
             <TH>Type</TH>
-            {isVolunteer && <TH>Committee avg</TH>}
-            {isVolunteer && <TH>Stage</TH>}
+            <TH>Committee avg</TH>
+            <TH>Stage</TH>
             <TH>Ranked</TH>
             <TH>Decision</TH>
           </tr>
@@ -70,23 +69,19 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
                 </TD>
                 <TD className="text-foreground-soft">{a.applicant.email}</TD>
                 <TD className="text-foreground-soft">{applicantTypeLabel(a.applicantType)}</TD>
-                {isVolunteer && (
-                  <TD className="text-foreground-soft">
-                    {(() => {
-                      const s = scoreAverage(a.committeeScores.map((c) => c.score));
-                      return s.average != null ? `${s.average.toFixed(1)} · ${s.count}` : "-";
-                    })()}
-                  </TD>
-                )}
-                {isVolunteer && (
-                  <TD>
-                    <Badge>{applicationStageLabel[applicationStage({
-                      scoreCount: a.committeeScores.length,
-                      routedDepartmentCode: a.routedDepartmentCode,
-                      interviews: a.interviews,
-                    })]}</Badge>
-                  </TD>
-                )}
+                <TD className="text-foreground-soft">
+                  {(() => {
+                    const s = scoreAverage(a.committeeScores.map((c) => c.score));
+                    return s.average != null ? `${s.average.toFixed(1)} · ${s.count}` : "-";
+                  })()}
+                </TD>
+                <TD>
+                  <Badge>{applicationStageLabel[applicationStage({
+                    scoreCount: a.committeeScores.length,
+                    routedDepartmentCode: a.routedDepartmentCode,
+                    interviews: a.interviews,
+                  })]}</Badge>
+                </TD>
                 <TD className="text-foreground-soft">{a.departmentChoices.join(", ")}</TD>
                 <TD>
                   <Badge tone={d.tone}>{d.label}</Badge>
@@ -96,7 +91,7 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
           })}
           {apps.length === 0 && (
             <TR>
-              <TD colSpan={isVolunteer ? 7 : 5} className="py-10 text-center text-subtle-foreground">
+              <TD colSpan={7} className="py-10 text-center text-subtle-foreground">
                 No applicants in your review scope.
               </TD>
             </TR>

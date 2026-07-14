@@ -21,11 +21,12 @@ export async function submitCommitteeScore(
   }
   const app = await prisma.application.findUnique({
     where: { id: applicationId },
-    select: { status: true, cycle: { select: { track: true } }, applicant: { select: { applicantPersonId: true } } },
+    select: { status: true, applicant: { select: { applicantPersonId: true } } },
   });
   if (!app) throw new CommitteeScoreError("Application not found.");
   if (app.status !== "SUBMITTED") throw new CommitteeScoreError("This application hasn't been submitted yet.");
-  if (app.cycle.track !== "VOLUNTEER") throw new CommitteeScoreError("Committee scoring applies to volunteer cycles.");
+  // Committee scoring applies to BOTH tracks (score everyone); only routing is
+  // volunteer-only, since director applicants pick their own department.
   // Separation of duties: a signed-in applicant who is also on the committee
   // (e.g. a returning member re-applying) must not score their own application.
   // Mirrors acceptApplicant/decideInterview in review.ts / interview-decisions.ts.

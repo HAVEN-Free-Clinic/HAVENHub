@@ -34,8 +34,8 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
   ]);
   const seeAll = scope.all || managesCycles;
   const isScorer = scope.all || (await can(person.personId, "recruitment.score"));
-  // Committee scoring is a volunteer-track-only stage (see Fix #3).
-  const canScore = isScorer && app.cycle.track === "VOLUNTEER";
+  // Committee scoring applies to both tracks; only routing is volunteer-only.
+  const canScore = isScorer;
   // Mirror listApplicantsForReview's director visibility: routing (not applicant ranking) drives a director's queue.
   const canView =
     seeAll ||

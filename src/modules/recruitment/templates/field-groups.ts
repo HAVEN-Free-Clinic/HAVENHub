@@ -70,8 +70,58 @@ export function volunteerDepartmentSection(): TemplateSection {
     { key: "department_choice", label: "Department / position preference", type: "DEPARTMENT_CHOICE", required: true },
     { key: "switch_departments", label: "Would you be willing to switch departments?", type: "SINGLE_SELECT", required: false, options: YES_NO },
     { key: "department_flexibility", label: "Are you flexible in your department choice?", type: "SINGLE_SELECT", required: false, options: YES_NO },
+    { key: "cover_letter", label: "Cover letter", type: "FILE", required: true,
+      helpText: "We request that all new incoming volunteers or if you want to switch departments please submit a PDF cover letter." },
     { key: "resume", label: "Resume", type: "FILE", required: true, helpText: "Please upload your resume here." },
   ], { description: "See department descriptions at havenfreeclinic.com/apply." });
+}
+
+export function directorHavenExperienceSection(): TemplateSection {
+  return sec("HAVEN experience", "BOTH", [
+    { key: "prev_volunteered", label: "Have you previously volunteered at HAVEN?", type: "SINGLE_SELECT", required: true, options: YES_NO },
+    { key: "returning_board", label: "Have you previously been on the Board at the HFC?", type: "SINGLE_SELECT", required: true,
+      options: [
+        { value: "yes_term_extension", label: "Yes - Term Extension" },
+        { value: "yes_new_position", label: "Yes - New Position" },
+        { value: "no", label: "No" },
+      ] },
+  ]);
+}
+
+export function directorEssaysSection(): TemplateSection {
+  return sec("Short answer questions", "BOTH", [
+    { key: "essay_community_care", label:
+        "Share a story or experience that influenced your commitment to community-centered care. How does this connect to why you want to lead at HAVEN, and how would that experience inform your leadership?",
+      type: "LONG_TEXT", required: true, helpText: "Please limit response to 300 words." },
+    { key: "essay_priorities", label: "What do you believe should be important priorities for a student-run free clinic?",
+      type: "LONG_TEXT", required: true, helpText: "Please limit response to 300 words." },
+    { key: "essay_accountability", label:
+        "Directors must regularly hold volunteers and peers accountable. Describe a time you had to give direct feedback or enforce a policy. How did you approach it, and what did you learn from the experience?",
+      type: "LONG_TEXT", required: true, helpText: "Please limit response to 300 words." },
+  ]);
+}
+
+export function directorDepartmentSection(): TemplateSection {
+  return sec("Department preferences", "BOTH", [
+    { key: "department_choice", label: "Department preference (1st and 2nd choice)", type: "DEPARTMENT_CHOICE", required: true,
+      helpText: "See department descriptions at havenfreeclinic.com/apply before ranking your choices." },
+  ]);
+}
+
+export function subcommitteeSection(): TemplateSection {
+  return sec("Subcommittee preference", "BOTH", [
+    { key: "subcommittee_rank", label: "Rank your subcommittee preferences", type: "SUBCOMMITTEE_RANK", required: true,
+      helpText: "Directors also serve on one of HAVEN's subcommittees (CQA, CREC, or S&D). Rank your subcommittee preferences from most to least preferred." },
+  ]);
+}
+
+export function directorLogisticsSection(): TemplateSection {
+  return sec("Logistics", "BOTH", [
+    { key: "time_commitments", label: "What other significant time commitments do you have or anticipate having next year?", type: "LONG_TEXT", required: true },
+    { key: "resume", label: "Please upload your most recent CV/Resume", type: "FILE", required: true },
+    { key: "additional_info", label: "Additional information", type: "LONG_TEXT", required: false },
+    { key: "info_session_confirm", label: "Please confirm that you attended one of the mandatory info sessions and can attend the mandatory training.", type: "CHECKBOX", required: true },
+  ]);
 }
 
 export function acknowledgementsSection(_track: Track): TemplateSection {

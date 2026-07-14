@@ -3,6 +3,8 @@ import type { TemplateOption, TemplateSection } from "./types";
 import {
   identitySection, eligibilitySection, languagesSection, additionalOpportunitiesSection,
   availabilitySection, volunteerDepartmentSection, acknowledgementsSection, additionalInfoSection,
+  directorHavenExperienceSection, directorEssaysSection, directorDepartmentSection,
+  subcommitteeSection, directorLogisticsSection,
 } from "./field-groups";
 import { volunteerSupplementSections } from "./application/volunteer";
 import { directorSupplementSections } from "./application/director";
@@ -18,8 +20,8 @@ export function getApplicationTemplate(track: Track, departments: string[], avai
   const shared: TemplateSection[] = track === "VOLUNTEER"
     ? [identitySection(), eligibilitySection(), languagesSection(), additionalOpportunitiesSection(),
        volunteerDepartmentSection(), availabilitySection(availabilityDates), acknowledgementsSection(track), additionalInfoSection()]
-    : [identitySection(), languagesSection(), volunteerDepartmentSection(),
-       availabilitySection(availabilityDates), acknowledgementsSection(track), additionalInfoSection()];
+    : [identitySection(), directorHavenExperienceSection(), languagesSection(), directorEssaysSection(),
+       directorDepartmentSection(), availabilitySection(availabilityDates), subcommitteeSection(), directorLogisticsSection()];
   const supplements = track === "VOLUNTEER" ? volunteerSupplementSections(departments) : directorSupplementSections(departments);
   return renumber([...shared, ...supplements]);
 }

@@ -11,6 +11,7 @@ import { Badge } from "@/platform/ui/badge";
 import { Pagination } from "@/platform/ui/pagination";
 import { applicantTypeLabel } from "@/modules/recruitment/engine/visibility";
 import { scoreAverage } from "@/modules/recruitment/engine/scoring";
+import { applicationStage, applicationStageLabel } from "@/modules/recruitment/engine/application-stage";
 
 const PAGE_SIZE = 50;
 
@@ -48,6 +49,7 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
             <TH>Email</TH>
             <TH>Type</TH>
             <TH>Committee avg</TH>
+            <TH>Stage</TH>
             <TH>Ranked</TH>
             <TH>Decision</TH>
           </tr>
@@ -73,6 +75,13 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
                     return s.average != null ? `${s.average.toFixed(1)} · ${s.count}` : "—";
                   })()}
                 </TD>
+                <TD>
+                  <Badge>{applicationStageLabel[applicationStage({
+                    scoreCount: a.committeeScores.length,
+                    routedDepartmentCode: a.routedDepartmentCode,
+                    interviews: a.interviews,
+                  })]}</Badge>
+                </TD>
                 <TD className="text-foreground-soft">{a.departmentChoices.join(", ")}</TD>
                 <TD>
                   <Badge tone={d.tone}>{d.label}</Badge>
@@ -82,7 +91,7 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
           })}
           {apps.length === 0 && (
             <TR>
-              <TD colSpan={6} className="py-10 text-center text-subtle-foreground">
+              <TD colSpan={7} className="py-10 text-center text-subtle-foreground">
                 No applicants in your review scope.
               </TD>
             </TR>

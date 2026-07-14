@@ -5,6 +5,7 @@ import { requirePersonSession } from "@/platform/auth/session";
 import { acceptApplicant, revokeAcceptance, RecruitmentAuthError, AcceptanceError } from "@/modules/recruitment/services/review";
 import { createInterview, InterviewError } from "@/modules/recruitment/services/interviews";
 import { submitCommitteeScore, CommitteeScoreError } from "@/modules/recruitment/services/committee-scoring";
+import { routeApplication, RoutingError } from "@/modules/recruitment/services/routing";
 
 function bounce(cycleId: string, applicationId: string, error?: string) {
   return `/recruitment/cycles/${cycleId}/applicants/${applicationId}${error ? `?error=${encodeURIComponent(error)}` : ""}`;
@@ -45,6 +46,18 @@ export async function committeeScoreAction(cycleId: string, applicationId: strin
     await submitCommitteeScore(applicationId, person.personId, score, comments);
   } catch (err) {
     if (err instanceof RecruitmentAuthError || err instanceof CommitteeScoreError) redirect(bounce(cycleId, applicationId, err.message));
+    throw err;
+  }
+  revalidatePath(bounce(cycleId, applicationId));
+}
+
+export async function routeAction(cycleId: string, applicationId: string, formData: FormData) {
+  const person = await requirePersonSession();
+  const departmentCode = String(formData.get("departmentCode") ?? "").trim();
+  try {
+    await routeApplication(applicationId, departmentCode, person.personId);
+  } catch (err) {
+    if (err instanceof RecruitmentAuthError || err instanceof RoutingError) redirect(bounce(cycleId, applicationId, err.message));
     throw err;
   }
   revalidatePath(bounce(cycleId, applicationId));

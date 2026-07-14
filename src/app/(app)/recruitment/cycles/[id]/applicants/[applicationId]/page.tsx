@@ -5,7 +5,7 @@ import { visibleSections, applicantTypeLabel } from "@/modules/recruitment/engin
 import { requirePersonSession } from "@/platform/auth/session";
 import { reviewScope, listAcceptances } from "@/modules/recruitment/services/review";
 import { can } from "@/platform/rbac/engine";
-import { acceptApplicantAction, revokeAcceptanceAction, scheduleInterviewAction, committeeScoreAction } from "../actions";
+import { acceptApplicantAction, revokeAcceptanceAction, scheduleInterviewAction, committeeScoreAction, routeAction } from "../actions";
 import { listApplicationInterviews } from "@/modules/recruitment/services/interviews";
 import { committeeScoreSummary } from "@/modules/recruitment/services/committee-scoring";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
@@ -57,6 +57,8 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
   });
   const scoreSummary = canScore ? await committeeScoreSummary(applicationId) : null;
   const myScore = scoreSummary?.scores.find((s) => s.scorerId === person.personId) ?? null;
+  const canRoute = scope.all; // recruitment.review_all
+  const routedOffChoice = app.routedDepartmentCode != null && !app.departmentChoices.includes(app.routedDepartmentCode);
   return (
     <div className="max-w-2xl space-y-6">
       <SetBreadcrumb
@@ -160,6 +162,35 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
               </Field>
             </div>
             <SubmitButton size="sm" pendingLabel="Saving…">{myScore ? "Update score" : "Submit score"}</SubmitButton>
+          </form>
+        </Card>
+      )}
+
+      {canRoute && (
+        <Card>
+          <SectionHeader>Routing</SectionHeader>
+          {app.routedDepartmentCode ? (
+            <p className="mt-3 text-sm text-foreground-soft">
+              Routed to <strong className="text-foreground">{app.routedDepartmentCode}</strong>
+              {routedOffChoice && <Badge tone="warning" className="ml-2">off-choice</Badge>}
+            </p>
+          ) : (
+            <p className="mt-3 text-sm text-muted-foreground">Not routed yet. Applicant ranked: {app.departmentChoices.join(", ") || "—"}.</p>
+          )}
+          <form action={routeAction.bind(null, id, applicationId)} className="mt-4 flex flex-wrap items-end gap-3 border-t border-border-subtle pt-4">
+            <div className="w-40">
+              <Field label={app.routedDepartmentCode ? "Re-route to" : "Route to"}>
+                <Select name="departmentCode" required defaultValue={app.routedDepartmentCode ?? ""}>
+                  <option value="" disabled>Select…</option>
+                  {app.cycle.departments.map((d) => (
+                    <option key={d} value={d}>
+                      {d}{app.departmentChoices.includes(d) ? " (ranked)" : ""}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            </div>
+            <SubmitButton size="sm" pendingLabel="Routing…">Route</SubmitButton>
           </form>
         </Card>
       )}

@@ -56,6 +56,21 @@ export const recruitmentDescriptors: TemplateDescriptor[] = [
       '<p>Hi {{ panelistFirstName }},</p><p>You\'ve been added to the interview panel for <strong>{{ candidateName }}</strong> ({{ departmentName }} director interview).</p><p>Review the schedule and submit your evaluation from your My interviews page: <a href="{{ interviewsUrl }}">{{ interviewsUrl }}</a></p>',
   },
   {
+    key: "recruitment.review_digest",
+    name: "Recruitment: daily review digest (directors)",
+    category: "transactional",
+    group: "recruitment",
+    variables: [
+      { name: "firstName", label: "Director first name", sampleValue: "Sam" },
+      { name: "count", label: "Number of applications to review", sampleValue: "3" },
+      { name: "departmentName", label: "Department name(s)", sampleValue: "Student Run Health Department" },
+      { name: "reviewUrl", label: "Recruitment review URL", sampleValue: "https://hub.havenfreeclinic.com/recruitment" },
+    ],
+    defaultSubject: "You have {{ count }} application(s) to review",
+    defaultBody:
+      '<p>Hi {{ firstName }},</p><p>You have <strong>{{ count }}</strong> application(s) awaiting review for {{ departmentName }}.</p><p>Review them here: <a href="{{ reviewUrl }}">{{ reviewUrl }}</a></p>',
+  },
+  {
     key: "recruitment.onboarding",
     name: "Recruitment: onboarding link",
     category: "transactional",

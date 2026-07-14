@@ -19,6 +19,7 @@ describe("notification registry", () => {
         "incidents.strike_decided",
         "incidents.strike_requested",
         "recruitment.interview_assignment",
+        "recruitment.review_digest",
         "support.ticket_submitted",
         "support.ticket_manager_alert",
         "support.request_assigned",

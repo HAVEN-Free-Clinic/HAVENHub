@@ -26,16 +26,21 @@ async function assertCanManage(departmentCode: string, actorId: string): Promise
 export async function createInterview(applicationId: string, departmentCode: string, createdById: string): Promise<Interview> {
   const app = await prisma.application.findUnique({ where: { id: applicationId }, include: { cycle: true } });
   if (!app) throw new InterviewError("Application not found.");
-  // Mirror acceptApplicant (review.ts): a DRAFT application is not a real
-  // submission, so it must not be interviewed (and later accepted) (audit3 L1).
+  // A DRAFT application is not a real submission, so it must not be
+  // interviewed (and later accepted) (audit3 L1).
   if (app.status !== "SUBMITTED") throw new InterviewError("This application hasn't been submitted yet.");
-  if (app.cycle.track !== "DIRECTOR") throw new InterviewError("Interviews apply to director cycles.");
   if (!app.cycle.departments.includes(departmentCode)) throw new InterviewError("That department is not part of this cycle.");
   const scope = await reviewScope(createdById);
   if (!(scope.all || scope.departmentCodes.includes(departmentCode))) {
     throw new RecruitmentAuthError("You can't manage interviews for that department.");
   }
-  if (!scope.all && !app.departmentChoices.includes(departmentCode)) {
+  if (app.routedDepartmentCode) {
+    // Volunteer pipeline: the department comes from committee routing, not choice.
+    if (departmentCode !== app.routedDepartmentCode) {
+      throw new InterviewError("This applicant was routed to a different department.");
+    }
+  } else if (!scope.all && !app.departmentChoices.includes(departmentCode)) {
+    // Director track (no routing): fall back to the applicant's ranked choice.
     throw new RecruitmentAuthError("This applicant did not rank that department.");
   }
   try {

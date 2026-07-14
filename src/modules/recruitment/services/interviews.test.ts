@@ -33,9 +33,31 @@ it("creates an interview for a director cycle within scope", async () => {
   expect(iv.decision).toBe("PENDING");
 });
 
-it("rejects creating an interview on a volunteer cycle", async () => {
-  const { srr, application } = await seed("VOLUNTEER");
-  await expect(createInterview(application.id, "EDUC", srr.id)).rejects.toBeInstanceOf(InterviewError);
+it("creates an interview for a routed volunteer application in its routed department", async () => {
+  const term = await prisma.term.create({ data: { code: "FA26", name: "Fall", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
+  const educ = await prisma.department.create({ data: { code: "EDUC", name: "Education" } });
+  const director = await prisma.person.create({ data: { name: "Dir", status: "ACTIVE" } });
+  await prisma.termMembership.create({ data: { personId: director.id, termId: term.id, departmentId: educ.id, kind: "DIRECTOR", status: "ACTIVE" } });
+  const cycle = await prisma.recruitmentCycle.create({ data: { track: "VOLUNTEER", termId: term.id, title: "V", publicSlug: "v", departments: ["EDUC"], createdById: director.id, status: "OPEN" } });
+  const applicant = await prisma.applicant.create({ data: { cycleId: cycle.id, firstName: "A", lastName: "B", email: "a@y.edu", emailLower: "a@y.edu" } });
+  const application = await prisma.application.create({ data: { cycleId: cycle.id, applicantId: applicant.id, answers: {}, applicantType: "NEW", departmentChoices: [], routedDepartmentCode: "EDUC" } });
+  const iv = await createInterview(application.id, "EDUC", director.id);
+  expect(iv.departmentCode).toBe("EDUC");
+});
+
+it("rejects a routed volunteer application when the department doesn't match the routed department", async () => {
+  const term = await prisma.term.create({ data: { code: "FA26", name: "Fall", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
+  await prisma.department.create({ data: { code: "EDUC", name: "Education" } });
+  await prisma.department.create({ data: { code: "PCAR", name: "Patient Care" } });
+  const srr = await prisma.person.create({ data: { name: "SRR", status: "ACTIVE" } });
+  const role = await prisma.role.create({ data: { name: "Rec Admin", grants: { create: [{ permission: "recruitment.review_all" }] } } });
+  await prisma.roleAssignment.create({ data: { personId: srr.id, roleId: role.id } });
+  const cycle = await prisma.recruitmentCycle.create({ data: { track: "VOLUNTEER", termId: term.id, title: "V", publicSlug: "v2", departments: ["EDUC", "PCAR"], createdById: srr.id, status: "OPEN" } });
+  const applicant = await prisma.applicant.create({ data: { cycleId: cycle.id, firstName: "A", lastName: "B", email: "a2@y.edu", emailLower: "a2@y.edu" } });
+  const application = await prisma.application.create({ data: { cycleId: cycle.id, applicantId: applicant.id, answers: {}, applicantType: "NEW", departmentChoices: [], routedDepartmentCode: "EDUC" } });
+  // Even SRR (scope.all) can't interview a routed volunteer application in a
+  // department other than the one it was routed to; routing is authoritative here.
+  await expect(createInterview(application.id, "PCAR", srr.id)).rejects.toBeInstanceOf(InterviewError);
 });
 
 it("rejects a director scheduling outside their department", async () => {
@@ -52,8 +74,7 @@ it("rejects a duplicate interview", async () => {
 it("rejects creating an interview for a DRAFT application (audit3 L1)", async () => {
   const { director, application } = await seed();
   await prisma.application.update({ where: { id: application.id }, data: { status: "DRAFT" } });
-  // A DRAFT application is not a real submission, so it must not be interviewed
-  // (mirrors acceptApplicant's SUBMITTED guard).
+  // A DRAFT application is not a real submission, so it must not be interviewed.
   await expect(createInterview(application.id, "EDUC", director.id)).rejects.toBeInstanceOf(InterviewError);
   expect(await prisma.interview.count({ where: { applicationId: application.id } })).toBe(0);
 });

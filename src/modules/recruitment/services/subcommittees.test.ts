@@ -2,11 +2,14 @@ import { afterEach, beforeEach, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import { createCycle } from "./cycles";
-import { acceptApplicant } from "./review";
 import {
   assignSubcommittee, listAcceptedForAssignment, SubcommitteeAssignError,
 } from "./subcommittees";
 import { RecruitmentAuthError } from "./review";
+
+function accept(applicationId: string, departmentCode: string, approvedById: string) {
+  return prisma.acceptance.create({ data: { applicationId, departmentCode, approvedById } });
+}
 
 async function seed() {
   const lead = await prisma.person.create({ data: { name: "Lead", status: "ACTIVE" } });
@@ -31,7 +34,7 @@ it("refuses to assign before the applicant is accepted", async () => {
 
 it("assigns a subcommittee to an accepted applicant and records who/when", async () => {
   const { lead, app, sub } = await seed();
-  await acceptApplicant(app.id, "SRHD", lead.id, null);
+  await accept(app.id, "SRHD", lead.id);
   await assignSubcommittee(app.id, sub.id, lead.id);
   const after = await prisma.application.findUniqueOrThrow({ where: { id: app.id } });
   expect(after.assignedSubcommitteeId).toBe(sub.id);
@@ -41,7 +44,7 @@ it("assigns a subcommittee to an accepted applicant and records who/when", async
 
 it("clears an assignment with null", async () => {
   const { lead, app, sub } = await seed();
-  await acceptApplicant(app.id, "SRHD", lead.id, null);
+  await accept(app.id, "SRHD", lead.id);
   await assignSubcommittee(app.id, sub.id, lead.id);
   await assignSubcommittee(app.id, null, lead.id);
   const after = await prisma.application.findUniqueOrThrow({ where: { id: app.id } });
@@ -59,7 +62,7 @@ it("rejects a non-lead caller", async () => {
 
 it("lists accepted applicants with resolved ranking + current assignment", async () => {
   const { lead, cycle, app, sub } = await seed();
-  await acceptApplicant(app.id, "SRHD", lead.id, null);
+  await accept(app.id, "SRHD", lead.id);
   await assignSubcommittee(app.id, sub.id, lead.id);
   const rows = await listAcceptedForAssignment(cycle.id, lead.id);
   expect(rows).toHaveLength(1);

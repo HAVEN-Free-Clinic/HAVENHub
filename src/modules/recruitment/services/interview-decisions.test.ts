@@ -110,7 +110,7 @@ it("throws InterviewError for a missing interview", async () => {
 it("refuses to accept an interview whose application is a DRAFT and mints no Acceptance (audit3 L1)", async () => {
   const { iv, director, application } = await seedInterview();
   // The application reverted to DRAFT after the interview was created; an ACCEPT
-  // must not turn a draft into an Acceptance (mirrors acceptApplicant).
+  // must not turn a draft into an Acceptance.
   await prisma.application.update({ where: { id: application.id }, data: { status: "DRAFT" } });
   await expect(decideInterview(iv.id, "ACCEPT", director.id, null)).rejects.toBeInstanceOf(InterviewError);
   expect(await prisma.acceptance.count({ where: { applicationId: application.id } })).toBe(0);

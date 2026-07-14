@@ -5,7 +5,7 @@ import { visibleSections, applicantTypeLabel } from "@/modules/recruitment/engin
 import { requirePersonSession } from "@/platform/auth/session";
 import { reviewScope, listAcceptances } from "@/modules/recruitment/services/review";
 import { can } from "@/platform/rbac/engine";
-import { acceptApplicantAction, revokeAcceptanceAction, scheduleInterviewAction, committeeScoreAction, routeAction } from "../actions";
+import { scheduleInterviewAction, committeeScoreAction, routeAction } from "../actions";
 import { listApplicationInterviews } from "@/modules/recruitment/services/interviews";
 import { committeeScoreSummary } from "@/modules/recruitment/services/committee-scoring";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
@@ -16,7 +16,6 @@ import { Select } from "@/platform/ui/select";
 import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
 import { SubmitButton } from "@/platform/ui/submit-button";
-import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Card } from "@/platform/ui/card";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { prisma } from "@/platform/db";
@@ -47,7 +46,10 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
     ? await prisma.subcommittee.findMany({ where: { id: { in: rankIds } }, select: { id: true, name: true } })
     : [];
   const subName = new Map(subRows.map((s) => [s.id, s.name]));
-  const existingInterviews = app.cycle.track === "DIRECTOR" ? await listApplicationInterviews(applicationId) : [];
+  const existingInterviews = (app.routedDepartmentCode || app.cycle.track === "DIRECTOR")
+    ? await listApplicationInterviews(applicationId) : [];
+  const canManageRouted = app.routedDepartmentCode
+    ? (scope.all || scope.departmentCodes.includes(app.routedDepartmentCode)) : false;
   const interviewedDepts = new Set(existingInterviews.map((i) => i.departmentCode));
   const scheduleChoices = choices.filter((d) => !interviewedDepts.has(d));
   const answers = (app.answers ?? {}) as Record<string, unknown>;
@@ -195,52 +197,7 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
         </Card>
       )}
 
-      {app.cycle.track === "VOLUNTEER" ? (
-        <Card>
-          <SectionHeader>Decision</SectionHeader>
-          {error && <Alert tone="error" className="mt-3">{error}</Alert>}
-          {acceptances.length > 0 ? (
-            <ul className="mt-3 divide-y divide-border-subtle">
-              {acceptances.map((a) => (
-                <li key={a.id} className="flex items-center justify-between gap-4 py-2 text-sm">
-                  <span className="text-foreground-soft">
-                    Accepted into <strong className="text-foreground">{a.departmentCode}</strong>
-                    {a.notes ? `: ${a.notes}` : ""}
-                    {a.emailedAt && <Badge tone="success" className="ml-2">notified</Badge>}
-                  </span>
-                  <form action={revokeAcceptanceAction.bind(null, id, applicationId, a.id)}>
-                    <ConfirmButton label="Revoke" size="sm" />
-                  </form>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="mt-3 text-sm text-muted-foreground">No acceptances yet.</p>
-          )}
-          {choices.length > 0 && (
-            <form
-              action={acceptApplicantAction.bind(null, id, applicationId)}
-              className="mt-4 flex flex-wrap items-end gap-3 border-t border-border-subtle pt-4"
-            >
-              <div className="w-40">
-                <Field label="Department">
-                  <Select name="departmentCode" required>
-                    {choices.map((d) => (
-                      <option key={d} value={d}>{d}</option>
-                    ))}
-                  </Select>
-                </Field>
-              </div>
-              <div className="min-w-[12rem] flex-1">
-                <Field label="Notes" hint="Optional.">
-                  <Input name="notes" />
-                </Field>
-              </div>
-              <SubmitButton size="sm" pendingLabel="Accepting…">Accept</SubmitButton>
-            </form>
-          )}
-        </Card>
-      ) : (
+      {app.cycle.track === "DIRECTOR" ? (
         <Card>
           <SectionHeader>Interview</SectionHeader>
           {error && <Alert tone="error" className="mt-3">{error}</Alert>}
@@ -248,10 +205,7 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
             <ul className="mt-3 space-y-1 text-sm">
               {existingInterviews.map((iv) => (
                 <li key={iv.id}>
-                  <Link
-                    className="font-medium text-brand-fg hover:text-brand-hover"
-                    href={`/recruitment/interviews/${iv.id}`}
-                  >
+                  <Link className="font-medium text-brand-fg hover:text-brand-hover" href={`/recruitment/interviews/${iv.id}`}>
                     Interview for {iv.departmentCode}
                   </Link>
                 </li>
@@ -259,16 +213,11 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
             </ul>
           )}
           {scheduleChoices.length > 0 ? (
-            <form
-              action={scheduleInterviewAction.bind(null, id, applicationId)}
-              className="mt-4 flex flex-wrap items-end gap-3 border-t border-border-subtle pt-4"
-            >
+            <form action={scheduleInterviewAction.bind(null, id, applicationId)} className="mt-4 flex flex-wrap items-end gap-3 border-t border-border-subtle pt-4">
               <div className="w-40">
                 <Field label="Department">
                   <Select name="departmentCode" required>
-                    {scheduleChoices.map((d) => (
-                      <option key={d} value={d}>{d}</option>
-                    ))}
+                    {scheduleChoices.map((d) => (<option key={d} value={d}>{d}</option>))}
                   </Select>
                 </Field>
               </div>
@@ -277,6 +226,32 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
           ) : existingInterviews.length === 0 ? (
             <p className="mt-3 text-sm text-muted-foreground">No eligible department to interview for in your scope.</p>
           ) : null}
+        </Card>
+      ) : (
+        <Card>
+          <SectionHeader>Department review</SectionHeader>
+          {error && <Alert tone="error" className="mt-3">{error}</Alert>}
+          {!app.routedDepartmentCode ? (
+            <p className="mt-3 text-sm text-muted-foreground">Awaiting committee routing.</p>
+          ) : existingInterviews.length > 0 ? (
+            <ul className="mt-3 space-y-1 text-sm">
+              {existingInterviews.map((iv) => (
+                <li key={iv.id}>
+                  <Link className="font-medium text-brand-fg hover:text-brand-hover" href={`/recruitment/interviews/${iv.id}`}>
+                    Interview for {iv.departmentCode}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          ) : canManageRouted ? (
+            <form action={scheduleInterviewAction.bind(null, id, applicationId)} className="mt-4 border-t border-border-subtle pt-4">
+              <input type="hidden" name="departmentCode" value={app.routedDepartmentCode} />
+              <p className="mb-3 text-sm text-foreground-soft">Routed to <strong className="text-foreground">{app.routedDepartmentCode}</strong>.</p>
+              <SubmitButton size="sm" pendingLabel="Starting…">Start interview</SubmitButton>
+            </form>
+          ) : (
+            <p className="mt-3 text-sm text-muted-foreground">Routed to {app.routedDepartmentCode}. Waiting on the department to interview.</p>
+          )}
         </Card>
       )}
     </div>

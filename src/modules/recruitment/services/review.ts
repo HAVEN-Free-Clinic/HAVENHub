@@ -1,5 +1,5 @@
 import type { Acceptance, Application } from "@prisma/client";
-import { prisma, isUniqueConstraintError } from "@/platform/db";
+import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { manageableDepartmentIds } from "@/platform/departments";
 import { recordAudit } from "@/platform/audit";
@@ -63,47 +63,6 @@ export async function listApplicantsForReview(cycleId: string, viewerId: string)
 
 export async function listAcceptances(applicationId: string): Promise<Acceptance[]> {
   return prisma.acceptance.findMany({ where: { applicationId }, orderBy: { createdAt: "asc" } });
-}
-
-export async function acceptApplicant(
-  applicationId: string,
-  departmentCode: string,
-  approvedById: string,
-  notes: string | null
-): Promise<Acceptance> {
-  const app = await prisma.application.findUnique({
-    where: { id: applicationId },
-    include: { cycle: true, applicant: { select: { applicantPersonId: true } } },
-  });
-  if (!app) throw new AcceptanceError("Application not found.");
-  if (app.status !== "SUBMITTED") throw new AcceptanceError("This application hasn't been submitted yet.");
-  if (app.cycle.track !== "VOLUNTEER") throw new AcceptanceError("Review for this track is handled separately.");
-  if (!app.cycle.departments.includes(departmentCode)) throw new AcceptanceError("That department is not part of this cycle.");
-  // Separation of duties: a signed-in incumbent (e.g. a director re-applying into a
-  // department they manage) must not accept their own application.
-  if (app.applicant.applicantPersonId && app.applicant.applicantPersonId === approvedById) {
-    throw new RecruitmentAuthError("You can't accept your own application.");
-  }
-
-  const scope = await reviewScope(approvedById);
-  const inScope = scope.all || scope.departmentCodes.includes(departmentCode);
-  if (!inScope) throw new RecruitmentAuthError("You can't accept applicants for that department.");
-  if (!scope.all && !app.departmentChoices.includes(departmentCode)) {
-    throw new RecruitmentAuthError("This applicant didn't rank your department.");
-  }
-
-  try {
-    const acceptance = await prisma.acceptance.create({
-      data: { applicationId, departmentCode, approvedById, notes },
-    });
-    await recordAudit({ actorPersonId: approvedById, action: "recruitment.accept", entityType: "Acceptance", entityId: acceptance.id, after: { applicationId, departmentCode } });
-    return acceptance;
-  } catch (err) {
-    if (isUniqueConstraintError(err)) {
-      throw new AcceptanceError("Already accepted into that department.");
-    }
-    throw err;
-  }
 }
 
 export async function revokeAcceptance(acceptanceId: string, actorId: string): Promise<void> {

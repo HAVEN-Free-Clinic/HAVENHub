@@ -17,9 +17,8 @@ export async function decideInterview(
     include: { application: { select: { status: true, applicant: { select: { applicantPersonId: true } } } } },
   });
   if (!iv) throw new InterviewError("Interview not found.");
-  // Mirror acceptApplicant (review.ts): never turn a DRAFT application into an
-  // acceptance. A DRAFT application is not a real submission, so an ACCEPT here
-  // must not mint an Acceptance for it (audit3 L1).
+  // A DRAFT application is not a real submission, so an ACCEPT here must not
+  // mint an Acceptance for it (audit3 L1).
   if (iv.application.status !== "SUBMITTED") throw new InterviewError("This application hasn't been submitted yet.");
   // Separation of duties: a signed-in incumbent (e.g. a director re-applying into a
   // department they manage) must not decide their own interview.

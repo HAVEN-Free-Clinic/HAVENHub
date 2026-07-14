@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import {
-  reviewScope, listApplicantsForReview, acceptApplicant, revokeAcceptance, listAcceptances,
+  reviewScope, listApplicantsForReview, revokeAcceptance, listAcceptances,
   RecruitmentAuthError, AcceptanceError,
 } from "./review";
 
@@ -67,61 +67,11 @@ describe("listApplicantsForReview", () => {
   });
 });
 
-describe("acceptApplicant", () => {
-  it("lets a director accept into their own department with notes + audit", async () => {
-    const { director, appSrhd } = await seed();
-    const acc = await acceptApplicant(appSrhd.id, "SRHD", director.id, "great fit");
-    expect(acc.departmentCode).toBe("SRHD");
-    const audit = await prisma.auditLog.findFirst({ where: { action: "recruitment.accept" } });
-    expect(audit).not.toBeNull();
-  });
-  it("rejects a director accepting into a department they don't direct", async () => {
-    const { director, appMdic } = await seed();
-    await expect(acceptApplicant(appMdic.id, "MDIC", director.id, null)).rejects.toBeInstanceOf(RecruitmentAuthError);
-  });
-  it("rejects a director accepting into a department the applicant didn't rank", async () => {
-    const { director, appSrhd } = await seed();
-    await expect(acceptApplicant(appSrhd.id, "MDIC", director.id, null)).rejects.toBeInstanceOf(RecruitmentAuthError);
-  });
-  it("lets SRR place an applicant into any cycle department (flexibility), even one not ranked", async () => {
-    const { srr, appSrhd } = await seed();
-    const acc = await acceptApplicant(appSrhd.id, "MDIC", srr.id, null);
-    expect(acc.departmentCode).toBe("MDIC");
-  });
-  it("rejects a department not in the cycle", async () => {
-    const { srr, appSrhd } = await seed();
-    await expect(acceptApplicant(appSrhd.id, "ZZZ", srr.id, null)).rejects.toBeInstanceOf(AcceptanceError);
-  });
-  it("rejects a duplicate acceptance", async () => {
-    const { director, appSrhd } = await seed();
-    await acceptApplicant(appSrhd.id, "SRHD", director.id, null);
-    await expect(acceptApplicant(appSrhd.id, "SRHD", director.id, null)).rejects.toBeInstanceOf(AcceptanceError);
-  });
-  it("rejects accepting an unsubmitted DRAFT application", async () => {
-    const { director, appSrhd } = await seed();
-    await prisma.application.update({ where: { id: appSrhd.id }, data: { status: "DRAFT" } });
-    await expect(acceptApplicant(appSrhd.id, "SRHD", director.id, null)).rejects.toBeInstanceOf(AcceptanceError);
-  });
-  it("blocks a director from accepting their own application (self-approval, separation of duties)", async () => {
-    const { director, appSrhd } = await seed();
-    // The applicant is the director themselves (a signed-in incumbent re-applying into SRHD).
-    await prisma.applicant.update({ where: { id: appSrhd.applicantId }, data: { applicantPersonId: director.id } });
-    await expect(acceptApplicant(appSrhd.id, "SRHD", director.id, null)).rejects.toBeInstanceOf(RecruitmentAuthError);
-    expect(await prisma.acceptance.count({ where: { applicationId: appSrhd.id } })).toBe(0);
-  });
-  it("still lets a director accept a different signed-in applicant's application", async () => {
-    const { director, srr, appSrhd } = await seed();
-    await prisma.applicant.update({ where: { id: appSrhd.applicantId }, data: { applicantPersonId: srr.id } });
-    const acc = await acceptApplicant(appSrhd.id, "SRHD", director.id, null);
-    expect(acc.departmentCode).toBe("SRHD");
-  });
-});
-
 describe("listAcceptances", () => {
   it("returns an application's acceptances in creation order", async () => {
     const { srr, appSrhd } = await seed();
-    await acceptApplicant(appSrhd.id, "SRHD", srr.id, "a");
-    await acceptApplicant(appSrhd.id, "MDIC", srr.id, "b");
+    await prisma.acceptance.create({ data: { applicationId: appSrhd.id, departmentCode: "SRHD", approvedById: srr.id, notes: "a" } });
+    await prisma.acceptance.create({ data: { applicationId: appSrhd.id, departmentCode: "MDIC", approvedById: srr.id, notes: "b" } });
     const accs = await listAcceptances(appSrhd.id);
     expect(accs.map((x) => x.departmentCode)).toEqual(["SRHD", "MDIC"]);
   });
@@ -130,13 +80,13 @@ describe("listAcceptances", () => {
 describe("revokeAcceptance", () => {
   it("lets an in-scope director revoke an un-emailed acceptance", async () => {
     const { director, appSrhd } = await seed();
-    const acc = await acceptApplicant(appSrhd.id, "SRHD", director.id, null);
+    const acc = await prisma.acceptance.create({ data: { applicationId: appSrhd.id, departmentCode: "SRHD", approvedById: director.id } });
     await revokeAcceptance(acc.id, director.id);
     expect(await prisma.acceptance.findUnique({ where: { id: acc.id } })).toBeNull();
   });
   it("blocks a director from revoking an already-emailed acceptance, but allows SRR", async () => {
     const { director, srr, appSrhd } = await seed();
-    const acc = await acceptApplicant(appSrhd.id, "SRHD", director.id, null);
+    const acc = await prisma.acceptance.create({ data: { applicationId: appSrhd.id, departmentCode: "SRHD", approvedById: director.id } });
     await prisma.acceptance.update({ where: { id: acc.id }, data: { emailedAt: new Date() } });
     await expect(revokeAcceptance(acc.id, director.id)).rejects.toBeInstanceOf(RecruitmentAuthError);
     await revokeAcceptance(acc.id, srr.id);
@@ -144,7 +94,7 @@ describe("revokeAcceptance", () => {
   });
   it("refuses to revoke an acceptance that has an onboarding contract (would cascade-delete it), even for SRR", async () => {
     const { srr, appSrhd } = await seed();
-    const acc = await acceptApplicant(appSrhd.id, "SRHD", srr.id, null);
+    const acc = await prisma.acceptance.create({ data: { applicationId: appSrhd.id, departmentCode: "SRHD", approvedById: srr.id } });
     await prisma.onboardingContract.create({
       data: { acceptanceId: acc.id, token: "tok-contract", firstName: "A", lastName: "B", email: "s@yale.edu" },
     });

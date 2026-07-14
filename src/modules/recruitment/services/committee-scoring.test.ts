@@ -46,6 +46,17 @@ describe("submitCommitteeScore", () => {
     await expect(submitCommitteeScore(application.id, scorer.id, 5, null)).rejects.toBeInstanceOf(RecruitmentAuthError);
   });
 
+  it("rejects self-scoring on a director-track cycle too (SoD applies on both tracks)", async () => {
+    // The motivating case: a director renewing their own membership who is also
+    // on the scoring committee must not score their own director-track application.
+    const { scorer } = await seed();
+    const term = await prisma.term.create({ data: { code: "FA26DS", name: "FDS", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
+    const cycle = await prisma.recruitmentCycle.create({ data: { track: "DIRECTOR", termId: term.id, title: "DS", publicSlug: "ds", departments: ["EDUC"], createdById: scorer.id, status: "OPEN" } });
+    const applicant = await prisma.applicant.create({ data: { cycleId: cycle.id, firstName: "Self", lastName: "Dir", email: "self@y.edu", emailLower: "self@y.edu", applicantPersonId: scorer.id } });
+    const application = await prisma.application.create({ data: { cycleId: cycle.id, applicantId: applicant.id, answers: {}, applicantType: "RENEWAL", departmentChoices: ["EDUC"], status: "SUBMITTED" } });
+    await expect(submitCommitteeScore(application.id, scorer.id, 4, null)).rejects.toBeInstanceOf(RecruitmentAuthError);
+  });
+
   it("rejects an out-of-range score", async () => {
     const { scorer, application } = await seed();
     await expect(submitCommitteeScore(application.id, scorer.id, 6, null)).rejects.toBeInstanceOf(CommitteeScoreError);

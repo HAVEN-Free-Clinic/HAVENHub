@@ -32,7 +32,7 @@ export const DEPARTMENTS: { code: string; name: string }[] = [
   { code: "PNTC", name: "Patient Navigation: Transfer of Care" },
   { code: "QAQI", name: "Quality Assurance and Quality Improvement" },
   { code: "REFF", name: "Referrals" },
-  { code: "SCTL", name: "Senior Clinical Team Member: Longitudinal Care" },
+  { code: "SCTL", name: "Senior Longitudinal Care Clinical Team Member" },
   { code: "SCTP", name: "Senior Primary Care Clinical Team Member" },
   { code: "SCTS", name: "Senior Reproductive Care Clinical Team Member" },
   { code: "SOSE", name: "Social Services" },

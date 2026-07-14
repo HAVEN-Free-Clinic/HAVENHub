@@ -1,4 +1,4 @@
-import type { Acceptance, Application, CycleStatus } from "@prisma/client";
+import type { Acceptance, Application, CycleStatus, Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { manageableDepartmentIds } from "@/platform/departments";
@@ -87,7 +87,7 @@ export async function listReviewableCycles(
       select: { id: true, title: true, track: true, status: true },
     });
   }
-  const or: object[] = [];
+  const or: Prisma.RecruitmentCycleWhereInput[] = [];
   if (canScore) or.push({ track: "VOLUNTEER", applications: { some: { status: "SUBMITTED" } } });
   if (scope.departmentCodes.length) {
     or.push({ track: "VOLUNTEER", applications: { some: { status: "SUBMITTED", routedDepartmentCode: { in: scope.departmentCodes } } } });

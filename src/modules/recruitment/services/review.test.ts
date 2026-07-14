@@ -54,17 +54,19 @@ describe("listApplicantsForReview", () => {
     const apps = await listApplicantsForReview(cycle.id, director.id);
     expect(apps.map((a) => a.id)).toEqual([appMdic.id]);
   });
-  it("on a DIRECTOR-track cycle, scopes a director to applicants who RANKED their department (no routing stage exists)", async () => {
+  it("on a DIRECTOR-track cycle, scopes a director to applicants who RANKED their department (no routing stage exists), filtering out non-matching apps", async () => {
     const { term, director, srr } = await seed();
     const dCycle = await prisma.recruitmentCycle.create({
       data: { track: "DIRECTOR", termId: term.id, title: "D", publicSlug: "director-cycle", departments: ["SRHD", "MDIC"], createdById: srr.id, status: "OPEN" },
     });
-    const applicant = await prisma.applicant.create({ data: { cycleId: dCycle.id, firstName: "C", lastName: "D", email: "cd@yale.edu", emailLower: "cd@yale.edu" } });
-    const app = await prisma.application.create({
-      data: { cycleId: dCycle.id, applicantId: applicant.id, answers: {}, applicantType: "NEW", departmentChoices: ["SRHD"] },
-    });
+    const mkApp = async (email: string, choices: string[]) => {
+      const applicant = await prisma.applicant.create({ data: { cycleId: dCycle.id, firstName: "C", lastName: "D", email, emailLower: email.toLowerCase() } });
+      return prisma.application.create({ data: { cycleId: dCycle.id, applicantId: applicant.id, answers: {}, applicantType: "NEW", departmentChoices: choices } });
+    };
+    const ranksSrhd = await mkApp("srhd@yale.edu", ["SRHD"]); // the director's dept
+    await mkApp("mdic@yale.edu", ["MDIC"]); // a DIFFERENT dept -- must be filtered out
     const apps = await listApplicantsForReview(dCycle.id, director.id);
-    expect(apps.map((a) => a.id)).toEqual([app.id]);
+    expect(apps.map((a) => a.id)).toEqual([ranksSrhd.id]);
   });
   it("shows SRR every applicant", async () => {
     const { srr, cycle } = await seed();
@@ -100,6 +102,18 @@ describe("listReviewableCycles", () => {
     const ids = cycles.map((c) => c.id);
     expect(ids).toContain(routedCycle.id);
     expect(ids).not.toContain(unroutedCycle.id);
+  });
+  it("gives a scope-director a DIRECTOR-track cycle whose app RANKS their department (routing does not apply)", async () => {
+    const { term, director, srr } = await seed();
+    const dCycle = await prisma.recruitmentCycle.create({
+      data: { track: "DIRECTOR", termId: term.id, title: "D", publicSlug: "director-cycle", departments: ["SRHD", "MDIC"], createdById: srr.id, status: "OPEN" },
+    });
+    const applicant = await prisma.applicant.create({ data: { cycleId: dCycle.id, firstName: "C", lastName: "D", email: "cd@yale.edu", emailLower: "cd@yale.edu" } });
+    await prisma.application.create({
+      data: { cycleId: dCycle.id, applicantId: applicant.id, answers: {}, applicantType: "NEW", departmentChoices: ["SRHD"] },
+    });
+    const cycles = await listReviewableCycles(director.id);
+    expect(cycles.map((c) => c.id)).toContain(dCycle.id);
   });
 });
 

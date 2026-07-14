@@ -296,3 +296,58 @@ no member-data surface trusts a bare session:
 - Changes to the acceptance/onboarding pipeline that turns an `Applicant` into a
   `Person`.
 - Removing or restructuring the magic-link email path (kept as fallback).
+
+## Security audit result (2026-07-14)
+
+Independently verified that a null-`personId` Yale (Entra) session cannot reach
+any member-data surface outside the apply portal. No gaps found.
+
+**Method.** Enumerated every `await auth()` call site in `src` (14 total, an
+exact match for the brief's expected list), plus independent greps for
+`session.user`, `session?.user`, `getServerSession`, `getToken`/`next-auth/jwt`,
+and direct `next-auth.session-token`/`authjs.session-token` cookie reads, to
+catch any session-reading path the `auth()` enumeration might have missed.
+None found. Also walked all 77 `page.tsx` files under `src/app/(app)/**` to
+confirm each is gated by `requirePersonSession` / `requirePermission` /
+`requireAnyPermission` / `requireModuleAccess` (which itself calls
+`requirePersonSession` or `requirePermission`), either directly or via an
+ancestor layout.
+
+**Sites verified (guard line immediately after `await auth()`):**
+- `src/app/(app)/learning/play/[courseId]/[...path]/route.ts:21` -
+  `if (!session?.personId) return Response.json({ error: "Unauthorized" }, { status: 401 });`
+- `src/app/(app)/my-info/certificate/[id]/route.ts:44-46` -
+  `if (!session?.personId) { return Response.json({ error: "Unauthorized" }, { status: 401 }); }`
+- `src/app/(app)/support/attachment/[id]/route.ts:24` -
+  `if (!session?.personId) return Response.json({ error: "Unauthorized" }, { status: 401 });`
+- `src/app/api/learning/blob-upload/route.ts:26` -
+  `if (!session?.personId) throw new Error("Unauthorized");`
+- `src/app/api/recruitment/applications/[applicationId]/files/[key]/route.ts:50-52` -
+  `if (!session?.personId) { return Response.json({ error: "Unauthorized" }, { status: 401 }); }`
+- `src/app/api/support/epic/generate/route.ts:185-187` -
+  `if (!session?.personId) { return NextResponse.json({ error: "Unauthorized" }, { status: 401 }); }`
+- `src/app/api/notifications/route.ts:11-13` -
+  `if (!session?.personId) { return Response.json({ error: "Unauthorized" }, { status: 401 }); }`
+- `src/app/api/incidents/attachments/[id]/route.ts:48-50` -
+  `if (!session?.personId) { return Response.json({ error: "Unauthorized" }, { status: 401 }); }`
+- `src/app/(app)/admin/email/oauth/callback/route.ts:33-35` -
+  `if (!session?.personId) { return back("/login"); }`
+- `src/app/api/gitbook/auth/route.ts:78-80` -
+  `if (!session?.personId) { ... redirect to /login with callbackUrl }`
+
+**Intentionally personId-optional (unchanged, by design):**
+`src/app/apply/[slug]/actions.ts`, `src/app/apply/[slug]/page.tsx` (apply
+portal; both read `session?.personId`/`session?.user` only to identify a
+returning member for self-service prefill, never another person's data).
+
+**The gate + its enforcement point:**
+- `src/platform/auth/session.ts` `requirePersonSession()` - `if (!session) redirect("/login"); if (!session.personId) redirect("/welcome");` then re-verifies the person is still ACTIVE via `getActivePerson`.
+- `src/app/(app)/layout.tsx:14` calls `requirePersonSession()` unconditionally, so every route nested under the `(app)` route group inherits the null-`personId` -> `/welcome` bounce before any child page renders.
+- `requireModuleAccess()` / `requirePermission()` / `requireAnyPermission()` all funnel through `requirePersonSession()`, so the 62/77 `(app)` pages that call one of those directly are covered redundantly; the remaining 2 (`clinic/page.tsx`, a bare redirect with no data, and `clinic/avs/page.tsx`, gated by its ancestor `clinic/layout.tsx`'s `requireModuleAccess("clinic")`) are covered via that ancestor layout.
+- Considered and ruled out a false lead: Next.js does not re-execute an already-mounted layout's Server Component on a same-layout soft navigation (the exact issue the onboarding gate's own code comment documents and works around). This does not create a personId-bypass window here because `token.personId` in `src/platform/auth/auth.ts`'s `jwt` callback is stamped only inside `if (account) { ... }` (initial sign-in only) and never re-derived per request, and entering the `(app)` route group for the first time in a browser session is never a same-layout soft nav (the layout is not yet mounted), so `requirePersonSession()` always runs at least once before any `(app)` content is produced.
+- `src/app/layout.tsx` (root layout, outside `(app)`) reads `session?.personId` only to look up the signed-in person's own theme preference, and `session?.user` only as a boolean for `InactivityTracker`; neither leaks other members' data.
+- `src/app/login/page.tsx` (`session?.personId` -> redirect away from the login form) and `src/app/get-started/**`, `src/app/welcome/page.tsx` (no `auth()` call; public branding/cycle-count data only) checked and confirmed non-leaking.
+
+**Conclusion:** every member-data surface verified rejects a null-`personId`
+session; the boundary described in the design above holds. No code changes
+were required.

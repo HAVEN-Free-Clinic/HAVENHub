@@ -6,7 +6,7 @@ import { submitCommitteeScore, committeeScoreSummary, CommitteeScoreError } from
 
 async function seed() {
   const term = await prisma.term.create({ data: { code: "FA26", name: "Fall", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
-  const educ = await prisma.department.create({ data: { code: "EDUC", name: "Education" } });
+  await prisma.department.create({ data: { code: "EDUC", name: "Education" } });
   const scorer = await prisma.person.create({ data: { name: "Scorer", status: "ACTIVE" } });
   const scorer2 = await prisma.person.create({ data: { name: "Scorer2", status: "ACTIVE" } });
   const outsider = await prisma.person.create({ data: { name: "Out", status: "ACTIVE" } });
@@ -37,6 +37,13 @@ describe("submitCommitteeScore", () => {
   it("rejects a non-scorer", async () => {
     const { outsider, application } = await seed();
     await expect(submitCommitteeScore(application.id, outsider.id, 4, null)).rejects.toBeInstanceOf(RecruitmentAuthError);
+  });
+
+  it("rejects a scorer scoring their own application (separation of duties)", async () => {
+    const { scorer, application } = await seed();
+    // The scorer is also the applicant (e.g. a returning member on the committee).
+    await prisma.applicant.update({ where: { id: application.applicantId }, data: { applicantPersonId: scorer.id } });
+    await expect(submitCommitteeScore(application.id, scorer.id, 5, null)).rejects.toBeInstanceOf(RecruitmentAuthError);
   });
 
   it("rejects an out-of-range score", async () => {

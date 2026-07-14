@@ -44,9 +44,9 @@ describe("reviewScope", () => {
 
 describe("listApplicantsForReview", () => {
   it("scopes a director to applicants ROUTED to their department, not merely those who ranked it", async () => {
-    const { director, srr, cycle, appSrhd, appMdic } = await seed();
+    const { director, srr, cycle, appMdic } = await seed();
     // appMdic ranked MDIC but the committee routed it to SRHD (the director's dept);
-    // appSrhd ranked SRHD but was never routed.
+    // appSrhd (in the seed) ranked SRHD but was never routed, so the director must not see it.
     await prisma.application.update({
       where: { id: appMdic.id },
       data: { routedDepartmentCode: "SRHD", routedById: srr.id, routedAt: new Date() },

@@ -1,10 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { normalizeDeptCode, SUPPLEMENT_DEPARTMENTS } from "./dept-codes";
+// Side-effect-free catalog (NOT prisma/seed.ts, which self-executes the seed
+// on import and would try to touch the database).
+import { DEPARTMENTS } from "../../../../../../prisma/department-catalog";
 
-// Repo Department seed codes (source of truth) after Task 7 additions.
-const SEED_CODES = new Set([
-  "BVHD","CCRH","CRAD","EDUC","EXEC","FCRL","FIND","FOOD","ICDD","INTP","ITCM","JCTP","JCTS","JONES","LABR","LCCN","MDIC","MDLP","ORHI","PATS","PBRL","PCAR","PHAM","PNLC","PNTC","QAQI","REFF","SCTL","SCTP","SCTS","SOSE","SRHD","SRR","TBAD","VADC","VADM",
-]);
+// Repo Department seed codes (source of truth), derived from the real catalog
+// so this invariant can't silently drift from prisma/seed.ts.
+const SEED_CODES = new Set(DEPARTMENTS.map((d) => d.code));
 
 describe("dept-codes", () => {
   it("normalizes Airtable aliases to seed codes", () => {

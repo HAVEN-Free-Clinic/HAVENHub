@@ -5,7 +5,7 @@ import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { zoneLabel } from "@/platform/dates/zone";
 import { formatForDateTimeInput } from "@/platform/dates";
 import { getCycle } from "@/modules/recruitment/services/cycles";
-import { requirePersonSession } from "@/platform/auth/session";
+import { requirePermission, requirePersonSession } from "@/platform/auth/session";
 import { can } from "@/platform/rbac/engine";
 import { portalUrl } from "@/modules/recruitment/services/portal-url";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
@@ -34,6 +34,7 @@ type PageProps = {
 export default async function CycleOverviewPage({ params, searchParams }: PageProps) {
   const { id } = await params;
   const { error, deptsaved, deptwarn, windowsaved } = await searchParams;
+  await requirePermission("recruitment.access");
   const cycle = await getCycle(id);
   if (!cycle) notFound();
 

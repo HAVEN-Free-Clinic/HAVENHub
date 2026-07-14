@@ -26,10 +26,18 @@ import { FormActions } from "@/platform/ui/form";
 const SCORES = [1, 2, 3, 4, 5];
 const decisionTone = { PENDING: "default", ACCEPT: "success", REJECT: "critical", WAITLIST: "warning" } as const;
 const decisionLabel = { PENDING: "Pending", ACCEPT: "Accepted", REJECT: "Rejected", WAITLIST: "Waitlisted" } as const;
+const savedMessage: Record<string, string> = {
+  decision: "Decision recorded.",
+  schedule: "Schedule saved.",
+  panelist: "Panel updated.",
+  invite: "Invite sent.",
+  evaluation: "Evaluation saved.",
+  rescind: "Acceptance rescinded.",
+};
 
-export default async function InterviewDetail({ params, searchParams }: { params: Promise<{ interviewId: string }>; searchParams: Promise<{ error?: string }> }) {
+export default async function InterviewDetail({ params, searchParams }: { params: Promise<{ interviewId: string }>; searchParams: Promise<{ error?: string; saved?: string }> }) {
   const { interviewId } = await params;
-  const { error } = await searchParams;
+  const { error, saved } = await searchParams;
   const person = await requirePersonSession();
   const iv = await getInterview(interviewId);
   if (!iv) notFound();
@@ -73,6 +81,7 @@ export default async function InterviewDetail({ params, searchParams }: { params
         action={<Badge tone={decisionTone[iv.decision as keyof typeof decisionTone] ?? "default"}>{decisionLabel[iv.decision as keyof typeof decisionLabel] ?? iv.decision}</Badge>}
       />
       {error && <Alert tone="error">{error}</Alert>}
+      {saved && savedMessage[saved] && <Alert tone="success">{savedMessage[saved]}</Alert>}
 
       {canManage && (
         <>
@@ -193,7 +202,7 @@ export default async function InterviewDetail({ params, searchParams }: { params
           <form action={decideAction.bind(null, interviewId)} className="mt-3 flex flex-wrap items-end gap-3">
             <div className="w-40">
               <Field label="Outcome">
-                <Select name="outcome" required>
+                <Select name="outcome" required defaultValue={iv.decision === "PENDING" ? "ACCEPT" : iv.decision}>
                   <option value="ACCEPT">Accept</option>
                   <option value="REJECT">Reject</option>
                   <option value="WAITLIST">Waitlist</option>
@@ -207,6 +216,11 @@ export default async function InterviewDetail({ params, searchParams }: { params
             </div>
             <SubmitButton size="sm" pendingLabel="Recording…">Record decision</SubmitButton>
           </form>
+          {iv.decision !== "PENDING" && iv.decidedAt && (
+            <p className="mt-2 text-xs text-subtle-foreground">
+              {decisionLabel[iv.decision as keyof typeof decisionLabel]} · recorded <DateTime value={iv.decidedAt} />
+            </p>
+          )}
           <p className="mt-2 text-xs text-subtle-foreground">Accept creates an acceptance, released from the Decisions page.</p>
         </Card>
       )}

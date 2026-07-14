@@ -43,6 +43,15 @@ describe("submitCommitteeScore", () => {
     const { scorer, application } = await seed();
     await expect(submitCommitteeScore(application.id, scorer.id, 6, null)).rejects.toBeInstanceOf(CommitteeScoreError);
   });
+
+  it("rejects scoring on a director-track cycle", async () => {
+    const { scorer } = await seed();
+    const term = await prisma.term.create({ data: { code: "FA26D", name: "Fall Director", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
+    const cycle = await prisma.recruitmentCycle.create({ data: { track: "DIRECTOR", termId: term.id, title: "D", publicSlug: "d", departments: ["EDUC"], createdById: scorer.id, status: "OPEN" } });
+    const applicant = await prisma.applicant.create({ data: { cycleId: cycle.id, firstName: "C", lastName: "D", email: "c@y.edu", emailLower: "c@y.edu" } });
+    const application = await prisma.application.create({ data: { cycleId: cycle.id, applicantId: applicant.id, answers: {}, applicantType: "NEW", departmentChoices: ["EDUC"], status: "SUBMITTED" } });
+    await expect(submitCommitteeScore(application.id, scorer.id, 4, null)).rejects.toBeInstanceOf(CommitteeScoreError);
+  });
 });
 
 describe("committeeScoreSummary", () => {

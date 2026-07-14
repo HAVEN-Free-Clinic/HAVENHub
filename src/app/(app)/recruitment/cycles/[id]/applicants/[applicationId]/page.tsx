@@ -33,8 +33,15 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
     listAcceptances(applicationId),
   ]);
   const seeAll = scope.all || managesCycles;
-  const canScore = scope.all || (await can(person.personId, "recruitment.score"));
-  const canView = seeAll || canScore || app.departmentChoices.some((d) => scope.departmentCodes.includes(d));
+  const isScorer = scope.all || (await can(person.personId, "recruitment.score"));
+  // Committee scoring is a volunteer-track-only stage (see Fix #3).
+  const canScore = isScorer && app.cycle.track === "VOLUNTEER";
+  // Mirror listApplicantsForReview's director visibility: routing (not applicant ranking) drives a director's queue.
+  const canView =
+    seeAll ||
+    isScorer ||
+    app.departmentChoices.some((d) => scope.departmentCodes.includes(d)) ||
+    (app.routedDepartmentCode != null && scope.departmentCodes.includes(app.routedDepartmentCode));
   if (!canView) notFound();
   const eligible = seeAll
     ? app.cycle.departments
@@ -233,7 +240,7 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
           {error && <Alert tone="error" className="mt-3">{error}</Alert>}
           {!app.routedDepartmentCode ? (
             <p className="mt-3 text-sm text-muted-foreground">Awaiting committee routing.</p>
-          ) : existingInterviews.length > 0 ? (
+          ) : existingInterviews.length > 0 && (seeAll || canManageRouted) ? (
             <ul className="mt-3 space-y-1 text-sm">
               {existingInterviews.map((iv) => (
                 <li key={iv.id}>

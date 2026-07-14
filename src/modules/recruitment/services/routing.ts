@@ -85,7 +85,7 @@ export async function decideRoutedApplication(
     }
     return tx.application.update({
       where: { id: applicationId },
-      data: { decision: outcome, decidedById: deciderId, decidedAt: new Date() },
+      data: { decision: outcome, decidedById: deciderId, decidedAt: new Date(), decisionNotes: notes },
     });
   });
   await recordAudit({ actorPersonId: deciderId, action: "recruitment.application_decide", entityType: "Application", entityId: applicationId, after: { decision: outcome, departmentCode } });

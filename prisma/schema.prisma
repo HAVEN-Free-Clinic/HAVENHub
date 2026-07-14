@@ -1299,6 +1299,7 @@ model Application {
   decision             InterviewDecision @default(PENDING)
   decidedById          String?
   decidedAt            DateTime?
+  decisionNotes        String?
   status            ApplicationStatus @default(SUBMITTED)
   submittedAt       DateTime?
   createdAt         DateTime          @default(now())

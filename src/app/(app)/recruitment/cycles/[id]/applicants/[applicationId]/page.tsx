@@ -278,6 +278,7 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
               {app.decision !== "PENDING" && app.decidedAt && (
                 <p className="mt-2 text-xs text-subtle-foreground">
                   {decisionLabel[app.decision as keyof typeof decisionLabel]} · recorded <DateTime value={app.decidedAt} />
+                  {app.decisionNotes ? ` · ${app.decisionNotes}` : ""}
                 </p>
               )}
             </>

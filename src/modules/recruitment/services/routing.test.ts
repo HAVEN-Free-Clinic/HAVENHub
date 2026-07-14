@@ -64,11 +64,12 @@ describe("decideRoutedApplication", () => {
     expect(audit).not.toBeNull();
   });
 
-  it("waitlist/reject sets the decision without an Acceptance", async () => {
+  it("waitlist/reject sets the decision + notes without an Acceptance", async () => {
     const { lead, application } = await seed();
     await routeApplication(application.id, "EDUC", lead.id);
-    const decided = await decideRoutedApplication(application.id, "WAITLIST", lead.id, null);
+    const decided = await decideRoutedApplication(application.id, "WAITLIST", lead.id, "maybe next cycle");
     expect(decided.decision).toBe("WAITLIST");
+    expect(decided.decisionNotes).toBe("maybe next cycle");
     expect(await prisma.acceptance.findMany({ where: { applicationId: application.id } })).toHaveLength(0);
   });
 

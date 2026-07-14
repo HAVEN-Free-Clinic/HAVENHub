@@ -179,6 +179,7 @@ model Person {
   trainings                Training[]  @relation("trainingPerson")
   trainingAttendanceMarked Training[]  @relation("trainingAttendanceRecorder")
   subcommitteeAssignments  Application[] @relation("applicationSubcommitteeAssigner")
+  applicationsRouted        Application[]        @relation("applicationRoutedBy")
   courseProgress            CourseProgress[]
   scoProgress               ScoProgress[]
   addedToEhs           Boolean         @default(false)
@@ -1289,6 +1290,9 @@ model Application {
   assignedSubcommitteeId   String?
   assignedSubcommitteeById String?
   assignedSubcommitteeAt   DateTime?
+  routedDepartmentCode String?
+  routedById           String?
+  routedAt             DateTime?
   status            ApplicationStatus @default(SUBMITTED)
   submittedAt       DateTime?
   createdAt         DateTime          @default(now())
@@ -1301,6 +1305,7 @@ model Application {
   committeeScores CommitteeScore[]
   assignedSubcommittee   Subcommittee? @relation("applicationAssignedSubcommittee", fields: [assignedSubcommitteeId], references: [id], onDelete: SetNull)
   assignedSubcommitteeBy Person?       @relation("applicationSubcommitteeAssigner", fields: [assignedSubcommitteeById], references: [id], onDelete: SetNull)
+  routedBy    Person? @relation("applicationRoutedBy", fields: [routedById], references: [id], onDelete: SetNull)
 
   @@unique([cycleId, applicantId])
   @@index([cycleId, submittedAt])

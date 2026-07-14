@@ -31,6 +31,7 @@ export type ReviewApplication = Application & {
   applicant: { firstName: string; lastName: string; email: string };
   acceptances: Acceptance[];
   committeeScores: { score: number }[];
+  interviews: { decision: "PENDING" | "ACCEPT" | "REJECT" | "WAITLIST" }[];
 };
 
 /** Applications a viewer may review for a cycle. SRR/review_all (and cycle
@@ -49,12 +50,15 @@ export async function listApplicantsForReview(cycleId: string, viewerId: string)
       applicant: { select: { firstName: true, lastName: true, email: true } },
       acceptances: true,
       committeeScores: { select: { score: true } },
+      interviews: { select: { decision: true } },
     },
     orderBy: [{ submittedAt: "desc" }, { createdAt: "desc" }],
   });
   if (seeAll) return apps;
   const mine = new Set(scope.departmentCodes);
-  return apps.filter((a) => a.departmentChoices.some((d) => mine.has(d)));
+  // Director queues are driven by committee ROUTING, not applicant choice: a
+  // director sees the applications routed to a department they direct.
+  return apps.filter((a) => a.routedDepartmentCode != null && mine.has(a.routedDepartmentCode));
 }
 
 export async function listAcceptances(applicationId: string): Promise<Acceptance[]> {

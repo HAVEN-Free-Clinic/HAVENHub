@@ -5,8 +5,9 @@ import { visibleSections, applicantTypeLabel } from "@/modules/recruitment/engin
 import { requirePersonSession } from "@/platform/auth/session";
 import { reviewScope, listAcceptances } from "@/modules/recruitment/services/review";
 import { can } from "@/platform/rbac/engine";
-import { scheduleInterviewAction, committeeScoreAction, routeAction } from "../actions";
+import { scheduleInterviewAction, committeeScoreAction, routeAction, decideRoutedAction } from "../actions";
 import { listApplicationInterviews } from "@/modules/recruitment/services/interviews";
+import { DateTime } from "@/platform/dates/display";
 import { committeeScoreSummary } from "@/modules/recruitment/services/committee-scoring";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
@@ -20,9 +21,11 @@ import { Card } from "@/platform/ui/card";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { prisma } from "@/platform/db";
 
-export default async function ApplicationDetailPage({ params, searchParams }: { params: Promise<{ id: string; applicationId: string }>; searchParams: Promise<{ error?: string }> }) {
+const decisionLabel = { PENDING: "Pending", ACCEPT: "Accepted", REJECT: "Rejected", WAITLIST: "Waitlisted" } as const;
+
+export default async function ApplicationDetailPage({ params, searchParams }: { params: Promise<{ id: string; applicationId: string }>; searchParams: Promise<{ error?: string; saved?: string }> }) {
   const { id, applicationId } = await params;
-  const { error } = await searchParams;
+  const { error, saved } = await searchParams;
   const app = await getApplication(applicationId);
   if (!app) notFound();
   const person = await requirePersonSession();
@@ -53,10 +56,14 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
     ? await prisma.subcommittee.findMany({ where: { id: { in: rankIds } }, select: { id: true, name: true } })
     : [];
   const subName = new Map(subRows.map((s) => [s.id, s.name]));
-  const existingInterviews = (app.routedDepartmentCode || app.cycle.track === "DIRECTOR")
+  const existingInterviews = app.cycle.track === "DIRECTOR"
     ? await listApplicationInterviews(applicationId) : [];
-  const canManageRouted = app.routedDepartmentCode
+  // Director of the routed department (or SRR) may record the volunteer decision.
+  const canDecideRouted = app.routedDepartmentCode
     ? (scope.all || scope.departmentCodes.includes(app.routedDepartmentCode)) : false;
+  const emailedAcceptance = app.routedDepartmentCode
+    ? acceptances.find((a) => a.departmentCode === app.routedDepartmentCode && a.emailedAt != null)
+    : undefined;
   const interviewedDepts = new Set(existingInterviews.map((i) => i.departmentCode));
   const scheduleChoices = choices.filter((d) => !interviewedDepts.has(d));
   const answers = (app.answers ?? {}) as Record<string, unknown>;
@@ -236,28 +243,46 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
         </Card>
       ) : (
         <Card>
-          <SectionHeader>Department review</SectionHeader>
+          <SectionHeader>Department decision</SectionHeader>
           {error && <Alert tone="error" className="mt-3">{error}</Alert>}
+          {saved === "decision" && <Alert tone="success" className="mt-3">Decision recorded.</Alert>}
           {!app.routedDepartmentCode ? (
             <p className="mt-3 text-sm text-muted-foreground">Awaiting committee routing.</p>
-          ) : existingInterviews.length > 0 && (seeAll || canManageRouted) ? (
-            <ul className="mt-3 space-y-1 text-sm">
-              {existingInterviews.map((iv) => (
-                <li key={iv.id}>
-                  <Link className="font-medium text-brand-fg hover:text-brand-hover" href={`/recruitment/interviews/${iv.id}`}>
-                    Interview for {iv.departmentCode}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          ) : canManageRouted ? (
-            <form action={scheduleInterviewAction.bind(null, id, applicationId)} className="mt-4 border-t border-border-subtle pt-4">
-              <input type="hidden" name="departmentCode" value={app.routedDepartmentCode} />
-              <p className="mb-3 text-sm text-foreground-soft">Routed to <strong className="text-foreground">{app.routedDepartmentCode}</strong>.</p>
-              <SubmitButton size="sm" pendingLabel="Starting…">Start interview</SubmitButton>
-            </form>
+          ) : canDecideRouted ? (
+            <>
+              <p className="mt-3 text-sm text-foreground-soft">
+                Routed to <strong className="text-foreground">{app.routedDepartmentCode}</strong>. Decide directly from the committee score (no interview).
+              </p>
+              {emailedAcceptance && (
+                <Alert tone="warning" className="mt-3">
+                  This applicant has already been emailed their acceptance for {app.routedDepartmentCode}. Changing to Reject or Waitlist is blocked until the acceptance is rescinded.
+                </Alert>
+              )}
+              <form action={decideRoutedAction.bind(null, id, applicationId)} className="mt-4 flex flex-wrap items-end gap-3 border-t border-border-subtle pt-4">
+                <div className="w-40">
+                  <Field label="Outcome">
+                    <Select name="outcome" required defaultValue={app.decision === "PENDING" ? "ACCEPT" : app.decision}>
+                      <option value="ACCEPT">Accept</option>
+                      <option value="REJECT">Reject</option>
+                      <option value="WAITLIST">Waitlist</option>
+                    </Select>
+                  </Field>
+                </div>
+                <div className="min-w-[12rem] flex-1">
+                  <Field label="Notes" hint="Optional.">
+                    <Input name="notes" />
+                  </Field>
+                </div>
+                <SubmitButton size="sm" pendingLabel="Recording…">Record decision</SubmitButton>
+              </form>
+              {app.decision !== "PENDING" && app.decidedAt && (
+                <p className="mt-2 text-xs text-subtle-foreground">
+                  {decisionLabel[app.decision as keyof typeof decisionLabel]} · recorded <DateTime value={app.decidedAt} />
+                </p>
+              )}
+            </>
           ) : (
-            <p className="mt-3 text-sm text-muted-foreground">Routed to {app.routedDepartmentCode}. Waiting on the department to interview.</p>
+            <p className="mt-3 text-sm text-muted-foreground">Routed to {app.routedDepartmentCode}. Waiting on the department to decide.</p>
           )}
         </Card>
       )}

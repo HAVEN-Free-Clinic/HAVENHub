@@ -180,6 +180,7 @@ model Person {
   trainingAttendanceMarked Training[]  @relation("trainingAttendanceRecorder")
   subcommitteeAssignments  Application[] @relation("applicationSubcommitteeAssigner")
   applicationsRouted       Application[] @relation("applicationRoutedBy")
+  applicationsDecided      Application[] @relation("applicationDecidedBy")
   courseProgress            CourseProgress[]
   scoProgress               ScoProgress[]
   addedToEhs           Boolean         @default(false)
@@ -1293,6 +1294,11 @@ model Application {
   routedDepartmentCode String?
   routedById           String?
   routedAt             DateTime?
+  // The routed department's decision on a VOLUNTEER application (no interview).
+  // Director-track decisions live on Interview.decision instead.
+  decision             InterviewDecision @default(PENDING)
+  decidedById          String?
+  decidedAt            DateTime?
   status            ApplicationStatus @default(SUBMITTED)
   submittedAt       DateTime?
   createdAt         DateTime          @default(now())
@@ -1306,6 +1312,7 @@ model Application {
   assignedSubcommittee   Subcommittee? @relation("applicationAssignedSubcommittee", fields: [assignedSubcommitteeId], references: [id], onDelete: SetNull)
   assignedSubcommitteeBy Person?       @relation("applicationSubcommitteeAssigner", fields: [assignedSubcommitteeById], references: [id], onDelete: SetNull)
   routedBy    Person? @relation("applicationRoutedBy", fields: [routedById], references: [id], onDelete: SetNull)
+  decidedBy   Person? @relation("applicationDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
 
   @@unique([cycleId, applicantId])
   @@index([cycleId, submittedAt])

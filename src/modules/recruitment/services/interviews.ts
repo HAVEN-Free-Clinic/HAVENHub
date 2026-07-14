@@ -29,18 +29,15 @@ export async function createInterview(applicationId: string, departmentCode: str
   // A DRAFT application is not a real submission, so it must not be
   // interviewed (and later accepted) (audit3 L1).
   if (app.status !== "SUBMITTED") throw new InterviewError("This application hasn't been submitted yet.");
+  // Interviews are the DIRECTOR-track review path. Volunteer applications are
+  // decided directly by the routed department (decideRoutedApplication) with no interview.
+  if (app.cycle.track !== "DIRECTOR") throw new InterviewError("Interviews apply to director cycles.");
   if (!app.cycle.departments.includes(departmentCode)) throw new InterviewError("That department is not part of this cycle.");
   const scope = await reviewScope(createdById);
   if (!(scope.all || scope.departmentCodes.includes(departmentCode))) {
     throw new RecruitmentAuthError("You can't manage interviews for that department.");
   }
-  if (app.routedDepartmentCode) {
-    // Volunteer pipeline: the department comes from committee routing, not choice.
-    if (departmentCode !== app.routedDepartmentCode) {
-      throw new InterviewError("This applicant was routed to a different department.");
-    }
-  } else if (!scope.all && !app.departmentChoices.includes(departmentCode)) {
-    // Director track (no routing): fall back to the applicant's ranked choice.
+  if (!scope.all && !app.departmentChoices.includes(departmentCode)) {
     throw new RecruitmentAuthError("This applicant did not rank that department.");
   }
   try {

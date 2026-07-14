@@ -10,14 +10,13 @@ async function devLogin(page: import("@playwright/test").Page, email: string) {
   await page.waitForURL((url) => url.pathname === "/");
 }
 
-// Task 10 removed the volunteer instant-accept "Accept" button on the applicant
-// detail page. Acceptance now only happens through: route the applicant to a
-// department (Routing card, visible because scope.all && cycle.track ===
-// "VOLUNTEER") -> start an interview (Department-review card; scheduleInterviewAction
-// posts a hidden departmentCode and redirects to the interview page) -> record an
-// ACCEPT decision (Decision card), which transactionally mints the Acceptance the
-// same way the director pipeline always has.
-async function acceptViaInterview(
+// Volunteer applicants are NOT interviewed: the routed department decides
+// directly from the committee score. Acceptance now happens through: route the
+// applicant to a department (Routing card, visible because scope.all &&
+// cycle.track === "VOLUNTEER") -> record an ACCEPT on the Department decision
+// card (decideRoutedAction -> decideRoutedApplication), which transactionally
+// mints the Acceptance.
+async function acceptViaDecision(
   page: import("@playwright/test").Page,
   cycleId: string,
   applicantLinkName: RegExp,
@@ -27,32 +26,22 @@ async function acceptViaInterview(
   await page.getByRole("link", { name: applicantLinkName }).click();
   await page.waitForURL((url) => url.pathname.includes("/applicants/"));
 
-  // --- Route (Routing card; src/app/(app)/recruitment/cycles/[id]/applicants/[applicationId]/page.tsx:182-196) ---
+  // --- Route (Routing card; select[name="departmentCode"] + "Route" button) ---
   await page.locator('select[name="departmentCode"]').selectOption(dept);
   await page.getByRole("button", { name: "Route" }).click();
 
-  // --- Start interview (Department-review card, appears once routed; same file:246-251) ---
-  await page.getByRole("button", { name: "Start interview" }).click();
-  // scheduleInterviewAction calls createInterview then redirects to the interview page.
-  await page.waitForURL((url) => url.pathname.includes("/recruitment/interviews/"));
-
-  // --- Record ACCEPT decision (Decision card; src/app/(app)/recruitment/interviews/[interviewId]/page.tsx:202-218) ---
+  // --- Record ACCEPT directly (Department decision card, appears once routed) ---
   await page.locator('select[name="outcome"]').selectOption("ACCEPT");
   await page.getByRole("button", { name: "Record decision" }).click();
   await expect(page.getByText("Decision recorded.")).toBeVisible();
 }
 
-// Modernized: applicants apply through the portal as verified identities (forged
-// applicant_session cookie; see portal-cookie).
-//
-// Task 10 removed the volunteer instant-accept button and replaced it with a
-// route -> interview -> decide pipeline. Routing assigns exactly one department
-// per applicant, and createInterview only permits the routed department, so a
-// volunteer applicant can hold at most one Acceptance. The multi-department
-// conflict scenario this spec used to construct admin-side (accepting one
-// applicant into two departments) is therefore no longer reachable; it now
-// verifies the clean, no-conflict release path instead.
-test("review: accept via interview, release with no conflicts", async ({ page, context }) => {
+// Applicants apply through the portal as verified identities (forged
+// applicant_session cookie; see portal-cookie). Routing assigns exactly one
+// department per applicant and a volunteer holds at most one Acceptance, so the
+// old multi-department conflict scenario is unreachable; this verifies the
+// clean, no-conflict release path.
+test("review: accept via department decision, release with no conflicts", async ({ page, context }) => {
   await devLogin(page, "j.carney@yale.edu");
 
   // --- Build + publish a two-department volunteer cycle ---
@@ -93,8 +82,8 @@ test("review: accept via interview, release with no conflicts", async ({ page, c
   await expect(apply.getByText(/your application was received/i)).toBeVisible();
   await ctx.close();
 
-  // --- Accept Onee into SRHD via route -> interview -> record ACCEPT ---
-  await acceptViaInterview(page, cycleId, /Onee/, "SRHD");
+  // --- Accept Onee into SRHD via route -> record ACCEPT (no interview) ---
+  await acceptViaDecision(page, cycleId, /Onee/, "SRHD");
 
   // --- Decisions page: release, assert the no-conflict banner ---
   await page.goto(`/recruitment/cycles/${cycleId}/decisions`);
@@ -107,8 +96,6 @@ test("review: accept via interview, release with no conflicts", async ({ page, c
   await page.waitForURL((url) =>
     url.pathname.includes("/decisions") && url.searchParams.has("sent")
   );
-  // src/app/(app)/recruitment/cycles/[id]/decisions/page.tsx:36-40 renders:
-  // `Released ${sent} acceptance email(s); skipped ${skipped} conflicted applicant(s).`
   // With a single routed applicant there is no possible conflict, so skipped is 0.
   await expect(
     page.getByText(/Released 1 acceptance email\(s\); skipped 0 conflicted applicant\(s\)\./)

@@ -11,9 +11,12 @@ export type ApplicationStage =
 export function applicationStage(input: {
   scoreCount: number;
   routedDepartmentCode: string | null;
+  applicationDecision: "PENDING" | "ACCEPT" | "REJECT" | "WAITLIST";
   interviews: { decision: "PENDING" | "ACCEPT" | "REJECT" | "WAITLIST" }[];
 }): ApplicationStage {
-  if (input.interviews.some((i) => i.decision !== "PENDING")) return "DECIDED";
+  // Volunteer apps are decided directly (Application.decision, no interview);
+  // director apps are decided on an Interview.
+  if (input.applicationDecision !== "PENDING" || input.interviews.some((i) => i.decision !== "PENDING")) return "DECIDED";
   if (input.interviews.length > 0) return "INTERVIEWING";
   if (input.routedDepartmentCode) return "ROUTED";
   if (input.scoreCount > 0) return "SCORING";

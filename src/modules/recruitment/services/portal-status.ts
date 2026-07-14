@@ -70,7 +70,7 @@ export async function getApplicantStatus(identity: ApplicantIdentity): Promise<A
     const emailedAcc = app.acceptances.find((acc) => acc.emailedAt != null);
     const onboardingAcc = app.acceptances.find((acc) => acc.contract != null);
     const scheduledInterview = app.interviews.find((iv) => iv.scheduledAt != null);
-    const waitlisted = released && app.interviews.some((iv) => iv.decision === "WAITLIST");
+    const waitlisted = released && (app.interviews.some((iv) => iv.decision === "WAITLIST") || app.decision === "WAITLIST");
 
     if (onboardingAcc?.contract) {
       const step = onboardingAcc.contract.status === "PROMOTED" ? "Complete" : onboardingAcc.contract.status === "SUBMITTED" ? "Form submitted" : "Form sent to you";

@@ -79,6 +79,7 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
                   <Badge>{applicationStageLabel[applicationStage({
                     scoreCount: a.committeeScores.length,
                     routedDepartmentCode: a.routedDepartmentCode,
+                    applicationDecision: a.decision,
                     interviews: a.interviews,
                   })]}</Badge>
                 </TD>

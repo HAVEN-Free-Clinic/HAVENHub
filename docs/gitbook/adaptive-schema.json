@@ -120,6 +120,10 @@
             "review_all": {
               "type": "boolean",
               "description": "Whether the visitor holds the recruitment.review_all permission in HAVEN Hub."
+            },
+            "score": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the recruitment.score permission in HAVEN Hub."
             }
           },
           "additionalProperties": false

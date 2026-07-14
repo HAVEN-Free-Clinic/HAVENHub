@@ -148,6 +148,17 @@ it("getApplicantIdentity prefers the Person session over applicantEmail when bot
   expect(await getApplicantIdentity()).toEqual({ email: "member@yale.edu", personId: "p9" });
 });
 
+it("getApplicantIdentity preserves personId when a member session lacks a user.email claim", async () => {
+  // Defensive branch: a recognized member (personId set) whose Entra token omits
+  // the email claim is resolved via applicantEmail but must NOT be downgraded.
+  vi.mocked(auth).mockResolvedValueOnce({
+    personId: "p9",
+    applicantEmail: "member@yale.edu",
+    user: {},
+  } as never);
+  expect(await getApplicantIdentity()).toEqual({ email: "member@yale.edu", personId: "p9" });
+});
+
 it("getApplicantIdentity falls back to the signed cookie when there is no SSO session", async () => {
   vi.mocked(auth).mockResolvedValueOnce(null as never);
   vi.mocked(cookies).mockResolvedValueOnce({

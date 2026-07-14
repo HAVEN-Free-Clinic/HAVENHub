@@ -127,6 +127,27 @@ it("getApplicantIdentity returns the SSO session identity when a Person session 
   expect(await getApplicantIdentity()).toEqual({ email: "member@yale.edu", personId: "p1" });
 });
 
+it("getApplicantIdentity returns an applicant identity for a Yale session with no Person", async () => {
+  // Brand-new Yale account: signed in via Entra, no Person match. The jwt callback
+  // stamped applicantEmail; personId is null. They can still start an application.
+  vi.mocked(auth).mockResolvedValueOnce({
+    personId: null,
+    applicantEmail: "newbie@yale.edu",
+    user: {},
+  } as never);
+  expect(await getApplicantIdentity()).toEqual({ email: "newbie@yale.edu", personId: null });
+});
+
+it("getApplicantIdentity prefers the Person session over applicantEmail when both are present", async () => {
+  // A recognized member also carries applicantEmail, but the Person path wins.
+  vi.mocked(auth).mockResolvedValueOnce({
+    personId: "p9",
+    applicantEmail: "member@yale.edu",
+    user: { email: "Member@Yale.edu" },
+  } as never);
+  expect(await getApplicantIdentity()).toEqual({ email: "member@yale.edu", personId: "p9" });
+});
+
 it("getApplicantIdentity falls back to the signed cookie when there is no SSO session", async () => {
   vi.mocked(auth).mockResolvedValueOnce(null as never);
   vi.mocked(cookies).mockResolvedValueOnce({

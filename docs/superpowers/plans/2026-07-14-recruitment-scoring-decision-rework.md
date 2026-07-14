@@ -15,8 +15,8 @@
 - **Permission check:** `await can(personId, "recruitment.<perm>")` from `@/platform/rbac/engine`. Wildcard `*` is handled inside `can`.
 - **Audit:** `await recordAudit({ actorPersonId, action: "recruitment.<verb>", entityType, entityId, after? })` from `@/platform/audit`. Fire-and-forget; runs after the mutation.
 - **Error classes:** `RecruitmentAuthError` + `AcceptanceError` are defined in `services/review.ts`; `InterviewError` in `services/interviews.ts`. New services define their own (`CommitteeScoreError`, `RoutingError`) and import `RecruitmentAuthError` from `./review`.
-- **Local test DB ONLY — never Neon.** Repo `.env` points every DB URL at shared Neon; running migrations or vitest against it would wipe production. Use native local Postgres: `postgresql://haven:haven_dev@localhost:5434/havenhub_test`. Prefix every DB command with `TEST_DATABASE_URL`/`DATABASE_URL` set to that URL.
-- **Single-test command:** `TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test npx vitest run <path>`. Migrate the test DB first after any schema change: `DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test npx prisma migrate deploy`.
+- **Local test DB ONLY — never Neon.** Repo `.env` points every DB URL at shared Neon; running migrations or vitest against it would wipe production. Use native local Postgres: `postgresql://haven:haven_dev@localhost:5434/havenhub_test_recruit`. Prefix every DB command with `TEST_DATABASE_URL`/`DATABASE_URL` set to that URL.
+- **Single-test command:** `TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_recruit npx vitest run <path>`. Migrate the test DB first after any schema change: `DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_recruit npx prisma migrate deploy`.
 - **Migrations are hand-authored** here (do not rely on `prisma migrate dev`, which folds pre-existing drift). Folder name = `<14-digit-timestamp>_<snake_case>`; pick a timestamp strictly greater than `ls prisma/migrations | sort | tail -1`. Model-add order: `-- CreateTable`, `-- CreateIndex` (plain `@@index` → `..._idx`, `@@unique` → `..._key`), `-- AddForeignKey` (`ON DELETE <policy> ON UPDATE CASCADE`). After editing `schema.prisma`, run `npx prisma generate`.
 - **New Prisma models MUST be added to the TRUNCATE list** in `src/platform/test/db.ts` or rows leak across tests.
 - **Every new FK-to-`Person` needs a named `@relation` on BOTH sides** or `prisma validate` fails. Append Person back-relations near the recruitment cluster (schema.prisma ~line 169–180).
@@ -58,7 +58,7 @@ Expected: no errors.
 - [ ] **Step 4: Update any pinned-list test, then run RBAC/registry tests**
 
 If Step 1 found a test asserting the old array, add `"recruitment.score"` to the expected array. Then run:
-`TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test npx vitest run src/platform/modules/registry.test.ts src/modules/admin/services/rbac.test.ts`
+`TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_recruit npx vitest run src/platform/modules/registry.test.ts src/modules/admin/services/rbac.test.ts`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -199,7 +199,7 @@ it("averages 1-5 scores", () => {
 
 - [ ] **Step 2: Run it to verify failure**
 
-Run: `TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test npx vitest run src/modules/recruitment/engine/scoring.test.ts`
+Run: `TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_recruit npx vitest run src/modules/recruitment/engine/scoring.test.ts`
 Expected: FAIL ("Cannot find module './scoring'").
 
 - [ ] **Step 3: Implement the pure helper**
@@ -217,7 +217,7 @@ export function scoreAverage(scores: number[]): { average: number | null; count:
 
 - [ ] **Step 4: Run the helper test to green**
 
-Run: `TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test npx vitest run src/modules/recruitment/engine/scoring.test.ts`
+Run: `TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_recruit npx vitest run src/modules/recruitment/engine/scoring.test.ts`
 Expected: PASS.
 
 - [ ] **Step 5: Edit the schema — Evaluation numeric + drop the enum**
@@ -262,7 +262,7 @@ DROP TYPE "Recommendation";
 
 Run:
 ```bash
-DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test npx prisma migrate deploy
+DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_recruit npx prisma migrate deploy
 npx prisma generate
 ```
 Expected: migration applied; client generated. (If `prisma migrate status` reports drift, re-check that the SQL matches the schema edit exactly.)
@@ -402,7 +402,7 @@ Replace the panelist "Your evaluation" `<Select>` block:
 
 Run:
 ```bash
-TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test npx vitest run src/modules/recruitment/engine/scoring.test.ts src/modules/recruitment/engine/interview-eval.test.ts src/modules/recruitment/services/evaluations.test.ts
+TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_recruit npx vitest run src/modules/recruitment/engine/scoring.test.ts src/modules/recruitment/engine/interview-eval.test.ts src/modules/recruitment/services/evaluations.test.ts
 npx tsc --noEmit
 ```
 Expected: tests PASS; no type errors. (If `interview-eval.test.ts` asserts the old `{strongYes,...}` shape, update it to `{ average, count }`.)
@@ -510,7 +510,7 @@ In `src/platform/test/db.ts`, add `"CommitteeScore"` to the `TRUNCATE` list (pla
 
 Run:
 ```bash
-DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test npx prisma migrate deploy
+DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_recruit npx prisma migrate deploy
 npx prisma generate
 ```
 Expected: migration applied; client generated.
@@ -600,7 +600,7 @@ describe("committeeScoreSummary", () => {
 
 - [ ] **Step 2: Run it to verify failure**
 
-Run: `TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test npx vitest run src/modules/recruitment/services/committee-scoring.test.ts`
+Run: `TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_recruit npx vitest run src/modules/recruitment/services/committee-scoring.test.ts`
 Expected: FAIL ("Cannot find module './committee-scoring'").
 
 - [ ] **Step 3: Implement the service**
@@ -654,7 +654,7 @@ export async function committeeScoreSummary(
 
 - [ ] **Step 4: Run to green**
 
-Run: `TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test npx vitest run src/modules/recruitment/services/committee-scoring.test.ts`
+Run: `TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_recruit npx vitest run src/modules/recruitment/services/committee-scoring.test.ts`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -883,7 +883,7 @@ ALTER TABLE "Application" ADD CONSTRAINT "Application_routedById_fkey" FOREIGN K
 
 Run:
 ```bash
-DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test npx prisma migrate deploy
+DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_recruit npx prisma migrate deploy
 npx prisma generate
 ```
 
@@ -914,7 +914,7 @@ it("is DECIDED once any interview has a non-pending decision", () => {
 
 - [ ] **Step 5: Run it to verify failure**
 
-Run: `TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test npx vitest run src/modules/recruitment/engine/application-stage.test.ts`
+Run: `TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_recruit npx vitest run src/modules/recruitment/engine/application-stage.test.ts`
 Expected: FAIL ("Cannot find module './application-stage'").
 
 - [ ] **Step 6: Implement the stage helper**
@@ -955,7 +955,7 @@ export const applicationStageLabel: Record<ApplicationStage, string> = {
 
 - [ ] **Step 7: Run to green**
 
-Run: `TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test npx vitest run src/modules/recruitment/engine/application-stage.test.ts`
+Run: `TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_recruit npx vitest run src/modules/recruitment/engine/application-stage.test.ts`
 Expected: PASS.
 
 - [ ] **Step 8: Switch director visibility to routed dept + include interviews**
@@ -999,7 +999,7 @@ In `src/modules/recruitment/services/review.test.ts`, the director-scope test "s
 
 Run:
 ```bash
-TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test npx vitest run src/modules/recruitment/services/review.test.ts
+TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_recruit npx vitest run src/modules/recruitment/services/review.test.ts
 npx tsc --noEmit
 ```
 Expected: PASS; no type errors.
@@ -1075,7 +1075,7 @@ describe("routeApplication", () => {
 
 - [ ] **Step 2: Run it to verify failure**
 
-Run: `TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test npx vitest run src/modules/recruitment/services/routing.test.ts`
+Run: `TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_recruit npx vitest run src/modules/recruitment/services/routing.test.ts`
 Expected: FAIL ("Cannot find module './routing'").
 
 - [ ] **Step 3: Implement the service**
@@ -1122,7 +1122,7 @@ export async function routeApplication(
 
 - [ ] **Step 4: Run to green**
 
-Run: `TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test npx vitest run src/modules/recruitment/services/routing.test.ts`
+Run: `TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_recruit npx vitest run src/modules/recruitment/services/routing.test.ts`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -1293,7 +1293,7 @@ it("creates an interview for a routed volunteer application in its routed depart
 
 - [ ] **Step 2: Run it to verify failure**
 
-Run: `TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test npx vitest run src/modules/recruitment/services/interviews.test.ts`
+Run: `TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_recruit npx vitest run src/modules/recruitment/services/interviews.test.ts`
 Expected: FAIL (current `createInterview` throws `InterviewError("Interviews apply to director cycles.")`).
 
 - [ ] **Step 3: Generalize `createInterview`**
@@ -1328,7 +1328,7 @@ with:
 
 - [ ] **Step 4: Run the interviews test to green**
 
-Run: `TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test npx vitest run src/modules/recruitment/services/interviews.test.ts`
+Run: `TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_recruit npx vitest run src/modules/recruitment/services/interviews.test.ts`
 Expected: PASS (existing director-track cases still pass — routedDepartmentCode is null there).
 
 - [ ] **Step 5: Remove the instant-accept service + tests**
@@ -1423,7 +1423,7 @@ If `scheduleChoices` / `interviewedDepts` were only used by the old director bra
 
 Run:
 ```bash
-TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test npx vitest run src/modules/recruitment/services/review.test.ts src/modules/recruitment/services/interviews.test.ts src/modules/recruitment/services/interview-decisions.test.ts
+TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_recruit npx vitest run src/modules/recruitment/services/review.test.ts src/modules/recruitment/services/interviews.test.ts src/modules/recruitment/services/interview-decisions.test.ts
 npx tsc --noEmit
 ```
 Expected: PASS; no type errors. (Also grep for any remaining `acceptApplicant` references: `grep -rn "acceptApplicant" src` — there should be none.)

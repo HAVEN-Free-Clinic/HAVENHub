@@ -30,20 +30,26 @@ export async function reviewScope(personId: string): Promise<ReviewScope> {
 export type ReviewApplication = Application & {
   applicant: { firstName: string; lastName: string; email: string };
   acceptances: Acceptance[];
+  committeeScores: { score: number }[];
 };
 
 /** Applications a viewer may review for a cycle. SRR/review_all (and cycle
- *  managers) see all; a director sees only applications intersecting their
- *  department codes. */
+ *  managers, and committee scorers) see all; a director sees only applications
+ *  intersecting their department codes. */
 export async function listApplicantsForReview(cycleId: string, viewerId: string): Promise<ReviewApplication[]> {
-  const [scope, managesCycles] = await Promise.all([
+  const [scope, managesCycles, canScore] = await Promise.all([
     reviewScope(viewerId),
     can(viewerId, "recruitment.manage_cycles"),
+    can(viewerId, "recruitment.score"),
   ]);
-  const seeAll = scope.all || managesCycles;
+  const seeAll = scope.all || managesCycles || canScore;
   const apps = await prisma.application.findMany({
     where: { cycleId, status: "SUBMITTED" },
-    include: { applicant: { select: { firstName: true, lastName: true, email: true } }, acceptances: true },
+    include: {
+      applicant: { select: { firstName: true, lastName: true, email: true } },
+      acceptances: true,
+      committeeScores: { select: { score: true } },
+    },
     orderBy: [{ submittedAt: "desc" }, { createdAt: "desc" }],
   });
   if (seeAll) return apps;

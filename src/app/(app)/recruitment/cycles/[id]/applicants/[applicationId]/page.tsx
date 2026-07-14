@@ -5,8 +5,9 @@ import { visibleSections, applicantTypeLabel } from "@/modules/recruitment/engin
 import { requirePersonSession } from "@/platform/auth/session";
 import { reviewScope, listAcceptances } from "@/modules/recruitment/services/review";
 import { can } from "@/platform/rbac/engine";
-import { acceptApplicantAction, revokeAcceptanceAction, scheduleInterviewAction } from "../actions";
+import { acceptApplicantAction, revokeAcceptanceAction, scheduleInterviewAction, committeeScoreAction } from "../actions";
 import { listApplicationInterviews } from "@/modules/recruitment/services/interviews";
+import { committeeScoreSummary } from "@/modules/recruitment/services/committee-scoring";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 import { PageHeader } from "@/platform/ui/page-header";
@@ -53,6 +54,9 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
     applicantType: app.applicantType,
     selectedDepartmentCodes: app.departmentChoices,
   });
+  const canScore = scope.all || (await can(person.personId, "recruitment.score"));
+  const scoreSummary = canScore ? await committeeScoreSummary(applicationId) : null;
+  const myScore = scoreSummary?.scores.find((s) => s.scorerId === person.personId) ?? null;
   return (
     <div className="max-w-2xl space-y-6">
       <SetBreadcrumb
@@ -130,6 +134,33 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
             </div>
           </dl>
           <p className="mt-2 text-xs text-subtle-foreground">Assign from the cycle&apos;s Subcommittees view.</p>
+        </Card>
+      )}
+
+      {canScore && scoreSummary && (
+        <Card>
+          <SectionHeader>Committee score</SectionHeader>
+          <p className="mt-1 text-xs text-subtle-foreground">
+            Average {scoreSummary.average != null ? scoreSummary.average.toFixed(1) : "—"} · {scoreSummary.count} scored
+          </p>
+          <form action={committeeScoreAction.bind(null, id, applicationId)} className="mt-3 flex flex-wrap items-end gap-3">
+            <div className="w-28">
+              <Field label="Your score">
+                <Select name="score" required defaultValue={myScore ? String(myScore.score) : ""}>
+                  <option value="" disabled>Select…</option>
+                  {[1, 2, 3, 4, 5].map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </Select>
+              </Field>
+            </div>
+            <div className="min-w-[12rem] flex-1">
+              <Field label="Comments" hint="Optional.">
+                <Input name="comments" defaultValue={myScore?.comments ?? ""} />
+              </Field>
+            </div>
+            <SubmitButton size="sm" pendingLabel="Saving…">{myScore ? "Update score" : "Submit score"}</SubmitButton>
+          </form>
         </Card>
       )}
 

@@ -1,4 +1,4 @@
-import type { Acceptance, Application } from "@prisma/client";
+import type { Acceptance, Application, CycleStatus } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { manageableDepartmentIds } from "@/platform/departments";
@@ -56,9 +56,49 @@ export async function listApplicantsForReview(cycleId: string, viewerId: string)
   });
   if (seeAll) return apps;
   const mine = new Set(scope.departmentCodes);
-  // Director queues are driven by committee ROUTING, not applicant choice: a
-  // director sees the applications routed to a department they direct.
-  return apps.filter((a) => a.routedDepartmentCode != null && mine.has(a.routedDepartmentCode));
+  const cycle = await prisma.recruitmentCycle.findUnique({ where: { id: cycleId }, select: { track: true } });
+  // Volunteer cycles: committee ROUTING drives a director's queue. Director-track
+  // cycles have no routing stage, so directors keep the ranked-choice view.
+  if (cycle?.track === "VOLUNTEER") {
+    return apps.filter((a) => a.routedDepartmentCode != null && mine.has(a.routedDepartmentCode));
+  }
+  return apps.filter((a) => a.departmentChoices.some((d) => mine.has(d)));
+}
+
+/** OPEN/CLOSED cycles a non-manager reviewer has something to review in,
+ *  matching listApplicantsForReview's visibility semantics: SRR/review_all and
+ *  cycle managers see every cycle with submitted applications; a committee
+ *  scorer sees volunteer cycles with submitted applications; a scope-director
+ *  sees volunteer cycles with an application ROUTED to their department, and
+ *  director-track cycles with an application that RANKED their department. */
+export async function listReviewableCycles(
+  personId: string,
+): Promise<{ id: string; title: string; track: string; status: string }[]> {
+  const [scope, managesCycles, canScore] = await Promise.all([
+    reviewScope(personId),
+    can(personId, "recruitment.manage_cycles"),
+    can(personId, "recruitment.score"),
+  ]);
+  const activeStatus = { in: ["OPEN", "CLOSED"] as CycleStatus[] };
+  if (scope.all || managesCycles) {
+    return prisma.recruitmentCycle.findMany({
+      where: { status: activeStatus, applications: { some: { status: "SUBMITTED" } } },
+      orderBy: [{ status: "asc" }, { title: "asc" }],
+      select: { id: true, title: true, track: true, status: true },
+    });
+  }
+  const or: object[] = [];
+  if (canScore) or.push({ track: "VOLUNTEER", applications: { some: { status: "SUBMITTED" } } });
+  if (scope.departmentCodes.length) {
+    or.push({ track: "VOLUNTEER", applications: { some: { status: "SUBMITTED", routedDepartmentCode: { in: scope.departmentCodes } } } });
+    or.push({ track: "DIRECTOR", applications: { some: { status: "SUBMITTED", departmentChoices: { hasSome: scope.departmentCodes } } } });
+  }
+  if (or.length === 0) return [];
+  return prisma.recruitmentCycle.findMany({
+    where: { status: activeStatus, OR: or },
+    orderBy: [{ status: "asc" }, { title: "asc" }],
+    select: { id: true, title: true, track: true, status: true },
+  });
 }
 
 export async function listAcceptances(applicationId: string): Promise<Acceptance[]> {

@@ -137,6 +137,10 @@ export const MODULES: ModuleManifest[] = [
     description: "Run recruitment cycles, build applications, review submissions",
     icon: ClipboardList,
     accessPermission: "recruitment.access",
+    // Committee scorers hold recruitment.score but not recruitment.access; this
+    // surfaces the tile + nav tab for them without granting anything new (each
+    // page still enforces its own permission).
+    additionalAccessPermissions: ["recruitment.score"],
     permissions: ["recruitment.access", "recruitment.manage_cycles", "recruitment.review_all", "recruitment.score"],
     status: "active",
     nav: [{ label: "Cycles", href: "/recruitment" }],

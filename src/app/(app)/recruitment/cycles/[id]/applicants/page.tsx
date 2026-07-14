@@ -74,7 +74,7 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
                   <TD className="text-foreground-soft">
                     {(() => {
                       const s = scoreAverage(a.committeeScores.map((c) => c.score));
-                      return s.average != null ? `${s.average.toFixed(1)} · ${s.count}` : "—";
+                      return s.average != null ? `${s.average.toFixed(1)} · ${s.count}` : "-";
                     })()}
                   </TD>
                 )}

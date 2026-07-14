@@ -152,7 +152,7 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
         <Card>
           <SectionHeader>Committee score</SectionHeader>
           <p className="mt-1 text-xs text-subtle-foreground">
-            Average {scoreSummary.average != null ? scoreSummary.average.toFixed(1) : "—"} · {scoreSummary.count} scored
+            Average {scoreSummary.average != null ? scoreSummary.average.toFixed(1) : "-"} · {scoreSummary.count} scored
           </p>
           <form action={committeeScoreAction.bind(null, id, applicationId)} className="mt-3 flex flex-wrap items-end gap-3">
             <div className="w-28">
@@ -184,7 +184,7 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
               {routedOffChoice && <Badge tone="warning" className="ml-2">off-choice</Badge>}
             </p>
           ) : (
-            <p className="mt-3 text-sm text-muted-foreground">Not routed yet. Applicant ranked: {app.departmentChoices.join(", ") || "—"}.</p>
+            <p className="mt-3 text-sm text-muted-foreground">Not routed yet. Applicant ranked: {app.departmentChoices.join(", ") || "(none)"}.</p>
           )}
           <form action={routeAction.bind(null, id, applicationId)} className="mt-4 flex flex-wrap items-end gap-3 border-t border-border-subtle pt-4">
             <div className="w-40">

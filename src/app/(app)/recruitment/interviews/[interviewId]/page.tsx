@@ -167,7 +167,7 @@ export default async function InterviewDetail({ params, searchParams }: { params
       <Card>
         <SectionHeader>Evaluations ({summary.count})</SectionHeader>
         <p className="mt-1 text-xs text-subtle-foreground">
-          Average {summary.average != null ? summary.average.toFixed(1) : "—"}
+          Average {summary.average != null ? summary.average.toFixed(1) : "-"}
         </p>
         {iv.evaluations.length > 0 ? (
           <ul className="mt-3 divide-y divide-border-subtle">

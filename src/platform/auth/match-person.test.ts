@@ -1,7 +1,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
-import { netIdFromUpn, resolvePersonForLogin, getActivePerson } from "./match-person";
+import {
+  netIdFromUpn,
+  resolvePersonForLogin,
+  getActivePerson,
+  entraTenantAllowed,
+  applicantEmailFromClaims,
+} from "./match-person";
 
 describe("netIdFromUpn", () => {
   it("extracts a NetID-shaped local part", () => {
@@ -139,5 +145,38 @@ describe("getActivePerson", () => {
 
   it("returns null for a deleted/unknown id", async () => {
     expect(await getActivePerson("nonexistent")).toBeNull();
+  });
+});
+
+describe("entraTenantAllowed", () => {
+  it("allows when no tenant is configured", () => {
+    expect(entraTenantAllowed({ tid: "whatever" }, undefined)).toBe(true);
+  });
+  it("allows when the token carries no tid", () => {
+    expect(entraTenantAllowed({}, "yale-tenant")).toBe(true);
+  });
+  it("allows a matching tid", () => {
+    expect(entraTenantAllowed({ tid: "yale-tenant" }, "yale-tenant")).toBe(true);
+  });
+  it("rejects a mismatched tid", () => {
+    expect(entraTenantAllowed({ tid: "other-tenant" }, "yale-tenant")).toBe(false);
+  });
+});
+
+describe("applicantEmailFromClaims", () => {
+  it("prefers the email claim, lowercased", () => {
+    expect(
+      applicantEmailFromClaims({ email: "New.Grad@Yale.edu", preferred_username: "ng99@yale.edu" }),
+    ).toBe("new.grad@yale.edu");
+  });
+  it("falls back to the UPN when the email claim is absent", () => {
+    expect(applicantEmailFromClaims({ preferred_username: "NG99@yale.edu" })).toBe("ng99@yale.edu");
+  });
+  it("falls back to the provided user email when claims are empty", () => {
+    expect(applicantEmailFromClaims({}, "Someone@yale.edu")).toBe("someone@yale.edu");
+  });
+  it("returns null when nothing is usable", () => {
+    expect(applicantEmailFromClaims({}, null)).toBeNull();
+    expect(applicantEmailFromClaims({})).toBeNull();
   });
 });

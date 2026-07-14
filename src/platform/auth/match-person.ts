@@ -88,6 +88,32 @@ export const getActivePerson = cache(
   }
 );
 
+/**
+ * True unless the Entra token asserts a tenant (tid) different from the one we are
+ * configured for. The pinned issuer already restricts sign-in to Yale's tenant, so
+ * this is defense in depth. A missing tid or missing config is allowed.
+ */
+export function entraTenantAllowed(
+  claims: { tid?: string | null },
+  configuredTenantId: string | null | undefined,
+): boolean {
+  if (configuredTenantId && claims.tid && claims.tid !== configuredTenantId) return false;
+  return true;
+}
+
+/**
+ * The verified address used to key a prospective applicant. Entra always carries a
+ * UPN (preferred_username); the email claim can be absent, so fall back to it, then
+ * to the NextAuth-provided user email. Lowercased; null when nothing is usable.
+ */
+export function applicantEmailFromClaims(
+  claims: { email?: string | null; preferred_username?: string | null },
+  fallbackEmail?: string | null,
+): string | null {
+  const raw = claims.email ?? claims.preferred_username ?? fallbackEmail ?? null;
+  return raw ? raw.toLowerCase() : null;
+}
+
 async function link(person: Person, entraObjectId?: string | null): Promise<Person> {
   if (!entraObjectId || person.entraObjectId === entraObjectId) return person;
   // A Person already bound to a DIFFERENT oid is never re-linked here, because that would

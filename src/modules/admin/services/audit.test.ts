@@ -116,7 +116,7 @@ describe("queryAudit - actor name resolution", () => {
   });
 
   it("returns actorName null when actorPersonId is null (system action)", async () => {
-    await seedAudit({ action: "auth.login_unmatched", entityType: "Auth", actorPersonId: null });
+    await seedAudit({ action: "auth.applicant_login", entityType: "Auth", actorPersonId: null });
 
     const { rows } = await queryAudit({});
 

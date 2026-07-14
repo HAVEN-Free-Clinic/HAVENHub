@@ -1,15 +1,27 @@
+import Link from "next/link";
 import { signOut } from "@/platform/auth/auth";
+import { prisma } from "@/platform/db";
 import { getSetting } from "@/platform/settings/service";
 import { getSupportContact } from "@/platform/branding/support";
 import { SupportLink } from "@/platform/branding/support-link";
 import { HavenLogo } from "@/platform/ui/haven-logo";
-import { Button } from "@/platform/ui/button";
+import { Button, buttonClasses } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
 
 export default async function WelcomePage() {
-  const [orgName, support] = await Promise.all([
+  const now = new Date();
+  const [orgName, support, openCycleCount] = await Promise.all([
     getSetting<string>("branding.orgName"),
     getSupportContact(),
+    prisma.recruitmentCycle.count({
+      where: {
+        status: "OPEN",
+        AND: [
+          { OR: [{ opensAt: null }, { opensAt: { lte: now } }] },
+          { OR: [{ closesAt: null }, { closesAt: { gte: now } }] },
+        ],
+      },
+    }),
   ]);
   return (
     <main className="flex min-h-screen items-center justify-center bg-muted p-6">
@@ -19,12 +31,19 @@ export default async function WelcomePage() {
         <p className="mt-3 text-sm leading-relaxed text-foreground-soft">
           You signed in successfully, but we couldn&apos;t find you in our records.
           If you&apos;re a current member, contact{" "}
-          <SupportLink email={support.email}>the IT team</SupportLink> so we can
-          fix your record. If you&apos;d like to join {orgName}, keep an eye out
-          for the next recruitment cycle.
+          <SupportLink email={support.email}>the IT team</SupportLink> so we can fix
+          your record.
+          {openCycleCount > 0
+            ? " If you'd like to join, you can start an application now."
+            : " If you'd like to join, keep an eye out for the next recruitment cycle."}
         </p>
+        {openCycleCount > 0 && (
+          <Link href="/apply" className={buttonClasses("primary", "md", "mt-6 w-full")}>
+            Start an application
+          </Link>
+        )}
         <form
-          className="mt-6"
+          className="mt-3"
           action={async () => {
             "use server";
             await signOut({ redirectTo: "/login" });

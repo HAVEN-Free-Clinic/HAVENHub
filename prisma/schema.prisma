@@ -1239,6 +1239,7 @@ model FormField {
   required     Boolean   @default(false)
   options      Json?
   validation   Json?
+  visibleWhen  Json?
   correctValue String?
   order        Int
 

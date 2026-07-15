@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import { RecruitmentAuthError, AcceptanceError } from "./review";
-import { routeApplication, decideRoutedApplication, RoutingError } from "./routing";
+import { routeApplication, decideRoutedApplication, rejectApplication, reopenDecision, RoutingError } from "./routing";
 
 async function seed() {
   const term = await prisma.term.create({ data: { code: "FA26", name: "Fall", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
@@ -132,5 +132,81 @@ describe("decideRoutedApplication", () => {
     await routeApplication(application.id, "EDUC", lead.id);
     await prisma.applicant.update({ where: { id: application.applicantId }, data: { applicantPersonId: lead.id } });
     await expect(decideRoutedApplication(application.id, "ACCEPT", lead.id, null)).rejects.toBeInstanceOf(RecruitmentAuthError);
+  });
+});
+
+describe("rejectApplication", () => {
+  it("rejects an unrouted application: sets decision REJECT, no acceptance, audits", async () => {
+    const { lead, application } = await seed();
+    const rejected = await rejectApplication(application.id, lead.id, "not a fit");
+    expect(rejected.decision).toBe("REJECT");
+    expect(rejected.routedDepartmentCode).toBeNull();
+    expect(rejected.decisionNotes).toBe("not a fit");
+    expect(await prisma.acceptance.count({ where: { applicationId: application.id } })).toBe(0);
+    const audit = await prisma.auditLog.findFirst({ where: { action: "recruitment.application_reject" } });
+    expect(audit).not.toBeNull();
+  });
+
+  it("rejects a non-lead", async () => {
+    const { other, application } = await seed();
+    await expect(rejectApplication(application.id, other.id, null)).rejects.toBeInstanceOf(RecruitmentAuthError);
+  });
+
+  it("blocks self-reject (separation of duties)", async () => {
+    const { lead, application } = await seed();
+    await prisma.applicant.update({ where: { id: application.applicantId }, data: { applicantPersonId: lead.id } });
+    await expect(rejectApplication(application.id, lead.id, null)).rejects.toBeInstanceOf(RecruitmentAuthError);
+  });
+
+  it("clears a stale not-emailed acceptance so release can't still email it", async () => {
+    const { lead, application } = await seed();
+    await routeApplication(application.id, "EDUC", lead.id);
+    await decideRoutedApplication(application.id, "ACCEPT", lead.id, null);
+    const rejected = await rejectApplication(application.id, lead.id, null);
+    expect(rejected.decision).toBe("REJECT");
+    expect(await prisma.acceptance.count({ where: { applicationId: application.id } })).toBe(0);
+  });
+
+  it("refuses to reject once an acceptance was emailed", async () => {
+    const { lead, application } = await seed();
+    await routeApplication(application.id, "EDUC", lead.id);
+    await decideRoutedApplication(application.id, "ACCEPT", lead.id, null);
+    await prisma.acceptance.updateMany({ where: { applicationId: application.id }, data: { emailedAt: new Date() } });
+    await expect(rejectApplication(application.id, lead.id, null)).rejects.toBeInstanceOf(AcceptanceError);
+  });
+
+  it("rejects a director-track application (routing is volunteer-only)", async () => {
+    const { lead } = await seed();
+    const term = await prisma.term.findFirstOrThrow();
+    const cycle = await prisma.recruitmentCycle.create({ data: { track: "DIRECTOR", termId: term.id, title: "D", publicSlug: "drej", departments: ["EDUC"], createdById: lead.id, status: "OPEN" } });
+    const applicant = await prisma.applicant.create({ data: { cycleId: cycle.id, firstName: "D", lastName: "R", email: "drej@y.edu", emailLower: "drej@y.edu" } });
+    const app = await prisma.application.create({ data: { cycleId: cycle.id, applicantId: applicant.id, answers: {}, applicantType: "NEW", departmentChoices: ["EDUC"] } });
+    await expect(rejectApplication(app.id, lead.id, null)).rejects.toBeInstanceOf(RoutingError);
+  });
+});
+
+describe("reopenDecision", () => {
+  it("reopens a reject back to PENDING and audits", async () => {
+    const { lead, application } = await seed();
+    await rejectApplication(application.id, lead.id, "no");
+    const reopened = await reopenDecision(application.id, lead.id);
+    expect(reopened.decision).toBe("PENDING");
+    expect(reopened.decidedAt).toBeNull();
+    expect(reopened.decisionNotes).toBeNull();
+    const audit = await prisma.auditLog.findFirst({ where: { action: "recruitment.application_reopen" } });
+    expect(audit).not.toBeNull();
+  });
+
+  it("rejects a non-lead", async () => {
+    const { lead, other, application } = await seed();
+    await rejectApplication(application.id, lead.id, null);
+    await expect(reopenDecision(application.id, other.id)).rejects.toBeInstanceOf(RecruitmentAuthError);
+  });
+
+  it("is blocked after the cycle's decisions were released", async () => {
+    const { lead, application } = await seed();
+    await rejectApplication(application.id, lead.id, null);
+    await prisma.recruitmentCycle.update({ where: { id: application.cycleId }, data: { decisionsReleasedAt: new Date() } });
+    await expect(reopenDecision(application.id, lead.id)).rejects.toBeInstanceOf(AcceptanceError);
   });
 });

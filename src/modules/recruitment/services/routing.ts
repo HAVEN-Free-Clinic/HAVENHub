@@ -123,3 +123,72 @@ export async function decideRoutedApplication(
   await recordAudit({ actorPersonId: deciderId, action: "recruitment.application_decide", entityType: "Application", entityId: applicationId, after: { decision: outcome, departmentCode } });
   return updated;
 }
+
+/** Reject a VOLUNTEER application without routing it (bottom-tier speed route, or
+ *  a standalone SRR reject). Sets Application.decision = REJECT with no Acceptance
+ *  and leaves routedDepartmentCode as-is. A prior not-emailed acceptance is torn
+ *  down so releaseDecisions can't still email it. No email fires here; reversible
+ *  via reopenDecision until an acceptance is emailed or decisions are released. */
+export async function rejectApplication(
+  applicationId: string,
+  actorId: string,
+  notes: string | null,
+): Promise<Application> {
+  if (!(await can(actorId, "recruitment.review_all"))) {
+    throw new RecruitmentAuthError("You can't reject applications.");
+  }
+  const app = await prisma.application.findUnique({
+    where: { id: applicationId },
+    include: {
+      cycle: { select: { track: true } },
+      applicant: { select: { applicantPersonId: true } },
+      acceptances: { select: { emailedAt: true, contract: { select: { id: true } } } },
+    },
+  });
+  if (!app) throw new RoutingError("Application not found.");
+  if (app.status !== "SUBMITTED") throw new RoutingError("This application hasn't been submitted yet.");
+  if (app.cycle.track !== "VOLUNTEER") throw new RoutingError("Routing applies to volunteer cycles.");
+  // Separation of duties: a signed-in applicant who reviews must not decide their own.
+  if (app.applicant.applicantPersonId && app.applicant.applicantPersonId === actorId) {
+    throw new RecruitmentAuthError("You can't decide your own application.");
+  }
+  // An emailed acceptance or an onboarding contract must be torn down first (mirrors
+  // decideRoutedApplication / revokeAcceptance): rejecting under it would leave the
+  // applicant emailed-accepted-yet-rejected, or destroy onboarding data on cascade.
+  if (app.acceptances.some((a) => a.emailedAt != null || a.contract != null)) {
+    throw new AcceptanceError("This applicant has an emailed acceptance or onboarding contract. Resolve that before rejecting.");
+  }
+  const updated = await prisma.$transaction(async (tx) => {
+    // Remaining acceptances are not-emailed and contract-free (guarded above); drop
+    // them so a stale ACCEPT can't survive a REJECT.
+    await tx.acceptance.deleteMany({ where: { applicationId, emailedAt: null } });
+    return tx.application.update({
+      where: { id: applicationId },
+      data: { decision: "REJECT", decidedById: actorId, decidedAt: new Date(), decisionNotes: notes },
+    });
+  });
+  await recordAudit({ actorPersonId: actorId, action: "recruitment.application_reject", entityType: "Application", entityId: applicationId, after: { decision: "REJECT" } });
+  return updated;
+}
+
+/** Reverse a not-emailed decision (typically a speed-route reject) back to PENDING.
+ *  Leaves any routing intact. Blocked once the applicant was emailed an acceptance
+ *  or the cycle's decisions were released. */
+export async function reopenDecision(applicationId: string, actorId: string): Promise<Application> {
+  if (!(await can(actorId, "recruitment.review_all"))) {
+    throw new RecruitmentAuthError("You can't reopen decisions.");
+  }
+  const app = await prisma.application.findUnique({
+    where: { id: applicationId },
+    include: { cycle: { select: { decisionsReleasedAt: true } }, acceptances: { select: { emailedAt: true } } },
+  });
+  if (!app) throw new RoutingError("Application not found.");
+  if (app.cycle.decisionsReleasedAt) throw new AcceptanceError("Decisions were already released; reopening is blocked.");
+  if (app.acceptances.some((a) => a.emailedAt != null)) throw new AcceptanceError("This applicant was already emailed; reopening is blocked.");
+  const updated = await prisma.application.update({
+    where: { id: applicationId },
+    data: { decision: "PENDING", decidedById: null, decidedAt: null, decisionNotes: null },
+  });
+  await recordAudit({ actorPersonId: actorId, action: "recruitment.application_reopen", entityType: "Application", entityId: applicationId, after: { decision: "PENDING" } });
+  return updated;
+}

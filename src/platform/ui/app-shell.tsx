@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { LogOut } from "lucide-react";
 import { signOut } from "@/platform/auth/auth";
+import { config } from "@/platform/config";
 import { MODULES } from "@/platform/modules/registry";
 import { getAccessibleModules } from "@/platform/modules/access";
 import { getSetting } from "@/platform/settings/service";
@@ -17,6 +18,7 @@ import type { BreadcrumbModule } from "./breadcrumb-trail";
 import { ThemeToggle } from "./theme-toggle";
 import { resolvePreference } from "./theme";
 import { NotificationBell } from "./notification-bell";
+import { HelpLauncher } from "./help/help-launcher";
 
 /** First letters of the first and last name parts, e.g. "Maya Chen" -> "MC". */
 function toInitials(name: string | null): string {
@@ -54,6 +56,10 @@ export async function AppShell({
     title: m.title,
     nav: m.nav,
   }));
+  // Top-level route segment (== module id) -> human title, for the Help widget's
+  // context seeding. Built here so the client never imports the server registry.
+  const moduleLabels = Object.fromEntries(MODULES.map((m) => [m.id, m.title]));
+  const gitbookEnabled = Boolean(config.GITBOOK_SITE_URL && config.GITBOOK_JWT_KEY);
   const initials = toInitials(userName);
 
   return (
@@ -88,6 +94,9 @@ export async function AppShell({
 
           <div className="flex shrink-0 items-center gap-2 sm:gap-3">
             <ThemeToggle initial={resolvedTheme} />
+            {gitbookEnabled && (
+              <HelpLauncher siteURL={config.GITBOOK_SITE_URL as string} moduleLabels={moduleLabels} />
+            )}
             <NotificationBell />
             <div className="hidden items-center gap-2.5 sm:flex">
               <span

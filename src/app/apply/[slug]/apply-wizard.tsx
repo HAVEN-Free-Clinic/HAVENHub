@@ -17,6 +17,7 @@ import { FormSection } from "@/platform/ui/form";
 import { RadioGroup, Radio } from "@/platform/ui/radio";
 import { FieldPreview } from "@/modules/recruitment/components/field-preview";
 import { prefillString } from "@/modules/recruitment/components/field-prefill";
+import { SignaturePad } from "@/platform/ui/signature-pad";
 import { cx } from "@/platform/ui/cx";
 import { PortalNotice } from "../portal-notice";
 
@@ -286,7 +287,10 @@ export function ApplyWizard({
           title: st.title,
           // Condition-hidden fields were never asked, so they are omitted here
           // too (rather than showing a misleading "Not provided" row).
-          rows: visibleFields(st.section.fields, effectiveAnswers).map((f) => ({ label: f.label, value: formatFieldValue(f, values, def.subcommittees) })),
+          rows: visibleFields(st.section.fields, effectiveAnswers).map((f) => {
+            const src = f.type === "SIGNATURE" && typeof values[f.key] === "string" && String(values[f.key]).startsWith("data:") ? String(values[f.key]) : undefined;
+            return { label: f.label, value: src ? "" : formatFieldValue(f, values, def.subcommittees), imageSrc: src };
+          }),
         });
       }
     });
@@ -440,7 +444,18 @@ export function ApplyWizard({
               <Card className="space-y-4">
                 <FormSection description={st.section.description ?? undefined}>
                   {visibleFields(st.section.fields, effectiveAnswers).map((f) =>
-                    f.type === "FILE" ? (
+                    f.type === "SIGNATURE" ? (
+                      <SignaturePad
+                        key={f.key}
+                        name={f.key}
+                        label={f.label}
+                        required={f.required}
+                        personName={[prefill?.values.first_name ?? initialAnswers.first_name, prefill?.values.last_name ?? initialAnswers.last_name].filter(Boolean).join(" ")}
+                        defaultValue={typeof initialAnswers[f.key] === "string" ? (initialAnswers[f.key] as string) : ""}
+                        error={fieldErrors[f.key]}
+                        onChange={scheduleSave}
+                      />
+                    ) : f.type === "FILE" ? (
                       <div key={f.key} onChange={(e) => { e.stopPropagation(); handleFileChange(f.key, e as unknown as React.ChangeEvent<HTMLInputElement>); }}>
                         {/* The wizard owns the attached-file status line below (fileStatus),
                             so it must not also hand the draft file object to FieldPreview,

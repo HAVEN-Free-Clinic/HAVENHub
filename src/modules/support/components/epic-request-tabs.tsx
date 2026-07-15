@@ -511,6 +511,7 @@ function PendingTab({
               ) : (
                 <span className="text-xs text-subtle-foreground">Promotion</span>
               )}
+              {r.notes && <span className="text-xs text-subtle-foreground">· {r.notes}</span>}
             </li>
           ))}
         </ul>

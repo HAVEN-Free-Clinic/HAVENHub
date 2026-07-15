@@ -203,3 +203,22 @@ describe("parseAvailabilityDates (pure)", () => {
     expect(parseAvailabilityDates([])).toEqual([]);
   });
 });
+
+it("carries dateOfBirth, dietaryRestrictions, and Epic access details onto the Person + EpicRequest", async () => {
+  const { srr, contract } = await seedSubmitted({ epicNeeded: true });
+  await prisma.onboardingContract.update({
+    where: { id: contract.id },
+    data: {
+      dateOfBirth: new Date("2000-05-15T00:00:00.000Z"),
+      dietaryRestrictions: "Vegetarian, nut allergy",
+      epicAccessType: "Read-only",
+      worksWithYnhh: true,
+    },
+  });
+  await promoteContracts([contract.id], srr.id);
+  const person = await prisma.person.findFirstOrThrow({ where: { netId: "al99" } });
+  expect(person.dateOfBirth?.toISOString()).toBe("2000-05-15T00:00:00.000Z");
+  expect(person.dietaryRestrictions).toBe("Vegetarian, nut allergy");
+  const req = await prisma.epicRequest.findFirstOrThrow({ where: { personId: person.id, kind: "NEW" } });
+  expect(req.notes).toBe("Access type: Read-only. Already works with YNHH");
+});

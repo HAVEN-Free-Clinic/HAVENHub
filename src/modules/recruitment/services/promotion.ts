@@ -80,6 +80,9 @@ export async function promoteContracts(contractIds: string[], actorId: string): 
               epicId: person.epicId ?? contract.existingEpicId,
               spanishSelfReported: person.spanishSelfReported || contract.spanishSelfReported,
               licensedRN: person.licensedRN || contract.licensedRN,
+              // Carry onboarding-collected member data (don't clobber an existing value).
+              dateOfBirth: person.dateOfBirth ?? contract.dateOfBirth,
+              dietaryRestrictions: person.dietaryRestrictions ?? contract.dietaryRestrictions,
             },
           });
         } else {
@@ -92,6 +95,8 @@ export async function promoteContracts(contractIds: string[], actorId: string): 
               epicId: contract.existingEpicId, status: "ACTIVE",
               spanishSelfReported: contract.spanishSelfReported,
               licensedRN: contract.licensedRN,
+              dateOfBirth: contract.dateOfBirth,
+              dietaryRestrictions: contract.dietaryRestrictions,
             },
           });
         }
@@ -135,7 +140,13 @@ export async function promoteContracts(contractIds: string[], actorId: string): 
         if (contract.epicNeeded && !effectiveEpicId) {
           const openReq = await tx.epicRequest.findFirst({ where: { personId: person.id, status: { in: ["PENDING", "SUBMITTED"] } } });
           if (!openReq) {
-            await tx.epicRequest.create({ data: { personId: person.id, kind: "NEW", requestedById: actorId } });
+            // Carry the applicant's Epic access details onto the request so whoever
+            // provisions it in YNHH sees them (the applicant supplied them at onboarding).
+            const epicNotes = [
+              contract.epicAccessType ? `Access type: ${contract.epicAccessType}` : null,
+              contract.worksWithYnhh ? "Already works with YNHH" : null,
+            ].filter(Boolean).join(". ") || null;
+            await tx.epicRequest.create({ data: { personId: person.id, kind: "NEW", requestedById: actorId, notes: epicNotes } });
           }
         }
 

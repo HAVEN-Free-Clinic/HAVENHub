@@ -678,6 +678,8 @@ export type PendingEpicRequestRow = {
   id: string;
   kind: EpicRequestKind;
   createdAt: Date;
+  /** Free-text context, e.g. the Epic access details a promoted volunteer supplied. */
+  notes: string | null;
   person: { id: string; name: string | null; epicId: string | null };
   techRequest: { id: string; number: number; subject: string } | null;
 };
@@ -712,6 +714,7 @@ export async function listPendingEpicRequests(): Promise<PendingEpicRequestRow[]
     id: r.id,
     kind: r.kind,
     createdAt: r.createdAt,
+    notes: r.notes,
     person: { id: r.person.id, name: r.person.name, epicId: r.person.epicId },
     techRequest: r.techRequest
       ? { id: r.techRequest.id, number: r.techRequest.number, subject: r.techRequest.subject }

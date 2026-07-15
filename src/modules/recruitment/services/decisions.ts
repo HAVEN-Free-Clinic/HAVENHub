@@ -49,6 +49,48 @@ export async function releaseSummary(cycleId: string): Promise<{
   return { acceptedApplications, conflictedApplications: conflictIds.size, unnotified, emailed };
 }
 
+/** Render + queue the acceptance email for a single acceptance and atomically
+ *  stamp emailedAt, using the SAME emailedAt: null claim as releaseDecisions so
+ *  this path and a later Release never double-send. Used by the waitlist
+ *  "promote to accept" flow to notify a promoted applicant immediately, without
+ *  waiting for a separate release run. Skips (returns "conflicted") if the
+ *  application now holds acceptances from more than one department, mirroring
+ *  releaseDecisions' conflict skip -- the conflict must be resolved (and the
+ *  cycle released) before that applicant is emailed. */
+export async function sendAcceptanceEmail(
+  applicationId: string,
+  departmentCode: string,
+): Promise<{ sent: boolean; reason?: "already_emailed" | "conflicted" | "not_found" }> {
+  const acc = await prisma.acceptance.findUnique({
+    where: { applicationId_departmentCode: { applicationId, departmentCode } },
+    include: { application: { include: { applicant: true, cycle: { select: { id: true, title: true } } } } },
+  });
+  if (!acc) return { sent: false, reason: "not_found" };
+  if (acc.emailedAt) return { sent: false, reason: "already_emailed" };
+  // Conflict = this application accepted by more than one distinct department
+  // (the single-application case of findAcceptanceConflicts). Don't notify until
+  // the conflict is resolved and the cycle released.
+  const appAcceptances = await prisma.acceptance.findMany({ where: { applicationId }, select: { departmentCode: true } });
+  if (new Set(appAcceptances.map((a) => a.departmentCode)).size > 1) return { sent: false, reason: "conflicted" };
+
+  const dept = await prisma.department.findUnique({ where: { code: departmentCode }, select: { name: true } });
+  const sources = await resolveCycleEmail(acc.application.cycle.id, "recruitment.acceptance");
+  const email = renderResolvedEmail(sources, {
+    firstName: acc.application.applicant.firstName || "there",
+    cycleTitle: acc.application.cycle.title,
+    departmentName: dept?.name ?? departmentCode,
+  });
+  const sent = await prisma.$transaction(async (tx) => {
+    // Atomic claim mirrors releaseDecisions: only one caller can flip emailedAt,
+    // so a concurrent release/promote can't re-queue or re-stamp (audit3 L15).
+    const claimed = await tx.acceptance.updateMany({ where: { id: acc.id, emailedAt: null }, data: { emailedAt: new Date() } });
+    if (claimed.count !== 1) return false;
+    await queueEmail(tx, { to: acc.application.applicant.email, subject: email.subject, html: email.html, template: "recruitment.acceptance" });
+    return true;
+  });
+  return sent ? { sent: true } : { sent: false, reason: "already_emailed" };
+}
+
 /** Email every accepted, non-conflicted, un-emailed applicant once; stamp
  *  emailedAt. Idempotent. Conflicted applications are skipped (counted by
  *  distinct application). Requires review_all. */

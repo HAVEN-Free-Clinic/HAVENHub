@@ -93,6 +93,65 @@ export async function listApplicantsForReview(cycleId: string, viewerId: string)
   return apps.filter((a) => a.departmentChoices.some((d) => mine.has(d)));
 }
 
+export type WaitlistEntry = {
+  applicationId: string;
+  applicantName: string;
+  applicantEmail: string;
+  /** Volunteer track: the routed department (may be null in a malformed state).
+   *  Director track: the waitlisted interview's department. */
+  departmentCode: string | null;
+  /** Set for a director-track (interview) waitlist; null for a volunteer-track
+   *  (Application.decision) waitlist. Tells the promote action which decide
+   *  function to call. */
+  interviewId: string | null;
+};
+
+/** Applications/interviews left on WAITLIST for a cycle, one entry per waitlisted
+ *  decision, scoped exactly like listApplicantsForReview. Volunteer-track waitlists
+ *  live on Application.decision (departmentCode = routedDepartmentCode, no interview);
+ *  director-track waitlists live on Interview.decision (one entry per waitlisted
+ *  interview, carrying its department + id). SRR/review_all, cycle managers and
+ *  committee scorers see all; a director sees only their departments' entries. */
+export async function listWaitlisted(cycleId: string, viewerId: string): Promise<WaitlistEntry[]> {
+  const [scope, managesCycles, canScore] = await Promise.all([
+    reviewScope(viewerId),
+    can(viewerId, "recruitment.manage_cycles"),
+    can(viewerId, "recruitment.score"),
+  ]);
+  const seeAll = scope.all || managesCycles || canScore;
+  const apps = await prisma.application.findMany({
+    where: {
+      cycleId,
+      status: "SUBMITTED",
+      OR: [{ decision: "WAITLIST" }, { interviews: { some: { decision: "WAITLIST" } } }],
+    },
+    include: {
+      applicant: { select: { firstName: true, lastName: true, email: true } },
+      interviews: { where: { decision: "WAITLIST" }, select: { id: true, departmentCode: true } },
+    },
+    orderBy: [{ submittedAt: "desc" }, { createdAt: "desc" }],
+  });
+  const entries: WaitlistEntry[] = [];
+  for (const a of apps) {
+    const base = {
+      applicationId: a.id,
+      applicantName: `${a.applicant.firstName} ${a.applicant.lastName}`,
+      applicantEmail: a.applicant.email,
+    };
+    // Volunteer track: decided directly on the application (no interview).
+    if (a.decision === "WAITLIST") {
+      entries.push({ ...base, departmentCode: a.routedDepartmentCode, interviewId: null });
+    }
+    // Director track: one entry per waitlisted interview (already filtered above).
+    for (const iv of a.interviews) {
+      entries.push({ ...base, departmentCode: iv.departmentCode, interviewId: iv.id });
+    }
+  }
+  if (seeAll) return entries;
+  const mine = new Set(scope.departmentCodes);
+  return entries.filter((e) => e.departmentCode != null && mine.has(e.departmentCode));
+}
+
 /** OPEN/CLOSED cycles a non-manager reviewer has something to review in,
  *  matching listApplicantsForReview's visibility semantics: SRR/review_all and
  *  cycle managers see every cycle with submitted applications; a committee

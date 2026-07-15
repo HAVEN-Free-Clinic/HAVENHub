@@ -3,7 +3,7 @@ import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import {
   reviewScope, listApplicantsForReview, listReviewableCycles, revokeAcceptance, listAcceptances,
-  canViewApplication, RecruitmentAuthError, AcceptanceError,
+  canViewApplication, listWaitlisted, RecruitmentAuthError, AcceptanceError,
 } from "./review";
 
 async function seed() {
@@ -125,6 +125,51 @@ describe("listReviewableCycles", () => {
     });
     const cycles = await listReviewableCycles(director.id);
     expect(cycles.map((c) => c.id)).toContain(dCycle.id);
+  });
+});
+
+describe("listWaitlisted", () => {
+  it("returns a volunteer application waitlisted for its routed department (SRR sees all)", async () => {
+    const { srr, cycle, appSrhd, appMdic } = await seed();
+    await prisma.application.update({ where: { id: appSrhd.id }, data: { routedDepartmentCode: "SRHD", decision: "WAITLIST" } });
+    await prisma.application.update({ where: { id: appMdic.id }, data: { routedDepartmentCode: "MDIC", decision: "ACCEPT" } });
+    const entries = await listWaitlisted(cycle.id, srr.id);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      applicationId: appSrhd.id,
+      departmentCode: "SRHD",
+      interviewId: null,
+      applicantName: "A B",
+      applicantEmail: "s@yale.edu",
+    });
+  });
+
+  it("returns each waitlisted director-track interview, carrying its interviewId and department", async () => {
+    const { term, srr } = await seed();
+    const dCycle = await prisma.recruitmentCycle.create({ data: { track: "DIRECTOR", termId: term.id, title: "D", publicSlug: "dwl", departments: ["SRHD", "MDIC"], createdById: srr.id, status: "OPEN" } });
+    const applicant = await prisma.applicant.create({ data: { cycleId: dCycle.id, firstName: "C", lastName: "D", email: "cd@yale.edu", emailLower: "cd@yale.edu" } });
+    const app = await prisma.application.create({ data: { cycleId: dCycle.id, applicantId: applicant.id, answers: {}, applicantType: "NEW", departmentChoices: ["SRHD"] } });
+    const iv = await prisma.interview.create({ data: { applicationId: app.id, departmentCode: "SRHD", decision: "WAITLIST", createdById: srr.id } });
+    const entries = await listWaitlisted(dCycle.id, srr.id);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ applicationId: app.id, departmentCode: "SRHD", interviewId: iv.id, applicantName: "C D" });
+  });
+
+  it("excludes accepted, rejected, and undecided applications", async () => {
+    const { srr, cycle, appSrhd, appMdic } = await seed();
+    await prisma.application.update({ where: { id: appSrhd.id }, data: { routedDepartmentCode: "SRHD", decision: "ACCEPT" } });
+    await prisma.application.update({ where: { id: appMdic.id }, data: { routedDepartmentCode: "MDIC", decision: "REJECT" } });
+    expect(await listWaitlisted(cycle.id, srr.id)).toEqual([]);
+  });
+
+  it("scopes a director to waitlisted entries in their own department; SRR sees both", async () => {
+    const { director, srr, cycle, appSrhd, appMdic } = await seed();
+    await prisma.application.update({ where: { id: appSrhd.id }, data: { routedDepartmentCode: "SRHD", decision: "WAITLIST" } });
+    await prisma.application.update({ where: { id: appMdic.id }, data: { routedDepartmentCode: "MDIC", decision: "WAITLIST" } });
+    const dirEntries = await listWaitlisted(cycle.id, director.id);
+    expect(dirEntries.map((e) => e.applicationId)).toEqual([appSrhd.id]);
+    const srrEntries = await listWaitlisted(cycle.id, srr.id);
+    expect(srrEntries.map((e) => e.applicationId).sort()).toEqual([appSrhd.id, appMdic.id].sort());
   });
 });
 

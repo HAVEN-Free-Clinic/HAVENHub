@@ -490,6 +490,7 @@ enum FieldType {
   FILE
   DEPARTMENT_CHOICE
   SUBCOMMITTEE_RANK
+  SIGNATURE
 }
 
 enum ApplicantScope {

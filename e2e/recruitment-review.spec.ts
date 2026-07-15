@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { applicantSessionCookie } from "./portal-cookie";
+import { fillDefaultApplication } from "./fixtures";
 
 test.setTimeout(120_000);
 
@@ -64,22 +65,10 @@ test("review: accept via department decision, release with no conflicts", async 
   await ctx.addCookies([applicantSessionCookie(applicantEmail)]);
   const apply = await ctx.newPage();
   await apply.goto(`/apply/${slug}`);
-  // The application is a multi-step wizard: fill the identity section while it is the
-  // visible step, advance with Continue, and Submit only on the final Review step.
-  const submit = apply.getByRole("button", { name: "Submit application" });
-  const firstNameField = apply.locator('input[name="first_name"]');
-  for (let i = 0; i < 8; i++) {
-    if (await submit.isVisible().catch(() => false)) break;
-    if (await firstNameField.isVisible().catch(() => false)) {
-      await firstNameField.fill("Onee");
-      await apply.fill('input[name="last_name"]', "X");
-      await apply.fill('input[name="email"]', applicantEmail);
-    }
-    await apply.getByRole("button", { name: "Continue" }).click();
-  }
-  await expect(submit).toBeVisible();
-  await submit.click();
-  await expect(apply.getByText(/your application was received/i)).toBeVisible();
+  // Walk the default VOLUNTEER wizard end to end and submit. SRHD (the same
+  // department Onee is routed into below) carries no VOLUNTEER department
+  // supplement, so this stays on the shared default-template steps.
+  await fillDefaultApplication(apply, { email: applicantEmail, department: "SRHD", firstName: "Onee", lastName: "X" });
   await ctx.close();
 
   // --- Accept Onee into SRHD via route -> record ACCEPT (no interview) ---

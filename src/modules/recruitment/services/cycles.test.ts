@@ -28,6 +28,24 @@ describe("createCycle", () => {
     const fields = await prisma.formField.findMany({ where: { cycleId: cycle.id } });
     expect(fields.map((f) => f.key).sort()).toEqual(["email", "first_name", "last_name"]);
   });
+
+  it("canonicalizes + de-duplicates departments so seedDefaultForm never collides on a repeated/alias code", async () => {
+    const { person, term } = await seedTermAndPerson();
+    // "EXEC" twice and the "SR&R" -> "SRR" alias: without de-duping, each would
+    // emit a second identical director supplement section with colliding field
+    // keys and crash materialize (P2002).
+    const cycle = await createCycle({
+      track: "DIRECTOR", termId: term.id, title: "Director SU26",
+      publicSlug: "director-su26", departments: ["EXEC", "exec", "SRR", "SR&R"], acceptsRenewals: false,
+      createdById: person.id,
+    }, true);
+    expect(cycle.departments).toEqual(["EXEC", "SRR"]);
+    // Exactly one supplement section per department (department-scoped sections
+    // carry a non-null departmentCode).
+    const suppSections = await prisma.formSection.findMany({ where: { cycleId: cycle.id, departmentCode: { not: null } } });
+    const codes = suppSections.map((s) => s.departmentCode).sort();
+    expect(codes).toEqual(["EXEC", "SRR"]);
+  });
 });
 
 describe("publishCycle", () => {

@@ -1,6 +1,5 @@
 import { expect, test } from "@playwright/test";
 import { applicantSessionCookie } from "./portal-cookie";
-import { fillDefaultApplication } from "./fixtures";
 
 test.setTimeout(120_000);
 
@@ -52,6 +51,9 @@ test("onboarding: accept via department decision, then send onboarding link", as
   const slug = `onboard-e2e-${Date.now()}`;
   await page.fill('input[name="publicSlug"]', slug);
   await page.fill('input[name="departments"]', "SRHD");
+  // Build the form ourselves (minimal name+email seed) so the apply wizard stays
+  // a simple identity-only flow; the default form has required files + subcommittees.
+  await page.uncheck('input[name="seedDefaultForm"]');
   await page.click('button:has-text("Create")');
   await page.waitForURL((url) => url.pathname.includes("/builder"));
   const cycleId = page.url().split("/cycles/")[1].split("/")[0];
@@ -66,9 +68,22 @@ test("onboarding: accept via department decision, then send onboarding link", as
   await ctx.addCookies([applicantSessionCookie(applicantEmail)]);
   const apply = await ctx.newPage();
   await apply.goto(`/apply/${slug}`);
-  // Walk the default VOLUNTEER wizard end to end and submit. SRHD is the
-  // cycle's only department and carries no VOLUNTEER department supplement.
-  await fillDefaultApplication(apply, { email: applicantEmail, department: "SRHD", firstName: "Ona", lastName: "Boarder" });
+  // The application is a multi-step wizard: fill the identity section while it is the
+  // visible step, advance with Continue, and Submit only on the final Review step.
+  const submit = apply.getByRole("button", { name: "Submit application" });
+  const firstNameField = apply.locator('input[name="first_name"]');
+  for (let i = 0; i < 8; i++) {
+    if (await submit.isVisible().catch(() => false)) break;
+    if (await firstNameField.isVisible().catch(() => false)) {
+      await firstNameField.fill("Ona");
+      await apply.fill('input[name="last_name"]', "Boarder");
+      await apply.fill('input[name="email"]', applicantEmail);
+    }
+    await apply.getByRole("button", { name: "Continue" }).click();
+  }
+  await expect(submit).toBeVisible();
+  await submit.click();
+  await expect(apply.getByText(/your application was received/i)).toBeVisible();
   await ctx.close();
 
   // --- Accept the applicant into SRHD via route -> record ACCEPT (no interview) ---

@@ -29,12 +29,15 @@ export default async function EditDepartmentPage({ params, searchParams }: PageP
   });
   if (!department) notFound();
 
+  const selectedIds = department.managesDelegations.map((m) => m.managedDepartmentId);
+  // Include already-managed departments even if they are now inactive, otherwise a
+  // deactivated-but-managed department would be absent from the checkbox list and
+  // silently dropped from the delegation set on the next save.
   const candidates = await prisma.department.findMany({
-    where: { isActive: true, id: { not: id } },
+    where: { id: { not: id }, OR: [{ isActive: true }, { id: { in: selectedIds } }] },
     select: { id: true, code: true, name: true },
     orderBy: { code: "asc" },
   });
-  const selectedIds = department.managesDelegations.map((m) => m.managedDepartmentId);
 
   async function updateAction(formData: FormData) {
     "use server";

@@ -10,6 +10,7 @@ import { Alert } from "@/platform/ui/alert";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
+import { Checkbox } from "@/platform/ui/checkbox";
 
 type PageProps = {
   searchParams: Promise<{ error?: string }>;
@@ -54,6 +55,15 @@ export default async function NewCyclePage({ searchParams }: PageProps) {
           <Field label="Departments" hint="Comma-separated department codes, e.g. SRHD, MDIC.">
             <Input name="departments" placeholder="SRHD, MDIC" />
           </Field>
+          <label className="flex items-start gap-2.5 py-1 cursor-pointer">
+            <Checkbox name="seedDefaultForm" value="on" defaultChecked className="mt-0.5" />
+            <span className="text-sm text-foreground">
+              Start from the default application form
+              <span className="block text-xs text-muted-foreground">
+                Uncheck to start with a blank form (name + email only) and build it yourself.
+              </span>
+            </span>
+          </label>
           <FormActions>
             <SubmitButton pendingLabel="Creating…">Create &amp; build form</SubmitButton>
           </FormActions>

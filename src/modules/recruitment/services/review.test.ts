@@ -3,7 +3,7 @@ import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import {
   reviewScope, listApplicantsForReview, listReviewableCycles, revokeAcceptance, listAcceptances,
-  RecruitmentAuthError, AcceptanceError,
+  canViewApplication, RecruitmentAuthError, AcceptanceError,
 } from "./review";
 
 async function seed() {
@@ -158,5 +158,40 @@ describe("revokeAcceptance", () => {
     // The acceptance and its contract must survive.
     expect(await prisma.acceptance.findUnique({ where: { id: acc.id } })).not.toBeNull();
     expect(await prisma.onboardingContract.count()).toBe(1);
+  });
+});
+
+describe("canViewApplication (pure, mirrors listApplicantsForReview)", () => {
+  const dirScope = { all: false, departmentCodes: ["SRHD"] };
+  const noScope = { all: false, departmentCodes: [] as string[] };
+  const flags = (o: Partial<{ managesCycles: boolean; canScore: boolean }> = {}) => ({
+    managesCycles: o.managesCycles ?? false,
+    canScore: o.canScore ?? false,
+  });
+  const volApp = (o: Partial<{ choices: string[]; routed: string | null }> = {}) => ({
+    departmentChoices: o.choices ?? ["SRHD"],
+    routedDepartmentCode: o.routed ?? null,
+    cycle: { track: "VOLUNTEER" },
+  });
+  const dirApp = (choices: string[]) => ({ departmentChoices: choices, routedDepartmentCode: null, cycle: { track: "DIRECTOR" } });
+
+  it("SRR (review_all) sees any application", () => {
+    expect(canViewApplication(volApp(), { scope: { all: true, departmentCodes: [] }, ...flags() })).toBe(true);
+  });
+  it("cycle managers and committee scorers see any application", () => {
+    expect(canViewApplication(volApp({ choices: ["MDIC"] }), { scope: noScope, ...flags({ managesCycles: true }) })).toBe(true);
+    expect(canViewApplication(volApp({ choices: ["MDIC"] }), { scope: noScope, ...flags({ canScore: true }) })).toBe(true);
+  });
+  it("volunteer cycle: a director sees an app ROUTED to their dept, not merely ranked", () => {
+    // ranked their dept but routed elsewhere -> hidden (this is the #10 fix)
+    expect(canViewApplication(volApp({ choices: ["SRHD"], routed: "MDIC" }), { scope: dirScope, ...flags() })).toBe(false);
+    // routed to their dept -> visible
+    expect(canViewApplication(volApp({ choices: ["MDIC"], routed: "SRHD" }), { scope: dirScope, ...flags() })).toBe(true);
+    // not yet routed -> hidden
+    expect(canViewApplication(volApp({ choices: ["SRHD"], routed: null }), { scope: dirScope, ...flags() })).toBe(false);
+  });
+  it("director-track cycle: a director sees an app that RANKED their dept", () => {
+    expect(canViewApplication(dirApp(["SRHD"]), { scope: dirScope, ...flags() })).toBe(true);
+    expect(canViewApplication(dirApp(["MDIC"]), { scope: dirScope, ...flags() })).toBe(false);
   });
 });

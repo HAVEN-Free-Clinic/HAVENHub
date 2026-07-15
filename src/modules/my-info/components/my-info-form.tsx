@@ -38,6 +38,8 @@ type MyInfoFormProps = {
     | "epicId"
     | "yaleAffiliation"
     | "gradYear"
+    | "dateOfBirth"
+    | "dietaryRestrictions"
   >;
   error?: string;
   saved?: string;
@@ -67,6 +69,11 @@ export function MyInfoForm({ action, person, error, saved }: MyInfoFormProps) {
             label="Epic ID"
             value={person.epicId}
             hint="Contact the IT team to update your Epic ID."
+          />
+          <ReadonlyField
+            label="Date of Birth"
+            value={person.dateOfBirth ? new Date(person.dateOfBirth).toISOString().slice(0, 10) : null}
+            hint="Set during onboarding; contact the IT team to correct it."
           />
         </div>
 
@@ -112,6 +119,14 @@ export function MyInfoForm({ action, person, error, saved }: MyInfoFormProps) {
               inputMode="numeric"
               maxLength={4}
               pattern="\d{4}"
+            />
+          </Field>
+
+          <Field label="Dietary restrictions" hint="For orientation and event catering. Leave blank if none.">
+            <Input
+              name="dietaryRestrictions"
+              defaultValue={person.dietaryRestrictions ?? ""}
+              placeholder="e.g. vegetarian, nut allergy"
             />
           </Field>
         </div>

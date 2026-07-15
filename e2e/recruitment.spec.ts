@@ -1,6 +1,5 @@
 import { expect, test } from "@playwright/test";
 import { applicantSessionCookie } from "./portal-cookie";
-import { fillDefaultApplication } from "./fixtures";
 
 // This is the heaviest spec (build a form via TypePicker, publish, then apply via
 // the portal). On a cold CI dev server those routes compile on first hit, so allow
@@ -38,17 +37,17 @@ test("recruitment: build (TypePicker), publish, public apply via portal, view su
   await page.fill('input[name="title"]', "E2E Volunteer Cycle");
   await page.fill('input[name="publicSlug"]', slug);
   await page.fill('input[name="departments"]', "SRHD, MDIC");
+  // Build the form ourselves (minimal name+email seed) so the apply wizard stays
+  // a simple identity-only flow; the default form has required files + subcommittees.
+  await page.uncheck('input[name="seedDefaultForm"]');
   await page.click('button:has-text("Create")');
   await page.waitForURL((url) => url.pathname.includes("/builder"));
   const cycleId = page.url().split("/cycles/")[1].split("/")[0];
 
   // --- Add a field through the rewritten builder (TypePicker dropdown) ---
-  // "Personal details" is the default template's identity section title
-  // (identitySection() in templates/field-groups.ts); the New-cycle UI action
-  // always seeds the rich default template, not the old minimal 3-field seed.
   const identitySection = page
     .locator("section")
-    .filter({ has: page.locator("h2").filter({ hasText: "Personal details" }) })
+    .filter({ has: page.locator("h2").filter({ hasText: "Your information" }) })
     .first();
   await identitySection.getByRole("button", { name: /Add field/ }).click();
   await page.getByRole("button", { name: "Paragraph", exact: true }).click();
@@ -68,12 +67,24 @@ test("recruitment: build (TypePicker), publish, public apply via portal, view su
   const apply = await pub.newPage();
   await apply.goto(`/apply/${slug}`);
 
-  // Walk the default VOLUNTEER wizard end to end (identity, Yale affiliation,
-  // Spanish/other-language gates, department, availability, contract
-  // acknowledgements) and submit. SRHD carries no VOLUNTEER department
-  // supplement (see SUPPLEMENT_DEPARTMENTS.VOLUNTEER), so this stays on the
-  // shared default-template steps.
-  await fillDefaultApplication(apply, { email: applicantEmail, department: "SRHD", firstName: "Ann", lastName: "New" });
+  // Walk the wizard. Only the current step is shown, so fill the identity fields
+  // when their section is the visible step, advance with Continue, and submit on
+  // the final Review step (Submit application shows only there).
+  const submit = apply.getByRole("button", { name: "Submit application" });
+  const firstName = apply.locator('input[name="first_name"]');
+  for (let i = 0; i < 8; i++) {
+    if (await submit.isVisible().catch(() => false)) break;
+    if (await firstName.isVisible().catch(() => false)) {
+      await firstName.fill("Ann");
+      await apply.fill('input[name="last_name"]', "New");
+      await apply.fill('input[name="email"]', applicantEmail);
+    }
+    await apply.getByRole("button", { name: "Continue" }).click();
+  }
+  await expect(submit).toBeVisible();
+  await submit.click();
+
+  await expect(apply.getByText(/your application was received/i)).toBeVisible();
   await pub.close();
 
   // --- Verify the submission shows in the applicants list ---

@@ -1,6 +1,5 @@
 import { expect, test } from "@playwright/test";
 import { applicantSessionCookie } from "./portal-cookie";
-import { fillDefaultApplication } from "./fixtures";
 
 test.setTimeout(120_000);
 
@@ -27,10 +26,10 @@ test("director interview: schedule, decide accept, release", async ({
   const slug = `dir-e2e-${Date.now()}`;
   await page.fill('input[name="publicSlug"]', slug);
   await page.selectOption('select[name="track"]', "DIRECTOR");
-  // BVHD and CRAD carry no DIRECTOR department supplement section (see
-  // SUPPLEMENT_DEPARTMENTS.DIRECTOR in templates/application/supplements/dept-codes.ts),
-  // so the applicant's department choice below stays on the shared default-template steps.
-  await page.fill('input[name="departments"]', "BVHD, CRAD");
+  await page.fill('input[name="departments"]', "EDUC, PCAR");
+  // Build the form ourselves (minimal name+email seed) so the apply wizard stays
+  // a simple identity-only flow; the default form has required files + subcommittees.
+  await page.uncheck('input[name="seedDefaultForm"]');
   await page.click('button:has-text("Create")');
   await page.waitForURL((url) => url.pathname.includes("/builder"));
   const cycleId = page.url().split("/cycles/")[1].split("/")[0];
@@ -45,10 +44,22 @@ test("director interview: schedule, decide accept, release", async ({
   await pub.addCookies([applicantSessionCookie(applicantEmail)]);
   const apply = await pub.newPage();
   await apply.goto(`/apply/${slug}`);
-  // Walk the default DIRECTOR wizard end to end (identity, Yale affiliation,
-  // Spanish/other-language gates, HAVEN experience, essays, department,
-  // availability, subcommittee rank, logistics) and submit.
-  await fillDefaultApplication(apply, { email: applicantEmail, department: "BVHD", firstName: "Dee", lastName: "Rector" });
+  // The application is a multi-step wizard: fill the identity section while it is the
+  // visible step, advance with Continue, and Submit only on the final Review step.
+  const submit = apply.getByRole("button", { name: "Submit application" });
+  const firstNameField = apply.locator('input[name="first_name"]');
+  for (let i = 0; i < 8; i++) {
+    if (await submit.isVisible().catch(() => false)) break;
+    if (await firstNameField.isVisible().catch(() => false)) {
+      await firstNameField.fill("Dee");
+      await apply.fill('input[name="last_name"]', "Rector");
+      await apply.fill('input[name="email"]', applicantEmail);
+    }
+    await apply.getByRole("button", { name: "Continue" }).click();
+  }
+  await expect(submit).toBeVisible();
+  await submit.click();
+  await expect(apply.getByText(/your application was received/i)).toBeVisible();
   await pub.close();
 
   // --- Navigate to the applicant and schedule an interview ---
@@ -56,11 +67,8 @@ test("director interview: schedule, decide accept, release", async ({
   await page.getByRole("link", { name: /Dee Rector/ }).click();
   await page.waitForURL((url) => url.pathname.includes("/applicants/"));
 
-  // Director branch: select department and click "Schedule interview". Uses
-  // the same department the applicant chose above (BVHD) -- a scoped (non
-  // seeAll) reviewer can only schedule for a department the applicant ranked
-  // (createInterview in services/interviews.ts).
-  await page.locator('select[name="departmentCode"]').selectOption("BVHD");
+  // Director branch: select department and click "Schedule interview"
+  await page.locator('select[name="departmentCode"]').selectOption("EDUC");
   await page.click('button:has-text("Schedule interview")');
   // scheduleInterviewAction redirects to the interview detail page
   await page.waitForURL((url) => url.pathname.includes("/interviews/"));

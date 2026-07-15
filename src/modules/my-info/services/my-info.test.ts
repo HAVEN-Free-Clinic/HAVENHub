@@ -168,6 +168,13 @@ describe("updateMyInfo", () => {
     expect(updated.epicId).toBe("ORIGINAL-EPIC");
   });
 
+  it("lets a member set their dietary restrictions", async () => {
+    const person = await createPerson({ name: "Dee Eater", netId: "dee001" });
+    await updateMyInfo(person.id, { dietaryRestrictions: "Vegan, shellfish allergy" });
+    const updated = await prisma.person.findUniqueOrThrow({ where: { id: person.id } });
+    expect(updated.dietaryRestrictions).toBe("Vegan, shellfish allergy");
+  });
+
   it("delegates to updatePersonFields with self as actor (audit row has actorPersonId === personId)", async () => {
     const person = await createPerson({ name: "Bob" });
 

@@ -57,11 +57,17 @@ describe("readBrandingAsset", () => {
 });
 
 describe("removeBrandingAsset", () => {
-  it("deletes the object and resets the descriptor to default", async () => {
-    await saveBrandingAsset("logo", png(), null);
+  it("deletes the object, clears contentType, and keeps the version counter monotonic", async () => {
+    await saveBrandingAsset("logo", png(), null); // version 1
     _resetSettingsCache();
     await removeBrandingAsset("logo", null);
-    expect(await getSetting("branding.logo")).toEqual({ contentType: "", version: 0 });
+    // contentType cleared (route serves the default) but version advances, not resets.
+    expect(await getSetting("branding.logo")).toEqual({ contentType: "", version: 2 });
     expect(await getObject("branding/logo")).toBeNull();
+
+    // A re-upload keeps advancing, so the cache-busting ?v= never repeats a value.
+    _resetSettingsCache();
+    await saveBrandingAsset("logo", png(), null);
+    expect(await getSetting("branding.logo")).toMatchObject({ version: 3 });
   });
 });

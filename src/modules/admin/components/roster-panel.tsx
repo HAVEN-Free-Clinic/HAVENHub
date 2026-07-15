@@ -111,6 +111,18 @@ export async function RosterPanel({
   // Build a lookup: deptId -> roster group
   const rosterByDept = new Map(rosterGroups.map((g) => [g.department.id, g]));
 
+  // Cards to render: every active department PLUS any INACTIVE department that
+  // still has active members this term. Otherwise deactivating a department hides
+  // its remaining members from the roster with no way to remove/move them here.
+  const activeIds = new Set(allActiveDepts.map((d) => d.id));
+  const displayDepts = [
+    ...allActiveDepts.map((d) => ({ id: d.id, code: d.code, name: d.name, isActive: true })),
+    ...rosterGroups
+      .map((g) => g.department)
+      .filter((d) => !activeIds.has(d.id))
+      .map((d) => ({ id: d.id, code: d.code, name: d.name, isActive: false })),
+  ].sort((a, b) => a.code.localeCompare(b.code));
+
   // Build membership id lookup: "${personId}:${deptId}:${kind}" -> membershipId
   const membershipIdMap = new Map<string, string>();
   for (const m of allMembershipsWithIds) {
@@ -348,7 +360,7 @@ export async function RosterPanel({
 
       {/* Department cards */}
       <div className="space-y-6">
-        {allActiveDepts.map((dept) => {
+        {displayDepts.map((dept) => {
           const group = rosterByDept.get(dept.id);
           const directors = group?.directors ?? [];
           const volunteers = group?.volunteers ?? [];
@@ -361,6 +373,7 @@ export async function RosterPanel({
             >
               <h3 className="mb-4 text-sm font-semibold text-foreground-soft">
                 {dept.code} · {dept.name}
+                {!dept.isActive && <span className="ml-2 text-xs font-normal text-subtle-foreground">(inactive: remaining members)</span>}
               </h3>
 
               {isEmpty ? (

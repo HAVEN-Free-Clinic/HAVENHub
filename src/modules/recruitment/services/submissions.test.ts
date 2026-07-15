@@ -191,7 +191,7 @@ it("deletes the superseded draft file blob when a new file replaces it on submit
   // file for the same field. The new blob wins, so the old one must be deleted
   // rather than left orphaned in storage.
   const { cycle } = await openVolunteerCycle();
-  const identity = { email: "ann@yale.edu", personId: null };
+  const identity = { email: "ann@yale.edu", personId: null, firstName: null };
   await saveDraft("apply-v", identity, { answers: {} });
   await uploadDraftFile("apply-v", identity, "resume", { fileName: "old.pdf", mimeType: "application/pdf", bytes: Buffer.from("old") });
   const draft = await getDraft("apply-v", identity);
@@ -297,7 +297,7 @@ it("rejects duplicate or unknown subcommittee IDs and over-count", async () => {
 
 it("finalizes an existing draft into a submission (no duplicate Applicant)", async () => {
   await openVolunteerCycle();
-  const ID = { email: "ann@yale.edu", personId: null };
+  const ID = { email: "ann@yale.edu", personId: null, firstName: null };
   await saveDraft("apply-v", ID, { answers: { first_name: "Ann", last_name: "Lee", email: "ann@yale.edu" } });
   const app = await submitApplication("apply-v", {
     applicantType: "NEW",
@@ -319,7 +319,7 @@ it("rejects submitting when the application is already SUBMITTED", async () => {
 
 it("two concurrent submits of the same draft flip it once and queue one confirmation email (audit3 L9)", async () => {
   await openVolunteerCycle();
-  const ID = { email: "race@yale.edu", personId: null };
+  const ID = { email: "race@yale.edu", personId: null, firstName: null };
   await saveDraft("apply-v", ID, { answers: { first_name: "Ray", last_name: "Sun", email: "race@yale.edu" } });
   const args = { applicantType: "NEW" as const, answers: { first_name: "Ray", last_name: "Sun", email: "race@yale.edu", "1st_choice_department": "MDIC" }, files: {} };
   // Fire two submits at once. The atomic status: "DRAFT" claim (mirroring
@@ -340,7 +340,7 @@ it("two concurrent submits of the same draft flip it once and queue one confirma
 
 it("drops the losing concurrent submit's freshly-uploaded blob instead of orphaning it (audit3 L9)", async () => {
   const { cycle } = await openVolunteerCycle();
-  const ID = { email: "racef@yale.edu", personId: null };
+  const ID = { email: "racef@yale.edu", personId: null, firstName: null };
   await saveDraft("apply-v", ID, { answers: { first_name: "Ray", last_name: "Sun", email: "racef@yale.edu" } });
   const mkArgs = () => ({
     applicantType: "NEW" as const,
@@ -467,7 +467,7 @@ it("persists a file uploaded under a visible FILE field's key (control)", async 
 
 it("cleans up a draft-uploaded file's blob when its FILE field becomes condition-hidden before submit", async () => {
   const { cycle, gateKey, proofKey } = await openCycleWithConditionalFileField();
-  const identity = { email: "orphan@yale.edu", personId: null };
+  const identity = { email: "orphan@yale.edu", personId: null, firstName: null };
   // Draft while the gate says "yes" (the proof field is visible) and upload a
   // file to it, the way an applicant would mid-form before backtracking.
   await saveDraft("apply-condfile", identity, {

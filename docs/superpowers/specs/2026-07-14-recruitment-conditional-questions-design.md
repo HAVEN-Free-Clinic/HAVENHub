@@ -1,8 +1,8 @@
-# Recruitment conditional questions + onboarding prefill — design
+# Recruitment forms: conditional questions, open-cycle editability, onboarding prefill, e2e fixes — design
 
 - **Date:** 2026-07-14
 - **Status:** Draft (awaiting review)
-- **Branch:** feat/recruitment-conditional-questions (stacked on feat/recruitment-default-form-templates / PR #293)
+- **Branch:** folded into `feat/recruitment-default-form-templates` (PR #293) — one PR, not stacked
 - **Author:** Jack C (with Claude)
 
 ## Problem
@@ -33,10 +33,34 @@ Two related asks on the recruitment forms:
    `is` | `isNot` | `isAnyOf` | `isAnswered`.
 2. **Prefill** the duplicated onboarding fields from the application (keep the
    fields, auto-fill them) — not drop them.
-3. **Scope**: application + quiz forms only. The onboarding contract is a separate
-   block/layout system with its own bespoke conditionals (the EPIC block) and is
-   NOT getting data-driven conditions in this feature — the only onboarding change
-   is the prefill in decision 2.
+3. **Conditional-visibility scope**: application + quiz forms only. The onboarding
+   contract is a separate block/layout system with its own bespoke conditionals (the
+   EPIC block) and is NOT getting data-driven conditions in this feature — the only
+   onboarding change is the prefill in decision 2.
+4. **Open-cycle editability**: form edits (application, quiz, and the onboarding
+   contract layout) are allowed **even after a cycle is OPEN**, not just in DRAFT.
+   The current DRAFT-only structural guard is relaxed; instead the builder **warns the
+   editor about consequences** (a live cycle may already have submitted applications;
+   changes affect new submissions, and existing answers are kept as-is and may no
+   longer match the form). Only ARCHIVED stays fully locked. This supersedes the
+   earlier "condition edits are DRAFT-only" note.
+5. **One PR**: this work is folded into the existing `feat/recruitment-default-form-templates`
+   branch (PR #293) rather than a stacked PR — so #293 becomes a single "recruitment
+   forms" PR covering the default templates + conditional questions + open-cycle
+   editability + onboarding prefill + the e2e fixes below.
+
+## Also in scope: fix the e2e suite (broken by the default-template change)
+
+PR #293's default template already broke the `e2e` CI check (4 of ~116 specs fail;
+`recruitment.spec.ts:27`, `recruitment-review.spec.ts:44`, `recruitment-onboarding.spec.ts:45`,
+`recruitment-interviews.spec.ts:17`). Two root causes, both to fix here:
+- The template renamed the identity section **"Your information" → "Personal details"**,
+  so specs that locate the section by `h2` text "Your information" find nothing and
+  time out on "Add field".
+- The richer default form adds required steps (Yale affiliation, Spanish, department
+  choice, availability, contract acknowledgements) that the specs' wizard-walk does
+  not fill, so they never reach "Submit application". (The conditional feature reduces
+  some of these by hiding non-triggered questions, but the core required set remains.)
 
 ## Current state (grounding, from the engine map)
 
@@ -151,9 +175,9 @@ Plus `visibleFields<T extends {visibleWhen?: unknown}>(fields, answers): T[]` he
 - Persist through `updateField`/`addField` (`form-builder.ts`) and the builder actions
   (`updateFieldAction`, `addFieldAction`, `duplicateFieldAction` copies the condition),
   carrying `visibleWhen` alongside `options`/`validation`.
-- **Structural gating**: adding/removing/changing a condition changes what is
-  effectively required, so treat it as a structural edit — DRAFT-only, via the existing
-  `assertCycleEditable(cycleId, structural=true)` path used for type/required changes.
+- **Editability**: condition edits follow the general open-cycle editability rule
+  (Component 8) — allowed on any non-ARCHIVED cycle, with the builder's live-cycle
+  warning — rather than being DRAFT-only.
 - Builder only offers **already-defined** fields as controllers (any field in the
   cycle); a soft warning if a condition references a field ordered *after* this one
   (forward reference works at eval time but is confusing) — non-blocking.
@@ -184,6 +208,44 @@ originals (and show fewer questions):
   uses different keys (custom form), those prefills simply no-op (fall back to blank) —
   no error.
 
+### Component 8 — Open-cycle form editability + warnings
+
+- **Relax `assertCycleEditable`** (`services/form-builder.ts`): today it throws for
+  `structural` edits when `cycle.status !== "DRAFT"`. Change it to block only when
+  `status === "ARCHIVED"`, so field add/remove, type/required/options/condition/section
+  changes are permitted on DRAFT, OPEN, and CLOSED cycles. Apply the same relaxation to
+  the quiz builder and the onboarding-contract layout save (`contract/template.ts` /
+  the builder actions) so all three form types are editable post-open.
+- **Editor warning** — the three builders (application `builder/page.tsx`, quiz
+  `builder/quiz/`, contract `builder/contract/`) render a prominent warning banner when
+  the cycle is not DRAFT: e.g. "This cycle is OPEN. Applicants may have already
+  submitted. Changes take effect for new submissions immediately; existing answers are
+  kept as-is and may no longer match the updated form." The banner is informational
+  (does not block).
+- **Consequences are display/consistency, not data loss**: `Application.answers` is a
+  stored JSON blob captured at submit time; changing or deleting a field later does not
+  rewrite past answers. The only real effect is (a) new submissions use the new form and
+  (b) a review screen may show an answer keyed to a field that no longer exists or
+  changed type. The review/answer-rendering path should already tolerate keys with no
+  matching field (verify; if it throws on an orphaned key, harden it to render the raw
+  value under its key rather than crash).
+
+### Component 9 — Fix the e2e suite
+
+Update the 4 failing specs (and any shared apply/build helper) for the new default form:
+- Replace the brittle `h2:"Your information"` section locator with the new title
+  **"Personal details"** (or a more robust locator, e.g. the section containing the
+  first-name field), in `recruitment.spec.ts` and anywhere else it appears.
+- Extend the apply-flow walk to fill the now-required steps the default template adds:
+  Yale affiliation, Spanish proficiency, the department-choice field, availability, and
+  the contract acknowledgement/initials fields — advancing "Continue" through each
+  visible section until "Submit application" appears on Review. Prefer a shared helper
+  (`fillDefaultApplication(page, {...})`) reused by `recruitment.spec.ts`,
+  `recruitment-review.spec.ts`, `recruitment-onboarding.spec.ts`,
+  `recruitment-interviews.spec.ts` so the flow lives in one place.
+- Keep each spec's original intent (build/publish/apply/decide/onboard); only the
+  form-filling and section-locator details change. Target: `e2e` CI check green.
+
 ## Error handling / edge cases
 
 - Malformed `visibleWhen` → treated as always-visible (safe parser), never throws.
@@ -206,12 +268,17 @@ originals (and show fewer questions):
   value doesn't get stored as a required answer.
 - **Wizard** — dependent field mounts/unmounts as the controlling answer changes and
   is absent from `collectValues()` when hidden; `missingRequiredKeys` skips hidden.
-- **Builder** — setting/clearing a condition persists `visibleWhen`; condition edits
-  are blocked on a non-DRAFT cycle.
+- **Builder** — setting/clearing a condition persists `visibleWhen`.
+- **Editability** — a structural edit (add field / change required / set a condition)
+  SUCCEEDS on an OPEN cycle and is blocked only on ARCHIVED; the review/answer-render
+  path tolerates an answer keyed to a deleted/changed field without crashing.
 - **Prefill** — a contract created from an application whose answers include
   affiliation/grad-year/Spanish arrives with those columns populated; missing keys
   no-op.
-- Run under the repo's per-worktree throwaway test DB (never the shared drifted one).
+- **E2E** — the 4 previously-failing specs pass (shared apply helper fills the default
+  form); the `e2e` CI check goes green.
+- Run unit/integration under the repo's per-worktree throwaway test DB (never the
+  shared drifted one).
 
 ## Out of scope (YAGNI)
 
@@ -240,6 +307,10 @@ originals (and show fewer questions):
 - `src/app/apply/[slug]/wizard-validation.ts` — skip hidden in `missingRequiredKeys`
 - `src/app/apply/[slug]/wizard-steps.ts` — (if field-level filtering lands here)
 - `src/app/(app)/recruitment/cycles/[id]/builder/field-card.tsx` — "Show only when" control
-- `src/app/(app)/recruitment/cycles/[id]/builder/actions.ts` + `src/modules/recruitment/services/form-builder.ts` — carry `visibleWhen`
+- `src/app/(app)/recruitment/cycles/[id]/builder/actions.ts` + `src/modules/recruitment/services/form-builder.ts` — carry `visibleWhen`; relax `assertCycleEditable` to allow structural edits on non-ARCHIVED cycles
 - `src/modules/recruitment/templates/types.ts` + `field-groups.ts` + `materialize.ts` — optional `visibleWhen` on template fields, materialized through
 - `src/modules/recruitment/services/onboarding.ts` + `src/app/onboard/[token]/page.tsx` + `contract-field.tsx` — application → contract prefill
+- `src/app/(app)/recruitment/cycles/[id]/builder/page.tsx` + `builder/quiz/*` + `builder/contract/*` — live-cycle "changes affect new submissions" warning banner
+- `src/modules/recruitment/contract/template.ts` — allow contract-layout edits on non-ARCHIVED cycles
+- recruitment answer/review render path — tolerate an answer keyed to a deleted/changed field (harden if it throws)
+- `e2e/recruitment.spec.ts`, `recruitment-review.spec.ts`, `recruitment-onboarding.spec.ts`, `recruitment-interviews.spec.ts` (+ a shared `fillDefaultApplication` helper in `e2e/fixtures.ts`) — update section locator + apply-flow for the default form

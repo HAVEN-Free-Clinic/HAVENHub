@@ -24,10 +24,11 @@ export type BuilderSection = {
 };
 
 export function SectionCard({
-  cycleId, section, departments, subcommittees, editable, handle, onChanged,
+  cycleId, section, allFields, departments, subcommittees, editable, handle, onChanged,
 }: {
   cycleId: string;
   section: BuilderSection;
+  allFields: BuilderField[];
   departments: string[];
   subcommittees: { id: string; name: string }[];
   editable: boolean;
@@ -97,7 +98,7 @@ export function SectionCard({
         {reorderError && <Alert tone="error">{reorderError}</Alert>}
         <SortableList items={section.fields} onReorder={reorder} disabled={!editable} renderItem={(field, fhandle) => (
           <div className="py-1">
-            <FieldCard cycleId={cycleId} field={field} departments={departments} subcommittees={subcommittees} editable={editable} handle={fhandle} onChanged={onChanged} />
+            <FieldCard cycleId={cycleId} field={field} siblingFields={allFields} departments={departments} subcommittees={subcommittees} editable={editable} handle={fhandle} onChanged={onChanged} />
           </div>
         )} />
         {section.fields.length === 0 && <p className="py-2 text-sm text-subtle-foreground">No fields yet.</p>}

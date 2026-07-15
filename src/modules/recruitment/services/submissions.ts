@@ -252,10 +252,17 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
   if (rankField) delete (answersWithFiles as Record<string, unknown>)[rankField.key];
   // Strip any condition-hidden field's stale answer (e.g. the applicant answered
   // it, then flipped the gate that hides it) so persisted answers only ever
-  // reflect what was actually visible at submission time.
+  // reflect what was actually visible at submission time. A stripped FILE field
+  // can carry an existing DRAFT-uploaded blob under this same key (uploaded back
+  // when the field was still visible); without deleting that blob too, its
+  // answer key is gone from `answers` but the file lingers orphaned in storage.
+  const orphanedDraftFileKeys: string[] = [];
   for (const field of visibleFields) {
     if (!isFieldVisible(field.visibleWhen, ctx.answers)) {
       delete (answersWithFiles as Record<string, unknown>)[field.key];
+      if (field.type === "FILE" && draftFileKeys.includes(field.key)) {
+        orphanedDraftFileKeys.push(`recruitment/${cycle.id}/${(draftAnswers[field.key] as { storedName: string }).storedName}`);
+      }
     }
   }
 
@@ -326,6 +333,10 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
     .filter((k) => draftFileKeys.includes(k))
     .map((k) => `recruitment/${cycle.id}/${(draftAnswers[k] as { storedName: string }).storedName}`);
   if (supersededKeys.length > 0) await cleanupFiles(supersededKeys);
+  // Same idea for a FILE field's draft blob orphaned by a visibility condition
+  // (see the strip loop above): now that the submission has committed, it's
+  // safe to delete.
+  if (orphanedDraftFileKeys.length > 0) await cleanupFiles(orphanedDraftFileKeys);
 
   await recordAudit({ action: "recruitment.application_submit", entityType: "Application", entityId: application.id });
   return application;

@@ -446,6 +446,31 @@ it("persists a file uploaded under a visible FILE field's key (control)", async 
   expect(await getObject(`recruitment/${cycle.id}/${stored.storedName}`)).not.toBeNull();
 });
 
+it("cleans up a draft-uploaded file's blob when its FILE field becomes condition-hidden before submit", async () => {
+  const { cycle, gateKey, proofKey } = await openCycleWithConditionalFileField();
+  const identity = { email: "orphan@yale.edu", personId: null };
+  // Draft while the gate says "yes" (the proof field is visible) and upload a
+  // file to it, the way an applicant would mid-form before backtracking.
+  await saveDraft("apply-condfile", identity, {
+    answers: { first_name: "Or", last_name: "Fan", email: "orphan@yale.edu", "1st_choice_department": "SRHD", [gateKey]: "yes" },
+  });
+  await uploadDraftFile("apply-condfile", identity, proofKey, { fileName: "cert.pdf", mimeType: "application/pdf", bytes: Buffer.from("cert") });
+  const draft = await getDraft("apply-condfile", identity);
+  const storedName = (draft!.answers as Record<string, { storedName: string }>)[proofKey].storedName;
+  expect(await getObject(`recruitment/${cycle.id}/${storedName}`)).not.toBeNull();
+
+  // Flip the gate to "no" before submitting, hiding the proof field. The strip
+  // loop removes its answer key; the earlier draft blob must not be left behind.
+  const app = await submitApplication("apply-condfile", {
+    applicantType: "NEW",
+    answers: { first_name: "Or", last_name: "Fan", email: "orphan@yale.edu", "1st_choice_department": "SRHD", [gateKey]: "no" },
+    files: {},
+  });
+  expect(app.status).toBe("SUBMITTED");
+  expect(Object.keys(app.answers as object)).not.toContain(proofKey);
+  expect(await getObject(`recruitment/${cycle.id}/${storedName}`)).toBeNull();
+});
+
 async function makeVolunteer(deptCode: string) {
   const person = await prisma.person.create({ data: { name: "Reed Renew", contactEmail: "reed-old@yale.edu", status: "ACTIVE" } });
   const term = await prisma.term.create({ data: { code: "SP26", name: "Spring 2026", startDate: new Date("2026-01-01"), endDate: new Date("2026-05-01") } });

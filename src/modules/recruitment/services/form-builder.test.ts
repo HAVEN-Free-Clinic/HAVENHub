@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import { createCycle, publishCycle } from "./cycles";
@@ -87,4 +87,58 @@ it("still blocks adding a required APPLICATION field on an OPEN cycle", async ()
   const cycle = await prisma.recruitmentCycle.create({ data: { track: "VOLUNTEER", termId: term.id, title: "C", publicSlug: "c-open-app", departments: [], createdById: srr.id, status: "OPEN" } });
   const sec = await addSection(cycle.id, { title: "More", appliesTo: "BOTH", departmentCode: null });
   await expect(addField(sec.id, { label: "Extra", type: "SHORT_TEXT", required: true })).rejects.toBeInstanceOf(FormEditError);
+});
+
+describe("visibleWhen persistence", () => {
+  async function withGateAndDetail() {
+    const { person, cycle } = await draftCycle();
+    const section = await addSection(cycle.id, { title: "Info", appliesTo: "BOTH", departmentCode: null });
+    const gate = await addField(section.id, {
+      label: "Do you speak other languages?", type: "SINGLE_SELECT", required: false,
+      options: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }],
+    });
+    const detail = await addField(section.id, { label: "Which languages?", type: "SHORT_TEXT", required: false });
+    return { person, cycle, gate, detail };
+  }
+
+  it("persists a valid visibleWhen condition", async () => {
+    const { gate, detail } = await withGateAndDetail();
+    const updated = await updateField(detail.id, { visibleWhen: { field: gate.key, op: "is", value: "yes" } });
+    expect(updated.visibleWhen).toEqual({ field: gate.key, op: "is", value: "yes" });
+  });
+
+  it("clears visibleWhen when set to null", async () => {
+    const { gate, detail } = await withGateAndDetail();
+    await updateField(detail.id, { visibleWhen: { field: gate.key, op: "is", value: "yes" } });
+    const cleared = await updateField(detail.id, { visibleWhen: null });
+    expect(cleared.visibleWhen).toBeNull();
+  });
+
+  it("rejects an invalid visibleWhen condition without persisting it", async () => {
+    const { detail } = await withGateAndDetail();
+    await expect(updateField(detail.id, { visibleWhen: { op: "bogus" } })).rejects.toBeInstanceOf(FormEditError);
+    const reloaded = await prisma.formField.findUniqueOrThrow({ where: { id: detail.id } });
+    expect(reloaded.visibleWhen).toBeNull();
+  });
+
+  it("duplicateFieldAction-style copy carries visibleWhen through addField", async () => {
+    const { gate, detail } = await withGateAndDetail();
+    await updateField(detail.id, { visibleWhen: { field: gate.key, op: "is", value: "yes" } });
+    const source = await prisma.formField.findUniqueOrThrow({ where: { id: detail.id } });
+    const copy = await addField(source.sectionId, {
+      label: `${source.label} (copy)`, type: source.type, required: source.required,
+      helpText: source.helpText ?? undefined, options: source.options ?? undefined,
+      validation: source.validation ?? undefined, correctValue: source.correctValue,
+      visibleWhen: source.visibleWhen ?? undefined,
+    });
+    expect(copy.visibleWhen).toEqual({ field: gate.key, op: "is", value: "yes" });
+  });
+
+  it("marks a visibleWhen change as structural (blocked once published, like a required-ness change)", async () => {
+    const { person, cycle, gate, detail } = await withGateAndDetail();
+    await publishCycle(cycle.id, person.id);
+    await expect(
+      updateField(detail.id, { visibleWhen: { field: gate.key, op: "is", value: "yes" } })
+    ).rejects.toBeInstanceOf(FormEditError);
+  });
 });

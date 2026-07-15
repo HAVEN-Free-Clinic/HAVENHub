@@ -102,6 +102,7 @@ Worked examples (become test cases):
 
 - `[4.5,4.5,4.0,3.5,3.0,3.0,2.5,2.0,2.0,2.0]`, top 20 / bottom 30 (N=10, topCount 2, bottomCount 3): top = the two 4.5s; boundaryVal = 2.0, aboveVal = 2.5 (clean), bottom = the three 2.0s; middle = the middle five.
 - `[3,3,3,3,3,1]`, top 20 / bottom 30 (N=6, topCount 1, bottomCount 2): topThreshold = 3 so top grows to all five 3s; boundaryVal = 3, aboveVal = 3 (straddle) so bottom = `{ avg < 3 }` = just the 1; middle empty.
+- `[5,4,3,2,2,2]`, top 20 / bottom 30 (N=6, bottomCount 2): the bottom cut lands inside the 2.0 tie, which reaches the minimum, so the whole tie is spared into the middle and bottom is empty. A straddling tie is always spared in the applicant's favor, even when it is the lowest group, so with clustered integer scores the bottom tier can come up empty and the board shows the real count.
 - All-equal `[3,3,3,3]`: top grows to all four; bottom empty; nobody rejected on a total tie.
 - Small N `[5,1]`, top 50 / bottom 50: topCount 1, bottomCount clamped to 1; top = the 5, bottom = the 1, middle empty.
 - Unscored mixed in: `average == null` rows go to `unscored` and never affect N or the cuts.

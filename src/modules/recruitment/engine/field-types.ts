@@ -1,10 +1,10 @@
 import type { FieldType } from "@prisma/client";
 import {
   Type, AlignLeft, ChevronDownSquare, ListChecks, CheckSquare,
-  Mail, Phone, Hash, Calendar, Paperclip, Building2, ListOrdered, type LucideIcon,
+  Mail, Phone, Hash, Calendar, Paperclip, Building2, ListOrdered, PenLine, type LucideIcon,
 } from "lucide-react";
 
-export type FieldGroup = "Text" | "Choice" | "Contact" | "DateNumber" | "File" | "Department" | "Subcommittee";
+export type FieldGroup = "Text" | "Choice" | "Contact" | "DateNumber" | "File" | "Department" | "Subcommittee" | "Signature";
 
 export type FieldTypeMeta = {
   label: string;
@@ -27,9 +27,21 @@ export const FIELD_TYPE_META: Record<FieldType, FieldTypeMeta> = {
   FILE: { label: "File upload", icon: Paperclip, group: "File", hasOptions: false, isFile: true },
   DEPARTMENT_CHOICE: { label: "Department picker", icon: Building2, group: "Department", hasOptions: false, isFile: false },
   SUBCOMMITTEE_RANK: { label: "Subcommittee ranking", icon: ListOrdered, group: "Subcommittee", hasOptions: false, isFile: false },
+  SIGNATURE: { label: "Signature (drawn)", icon: PenLine, group: "Signature", hasOptions: false, isFile: false },
 };
 
-export const FIELD_GROUP_ORDER: FieldGroup[] = ["Text", "Choice", "Contact", "DateNumber", "File", "Department", "Subcommittee"];
+export const FIELD_GROUP_ORDER: FieldGroup[] = ["Text", "Choice", "Contact", "DateNumber", "File", "Department", "Subcommittee", "Signature"];
+
+export const FIELD_GROUP_LABELS: Record<FieldGroup, string> = {
+  Text: "Text",
+  Choice: "Choice",
+  Contact: "Contact",
+  DateNumber: "Date & number",
+  File: "File",
+  Department: "Department",
+  Subcommittee: "Subcommittee",
+  Signature: "Signature",
+};
 
 export function fieldTypesByGroup(): { group: FieldGroup; types: FieldType[] }[] {
   return FIELD_GROUP_ORDER.map((group) => ({

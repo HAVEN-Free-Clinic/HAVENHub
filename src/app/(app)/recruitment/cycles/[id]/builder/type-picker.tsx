@@ -3,12 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { Plus } from "lucide-react";
 import type { FieldType } from "@prisma/client";
 import { Button } from "@/platform/ui/button";
-import { fieldTypesByGroup, FIELD_TYPE_META } from "@/modules/recruitment/engine/field-types";
-
-const GROUP_LABELS: Record<string, string> = {
-  Text: "Text", Choice: "Choice", Contact: "Contact",
-  DateNumber: "Date & number", File: "File", Department: "Department",
-};
+import { fieldTypesByGroup, FIELD_TYPE_META, FIELD_GROUP_LABELS } from "@/modules/recruitment/engine/field-types";
 
 function renderMenuItem(t: FieldType, onPick: (type: FieldType) => void, setOpen: (v: boolean) => void) {
   const meta = FIELD_TYPE_META[t];
@@ -52,7 +47,7 @@ export function TypePicker({
           ) : (
             fieldTypesByGroup().map(({ group, types: groupTypes }) => (
               <div key={group} className="mb-1">
-                <p className="px-2 pb-1 pt-2 text-xs font-semibold uppercase tracking-wider text-subtle-foreground">{GROUP_LABELS[group]}</p>
+                <p className="px-2 pb-1 pt-2 text-xs font-semibold uppercase tracking-wider text-subtle-foreground">{FIELD_GROUP_LABELS[group]}</p>
                 {groupTypes.map((t) => renderMenuItem(t, onPick, setOpen))}
               </div>
             ))

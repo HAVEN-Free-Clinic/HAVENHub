@@ -36,8 +36,15 @@ export async function createCycleAction(formData: FormData) {
   } catch (err) {
     // publicSlug is unique. A colliding slug throws P2002; surface the same
     // friendly reserved-word flow instead of the generic error page (audit3 L2).
+    // Only claim a slug collision when the failing constraint is actually
+    // publicSlug -- any other unique violation (e.g. a duplicate template field
+    // key) must not be mislabeled as "public link already taken".
     if (isUniqueConstraintError(err)) {
-      redirect(`/recruitment/cycles/new?error=${encodeURIComponent(`"${slug}" is already taken as a public link. Choose a different one.`)}`);
+      const target = String(err.meta?.target ?? "");
+      if (!target || target.includes("publicSlug")) {
+        redirect(`/recruitment/cycles/new?error=${encodeURIComponent(`"${slug}" is already taken as a public link. Choose a different one.`)}`);
+      }
+      redirect(`/recruitment/cycles/new?error=${encodeURIComponent("Could not create the cycle. Please review the departments and try again.")}`);
     }
     throw err;
   }

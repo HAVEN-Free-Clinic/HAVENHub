@@ -7,6 +7,7 @@ import { getApplicationTemplate } from "../templates";
 import { getQuizTemplate } from "../templates/quiz";
 import { materializeTemplate } from "../templates/materialize";
 import { termSaturdays } from "../templates/term-dates";
+import { normalizeDeptCode } from "../templates/application/supplements/dept-codes";
 
 export class CyclePublishError extends Error {
   constructor(message: string) {
@@ -38,12 +39,18 @@ export type CreateCycleInput = {
  *  DEPARTMENT_CHOICE field (publish throws) and duplicate identity keys. Only
  *  the real create-cycle UI action opts in. */
 export async function createCycle(input: CreateCycleInput, seedDefaultForm = false): Promise<RecruitmentCycle> {
+  // Canonicalize + de-duplicate departments. Free-text entry (and Airtable aliases
+  // like "SR&R" -> "SRR", or "srhd" -> "SRHD") can list the same department twice,
+  // which would emit two identical supplement sections whose per-department
+  // FormField keys collide -- a P2002 that aborts the seed transaction and used to
+  // surface as a misleading "public link already taken" error.
+  const departments = [...new Set(input.departments.map(normalizeDeptCode))];
   let templateSections: TemplateSection[] | null = null;
   if (seedDefaultForm) {
     const term = await prisma.term.findUniqueOrThrow({ where: { id: input.termId }, select: { startDate: true, endDate: true } });
     const dates = termSaturdays(term.startDate, term.endDate);
     templateSections = [
-      ...getApplicationTemplate(input.track, input.departments, dates),
+      ...getApplicationTemplate(input.track, departments, dates),
       ...getQuizTemplate(input.track),
     ];
   }
@@ -53,7 +60,7 @@ export async function createCycle(input: CreateCycleInput, seedDefaultForm = fal
       const created = await tx.recruitmentCycle.create({
         data: {
           track: input.track, termId: input.termId, title: input.title, publicSlug: input.publicSlug,
-          departments: input.departments, acceptsRenewals: input.acceptsRenewals, createdById: input.createdById,
+          departments, acceptsRenewals: input.acceptsRenewals, createdById: input.createdById,
         },
       });
       await materializeTemplate(tx, created.id, templateSections);
@@ -66,7 +73,7 @@ export async function createCycle(input: CreateCycleInput, seedDefaultForm = fal
         termId: input.termId,
         title: input.title,
         publicSlug: input.publicSlug,
-        departments: input.departments,
+        departments,
         acceptsRenewals: input.acceptsRenewals,
         createdById: input.createdById,
         sections: { create: { title: "Your information", order: 0, appliesTo: "BOTH" } },

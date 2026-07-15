@@ -60,14 +60,14 @@ it("returns currentDepartments from the most-recent term only when memberships s
 it("resolveRenewalPrefill splits name, locks email by type, maps phone/netid, skips off-convention keys", async () => {
   const ctx = { personId: "p1", name: "Mary Jane Watson", email: "mjw@yale.edu", netId: "mjw1", phone: "555", currentDepartments: ["SRHD"], eligible: true };
   const { values, lockedKeys } = resolveRenewalPrefill(
-    [{ key: "first_name", type: "SHORT_TEXT" }, { key: "last_name", type: "SHORT_TEXT" }, { key: "email", type: "EMAIL" }, { key: "phone", type: "PHONE" }, { key: "netid", type: "SHORT_TEXT" }, { key: "favorite_color", type: "SHORT_TEXT" }],
+    [{ key: "first_name", type: "SHORT_TEXT" }, { key: "last_name", type: "SHORT_TEXT" }, { key: "email", type: "EMAIL" }, { key: "phone", type: "PHONE" }, { key: "net_id", type: "SHORT_TEXT" }, { key: "favorite_color", type: "SHORT_TEXT" }],
     ctx,
   );
   expect(values.first_name).toBe("Mary");
   expect(values.last_name).toBe("Jane Watson");
   expect(values.email).toBe("mjw@yale.edu");
   expect(values.phone).toBe("555");
-  expect(values.netid).toBe("mjw1");
+  expect(values.net_id).toBe("mjw1");
   expect(values.favorite_color).toBeUndefined();
   expect(lockedKeys).toEqual(["email"]);
 });

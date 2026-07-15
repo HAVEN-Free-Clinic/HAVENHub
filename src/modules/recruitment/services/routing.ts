@@ -195,3 +195,56 @@ export async function reopenDecision(applicationId: string, actorId: string): Pr
   await recordAudit({ actorPersonId: actorId, action: "recruitment.application_reopen", entityType: "Application", entityId: applicationId, after: { decision: "PENDING" } });
   return updated;
 }
+
+export type BatchResult = { applied: number; skipped: { applicationId: string; reason: string }[] };
+
+/** Batch-route a set of applications (speed-route "apply top tier"). Reuses
+ *  routeApplication per row so guards never drift; a row that fails a guard is
+ *  skipped with its reason rather than aborting the batch. Permission is checked
+ *  once up front so a non-lead fails fast. */
+export async function applyTierRoutes(
+  entries: { applicationId: string; departmentCode: string }[],
+  actorId: string,
+): Promise<BatchResult> {
+  if (!(await can(actorId, "recruitment.review_all"))) {
+    throw new RecruitmentAuthError("You can't route applications.");
+  }
+  const skipped: { applicationId: string; reason: string }[] = [];
+  let applied = 0;
+  for (const e of entries) {
+    try {
+      await routeApplication(e.applicationId, e.departmentCode, actorId);
+      applied += 1;
+    } catch (err) {
+      if (err instanceof RoutingError || err instanceof AcceptanceError || err instanceof RecruitmentAuthError) {
+        skipped.push({ applicationId: e.applicationId, reason: err.message });
+      } else throw err;
+    }
+  }
+  return { applied, skipped };
+}
+
+/** Batch-reject a set of applications (speed-route "apply bottom tier"). Reuses
+ *  rejectApplication per row with the same skip-with-reason semantics. */
+export async function applyTierRejects(
+  applicationIds: string[],
+  actorId: string,
+  notes: string | null,
+): Promise<BatchResult> {
+  if (!(await can(actorId, "recruitment.review_all"))) {
+    throw new RecruitmentAuthError("You can't reject applications.");
+  }
+  const skipped: { applicationId: string; reason: string }[] = [];
+  let applied = 0;
+  for (const id of applicationIds) {
+    try {
+      await rejectApplication(id, actorId, notes);
+      applied += 1;
+    } catch (err) {
+      if (err instanceof RoutingError || err instanceof AcceptanceError || err instanceof RecruitmentAuthError) {
+        skipped.push({ applicationId: id, reason: err.message });
+      } else throw err;
+    }
+  }
+  return { applied, skipped };
+}

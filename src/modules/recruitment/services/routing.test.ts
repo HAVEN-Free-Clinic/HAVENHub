@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import { RecruitmentAuthError, AcceptanceError } from "./review";
-import { routeApplication, decideRoutedApplication, rejectApplication, reopenDecision, RoutingError } from "./routing";
+import { routeApplication, decideRoutedApplication, rejectApplication, reopenDecision, applyTierRoutes, applyTierRejects, RoutingError } from "./routing";
 
 async function seed() {
   const term = await prisma.term.create({ data: { code: "FA26", name: "Fall", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
@@ -213,5 +213,55 @@ describe("reopenDecision", () => {
   it("refuses to reopen an application that has no decision yet", async () => {
     const { lead, application } = await seed();
     await expect(reopenDecision(application.id, lead.id)).rejects.toBeInstanceOf(RoutingError);
+  });
+});
+
+describe("applyTierRoutes / applyTierRejects", () => {
+  async function twoApps(leadId: string, cycleId: string) {
+    const mk = async (n: string) => {
+      const applicant = await prisma.applicant.create({ data: { cycleId, firstName: n, lastName: "X", email: `${n}@y.edu`, emailLower: `${n}@y.edu` } });
+      return prisma.application.create({ data: { cycleId, applicantId: applicant.id, answers: {}, applicantType: "NEW", departmentChoices: ["EDUC"] } });
+    };
+    return { a: await mk("one"), b: await mk("two") };
+  }
+
+  it("routes every entry and reports the count", async () => {
+    const { lead, application } = await seed();
+    const { a, b } = await twoApps(lead.id, application.cycleId);
+    const res = await applyTierRoutes(
+      [{ applicationId: a.id, departmentCode: "EDUC" }, { applicationId: b.id, departmentCode: "MDIC" }],
+      lead.id,
+    );
+    expect(res.applied).toBe(2);
+    expect(res.skipped).toEqual([]);
+    expect((await prisma.application.findUniqueOrThrow({ where: { id: a.id } })).routedDepartmentCode).toBe("EDUC");
+    expect((await prisma.application.findUniqueOrThrow({ where: { id: b.id } })).routedDepartmentCode).toBe("MDIC");
+  });
+
+  it("skips a bad entry with a reason and still routes the rest", async () => {
+    const { lead, application } = await seed();
+    const { a, b } = await twoApps(lead.id, application.cycleId);
+    const res = await applyTierRoutes(
+      [{ applicationId: a.id, departmentCode: "EDUC" }, { applicationId: b.id, departmentCode: "NOPE" }],
+      lead.id,
+    );
+    expect(res.applied).toBe(1);
+    expect(res.skipped).toHaveLength(1);
+    expect(res.skipped[0].applicationId).toBe(b.id);
+  });
+
+  it("rejects a whole batch of applicants and reports the count", async () => {
+    const { lead, application } = await seed();
+    const { a, b } = await twoApps(lead.id, application.cycleId);
+    const res = await applyTierRejects([a.id, b.id], lead.id, null);
+    expect(res.applied).toBe(2);
+    expect((await prisma.application.findUniqueOrThrow({ where: { id: a.id } })).decision).toBe("REJECT");
+  });
+
+  it("fails fast for a non-lead (permission checked once)", async () => {
+    const { lead, other, application } = await seed();
+    const { a } = await twoApps(lead.id, application.cycleId);
+    await expect(applyTierRoutes([{ applicationId: a.id, departmentCode: "EDUC" }], other.id)).rejects.toBeInstanceOf(RecruitmentAuthError);
+    await expect(applyTierRejects([a.id], other.id, null)).rejects.toBeInstanceOf(RecruitmentAuthError);
   });
 });

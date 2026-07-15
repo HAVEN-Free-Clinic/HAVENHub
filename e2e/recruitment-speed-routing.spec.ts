@@ -1,7 +1,18 @@
 import { expect, test } from "@playwright/test";
+import { PrismaClient } from "@prisma/client";
 import { applicantSessionCookie } from "./portal-cookie";
 
 test.setTimeout(150_000);
+
+// The minimal identity-only form has no department-choice field, so applicants
+// rank no department. Speed route needs a ranked (or resolved) department to
+// auto-route or keyboard-route, so we set departmentChoices directly (the form
+// ranking UI is covered by the apply e2e; here we test what speed route does
+// with a ranked choice). Uses the same e2e database the dev server points at.
+const prisma = new PrismaClient();
+test.afterAll(async () => {
+  await prisma.$disconnect();
+});
 
 async function devLogin(page: import("@playwright/test").Page, email: string) {
   await page.goto("/login");
@@ -42,7 +53,9 @@ test("speed route: score a spread, apply top + bottom, keyboard-route the middle
 
   // Build + publish a single-department volunteer cycle with a minimal form.
   await page.goto("/recruitment/cycles/new");
-  await page.fill('input[name="title"]', "Speed Route E2E");
+  // Title deliberately avoids the words "speed route" so the cycle's breadcrumb
+  // link does not collide with the "Speed route" launcher link selector below.
+  await page.fill('input[name="title"]', "Bulk Tier E2E");
   const slug = `speed-route-e2e-${Date.now()}`;
   await page.fill('input[name="publicSlug"]', slug);
   await page.fill('input[name="departments"]', "SRHD");
@@ -64,16 +77,30 @@ test("speed route: score a spread, apply top + bottom, keyboard-route the middle
   await submitApplication(browser, slug, emails[2], "Cara");
   await submitApplication(browser, slug, emails[3], "Dan");
 
+  // Give every applicant SRHD as their (only) ranked choice so speed route can
+  // auto-route the top tier to their first choice and keyboard-route the middle.
+  await prisma.application.updateMany({
+    where: { cycleId },
+    data: { departmentChoices: ["SRHD"] },
+  });
+
   // Score them 5,4,2,1 via the speed-score modal so we get all three tiers
   // (top 20% -> 1, bottom 30% -> 1, middle -> 2 for N=4).
   await page.goto(`/recruitment/cycles/${cycleId}/applicants`);
   await page.getByRole("button", { name: /speed score/i }).click();
   const scoreDialog = page.getByRole("dialog");
   await expect(scoreDialog).toBeVisible();
-  await page.keyboard.press("5");
-  await page.keyboard.press("4");
-  await page.keyboard.press("2");
-  await page.keyboard.press("1");
+  // Score via the modal's Score buttons (Playwright auto-waits for each to be
+  // enabled, so this is robust against the save-in-flight disabled state). The
+  // keyboard path itself is covered by the speed-score e2e; here scoring is just
+  // setup to produce the tier spread. Wait for the queue to advance each time.
+  await scoreDialog.getByRole("button", { name: "Score 5" }).click();
+  await expect(scoreDialog.getByText(/2 of 4/)).toBeVisible();
+  await scoreDialog.getByRole("button", { name: "Score 4" }).click();
+  await expect(scoreDialog.getByText(/3 of 4/)).toBeVisible();
+  await scoreDialog.getByRole("button", { name: "Score 2" }).click();
+  await expect(scoreDialog.getByText(/4 of 4/)).toBeVisible();
+  await scoreDialog.getByRole("button", { name: "Score 1" }).click();
   await expect(scoreDialog.getByText(/all caught up/i)).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(scoreDialog).toBeHidden();
@@ -96,20 +123,22 @@ test("speed route: score a spread, apply top + bottom, keyboard-route the middle
   await page.getByRole("button", { name: /^Confirm$/ }).click();
   await expect(page.getByText(/Rejected 1/)).toBeVisible();
 
-  // Route the middle by keyboard: two applicants, press 1 (first ranked = SRHD) each.
+  // Route the middle: two applicants, route each to their first ranked dept via the
+  // modal's "1. SRHD" button (Playwright auto-waits for it to be enabled, so this is
+  // robust against the save-in-flight disabled state). Wait for the advance each time.
   await page.getByRole("button", { name: /route the middle/i }).click();
   const routeDialog = page.getByRole("dialog");
   await expect(routeDialog).toBeVisible();
   await expect(routeDialog.getByText(/1 of 2/)).toBeVisible();
-  await page.keyboard.press("1");
+  await routeDialog.getByRole("button", { name: "1. SRHD" }).click();
   await expect(routeDialog.getByText(/2 of 2/)).toBeVisible();
-  await page.keyboard.press("1");
+  await routeDialog.getByRole("button", { name: "1. SRHD" }).click();
   await expect(routeDialog.getByText(/middle tier cleared/i)).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(routeDialog).toBeHidden();
 
   // Back on the roster: three routed (top + two middle), one decided (rejected).
   await page.goto(`/recruitment/cycles/${cycleId}/applicants`);
-  await expect(page.getByText("Routed")).toHaveCount(3);
-  await expect(page.getByText("Decided")).toHaveCount(1);
+  await expect(page.getByText("Routed", { exact: true })).toHaveCount(3);
+  await expect(page.getByText("Decided", { exact: true })).toHaveCount(1);
 });

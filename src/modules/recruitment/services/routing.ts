@@ -180,9 +180,12 @@ export async function reopenDecision(applicationId: string, actorId: string): Pr
   }
   const app = await prisma.application.findUnique({
     where: { id: applicationId },
-    include: { cycle: { select: { decisionsReleasedAt: true } }, acceptances: { select: { emailedAt: true } } },
+    include: { cycle: { select: { decisionsReleasedAt: true, track: true } }, acceptances: { select: { emailedAt: true } } },
   });
   if (!app) throw new RoutingError("Application not found.");
+  if (app.status !== "SUBMITTED") throw new RoutingError("This application hasn't been submitted yet.");
+  if (app.cycle.track !== "VOLUNTEER") throw new RoutingError("Routing applies to volunteer cycles.");
+  if (app.decision === "PENDING") throw new RoutingError("This application has no decision to reopen.");
   if (app.cycle.decisionsReleasedAt) throw new AcceptanceError("Decisions were already released; reopening is blocked.");
   if (app.acceptances.some((a) => a.emailedAt != null)) throw new AcceptanceError("This applicant was already emailed; reopening is blocked.");
   const updated = await prisma.application.update({

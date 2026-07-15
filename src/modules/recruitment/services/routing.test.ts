@@ -209,4 +209,9 @@ describe("reopenDecision", () => {
     await prisma.recruitmentCycle.update({ where: { id: application.cycleId }, data: { decisionsReleasedAt: new Date() } });
     await expect(reopenDecision(application.id, lead.id)).rejects.toBeInstanceOf(AcceptanceError);
   });
+
+  it("refuses to reopen an application that has no decision yet", async () => {
+    const { lead, application } = await seed();
+    await expect(reopenDecision(application.id, lead.id)).rejects.toBeInstanceOf(RoutingError);
+  });
 });

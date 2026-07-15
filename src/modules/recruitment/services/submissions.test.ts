@@ -395,6 +395,57 @@ it("keeps a visible conditional field's answer in the persisted Application.answ
   expect((app.answers as Record<string, unknown>)[detailKey]).toBe("Spanish, French");
 });
 
+async function openCycleWithConditionalFileField() {
+  const person = await prisma.person.create({ data: { name: "Lead", status: "ACTIVE" } });
+  const term = await prisma.term.create({ data: { code: "FA26", name: "Fall 2026", startDate: new Date(), endDate: new Date() } });
+  const cycle = await createCycle({ track: "VOLUNTEER", termId: term.id, title: "V", publicSlug: "apply-condfile", departments: ["SRHD"], acceptsRenewals: false, createdById: person.id });
+  const idSection = (await prisma.formSection.findFirstOrThrow({ where: { cycleId: cycle.id }, orderBy: { order: "asc" } }));
+  await addField(idSection.id, { label: "1st choice department", type: "DEPARTMENT_CHOICE", required: true });
+  const gate = await addField(idSection.id, { label: "Do you have proof of certification?", type: "SINGLE_SELECT", required: false, options: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }] });
+  const proof = await addField(idSection.id, { label: "Upload proof", type: "FILE", required: false });
+  // form-builder.ts::addField does not yet accept visibleWhen (a later task), so this
+  // test writes the condition directly onto the created field, mirroring the sibling
+  // scalar conditional-field fixture above.
+  await prisma.formField.update({ where: { id: proof.id }, data: { visibleWhen: { field: gate.key, op: "is", value: "yes" } } });
+  await publishCycle(cycle.id, person.id);
+  return { person, cycle, gateKey: gate.key, proofKey: proof.key };
+}
+
+it("does not persist a file uploaded under a condition-hidden FILE field's key (no orphaned blob)", async () => {
+  const { cycle, gateKey, proofKey } = await openCycleWithConditionalFileField();
+  const app = await submitApplication("apply-condfile", {
+    applicantType: "NEW",
+    // The gate says "no", so the "proof" FILE field is hidden. DOM unmounting of
+    // hidden fields is a later task, so a hidden file input can still submit its
+    // FormData entry today -- the server must not persist it.
+    answers: { first_name: "Ann", last_name: "Lee", email: "ann@yale.edu", "1st_choice_department": "SRHD", [gateKey]: "no" },
+    files: { [proofKey]: { fileName: "cert.pdf", mimeType: "application/pdf", bytes: Buffer.from("cert") } },
+  });
+  expect(app.status).toBe("SUBMITTED");
+  expect(Object.keys(app.answers as object)).not.toContain(proofKey);
+  // No blob was ever written for this cycle: the hidden field's file must be
+  // dropped before persistFiles, not persisted-then-orphaned.
+  let entries: string[] = [];
+  try {
+    entries = await fs.readdir(path.join(config.UPLOAD_DIR, "recruitment", cycle.id));
+  } catch {
+    // dir may not exist yet -- fine, means nothing was ever written
+  }
+  expect(entries).toHaveLength(0);
+});
+
+it("persists a file uploaded under a visible FILE field's key (control)", async () => {
+  const { cycle, gateKey, proofKey } = await openCycleWithConditionalFileField();
+  const app = await submitApplication("apply-condfile", {
+    applicantType: "NEW",
+    answers: { first_name: "Bo", last_name: "Ng", email: "bo@yale.edu", "1st_choice_department": "SRHD", [gateKey]: "yes" },
+    files: { [proofKey]: { fileName: "cert.pdf", mimeType: "application/pdf", bytes: Buffer.from("cert") } },
+  });
+  const stored = (app.answers as Record<string, { storedName: string }>)[proofKey];
+  expect(stored).toBeTruthy();
+  expect(await getObject(`recruitment/${cycle.id}/${stored.storedName}`)).not.toBeNull();
+});
+
 async function makeVolunteer(deptCode: string) {
   const person = await prisma.person.create({ data: { name: "Reed Renew", contactEmail: "reed-old@yale.edu", status: "ACTIVE" } });
   const term = await prisma.term.create({ data: { code: "SP26", name: "Spring 2026", startDate: new Date("2026-01-01"), endDate: new Date("2026-05-01") } });

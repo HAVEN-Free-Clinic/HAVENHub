@@ -211,16 +211,28 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
   // Enforce upload rules: a file may only be uploaded under the key of a visible
   // FILE field. Rejecting unknown keys is also the primary defense against a
   // path-traversal write (the key is used to build the on-disk filename).
+  //
+  // A FILE field can itself be condition-hidden (`visibleWhen`), same as any other
+  // field. Its section being visible is not enough -- the field's own condition
+  // must also hold, or its file is dropped here (never handed to persistFiles, so
+  // no blob is ever written for it) instead of being rejected as "unknown field".
+  // This mirrors how a hidden scalar field's answer is silently excluded rather
+  // than treated as an error, and closes the orphaned-blob gap a hidden file
+  // input can otherwise open (DOM unmounting of hidden fields is a later task, so
+  // a hidden file input can still submit its FormData entry today).
   const visibleFields = visibleSections(sectionDefs, ctx).flatMap((s) => s.fields);
-  const allowedFileKeys = new Set(visibleFields.filter((f) => f.type === "FILE").map((f) => f.key));
+  const fileFields = visibleFields.filter((f) => f.type === "FILE");
   const maxMb = await getSetting<number>("uploads.maxMb");
+  const filesToPersist: Record<string, UploadedFile> = {};
   for (const [key, file] of Object.entries(input.files)) {
-    if (!allowedFileKeys.has(key)) {
+    const field = fileFields.find((f) => f.key === key);
+    if (!field) {
       throw new SubmissionValidationError("Unexpected file upload.", { [key]: "unknown field" });
     }
-    const field = visibleFields.find((f) => f.key === key);
-    const problem = validateUploadedFile(file, field?.validation, maxMb);
+    if (!isFieldVisible(field.visibleWhen, ctx.answers)) continue; // condition-hidden: silently skip, not persisted
+    const problem = validateUploadedFile(file, field.validation, maxMb);
     if (problem) throw new SubmissionValidationError(problem.message, { [key]: problem.detail });
+    filesToPersist[key] = file;
   }
 
   // Subcommittee ranking: hoisted into its own column like departmentChoices, and
@@ -234,7 +246,7 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
     subcommitteeRanking = resolveRanking(input.answers[rankField.key], rankField.required, rankCount, activeIds, rankField.key);
   }
 
-  const fileRefs = await persistFiles(cycle.id, input.files);
+  const fileRefs = await persistFiles(cycle.id, filesToPersist);
   const draftFileRefs = Object.fromEntries(draftFileKeys.map((k) => [k, draftAnswers[k]]));
   const answersWithFiles = { ...draftFileRefs, ...parsed.data, ...fileRefs.answerPatch };
   if (rankField) delete (answersWithFiles as Record<string, unknown>)[rankField.key];

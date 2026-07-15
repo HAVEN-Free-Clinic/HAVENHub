@@ -1,4 +1,5 @@
 import { getAccessToken, mailConnectionStatus } from "@/platform/email/oauth";
+import { log } from "@/platform/logging";
 import { getSetting } from "@/platform/settings/service";
 
 /** A single outbound Teams chat message. */
@@ -34,8 +35,8 @@ export interface TeamsTransport {
 /** Dev transport: logs instead of sending. Safe for CI and local dev. */
 export class LogTeamsTransport implements TeamsTransport {
   async send(message: TeamsOutboundMessage): Promise<TeamsSendResult> {
-    console.log(
-      `[teams] to=${message.recipientUserId} body=${message.bodyHtml.slice(0, 80)}`
+    log.info(
+      `[teams] to=${message.recipientUserId} body=${message.bodyHtml.slice(0, 80)}`,
     );
     return { chatId: message.chatId ?? "log-chat", logged: true };
   }
@@ -130,7 +131,7 @@ export async function resolveTeamsTransport(): Promise<TeamsTransport> {
   if (transport !== "graph") return new LogTeamsTransport();
   const status = await mailConnectionStatus();
   if (!status.connected || !status.account) {
-    console.warn("[teams] graph transport selected but no mailer account is connected; using log transport");
+    log.warn("[teams] graph transport selected but no mailer account is connected; using log transport");
     return new LogTeamsTransport();
   }
   return new GraphTeamsTransport({ getAccessToken, senderUpn: status.account });

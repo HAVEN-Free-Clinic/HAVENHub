@@ -23,6 +23,7 @@ import type { HipaaCertificate } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { recordAudit } from "@/platform/audit";
+import { log, errorAttrs } from "@/platform/logging";
 import { updatePersonFields } from "@/platform/people";
 import { getSetting } from "@/platform/settings/service";
 import { putObject } from "@/platform/storage";
@@ -305,7 +306,7 @@ export async function saveCertificate(
     try {
       await prisma.hipaaCertificate.delete({ where: { id: cert.id } });
     } catch (cleanupErr) {
-      console.error("[my-info] failed to clean up cert row after disk error", cert.id, cleanupErr);
+      log.error("[my-info] failed to clean up cert row after disk error", errorAttrs(cleanupErr, { certId: cert.id }));
     }
     throw err;
   }
@@ -334,7 +335,7 @@ export async function saveCertificate(
       });
       await notifyDatelessCertReview(prisma, { id: personId, name: owner?.name ?? "A volunteer" });
     } catch (err) {
-      console.error("[my-info] failed to notify compliance managers of dateless cert", cert.id, err);
+      log.error("[my-info] failed to notify compliance managers of dateless cert", errorAttrs(err, { certId: cert.id }));
     }
   } else if (parsedDate !== null && !alreadyPendingVerification) {
     try {
@@ -344,7 +345,7 @@ export async function saveCertificate(
       });
       await notifyCertNeedsVerification(prisma, { id: personId, name: owner?.name ?? "A volunteer" });
     } catch (err) {
-      console.error("[my-info] failed to notify compliance managers of cert awaiting verification", cert.id, err);
+      log.error("[my-info] failed to notify compliance managers of cert awaiting verification", errorAttrs(err, { certId: cert.id }));
     }
   }
 

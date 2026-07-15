@@ -7,6 +7,7 @@
 
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
+import { log, errorAttrs } from "@/platform/logging";
 import { putObject } from "@/platform/storage";
 import { ALL_PEOPLE_ATTACHMENT_FIELDS as AF } from "@/platform/airtable/fields";
 import type { AirtableReader } from "./importer";
@@ -159,10 +160,9 @@ export async function backfillCertificates(
       try {
         await prisma.hipaaCertificate.delete({ where: { id: cert.id } });
       } catch (cleanupErr) {
-        console.error(
+        log.error(
           "[backfill-certs] failed to clean up cert row after disk error",
-          cert.id,
-          cleanupErr
+          errorAttrs(cleanupErr, { certId: cert.id }),
         );
       }
       report.failures.push({

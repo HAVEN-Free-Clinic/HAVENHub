@@ -12,6 +12,7 @@
  */
 
 import { prisma } from "@/platform/db";
+import { log, errorAttrs } from "@/platform/logging";
 import { getAccessToken } from "@/platform/email/oauth";
 import { getSetting } from "@/platform/settings/service";
 
@@ -134,7 +135,7 @@ async function loadActiveTermClinicDates(): Promise<Date[] | null> {
 }
 
 function logChannelError(stage: string, err: unknown): void {
-  console.error(`[teams/channel-link] ${stage} failed:`, err);
+  log.error(`[teams/channel-link] ${stage} failed`, errorAttrs(err, { stage }));
 }
 
 /**

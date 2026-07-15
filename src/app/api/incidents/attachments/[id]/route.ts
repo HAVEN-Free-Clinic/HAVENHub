@@ -2,6 +2,7 @@ import { auth } from "@/platform/auth/auth";
 import { getActivePerson } from "@/platform/auth/match-person";
 import { prisma } from "@/platform/db";
 import { getObject } from "@/platform/storage";
+import { log } from "@/platform/logging";
 import { can } from "@/platform/rbac/engine";
 
 type RouteContext = {
@@ -79,12 +80,10 @@ export async function GET(
   // --- Read the file from storage (storedName comes only from the DB row) ---
   const buf = await getObject(attachment.storedName);
   if (!buf) {
-    console.error(
-      "[incidents/attachments] file missing in storage for attachment id",
-      attachment.id,
-      "stored name",
-      attachment.storedName
-    );
+    log.error("[incidents/attachments] file missing in storage", {
+      attachmentId: attachment.id,
+      storedName: attachment.storedName,
+    });
     return Response.json({ error: "Not found" }, { status: 404 });
   }
   // Copy into a standalone Uint8Array (a valid BodyInit) so the Response owns

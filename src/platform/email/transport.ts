@@ -1,6 +1,7 @@
 import { getAccessToken } from "./oauth";
 import { inlineEmailHtml } from "./render/inline";
 import { getSetting } from "@/platform/settings/service";
+import { log } from "@/platform/logging";
 
 /** A single outbound email message. */
 export type EmailMessage = {
@@ -29,7 +30,7 @@ export interface EmailTransport {
 export class LogTransport implements EmailTransport {
   async send(message: EmailMessage): Promise<void> {
     const from = message.from ?? "(default sender)";
-    console.log(`[email] from=${from} to=${message.to} subject=${message.subject}`);
+    log.info(`[email] from=${from} to=${message.to} subject=${message.subject}`);
   }
 }
 
@@ -119,8 +120,8 @@ export async function resolveEmailTransport(): Promise<EmailTransport> {
     // back to the log transport (with a warning) rather than build a malformed
     // Graph request that fails opaquely at send time.
     if (!sender) {
-      console.warn(
-        "[email] transport is graph but no sender is configured; falling back to log transport"
+      log.warn(
+        "[email] transport is graph but no sender is configured; falling back to log transport",
       );
       return new LogTransport();
     }

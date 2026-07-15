@@ -1,6 +1,7 @@
 import { auth } from "@/platform/auth/auth";
 import { getActivePerson } from "@/platform/auth/match-person";
 import { getObject } from "@/platform/storage";
+import { log } from "@/platform/logging";
 import { getApplication } from "@/modules/recruitment/services/submissions";
 import { reviewScope, canViewApplication } from "@/modules/recruitment/services/review";
 import { can } from "@/platform/rbac/engine";
@@ -70,14 +71,11 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
 
   const buf = await getObject(`recruitment/${app.cycleId}/${file.storedName}`);
   if (!buf) {
-    console.error(
-      "[recruitment/files] file missing in storage for application",
+    log.error("[recruitment/files] file missing in storage", {
       applicationId,
-      "key",
       key,
-      "stored name",
-      file.storedName,
-    );
+      storedName: file.storedName,
+    });
     return Response.json({ error: "Not found" }, { status: 404 });
   }
   // Copy into a standalone Uint8Array (a valid BodyInit) so the Response owns

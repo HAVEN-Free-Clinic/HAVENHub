@@ -29,6 +29,7 @@
 
 import { prisma } from "@/platform/db";
 import { getSetting } from "@/platform/settings/service";
+import { log } from "@/platform/logging";
 import { complianceStatus, certExpiresAt } from "@/platform/compliance/rules";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { notify } from "@/platform/notifications/notify";
@@ -199,8 +200,9 @@ export async function runComplianceReminders(
     //    sendEscalations reaches directors that have only an entraObjectId. This
     //    check runs BEFORE the claim so an unreachable person never gets a row.
     if (!person.contactEmail && !person.entraObjectId) {
-      console.log(
-        `[reminders] Skipping person ${person.id} (${person.name}): no contactEmail or Teams identity.`
+      log.info(
+        `[reminders] Skipping person ${person.id} (${person.name}): no contactEmail or Teams identity.`,
+        { personId: person.id },
       );
       result.skipped++;
       continue;

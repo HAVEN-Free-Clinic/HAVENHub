@@ -18,7 +18,11 @@ import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { MODULES } from "@/platform/modules/registry";
 import { getActiveTerm } from "@/platform/terms/active-term";
-import { LastAdminError, assertDeletingAssignmentKeepsAdminTx } from "@/platform/rbac/last-admin";
+import {
+  LastAdminError,
+  assertDeletingAssignmentKeepsAdminTx,
+  assertActiveAdminRemainsTx,
+} from "@/platform/rbac/last-admin";
 
 // Re-export so callers that historically imported LastAdminError from this
 // module keep working. The class now lives in the platform layer so the
@@ -216,28 +220,20 @@ export async function setRoleGrants(
   await prisma.$transaction(async (tx) => {
     // Fetch current grants to compute before snapshot and delta
     const existing = await tx.roleGrant.findMany({ where: { roleId } });
-
-    // Lockout guard: the "Platform Admin" system role must always retain at
-    // least one admin-conferring grant ("*" or "admin.access"). Removing both
-    // would make the admin module unreachable by anyone.
-    //
-    // This is a conservative but simple invariant: we guard only the specific
-    // named system role that is the canonical admin-access entry point. If
-    // "admin.access" were ever renamed, a schema migration would need to update
-    // this guard too (or rely on seed recovery -- see LastAdminError comment).
-    //
-    // Shell-level recovery if lockout somehow occurs: `npm run db:seed`
-    // re-seeds Platform Admin with the "*" grant and a default admin assignment.
-    const role = await tx.role.findUnique({ where: { id: roleId }, select: { isSystem: true, name: true } });
-    if (role?.isSystem && role.name === "Platform Admin") {
-      const hasAdminAccess = permSet.has("*") || permSet.has("admin.access");
-      if (!hasAdminAccess) {
-        throw new LastAdminError(
-          "Platform Admin must keep * or admin.access; removing it would lock everyone out of the admin module."
-        );
-      }
-    }
     const existingPerms = new Set(existing.map((g) => g.permission));
+
+    // Lockout guard (audit 2026-07-13 F7): admin access is conferred by ANY role
+    // holding "*"/"admin.access", not only the "Platform Admin" system role. The
+    // old name-based check let a custom admin-conferring role be stripped down to
+    // zero admins (lockout). Instead, if this edit removes the last admin grant of
+    // a role that was conferring it, recompute the effective ACTIVE admin set after
+    // the delta and refuse when it reaches zero. This only blocks when the removal
+    // actually causes a lockout (any other live admin path keeps it allowed), and
+    // mirrors the deleteAssignment / roster guards. Recovery: `npm run db:seed`.
+    const wasAdminConferring = existing.some(
+      (g) => g.permission === "*" || g.permission === "admin.access"
+    );
+    const stillAdminConferring = permSet.has("*") || permSet.has("admin.access");
 
     // Permissions to remove: exist now but not in the new set
     const toRemove = existing.filter((g) => !permSet.has(g.permission));
@@ -256,6 +252,13 @@ export async function setRoleGrants(
       });
     }
 
+    // With the delta applied inside the tx, verify an effective admin remains.
+    // Throws LastAdminError (rolling the whole edit back) if this stripped the
+    // last admin path.
+    if (wasAdminConferring && !stillAdminConferring) {
+      await assertActiveAdminRemainsTx(tx);
+    }
+
     const beforePermissions = [...existingPerms].sort();
     const afterPermissions = [...permSet].sort();
 
@@ -272,7 +275,7 @@ export async function setRoleGrants(
       before: { permissions: beforePermissions },
       after: { permissions: afterPermissions },
     });
-  });
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
 
 /**
@@ -292,7 +295,25 @@ export async function deleteRole(actorPersonId: string, roleId: string): Promise
     throw new SystemRoleError(roleId);
   }
 
-  await prisma.role.delete({ where: { id: roleId } });
+  // Lockout guard (audit 2026-07-13 F6): deleting a role FK-cascades its grants and
+  // assignments. If this custom role confers admin access ("*"/"admin.access") and is
+  // the sole path, the cascade would leave zero effective admins. Delete inside a
+  // Serializable tx and recompute the effective ACTIVE admin set; a throw rolls the
+  // delete back. Non-admin roles keep the plain (unguarded) delete. Recovery: db:seed.
+  const grants = await prisma.roleGrant.findMany({ where: { roleId }, select: { permission: true } });
+  const isAdminConferring = grants.some((g) => g.permission === "*" || g.permission === "admin.access");
+
+  if (isAdminConferring) {
+    await prisma.$transaction(
+      async (tx) => {
+        await tx.role.delete({ where: { id: roleId } });
+        await assertActiveAdminRemainsTx(tx);
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+    );
+  } else {
+    await prisma.role.delete({ where: { id: roleId } });
+  }
 
   await recordAudit({
     actorPersonId,

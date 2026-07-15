@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { requirePersonSession } from "@/platform/auth/session";
+import { requirePermission, requirePersonSession } from "@/platform/auth/session";
 import { DateTime } from "@/platform/dates/display";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { listInterviewsForReview } from "@/modules/recruitment/services/interviews";
@@ -24,6 +24,7 @@ function status(iv: { scheduledAt: Date | null; decision: string }): { label: st
 
 export default async function InterviewsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  await requirePermission("recruitment.access");
   const person = await requirePersonSession();
   const cycle = await getCycle(id);
   if (!cycle) notFound();

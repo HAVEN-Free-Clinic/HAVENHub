@@ -1,19 +1,7 @@
 /**
- * TDD tests for Epic promotion: linking an Epic-category TechRequest into
- * the existing Epic pipeline via promoteToEpic.
- *
- * promoteToEpic(actorPersonId, techRequestId, kind):
- *   - Requires support.manage_requests (SupportForbiddenError otherwise).
- *   - kind must be one of NEW/MODIFY/RENEW (SupportStateError otherwise).
- *   - Ticket must exist (SupportNotFoundError), be category EPIC
- *     (SupportStateError otherwise), and not already be linked
- *     (SupportStateError otherwise).
- *   - Creates an EpicRequest with the manager-chosen kind via
- *     createEpicRequest, links it back onto the ticket (epicRequestId),
- *     records the kind on the ticket (epicSubtype), and sets the ticket
- *     status to IN_PROGRESS.
+ * TDD tests for attachEpicRequests: attaching 1..n Epic requests (any active
+ * people, any category, non-terminal ticket) to one IT Support ticket.
  */
-
 import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
@@ -24,168 +12,155 @@ import {
   SupportStateError,
 } from "./tech-request";
 import { cancelOwnRequest } from "./manage";
-import { promoteToEpic } from "./epic-link";
-
-// ---------------------------------------------------------------------------
-// Helpers (copied from src/modules/support/services/manage.test.ts)
-// ---------------------------------------------------------------------------
+import { attachEpicRequests } from "./epic-link";
 
 async function createPerson(
   name: string,
-  opts: { netId?: string; contactEmail?: string; epicId?: string; status?: "ACTIVE" | "OFFBOARDED" } = {}
+  opts: { epicId?: string; status?: "ACTIVE" | "OFFBOARDED" } = {}
 ) {
   return prisma.person.create({
-    data: {
-      name,
-      netId: opts.netId ?? null,
-      contactEmail: opts.contactEmail ?? null,
-      epicId: opts.epicId ?? null,
-      status: opts.status ?? "ACTIVE",
-    },
+    data: { name, epicId: opts.epicId ?? null, status: opts.status ?? "ACTIVE" },
   });
 }
-
-async function grantPermission(personId: string, permission: string) {
+async function grantManage(personId: string) {
   const role = await prisma.role.create({
     data: {
-      name: `Role-${permission}-${Date.now()}-${Math.random()}`,
+      name: `Role-${personId}`,
       isSystem: false,
-      grants: { create: [{ permission }] },
+      grants: { create: [{ permission: "support.manage_requests" }] },
     },
   });
   await prisma.roleAssignment.create({ data: { roleId: role.id, personId, termId: null } });
 }
+async function epicTicket(requesterId: string, category: "EPIC" | "GENERAL_IT" = "EPIC") {
+  return createTechRequest(requesterId, { category, subject: "Need Epic", description: "d" });
+}
 
 beforeEach(resetDb);
 
-describe("promoteToEpic", () => {
-  it("links a new EpicRequest using the manager-chosen kind", async () => {
-    const owner = await createPerson("Owner", { status: "ACTIVE" });
+describe("attachEpicRequests", () => {
+  it("attaches one NEW request for the requester and moves the ticket to IN_PROGRESS", async () => {
+    const owner = await createPerson("Owner");
     const mgr = await createPerson("Manager");
-    await grantPermission(mgr.id, "support.manage_requests");
-    const req = await createTechRequest(owner.id, {
-      category: "EPIC",
-      subject: "Need Epic",
-      description: "New volunteer",
-    });
+    await grantManage(mgr.id);
+    const t = await epicTicket(owner.id);
 
-    const epic = await promoteToEpic(mgr.id, req.id, "NEW");
+    const created = await attachEpicRequests(mgr.id, t.id, { kind: "NEW", personIds: [owner.id] });
 
-    expect(epic.kind).toBe("NEW");
-    expect(epic.personId).toBe(owner.id);
-
-    const linked = await prisma.techRequest.findUniqueOrThrow({ where: { id: req.id } });
-    expect(linked.epicRequestId).toBe(epic.id);
-    expect(linked.epicSubtype).toBe("NEW");
+    expect(created).toHaveLength(1);
+    expect(created[0].kind).toBe("NEW");
+    expect(created[0].personId).toBe(owner.id);
+    expect(created[0].techRequestId).toBe(t.id);
+    expect(created[0].status).toBe("PENDING");
+    const linked = await prisma.techRequest.findUniqueOrThrow({ where: { id: t.id } });
     expect(linked.status).toBe("IN_PROGRESS");
   });
 
-  it("carries the ticket number and subject into the EpicRequest notes", async () => {
-    const owner = await createPerson("Owner", { status: "ACTIVE" });
+  it("attaches a bulk NEW request for several other people", async () => {
+    const director = await createPerson("Director");
+    const a = await createPerson("Vol A");
+    const b = await createPerson("Vol B");
     const mgr = await createPerson("Manager");
-    await grantPermission(mgr.id, "support.manage_requests");
-    const req = await createTechRequest(owner.id, {
-      category: "EPIC",
-      subject: "Need Epic",
-      description: "New volunteer",
-    });
+    await grantManage(mgr.id);
+    const t = await epicTicket(director.id);
 
-    const epic = await promoteToEpic(mgr.id, req.id, "NEW");
+    const created = await attachEpicRequests(mgr.id, t.id, { kind: "NEW", personIds: [a.id, b.id] });
 
-    expect(epic.notes).toContain(`#${req.number}`);
-    expect(epic.notes).toContain("Need Epic");
+    expect(created.map((r) => r.personId).sort()).toEqual([a.id, b.id].sort());
+    const count = await prisma.epicRequest.count({ where: { techRequestId: t.id } });
+    expect(count).toBe(2);
   });
 
-  it("refuses to promote a non-Epic ticket", async () => {
+  it("attaches to a non-EPIC category ticket", async () => {
     const owner = await createPerson("Owner");
     const mgr = await createPerson("Manager");
-    await grantPermission(mgr.id, "support.manage_requests");
-    const req = await createTechRequest(owner.id, { category: "GENERAL_IT", subject: "S", description: "d" });
+    await grantManage(mgr.id);
+    const t = await epicTicket(owner.id, "GENERAL_IT");
 
-    await expect(promoteToEpic(mgr.id, req.id, "NEW")).rejects.toThrow(SupportStateError);
+    const created = await attachEpicRequests(mgr.id, t.id, { kind: "NEW", personIds: [owner.id] });
+    expect(created).toHaveLength(1);
   });
 
-  it("refuses to promote a ticket that is already linked", async () => {
-    const owner = await createPerson("Owner", { status: "ACTIVE" });
+  it("allows a second request once the first is terminal (follow-up)", async () => {
+    const owner = await createPerson("Owner");
     const mgr = await createPerson("Manager");
-    await grantPermission(mgr.id, "support.manage_requests");
-    const req = await createTechRequest(owner.id, {
-      category: "EPIC",
-      subject: "Need Epic",
-      description: "New volunteer",
-    });
-    await promoteToEpic(mgr.id, req.id, "NEW");
+    await grantManage(mgr.id);
+    const t = await epicTicket(owner.id);
+    const [first] = await attachEpicRequests(mgr.id, t.id, { kind: "NEW", personIds: [owner.id] });
+    // Simulate the first reaching a terminal state so the person has no open request.
+    await prisma.epicRequest.update({ where: { id: first.id }, data: { status: "CANCELLED" } });
 
-    await expect(promoteToEpic(mgr.id, req.id, "NEW")).rejects.toThrow(SupportStateError);
+    const [second] = await attachEpicRequests(mgr.id, t.id, { kind: "NEW", personIds: [owner.id] });
+    expect(second.id).not.toBe(first.id);
+    const total = await prisma.epicRequest.count({ where: { techRequestId: t.id } });
+    expect(total).toBe(2);
+  });
+
+  it("rejects the whole batch (all-or-nothing) when one person is invalid", async () => {
+    const good = await createPerson("Good");
+    const bad = await createPerson("Bad", { status: "OFFBOARDED" });
+    const mgr = await createPerson("Manager");
+    await grantManage(mgr.id);
+    const t = await epicTicket(good.id);
+
+    await expect(
+      attachEpicRequests(mgr.id, t.id, { kind: "NEW", personIds: [good.id, bad.id] })
+    ).rejects.toThrow(SupportStateError);
+    const count = await prisma.epicRequest.count();
+    expect(count).toBe(0);
+  });
+
+  it("rejects a duplicate open request for a person", async () => {
+    const owner = await createPerson("Owner");
+    const mgr = await createPerson("Manager");
+    await grantManage(mgr.id);
+    const t = await epicTicket(owner.id);
+    await attachEpicRequests(mgr.id, t.id, { kind: "NEW", personIds: [owner.id] });
+
+    await expect(
+      attachEpicRequests(mgr.id, t.id, { kind: "NEW", personIds: [owner.id] })
+    ).rejects.toThrow(SupportStateError);
+  });
+
+  it("rejects a terminal (cancelled) ticket", async () => {
+    const owner = await createPerson("Owner");
+    const mgr = await createPerson("Manager");
+    await grantManage(mgr.id);
+    const t = await epicTicket(owner.id);
+    await cancelOwnRequest(owner.id, t.id);
+
+    await expect(
+      attachEpicRequests(mgr.id, t.id, { kind: "NEW", personIds: [owner.id] })
+    ).rejects.toThrow(SupportStateError);
+    expect(await prisma.epicRequest.count()).toBe(0);
   });
 
   it("rejects a non-manager", async () => {
-    const owner = await createPerson("Owner", { status: "ACTIVE" });
-    const req = await createTechRequest(owner.id, {
-      category: "EPIC",
-      subject: "Need Epic",
-      description: "New volunteer",
-    });
-
-    await expect(promoteToEpic(owner.id, req.id, "NEW")).rejects.toThrow(SupportForbiddenError);
-  });
-
-  it("raises a not-found error for a missing ticket", async () => {
-    const mgr = await createPerson("Manager");
-    await grantPermission(mgr.id, "support.manage_requests");
-
-    await expect(promoteToEpic(mgr.id, "does-not-exist", "NEW")).rejects.toThrow(SupportNotFoundError);
-  });
-
-  it("refuses to promote a terminal (cancelled) ticket", async () => {
-    const owner = await createPerson("Owner", { status: "ACTIVE" });
-    const mgr = await createPerson("Manager");
-    await grantPermission(mgr.id, "support.manage_requests");
-    const req = await createTechRequest(owner.id, {
-      category: "EPIC",
-      subject: "Need Epic",
-      description: "New volunteer",
-    });
-    await cancelOwnRequest(owner.id, req.id);
-
-    await expect(promoteToEpic(mgr.id, req.id, "NEW")).rejects.toThrow(SupportStateError);
-
-    const epicRequestCount = await prisma.epicRequest.count();
-    expect(epicRequestCount).toBe(0);
-    const unchanged = await prisma.techRequest.findUniqueOrThrow({ where: { id: req.id } });
-    expect(unchanged.epicRequestId).toBeNull();
-    expect(unchanged.status).toBe("CANCELLED");
-  });
-
-  it("propagates createEpicRequest's typed errors, e.g. a non-ACTIVE requester", async () => {
-    const owner = await createPerson("Owner", { status: "OFFBOARDED" });
-    const mgr = await createPerson("Manager");
-    await grantPermission(mgr.id, "support.manage_requests");
-    const req = await createTechRequest(owner.id, {
-      category: "EPIC",
-      subject: "Need Epic",
-      description: "New volunteer",
-    });
-
-    await expect(promoteToEpic(mgr.id, req.id, "NEW")).rejects.toThrow(/ACTIVE/);
-  });
-
-  it("rejects an invalid kind", async () => {
-    const owner = await createPerson("Owner", { status: "ACTIVE" });
-    const mgr = await createPerson("Manager");
-    await grantPermission(mgr.id, "support.manage_requests");
-    const req = await createTechRequest(owner.id, {
-      category: "EPIC",
-      subject: "Need Epic",
-      description: "New volunteer",
-    });
-
+    const owner = await createPerson("Owner");
+    const t = await epicTicket(owner.id);
     await expect(
-      promoteToEpic(mgr.id, req.id, "DEACTIVATE")
-    ).rejects.toThrow(SupportStateError);
+      attachEpicRequests(owner.id, t.id, { kind: "NEW", personIds: [owner.id] })
+    ).rejects.toThrow(SupportForbiddenError);
+  });
 
-    const unchanged = await prisma.techRequest.findUniqueOrThrow({ where: { id: req.id } });
-    expect(unchanged.epicRequestId).toBeNull();
-    expect(unchanged.status).toBe("SUBMITTED");
+  it("rejects a missing ticket", async () => {
+    const mgr = await createPerson("Manager");
+    await grantManage(mgr.id);
+    await expect(
+      attachEpicRequests(mgr.id, "nope", { kind: "NEW", personIds: [mgr.id] })
+    ).rejects.toThrow(SupportNotFoundError);
+  });
+
+  it("rejects DEACTIVATE and empty personIds", async () => {
+    const owner = await createPerson("Owner");
+    const mgr = await createPerson("Manager");
+    await grantManage(mgr.id);
+    const t = await epicTicket(owner.id);
+    await expect(
+      attachEpicRequests(mgr.id, t.id, { kind: "DEACTIVATE" as never, personIds: [owner.id] })
+    ).rejects.toThrow(SupportStateError);
+    await expect(
+      attachEpicRequests(mgr.id, t.id, { kind: "NEW", personIds: [] })
+    ).rejects.toThrow(SupportStateError);
   });
 });

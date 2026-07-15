@@ -19,6 +19,7 @@ import {
   approveRequest,
   denyRequest,
   eligibleSwapPartners,
+  remindDirectors,
   requestApproverRecipients,
   RequestForbiddenError,
   RequestNotFoundError,
@@ -785,6 +786,41 @@ describe("approveRequest", () => {
 
     await expect(approveRequest(director.id, req.id)).rejects.toBeInstanceOf(RequestValidationError);
   });
+
+  it("refuses to swap an offboarded participant onto a shift, leaving the request PENDING (audit F5)", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("AABB");
+    const director = await createPerson("Director");
+    const vol1 = await createPerson("Vol1");
+    const offboarded = await createPerson("Vol2");
+
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createShift(term.id, dept.id, vol1.id, dates[0], "VOLUNTEER");
+    await createShift(term.id, dept.id, offboarded.id, dates[1], "VOLUNTEER");
+
+    // The swap request is created while the target is still active.
+    const req = await createRequest(vol1.id, {
+      requesterDateKey: isoDateKey(dates[0]),
+      departmentId: dept.id,
+      targetId: offboarded.id,
+      targetDateKey: isoDateKey(dates[1]),
+    });
+
+    // Target is offboarded afterward; their leftover future shift remains.
+    await prisma.person.update({ where: { id: offboarded.id }, data: { status: "OFFBOARDED" } });
+
+    await expect(approveRequest(director.id, req.id)).rejects.toBeInstanceOf(RequestValidationError);
+
+    // The offboarded person was NOT re-scheduled onto the requester's date, and the
+    // whole transaction rolled back (request stays PENDING).
+    const onRequesterDate = await prisma.shiftAssignment.findMany({
+      where: { termId: term.id, departmentId: dept.id, personId: offboarded.id, clinicDate: dates[0] },
+    });
+    expect(onRequesterDate).toHaveLength(0);
+    const reqAfter = await prisma.shiftRequest.findUniqueOrThrow({ where: { id: req.id } });
+    expect(reqAfter.status).toBe("PENDING");
+  });
 });
 
 describe("denyRequest", () => {
@@ -964,6 +1000,22 @@ describe("eligibleSwapPartners", () => {
 
     const ids = partners.map((p) => p.personId);
     expect(ids).not.toContain(dir.id);
+  });
+
+  it("excludes an offboarded person with a leftover future shift (audit F5)", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("AABB");
+    const actor = await createPerson("Actor");
+    const offboarded = await createPerson("Gone");
+
+    await createShift(term.id, dept.id, actor.id, dates[0], "VOLUNTEER");
+    await createShift(term.id, dept.id, offboarded.id, dates[1], "VOLUNTEER");
+    // Offboarding flips Person.status but leaves the future ShiftAssignment behind.
+    await prisma.person.update({ where: { id: offboarded.id }, data: { status: "OFFBOARDED" } });
+
+    const partners = await eligibleSwapPartners(actor.id, isoDateKey(dates[0]), dept.id);
+    expect(partners.map((p) => p.personId)).not.toContain(offboarded.id);
   });
 
   // The dropdown must only offer swaps that createRequest/assertNoSwapCollision
@@ -1210,5 +1262,48 @@ describe("requestApproverRecipients (M3)", () => {
     const recipients = await requestApproverRecipients(dept.id);
 
     expect(recipients.map((r) => r.id)).not.toContain(shiftOnlyDirector.id);
+  });
+});
+
+describe("remindDirectors throttle (F15)", () => {
+  it("skips an approver notified within the window so repeated clicks can't flood directors", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("AABB");
+    const director = await createPersonWithEmail("Dir", "dir@example.org");
+    const requester = await createPerson("Vol");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createShift(term.id, dept.id, requester.id, dates[0], "VOLUNTEER");
+
+    const req = await createRequest(requester.id, {
+      requesterDateKey: isoDateKey(dates[0]),
+      departmentId: dept.id,
+    });
+    // Age the request past the 5-day reminder gate.
+    await prisma.shiftRequest.update({
+      where: { id: req.id },
+      data: { createdAt: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000) },
+    });
+    // Start clean: drop the original submission-notice email so we isolate the
+    // reminder throttle.
+    await prisma.emailLog.deleteMany({});
+
+    const template = "schedule-request-submitted-director";
+    const count = () => prisma.emailLog.count({ where: { personId: director.id, template } });
+
+    await remindDirectors(requester.id, req.id);
+    expect(await count()).toBe(1);
+
+    // Immediate second reminder: throttled, no new email.
+    await remindDirectors(requester.id, req.id);
+    expect(await count()).toBe(1);
+
+    // Push the sole reminder outside the 3-day window; a new reminder now sends.
+    await prisma.emailLog.updateMany({
+      where: { personId: director.id, template },
+      data: { createdAt: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000) },
+    });
+    await remindDirectors(requester.id, req.id);
+    expect(await count()).toBe(2);
   });
 });

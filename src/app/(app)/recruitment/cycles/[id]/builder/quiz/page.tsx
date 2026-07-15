@@ -8,6 +8,7 @@ import { QuizBuilder, type QuizSection } from "./quiz-builder";
 
 export default async function QuizBuilderPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  await requirePermission("recruitment.access");
   await requirePermission("recruitment.manage_cycles");
   const cycle = await getCycle(id);
   if (!cycle) notFound();
@@ -28,7 +29,7 @@ export default async function QuizBuilderPage({ params }: { params: Promise<{ id
     <div className="max-w-3xl space-y-6">
       <SetBreadcrumb trail={cycleTrail({ cycleId: id, cycleTitle: cycle.title, section: { label: "Form builder", slug: "builder" }, leaf: "Training quiz" })} />
       <PageHeader title="Training quiz" description={cycle.title} />
-      <QuizBuilder cycleId={id} cycleTitle={cycle.title} editable={cycle.status === "DRAFT"} sections={sections} />
+      <QuizBuilder cycleId={id} cycleTitle={cycle.title} editable={cycle.status !== "ARCHIVED"} status={cycle.status} sections={sections} />
     </div>
   );
 }

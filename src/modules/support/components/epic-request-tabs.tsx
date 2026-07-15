@@ -19,6 +19,7 @@
  * the active tab survives a page refresh and is shareable.
  */
 
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Fragment, Suspense, useState } from "react";
 import { EpicRequestForm } from "./epic-request-form";
@@ -34,10 +35,17 @@ import { Alert } from "@/platform/ui/alert";
 import { FormActions } from "@/platform/ui/form";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { SUPPORT_UPLOAD_ACCEPT } from "@/modules/support/upload-constants";
-import type { DepartmentWithMembers, EpicAuthorizer, EpicRequestHistoryRow, PendingDeactivation } from "@/modules/support/services/itcm";
+import type {
+  DepartmentWithMembers,
+  EpicAuthorizer,
+  EpicRequestHistoryRow,
+  PendingDeactivation,
+  PendingEpicRequestRow,
+} from "@/modules/support/services/itcm";
+import { Checkbox } from "@/platform/ui/checkbox";
 import { TicketNumberField } from "./ticket-number-field";
 
-type Tab = "generate" | "tracker" | "history";
+type Tab = "generate" | "pending" | "tracker" | "history";
 
 type IncidentPerson = { id: string; name: string };
 
@@ -48,11 +56,16 @@ type Props = {
   pendingDeactivations: PendingDeactivation[];
   authorizers: EpicAuthorizer[];
   incidentPeople: IncidentPerson[];
+  pending: PendingEpicRequestRow[];
   error?: string;
   closeTicketAction: (ticketId: string) => Promise<void>;
   updateServiceRequestNumberAction: (ticketId: string, value: string) => Promise<void>;
   logIncidentAction: (formData: FormData) => Promise<void>;
   resolveIncidentAction: (ticketId: string, resolution: string) => Promise<void>;
+  createTicketFromPendingAction: (formData: FormData) => Promise<void>;
+  completeEpicRequestAction: (formData: FormData) => Promise<void>;
+  sendEpicEmailFromTrackerAction: (formData: FormData) => Promise<void>;
+  linkEpicRequestAction: (formData: FormData) => Promise<void>;
 };
 
 // ---------------------------------------------------------------------------
@@ -69,11 +82,16 @@ function TabNav({ activeTab }: { activeTab: Tab }) {
     router.push(`?${params.toString()}`);
   }
 
-  const labels: Record<Tab, string> = { generate: "Generate", tracker: "Tracker", history: "History" };
+  const labels: Record<Tab, string> = {
+    generate: "Generate",
+    pending: "Pending",
+    tracker: "Tracker",
+    history: "History",
+  };
 
   return (
     <div className="flex gap-4 border-b border-border mb-8">
-      {(["generate", "tracker", "history"] as Tab[]).map((tab) => (
+      {(["generate", "pending", "tracker", "history"] as Tab[]).map((tab) => (
         <Fragment key={tab}>
           {/* eslint-disable-next-line no-restricted-syntax -- tab control with border-b-2 active-state indicator; segmented toggle pattern */}
           <button onClick={() => goTo(tab)} aria-current={activeTab === tab ? "page" : undefined} className={`pb-3 text-sm font-semibold border-b-2 transition-colors ${activeTab === tab ? "border-brand text-brand-fg" : "border-transparent text-muted-foreground hover:text-foreground-soft"}`}>{labels[tab]}</button>
@@ -233,11 +251,17 @@ function TrackerTable({
   closeTicketAction,
   updateServiceRequestNumberAction,
   resolveIncidentAction,
+  completeEpicRequestAction,
+  sendEpicEmailFromTrackerAction,
+  linkEpicRequestAction,
 }: {
   history: EpicRequestHistoryRow[];
   closeTicketAction: (ticketId: string) => Promise<void>;
   updateServiceRequestNumberAction: (ticketId: string, value: string) => Promise<void>;
   resolveIncidentAction: (ticketId: string, resolution: string) => Promise<void>;
+  completeEpicRequestAction: (formData: FormData) => Promise<void>;
+  sendEpicEmailFromTrackerAction: (formData: FormData) => Promise<void>;
+  linkEpicRequestAction: (formData: FormData) => Promise<void>;
 }) {
   const zone = useTimeZone();
   const openTickets = history.filter((h) => h.ticket.status === "OPEN");
@@ -295,13 +319,70 @@ function TrackerTable({
             </div>
 
             {!isIncident && (
-              <div className="space-y-1">
+              <div className="space-y-2">
                 {requests.map((r) => (
-                  <div key={r.id} className="flex items-center gap-2 text-xs text-foreground-soft">
+                  <div key={r.id} className="flex flex-wrap items-center gap-2 text-xs text-foreground-soft">
                     <Badge>{r.kind}</Badge>
                     <span>{r.person.name}</span>
                     {r.person.epicId && (
                       <span className="text-subtle-foreground">{r.person.epicId}</span>
+                    )}
+                    <Badge>{r.status}</Badge>
+
+                    {(r.status === "PENDING" || r.status === "SUBMITTED") && (
+                      <form action={completeEpicRequestAction} className="flex items-center gap-1">
+                        <input type="hidden" name="requestId" value={r.id} />
+                        {r.kind === "NEW" || r.kind === "MODIFY" ? (
+                          <>
+                            <Input name="epicId" aria-label="Epic ID" placeholder="Epic ID" className="w-32" required />
+                            <SubmitButton size="sm" variant="outline" pendingLabel="Completing…">
+                              Complete
+                            </SubmitButton>
+                          </>
+                        ) : (
+                          <SubmitButton size="sm" variant="outline" pendingLabel="Completing…">
+                            Complete
+                          </SubmitButton>
+                        )}
+                      </form>
+                    )}
+
+                    {(r.status === "PENDING" || r.status === "SUBMITTED" || r.status === "COMPLETED") && (
+                      <div className="flex flex-wrap gap-1">
+                        {(["epic-onboarding", "epic-activation", "epic-password-reset"] as const).map((tpl) => (
+                          <form key={tpl} action={sendEpicEmailFromTrackerAction}>
+                            <input type="hidden" name="requestId" value={r.id} />
+                            <input type="hidden" name="template" value={tpl} />
+                            <SubmitButton size="sm" variant="ghost" pendingLabel="Sending…">
+                              {tpl === "epic-onboarding" ? "Onboarding" : tpl === "epic-activation" ? "Activation" : "Password reset"}
+                            </SubmitButton>
+                          </form>
+                        ))}
+                      </div>
+                    )}
+
+                    {r.techRequest ? (
+                      <Link
+                        href={`/support/${r.techRequest.id}`}
+                        className="text-xs text-brand-fg underline underline-offset-2"
+                      >
+                        Support #{r.techRequest.number}
+                      </Link>
+                    ) : (
+                      <form action={linkEpicRequestAction} className="flex items-center gap-1">
+                        <input type="hidden" name="requestId" value={r.id} />
+                        <Input
+                          name="ticketNumber"
+                          type="number"
+                          min={1}
+                          placeholder="Ticket #"
+                          aria-label="Link to support ticket number"
+                          className="w-24"
+                        />
+                        <SubmitButton size="sm" variant="ghost" pendingLabel="Linking…">
+                          Link
+                        </SubmitButton>
+                      </form>
                     )}
                   </div>
                 ))}
@@ -388,6 +469,66 @@ function HistoryTable({ history }: { history: EpicRequestHistoryRow[] }) {
 }
 
 // ---------------------------------------------------------------------------
+// Pending tab -- attached (un-submitted) Epic requests, batched into a ticket
+// ---------------------------------------------------------------------------
+
+function PendingTab({
+  pending,
+  action,
+  error,
+}: {
+  pending: PendingEpicRequestRow[];
+  action: (formData: FormData) => Promise<void>;
+  error?: string;
+}) {
+  if (pending.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        No pending Epic requests. Attach some from a support ticket, or promote a volunteer who needs Epic access.
+      </p>
+    );
+  }
+  return (
+    <form action={action} className="space-y-4">
+      <Card className="space-y-3">
+        <SectionHeader level="title">Pending Epic requests</SectionHeader>
+        <p className="text-xs text-subtle-foreground">
+          Select requests and open one YNHH ticket for them. They then appear under Tracker.
+        </p>
+
+        {error && <Alert tone="error">{error}</Alert>}
+
+        <ul className="space-y-1">
+          {pending.map((r) => (
+            <li key={r.id} className="flex flex-wrap items-center gap-2 text-sm">
+              <Checkbox name="requestIds" value={r.id} />
+              <Badge>{r.kind}</Badge>
+              <span className="font-medium">{r.person.name}</span>
+              {r.techRequest ? (
+                <Link href={`/support/${r.techRequest.id}`} className="text-xs text-brand-fg underline underline-offset-2">
+                  #{r.techRequest.number}
+                </Link>
+              ) : (
+                <span className="text-xs text-subtle-foreground">Promotion</span>
+              )}
+              {r.notes && <span className="text-xs text-subtle-foreground">· {r.notes}</span>}
+            </li>
+          ))}
+        </ul>
+        <Field label="YNHH ticket description (optional)">
+          <Input name="description" placeholder="Optional" className="w-72" />
+        </Field>
+        <FormActions>
+          <SubmitButton variant="primary" pendingLabel="Creating…">
+            Create YNHH ticket
+          </SubmitButton>
+        </FormActions>
+      </Card>
+    </form>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main export
 // ---------------------------------------------------------------------------
 
@@ -398,11 +539,16 @@ export function EpicRequestTabs({
   pendingDeactivations,
   authorizers,
   incidentPeople,
+  pending,
   error,
   closeTicketAction,
   updateServiceRequestNumberAction,
   logIncidentAction,
   resolveIncidentAction,
+  createTicketFromPendingAction,
+  completeEpicRequestAction,
+  sendEpicEmailFromTrackerAction,
+  linkEpicRequestAction,
 }: Props) {
   return (
     <div>
@@ -411,6 +557,8 @@ export function EpicRequestTabs({
       </Suspense>
       {activeTab === "generate" ? (
         <EpicRequestForm departments={departments} pendingDeactivations={pendingDeactivations} authorizers={authorizers} />
+      ) : activeTab === "pending" ? (
+        <PendingTab pending={pending} action={createTicketFromPendingAction} error={error} />
       ) : activeTab === "tracker" ? (
         <div className="space-y-8">
           <LogIncidentForm incidentPeople={incidentPeople} logIncidentAction={logIncidentAction} error={error} />
@@ -419,6 +567,9 @@ export function EpicRequestTabs({
             closeTicketAction={closeTicketAction}
             updateServiceRequestNumberAction={updateServiceRequestNumberAction}
             resolveIncidentAction={resolveIncidentAction}
+            completeEpicRequestAction={completeEpicRequestAction}
+            sendEpicEmailFromTrackerAction={sendEpicEmailFromTrackerAction}
+            linkEpicRequestAction={linkEpicRequestAction}
           />
         </div>
       ) : (

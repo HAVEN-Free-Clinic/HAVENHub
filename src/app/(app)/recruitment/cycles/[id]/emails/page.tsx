@@ -8,6 +8,7 @@ import { buttonClasses } from "@/platform/ui/button";
 import { cardClasses } from "@/platform/ui/card";
 
 export default async function CycleEmailsPage({ params }: { params: Promise<{ id: string }> }) {
+  await requirePermission("recruitment.access");
   await requirePermission("recruitment.manage_cycles");
   const { id } = await params;
   const cycle = await prisma.recruitmentCycle.findUnique({ where: { id }, select: { id: true, title: true } });

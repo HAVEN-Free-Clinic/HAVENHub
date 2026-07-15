@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requirePersonSession, requirePermission } from "@/platform/auth/session";
+import { getPostHogClient } from "@/platform/posthog/posthog-server";
 import {
   submitReport,
   reviewReport,
@@ -83,6 +84,13 @@ export async function submitReportAction(formData: FormData): Promise<void> {
   }
   // Success redirect lives OUTSIDE the try: redirect() throws NEXT_REDIRECT, which
   // must not be caught by the error handler above. This mirrors the disciplinary page.
+  const posthog = getPostHogClient();
+  posthog.capture({
+    distinctId: actor.personId,
+    event: "incident_report_submitted",
+    properties: { report_number: number, subject_count: subjects.length, has_attachments: fileInputs.length > 0, anonymous: formData.get("anonymous") === "on" },
+  });
+  await posthog.flush();
   revalidatePath("/incidents/mine");
   redirect(`/incidents/mine?submitted=${number}`);
 }
@@ -114,6 +122,13 @@ export async function reviewReportAction(formData: FormData): Promise<void> {
       status,
       reviewNotes: (String(formData.get("reviewNotes") ?? "").trim() || null),
     });
+    const posthog = getPostHogClient();
+    posthog.capture({
+      distinctId: actor.personId,
+      event: "incident_reviewed",
+      properties: { report_id: id, status },
+    });
+    await posthog.flush();
   } catch (err) {
     if (err instanceof IncidentValidationError) redirect(`/incidents/${id}?error=validation&message=${encodeURIComponent(err.message)}`);
     if (err instanceof IncidentForbiddenError) redirect(`/incidents/${id}?error=forbidden`);

@@ -18,7 +18,7 @@
  * mutate data.
  */
 
-import type { Person, Department, YnhhTicket } from "@prisma/client";
+import type { Person, Department, YnhhTicket, EpicRequestKind } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { recordAudit } from "@/platform/audit";
@@ -259,6 +259,7 @@ export type EpicRequestHistoryRow = {
     kind: "NEW" | "MODIFY" | "RENEW" | "DEACTIVATE";
     status: string;
     person: { name: string; epicId: string | null };
+    techRequest: { id: string; number: number } | null;
   }[];
 };
 
@@ -272,6 +273,7 @@ export async function getEpicRequestHistory(): Promise<EpicRequestHistoryRow[]> 
       requests: {
         include: {
           person: { select: { name: true, epicId: true } },
+          techRequest: { select: { id: true, number: true } },
         },
       },
     },
@@ -296,6 +298,7 @@ export async function getEpicRequestHistory(): Promise<EpicRequestHistoryRow[]> 
       kind: r.kind as "NEW" | "MODIFY" | "RENEW" | "DEACTIVATE",
       status: r.status,
       person: { name: r.person.name, epicId: r.person.epicId },
+      techRequest: r.techRequest ? { id: r.techRequest.id, number: r.techRequest.number } : null,
     })),
   }));
 }
@@ -538,29 +541,54 @@ export async function listPendingDeactivations(): Promise<PendingDeactivation[]>
  * ad-hoc deactivation for someone who was not auto-queued).
  *
  * Trusts its caller for permissions: the generate route gates on support.manage_requests.
+ *
+ * Creates the YnhhTicket INSIDE the same transaction as the request links and
+ * returns it (mirrors submitEpicRequests), so a mid-batch failure rolls the ticket
+ * back too instead of committing an OPEN ticket with zero linked requests (F18).
  */
 export async function reconcileDeactivationRequests(
   actorPersonId: string,
   personIds: string[],
-  ticketId: string
-): Promise<void> {
-  await prisma.$transaction(async (tx) => {
+  ticketDescription: string
+): Promise<YnhhTicket> {
+  return prisma.$transaction(async (tx) => {
+    // Classify each person's existing open DEACTIVATE request first. A request
+    // already SUBMITTED onto a ticket is in flight; re-pointing it to a fresh
+    // ticket would strip it from -- and orphan -- its current one (e.g. a manager
+    // clicking Generate twice). So only PENDING requests (offboard-queued, no
+    // ticket yet) are moved, and persons with no request get a new one.
+    const toAttach: { personId: string; existingId: string | null }[] = [];
     for (const personId of personIds) {
       const open = await tx.epicRequest.findFirst({
         where: { personId, kind: "DEACTIVATE", status: { in: ["PENDING", "SUBMITTED"] } },
-        select: { id: true },
+        select: { id: true, status: true, ticketId: true },
       });
-      if (open) {
+      if (open && open.status === "SUBMITTED" && open.ticketId) continue;
+      toAttach.push({ personId, existingId: open?.id ?? null });
+    }
+    // Nothing new to submit: don't create an empty (orphan) ticket. Mirrors the
+    // duplicate rejection submitEpicRequests already performs on the grant path.
+    if (toAttach.length === 0) {
+      throw new SupportStateError(
+        "Every selected person already has a submitted deactivation request. Refresh to see current status."
+      );
+    }
+    const ticket = await tx.ynhhTicket.create({
+      data: { submittedById: actorPersonId, description: ticketDescription, status: "OPEN" },
+    });
+    for (const { personId, existingId } of toAttach) {
+      if (existingId) {
         await tx.epicRequest.update({
-          where: { id: open.id },
-          data: { status: "SUBMITTED", ticketId },
+          where: { id: existingId },
+          data: { status: "SUBMITTED", ticketId: ticket.id },
         });
       } else {
         await tx.epicRequest.create({
-          data: { personId, kind: "DEACTIVATE", status: "SUBMITTED", ticketId, requestedById: actorPersonId },
+          data: { personId, kind: "DEACTIVATE", status: "SUBMITTED", ticketId: ticket.id, requestedById: actorPersonId },
         });
       }
     }
+    return ticket;
   });
 }
 
@@ -640,4 +668,56 @@ export async function submitEpicRequests(
 
     return ticket;
   });
+}
+
+// ---------------------------------------------------------------------------
+// listPendingEpicRequests
+// ---------------------------------------------------------------------------
+
+export type PendingEpicRequestRow = {
+  id: string;
+  kind: EpicRequestKind;
+  createdAt: Date;
+  /** Free-text context, e.g. the Epic access details a promoted volunteer supplied. */
+  notes: string | null;
+  person: { id: string; name: string | null; epicId: string | null };
+  techRequest: { id: string; number: number; subject: string } | null;
+};
+
+/**
+ * Un-submitted access-granting Epic requests awaiting a YNHH ticket: PENDING,
+ * not yet grouped under a ticket, and NOT a deactivation. These are the rows the
+ * /support/epic "Pending" tab batches into a YNHH ticket via createTicket.
+ *
+ * Includes access-granting requests regardless of origin -- both attach-origin
+ * requests (raised from a support ticket, techRequestId set) and the NEW request
+ * that recruitment promotion creates for a promoted volunteer who needs Epic
+ * (techRequestId null). Previously this was scoped to techRequestId: { not: null },
+ * which also excluded promotion's NEW requests: they were invisible here, absent
+ * from the Tracker (no ticket), and un-cancellable, yet still blocked
+ * submit/attach as a duplicate -- deadlocking Epic provisioning for new members.
+ *
+ * DEACTIVATE requests are excluded because they have their own pipeline
+ * (listPendingDeactivations / reconcileDeactivationRequests); batching one
+ * through the generic createTicket path here would bypass that pipeline.
+ */
+export async function listPendingEpicRequests(): Promise<PendingEpicRequestRow[]> {
+  const rows = await prisma.epicRequest.findMany({
+    where: { status: "PENDING", ticketId: null, kind: { not: "DEACTIVATE" } },
+    orderBy: { createdAt: "asc" },
+    include: {
+      person: { select: { id: true, name: true, epicId: true } },
+      techRequest: { select: { id: true, number: true, subject: true } },
+    },
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    kind: r.kind,
+    createdAt: r.createdAt,
+    notes: r.notes,
+    person: { id: r.person.id, name: r.person.name, epicId: r.person.epicId },
+    techRequest: r.techRequest
+      ? { id: r.techRequest.id, number: r.techRequest.number, subject: r.techRequest.subject }
+      : null,
+  }));
 }

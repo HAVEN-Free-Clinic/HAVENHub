@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { unzipSync } from "fflate";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
@@ -133,12 +134,16 @@ export async function ingestScormPackage(
     throw err;
   }
 
-  // Replace: clear any previous package for this course first.
-  await deletePrefix(`scorm/${courseId}/`);
+  // Stage the new package under a fresh, versioned prefix and make the DB manifest
+  // update the single source of truth. The previous package stays intact until the
+  // DB write commits, so a failed write never leaves the course pointing at deleted
+  // files (audit F17). scormEntryHref/scormScos stay relative (no key baked in).
+  const oldKey = course.scormBlobKey;
+  const blobKey = randomUUID();
 
   for (const [name, bytes] of files) {
     const rel = safeRelPath(name);
-    await putObject(`scorm/${courseId}/${rel}`, Buffer.from(bytes), contentTypeFor(rel));
+    await putObject(`scorm/${courseId}/${blobKey}/${rel}`, Buffer.from(bytes), contentTypeFor(rel));
   }
 
   const updateCourse = prisma.course.update({
@@ -148,9 +153,12 @@ export async function ingestScormPackage(
       scormVersion: parsed.version,
       scormScos: parsed.scos as unknown as Prisma.InputJsonValue,
       scormUploadedAt: new Date(),
+      scormBlobKey: blobKey,
     },
   });
 
+  // Commit the manifest (and optional progress reset) BEFORE deleting the old
+  // package, so a DB failure leaves the previous package fully intact and served.
   // Wipe progress in the same transaction as the manifest update so we never end
   // up with new content but stale completion (or vice versa) if a write fails.
   let resetLearners = 0;
@@ -163,6 +171,15 @@ export async function ingestScormPackage(
     resetLearners = cleared.count;
   } else {
     await updateCourse;
+  }
+
+  // Manifest now points at the new prefix; clean up the old package. A failure here
+  // only orphans blobs (harmless), not a broken course. When oldKey is null the
+  // previous package (if any) lived at the flat prefix scorm/<courseId>/, which we
+  // deliberately do NOT prefix-delete here because it also matches the new
+  // versioned files; those legacy flat files become harmless orphans.
+  if (oldKey) {
+    await deletePrefix(`scorm/${courseId}/${oldKey}/`);
   }
 
   await recordAudit({

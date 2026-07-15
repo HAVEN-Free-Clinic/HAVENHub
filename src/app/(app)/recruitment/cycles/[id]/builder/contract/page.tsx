@@ -9,6 +9,7 @@ import { ContractEditor } from "./contract-editor";
 
 export default async function ContractBuilderPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  await requirePermission("recruitment.access");
   await requirePermission("recruitment.manage_cycles");
   const cycle = await getCycle(id);
   if (!cycle) notFound();
@@ -24,7 +25,7 @@ export default async function ContractBuilderPage({ params }: { params: Promise<
         })}
       />
       <PageHeader title="Onboarding contract" description={cycle.title} />
-      <ContractEditor cycleId={id} initialLayout={layout} hasOverride={hasOverride} />
+      <ContractEditor cycleId={id} initialLayout={layout} hasOverride={hasOverride} status={cycle.status} />
     </div>
   );
 }

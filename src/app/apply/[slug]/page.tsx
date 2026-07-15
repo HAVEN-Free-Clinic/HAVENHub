@@ -70,7 +70,7 @@ export default async function ApplyPage({ params, searchParams }: { params: Prom
     subcommittees,
     sections: cycle.sections.map((s) => ({
       id: s.id, title: s.title, description: s.description, appliesTo: s.appliesTo, departmentCode: s.departmentCode,
-      fields: s.fields.map((f) => ({ key: f.key, label: f.label, helpText: f.helpText, type: f.type, required: f.required, options: (f.options as { value: string; label: string }[] | null) ?? null, validation: (f.validation as Record<string, unknown> | null) ?? null })),
+      fields: s.fields.map((f) => ({ key: f.key, label: f.label, helpText: f.helpText, type: f.type, required: f.required, options: (f.options as { value: string; label: string }[] | null) ?? null, validation: (f.validation as Record<string, unknown> | null) ?? null, visibleWhen: f.visibleWhen ?? null })),
     })),
   };
 

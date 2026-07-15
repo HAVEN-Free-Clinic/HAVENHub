@@ -3,7 +3,7 @@ import { prisma } from "@/platform/db";
 
 export type AuditEntry = {
   actorPersonId?: string | null;
-  action: string; // "entity.verb", e.g. "person.update", "auth.login_unmatched"
+  action: string; // "entity.verb", e.g. "person.update", "auth.applicant_login"
   entityType: string;
   entityId?: string | null;
   before?: Prisma.InputJsonValue;

@@ -3,7 +3,12 @@ import MicrosoftEntraID from "next-auth/providers/microsoft-entra-id";
 import Credentials from "next-auth/providers/credentials";
 import type { Person } from "@prisma/client";
 import { config } from "@/platform/config";
-import { resolvePersonForLogin, type LoginProfile } from "./match-person";
+import {
+  resolvePersonForLogin,
+  applicantEmailFromClaims,
+  entraTenantAllowed,
+  type LoginProfile,
+} from "./match-person";
 import { recordAudit } from "@/platform/audit";
 import { getPostHogClient } from "@/platform/posthog/posthog-server";
 
@@ -84,26 +89,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     error: "/login",
   },
   callbacks: {
-    async signIn({ user, account, profile }) {
+    async signIn({ account, profile }) {
       if (account?.provider === "credentials") return true; // authorize() validated
-      const person = await resolveEntraLogin(
-        profile,
-        account?.providerAccountId,
-        user.email
-      );
-      if (!person) {
-        const claims = (profile ?? {}) as EntraClaims;
-        await recordAudit({
-          action: "auth.login_unmatched",
-          entityType: "Auth",
-          after: {
-            upn: claims.preferred_username ?? null,
-            email: claims.email ?? user.email ?? null,
-          },
-        });
-        return "/welcome";
-      }
-      return true;
+      // Admit any Yale-tenant account. Recognized members get a personId in jwt();
+      // everyone else becomes a prospective applicant (personId null). Hub access
+      // stays gated by requirePersonSession, so this only unlocks the apply portal.
+      const claims = (profile ?? {}) as EntraClaims;
+      return entraTenantAllowed(claims, config.AZURE_AD_TENANT_ID);
     },
     async jwt({ token, user, account, profile }) {
       if (account) {
@@ -113,6 +105,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           token.personId = user.id;
           personId = user.id ?? null;
         } else {
+          const claims = (profile ?? {}) as EntraClaims;
           const person = await resolveEntraLogin(
             profile,
             account.providerAccountId,
@@ -120,6 +113,19 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           );
           token.personId = person?.id ?? null;
           personId = person?.id ?? null;
+          // Verified Yale address, stamped whether or not we recognize the Person,
+          // so the apply portal can identify a brand-new applicant by email.
+          token.applicantEmail = applicantEmailFromClaims(claims, user?.email);
+          if (!person) {
+            await recordAudit({
+              action: "auth.applicant_login",
+              entityType: "Auth",
+              after: {
+                upn: claims.preferred_username ?? null,
+                email: token.applicantEmail as string | null,
+              },
+            });
+          }
         }
         if (personId) {
           const posthog = getPostHogClient();
@@ -135,6 +141,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
     async session({ session, token }) {
       session.personId = (token.personId as string | null) ?? null;
+      session.applicantEmail = (token.applicantEmail as string | null) ?? null;
       return session;
     },
   },

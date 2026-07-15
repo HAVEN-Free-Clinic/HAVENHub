@@ -7,7 +7,7 @@ import { SYSTEM_FIELDS } from "@/modules/recruitment/contract/system-fields";
 import type { ContractBlock } from "@/modules/recruitment/contract/layout";
 
 type Ctx = { firstName: string; orgName: string };
-type Prefill = { firstName: string; lastName: string; email: string; netId: string; phone: string };
+type Prefill = { firstName: string; lastName: string; email: string; netId: string; phone: string; yaleAffiliation: string; gradYear: string; spanish: boolean };
 
 function renderVars(text: string, ctx: Ctx): string {
   // Escaped-text output only; substitutes {{firstName}} / {{orgName}} for preview.
@@ -98,7 +98,15 @@ export function ContractField({
       );
     }
     case "checkbox":
-      return <label className="flex items-center gap-2 text-sm"><Checkbox name={block.systemKey === "spanish" ? "spanishSelfReported" : "licensedRN"} /><span>{label}</span></label>;
+      return (
+        <label className="flex items-center gap-2 text-sm">
+          <Checkbox
+            name={block.systemKey === "spanish" ? "spanishSelfReported" : "licensedRN"}
+            defaultChecked={block.systemKey === "spanish" ? prefill.spanish : false}
+          />
+          <span>{label}</span>
+        </label>
+      );
     case "date": case "email": case "tel": case "text": default: {
       // "name" is special: two inputs (first + last).
       if (block.systemKey === "name") {
@@ -117,7 +125,13 @@ export function ContractField({
       }
       const nameByKey: Record<string, string> = { email: "email", netId: "netId", phone: "phone", dob: "dateOfBirth", dietary: "dietaryRestrictions", yaleAffiliation: "yaleAffiliation", gradYear: "gradYear", initials: "initials" };
       const type = spec.render === "text" ? "text" : spec.render;
-      const defaults: Record<string, string> = { email: prefill.email, netId: prefill.netId, phone: prefill.phone };
+      const defaults: Record<string, string> = {
+        email: prefill.email,
+        netId: prefill.netId,
+        phone: prefill.phone,
+        yaleAffiliation: prefill.yaleAffiliation,
+        gradYear: prefill.gradYear,
+      };
       const required = block.systemKey === "email" || block.systemKey === "initials";
       const inputName = nameByKey[block.systemKey];
       return (

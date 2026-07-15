@@ -33,9 +33,17 @@ it("creates an interview for a director cycle within scope", async () => {
   expect(iv.decision).toBe("PENDING");
 });
 
-it("rejects creating an interview on a volunteer cycle", async () => {
-  const { srr, application } = await seed("VOLUNTEER");
-  await expect(createInterview(application.id, "EDUC", srr.id)).rejects.toBeInstanceOf(InterviewError);
+it("rejects creating an interview for a volunteer cycle (interviews are director-track only)", async () => {
+  // Volunteer applications are decided directly by the routed department
+  // (decideRoutedApplication), with no interview.
+  const term = await prisma.term.create({ data: { code: "FA26", name: "Fall", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
+  const educ = await prisma.department.create({ data: { code: "EDUC", name: "Education" } });
+  const director = await prisma.person.create({ data: { name: "Dir", status: "ACTIVE" } });
+  await prisma.termMembership.create({ data: { personId: director.id, termId: term.id, departmentId: educ.id, kind: "DIRECTOR", status: "ACTIVE" } });
+  const cycle = await prisma.recruitmentCycle.create({ data: { track: "VOLUNTEER", termId: term.id, title: "V", publicSlug: "v", departments: ["EDUC"], createdById: director.id, status: "OPEN" } });
+  const applicant = await prisma.applicant.create({ data: { cycleId: cycle.id, firstName: "A", lastName: "B", email: "a@y.edu", emailLower: "a@y.edu" } });
+  const application = await prisma.application.create({ data: { cycleId: cycle.id, applicantId: applicant.id, answers: {}, applicantType: "NEW", departmentChoices: ["EDUC"], routedDepartmentCode: "EDUC" } });
+  await expect(createInterview(application.id, "EDUC", director.id)).rejects.toBeInstanceOf(InterviewError);
 });
 
 it("rejects a director scheduling outside their department", async () => {
@@ -52,8 +60,7 @@ it("rejects a duplicate interview", async () => {
 it("rejects creating an interview for a DRAFT application (audit3 L1)", async () => {
   const { director, application } = await seed();
   await prisma.application.update({ where: { id: application.id }, data: { status: "DRAFT" } });
-  // A DRAFT application is not a real submission, so it must not be interviewed
-  // (mirrors acceptApplicant's SUBMITTED guard).
+  // A DRAFT application is not a real submission, so it must not be interviewed.
   await expect(createInterview(application.id, "EDUC", director.id)).rejects.toBeInstanceOf(InterviewError);
   expect(await prisma.interview.count({ where: { applicationId: application.id } })).toBe(0);
 });

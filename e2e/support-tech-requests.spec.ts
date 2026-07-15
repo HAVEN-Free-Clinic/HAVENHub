@@ -4,7 +4,7 @@ import { tag } from "./fixtures";
 
 /**
  * IT Support module: submit, track, comment (public/internal), manager
- * actions, and Epic promotion.
+ * actions, and attaching Epic access requests to a ticket.
  *
  * Personas (matching the rest of the e2e suite):
  *   - Submitter: dev.volunteer@yale.edu -- a plain ACTIVE volunteer, already
@@ -29,7 +29,10 @@ import { tag } from "./fixtures";
  * Tickets/comments/Epic requests created here are not cleaned up: they carry
  * no FK dependents, CI seeds a fresh DB per run, and subjects are tagged with
  * tag() so rows never collide across runs -- the same "append-only, no
- * cleanup needed" treatment other specs give audit-style rows.
+ * cleanup needed" treatment other specs give audit-style rows. The Epic test
+ * does cancel the Epic request it attaches (via the UI, not a DB cleanup
+ * helper) so the shared dev.volunteer persona is left with no open Epic
+ * request and no epicId, matching what every other spec assumes about it.
  */
 
 test("support: volunteer submits a General IT request; a manager replies publicly and internally, assigns, awaits, and resolves it; the volunteer sees the public reply and resolution but not the internal note", async ({
@@ -149,18 +152,19 @@ test("support: volunteer submits a General IT request; a manager replies publicl
   await expect(page.getByText(internalNote)).not.toBeVisible();
 });
 
-test("support epic: volunteer submits an Epic access request; a manager promotes it (choosing the kind) and the linked Epic pipeline appears on the ticket", async ({
+test("support epic: volunteer submits an Epic access request; a manager attaches an Epic request via the new attach flow, then cancels it", async ({
   page,
 }) => {
   test.setTimeout(90_000);
   const t = tag();
   const subject = `E2E Epic Access ${t}`;
 
-  // dev.volunteer is ACTIVE with no epicId on file and no open Epic request
-  // (the seed never sets epicId; no other spec touches it), so when the manager
-  // promotes with kind NEW, createEpicRequest's "no epicId on file" precondition
-  // holds. Epic operational details are the manager's concern now: the submitter
-  // only picks the category and describes the request.
+  // dev.volunteer is a shared persona used across the suite: the seed never
+  // sets its epicId and no other spec leaves it with an open Epic request, so
+  // this test must not complete the attached request, set an Epic ID, or
+  // create a YNHH ticket (those mutate shared state and are already covered
+  // by unit tests). It cancels the request it attaches at the end, leaving
+  // only a CANCELLED row behind -- no open request, epicId still unset.
   await devLogin(page, "dev.volunteer@yale.edu");
   await page.goto("/support/new");
   await page.waitForURL((url) => url.pathname === "/support/new");
@@ -176,7 +180,10 @@ test("support epic: volunteer submits an Epic access request; a manager promotes
   const id = new URL(page.url()).pathname.split("/").pop()!;
   await expect(page.getByRole("heading", { name: subject })).toBeVisible();
 
-  // A manager finds it under All requests and promotes it.
+  // A manager finds it under All requests and attaches an Epic request via the
+  // ticket's "Epic access" section (the attach flow: Tasks 1-8 replaced the old
+  // single inline promote-and-pipeline with a many-requests-per-ticket attach
+  // form; the old pipeline now lives on its own page at /support/epic).
   await page.context().clearCookies();
   await devLogin(page, "j.carney@yale.edu");
   await page.goto("/support/all");
@@ -190,21 +197,40 @@ test("support epic: volunteer submits an Epic access request; a manager promotes
   await page.waitForURL((url) => url.pathname === `/support/${id}`);
   await page.waitForLoadState("networkidle");
 
-  // The manager's Epic section: the request-type (kind) selector defaults to NEW
-  // for a person with no Epic ID; promote with "Create Epic request".
+  // The old inline promote-and-pipeline UI is gone from the ticket page.
+  await expect(page.getByRole("button", { name: "Create Epic request" })).toHaveCount(0);
+  await expect(page.getByText("Epic request status")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Create YNHH ticket" })).toHaveCount(0);
+
+  // The new "Epic access" section: attach form defaults "Request type" to NEW
+  // (EPIC_KIND_LABELS.NEW = "New account"), quick-add the requester via the
+  // picker's "+ Add requester (...)" button, then attach.
+  const epicSection = page
+    .locator("section")
+    .filter({ has: page.locator("h2").filter({ hasText: "Epic access" }) })
+    .first();
+  // Scope attached-row assertions to the list (a <ul>): the kind label text
+  // ("New account") also appears as an <option> in the attach form's "Request
+  // type" Select, so an unscoped getByText would match both (strict-mode error).
+  const attachedList = epicSection.locator("ul");
   await expect(page.getByRole("heading", { name: "Epic access", exact: true })).toBeVisible();
   await expect(page.getByLabel("Request type")).toHaveValue("NEW");
-  await page.getByRole("button", { name: "Create Epic request" }).click();
+  await page.getByRole("button", { name: /Add requester/ }).click();
+  await page.getByRole("button", { name: "Attach Epic request(s)" }).click();
   await page.waitForURL((url) => url.pathname === `/support/${id}`);
   await page.waitForLoadState("networkidle");
 
-  // Promotion succeeded: the "Create Epic request" button is gone and the linked
-  // Epic pipeline now renders in its place. (Do not assert on [role="alert"]:
-  // the Next.js dev overlay adds one under `next dev`, which CI also uses.)
-  await expect(page.getByRole("button", { name: "Create Epic request" })).toHaveCount(0);
-  await expect(page.getByText("Epic request status")).toBeVisible();
-  await expect(page.getByText("Pending", { exact: true })).toBeVisible();
-  await expect(page.getByLabel("Epic ID")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Complete" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Create YNHH ticket" })).toBeVisible();
+  // Attaching succeeded: a new row renders with the kind and status badges.
+  // (Do not assert on [role="alert"]: the Next.js dev overlay adds one under
+  // `next dev`, which CI also uses.)
+  await expect(attachedList.getByText("New account")).toBeVisible();
+  await expect(attachedList.getByText("Pending", { exact: true })).toBeVisible();
+
+  // Cancel the attached request so the shared dev.volunteer persona is left
+  // clean: a CANCELLED Epic request, no open request, epicId never set.
+  await attachedList.getByRole("button", { name: "Cancel" }).click();
+  await page.waitForURL((url) => url.pathname === `/support/${id}`);
+  await page.waitForLoadState("networkidle");
+  await expect(attachedList.getByText("Pending", { exact: true })).toHaveCount(0);
+  await expect(attachedList.getByRole("button", { name: "Cancel" })).toHaveCount(0);
 });

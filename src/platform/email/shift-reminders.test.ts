@@ -45,6 +45,13 @@ async function schedule(
   clinicDate: Date,
   role: "DIRECTOR" | "VOLUNTEER" | "SHADOW",
 ) {
+  // A scheduled person is an active member of that department; the reminder cron
+  // now requires that (so it skips offboarded people with leftover assignments).
+  await prisma.termMembership.upsert({
+    where: { personId_termId_departmentId_kind: { personId, termId, departmentId, kind: role === "DIRECTOR" ? "DIRECTOR" : "VOLUNTEER" } },
+    create: { personId, termId, departmentId, kind: role === "DIRECTOR" ? "DIRECTOR" : "VOLUNTEER", status: "ACTIVE" },
+    update: { status: "ACTIVE" },
+  });
   return prisma.shiftAssignment.create({ data: { termId, departmentId, personId, clinicDate, role } });
 }
 async function shiftEmailCount() {
@@ -79,6 +86,27 @@ describe("runShiftReminders", () => {
     expect(volEmail!.html).toContain("Ed Exec");
     expect(volEmail!.html).toContain("Dana Director");
     expect(volEmail!.html).toContain("Cara Advisor");
+  });
+
+  it("does not remind a person whose department membership was removed (offboarded) despite a leftover assignment", async () => {
+    const target = futureClinicDate(5);
+    const term = await createTerm([target]);
+    const sctp = await createDepartment("SCTP", "Senior Primary Care");
+    const active = await createPerson("Ava Active", "ava@x.org");
+    const gone = await createPerson("Gia Gone", "gia@x.org");
+    await schedule(term.id, sctp.id, active.id, target, "VOLUNTEER");
+    await schedule(term.id, sctp.id, gone.id, target, "VOLUNTEER");
+    // Gia is offboarded: membership flipped to REMOVED, but her future assignment
+    // was not cleared. She must not be emailed.
+    await prisma.termMembership.updateMany({
+      where: { personId: gone.id, termId: term.id, departmentId: sctp.id },
+      data: { status: "REMOVED" },
+    });
+
+    const result = await runShiftReminders(NOW);
+    expect(result.remindersSent).toBe(1);
+    expect(await prisma.emailLog.findFirst({ where: { template: "shift-reminder", personId: gone.id } })).toBeNull();
+    expect(await prisma.emailLog.findFirst({ where: { template: "shift-reminder", personId: active.id } })).not.toBeNull();
   });
 
   it("is idempotent within the week (a re-run sends nothing)", async () => {

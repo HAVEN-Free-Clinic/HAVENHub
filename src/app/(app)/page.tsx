@@ -2,17 +2,13 @@ import { Suspense, type CSSProperties } from "react";
 import Link from "next/link";
 import {
   CalendarDays,
-  UserRoundPen,
-  Users,
   ClipboardList,
-  Settings,
   Stethoscope,
   ArrowRight,
   Repeat,
   Check,
   Clock,
   ChevronRight,
-  type LucideIcon,
 } from "lucide-react";
 import { requirePersonSession } from "@/platform/auth/session";
 import { getEffectivePermissions } from "@/platform/rbac/engine";
@@ -23,6 +19,8 @@ import { TimeGreeting } from "@/platform/ui/time-greeting";
 import { Card, cardClasses } from "@/platform/ui/card";
 import { ClinicChannelCard } from "./clinic-channel-card";
 import { mySchedule } from "@/modules/schedule/services/schedule";
+import { countPendingApprovals } from "@/modules/schedule/services/requests";
+import { buildActionCards, type ActionCard } from "./action-cards";
 import { listMyCertificates } from "@/modules/my-info/services/my-info";
 import { getOnboardingStatus, type OnboardingTask } from "@/modules/onboarding/services/onboarding";
 import { isInterviewPanelist } from "@/modules/recruitment/services/interviews";
@@ -45,13 +43,17 @@ const HUE_BY_MODULE: Record<string, string> = {
   admin: "admin",
 };
 
-/** Inline CSS vars so Tailwind's static scan never has to see dynamic hues. */
-function hueStyle(id: string): CSSProperties {
-  const hue = HUE_BY_MODULE[id] ?? "schedule";
+/** CSS vars for a given hue token key, so Tailwind's static scan never sees dynamic hues. */
+function hueVars(hue: string): CSSProperties {
   return {
     ["--mh" as string]: `var(--mod-${hue})`,
     ["--mhbg" as string]: `var(--mod-${hue}-bg)`,
   } as CSSProperties;
+}
+
+/** Module-tile hue, keyed by module id. */
+function hueStyle(id: string): CSSProperties {
+  return hueVars(HUE_BY_MODULE[id] ?? "schedule");
 }
 
 function timeGreeting(now = new Date()): string {
@@ -167,20 +169,21 @@ export function generateMetadata() {
  * are redirected to /login by requirePersonSession.
  *
  * The home is a personalized dashboard: a greeting, the member's next shift,
- * quick actions, color-coded module tiles, and a side rail with this week's
- * clinic channel and their real compliance status.
+ * a ranked action feed, color-coded module tiles, and a side rail with this
+ * week's clinic channel and their real compliance status.
  */
 export default async function HubPage() {
   const person = await requirePersonSession();
   // One permission fetch per render; tiles filter in memory (never can() in a loop).
   const permissions = await getEffectivePermissions(person.personId);
 
-  const [schedule, certificates, isPanelist, orgName, onboarding] = await Promise.all([
+  const [schedule, certificates, isPanelist, orgName, onboarding, pendingApprovals] = await Promise.all([
     mySchedule(person.personId),
     listMyCertificates(person.personId),
     isInterviewPanelist(person.personId),
     getSetting<string>("branding.orgName"),
     getOnboardingStatus(person.personId),
+    countPendingApprovals(person.personId),
   ]);
   const { term, shifts } = schedule;
 
@@ -239,63 +242,45 @@ export default async function HubPage() {
           },
         ];
 
-  // --- Quick actions (real links, access-filtered, capped at 4) ---
-  const hipaaShort =
-    status === "COMPLIANT" ? "current" : status === "UNKNOWN_DATE" ? "pending review" : "action needed";
-  const quickAll: Array<{ id: string; show: boolean; href: string; Icon: LucideIcon; label: string; sub: string }> = [
-    {
-      id: "schedule",
-      show: accessible.has("schedule"),
-      href: "/schedule",
-      Icon: CalendarDays,
-      label: "My schedule",
-      sub: upcoming.length ? `${upcoming.length} upcoming` : "View shifts",
-    },
-    {
-      id: "my-info",
-      show: accessible.has("my-info"),
-      href: "/my-info",
-      Icon: UserRoundPen,
-      label: "My Info",
-      sub: `HIPAA ${hipaaShort}`,
-    },
-    {
-      id: "volunteers",
-      show: accessible.has("volunteers"),
-      href: "/volunteers",
-      Icon: Users,
-      label: "Volunteers",
-      sub: "Rosters & compliance",
-    },
-    {
-      id: "recruitment",
-      show: accessible.has("recruitment"),
-      href: "/recruitment",
-      Icon: ClipboardList,
-      label: "Recruitment",
-      sub: "Cycles & review",
-    },
-    {
-      // Panelists are often directors with no recruitment.access, so they get no
-      // Recruitment tile or nav; this is their only home-screen path to the
-      // interview assignments page. Shown only when they actually have one.
-      id: "my-interviews",
-      show: isPanelist,
-      href: "/recruitment/interviews",
-      Icon: ClipboardList,
-      label: "My interviews",
-      sub: "Panel assignments",
-    },
-    {
-      id: "admin",
-      show: accessible.has("admin"),
-      href: "/admin",
-      Icon: Settings,
-      label: "Admin",
-      sub: "People & terms",
-    },
-  ];
-  const quick = quickAll.filter((q) => q.show).slice(0, 4);
+  // --- Smart action feed: personal + role actions ranked by urgency, module
+  // shortcuts backfilling any remaining slots (see action-cards.ts). ---
+  const trainingTasks = onboarding.tasks.filter(
+    (t) =>
+      (t.key === "training" || t.key === "directorTraining" || t.key === "learning") &&
+      t.state !== "COMPLETE" &&
+      t.state !== "NOT_REQUIRED",
+  );
+  const profileTask = onboarding.tasks.find((t) => t.key === "profile");
+
+  // Navigational shortcuts, only shown when there aren't enough real actions.
+  const backfill: ActionCard[] = [];
+  for (const id of ["volunteers", "recruitment"] as const) {
+    const m = activeModules.find((mm) => mm.id === id);
+    if (m) {
+      backfill.push({ key: m.id, href: `/${m.id}`, icon: m.icon, hue: HUE_BY_MODULE[m.id] ?? "schedule", label: m.title, sub: m.description, priority: 0 });
+    }
+  }
+  if (isPanelist) {
+    backfill.push({ key: "my-interviews", href: "/recruitment/interviews", icon: ClipboardList, hue: "recruit", label: "My interviews", sub: "Panel assignments", priority: 0 });
+  }
+  const adminModule = activeModules.find((mm) => mm.id === "admin");
+  if (adminModule) {
+    backfill.push({ key: "admin", href: "/admin", icon: adminModule.icon, hue: HUE_BY_MODULE.admin, label: adminModule.title, sub: adminModule.description, priority: 0 });
+  }
+
+  const cards = buildActionCards({
+    hasScheduleAccess: accessible.has("schedule"),
+    hasMyInfoAccess: accessible.has("my-info"),
+    upcomingCount: upcoming.length,
+    nextShiftDaysAway: next ? daysAway : null,
+    pendingSwapCount: schedule.pendingRequests.size,
+    pendingApprovals,
+    compliance: status,
+    trainingIncomplete: trainingTasks.length,
+    trainingHref: trainingTasks[0]?.key === "learning" ? "/learning" : "/training",
+    profileIncomplete: profileTask?.state === "INCOMPLETE",
+    backfill,
+  });
 
   return (
     <>
@@ -386,16 +371,16 @@ export default async function HubPage() {
             </Card>
           )}
 
-          {/* Quick actions */}
-          {quick.length > 0 && (
+          {/* Action feed */}
+          {cards.length > 0 && (
             <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-              {quick.map((q) => {
-                const Icon = q.Icon;
+              {cards.map((card) => {
+                const Icon = card.icon;
                 return (
                   <Link
-                    key={q.id}
-                    href={q.href}
-                    style={hueStyle(q.id)}
+                    key={card.key}
+                    href={card.href}
+                    style={hueVars(card.hue)}
                     className={cardClasses({ size: "compact", interactive: true, pad: false }) + " flex items-center gap-3 p-3.5"}
                   >
                     <span
@@ -405,8 +390,8 @@ export default async function HubPage() {
                       <Icon aria-hidden className="h-[18px] w-[18px]" />
                     </span>
                     <span className="min-w-0">
-                      <span className="block truncate text-sm font-semibold text-foreground">{q.label}</span>
-                      <span className="block truncate text-xs text-muted-foreground">{q.sub}</span>
+                      <span className="block truncate text-sm font-semibold text-foreground">{card.label}</span>
+                      <span className="block truncate text-xs text-muted-foreground">{card.sub}</span>
                     </span>
                   </Link>
                 );

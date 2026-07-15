@@ -12,12 +12,19 @@ export async function decideInterview(
   deciderId: string,
   notes: string | null
 ): Promise<Interview> {
-  const iv = await prisma.interview.findUnique({ where: { id: interviewId }, include: { application: { select: { status: true } } } });
+  const iv = await prisma.interview.findUnique({
+    where: { id: interviewId },
+    include: { application: { select: { status: true, applicant: { select: { applicantPersonId: true } } } } },
+  });
   if (!iv) throw new InterviewError("Interview not found.");
-  // Mirror acceptApplicant (review.ts): never turn a DRAFT application into an
-  // acceptance. A DRAFT application is not a real submission, so an ACCEPT here
-  // must not mint an Acceptance for it (audit3 L1).
+  // A DRAFT application is not a real submission, so an ACCEPT here must not
+  // mint an Acceptance for it (audit3 L1).
   if (iv.application.status !== "SUBMITTED") throw new InterviewError("This application hasn't been submitted yet.");
+  // Separation of duties: a signed-in incumbent (e.g. a director re-applying into a
+  // department they manage) must not decide their own interview.
+  if (iv.application.applicant.applicantPersonId && iv.application.applicant.applicantPersonId === deciderId) {
+    throw new RecruitmentAuthError("You can't decide your own interview.");
+  }
   const scope = await reviewScope(deciderId);
   if (!(scope.all || scope.departmentCodes.includes(iv.departmentCode))) {
     throw new RecruitmentAuthError("You can't decide interviews for that department.");
@@ -26,11 +33,14 @@ export async function decideInterview(
   const key = { applicationId_departmentCode: { applicationId: iv.applicationId, departmentCode: iv.departmentCode } };
   const updated = await prisma.$transaction(async (tx) => {
     if (outcome === "ACCEPT") {
-      // Idempotent: keep an existing acceptance (and its notes) as-is.
-      const existing = await tx.acceptance.findUnique({ where: key });
-      if (!existing) {
-        await tx.acceptance.create({ data: { applicationId: iv.applicationId, departmentCode: iv.departmentCode, approvedById: deciderId, notes } });
-      }
+      // Idempotent AND race-safe: INSERT ... ON CONFLICT DO NOTHING keeps any
+      // existing acceptance (and its notes) as-is, so two concurrent ACCEPTs can't
+      // 500 on @@unique([applicationId, departmentCode]) -- the earlier
+      // findUnique+create left a race window that surfaced a raw P2002 (audit F13).
+      await tx.acceptance.createMany({
+        data: [{ applicationId: iv.applicationId, departmentCode: iv.departmentCode, approvedById: deciderId, notes }],
+        skipDuplicates: true,
+      });
     } else {
       // Changing away from ACCEPT removes a not-yet-acted-on acceptance so the
       // decision and acceptance never disagree.

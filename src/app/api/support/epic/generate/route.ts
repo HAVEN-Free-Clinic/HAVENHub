@@ -400,11 +400,19 @@ export async function POST(req: Request) {
 
   if (isDeactivate) {
     // Deactivation requests already exist (queued at offboard) or are created
-    // here for an ad-hoc deactivation; link them to this ticket as SUBMITTED.
-    const ticket = await prisma.ynhhTicket.create({
-      data: { submittedById: actor.id, description: ticketDescription, status: "OPEN" },
-    });
-    await reconcileDeactivationRequests(actor.id, people.map((p) => p.id), ticket.id);
+    // here for an ad-hoc deactivation; link them to a ticket as SUBMITTED. The
+    // ticket is created inside reconcileDeactivationRequests' transaction, so a
+    // mid-batch failure can't leave an orphan OPEN ticket (audit F18). A repeat
+    // submission of already-submitted people is rejected (400) rather than
+    // orphaning their existing ticket, mirroring the grant path below.
+    try {
+      await reconcileDeactivationRequests(actor.id, people.map((p) => p.id), ticketDescription);
+    } catch (err) {
+      if (err instanceof SupportStateError || err instanceof SupportNotFoundError) {
+        return NextResponse.json({ error: err.message }, { status: 400 });
+      }
+      throw err;
+    }
   } else {
     // Record access-granting Epic requests for tracking.
     // kind maps: new_individual/bulk_new -> NEW, mod_individual -> MODIFY,

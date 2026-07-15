@@ -66,6 +66,7 @@ export type PersonInput = {
   epicId?: string | null;
   yaleAffiliation?: string | null;
   gradYear?: string | null;
+  dietaryRestrictions?: string | null;
   spanishSelfReported?: boolean;
   spanishVerified?: boolean;
   licensedRN?: boolean;
@@ -160,6 +161,7 @@ export async function updatePersonFields(
     "epicId",
     "yaleAffiliation",
     "gradYear",
+    "dietaryRestrictions",
     "spanishSelfReported",
     "spanishVerified",
     "licensedRN",

@@ -105,6 +105,25 @@ describe("loadClearanceMap", () => {
     expect(summary.onboarded).toBe(single.onboarded);
   });
 
+  it("honors a per-term disabled step so batch clearance still agrees with getOnboardingStatus", async () => {
+    const term = await activeTerm();
+    const dept = await prisma.department.create({ data: { code: "PCAR", name: "Primary Care" } });
+    const person = await memberWithProfile("Ned", dept.id, term.id);
+    // No HIPAA cert -> the (blocking) hipaa step would keep them un-cleared. Disable
+    // the step for this term; getOnboardingStatus drops it, and the batch path must too.
+    await prisma.termOnboardingStep.create({ data: { termId: term.id, kind: "hipaa", enabled: false, order: 1 } });
+
+    const [batch, single] = await Promise.all([
+      loadClearanceMap([person.id], term.id),
+      getOnboardingStatus(person.id),
+    ]);
+    const summary = batch.get(person.id)!;
+    expect(summary.tasks.map((t) => t.key)).not.toContain("hipaa");
+    expect(summary.cleared).toBe(true);
+    expect(summary.cleared).toBe(single.cleared);
+    expect(summary.onboarded).toBe(single.onboarded);
+  });
+
   it("honors the `now` argument for HIPAA cert expiry", async () => {
     const term = await activeTerm();
     const dept = await prisma.department.create({ data: { code: "PCAR", name: "Primary Care" } });

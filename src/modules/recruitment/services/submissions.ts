@@ -10,6 +10,7 @@ import {
   type SectionDef, type FieldDef,
 } from "../engine/schema-builder";
 import { visibleSections, type ApplicantType } from "../engine/visibility";
+import { isFieldVisible } from "../engine/field-visibility";
 import { getRenewalContext } from "./renewal";
 import { renderCycleEmail } from "../email/render";
 
@@ -34,7 +35,7 @@ const DEPT_CHOICE_KEY_TYPE: FieldType = "DEPARTMENT_CHOICE";
 const SUBCOMMITTEE_RANK_TYPE: FieldType = "SUBCOMMITTEE_RANK";
 
 function toSectionDefs(
-  sections: { id: string; appliesTo: SectionDef["appliesTo"]; departmentCode: string | null; fields: { key: string; type: FieldType; required: boolean; options: unknown; validation: unknown }[] }[],
+  sections: { id: string; appliesTo: SectionDef["appliesTo"]; departmentCode: string | null; fields: { key: string; type: FieldType; required: boolean; options: unknown; validation: unknown; visibleWhen: unknown }[] }[],
   departments: string[],
   applicantType: ApplicantType
 ): SectionDef[] {
@@ -50,6 +51,7 @@ function toSectionDefs(
       required: f.type === DEPT_CHOICE_KEY_TYPE && applicantType === "RENEWAL" ? false : f.required,
       options: f.type === DEPT_CHOICE_KEY_TYPE ? departments.map((d) => ({ value: d, label: d })) : (f.options as FieldDef["options"]) ?? null,
       validation: (f.validation as FieldDef["validation"]) ?? null,
+      visibleWhen: f.visibleWhen ?? null,
     })),
   }));
 }
@@ -105,6 +107,10 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
   let renewalAllowedDepartments: string[] = [];
   // For a TRANSFER: where the person is coming from (their active departments).
   let transferFromDepartments: string[] = [];
+  // A returning applicant's identity comes from their matched record, not the
+  // form: the identity section (first_name/last_name/net_id) is NEW-only, so it is
+  // never rendered for them and their answers carry none of it. Capture it here.
+  let returningIdentity: { name: string | null; netId: string | null; phone: string | null } | null = null;
   const isReturning = input.applicantType === "RENEWAL" || input.applicantType === "TRANSFER";
   if (isReturning) {
     const roleNoun = cycle.track === "DIRECTOR" ? "director" : "volunteer";
@@ -116,6 +122,7 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
       throw new SubmissionValidationError(`We do not see a current ${roleNoun} membership for your account.`);
     }
     applicantPersonId = renewalCtx.personId;
+    returningIdentity = { name: renewalCtx.name, netId: renewalCtx.netId, phone: renewalCtx.phone };
     if (input.applicantType === "RENEWAL") {
       renewalAllowedDepartments = renewalCtx.currentDepartments.filter((d) => cycle.departments.includes(d));
     } else {
@@ -166,7 +173,12 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
     }
   }
 
-  const ctx = { applicantType: input.applicantType, selectedDepartmentCodes };
+  // Cast is safe: isFieldVisible (via asArray) only ever compares string values;
+  // an answer that is not a plain string/string[] (e.g. a file ref, a checkbox
+  // boolean) is simply not string-comparable, so a condition targeting it
+  // resolves the same way it would for any other unmatched value.
+  const answersForVisibility = input.answers as unknown as Record<string, string | string[] | undefined>;
+  const ctx = { applicantType: input.applicantType, selectedDepartmentCodes, answers: answersForVisibility };
 
   const schema = buildApplicationSchema(sectionDefs, ctx);
   const parsed = schema.safeParse(input.answers);
@@ -180,8 +192,28 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
   // the client-submitted value is ignored so it cannot be spoofed.
   const email = (isReturning ? input.sessionEmail! : String(input.answers.email ?? "")).trim();
   const emailLower = email.toLowerCase();
-  const firstName = String(input.answers.first_name ?? "").trim();
-  const lastName = String(input.answers.last_name ?? "").trim();
+  // Returning applicants: split the matched record's name (the identity fields are
+  // NEW-only, so answers.first_name/last_name are absent for them). New applicants:
+  // read the form. The template key is net_id (snake_case, like first_name), not
+  // "netid" -- reading answers.netid always yielded null, dropping every NetID.
+  const returningName = (returningIdentity?.name ?? "").trim();
+  const returningNameSplit = returningName.indexOf(" ");
+  const firstName = (
+    isReturning
+      ? returningNameSplit === -1 ? returningName : returningName.slice(0, returningNameSplit)
+      : String(input.answers.first_name ?? "")
+  ).trim();
+  const lastName = (
+    isReturning
+      ? returningNameSplit === -1 ? "" : returningName.slice(returningNameSplit + 1)
+      : String(input.answers.last_name ?? "")
+  ).trim();
+  const identityNetId = isReturning
+    ? returningIdentity?.netId ?? null
+    : typeof input.answers.net_id === "string" ? input.answers.net_id : null;
+  const identityPhone = isReturning
+    ? returningIdentity?.phone ?? null
+    : typeof input.answers.phone === "string" ? input.answers.phone : null;
 
   const existingApplicant = await prisma.applicant.findUnique({
     where: { cycleId_emailLower: { cycleId: cycle.id, emailLower } },
@@ -204,16 +236,28 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
   // Enforce upload rules: a file may only be uploaded under the key of a visible
   // FILE field. Rejecting unknown keys is also the primary defense against a
   // path-traversal write (the key is used to build the on-disk filename).
+  //
+  // A FILE field can itself be condition-hidden (`visibleWhen`), same as any other
+  // field. Its section being visible is not enough -- the field's own condition
+  // must also hold, or its file is dropped here (never handed to persistFiles, so
+  // no blob is ever written for it) instead of being rejected as "unknown field".
+  // This mirrors how a hidden scalar field's answer is silently excluded rather
+  // than treated as an error, and closes the orphaned-blob gap a hidden file
+  // input can otherwise open (DOM unmounting of hidden fields is a later task, so
+  // a hidden file input can still submit its FormData entry today).
   const visibleFields = visibleSections(sectionDefs, ctx).flatMap((s) => s.fields);
-  const allowedFileKeys = new Set(visibleFields.filter((f) => f.type === "FILE").map((f) => f.key));
+  const fileFields = visibleFields.filter((f) => f.type === "FILE");
   const maxMb = await getSetting<number>("uploads.maxMb");
+  const filesToPersist: Record<string, UploadedFile> = {};
   for (const [key, file] of Object.entries(input.files)) {
-    if (!allowedFileKeys.has(key)) {
+    const field = fileFields.find((f) => f.key === key);
+    if (!field) {
       throw new SubmissionValidationError("Unexpected file upload.", { [key]: "unknown field" });
     }
-    const field = visibleFields.find((f) => f.key === key);
-    const problem = validateUploadedFile(file, field?.validation, maxMb);
+    if (!isFieldVisible(field.visibleWhen, ctx.answers)) continue; // condition-hidden: silently skip, not persisted
+    const problem = validateUploadedFile(file, field.validation, maxMb);
     if (problem) throw new SubmissionValidationError(problem.message, { [key]: problem.detail });
+    filesToPersist[key] = file;
   }
 
   // Subcommittee ranking: hoisted into its own column like departmentChoices, and
@@ -227,10 +271,25 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
     subcommitteeRanking = resolveRanking(input.answers[rankField.key], rankField.required, rankCount, activeIds, rankField.key);
   }
 
-  const fileRefs = await persistFiles(cycle.id, input.files);
+  const fileRefs = await persistFiles(cycle.id, filesToPersist);
   const draftFileRefs = Object.fromEntries(draftFileKeys.map((k) => [k, draftAnswers[k]]));
   const answersWithFiles = { ...draftFileRefs, ...parsed.data, ...fileRefs.answerPatch };
   if (rankField) delete (answersWithFiles as Record<string, unknown>)[rankField.key];
+  // Strip any condition-hidden field's stale answer (e.g. the applicant answered
+  // it, then flipped the gate that hides it) so persisted answers only ever
+  // reflect what was actually visible at submission time. A stripped FILE field
+  // can carry an existing DRAFT-uploaded blob under this same key (uploaded back
+  // when the field was still visible); without deleting that blob too, its
+  // answer key is gone from `answers` but the file lingers orphaned in storage.
+  const orphanedDraftFileKeys: string[] = [];
+  for (const field of visibleFields) {
+    if (!isFieldVisible(field.visibleWhen, ctx.answers)) {
+      delete (answersWithFiles as Record<string, unknown>)[field.key];
+      if (field.type === "FILE" && draftFileKeys.includes(field.key)) {
+        orphanedDraftFileKeys.push(`recruitment/${cycle.id}/${(draftAnswers[field.key] as { storedName: string }).storedName}`);
+      }
+    }
+  }
 
   let application: Application;
   try {
@@ -240,11 +299,11 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
         // Finalize the existing draft applicant: fill in identity fields from answers.
         await tx.applicant.update({
           where: { id: applicantId },
-          data: { applicantPersonId, firstName, lastName, email, emailLower, netId: typeof input.answers.netid === "string" ? input.answers.netid : null, phone: typeof input.answers.phone === "string" ? input.answers.phone : null },
+          data: { applicantPersonId, firstName, lastName, email, emailLower, netId: identityNetId, phone: identityPhone },
         });
       } else {
         const created = await tx.applicant.create({
-          data: { cycleId: cycle.id, applicantPersonId, firstName, lastName, email, emailLower, netId: typeof input.answers.netid === "string" ? input.answers.netid : null, phone: typeof input.answers.phone === "string" ? input.answers.phone : null },
+          data: { cycleId: cycle.id, applicantPersonId, firstName, lastName, email, emailLower, netId: identityNetId, phone: identityPhone },
         });
         applicantId = created.id;
       }
@@ -253,6 +312,14 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
         applicantType: input.applicantType, departmentChoices: selectedDepartmentCodes, subcommitteeRanking,
         renewalDepartment: input.applicantType === "RENEWAL" ? input.renewalDepartment! : null,
         transferFromDepartments,
+        // Returning members (RENEWAL only, NOT TRANSFER) skip committee scoring +
+        // routing: auto-route them straight to their current department so its
+        // director sees and decides them directly. Routing is volunteer-only (the
+        // director track is ranking-based and already visible to the dept). A
+        // TRANSFER is treated like a NEW applicant and goes through the committee.
+        ...(input.applicantType === "RENEWAL" && cycle.track === "VOLUNTEER"
+          ? { routedDepartmentCode: input.renewalDepartment!, routedAt: new Date() }
+          : {}),
         status: "SUBMITTED" as const, submittedAt: new Date(),
       };
       let app: Application;
@@ -299,6 +366,10 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
     .filter((k) => draftFileKeys.includes(k))
     .map((k) => `recruitment/${cycle.id}/${(draftAnswers[k] as { storedName: string }).storedName}`);
   if (supersededKeys.length > 0) await cleanupFiles(supersededKeys);
+  // Same idea for a FILE field's draft blob orphaned by a visibility condition
+  // (see the strip loop above): now that the submission has committed, it's
+  // safe to delete.
+  if (orphanedDraftFileKeys.length > 0) await cleanupFiles(orphanedDraftFileKeys);
 
   await recordAudit({ action: "recruitment.application_submit", entityType: "Application", entityId: application.id });
   return application;

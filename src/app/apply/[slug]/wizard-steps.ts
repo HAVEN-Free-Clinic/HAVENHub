@@ -8,6 +8,7 @@ export type WizardField = {
   required: boolean;
   options: { value: string; label: string }[] | null;
   validation: Record<string, unknown> | null;
+  visibleWhen?: unknown;
 };
 
 export type WizardSection = {

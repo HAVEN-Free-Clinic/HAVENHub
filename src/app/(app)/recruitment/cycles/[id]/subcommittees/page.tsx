@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { requirePersonSession } from "@/platform/auth/session";
+import { requirePermission, requirePersonSession } from "@/platform/auth/session";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { listAcceptedForAssignment, listAssignableSubcommittees } from "@/modules/recruitment/services/subcommittees";
 import { RecruitmentAuthError } from "@/modules/recruitment/services/review";
@@ -21,6 +21,7 @@ type PageProps = {
 export default async function AssignSubcommitteesPage({ params, searchParams }: PageProps) {
   const { id } = await params;
   const { error, saved } = await searchParams;
+  await requirePermission("recruitment.access");
   const [person, cycle] = await Promise.all([requirePersonSession(), getCycle(id)]);
   if (!cycle) notFound();
 

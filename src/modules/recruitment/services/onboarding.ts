@@ -115,6 +115,10 @@ export async function createOrResendContract(
     ? await resolveContractLayout(cycle.id)
     : null;
   if (!contract) {
+    // Prefill affiliation/grad-year/Spanish from the application answers so the
+    // applicant does not re-answer them during onboarding; only on create, so a
+    // resend never clobbers a contract a director has already started editing.
+    const a = (acceptance.application.answers ?? {}) as Record<string, unknown>;
     contract = await prisma.onboardingContract.create({
       data: {
         acceptanceId,
@@ -124,6 +128,9 @@ export async function createOrResendContract(
         email: applicant.email,
         netId: applicant.netId,
         phone: applicant.phone,
+        yaleAffiliation: typeof a.yale_affiliation === "string" ? a.yale_affiliation : undefined,
+        gradYear: typeof a.grad_year === "string" ? a.grad_year : undefined,
+        spanishSelfReported: typeof a.spanish_proficiency === "string" && a.spanish_proficiency !== "none",
         templateSnapshot: layout as object,
       },
     });

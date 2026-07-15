@@ -57,10 +57,10 @@ export async function reorderSectionsAction(cycleId: string, orderedSectionIds: 
 export async function addFieldAction(
   cycleId: string,
   sectionId: string,
-  input: { type: FieldType },
+  input: { type: FieldType; visibleWhen?: unknown | null },
 ): Promise<ActionResult> {
   return run(cycleId, () =>
-    addField(sectionId, { label: FIELD_TYPE_META[input.type].label, type: input.type, required: false }),
+    addField(sectionId, { label: FIELD_TYPE_META[input.type].label, type: input.type, required: false, visibleWhen: input.visibleWhen }),
   );
 }
 
@@ -70,6 +70,7 @@ export async function updateFieldAction(
   patch: {
     label?: string; helpText?: string; required?: boolean; type?: FieldType;
     options?: { value: string; label: string }[]; validation?: Record<string, unknown> | null; correctValue?: string | null;
+    visibleWhen?: unknown | null;
   },
 ): Promise<ActionResult> {
   return run(cycleId, () => updateField(fieldId, patch), [builderPath(cycleId), quizPath(cycleId)]);
@@ -87,6 +88,7 @@ export async function duplicateFieldAction(cycleId: string, fieldId: string): Pr
       options: field.options ?? undefined,
       validation: field.validation ?? undefined,
       correctValue: field.correctValue,
+      visibleWhen: field.visibleWhen ?? undefined,
     });
   });
 }

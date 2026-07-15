@@ -72,6 +72,8 @@ body {
   --mod-admin-bg: oklch(0.96 0.03 70);
   --mod-recruit:    oklch(0.50 0.08 300);
   --mod-recruit-bg: oklch(0.96 0.024 300);
+  --mod-swap:    oklch(0.55 0.11 55);
+  --mod-swap-bg: oklch(0.96 0.035 60);
 }
 
 /*
@@ -91,6 +93,8 @@ html.dark {
   --mod-admin-bg: oklch(0.30 0.05 70);
   --mod-recruit:    oklch(0.80 0.09 300);
   --mod-recruit-bg: oklch(0.30 0.045 300);
+  --mod-swap:    oklch(0.82 0.10 60);
+  --mod-swap-bg: oklch(0.30 0.05 60);
 }
 
 /*

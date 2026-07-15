@@ -23,26 +23,40 @@ import { AddPanelistForm } from "./add-panelist-form";
 import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
 
-const RECS = ["STRONG_YES", "YES", "MAYBE", "NO"];
+const SCORES = [1, 2, 3, 4, 5];
 const decisionTone = { PENDING: "default", ACCEPT: "success", REJECT: "critical", WAITLIST: "warning" } as const;
 const decisionLabel = { PENDING: "Pending", ACCEPT: "Accepted", REJECT: "Rejected", WAITLIST: "Waitlisted" } as const;
+const savedMessage: Record<string, string> = {
+  decision: "Decision recorded.",
+  schedule: "Schedule saved.",
+  panelist: "Panel updated.",
+  invite: "Invite sent.",
+  evaluation: "Evaluation saved.",
+  rescind: "Acceptance rescinded.",
+};
 
-export default async function InterviewDetail({ params, searchParams }: { params: Promise<{ interviewId: string }>; searchParams: Promise<{ error?: string }> }) {
+export default async function InterviewDetail({ params, searchParams }: { params: Promise<{ interviewId: string }>; searchParams: Promise<{ error?: string; saved?: string }> }) {
   const { interviewId } = await params;
-  const { error } = await searchParams;
+  const { error, saved } = await searchParams;
   const person = await requirePersonSession();
   const iv = await getInterview(interviewId);
   if (!iv) notFound();
-  const [scope, managesCycles] = await Promise.all([reviewScope(person.personId), can(person.personId, "recruitment.manage_cycles")]);
+  const [scope, managesCycles, canScore] = await Promise.all([
+    reviewScope(person.personId),
+    can(person.personId, "recruitment.manage_cycles"),
+    can(person.personId, "recruitment.score"),
+  ]);
   const isPanelist = iv.panelists.some((p) => p.person.id === person.personId);
   // This page sits outside the recruitment.access module gate so panelists (who
   // are not recruitment staff) can reach their assigned interview. Access is
-  // therefore enforced here: canView admits cycle staff and panelists; canManage
-  // gates the action controls and matches the service authz exactly (scope.all or
-  // the interview's department is in the actor's review scope) so a control is
-  // never shown to someone whose submit would be rejected.
+  // therefore enforced here: canView admits cycle staff, committee scorers (who
+  // can already open the application detail that links here, so the link must not
+  // 404 on them), and panelists; canManage gates the action controls and matches
+  // the service authz exactly (scope.all or the interview's department is in the
+  // actor's review scope) so a control is never shown to someone whose submit
+  // would be rejected. A scorer gets canManage=false, so this stays read-only.
   const isStaff = scope.all || managesCycles || scope.departmentCodes.includes(iv.departmentCode);
-  const canView = isStaff || isPanelist;
+  const canView = isStaff || canScore || isPanelist;
   if (!canView) notFound();
   const canManage = scope.all || scope.departmentCodes.includes(iv.departmentCode);
   const candidates = canManage ? await listPanelistCandidates(interviewId) : [];
@@ -73,6 +87,7 @@ export default async function InterviewDetail({ params, searchParams }: { params
         action={<Badge tone={decisionTone[iv.decision as keyof typeof decisionTone] ?? "default"}>{decisionLabel[iv.decision as keyof typeof decisionLabel] ?? iv.decision}</Badge>}
       />
       {error && <Alert tone="error">{error}</Alert>}
+      {saved && savedMessage[saved] && <Alert tone="success">{savedMessage[saved]}</Alert>}
 
       {canManage && (
         <>
@@ -156,15 +171,15 @@ export default async function InterviewDetail({ params, searchParams }: { params
       )}
 
       <Card>
-        <SectionHeader>Evaluations ({summary.total})</SectionHeader>
+        <SectionHeader>Evaluations ({summary.count})</SectionHeader>
         <p className="mt-1 text-xs text-subtle-foreground">
-          Strong yes {summary.strongYes} · Yes {summary.yes} · Maybe {summary.maybe} · No {summary.no}
+          Average {summary.average != null ? summary.average.toFixed(1) : "-"}
         </p>
         {iv.evaluations.length > 0 ? (
           <ul className="mt-3 divide-y divide-border-subtle">
             {iv.evaluations.map((e) => (
               <li key={e.id} className="py-2 text-sm text-foreground-soft">
-                <strong className="text-foreground">{e.evaluator.name}</strong>: {e.recommendation.replace("_", " ")}
+                <strong className="text-foreground">{e.evaluator.name}</strong>: {e.score}/5
                 {e.comments ? ` (${e.comments})` : ""}
               </li>
             ))}
@@ -193,7 +208,7 @@ export default async function InterviewDetail({ params, searchParams }: { params
           <form action={decideAction.bind(null, interviewId)} className="mt-3 flex flex-wrap items-end gap-3">
             <div className="w-40">
               <Field label="Outcome">
-                <Select name="outcome" required>
+                <Select name="outcome" required defaultValue={iv.decision === "PENDING" ? "ACCEPT" : iv.decision}>
                   <option value="ACCEPT">Accept</option>
                   <option value="REJECT">Reject</option>
                   <option value="WAITLIST">Waitlist</option>
@@ -207,6 +222,11 @@ export default async function InterviewDetail({ params, searchParams }: { params
             </div>
             <SubmitButton size="sm" pendingLabel="Recording…">Record decision</SubmitButton>
           </form>
+          {iv.decision !== "PENDING" && iv.decidedAt && (
+            <p className="mt-2 text-xs text-subtle-foreground">
+              {decisionLabel[iv.decision as keyof typeof decisionLabel]} · recorded <DateTime value={iv.decidedAt} />
+            </p>
+          )}
           <p className="mt-2 text-xs text-subtle-foreground">Accept creates an acceptance, released from the Decisions page.</p>
         </Card>
       )}
@@ -216,14 +236,14 @@ export default async function InterviewDetail({ params, searchParams }: { params
           <SectionHeader>Your evaluation</SectionHeader>
           <form action={submitEvaluationAction.bind(null, interviewId)} className="mt-3 flex flex-wrap items-end gap-3">
             <div className="w-44">
-              <Field label="Recommendation">
-                <Select name="recommendation" required defaultValue={myEval?.recommendation ?? ""}>
+              <Field label="Score (1-5)">
+                <Select name="score" required defaultValue={myEval?.score != null ? String(myEval.score) : ""}>
                   <option value="" disabled>
                     Select…
                   </option>
-                  {RECS.map((r) => (
-                    <option key={r} value={r}>
-                      {r.replace("_", " ")}
+                  {SCORES.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
                     </option>
                   ))}
                 </Select>

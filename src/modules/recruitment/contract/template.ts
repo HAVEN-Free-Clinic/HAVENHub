@@ -1,7 +1,7 @@
 import { prisma } from "@/platform/db";
 import { setSetting } from "@/platform/settings/service";
 import type { ContractLayout } from "./layout";
-import { parseContractLayout } from "./layout";
+import { parseContractLayout, ContractLayoutError } from "./layout";
 import { resolveContractLayout } from "./resolve";
 import { assertTwoTier } from "./block-ops";
 
@@ -20,7 +20,19 @@ export async function getContractLayoutForEdit(
   return { layout: await resolveContractLayout(cycleId), hasOverride: false };
 }
 
+/** Mirrors form-builder's assertCycleEditable: a cycle stays editable through
+ *  OPEN and CLOSED (directors may need to adjust the contract mid-cycle);
+ *  only ARCHIVED (the terminal, retired state) locks it. */
+async function assertContractEditable(cycleId: string): Promise<void> {
+  const cycle = await prisma.recruitmentCycle.findUnique({ where: { id: cycleId }, select: { status: true } });
+  if (!cycle) throw new ContractLayoutError(["Cycle not found."]);
+  if (cycle.status === "ARCHIVED") {
+    throw new ContractLayoutError(["This cycle is archived and can no longer be edited."]);
+  }
+}
+
 export async function saveCycleContractLayout(cycleId: string, layout: ContractLayout): Promise<void> {
+  await assertContractEditable(cycleId);
   const parsed = parseContractLayout(layout);
   assertTwoTier(parsed);
   await prisma.recruitmentCycleContract.upsert({
@@ -31,6 +43,7 @@ export async function saveCycleContractLayout(cycleId: string, layout: ContractL
 }
 
 export async function resetCycleContractLayout(cycleId: string): Promise<void> {
+  await assertContractEditable(cycleId);
   await prisma.recruitmentCycleContract.deleteMany({ where: { cycleId } });
 }
 

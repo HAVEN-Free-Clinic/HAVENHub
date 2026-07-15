@@ -2,27 +2,13 @@ import { auth } from "@/platform/auth/auth";
 import { getActivePerson } from "@/platform/auth/match-person";
 import { getObject } from "@/platform/storage";
 import { getApplication } from "@/modules/recruitment/services/submissions";
-import { reviewScope } from "@/modules/recruitment/services/review";
+import { reviewScope, canViewApplication } from "@/modules/recruitment/services/review";
 import { can } from "@/platform/rbac/engine";
+import { INLINE_SAFE_MIME_TYPES } from "@/modules/recruitment/services/file-preview";
 
 type RouteContext = {
   params: Promise<{ applicationId: string; key: string }>;
 };
-
-/**
- * Mime types we are willing to render inline (preview). Everything else is forced
- * to download even when `?inline=1` is requested -- the stored mimeType comes from
- * the applicant's browser and an inline `text/html` or `image/svg+xml` would be a
- * stored-XSS vector. Mirrors src/app/(app)/my-info/certificate/[id]/route.ts.
- * SVG is intentionally excluded; it can carry script.
- */
-const INLINE_SAFE_MIME_TYPES = new Set([
-  "application/pdf",
-  "image/png",
-  "image/jpeg",
-  "image/gif",
-  "image/webp",
-]);
 
 type StoredFile = { storedName?: string; fileName?: string; mimeType?: string };
 
@@ -35,10 +21,12 @@ type StoredFile = { storedName?: string; fileName?: string; mimeType?: string };
  *
  * Security:
  *   - Requires a valid session matched to an active Person.
- *   - Authorization mirrors the applicant detail page exactly: a reviewer with
- *     recruitment.review_all scope or recruitment.manage_cycles sees any
- *     application; otherwise the application must overlap one of the reviewer's
- *     scoped departments.
+ *   - Authorization is the shared canViewApplication() check, identical to the
+ *     applicant detail page that links here: SRR/review_all, cycle managers, and
+ *     committee scorers see any application; a scope-director sees a VOLUNTEER
+ *     application routed to their department, or a DIRECTOR-track application
+ *     that ranked their department. (Previously this route omitted the scorer
+ *     and routed-director branches, 404-ing committee scorers on every file.)
  *   - The stored object key is built from the application's own cycleId and the
  *     answer's storedName (both from the DB), never from user input, so no path
  *     traversal is possible via the URL `key`.
@@ -61,12 +49,12 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
   const app = await getApplication(applicationId);
   let allowed = false;
   if (app) {
-    const [scope, managesCycles] = await Promise.all([
+    const [scope, managesCycles, canScore] = await Promise.all([
       reviewScope(activePerson.id),
       can(activePerson.id, "recruitment.manage_cycles"),
+      can(activePerson.id, "recruitment.score"),
     ]);
-    const seeAll = scope.all || managesCycles;
-    allowed = seeAll || app.departmentChoices.some((d) => scope.departmentCodes.includes(d));
+    allowed = canViewApplication(app, { scope, managesCycles, canScore });
   }
   if (!app || !allowed) {
     return Response.json({ error: "Not found" }, { status: 404 });

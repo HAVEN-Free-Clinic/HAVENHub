@@ -21,27 +21,13 @@ import {
 } from "@/modules/support/services/manage";
 import { addComment, listComments, notifyCommentAdded } from "@/modules/support/services/comments";
 import { persistAttachment } from "@/modules/support/services/attachments";
-import { promoteToEpic } from "@/modules/support/services/epic-link";
-import {
-  completeRequest,
-  createTicket,
-  setTicketServiceRequestNumber,
-  sendEpicEmail,
-  EpicForbiddenError,
-  EpicNotFoundError,
-  EpicStateError,
-} from "@/modules/support/services/epic";
-import type { EpicTemplateKey } from "@/platform/email/templates/epic";
+import { attachEpicRequests } from "@/modules/support/services/epic-link";
+import { cancelEpicRequest, EpicForbiddenError, EpicNotFoundError, EpicStateError } from "@/modules/support/services/epic";
+import { listDepartmentsWithMembers } from "@/modules/support/services/itcm";
 import { peopleWithAnyPermission } from "@/platform/rbac/holders";
 import { TicketDetail } from "@/modules/support/components/ticket-detail";
 import { ALL_STATUSES, ALL_PRIORITIES } from "@/modules/support/filter-options";
 import { Alert } from "@/platform/ui/alert";
-
-const EPIC_EMAIL_TEMPLATES: EpicTemplateKey[] = [
-  "epic-onboarding",
-  "epic-activation",
-  "epic-password-reset",
-];
 
 type PageProps = {
   params: Promise<{ id: string }>;
@@ -75,6 +61,7 @@ export default async function TicketPage({ params, searchParams }: PageProps) {
   const isRequester = detail.requesterId === session.personId;
   const comments = await listComments(session.personId, id);
   const managers = canManage ? await peopleWithAnyPermission([MANAGE]) : [];
+  const departments = canManage ? await listDepartmentsWithMembers() : [];
 
   async function assignAction(formData: FormData) {
     "use server";
@@ -189,26 +176,18 @@ export default async function TicketPage({ params, searchParams }: PageProps) {
     redirect(`/support/${id}`);
   }
 
-  // ---------------------------------------------------------------------------
-  // Epic pipeline: promotion + the single-ticket inline actions from epic.ts.
-  // Each action re-derives the linked EpicRequest (and its ticket) off the
-  // `detail` already loaded above rather than trusting client-supplied ids.
-  // ---------------------------------------------------------------------------
-
-  async function promoteAction(formData: FormData) {
+  async function attachEpicAction(formData: FormData) {
     "use server";
     const actorSession = await requireModuleAccess("support");
     const kind = (formData.get("epicKind") as string) as EpicRequestKind;
+    const personIds = formData.getAll("personIds").map(String).filter(Boolean);
     try {
-      await promoteToEpic(actorSession.personId, id, kind);
+      await attachEpicRequests(actorSession.personId, id, { kind, personIds });
     } catch (err) {
       if (
         err instanceof SupportStateError ||
         err instanceof SupportForbiddenError ||
-        err instanceof SupportNotFoundError ||
-        err instanceof EpicStateError ||
-        err instanceof EpicForbiddenError ||
-        err instanceof EpicNotFoundError
+        err instanceof SupportNotFoundError
       ) {
         redirect(`/support/${id}?epicError=${encodeURIComponent(err.message)}`);
       }
@@ -217,80 +196,16 @@ export default async function TicketPage({ params, searchParams }: PageProps) {
     redirect(`/support/${id}`);
   }
 
-  async function completeEpicAction(formData: FormData) {
+  async function cancelEpicAction(formData: FormData) {
     "use server";
     const actorSession = await requireModuleAccess("support");
-    const epicRequestId = detail.epicRequestId;
-    if (!epicRequestId) {
-      redirect(`/support/${id}?epicError=${encodeURIComponent("No linked Epic request.")}`);
-    }
-    const epicId = ((formData.get("epicId") as string | null) ?? "").trim() || undefined;
-    try {
-      await completeRequest(actorSession.personId, epicRequestId, epicId);
-    } catch (err) {
-      if (
-        err instanceof EpicForbiddenError ||
-        err instanceof EpicNotFoundError ||
-        err instanceof EpicStateError
-      ) {
-        redirect(`/support/${id}?epicError=${encodeURIComponent(err.message)}`);
-      }
-      throw err;
-    }
-    redirect(`/support/${id}`);
-  }
-
-  async function createEpicTicketAction(formData: FormData) {
-    "use server";
-    const actorSession = await requireModuleAccess("support");
-    const epicRequestId = detail.epicRequestId;
-    if (!epicRequestId) {
-      redirect(`/support/${id}?epicError=${encodeURIComponent("No linked Epic request.")}`);
-    }
-    const description = (formData.get("description") as string | null) || null;
-    try {
-      await createTicket(actorSession.personId, { requestIds: [epicRequestId], description });
-    } catch (err) {
-      if (err instanceof EpicForbiddenError || err instanceof EpicStateError) {
-        redirect(`/support/${id}?epicError=${encodeURIComponent(err.message)}`);
-      }
-      throw err;
-    }
-    redirect(`/support/${id}`);
-  }
-
-  async function setEpicSrAction(formData: FormData) {
-    "use server";
-    const actorSession = await requireModuleAccess("support");
-    const ticketId = detail.epicRequest?.ticketId;
-    if (!ticketId) {
-      redirect(`/support/${id}?epicError=${encodeURIComponent("This request has no YNHH ticket yet.")}`);
-    }
-    const srNumber = (formData.get("srNumber") as string | null) ?? "";
-    try {
-      await setTicketServiceRequestNumber(actorSession.personId, ticketId, srNumber);
-    } catch (err) {
-      if (err instanceof EpicForbiddenError || err instanceof EpicNotFoundError) {
-        redirect(`/support/${id}?epicError=${encodeURIComponent(err.message)}`);
-      }
-      throw err;
-    }
-    redirect(`/support/${id}`);
-  }
-
-  async function sendEpicEmailAction(formData: FormData) {
-    "use server";
-    const actorSession = await requireModuleAccess("support");
-    const epicRequestId = detail.epicRequestId;
-    if (!epicRequestId) {
-      redirect(`/support/${id}?epicError=${encodeURIComponent("No linked Epic request.")}`);
-    }
-    const template = (formData.get("template") as string | null) ?? "";
-    if (!(EPIC_EMAIL_TEMPLATES as string[]).includes(template)) {
-      redirect(`/support/${id}?epicError=${encodeURIComponent("Invalid email template.")}`);
+    const epicRequestId = String(formData.get("epicRequestId") ?? "");
+    // Only allow cancelling a request that belongs to this ticket.
+    if (!detail.epicRequests.some((r) => r.id === epicRequestId)) {
+      redirect(`/support/${id}?epicError=${encodeURIComponent("Unknown Epic request.")}`);
     }
     try {
-      await sendEpicEmail(actorSession.personId, epicRequestId, template as EpicTemplateKey);
+      await cancelEpicRequest(actorSession.personId, epicRequestId);
     } catch (err) {
       if (
         err instanceof EpicForbiddenError ||
@@ -328,6 +243,16 @@ export default async function TicketPage({ params, searchParams }: PageProps) {
       throw err;
     }
 
+    // Notify BEFORE persisting attachments (audit F9): a rejected attachment below
+    // redirects (NEXT_REDIRECT throws), so with the notify after the loop a committed
+    // reply would go un-notified. Mirrors support/new/page.tsx's ordering.
+    const req = await prisma.techRequest.findUniqueOrThrow({ where: { id } });
+    const author = await prisma.person.findUniqueOrThrow({
+      where: { id: actorSession.personId },
+      select: { id: true, name: true },
+    });
+    await notifyCommentAdded(prisma, req, comment, author);
+
     const files = formData.getAll("attachments").filter((f): f is File => f instanceof File && f.size > 0);
     try {
       for (const file of files) {
@@ -344,12 +269,6 @@ export default async function TicketPage({ params, searchParams }: PageProps) {
       throw err;
     }
 
-    const req = await prisma.techRequest.findUniqueOrThrow({ where: { id } });
-    const author = await prisma.person.findUniqueOrThrow({
-      where: { id: actorSession.personId },
-      select: { id: true, name: true },
-    });
-    await notifyCommentAdded(prisma, req, comment, author);
     redirect(`/support/${id}`);
   }
 
@@ -376,11 +295,9 @@ export default async function TicketPage({ params, searchParams }: PageProps) {
         comments={comments}
         commentAction={commentAction}
         commentError={commentError ? decodeURIComponent(commentError) : undefined}
-        promoteAction={promoteAction}
-        completeEpicAction={completeEpicAction}
-        createEpicTicketAction={createEpicTicketAction}
-        setEpicSrAction={setEpicSrAction}
-        sendEpicEmailAction={sendEpicEmailAction}
+        attachEpicAction={attachEpicAction}
+        cancelEpicAction={cancelEpicAction}
+        departments={departments}
         epicError={epicError ? decodeURIComponent(epicError) : undefined}
       />
     </div>

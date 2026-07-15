@@ -27,6 +27,7 @@ function isCycleKey(k: string): k is CycleEmailKey {
 }
 
 export default async function EditCycleEmailPage({ params, searchParams }: Props) {
+  await requirePermission("recruitment.access");
   await requirePermission("recruitment.manage_cycles");
   const { id, key } = await params;
   const { error } = await searchParams;

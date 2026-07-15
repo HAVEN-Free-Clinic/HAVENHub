@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseFieldCondition } from "./field-visibility";
+import { parseFieldCondition, isFieldVisible } from "./field-visibility";
 
 describe("parseFieldCondition", () => {
   it("parses a valid is-condition", () => {
@@ -19,5 +19,38 @@ describe("parseFieldCondition", () => {
     expect(parseFieldCondition({})).toBeNull();
     expect(parseFieldCondition({ field: "a", op: "bogus", value: "x" })).toBeNull();
     expect(parseFieldCondition({ field: "a", op: "is" })).toBeNull(); // is needs a value
+  });
+});
+
+describe("isFieldVisible", () => {
+  const cond = (op: string, value?: unknown) => ({ field: "q", op, value });
+  it("no condition -> visible", () => {
+    expect(isFieldVisible(null, {})).toBe(true);
+    expect(isFieldVisible(undefined, { q: "x" })).toBe(true);
+  });
+  it("is: matches single and array answers", () => {
+    expect(isFieldVisible(cond("is", "yes"), { q: "yes" })).toBe(true);
+    expect(isFieldVisible(cond("is", "yes"), { q: "no" })).toBe(false);
+    expect(isFieldVisible(cond("is", "a"), { q: ["a", "b"] })).toBe(true);
+    expect(isFieldVisible(cond("is", "z"), { q: ["a", "b"] })).toBe(false);
+    expect(isFieldVisible(cond("is", "yes"), {})).toBe(false); // unanswered
+  });
+  it("isNot: negation", () => {
+    expect(isFieldVisible(cond("isNot", "no"), { q: "yes" })).toBe(true);
+    expect(isFieldVisible(cond("isNot", "no"), { q: "no" })).toBe(false);
+  });
+  it("isAnyOf: membership / intersection", () => {
+    expect(isFieldVisible(cond("isAnyOf", ["a", "b"]), { q: "b" })).toBe(true);
+    expect(isFieldVisible(cond("isAnyOf", ["a", "b"]), { q: "c" })).toBe(false);
+    expect(isFieldVisible(cond("isAnyOf", ["a", "b"]), { q: ["c", "a"] })).toBe(true);
+  });
+  it("isAnswered: any non-empty answer", () => {
+    expect(isFieldVisible(cond("isAnswered"), { q: "x" })).toBe(true);
+    expect(isFieldVisible(cond("isAnswered"), { q: [] })).toBe(false);
+    expect(isFieldVisible(cond("isAnswered"), { q: "" })).toBe(false);
+    expect(isFieldVisible(cond("isAnswered"), {})).toBe(false);
+  });
+  it("malformed condition -> visible (fail open)", () => {
+    expect(isFieldVisible({ nonsense: true }, {})).toBe(true);
   });
 });

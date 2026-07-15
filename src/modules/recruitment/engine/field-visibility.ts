@@ -18,3 +18,32 @@ export function parseFieldCondition(v: unknown): FieldCondition | null {
   }
   return null;
 }
+
+function asArray(a: string | string[] | undefined): string[] {
+  if (a === undefined) return [];
+  return Array.isArray(a) ? a : a === "" ? [] : [a];
+}
+
+export function isFieldVisible(
+  visibleWhen: unknown,
+  answers: Record<string, string | string[] | undefined>,
+): boolean {
+  const cond = parseFieldCondition(visibleWhen);
+  if (!cond) return true; // no/invalid condition -> always visible
+  const ans = asArray(answers[cond.field]);
+  switch (cond.op) {
+    case "isAnswered": return ans.length > 0;
+    case "is": return ans.includes(cond.value as string);
+    case "isNot": return !ans.includes(cond.value as string);
+    case "isAnyOf": return (cond.value as string[]).some((v) => ans.includes(v));
+    default: return true;
+  }
+}
+
+/** Filter a field list to the visible ones given the current answers. */
+export function visibleFields<T extends { visibleWhen?: unknown }>(
+  fields: T[],
+  answers: Record<string, string | string[] | undefined>,
+): T[] {
+  return fields.filter((f) => isFieldVisible(f.visibleWhen, answers));
+}

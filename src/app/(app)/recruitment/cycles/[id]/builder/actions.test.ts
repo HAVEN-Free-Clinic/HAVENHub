@@ -71,6 +71,23 @@ it("duplicates a field into the same section", async () => {
   expect(count).toBe(2);
 });
 
+it("duplicates a field's visibleWhen condition onto the copy", async () => {
+  const cycle = await draftCycle();
+  await addSectionAction(cycle.id, { title: "About", appliesTo: "BOTH", departmentCode: null });
+  const section = await prisma.formSection.findFirstOrThrow({ where: { cycleId: cycle.id, title: "About" } });
+  await addFieldAction(cycle.id, section.id, { type: "SINGLE_SELECT" });
+  const gate = await prisma.formField.findFirstOrThrow({ where: { sectionId: section.id } });
+  await addFieldAction(cycle.id, section.id, { type: "SHORT_TEXT" });
+  const detail = await prisma.formField.findFirstOrThrow({ where: { sectionId: section.id, id: { not: gate.id } } });
+  const cond = { field: gate.key, op: "is", value: "yes" };
+  await updateFieldAction(cycle.id, detail.id, { visibleWhen: cond });
+
+  const r = await duplicateFieldAction(cycle.id, detail.id);
+  expect(r.ok).toBe(true);
+  const copy = await prisma.formField.findFirstOrThrow({ where: { sectionId: section.id, label: { contains: "(copy)" } } });
+  expect(copy.visibleWhen).toEqual(cond);
+});
+
 it("rejects a structural type change on a published cycle as an inline error", async () => {
   const cycle = await draftCycle();
   // Add a non-identity field in a new section for testing the type-change guard.

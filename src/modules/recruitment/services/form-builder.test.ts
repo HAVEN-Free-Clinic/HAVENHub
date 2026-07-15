@@ -121,19 +121,6 @@ describe("visibleWhen persistence", () => {
     expect(reloaded.visibleWhen).toBeNull();
   });
 
-  it("duplicateFieldAction-style copy carries visibleWhen through addField", async () => {
-    const { gate, detail } = await withGateAndDetail();
-    await updateField(detail.id, { visibleWhen: { field: gate.key, op: "is", value: "yes" } });
-    const source = await prisma.formField.findUniqueOrThrow({ where: { id: detail.id } });
-    const copy = await addField(source.sectionId, {
-      label: `${source.label} (copy)`, type: source.type, required: source.required,
-      helpText: source.helpText ?? undefined, options: source.options ?? undefined,
-      validation: source.validation ?? undefined, correctValue: source.correctValue,
-      visibleWhen: source.visibleWhen ?? undefined,
-    });
-    expect(copy.visibleWhen).toEqual({ field: gate.key, op: "is", value: "yes" });
-  });
-
   it("marks a visibleWhen change as structural (blocked once published, like a required-ness change)", async () => {
     const { person, cycle, gate, detail } = await withGateAndDetail();
     await publishCycle(cycle.id, person.id);

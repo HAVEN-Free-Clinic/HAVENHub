@@ -74,10 +74,15 @@ describe("listApplicantsForReview", () => {
     expect(apps).toHaveLength(2);
   });
   it("shows a committee scorer (recruitment.score only) every applicant, with committeeScores included", async () => {
-    const { scorer, cycle } = await seed();
+    const { scorer, cycle, appSrhd, appMdic } = await seed();
+    await prisma.committeeScore.create({ data: { applicationId: appSrhd.id, scorerId: scorer.id, score: 4 } });
     const apps = await listApplicantsForReview(cycle.id, scorer.id);
     expect(apps).toHaveLength(2);
-    expect(apps[0].committeeScores).toEqual([]);
+    const unscored = apps.find((a) => a.id === appMdic.id)!;
+    expect(unscored.committeeScores).toEqual([]);
+    const scored = apps.find((a) => a.id === appSrhd.id)!;
+    expect(scored.committeeScores[0]).toMatchObject({ score: 4, scorerId: scorer.id });
+    expect(scored.applicant).toHaveProperty("applicantPersonId");
   });
 });
 

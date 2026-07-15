@@ -12,11 +12,20 @@ export type RequirableTraining = {
 };
 
 /** Yale-school affiliates are students; Yale Staff, Other Yale Affiliation, and
- *  blank/unknown are non-students (per the configured mapping). */
-const NON_STUDENT_AFFILIATIONS = new Set(["Yale Staff", "Other Yale Affiliation"]);
+ *  blank/unknown are non-students (per the configured mapping). Matched
+ *  case-insensitively across every vocabulary that can reach Person.yaleAffiliation:
+ *  the recruitment option VALUES ("staff", "other_yale"), the human LABELS
+ *  ("Yale Staff", "Other Yale Affiliation"), and the /my-info + admin dropdown
+ *  values ("Staff", "Other"). Without this superset, a non-student who set their
+ *  affiliation through any of those forms was misclassified as a student and given
+ *  the wrong BBP (bloodborne-pathogen) training. */
+const NON_STUDENT_AFFILIATIONS = new Set([
+  "yale staff", "staff",
+  "other yale affiliation", "other", "other_yale",
+]);
 
 export function isStudentAffiliation(yaleAffiliation: string | null | undefined): boolean {
-  const a = (yaleAffiliation ?? "").trim();
+  const a = (yaleAffiliation ?? "").trim().toLowerCase();
   return a !== "" && !NON_STUDENT_AFFILIATIONS.has(a);
 }
 

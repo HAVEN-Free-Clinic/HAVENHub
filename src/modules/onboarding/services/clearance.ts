@@ -18,6 +18,7 @@ import {
   type OnboardingTaskKey,
   type OnboardingTaskState,
 } from "../engine/status";
+import { loadEffectiveSteps } from "./step-config";
 
 export type ClearanceTask = { key: OnboardingTaskKey; state: OnboardingTaskState; blocking: boolean };
 export type ClearanceSummary = {
@@ -50,6 +51,10 @@ export async function loadClearanceMap(
   const term = await prisma.term.findUnique({ where: { id: termId }, select: { endDate: true } });
   const termEnd = term?.endDate ?? null;
 
+  // Per-term step config: the single-person getOnboardingStatus drops disabled
+  // steps and honors a term's blocking override via loadEffectiveSteps/buildTask.
+  // Load it here too so the batch onboarded/cleared gates agree with that path.
+  const steps = await loadEffectiveSteps(termId);
   const [persons, memberships, certRows, trainingRows, designatedCycles, activeCourses, ehsItemsMap] =
     await Promise.all([
       prisma.person.findMany({
@@ -132,6 +137,15 @@ export async function loadClearanceMap(
 
   const profileByPerson = new Map(persons.map((p) => [p.id, p]));
 
+  // Apply the term's step config to a candidate task: a disabled step is dropped
+  // (returns null) and the (possibly term-overridden) blocking flag replaces the
+  // default. Mirrors buildTask in getOnboardingStatus so the two paths agree.
+  const applyStep = (key: OnboardingTaskKey, state: OnboardingTaskState): ClearanceTask | null => {
+    const s = steps.get(key);
+    if (!s || !s.enabled) return null;
+    return { key, state, blocking: s.blocking };
+  };
+
   for (const personId of personIds) {
     const profile = profileByPerson.get(personId) ?? { contactEmail: null, phone: null };
     const cert = certByPerson.get(personId) ?? null;
@@ -145,11 +159,8 @@ export async function loadClearanceMap(
       const state: OnboardingTaskState = completeTrack.has(`${personId}:${track}`)
         ? "COMPLETE"
         : "INCOMPLETE";
-      trainingTasks.push({
-        key: track === "DIRECTOR" ? "directorTraining" : "training",
-        state,
-        blocking: true,
-      });
+      const t = applyStep(track === "DIRECTOR" ? "directorTraining" : "training", state);
+      if (t) trainingTasks.push(t);
     }
 
     const assignedIds = coursesForMember({ courses: assignable, memberships: personMemberships });
@@ -163,12 +174,12 @@ export async function loadClearanceMap(
     const ehsItems = ehsItemsMap.get(personId) ?? [];
 
     const tasks: ClearanceTask[] = [
-      { key: "profile", state: deriveProfileTaskState(profile), blocking: true },
-      { key: "hipaa", state: deriveHipaaTaskState(complianceStatus(cert, termEnd, now)), blocking: true },
+      applyStep("profile", deriveProfileTaskState(profile)),
+      applyStep("hipaa", deriveHipaaTaskState(complianceStatus(cert, termEnd, now))),
       ...trainingTasks,
-      { key: "learning", state: deriveLearningTaskState(learningCourses), blocking: true },
-      { key: "ehs", state: deriveEhsTaskState(ehsItems), blocking: false },
-    ];
+      applyStep("learning", deriveLearningTaskState(learningCourses)),
+      applyStep("ehs", deriveEhsTaskState(ehsItems)),
+    ].filter((t): t is ClearanceTask => t !== null);
 
     const { onboarded, cleared } = computeGating(tasks);
     const missing = tasks.filter((t) => !isSatisfied(t.state)).map((t) => t.key);

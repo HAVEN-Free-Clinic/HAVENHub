@@ -1,11 +1,11 @@
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import { RecruitmentAuthError } from "./review";
-import { promoteContracts } from "./promotion";
+import { promoteContracts, parseAvailabilityDates } from "./promotion";
 import { spanishReviewWhere } from "@/platform/spanish-review";
 
-async function seedSubmitted(opts: { netId?: string; email?: string; epicNeeded?: boolean; existingEpicId?: string; applicantType?: "NEW" | "RENEWAL" | "TRANSFER"; transferFromDepartments?: string[] } = {}) {
+async function seedSubmitted(opts: { netId?: string; email?: string; epicNeeded?: boolean; existingEpicId?: string; applicantType?: "NEW" | "RENEWAL" | "TRANSFER"; transferFromDepartments?: string[]; availability?: string[] } = {}) {
   const term = await prisma.term.create({ data: { code: "FA26", name: "Fall", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
   const srhd = await prisma.department.create({ data: { code: "SRHD", name: "SRHD" } });
   const srr = await prisma.person.create({ data: { name: "SRR", status: "ACTIVE" } });
@@ -13,7 +13,7 @@ async function seedSubmitted(opts: { netId?: string; email?: string; epicNeeded?
   await prisma.roleAssignment.create({ data: { personId: srr.id, roleId: role.id } });
   const cycle = await prisma.recruitmentCycle.create({ data: { track: "VOLUNTEER", termId: term.id, title: "V", publicSlug: "v", departments: ["SRHD"], createdById: srr.id, status: "OPEN" } });
   const applicant = await prisma.applicant.create({ data: { cycleId: cycle.id, firstName: "Ada", lastName: "Lovelace", email: opts.email ?? "ada@yale.edu", emailLower: (opts.email ?? "ada@yale.edu").toLowerCase(), netId: opts.netId ?? "al99" } });
-  const application = await prisma.application.create({ data: { cycleId: cycle.id, applicantId: applicant.id, answers: {}, applicantType: opts.applicantType ?? "NEW", departmentChoices: ["SRHD"], transferFromDepartments: opts.transferFromDepartments ?? [] } });
+  const application = await prisma.application.create({ data: { cycleId: cycle.id, applicantId: applicant.id, answers: opts.availability ? { availability: opts.availability } : {}, applicantType: opts.applicantType ?? "NEW", departmentChoices: ["SRHD"], transferFromDepartments: opts.transferFromDepartments ?? [] } });
   const acceptance = await prisma.acceptance.create({ data: { applicationId: application.id, departmentCode: "SRHD", approvedById: srr.id } });
   const contract = await prisma.onboardingContract.create({ data: {
     acceptanceId: acceptance.id, token: `t-${Math.random()}`, status: "SUBMITTED",
@@ -157,4 +157,68 @@ it("leaves an already-ACTIVE membership untouched on re-promotion (audit3 M1)", 
   expect(memberships).toHaveLength(1);
   expect(memberships[0].id).toBe(active.id);
   expect(memberships[0].status).toBe("ACTIVE");
+});
+
+it("carries the application's availability answer into TermMembership.baselineAvailability", async () => {
+  const { term, srhd, srr, contract } = await seedSubmitted({ availability: ["2026-05-30", "2026-06-06", "2026-06-13"] });
+  const res = await promoteContracts([contract.id], srr.id);
+  expect(res).toEqual({ created: 1, reactivated: 0, skipped: 0 });
+  const person = await prisma.person.findFirstOrThrow({ where: { netId: "al99" } });
+  const membership = await prisma.termMembership.findFirstOrThrow({
+    where: { personId: person.id, termId: term.id, departmentId: srhd.id, kind: "VOLUNTEER" },
+  });
+  expect(membership.baselineAvailability.map((d) => d.toISOString())).toEqual([
+    "2026-05-30T00:00:00.000Z",
+    "2026-06-06T00:00:00.000Z",
+    "2026-06-13T00:00:00.000Z",
+  ]);
+});
+
+it("leaves baselineAvailability empty when the application had no availability answer", async () => {
+  const { term, srhd, srr, contract } = await seedSubmitted();
+  await promoteContracts([contract.id], srr.id);
+  const person = await prisma.person.findFirstOrThrow({ where: { netId: "al99" } });
+  const membership = await prisma.termMembership.findFirstOrThrow({
+    where: { personId: person.id, termId: term.id, departmentId: srhd.id },
+  });
+  expect(membership.baselineAvailability).toEqual([]);
+});
+
+describe("parseAvailabilityDates (pure)", () => {
+  it("parses YYYY-MM-DD values to UTC-midnight dates", () => {
+    expect(parseAvailabilityDates(["2026-05-30", "2026-06-06"]).map((d) => d.toISOString()))
+      .toEqual(["2026-05-30T00:00:00.000Z", "2026-06-06T00:00:00.000Z"]);
+  });
+  it("accepts a single scalar string (one MULTI_SELECT checkbox)", () => {
+    expect(parseAvailabilityDates("2026-05-30").map((d) => d.toISOString())).toEqual(["2026-05-30T00:00:00.000Z"]);
+  });
+  it("dedupes and drops malformed / non-string / empty values", () => {
+    expect(parseAvailabilityDates(["2026-05-30", "2026-05-30", "not-a-date", "", "2026-13-99", 42, null]).map((d) => d.toISOString()))
+      .toEqual(["2026-05-30T00:00:00.000Z"]);
+  });
+  it("returns [] for missing/empty answers", () => {
+    expect(parseAvailabilityDates(undefined)).toEqual([]);
+    expect(parseAvailabilityDates(null)).toEqual([]);
+    expect(parseAvailabilityDates("")).toEqual([]);
+    expect(parseAvailabilityDates([])).toEqual([]);
+  });
+});
+
+it("carries dateOfBirth, dietaryRestrictions, and Epic access details onto the Person + EpicRequest", async () => {
+  const { srr, contract } = await seedSubmitted({ epicNeeded: true });
+  await prisma.onboardingContract.update({
+    where: { id: contract.id },
+    data: {
+      dateOfBirth: new Date("2000-05-15T00:00:00.000Z"),
+      dietaryRestrictions: "Vegetarian, nut allergy",
+      epicAccessType: "Read-only",
+      worksWithYnhh: true,
+    },
+  });
+  await promoteContracts([contract.id], srr.id);
+  const person = await prisma.person.findFirstOrThrow({ where: { netId: "al99" } });
+  expect(person.dateOfBirth?.toISOString()).toBe("2000-05-15T00:00:00.000Z");
+  expect(person.dietaryRestrictions).toBe("Vegetarian, nut allergy");
+  const req = await prisma.epicRequest.findFirstOrThrow({ where: { personId: person.id, kind: "NEW" } });
+  expect(req.notes).toBe("Access type: Read-only. Already works with YNHH");
 });

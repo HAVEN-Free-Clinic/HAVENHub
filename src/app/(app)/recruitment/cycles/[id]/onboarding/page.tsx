@@ -67,6 +67,21 @@ export default async function OnboardingPage({ params, searchParams }: { params:
                   <TD>{!r.contract && !r.conflicted && <Checkbox name="acceptanceId" value={r.id} aria-label={`Select ${r.application.applicant.firstName} ${r.application.applicant.lastName}`} />}</TD>
                   <TD className="font-medium text-foreground">
                     {r.application.applicant.firstName} {r.application.applicant.lastName}
+                    {(() => {
+                      // Surface any per-cycle custom onboarding answers so they are
+                      // readable here instead of being collected and never seen.
+                      const ca = (r.contract?.customAnswers ?? {}) as Record<string, unknown>;
+                      const entries = Object.entries(ca).filter(([, v]) => v != null && v !== "");
+                      return entries.length > 0 ? (
+                        <dl className="mt-1 space-y-0.5 text-xs font-normal text-subtle-foreground">
+                          {entries.map(([k, v]) => (
+                            <div key={k}>
+                              <span className="font-medium">{k}:</span> {Array.isArray(v) ? v.join(", ") : String(v)}
+                            </div>
+                          ))}
+                        </dl>
+                      ) : null;
+                    })()}
                   </TD>
                   <TD className="text-foreground-soft">{r.departmentCode}</TD>
                   <TD>

@@ -24,6 +24,9 @@ export async function createCycleAction(formData: FormData) {
   const termId = String(formData.get("termId") ?? "");
   const departments = String(formData.get("departments") ?? "").split(",").map((d) => d.trim()).filter(Boolean);
   const slug = slugify(String(formData.get("publicSlug") || title));
+  // Default on (the New-cycle form ships the checkbox checked); unchecked seeds the
+  // minimal name+email form so an admin can build from scratch.
+  const seedDefaultForm = formData.get("seedDefaultForm") === "on";
   if (!title || !slug) {
     redirect(`/recruitment/cycles/new?error=${encodeURIComponent("Title is required.")}`);
   }
@@ -32,12 +35,19 @@ export async function createCycleAction(formData: FormData) {
   }
   let cycle;
   try {
-    cycle = await createCycle({ track, termId, title, publicSlug: slug, departments, acceptsRenewals: false, createdById: person.personId });
+    cycle = await createCycle({ track, termId, title, publicSlug: slug, departments, acceptsRenewals: false, createdById: person.personId }, seedDefaultForm);
   } catch (err) {
     // publicSlug is unique. A colliding slug throws P2002; surface the same
     // friendly reserved-word flow instead of the generic error page (audit3 L2).
+    // Only claim a slug collision when the failing constraint is actually
+    // publicSlug -- any other unique violation (e.g. a duplicate template field
+    // key) must not be mislabeled as "public link already taken".
     if (isUniqueConstraintError(err)) {
-      redirect(`/recruitment/cycles/new?error=${encodeURIComponent(`"${slug}" is already taken as a public link. Choose a different one.`)}`);
+      const target = String(err.meta?.target ?? "");
+      if (!target || target.includes("publicSlug")) {
+        redirect(`/recruitment/cycles/new?error=${encodeURIComponent(`"${slug}" is already taken as a public link. Choose a different one.`)}`);
+      }
+      redirect(`/recruitment/cycles/new?error=${encodeURIComponent("Could not create the cycle. Please review the departments and try again.")}`);
     }
     throw err;
   }

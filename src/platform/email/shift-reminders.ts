@@ -193,14 +193,29 @@ export async function runShiftReminders(now: Date = new Date()): Promise<ShiftRe
     where: { termId: term.id },
     select: {
       personId: true,
+      departmentId: true,
       clinicDate: true,
       role: true,
       department: { select: { code: true, name: true } },
       person: { select: { id: true, name: true, contactEmail: true, entraObjectId: true } },
     },
   });
-  const assignments: ReminderAssignment[] = rows
-    .filter((r) => isoDateKey(r.clinicDate) === targetKey)
+  const dated = rows.filter((r) => isoDateKey(r.clinicDate) === targetKey);
+  if (dated.length === 0) return result;
+
+  // Only remind people who are STILL active in the department they're assigned to.
+  // Offboarding flips Person.status and REMOVES the membership, but a leftover
+  // future assignment can survive until a director clears it -- without this filter
+  // the cron would email an offboarded person "you're scheduled Saturday" (and list
+  // them as on-shift leadership to everyone). Keyed on (person, department) so a
+  // single-department removal is caught too, not just a full offboard.
+  const activeMemberships = await prisma.termMembership.findMany({
+    where: { termId: term.id, status: "ACTIVE", personId: { in: [...new Set(dated.map((r) => r.personId))] } },
+    select: { personId: true, departmentId: true },
+  });
+  const activeInDept = new Set(activeMemberships.map((m) => `${m.personId}:${m.departmentId}`));
+  const assignments: ReminderAssignment[] = dated
+    .filter((r) => activeInDept.has(`${r.personId}:${r.departmentId}`))
     .map((r) => ({ personId: r.personId, role: r.role, department: r.department, person: r.person }));
   if (assignments.length === 0) return result;
 

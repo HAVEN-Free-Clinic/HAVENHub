@@ -52,6 +52,7 @@ export type MyInfoInput = {
   contactEmail?: string | null;
   yaleAffiliation?: string | null;
   gradYear?: string | null;
+  dietaryRestrictions?: string | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -148,6 +149,7 @@ export async function updateMyInfo(personId: string, input: MyInfoInput): Promis
     "contactEmail",
     "yaleAffiliation",
     "gradYear",
+    "dietaryRestrictions",
   ];
 
   const clean: MyInfoInput = {};

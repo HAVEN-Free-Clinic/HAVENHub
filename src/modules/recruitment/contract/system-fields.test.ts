@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { SYSTEM_FIELDS, DEFAULT_CONTRACT_LAYOUT } from "./system-fields";
+import { SYSTEM_FIELDS, DEFAULT_CONTRACT_LAYOUT, defaultContractLayout } from "./system-fields";
 import { parseContractLayout, type AgreementBlock, type SystemFieldBlock } from "./layout";
 
 describe("system fields + default layout", () => {
@@ -28,5 +28,18 @@ describe("system fields + default layout", () => {
   it("default agreement bodies are empty for parity with today's form", () => {
     const layout = parseContractLayout(DEFAULT_CONTRACT_LAYOUT);
     for (const b of layout.blocks) if (b.kind === "agreement") expect(b.body).toBe("");
+  });
+});
+
+describe("defaultContractLayout(track)", () => {
+  it("volunteer default keeps the three agreements", () => {
+    const ids = defaultContractLayout("VOLUNTEER").blocks.filter((b): b is AgreementBlock => b.kind === "agreement").map((b) => b.id);
+    expect(ids).toEqual(["agreement", "professionalism", "training"]);
+  });
+  it("director default includes a data-privacy agreement the volunteer default lacks", () => {
+    const dirIds = defaultContractLayout("DIRECTOR").blocks.filter((b) => b.kind === "agreement").map((b) => (b as AgreementBlock).id);
+    const volIds = defaultContractLayout("VOLUNTEER").blocks.filter((b) => b.kind === "agreement").map((b) => (b as AgreementBlock).id);
+    expect(dirIds).toContain("data_privacy");
+    expect(volIds).not.toContain("data_privacy");
   });
 });

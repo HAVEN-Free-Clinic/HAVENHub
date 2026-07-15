@@ -41,16 +41,22 @@ export default async function InterviewDetail({ params, searchParams }: { params
   const person = await requirePersonSession();
   const iv = await getInterview(interviewId);
   if (!iv) notFound();
-  const [scope, managesCycles] = await Promise.all([reviewScope(person.personId), can(person.personId, "recruitment.manage_cycles")]);
+  const [scope, managesCycles, canScore] = await Promise.all([
+    reviewScope(person.personId),
+    can(person.personId, "recruitment.manage_cycles"),
+    can(person.personId, "recruitment.score"),
+  ]);
   const isPanelist = iv.panelists.some((p) => p.person.id === person.personId);
   // This page sits outside the recruitment.access module gate so panelists (who
   // are not recruitment staff) can reach their assigned interview. Access is
-  // therefore enforced here: canView admits cycle staff and panelists; canManage
-  // gates the action controls and matches the service authz exactly (scope.all or
-  // the interview's department is in the actor's review scope) so a control is
-  // never shown to someone whose submit would be rejected.
+  // therefore enforced here: canView admits cycle staff, committee scorers (who
+  // can already open the application detail that links here, so the link must not
+  // 404 on them), and panelists; canManage gates the action controls and matches
+  // the service authz exactly (scope.all or the interview's department is in the
+  // actor's review scope) so a control is never shown to someone whose submit
+  // would be rejected. A scorer gets canManage=false, so this stays read-only.
   const isStaff = scope.all || managesCycles || scope.departmentCodes.includes(iv.departmentCode);
-  const canView = isStaff || isPanelist;
+  const canView = isStaff || canScore || isPanelist;
   if (!canView) notFound();
   const canManage = scope.all || scope.departmentCodes.includes(iv.departmentCode);
   const candidates = canManage ? await listPanelistCandidates(interviewId) : [];

@@ -27,11 +27,43 @@ export async function routeApplication(
   if (app.status !== "SUBMITTED") throw new RoutingError("This application hasn't been submitted yet.");
   if (app.cycle.track !== "VOLUNTEER") throw new RoutingError("Routing applies to volunteer cycles.");
   if (!app.cycle.departments.includes(departmentCode)) throw new RoutingError("That department is not part of this cycle.");
-  const updated = await prisma.application.update({
-    where: { id: applicationId },
-    data: { routedDepartmentCode: departmentCode, routedById: actorId, routedAt: new Date() },
+
+  const previous = app.routedDepartmentCode;
+  const isReroute = previous != null && previous !== departmentCode;
+
+  // Re-routing to a DIFFERENT department invalidates any decision already recorded
+  // for the previous department. Without this cleanup the old Acceptance survives,
+  // so a later REJECT on the new department still leaves a live acceptance for the
+  // old one -- the applicant would be emailed an acceptance and land on the old
+  // roster despite being rejected, and Application.decision would describe a
+  // department the applicant is no longer routed to. Block the re-route when that
+  // acceptance was already emailed or has an onboarding contract (must be rescinded
+  // or torn down first, mirroring decideRoutedApplication); otherwise clear the
+  // stale acceptance and reset the decision so the new department decides fresh.
+  const updated = await prisma.$transaction(async (tx) => {
+    if (isReroute) {
+      const stale = await tx.acceptance.findUnique({
+        where: { applicationId_departmentCode: { applicationId, departmentCode: previous } },
+        include: { contract: { select: { id: true } } },
+      });
+      if (stale?.emailedAt || stale?.contract) {
+        throw new AcceptanceError(
+          `This applicant was already emailed their acceptance for ${previous} or has started onboarding. Rescind it before re-routing.`,
+        );
+      }
+      if (stale) await tx.acceptance.delete({ where: { id: stale.id } });
+    }
+    return tx.application.update({
+      where: { id: applicationId },
+      data: {
+        routedDepartmentCode: departmentCode,
+        routedById: actorId,
+        routedAt: new Date(),
+        ...(isReroute ? { decision: "PENDING", decidedById: null, decidedAt: null, decisionNotes: null } : {}),
+      },
+    });
   });
-  await recordAudit({ actorPersonId: actorId, action: "recruitment.route", entityType: "Application", entityId: applicationId, after: { departmentCode } });
+  await recordAudit({ actorPersonId: actorId, action: "recruitment.route", entityType: "Application", entityId: applicationId, after: { departmentCode, ...(isReroute ? { rerouteFrom: previous } : {}) } });
   return updated;
 }
 

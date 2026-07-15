@@ -92,6 +92,25 @@ it("routes a RENEWAL submission and stores renewalDepartment", async () => {
   expect(app.renewalDepartment).toBe("SRHD");
   expect(app.departmentChoices).toEqual(["SRHD"]);
   expect(Object.keys(app.answers as object)).not.toContain("1st_choice_department");
+  // A returning volunteer skips the committee: auto-routed to their department so
+  // its director sees + decides directly (no SRR routing step).
+  expect(app.routedDepartmentCode).toBe("SRHD");
+  expect(app.routedAt).not.toBeNull();
+});
+
+it("does NOT auto-route a TRANSFER (it goes through the committee like a new applicant)", async () => {
+  await openVolunteerCycle();
+  const person = await makeVolunteer("SRHD"); // currently in SRHD, transferring to MDIC
+  const app = await submitApplication("apply-v", {
+    applicantType: "TRANSFER",
+    answers: { first_name: "Tr", last_name: "An", email: "tr@yale.edu", "1st_choice_department": "MDIC", srhd_essay: "n/a" },
+    files: {},
+    sessionPersonId: person.id,
+    sessionEmail: "tr@yale.edu",
+  });
+  expect(app.applicantType).toBe("TRANSFER");
+  expect(app.departmentChoices).toEqual(["MDIC"]);
+  expect(app.routedDepartmentCode).toBeNull(); // committee routes it, not auto
 });
 
 it("rejects a renewalDepartment outside the cycle departments", async () => {
@@ -535,4 +554,38 @@ it("links an applicant to a person and blocks a second per cycle, but allows ano
   await prisma.applicant.create({ data: { cycleId: cycle.id, firstName: "B", lastName: "B", email: "b@yale.edu", emailLower: "b@yale.edu" } });
   const anon = await prisma.applicant.count({ where: { cycleId: cycle.id, applicantPersonId: null } });
   expect(anon).toBe(2);
+});
+
+it("captures the applicant's NetID from the net_id answer key (NEW)", async () => {
+  await openVolunteerCycle();
+  await submitApplication("apply-v", {
+    applicantType: "NEW",
+    answers: { first_name: "Nel", last_name: "Idd", email: "nel@yale.edu", net_id: "ni42", "1st_choice_department": "MDIC" },
+    files: {},
+  });
+  const applicant = await prisma.applicant.findFirstOrThrow({ where: { emailLower: "nel@yale.edu" } });
+  expect(applicant.netId).toBe("ni42");
+});
+
+it("fills a RENEWAL applicant's identity from their matched record, not the (absent) NEW-only identity fields", async () => {
+  await openVolunteerCycle();
+  const person = await makeVolunteer("SRHD");
+  await prisma.person.update({ where: { id: person.id }, data: { netId: "reed7", phone: "203-555-0100" } });
+  // In the real default template the identity section is NEW-only, so a returning
+  // applicant submits none of it. Here (a minimal test cycle whose identity
+  // section is BOTH) we submit bogus identity to satisfy the schema and assert the
+  // matched RECORD wins -- the same code path that fills it when answers are absent.
+  await submitApplication("apply-v", {
+    applicantType: "RENEWAL",
+    renewalDepartment: "SRHD",
+    answers: { first_name: "Ignored", last_name: "Ignored", net_id: "ignored", continue_reason: "still in" },
+    files: {},
+    sessionPersonId: person.id,
+    sessionEmail: "reed@yale.edu",
+  });
+  const applicant = await prisma.applicant.findFirstOrThrow({ where: { emailLower: "reed@yale.edu" } });
+  expect(applicant.firstName).toBe("Reed");
+  expect(applicant.lastName).toBe("Renew");
+  expect(applicant.netId).toBe("reed7");
+  expect(applicant.phone).toBe("203-555-0100");
 });

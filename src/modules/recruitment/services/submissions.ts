@@ -105,6 +105,10 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
   let renewalAllowedDepartments: string[] = [];
   // For a TRANSFER: where the person is coming from (their active departments).
   let transferFromDepartments: string[] = [];
+  // A returning applicant's identity comes from their matched record, not the
+  // form: the identity section (first_name/last_name/net_id) is NEW-only, so it is
+  // never rendered for them and their answers carry none of it. Capture it here.
+  let returningIdentity: { name: string | null; netId: string | null; phone: string | null } | null = null;
   const isReturning = input.applicantType === "RENEWAL" || input.applicantType === "TRANSFER";
   if (isReturning) {
     const roleNoun = cycle.track === "DIRECTOR" ? "director" : "volunteer";
@@ -116,6 +120,7 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
       throw new SubmissionValidationError(`We do not see a current ${roleNoun} membership for your account.`);
     }
     applicantPersonId = renewalCtx.personId;
+    returningIdentity = { name: renewalCtx.name, netId: renewalCtx.netId, phone: renewalCtx.phone };
     if (input.applicantType === "RENEWAL") {
       renewalAllowedDepartments = renewalCtx.currentDepartments.filter((d) => cycle.departments.includes(d));
     } else {
@@ -180,8 +185,28 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
   // the client-submitted value is ignored so it cannot be spoofed.
   const email = (isReturning ? input.sessionEmail! : String(input.answers.email ?? "")).trim();
   const emailLower = email.toLowerCase();
-  const firstName = String(input.answers.first_name ?? "").trim();
-  const lastName = String(input.answers.last_name ?? "").trim();
+  // Returning applicants: split the matched record's name (the identity fields are
+  // NEW-only, so answers.first_name/last_name are absent for them). New applicants:
+  // read the form. The template key is net_id (snake_case, like first_name), not
+  // "netid" -- reading answers.netid always yielded null, dropping every NetID.
+  const returningName = (returningIdentity?.name ?? "").trim();
+  const returningNameSplit = returningName.indexOf(" ");
+  const firstName = (
+    isReturning
+      ? returningNameSplit === -1 ? returningName : returningName.slice(0, returningNameSplit)
+      : String(input.answers.first_name ?? "")
+  ).trim();
+  const lastName = (
+    isReturning
+      ? returningNameSplit === -1 ? "" : returningName.slice(returningNameSplit + 1)
+      : String(input.answers.last_name ?? "")
+  ).trim();
+  const identityNetId = isReturning
+    ? returningIdentity?.netId ?? null
+    : typeof input.answers.net_id === "string" ? input.answers.net_id : null;
+  const identityPhone = isReturning
+    ? returningIdentity?.phone ?? null
+    : typeof input.answers.phone === "string" ? input.answers.phone : null;
 
   const existingApplicant = await prisma.applicant.findUnique({
     where: { cycleId_emailLower: { cycleId: cycle.id, emailLower } },
@@ -240,11 +265,11 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
         // Finalize the existing draft applicant: fill in identity fields from answers.
         await tx.applicant.update({
           where: { id: applicantId },
-          data: { applicantPersonId, firstName, lastName, email, emailLower, netId: typeof input.answers.netid === "string" ? input.answers.netid : null, phone: typeof input.answers.phone === "string" ? input.answers.phone : null },
+          data: { applicantPersonId, firstName, lastName, email, emailLower, netId: identityNetId, phone: identityPhone },
         });
       } else {
         const created = await tx.applicant.create({
-          data: { cycleId: cycle.id, applicantPersonId, firstName, lastName, email, emailLower, netId: typeof input.answers.netid === "string" ? input.answers.netid : null, phone: typeof input.answers.phone === "string" ? input.answers.phone : null },
+          data: { cycleId: cycle.id, applicantPersonId, firstName, lastName, email, emailLower, netId: identityNetId, phone: identityPhone },
         });
         applicantId = created.id;
       }
@@ -253,6 +278,14 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
         applicantType: input.applicantType, departmentChoices: selectedDepartmentCodes, subcommitteeRanking,
         renewalDepartment: input.applicantType === "RENEWAL" ? input.renewalDepartment! : null,
         transferFromDepartments,
+        // Returning members (RENEWAL only, NOT TRANSFER) skip committee scoring +
+        // routing: auto-route them straight to their current department so its
+        // director sees and decides them directly. Routing is volunteer-only (the
+        // director track is ranking-based and already visible to the dept). A
+        // TRANSFER is treated like a NEW applicant and goes through the committee.
+        ...(input.applicantType === "RENEWAL" && cycle.track === "VOLUNTEER"
+          ? { routedDepartmentCode: input.renewalDepartment!, routedAt: new Date() }
+          : {}),
         status: "SUBMITTED" as const, submittedAt: new Date(),
       };
       let app: Application;

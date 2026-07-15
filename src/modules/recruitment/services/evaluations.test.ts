@@ -37,3 +37,13 @@ it("rejects an evaluation from a non-panelist", async () => {
   const { iv, outsider } = await seedInterview();
   await expect(submitEvaluation(iv.id, outsider.id, 4, null)).rejects.toBeInstanceOf(RecruitmentAuthError);
 });
+
+it("rejects an applicant scoring their own interview even when they are on the panel", async () => {
+  const { iv } = await seedInterview();
+  const app = await prisma.application.findFirstOrThrow();
+  // The applicant is a signed-in person who somehow also sits on the panel.
+  const self = await prisma.person.create({ data: { name: "Self Scorer", status: "ACTIVE" } });
+  await prisma.applicant.update({ where: { id: app.applicantId }, data: { applicantPersonId: self.id } });
+  await prisma.interviewPanelist.create({ data: { interviewId: iv.id, personId: self.id } });
+  await expect(submitEvaluation(iv.id, self.id, 5, "I'm great")).rejects.toBeInstanceOf(RecruitmentAuthError);
+});

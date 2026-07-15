@@ -69,4 +69,24 @@ describe("pendingReviewCount", () => {
     await prisma.application.create({ data: { cycleId: cycle.id, applicantId: applicant.id, answers: {}, applicantType: "NEW", departmentChoices: ["EXEC"] } });
     expect(await pendingReviewCount(["EXEC"])).toBe(1);
   });
+
+  it("still counts an applicant a multi-department director must review when only ONE ranked department is decided", async () => {
+    const term = await prisma.term.create({ data: { code: "SP26b", name: "Spring", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
+    await prisma.department.create({ data: { code: "EXEC", name: "Executive" } });
+    await prisma.department.create({ data: { code: "MDIC", name: "Medical" } });
+    const creator = await prisma.person.create({ data: { name: "C", status: "ACTIVE" } });
+    const cycle = await prisma.recruitmentCycle.create({ data: { track: "DIRECTOR", termId: term.id, title: "D", publicSlug: "d2", departments: ["EXEC", "MDIC"], createdById: creator.id, status: "OPEN" } });
+    const applicant = await prisma.applicant.create({ data: { cycleId: cycle.id, firstName: "E", lastName: "F", email: "ef2@y.edu", emailLower: "ef2@y.edu" } });
+    const application = await prisma.application.create({ data: { cycleId: cycle.id, applicantId: applicant.id, answers: {}, applicantType: "NEW", departmentChoices: ["EXEC", "MDIC"] } });
+    // EXEC interview decided REJECT; MDIC still needs an interview + decision.
+    await prisma.interview.create({ data: { applicationId: application.id, departmentCode: "EXEC", decision: "REJECT", createdById: creator.id } });
+
+    // A director of BOTH EXEC and MDIC must still see this applicant (MDIC pending);
+    // the old single `none` filter dropped them because EXEC was decided.
+    expect(await pendingReviewCount(["EXEC", "MDIC"])).toBe(1);
+    // A director of ONLY EXEC has nothing left there.
+    expect(await pendingReviewCount(["EXEC"])).toBe(0);
+    // A director of ONLY MDIC still owes the review.
+    expect(await pendingReviewCount(["MDIC"])).toBe(1);
+  });
 });

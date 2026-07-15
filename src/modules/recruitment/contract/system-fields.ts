@@ -1,3 +1,4 @@
+import type { Track } from "@prisma/client";
 import type { ContractLayout } from "./layout";
 
 export const SYSTEM_FIELD_KEYS = [
@@ -55,3 +56,12 @@ export const DEFAULT_CONTRACT_LAYOUT: ContractLayout = {
     { kind: "system_field", systemKey: "hipaa" },
   ],
 };
+
+export function defaultContractLayout(track: Track): ContractLayout {
+  if (track === "VOLUNTEER") return DEFAULT_CONTRACT_LAYOUT;
+  // Director: same fields plus a data-privacy agreement, before the training block.
+  const blocks = [...DEFAULT_CONTRACT_LAYOUT.blocks];
+  const trainingIdx = blocks.findIndex((b) => b.kind === "agreement" && b.id === "training");
+  blocks.splice(trainingIdx, 0, { kind: "agreement", id: "data_privacy", title: "Data privacy acknowledgement", body: "", signatureLabel: "type your full name" });
+  return { blocks };
+}

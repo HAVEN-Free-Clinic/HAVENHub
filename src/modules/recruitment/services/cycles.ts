@@ -2,6 +2,12 @@ import type { RecruitmentCycle, Track } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { isSectionVisible } from "../engine/visibility";
+import type { TemplateSection } from "../templates/types";
+import { getApplicationTemplate } from "../templates";
+import { getQuizTemplate } from "../templates/quiz";
+import { materializeTemplate } from "../templates/materialize";
+import { termSaturdays } from "../templates/term-dates";
+import { normalizeDeptCode } from "../templates/application/supplements/dept-codes";
 
 export class CyclePublishError extends Error {
   constructor(message: string) {
@@ -23,16 +29,51 @@ export type CreateCycleInput = {
 /** Create a DRAFT cycle and seed the mandatory identity section/fields so the
  *  publish guard and the public form always have name + email. Two steps: the
  *  cycle+section first (so we have both ids), then the fields with cycleId set
- *  directly. FormField.cycleId is required, so it cannot be a nested create. */
-export async function createCycle(input: CreateCycleInput): Promise<RecruitmentCycle> {
+ *  directly. FormField.cycleId is required, so it cannot be a nested create.
+ *
+ *  `seedDefaultForm` opts into materializing the full default track template
+ *  (+ quiz + department supplement) instead of the minimal 3-field identity
+ *  seed. It defaults to false because createCycle is used across ~9 test
+ *  files (and internally) as a minimal, controllable primitive; unconditionally
+ *  materializing the template would give those cycles a second
+ *  DEPARTMENT_CHOICE field (publish throws) and duplicate identity keys. Only
+ *  the real create-cycle UI action opts in. */
+export async function createCycle(input: CreateCycleInput, seedDefaultForm = false): Promise<RecruitmentCycle> {
+  // Canonicalize + de-duplicate departments. Free-text entry (and Airtable aliases
+  // like "SR&R" -> "SRR", or "srhd" -> "SRHD") can list the same department twice,
+  // which would emit two identical supplement sections whose per-department
+  // FormField keys collide -- a P2002 that aborts the seed transaction and used to
+  // surface as a misleading "public link already taken" error.
+  const departments = [...new Set(input.departments.map(normalizeDeptCode))];
+  let templateSections: TemplateSection[] | null = null;
+  if (seedDefaultForm) {
+    const term = await prisma.term.findUniqueOrThrow({ where: { id: input.termId }, select: { startDate: true, endDate: true } });
+    const dates = termSaturdays(term.startDate, term.endDate);
+    templateSections = [
+      ...getApplicationTemplate(input.track, departments, dates),
+      ...getQuizTemplate(input.track),
+    ];
+  }
+
   const cycle = await prisma.$transaction(async (tx) => {
+    if (templateSections) {
+      const created = await tx.recruitmentCycle.create({
+        data: {
+          track: input.track, termId: input.termId, title: input.title, publicSlug: input.publicSlug,
+          departments, acceptsRenewals: input.acceptsRenewals, createdById: input.createdById,
+        },
+      });
+      await materializeTemplate(tx, created.id, templateSections);
+      return created;
+    }
+    // Default: the minimal identity seed (unchanged behavior).
     const created = await tx.recruitmentCycle.create({
       data: {
         track: input.track,
         termId: input.termId,
         title: input.title,
         publicSlug: input.publicSlug,
-        departments: input.departments,
+        departments,
         acceptsRenewals: input.acceptsRenewals,
         createdById: input.createdById,
         sections: { create: { title: "Your information", order: 0, appliesTo: "BOTH" } },

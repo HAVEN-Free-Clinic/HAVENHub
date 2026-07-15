@@ -5,7 +5,7 @@ import { visibleSections, applicantTypeLabel } from "@/modules/recruitment/engin
 import { requirePersonSession } from "@/platform/auth/session";
 import { reviewScope, listAcceptances, canViewApplication } from "@/modules/recruitment/services/review";
 import { can } from "@/platform/rbac/engine";
-import { scheduleInterviewAction, committeeScoreAction, routeAction, decideRoutedAction } from "../actions";
+import { scheduleInterviewAction, committeeScoreAction, routeAction, decideRoutedAction, reopenDecisionAction } from "../actions";
 import { listApplicationInterviews } from "@/modules/recruitment/services/interviews";
 import { DateTime } from "@/platform/dates/display";
 import { committeeScoreSummary } from "@/modules/recruitment/services/committee-scoring";
@@ -249,8 +249,23 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
           <SectionHeader>Department decision</SectionHeader>
           {error && <Alert tone="error" className="mt-3">{error}</Alert>}
           {saved === "decision" && <Alert tone="success" className="mt-3">Decision recorded.</Alert>}
+          {saved === "reopened" && <Alert tone="success" className="mt-3">Decision reopened.</Alert>}
           {!app.routedDepartmentCode ? (
-            <p className="mt-3 text-sm text-muted-foreground">Awaiting committee routing.</p>
+            app.decision !== "PENDING" ? (
+              <div className="mt-3 space-y-2">
+                <p className="text-sm text-foreground-soft">
+                  This applicant was <strong className="text-foreground">{decisionLabel[app.decision as keyof typeof decisionLabel]}</strong> without routing.
+                  {app.decisionNotes ? ` ${app.decisionNotes}` : ""}
+                </p>
+                {scope.all && (
+                  <form action={reopenDecisionAction.bind(null, id, applicationId)}>
+                    <SubmitButton size="sm" variant="outline" pendingLabel="Reopening…">Reopen</SubmitButton>
+                  </form>
+                )}
+              </div>
+            ) : (
+              <p className="mt-3 text-sm text-muted-foreground">Awaiting committee routing.</p>
+            )
           ) : canDecideRouted ? (
             <>
               <p className="mt-3 text-sm text-foreground-soft">

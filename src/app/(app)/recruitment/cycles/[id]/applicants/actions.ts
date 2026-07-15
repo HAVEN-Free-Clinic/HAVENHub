@@ -5,7 +5,7 @@ import { requirePersonSession } from "@/platform/auth/session";
 import { RecruitmentAuthError, AcceptanceError } from "@/modules/recruitment/services/review";
 import { createInterview, InterviewError } from "@/modules/recruitment/services/interviews";
 import { submitCommitteeScore, CommitteeScoreError } from "@/modules/recruitment/services/committee-scoring";
-import { routeApplication, decideRoutedApplication, RoutingError } from "@/modules/recruitment/services/routing";
+import { routeApplication, decideRoutedApplication, reopenDecision, RoutingError } from "@/modules/recruitment/services/routing";
 import { loadReviewApplication, type ReviewApplicationView } from "@/modules/recruitment/services/speed-score";
 
 function bounce(cycleId: string, applicationId: string, opts?: { error?: string; saved?: string }) {
@@ -102,4 +102,17 @@ export async function loadReviewApplicationAction(
 ): Promise<{ view: ReviewApplicationView } | { error: string }> {
   const person = await requirePersonSession();
   return loadReviewApplication(applicationId, person.personId);
+}
+
+export async function reopenDecisionAction(cycleId: string, applicationId: string) {
+  const person = await requirePersonSession();
+  try {
+    await reopenDecision(applicationId, person.personId);
+  } catch (err) {
+    if (err instanceof RecruitmentAuthError || err instanceof RoutingError || err instanceof AcceptanceError) {
+      redirect(bounce(cycleId, applicationId, { error: (err as Error).message }));
+    }
+    throw err;
+  }
+  redirect(bounce(cycleId, applicationId, { saved: "reopened" }));
 }

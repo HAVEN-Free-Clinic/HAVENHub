@@ -10,6 +10,7 @@ import {
   type SectionDef, type FieldDef,
 } from "../engine/schema-builder";
 import { visibleSections, type ApplicantType } from "../engine/visibility";
+import { isFieldVisible } from "../engine/field-visibility";
 import { getRenewalContext } from "./renewal";
 import { renderCycleEmail } from "../email/render";
 
@@ -34,7 +35,7 @@ const DEPT_CHOICE_KEY_TYPE: FieldType = "DEPARTMENT_CHOICE";
 const SUBCOMMITTEE_RANK_TYPE: FieldType = "SUBCOMMITTEE_RANK";
 
 function toSectionDefs(
-  sections: { id: string; appliesTo: SectionDef["appliesTo"]; departmentCode: string | null; fields: { key: string; type: FieldType; required: boolean; options: unknown; validation: unknown }[] }[],
+  sections: { id: string; appliesTo: SectionDef["appliesTo"]; departmentCode: string | null; fields: { key: string; type: FieldType; required: boolean; options: unknown; validation: unknown; visibleWhen: unknown }[] }[],
   departments: string[],
   applicantType: ApplicantType
 ): SectionDef[] {
@@ -50,6 +51,7 @@ function toSectionDefs(
       required: f.type === DEPT_CHOICE_KEY_TYPE && applicantType === "RENEWAL" ? false : f.required,
       options: f.type === DEPT_CHOICE_KEY_TYPE ? departments.map((d) => ({ value: d, label: d })) : (f.options as FieldDef["options"]) ?? null,
       validation: (f.validation as FieldDef["validation"]) ?? null,
+      visibleWhen: f.visibleWhen ?? null,
     })),
   }));
 }
@@ -166,7 +168,12 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
     }
   }
 
-  const ctx = { applicantType: input.applicantType, selectedDepartmentCodes };
+  // Cast is safe: isFieldVisible (via asArray) only ever compares string values;
+  // an answer that is not a plain string/string[] (e.g. a file ref, a checkbox
+  // boolean) is simply not string-comparable, so a condition targeting it
+  // resolves the same way it would for any other unmatched value.
+  const answersForVisibility = input.answers as unknown as Record<string, string | string[] | undefined>;
+  const ctx = { applicantType: input.applicantType, selectedDepartmentCodes, answers: answersForVisibility };
 
   const schema = buildApplicationSchema(sectionDefs, ctx);
   const parsed = schema.safeParse(input.answers);
@@ -231,6 +238,14 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
   const draftFileRefs = Object.fromEntries(draftFileKeys.map((k) => [k, draftAnswers[k]]));
   const answersWithFiles = { ...draftFileRefs, ...parsed.data, ...fileRefs.answerPatch };
   if (rankField) delete (answersWithFiles as Record<string, unknown>)[rankField.key];
+  // Strip any condition-hidden field's stale answer (e.g. the applicant answered
+  // it, then flipped the gate that hides it) so persisted answers only ever
+  // reflect what was actually visible at submission time.
+  for (const field of visibleFields) {
+    if (!isFieldVisible(field.visibleWhen, ctx.answers)) {
+      delete (answersWithFiles as Record<string, unknown>)[field.key];
+    }
+  }
 
   let application: Application;
   try {

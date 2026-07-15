@@ -163,3 +163,50 @@ it("excludes SUBCOMMITTEE_RANK from the generated scalar schema (handled in subm
   const parsed = schema.parse({ name: "Ann" }); // no `subs` key needed
   expect(parsed).toEqual({ name: "Ann" });
 });
+
+describe("visibleWhen (condition-hidden fields)", () => {
+  const conditionalSections: SectionDef[] = [
+    {
+      id: "s", appliesTo: "BOTH", departmentCode: null,
+      fields: [
+        { key: "g", type: "SHORT_TEXT", required: false, options: null, validation: null },
+        {
+          key: "detail", type: "SHORT_TEXT", required: true, options: null, validation: null,
+          visibleWhen: { field: "g", op: "is", value: "yes" },
+        },
+      ],
+    },
+  ];
+
+  it("excludes a condition-hidden required field from the schema, so parsing without it succeeds", () => {
+    const schema = buildApplicationSchema(conditionalSections, {
+      applicantType: "NEW", selectedDepartmentCodes: [], answers: { g: "no" },
+    });
+    expect(schema.safeParse({ g: "no" }).success).toBe(true);
+  });
+
+  it("requires the field once its condition is met", () => {
+    const schema = buildApplicationSchema(conditionalSections, {
+      applicantType: "NEW", selectedDepartmentCodes: [], answers: { g: "yes" },
+    });
+    expect(schema.safeParse({ g: "yes" }).success).toBe(false);
+    expect(schema.safeParse({ g: "yes", detail: "because" }).success).toBe(true);
+  });
+
+  it("excludes a condition-hidden required FILE field from requiredFileKeys, and includes it once visible", () => {
+    const withConditionalFile: SectionDef[] = [
+      {
+        id: "s", appliesTo: "BOTH", departmentCode: null,
+        fields: [
+          { key: "g", type: "SHORT_TEXT", required: false, options: null, validation: null },
+          {
+            key: "proof", type: "FILE", required: true, options: null, validation: null,
+            visibleWhen: { field: "g", op: "is", value: "yes" },
+          },
+        ],
+      },
+    ];
+    expect(requiredFileKeys(withConditionalFile, { applicantType: "NEW", selectedDepartmentCodes: [], answers: { g: "no" } })).toEqual([]);
+    expect(requiredFileKeys(withConditionalFile, { applicantType: "NEW", selectedDepartmentCodes: [], answers: { g: "yes" } })).toEqual(["proof"]);
+  });
+});

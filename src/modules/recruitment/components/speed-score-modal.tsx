@@ -21,52 +21,59 @@ type SpeedScoreModalProps = {
 };
 
 export function SpeedScoreModal({ open, onClose, items, onScore, onLoad }: SpeedScoreModalProps) {
-  // Opening snapshot: freeze the item set so live scoring never reindexes the queue.
-  const snapshot = useRef<SpeedScoreItem[]>(items);
+  // Opening snapshot: freeze the item set so live scoring never reindexes the
+  // queue. A lazy useState initializer runs once at mount and ignores later prop
+  // changes, which is the freeze we want and reads cleanly during render.
+  const [snapshot] = useState(() => items);
   const [includeScored, setIncludeScored] = useState(false);
   const [index, setIndex] = useState(0);
   const [liveScores, setLiveScores] = useState<Record<string, number | null>>(() =>
     Object.fromEntries(items.map((i) => [i.applicationId, i.myScore])),
   );
   const [views, setViews] = useState<Record<string, ReviewApplicationView>>({});
+  // Ids already loaded or in flight, so prefetch(next) + load(current) never
+  // double-fire onLoad for the same applicant. A ref is read synchronously,
+  // unlike a setState updater, so the dedupe is reliable.
+  const loadedRef = useRef<Set<string>>(new Set());
   const [viewError, setViewError] = useState<string | null>(null);
   const [comment, setComment] = useState("");
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSaving, startSave] = useTransition();
+  // Applicant to keep in view across a queue-basis change (the show-scored
+  // toggle), captured at toggle time before the queue recomputes.
+  const keepIdRef = useRef<string | null>(null);
 
   const { queue, initialIndex } = useMemo(
-    // eslint-disable-next-line react-hooks/refs -- snapshot.current is set once at mount and never reassigned; reading the frozen queue basis is safe
-    () => buildSpeedScoreQueue(snapshot.current, { includeScored }),
-    [includeScored],
+    () => buildSpeedScoreQueue(snapshot, { includeScored }),
+    [snapshot, includeScored],
   );
 
-  // Reset position when the queue basis changes (open, or toggle).
+  // Reset position when the queue basis changes (open, or show-scored toggle).
+  // Preserve the applicant captured at toggle time where it still exists in the
+  // new queue; otherwise fall back to the first unscored (initialIndex).
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- derived-state reset when the queue basis (initialIndex) changes; intentional per component contract
-    setIndex(initialIndex);
-  }, [initialIndex]);
+    const keepId = keepIdRef.current;
+    keepIdRef.current = null;
+    const pos = keepId ? queue.findIndex((q) => q.applicationId === keepId) : -1;
+    setIndex(pos >= 0 ? pos : initialIndex);
+  }, [queue, initialIndex]);
 
-  const total = snapshot.current.length;
+  const total = snapshot.length;
   const scoredCount = Object.values(liveScores).filter((v) => v != null).length;
   const current = index < queue.length ? queue[index] : null;
   const done = current == null;
   const currentView = current ? views[current.applicationId] : undefined;
 
   const ensureLoaded = useCallback(
-    // eslint-disable-next-line react-hooks/preserve-manual-memoization -- deps intentionally match the brief's contract
     async (applicationId: string, isCurrent: boolean) => {
-      // Read latest views via functional update to avoid a stale closure.
-      let alreadyHave = false;
-      setViews((prev) => {
-        alreadyHave = Boolean(prev[applicationId]);
-        return prev;
-      });
-      if (alreadyHave) return;
+      if (loadedRef.current.has(applicationId)) return;
+      loadedRef.current.add(applicationId); // mark in flight so current + prefetch don't double-load
       const res = await onLoad(applicationId);
       if ("view" in res) {
         setViews((prev) => ({ ...prev, [applicationId]: res.view }));
-      } else if (isCurrent) {
-        setViewError(res.error);
+      } else {
+        loadedRef.current.delete(applicationId); // failed: allow a later retry
+        if (isCurrent) setViewError(res.error);
       }
     },
     [onLoad],
@@ -84,7 +91,6 @@ export function SpeedScoreModal({ open, onClose, items, onScore, onLoad }: Speed
   }, [open, current, queue, index, ensureLoaded]);
 
   const goTo = useCallback(
-    // eslint-disable-next-line react-hooks/preserve-manual-memoization -- deps intentionally match the brief's contract
     (nextIndex: number) => {
       setIndex((_i) => Math.min(Math.max(0, nextIndex), queue.length));
     },
@@ -92,7 +98,6 @@ export function SpeedScoreModal({ open, onClose, items, onScore, onLoad }: Speed
   );
 
   const handleScore = useCallback(
-    // eslint-disable-next-line react-hooks/preserve-manual-memoization -- deps intentionally match the brief's contract
     (value: number) => {
       if (!current || isSaving) return;
       const target = current.applicationId;
@@ -136,6 +141,13 @@ export function SpeedScoreModal({ open, onClose, items, onScore, onLoad }: Speed
   }, [open, done, isSaving, index, handleScore, goTo]);
 
   const currentScore = current ? liveScores[current.applicationId] ?? null : null;
+
+  function toggleShowScored(next: boolean) {
+    // Capture the current applicant BEFORE the queue recomputes so the reset
+    // effect keeps it in view instead of jumping to the first unscored.
+    keepIdRef.current = current?.applicationId ?? null;
+    setIncludeScored(next);
+  }
 
   return (
     <Modal
@@ -185,11 +197,9 @@ export function SpeedScoreModal({ open, onClose, items, onScore, onLoad }: Speed
       {done ? (
         <div className="space-y-3 py-6 text-center">
           <p className="text-lg font-semibold text-foreground">All caught up.</p>
-          {/* eslint-disable-next-line react-hooks/refs -- total derives from the frozen opening snapshot (never reassigned); safe to read during render */}
           <p className="text-sm text-muted-foreground">You&apos;ve scored {scoredCount} of {total} applicants.</p>
-          {/* eslint-disable-next-line react-hooks/refs -- total derives from the frozen opening snapshot (never reassigned); safe to read during render */}
           {!includeScored && scoredCount < total && (
-            <Button type="button" variant="outline" size="sm" onClick={() => setIncludeScored(true)}>
+            <Button type="button" variant="outline" size="sm" onClick={() => toggleShowScored(true)}>
               Review scored applicants
             </Button>
           )}
@@ -203,7 +213,7 @@ export function SpeedScoreModal({ open, onClose, items, onScore, onLoad }: Speed
               <span className="text-muted-foreground">Prefs: {currentView.departmentChoices.join(", ")}</span>
             )}
             <label className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Checkbox checked={includeScored} onChange={(e) => setIncludeScored(e.target.checked)} />
+              <Checkbox checked={includeScored} onChange={(e) => toggleShowScored(e.target.checked)} />
               Show scored
             </label>
           </div>

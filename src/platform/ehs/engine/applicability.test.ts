@@ -23,9 +23,12 @@ describe("isStudentAffiliation", () => {
     expect(isStudentAffiliation("Yale School of Nursing (YSN)")).toBe(true);
   });
 
-  it("returns false for non-student affiliations", () => {
-    expect(isStudentAffiliation("Yale Staff")).toBe(false);
-    expect(isStudentAffiliation("Other Yale Affiliation")).toBe(false);
+  it("returns false for every non-student affiliation vocabulary the forms produce", () => {
+    // Human labels (recruitment / EHS engine), option values (recruitment
+    // SINGLE_SELECT), and the /my-info + admin dropdown values -- all case-insensitive.
+    for (const a of ["Yale Staff", "staff", "Staff", "Other Yale Affiliation", "other_yale", "Other"]) {
+      expect(isStudentAffiliation(a)).toBe(false);
+    }
   });
 
   it("returns false for blank or null affiliation", () => {

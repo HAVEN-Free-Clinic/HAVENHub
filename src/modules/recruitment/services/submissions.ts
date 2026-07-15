@@ -278,6 +278,14 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
         applicantType: input.applicantType, departmentChoices: selectedDepartmentCodes, subcommitteeRanking,
         renewalDepartment: input.applicantType === "RENEWAL" ? input.renewalDepartment! : null,
         transferFromDepartments,
+        // Returning members (RENEWAL only, NOT TRANSFER) skip committee scoring +
+        // routing: auto-route them straight to their current department so its
+        // director sees and decides them directly. Routing is volunteer-only (the
+        // director track is ranking-based and already visible to the dept). A
+        // TRANSFER is treated like a NEW applicant and goes through the committee.
+        ...(input.applicantType === "RENEWAL" && cycle.track === "VOLUNTEER"
+          ? { routedDepartmentCode: input.renewalDepartment!, routedAt: new Date() }
+          : {}),
         status: "SUBMITTED" as const, submittedAt: new Date(),
       };
       let app: Application;

@@ -92,6 +92,25 @@ it("routes a RENEWAL submission and stores renewalDepartment", async () => {
   expect(app.renewalDepartment).toBe("SRHD");
   expect(app.departmentChoices).toEqual(["SRHD"]);
   expect(Object.keys(app.answers as object)).not.toContain("1st_choice_department");
+  // A returning volunteer skips the committee: auto-routed to their department so
+  // its director sees + decides directly (no SRR routing step).
+  expect(app.routedDepartmentCode).toBe("SRHD");
+  expect(app.routedAt).not.toBeNull();
+});
+
+it("does NOT auto-route a TRANSFER (it goes through the committee like a new applicant)", async () => {
+  await openVolunteerCycle();
+  const person = await makeVolunteer("SRHD"); // currently in SRHD, transferring to MDIC
+  const app = await submitApplication("apply-v", {
+    applicantType: "TRANSFER",
+    answers: { first_name: "Tr", last_name: "An", email: "tr@yale.edu", "1st_choice_department": "MDIC", srhd_essay: "n/a" },
+    files: {},
+    sessionPersonId: person.id,
+    sessionEmail: "tr@yale.edu",
+  });
+  expect(app.applicantType).toBe("TRANSFER");
+  expect(app.departmentChoices).toEqual(["MDIC"]);
+  expect(app.routedDepartmentCode).toBeNull(); // committee routes it, not auto
 });
 
 it("rejects a renewalDepartment outside the cycle departments", async () => {

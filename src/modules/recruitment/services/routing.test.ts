@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
-import { RecruitmentAuthError } from "./review";
+import { RecruitmentAuthError, AcceptanceError } from "./review";
 import { routeApplication, decideRoutedApplication, RoutingError } from "./routing";
 
 async function seed() {
@@ -39,6 +39,41 @@ describe("routeApplication", () => {
   it("rejects a department not in the cycle", async () => {
     const { lead, application } = await seed();
     await expect(routeApplication(application.id, "NOPE", lead.id)).rejects.toBeInstanceOf(RoutingError);
+  });
+
+  it("re-routing after a not-yet-emailed ACCEPT clears the old acceptance and resets the decision", async () => {
+    const { lead, application } = await seed();
+    await routeApplication(application.id, "EDUC", lead.id);
+    await decideRoutedApplication(application.id, "ACCEPT", lead.id, "accepted for EDUC");
+    // Re-route to MDIC: the EDUC acceptance is now stale and must not survive.
+    const rerouted = await routeApplication(application.id, "MDIC", lead.id);
+    expect(rerouted.routedDepartmentCode).toBe("MDIC");
+    expect(rerouted.decision).toBe("PENDING");
+    expect(rerouted.decidedAt).toBeNull();
+    expect(rerouted.decisionNotes).toBeNull();
+    expect(await prisma.acceptance.findMany({ where: { applicationId: application.id } })).toHaveLength(0);
+  });
+
+  it("blocks re-routing once the acceptance was emailed (must be rescinded first)", async () => {
+    const { lead, application } = await seed();
+    await routeApplication(application.id, "EDUC", lead.id);
+    await decideRoutedApplication(application.id, "ACCEPT", lead.id, null);
+    await prisma.acceptance.updateMany({ where: { applicationId: application.id, departmentCode: "EDUC" }, data: { emailedAt: new Date() } });
+    await expect(routeApplication(application.id, "MDIC", lead.id)).rejects.toBeInstanceOf(AcceptanceError);
+    // The original routing + acceptance are untouched.
+    const app = await prisma.application.findUniqueOrThrow({ where: { id: application.id } });
+    expect(app.routedDepartmentCode).toBe("EDUC");
+    expect(await prisma.acceptance.count({ where: { applicationId: application.id, departmentCode: "EDUC" } })).toBe(1);
+  });
+
+  it("re-routing to the SAME department preserves the existing decision + acceptance", async () => {
+    const { lead, application } = await seed();
+    await routeApplication(application.id, "EDUC", lead.id);
+    await decideRoutedApplication(application.id, "ACCEPT", lead.id, "keep me");
+    const again = await routeApplication(application.id, "EDUC", lead.id);
+    expect(again.decision).toBe("ACCEPT");
+    expect(again.decisionNotes).toBe("keep me");
+    expect(await prisma.acceptance.count({ where: { applicationId: application.id, departmentCode: "EDUC" } })).toBe(1);
   });
 
   it("rejects routing a director-track application (routing is volunteer-only)", async () => {

@@ -5,6 +5,8 @@ import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { getSetting } from "@/platform/settings/service";
 import { putObject, deleteObject } from "@/platform/storage";
+import { decodeSignaturePng, SignatureError } from "./signature";
+import type { SignatureInput, StoredSignature } from "../contract/signatures";
 import { queueEmail } from "@/platform/email/send";
 import { recordAudit } from "@/platform/audit";
 import { parseCompletionDate, CompletionDateError } from "@/platform/compliance/completion-date";
@@ -189,10 +191,10 @@ export type ContractSubmission = {
   dietaryRestrictions?: string;
   yaleAffiliation?: string;
   gradYear?: string;
-  initials: string;
-  // Agreement signatures keyed by agreement block id; custom-question answers keyed
-  // by question key. Which are required is driven by the frozen snapshot layout.
-  signatures?: Record<string, string>;
+  // Drawn signatures keyed by block id: each agreement's id, plus "initials".
+  // Which are required is driven by the frozen snapshot layout. The typed-name
+  // fallback still produces a PNG, so every value is a SignatureInput.
+  signatures: Record<string, SignatureInput>;
   customAnswers?: Record<string, string | string[]>;
   epicNeeded: boolean;
   hasEpic: boolean;
@@ -228,9 +230,10 @@ export async function submitContract(
   const initialsEnabled = layout.blocks.some(
     (b) => b.kind === "system_field" && b.systemKey === "initials" && b.enabled !== false,
   );
-  if (initialsEnabled && !input.initials?.trim()) e.initials = "required";
+  const signed = (id: string) => Boolean(input.signatures?.[id]?.dataUrl);
+  if (initialsEnabled && !signed("initials")) e["sig__initials"] = "required";
   for (const b of layout.blocks) {
-    if (b.kind === "agreement" && !input.signatures?.[b.id]?.trim()) {
+    if (b.kind === "agreement" && !signed(b.id)) {
       e[`sig__${b.id}`] = "required";
     }
     if (b.kind === "custom_question" && b.required) {
@@ -299,6 +302,35 @@ export async function submitContract(
     };
   }
 
+  // Persist each drawn signature as a private PNG blob and build the structured
+  // record stored in the signatures JSON. Every enabled agreement (+ initials) was
+  // validated as signed above, so decode failures here are treated as validation
+  // errors, not crashes. Written keys are rolled back if the claim below fails.
+  const signatureJson: Record<string, StoredSignature> = {};
+  const signatureKeys: string[] = [];
+  const cleanupSignatures = async () => { for (const k of signatureKeys) await deleteObject(k); };
+  const requiredIds = new Set<string>([
+    ...layout.blocks.filter((b) => b.kind === "agreement").map((b) => (b as { id: string }).id),
+    ...(initialsEnabled ? ["initials"] : []),
+  ]);
+  for (const id of requiredIds) {
+    const sig = input.signatures[id];
+    let bytes: Buffer;
+    try {
+      bytes = decodeSignaturePng(sig.dataUrl);
+    } catch (err) {
+      await cleanupSignatures();
+      if (writtenKey) await deleteObject(writtenKey);
+      if (err instanceof SignatureError) throw new ContractValidationError("Please provide a valid signature.", { [`sig__${id}`]: "invalid signature" });
+      throw err;
+    }
+    const imageKey = `onboarding/${contract.id}/sig-${id.replace(/[^a-z0-9_]/gi, "_")}.png`;
+    await putObject(imageKey, bytes, "image/png");
+    signatureKeys.push(imageKey);
+    signatureJson[id] = { method: sig.method === "type" ? "type" : "draw", name: sig.name.trim(), imageKey, signedAt: new Date().toISOString() };
+  }
+  const initialsName = input.signatures.initials?.name?.trim() ?? null;
+
   // Claim the submit atomically: the status: "PENDING" precondition means only one
   // of two concurrent submits can flip the row. Without it, both would upload a
   // distinct HIPAA blob and both flip to SUBMITTED, but the row keeps only the last
@@ -317,8 +349,8 @@ export async function submitContract(
         dietaryRestrictions: input.dietaryRestrictions?.trim() || null,
         yaleAffiliation: input.yaleAffiliation?.trim() || null,
         gradYear: input.gradYear?.trim() || null,
-        initials: input.initials.trim(),
-        signatures: (input.signatures ?? {}) as object,
+        initials: initialsName,
+        signatures: signatureJson as object,
         customAnswers: (input.customAnswers ?? {}) as object,
         epicNeeded: input.epicNeeded,
         hasEpic: input.hasEpic,
@@ -334,12 +366,14 @@ export async function submitContract(
       },
     });
   } catch (err) {
+    await cleanupSignatures();
     if (writtenKey) await deleteObject(writtenKey);
     throw err;
   }
   if (claimed.count === 0) {
-    // A concurrent submit already flipped this contract to SUBMITTED. Drop the blob
-    // we just wrote so it isn't orphaned, and don't write a second audit row.
+    // A concurrent submit already flipped this contract to SUBMITTED. Drop the blobs
+    // we just wrote so they aren't orphaned, and don't write a second audit row.
+    await cleanupSignatures();
     if (writtenKey) await deleteObject(writtenKey);
     throw new ContractError("This onboarding form has already been submitted.");
   }
@@ -371,4 +405,15 @@ export async function listOnboarding(cycleId: string) {
     rows.map((r) => ({ applicationId: r.applicationId, departmentCode: r.departmentCode })),
   );
   return rows.map((r) => ({ ...r, conflicted: conflicts.has(r.applicationId) }));
+}
+
+/** Load a submitted contract for the admin signed-contract view, with the owning
+ *  cycle id so the page can confirm the contract belongs to the cycle in its URL. */
+export async function getContractForReview(contractId: string) {
+  const contract = await prisma.onboardingContract.findUnique({
+    where: { id: contractId },
+    include: { acceptance: { include: { application: { select: { cycleId: true } } } } },
+  });
+  if (!contract) return null;
+  return { contract, cycleId: contract.acceptance.application.cycleId };
 }

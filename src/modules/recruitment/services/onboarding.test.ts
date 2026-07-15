@@ -5,11 +5,17 @@ import { Prisma } from "@prisma/client";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import { config } from "@/platform/config";
+import { getObject } from "@/platform/storage";
 import { RecruitmentAuthError } from "./review";
 import {
   createOrResendContract, getContractByToken, submitContract, listOnboarding,
   ContractError, ContractValidationError, type ContractSubmission,
 } from "./onboarding";
+import type { SignatureInput } from "../contract/signatures";
+
+/** A minimal valid 1x1 PNG data URL: passes decodeSignaturePng's magic-byte check. */
+const SIG_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQAY3Y2wAAAAAElFTkSuQmCC";
+const sign = (name: string): SignatureInput => ({ dataUrl: SIG_PNG, method: "draw", name });
 
 /** submitContract streams HIPAA files to UPLOAD_DIR/onboarding/<contractId>/.
  *  resetDb only truncates the database, so remove the on-disk files this suite
@@ -167,7 +173,8 @@ describe("onboarding link expiry", () => {
     await prisma.onboardingContract.update({ where: { id: c.id }, data: { expiresAt: new Date(Date.now() - 1000) } });
     await expect(
       submitContract(c.token, {
-        firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu", initials: "AL",
+        firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu",
+        signatures: { initials: sign("AL") },
         epicNeeded: false, hasEpic: false, worksWithYnhh: false,
       } as ContractSubmission),
     ).rejects.toBeInstanceOf(ContractError);
@@ -179,14 +186,14 @@ it("submitContract validates signatures + hipaa and stores SUBMITTED", async () 
   const c = await createOrResendContract(acceptance.id, srr.id, "http://test");
   await expect(submitContract(c.token, {
     firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu",
-    signatures: { agreement: "", professionalism: "Ada", training: "Ada" }, initials: "AL",
+    signatures: { agreement: { dataUrl: "", method: "draw", name: "" }, professionalism: sign("Ada"), training: sign("Ada"), initials: sign("AL") },
     epicNeeded: false, hasEpic: false, worksWithYnhh: false,
     hipaaCompletedAt: "2026-01-01", hipaaFile: { fileName: "c.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") },
   })).rejects.toBeInstanceOf(ContractValidationError);
 
   const ok = await submitContract(c.token, {
     firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu", netId: "al99", phone: "203",
-    signatures: { agreement: "Ada", professionalism: "Ada", training: "Ada" }, initials: "AL",
+    signatures: { agreement: sign("Ada"), professionalism: sign("Ada"), training: sign("Ada"), initials: sign("AL") },
     epicNeeded: true, hasEpic: false, worksWithYnhh: false,
     hipaaCompletedAt: "2026-01-01", hipaaFile: { fileName: "c.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") },
   });
@@ -196,7 +203,7 @@ it("submitContract validates signatures + hipaa and stores SUBMITTED", async () 
 
   await expect(submitContract(c.token, {
     firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu",
-    signatures: { agreement: "Ada", professionalism: "Ada", training: "Ada" }, initials: "AL",
+    signatures: { agreement: sign("Ada"), professionalism: sign("Ada"), training: sign("Ada"), initials: sign("AL") },
     epicNeeded: false, hasEpic: false, worksWithYnhh: false,
     hipaaCompletedAt: "2026-01-01", hipaaFile: { fileName: "c.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") },
   })).rejects.toBeInstanceOf(ContractError);
@@ -207,7 +214,7 @@ it("a repeated submit is rejected without orphaning a HIPAA blob or duplicating 
   const c = await createOrResendContract(acceptance.id, srr.id, "http://test");
   const base = {
     firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu",
-    signatures: { agreement: "Ada", professionalism: "Ada", training: "Ada" }, initials: "AL",
+    signatures: { agreement: sign("Ada"), professionalism: sign("Ada"), training: sign("Ada"), initials: sign("AL") },
     epicNeeded: false, hasEpic: false, worksWithYnhh: false,
     hipaaCompletedAt: "2026-01-01",
   };
@@ -218,8 +225,10 @@ it("a repeated submit is rejected without orphaning a HIPAA blob or duplicating 
     submitContract(c.token, { ...base, hipaaFile: { fileName: "second.pdf", mimeType: "application/pdf", bytes: Buffer.from("y") } }),
   ).rejects.toBeInstanceOf(ContractError);
   expect(await prisma.auditLog.count({ where: { action: "recruitment.onboarding_submit" } })).toBe(1);
+  // Exactly one HIPAA blob survives: the rejected second submit orphaned nothing.
+  // (Signature blobs from the first submit also live under this dir; filter to HIPAA.)
   const files = await fs.readdir(path.join(config.UPLOAD_DIR, "onboarding", c.id));
-  expect(files).toHaveLength(1);
+  expect(files.filter((f) => f.startsWith("hipaa-"))).toHaveLength(1);
 });
 
 it("listOnboarding returns acceptances with contract status", async () => {
@@ -244,7 +253,7 @@ it("submitContract stores spanishSelfReported and licensedRN", async () => {
   const c = await createOrResendContract(acceptance.id, srr.id, "http://test");
   const ok = await submitContract(c.token, {
     firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu", netId: "al99", phone: "203",
-    signatures: { agreement: "Ada", professionalism: "Ada", training: "Ada" }, initials: "AL",
+    signatures: { agreement: sign("Ada"), professionalism: sign("Ada"), training: sign("Ada"), initials: sign("AL") },
     epicNeeded: false, hasEpic: false, worksWithYnhh: false,
     spanishSelfReported: true, licensedRN: true,
     hipaaCompletedAt: "2026-01-01", hipaaFile: { fileName: "c.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") },
@@ -272,8 +281,10 @@ it("stores agreement signatures and required custom answers from the snapshot la
     },
   });
 
+  // This snapshot has no `initials` system field, so initials is not required and
+  // is omitted from the input; each call supplies its own `signatures` map.
   const base = {
-    firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu", initials: "AL",
+    firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu",
     epicNeeded: false, hasEpic: false, worksWithYnhh: false,
     hipaaCompletedAt: "2026-01-01",
     hipaaFile: { fileName: "c.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") },
@@ -286,12 +297,32 @@ it("stores agreement signatures and required custom answers from the snapshot la
 
   const ok = await submitContract(c.token, {
     ...base,
-    signatures: { agreement: "Jane Doe" },
+    signatures: { agreement: sign("Jane Doe") },
     customAnswers: { tshirt: "M" },
   });
   expect(ok.status).toBe("SUBMITTED");
-  expect(ok.signatures).toMatchObject({ agreement: "Jane Doe" });
+  expect(ok.signatures).toMatchObject({ agreement: { name: "Jane Doe", method: "draw" } });
   expect(ok.customAnswers).toMatchObject({ tshirt: "M" });
+});
+
+it("stores each contract signature as a blob-backed structured record", async () => {
+  const { srr, acceptance } = await seed();
+  const c = await createOrResendContract(acceptance.id, srr.id, "http://test");
+  await submitContract(c.token, {
+    firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu",
+    signatures: { agreement: sign("Ada"), professionalism: sign("Ada"), training: sign("Ada"), initials: sign("Ada L") },
+    epicNeeded: false, hasEpic: false, worksWithYnhh: false,
+    hipaaCompletedAt: "2026-01-01",
+    hipaaFile: { fileName: "h.pdf", mimeType: "application/pdf", bytes: Buffer.from("pdf") },
+  });
+  const saved = await prisma.onboardingContract.findUniqueOrThrow({ where: { id: c.id } });
+  const sigs = saved.signatures as Record<string, { imageKey?: string; method?: string; signedAt?: string }>;
+  expect(sigs.agreement.imageKey).toBe(`onboarding/${c.id}/sig-agreement.png`);
+  expect(sigs.agreement.method).toBe("draw");
+  expect(typeof sigs.agreement.signedAt).toBe("string");
+  expect(saved.initials).toBe("Ada L");
+  const bytes = await getObject(sigs.agreement.imageKey!);
+  expect(bytes?.length).toBeGreaterThan(0);
 });
 
 it("does not require initials when the layout disables the initials system field", async () => {
@@ -317,8 +348,8 @@ it("does not require initials when the layout disables the initials system field
   });
 
   const ok = await submitContract(c.token, {
-    firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu", initials: "",
-    signatures: { agreement: "Ada", professionalism: "Ada", training: "Ada" },
+    firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu",
+    signatures: { agreement: sign("Ada"), professionalism: sign("Ada"), training: sign("Ada") },
     epicNeeded: false, hasEpic: false, worksWithYnhh: false,
     hipaaCompletedAt: "2026-01-01",
     hipaaFile: { fileName: "c.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") },
@@ -339,7 +370,7 @@ describe("submitContract HIPAA date validation", () => {
 
   const base: Omit<ContractSubmission, "hipaaCompletedAt" | "hipaaFile"> = {
     firstName: "A", lastName: "B", email: "a@b.com",
-    signatures: { agreement: "A B", professionalism: "A B", training: "A B" }, initials: "AB",
+    signatures: { agreement: sign("A B"), professionalism: sign("A B"), training: sign("A B"), initials: sign("AB") },
     epicNeeded: false, hasEpic: false, worksWithYnhh: false,
   };
 

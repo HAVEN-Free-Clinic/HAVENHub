@@ -133,6 +133,7 @@ export function ContractField({
             name="sig__initials"
             label={label}
             required
+            helpText={block.helpText}
             personName={`${prefill.firstName} ${prefill.lastName}`.trim()}
             error={err("sig__initials")}
           />

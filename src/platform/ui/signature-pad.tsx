@@ -30,6 +30,7 @@ export function SignaturePad({
   name,
   label,
   required = false,
+  helpText,
   personName = "",
   defaultValue = "",
   error,
@@ -38,6 +39,7 @@ export function SignaturePad({
   name: string;
   label: string;
   required?: boolean;
+  helpText?: string | null;
   personName?: string;
   defaultValue?: string;
   error?: string;
@@ -157,6 +159,7 @@ export function SignaturePad({
         {label}
         {required && <span className="text-critical" aria-hidden="true"> *</span>}
       </span>
+      {helpText && <span className="mt-1 block text-xs text-muted-foreground">{helpText}</span>}
 
       <input type="hidden" name={name} value={value} readOnly />
       <input type="hidden" name={`${name}__method`} value={mode} readOnly />

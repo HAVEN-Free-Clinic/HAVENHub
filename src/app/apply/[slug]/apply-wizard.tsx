@@ -450,6 +450,7 @@ export function ApplyWizard({
                         name={f.key}
                         label={f.label}
                         required={f.required}
+                        helpText={f.helpText}
                         personName={[prefill?.values.first_name ?? initialAnswers.first_name, prefill?.values.last_name ?? initialAnswers.last_name].filter(Boolean).join(" ")}
                         defaultValue={typeof initialAnswers[f.key] === "string" ? (initialAnswers[f.key] as string) : ""}
                         error={fieldErrors[f.key]}

@@ -2,6 +2,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requirePersonSession } from "@/platform/auth/session";
+import { getPostHogClient } from "@/lib/posthog-server";
 import { RecruitmentAuthError, AcceptanceError } from "@/modules/recruitment/services/review";
 import { createInterview, InterviewError } from "@/modules/recruitment/services/interviews";
 import { submitCommitteeScore, CommitteeScoreError } from "@/modules/recruitment/services/committee-scoring";
@@ -24,6 +25,13 @@ export async function committeeScoreAction(cycleId: string, applicationId: strin
   }
   try {
     await submitCommitteeScore(applicationId, person.personId, score, comments);
+    const posthog = getPostHogClient();
+    posthog.capture({
+      distinctId: person.personId,
+      event: "application_committee_score_submitted",
+      properties: { cycle_id: cycleId, application_id: applicationId, score },
+    });
+    await posthog.shutdown();
   } catch (err) {
     if (err instanceof RecruitmentAuthError || err instanceof CommitteeScoreError) redirect(bounce(cycleId, applicationId, { error: err.message }));
     throw err;
@@ -36,6 +44,13 @@ export async function routeAction(cycleId: string, applicationId: string, formDa
   const departmentCode = String(formData.get("departmentCode") ?? "").trim();
   try {
     await routeApplication(applicationId, departmentCode, person.personId);
+    const posthog = getPostHogClient();
+    posthog.capture({
+      distinctId: person.personId,
+      event: "application_routed",
+      properties: { cycle_id: cycleId, application_id: applicationId, department_code: departmentCode },
+    });
+    await posthog.shutdown();
   } catch (err) {
     if (err instanceof RecruitmentAuthError || err instanceof RoutingError) redirect(bounce(cycleId, applicationId, { error: err.message }));
     throw err;
@@ -52,6 +67,13 @@ export async function decideRoutedAction(cycleId: string, applicationId: string,
   }
   try {
     await decideRoutedApplication(applicationId, outcome as "ACCEPT" | "REJECT" | "WAITLIST", person.personId, notes);
+    const posthog = getPostHogClient();
+    posthog.capture({
+      distinctId: person.personId,
+      event: "application_decided",
+      properties: { cycle_id: cycleId, application_id: applicationId, outcome },
+    });
+    await posthog.shutdown();
   } catch (err) {
     if (err instanceof RecruitmentAuthError || err instanceof RoutingError || err instanceof AcceptanceError) {
       redirect(bounce(cycleId, applicationId, { error: (err as Error).message }));
@@ -66,6 +88,13 @@ export async function scheduleInterviewAction(cycleId: string, applicationId: st
   const departmentCode = String(formData.get("departmentCode") ?? "").trim();
   try {
     const iv = await createInterview(applicationId, departmentCode, person.personId);
+    const posthog = getPostHogClient();
+    posthog.capture({
+      distinctId: person.personId,
+      event: "interview_scheduled",
+      properties: { cycle_id: cycleId, application_id: applicationId, department_code: departmentCode, interview_id: iv.id },
+    });
+    await posthog.shutdown();
     redirect(`/recruitment/interviews/${iv.id}`);
   } catch (err) {
     if (err instanceof RecruitmentAuthError || err instanceof InterviewError) {

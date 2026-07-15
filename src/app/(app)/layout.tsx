@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { requirePersonSession } from "@/platform/auth/session";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { AppShell } from "@/platform/ui/app-shell";
+import { PostHogIdentify } from "./posthog-identify";
 
 /**
  * Shared shell for every authenticated route. Owns the toolbar (AppShell) so it
@@ -20,6 +21,7 @@ export default async function AppGroupLayout({ children }: { children: ReactNode
       personId={person.personId}
       personThemePreference={person.themePreference}
     >
+      <PostHogIdentify personId={person.personId} name={person.name} email={person.email} />
       {children}
     </AppShell>
   );

@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { Input, Field } from "@/platform/ui/input";
 import { Checkbox } from "@/platform/ui/checkbox";
+import { SignaturePad } from "@/platform/ui/signature-pad";
 import { FieldPreview } from "@/modules/recruitment/components/field-preview";
 import { SYSTEM_FIELDS } from "@/modules/recruitment/contract/system-fields";
 import type { ContractBlock } from "@/modules/recruitment/contract/layout";
@@ -41,10 +42,13 @@ export function ContractField({
             <p className="whitespace-pre-line text-sm text-foreground-soft">{renderVars(block.body, ctx)}</p>
           </>
         )}
-        <Field label={`${block.title} (${block.signatureLabel})`} required>
-          <Input name={`sig__${block.id}`} required {...errorProps(`sig__${block.id}`)} />
-        </Field>
-        {err(`sig__${block.id}`) && <p id={errorId(`sig__${block.id}`)} className="mt-1 text-xs text-critical">{err(`sig__${block.id}`)}</p>}
+        <SignaturePad
+          name={`sig__${block.id}`}
+          label={block.title}
+          required
+          personName={`${prefill.firstName} ${prefill.lastName}`.trim()}
+          error={err(`sig__${block.id}`)}
+        />
       </div>
     );
   }
@@ -123,7 +127,18 @@ export function ContractField({
           </div>
         );
       }
-      const nameByKey: Record<string, string> = { email: "email", netId: "netId", phone: "phone", dob: "dateOfBirth", dietary: "dietaryRestrictions", yaleAffiliation: "yaleAffiliation", gradYear: "gradYear", initials: "initials" };
+      if (block.systemKey === "initials") {
+        return (
+          <SignaturePad
+            name="sig__initials"
+            label={label}
+            required
+            personName={`${prefill.firstName} ${prefill.lastName}`.trim()}
+            error={err("sig__initials")}
+          />
+        );
+      }
+      const nameByKey: Record<string, string> = { email: "email", netId: "netId", phone: "phone", dob: "dateOfBirth", dietary: "dietaryRestrictions", yaleAffiliation: "yaleAffiliation", gradYear: "gradYear" };
       const type = spec.render === "text" ? "text" : spec.render;
       const defaults: Record<string, string> = {
         email: prefill.email,
@@ -132,7 +147,7 @@ export function ContractField({
         yaleAffiliation: prefill.yaleAffiliation,
         gradYear: prefill.gradYear,
       };
-      const required = block.systemKey === "email" || block.systemKey === "initials";
+      const required = block.systemKey === "email";
       const inputName = nameByKey[block.systemKey];
       return (
         <div>

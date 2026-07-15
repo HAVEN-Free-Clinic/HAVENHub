@@ -59,29 +59,37 @@ export default async function SignedContractPage({ params }: { params: Promise<{
       <Card>
         <SectionHeader>Signatures</SectionHeader>
         <dl className="mt-3 space-y-4">
-          {rows.map((r, i) => (
-            <div key={r.blockId} className="border-b border-border-subtle pb-4 last:border-0 last:pb-0">
-              <dt className="text-xs text-subtle-foreground">{r.title}</dt>
-              <dd className="mt-1 text-sm text-foreground">
-                {images[i] ? (
-                  // eslint-disable-next-line @next/next/no-img-element -- inline signature data URI, not a remote asset
-                  <img src={images[i]!} alt={`${r.title} signature`} className="h-20 rounded border border-border-subtle bg-surface" />
-                ) : r.legacyText ? (
-                  <span className="font-medium">{r.legacyText}</span>
-                ) : (
-                  <span className="italic text-subtle-foreground">Not signed</span>
-                )}
-                {(r.name || r.signedAt) && (
-                  <p className="mt-1 text-xs text-subtle-foreground">
-                    {r.name}
-                    {r.name && r.signedAt ? " · " : ""}
-                    {r.signedAt ? <>signed <DateTime value={new Date(r.signedAt)} /></> : null}
-                    {r.method ? ` · ${r.method === "type" ? "typed" : "drawn"}` : ""}
-                  </p>
-                )}
-              </dd>
-            </div>
-          ))}
+          {rows.map((r, i) => {
+            // A legacy (pre-feature) typed-name row sets both `legacyText` and `name`
+            // to the same raw string, and the main text above already renders
+            // `legacyText`. Suppress the byline name when it would just repeat it, so
+            // a legacy signature shows once (drawn signatures keep name + signedAt +
+            // method, since their `legacyText` is null).
+            const bylineName = r.name && r.name !== r.legacyText ? r.name : "";
+            return (
+              <div key={r.blockId} className="border-b border-border-subtle pb-4 last:border-0 last:pb-0">
+                <dt className="text-xs text-subtle-foreground">{r.title}</dt>
+                <dd className="mt-1 text-sm text-foreground">
+                  {images[i] ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- inline signature data URI, not a remote asset
+                    <img src={images[i]!} alt={`${r.title} signature`} className="h-20 rounded border border-border-subtle bg-surface" />
+                  ) : r.legacyText ? (
+                    <span className="font-medium">{r.legacyText}</span>
+                  ) : (
+                    <span className="italic text-subtle-foreground">Not signed</span>
+                  )}
+                  {(bylineName || r.signedAt) && (
+                    <p className="mt-1 text-xs text-subtle-foreground">
+                      {bylineName}
+                      {bylineName && r.signedAt ? " · " : ""}
+                      {r.signedAt ? <>signed <DateTime value={new Date(r.signedAt)} /></> : null}
+                      {r.method ? ` · ${r.method === "type" ? "typed" : "drawn"}` : ""}
+                    </p>
+                  )}
+                </dd>
+              </div>
+            );
+          })}
           {rows.length === 0 && <p className="text-sm text-muted-foreground">This contract has no signature blocks.</p>}
         </dl>
       </Card>

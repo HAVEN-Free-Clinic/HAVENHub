@@ -294,44 +294,54 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
     }
   }
 
-  // Drawn signatures: each SIGNATURE answer arrived as a PNG data URL. Store it as
-  // a private blob (like FILE) and replace the answer with a file-ref carrying the
-  // audit context (method + printed name + server-stamped signedAt). Companion
-  // keys (`${key}__method` / `${key}__name`) live only in the raw input.answers;
-  // the zod object stripped them, so they never reach answersWithFiles.
+  // Declared out here so the outer catch below can clean up any signature blobs
+  // written before a failure (mirrors fileRefs.storageKeys).
   const signatureStorageKeys: string[] = [];
-  for (const field of visibleFields) {
-    if (field.type !== "SIGNATURE") continue;
-    if (!isFieldVisible(field.visibleWhen, ctx.answers)) continue;
-    const raw = (answersWithFiles as Record<string, unknown>)[field.key];
-    if (typeof raw !== "string" || raw === "") { delete (answersWithFiles as Record<string, unknown>)[field.key]; continue; }
-    let bytes: Buffer;
-    try {
-      bytes = decodeSignaturePng(raw);
-    } catch (err) {
-      if (err instanceof SignatureError) throw new SubmissionValidationError("Please provide a valid signature.", { [field.key]: "invalid signature" });
-      throw err;
-    }
-    const safeKey = field.key.replace(/[^a-z0-9_]/gi, "_");
-    const storedName = `${safeKey}-${randomUUID()}.png`;
-    const storageKey = `recruitment/${cycle.id}/${storedName}`;
-    await putObject(storageKey, bytes, "image/png");
-    signatureStorageKeys.push(storageKey);
-    const rawMethod = input.answers[`${field.key}__method`];
-    const rawName = input.answers[`${field.key}__name`];
-    (answersWithFiles as Record<string, unknown>)[field.key] = {
-      storedName,
-      fileName: "signature.png",
-      mimeType: "image/png",
-      size: bytes.length,
-      method: rawMethod === "type" ? "type" : "draw",
-      name: typeof rawName === "string" ? rawName.trim() : "",
-      signedAt: new Date().toISOString(),
-    };
-  }
-
   let application: Application;
   try {
+    // Drawn signatures: each SIGNATURE answer arrived as a PNG data URL. Store it as
+    // a private blob (like FILE) and replace the answer with a file-ref carrying the
+    // audit context (method + printed name + server-stamped signedAt). Companion
+    // keys (`${key}__method` / `${key}__name`) live only in the raw input.answers;
+    // the zod object stripped them, so they never reach answersWithFiles.
+    //
+    // This loop runs INSIDE the try so a putObject failure -- or a decode-failure on a
+    // payload that passed zod's prefix check but fails the PNG magic-byte check -- is
+    // caught below and cleans up the already-persisted FILE blobs (which can be PII)
+    // plus any signature blobs written in earlier iterations, instead of escaping and
+    // orphaning them. The onboarding contract path (onboarding.ts) does the same.
+    for (const field of visibleFields) {
+      if (field.type !== "SIGNATURE") continue;
+      if (!isFieldVisible(field.visibleWhen, ctx.answers)) continue;
+      const raw = (answersWithFiles as Record<string, unknown>)[field.key];
+      if (typeof raw !== "string" || raw === "") { delete (answersWithFiles as Record<string, unknown>)[field.key]; continue; }
+      let bytes: Buffer;
+      try {
+        bytes = decodeSignaturePng(raw);
+      } catch (err) {
+        // Rethrows as SubmissionValidationError, now caught by the outer catch ->
+        // cleanup -> rethrow, so the caller still receives the validation error.
+        if (err instanceof SignatureError) throw new SubmissionValidationError("Please provide a valid signature.", { [field.key]: "invalid signature" });
+        throw err;
+      }
+      const safeKey = field.key.replace(/[^a-z0-9_]/gi, "_");
+      const storedName = `${safeKey}-${randomUUID()}.png`;
+      const storageKey = `recruitment/${cycle.id}/${storedName}`;
+      await putObject(storageKey, bytes, "image/png");
+      signatureStorageKeys.push(storageKey);
+      const rawMethod = input.answers[`${field.key}__method`];
+      const rawName = input.answers[`${field.key}__name`];
+      (answersWithFiles as Record<string, unknown>)[field.key] = {
+        storedName,
+        fileName: "signature.png",
+        mimeType: "image/png",
+        size: bytes.length,
+        method: rawMethod === "type" ? "type" : "draw",
+        name: typeof rawName === "string" ? rawName.trim() : "",
+        signedAt: new Date().toISOString(),
+      };
+    }
+
     application = await prisma.$transaction(async (tx) => {
       let applicantId = existingApplicant?.id;
       if (applicantId) {

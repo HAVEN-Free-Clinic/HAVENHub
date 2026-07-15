@@ -720,3 +720,48 @@ it("fills a RENEWAL applicant's identity from their matched record, not the (abs
   expect(applicant.netId).toBe("reed7");
   expect(applicant.phone).toBe("203-555-0100");
 });
+
+it("stores a drawn SIGNATURE answer as a private png blob with audit context", async () => {
+  const { cycle } = await openVolunteerCycle();
+  const idSection = await prisma.formSection.findFirstOrThrow({ where: { cycleId: cycle.id }, orderBy: { order: "asc" } });
+  await addField(idSection.id, { label: "Signature", type: "SIGNATURE", required: true });
+
+  const PNG_1x1 =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQAY3Y2wAAAAAElFTkSuQmCC";
+
+  const app = await submitApplication("apply-v", {
+    applicantType: "NEW",
+    answers: {
+      first_name: "Sig", last_name: "Ner", email: "sig@yale.edu", "1st_choice_department": "SRHD", srhd_essay: "x",
+      signature: PNG_1x1, signature__method: "draw", signature__name: "Sig Ner",
+    },
+    files: {},
+  });
+
+  const answers = app.answers as Record<string, { storedName?: string; mimeType?: string; method?: string; name?: string; signedAt?: string }>;
+  const sig = answers.signature;
+  expect(sig.mimeType).toBe("image/png");
+  expect(sig.method).toBe("draw");
+  expect(sig.name).toBe("Sig Ner");
+  expect(typeof sig.signedAt).toBe("string");
+  // The raw data URL and the companion keys must not linger in stored answers.
+  expect(typeof answers.signature).toBe("object");
+  expect((answers as Record<string, unknown>).signature__method).toBeUndefined();
+  // The blob exists in storage.
+  const bytes = await getObject(`recruitment/${cycle.id}/${sig.storedName}`);
+  expect(bytes?.length).toBeGreaterThan(0);
+});
+
+it("rejects a required SIGNATURE that was not signed", async () => {
+  const { cycle } = await openVolunteerCycle();
+  const idSection = await prisma.formSection.findFirstOrThrow({ where: { cycleId: cycle.id }, orderBy: { order: "asc" } });
+  await addField(idSection.id, { label: "Signature", type: "SIGNATURE", required: true });
+  void cycle;
+  await expect(
+    submitApplication("apply-v", {
+      applicantType: "NEW",
+      answers: { first_name: "No", last_name: "Sign", email: "nosign@yale.edu", "1st_choice_department": "SRHD", srhd_essay: "x", signature: "" },
+      files: {},
+    }),
+  ).rejects.toBeInstanceOf(SubmissionValidationError);
+});

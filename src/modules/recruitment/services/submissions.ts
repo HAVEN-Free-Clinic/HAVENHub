@@ -1,7 +1,9 @@
+import { randomUUID } from "node:crypto";
 import type { Application, FieldType } from "@prisma/client";
 import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { getSetting } from "@/platform/settings/service";
 import { queueEmail } from "@/platform/email/send";
+import { putObject } from "@/platform/storage";
 import { persistFiles, cleanupFiles, validateUploadedFile, type UploadedFile } from "./upload";
 export type { UploadedFile } from "./upload";
 import { recordAudit } from "@/platform/audit";
@@ -13,6 +15,7 @@ import { visibleSections, type ApplicantType } from "../engine/visibility";
 import { isFieldVisible } from "../engine/field-visibility";
 import { getRenewalContext } from "./renewal";
 import { renderCycleEmail } from "../email/render";
+import { decodeSignaturePng, SignatureError } from "./signature";
 
 export class CycleNotOpenError extends Error { constructor(m = "This application is closed.") { super(m); this.name = "CycleNotOpenError"; } }
 export class DuplicateApplicationError extends Error { constructor(m = "You have already applied.") { super(m); this.name = "DuplicateApplicationError"; } }
@@ -291,6 +294,42 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
     }
   }
 
+  // Drawn signatures: each SIGNATURE answer arrived as a PNG data URL. Store it as
+  // a private blob (like FILE) and replace the answer with a file-ref carrying the
+  // audit context (method + printed name + server-stamped signedAt). Companion
+  // keys (`${key}__method` / `${key}__name`) live only in the raw input.answers;
+  // the zod object stripped them, so they never reach answersWithFiles.
+  const signatureStorageKeys: string[] = [];
+  for (const field of visibleFields) {
+    if (field.type !== "SIGNATURE") continue;
+    if (!isFieldVisible(field.visibleWhen, ctx.answers)) continue;
+    const raw = (answersWithFiles as Record<string, unknown>)[field.key];
+    if (typeof raw !== "string" || raw === "") { delete (answersWithFiles as Record<string, unknown>)[field.key]; continue; }
+    let bytes: Buffer;
+    try {
+      bytes = decodeSignaturePng(raw);
+    } catch (err) {
+      if (err instanceof SignatureError) throw new SubmissionValidationError("Please provide a valid signature.", { [field.key]: "invalid signature" });
+      throw err;
+    }
+    const safeKey = field.key.replace(/[^a-z0-9_]/gi, "_");
+    const storedName = `${safeKey}-${randomUUID()}.png`;
+    const storageKey = `recruitment/${cycle.id}/${storedName}`;
+    await putObject(storageKey, bytes, "image/png");
+    signatureStorageKeys.push(storageKey);
+    const rawMethod = input.answers[`${field.key}__method`];
+    const rawName = input.answers[`${field.key}__name`];
+    (answersWithFiles as Record<string, unknown>)[field.key] = {
+      storedName,
+      fileName: "signature.png",
+      mimeType: "image/png",
+      size: bytes.length,
+      method: rawMethod === "type" ? "type" : "draw",
+      name: typeof rawName === "string" ? rawName.trim() : "",
+      signedAt: new Date().toISOString(),
+    };
+  }
+
   let application: Application;
   try {
     application = await prisma.$transaction(async (tx) => {
@@ -351,10 +390,10 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
     });
   } catch (err) {
     if (isUniqueConstraintError(err)) {
-      await cleanupFiles(fileRefs.storageKeys);
+      await cleanupFiles([...fileRefs.storageKeys, ...signatureStorageKeys]);
       throw new DuplicateApplicationError();
     }
-    await cleanupFiles(fileRefs.storageKeys);
+    await cleanupFiles([...fileRefs.storageKeys, ...signatureStorageKeys]);
     throw err;
   }
 

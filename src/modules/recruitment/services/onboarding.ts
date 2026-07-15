@@ -324,7 +324,7 @@ export async function submitContract(
       if (err instanceof SignatureError) throw new ContractValidationError("Please provide a valid signature.", { [`sig__${id}`]: "invalid signature" });
       throw err;
     }
-    const imageKey = `onboarding/${contract.id}/sig-${id.replace(/[^a-z0-9_]/gi, "_")}.png`;
+    const imageKey = `onboarding/${contract.id}/sig-${id.replace(/[^a-z0-9_]/gi, "_")}-${randomUUID()}.png`;
     await putObject(imageKey, bytes, "image/png");
     signatureKeys.push(imageKey);
     signatureJson[id] = { method: sig.method === "type" ? "type" : "draw", name: sig.name.trim(), imageKey, signedAt: new Date().toISOString() };

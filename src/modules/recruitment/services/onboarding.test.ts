@@ -317,7 +317,7 @@ it("stores each contract signature as a blob-backed structured record", async ()
   });
   const saved = await prisma.onboardingContract.findUniqueOrThrow({ where: { id: c.id } });
   const sigs = saved.signatures as Record<string, { imageKey?: string; method?: string; signedAt?: string }>;
-  expect(sigs.agreement.imageKey).toBe(`onboarding/${c.id}/sig-agreement.png`);
+  expect(sigs.agreement.imageKey).toMatch(new RegExp(`^onboarding/${c.id}/sig-agreement-[0-9a-f-]+\\.png$`));
   expect(sigs.agreement.method).toBe("draw");
   expect(typeof sigs.agreement.signedAt).toBe("string");
   expect(saved.initials).toBe("Ada L");

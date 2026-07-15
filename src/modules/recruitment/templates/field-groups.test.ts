@@ -46,4 +46,24 @@ describe("field-group builders", () => {
       for (const f of s.fields) expect(f.label).not.toMatch(/supplement #?\d+$/i);
     }
   });
+
+  it("languagesSection gates other_languages_detail on other_languages = yes", () => {
+    const s = languagesSection();
+    const detail = s.fields.find((f) => f.key === "other_languages_detail")!;
+    expect(detail.visibleWhen).toEqual({ field: "other_languages", op: "is", value: "yes" });
+  });
+
+  it("eligibilitySection gates medical_certifications and medical_details on licensed_professional = yes", () => {
+    const s = eligibilitySection();
+    const certs = s.fields.find((f) => f.key === "medical_certifications")!;
+    const details = s.fields.find((f) => f.key === "medical_details")!;
+    expect(certs.visibleWhen).toEqual({ field: "licensed_professional", op: "is", value: "yes" });
+    expect(details.visibleWhen).toEqual({ field: "licensed_professional", op: "is", value: "yes" });
+  });
+
+  it("identitySection gates yale_affiliation_other on yale_affiliation being other_yale or staff", () => {
+    const s = identitySection();
+    const other = s.fields.find((f) => f.key === "yale_affiliation_other")!;
+    expect(other.visibleWhen).toEqual({ field: "yale_affiliation", op: "isAnyOf", value: ["other_yale", "staff"] });
+  });
 });

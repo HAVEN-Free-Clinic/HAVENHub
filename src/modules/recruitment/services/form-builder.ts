@@ -13,8 +13,8 @@ export class FormEditError extends Error {
 async function assertCycleEditable(cycleId: string, structural: boolean): Promise<void> {
   const cycle = await prisma.recruitmentCycle.findUnique({ where: { id: cycleId } });
   if (!cycle) throw new FormEditError("Cycle not found.");
-  if (structural && cycle.status !== "DRAFT") {
-    throw new FormEditError("This cycle is published; that change would invalidate existing answers.");
+  if (structural && cycle.status === "ARCHIVED") {
+    throw new FormEditError("This cycle is archived and can no longer be edited.");
   }
 }
 

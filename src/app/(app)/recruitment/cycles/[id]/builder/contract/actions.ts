@@ -22,7 +22,12 @@ export async function saveContractAction(cycleId: string, layout: ContractLayout
 
 export async function resetContractAction(cycleId: string): Promise<ActionResult> {
   await requirePermission("recruitment.manage_cycles");
-  await resetCycleContractLayout(cycleId);
+  try {
+    await resetCycleContractLayout(cycleId);
+  } catch (err) {
+    if (err instanceof ContractLayoutError) return { ok: false, error: err.message };
+    throw err;
+  }
   revalidatePath(contractPath(cycleId));
   return { ok: true };
 }

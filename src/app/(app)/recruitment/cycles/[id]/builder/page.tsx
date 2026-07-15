@@ -69,7 +69,7 @@ export default async function BuilderPage({ params }: { params: Promise<{ id: st
       <FormBuilder
         cycleId={id}
         cycleTitle={cycle.title}
-        editable={cycle.status === "DRAFT"}
+        editable={cycle.status !== "ARCHIVED"}
         status={cycle.status}
         departments={cycle.departments}
         subcommittees={subcommittees}

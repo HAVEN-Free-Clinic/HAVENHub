@@ -47,9 +47,10 @@ export function FormBuilder({
 
   return (
     <div className="space-y-4">
-      {!editable && (
+      {status !== "DRAFT" && (
         <Alert tone="warning">
-          This cycle is {status}. You can edit labels, help text, and descriptions; structural changes (types, required, adding, deleting, reordering scope) are locked to protect submitted answers.
+          This cycle is {status}. Applicants may have already submitted. Changes take effect for new submissions
+          immediately; existing answers are kept as-is and may no longer match the updated form.
         </Alert>
       )}
       {reorderError && <Alert tone="error">{reorderError}</Alert>}

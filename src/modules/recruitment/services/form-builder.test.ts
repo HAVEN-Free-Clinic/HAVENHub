@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
-import { createCycle, publishCycle } from "./cycles";
+import { createCycle, publishCycle, closeCycle, archiveCycle } from "./cycles";
 import {
   addSection, addField, updateField, deleteField, FormEditError,
 } from "./form-builder";
@@ -26,7 +26,10 @@ it("adds a section and a field with a generated unique key", async () => {
   expect(f1.cycleId).toBe(cycle.id);
 });
 
-it("allows safe edits after OPEN but blocks structural ones", async () => {
+// Directors must be able to edit a form after it opens, not just in DRAFT --
+// the only edit-locked state is ARCHIVED (the terminal, retired state).
+
+it("allows both safe and structural edits on an OPEN cycle", async () => {
   const { person, cycle } = await draftCycle();
   const section = await addSection(cycle.id, { title: "Essays", appliesTo: "BOTH", departmentCode: null });
   const field = await addField(section.id, { label: "Bio", type: "SHORT_TEXT", required: false });
@@ -35,19 +38,42 @@ it("allows safe edits after OPEN but blocks structural ones", async () => {
   const relabeled = await updateField(field.id, { label: "Short bio" });
   expect(relabeled.label).toBe("Short bio");
 
+  const retyped = await updateField(field.id, { type: "NUMBER" });
+  expect(retyped.type).toBe("NUMBER");
+
+  const required = await updateField(field.id, { required: true });
+  expect(required.required).toBe(true);
+
+  await deleteField(field.id);
+  expect(await prisma.formField.findUnique({ where: { id: field.id } })).toBeNull();
+});
+
+it("blocks structural edits once a cycle is archived, but still allows safe ones", async () => {
+  const { person, cycle } = await draftCycle();
+  const section = await addSection(cycle.id, { title: "Essays", appliesTo: "BOTH", departmentCode: null });
+  const field = await addField(section.id, { label: "Bio", type: "SHORT_TEXT", required: false });
+  await publishCycle(cycle.id, person.id);
+  await closeCycle(cycle.id, person.id);
+  await archiveCycle(cycle.id, person.id);
+
   await expect(updateField(field.id, { type: "NUMBER" })).rejects.toBeInstanceOf(FormEditError);
   await expect(updateField(field.id, { required: true })).rejects.toBeInstanceOf(FormEditError);
   await expect(deleteField(field.id)).rejects.toBeInstanceOf(FormEditError);
+  await expect(
+    addField(section.id, { label: "Too late", type: "SHORT_TEXT", required: true })
+  ).rejects.toBeInstanceOf(FormEditError);
+
+  const relabeled = await updateField(field.id, { label: "Short bio" });
+  expect(relabeled.label).toBe("Short bio");
 });
 
-it("blocks adding a required field after publish but allows an optional one", async () => {
+it("allows adding a required field on an OPEN cycle (and an optional one too)", async () => {
   const { person, cycle } = await draftCycle();
   const section = await addSection(cycle.id, { title: "Essays", appliesTo: "BOTH", departmentCode: null });
   await publishCycle(cycle.id, person.id);
 
-  await expect(
-    addField(section.id, { label: "Late required", type: "SHORT_TEXT", required: true })
-  ).rejects.toBeInstanceOf(FormEditError);
+  const required = await addField(section.id, { label: "Late required", type: "SHORT_TEXT", required: true });
+  expect(required.required).toBe(true);
 
   const optional = await addField(section.id, { label: "Late optional", type: "SHORT_TEXT", required: false });
   expect(optional.required).toBe(false);
@@ -81,10 +107,19 @@ it("allows adding and deleting quiz questions on an OPEN cycle (quiz sections ne
   expect(await prisma.formField.findUnique({ where: { id: q.id } })).toBeNull();
 });
 
-it("still blocks adding a required APPLICATION field on an OPEN cycle", async () => {
+it("allows adding a required APPLICATION field on an OPEN cycle", async () => {
   const term = await prisma.term.create({ data: { code: "SU26", name: "S", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
   const srr = await prisma.person.create({ data: { name: "SRR", status: "ACTIVE" } });
   const cycle = await prisma.recruitmentCycle.create({ data: { track: "VOLUNTEER", termId: term.id, title: "C", publicSlug: "c-open-app", departments: [], createdById: srr.id, status: "OPEN" } });
+  const sec = await addSection(cycle.id, { title: "More", appliesTo: "BOTH", departmentCode: null });
+  const added = await addField(sec.id, { label: "Extra", type: "SHORT_TEXT", required: true });
+  expect(added.required).toBe(true);
+});
+
+it("blocks adding a required APPLICATION field on an ARCHIVED cycle", async () => {
+  const term = await prisma.term.create({ data: { code: "SU26", name: "S", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
+  const srr = await prisma.person.create({ data: { name: "SRR", status: "ACTIVE" } });
+  const cycle = await prisma.recruitmentCycle.create({ data: { track: "VOLUNTEER", termId: term.id, title: "C", publicSlug: "c-archived-app", departments: [], createdById: srr.id, status: "ARCHIVED" } });
   const sec = await addSection(cycle.id, { title: "More", appliesTo: "BOTH", departmentCode: null });
   await expect(addField(sec.id, { label: "Extra", type: "SHORT_TEXT", required: true })).rejects.toBeInstanceOf(FormEditError);
 });
@@ -121,11 +156,17 @@ describe("visibleWhen persistence", () => {
     expect(reloaded.visibleWhen).toBeNull();
   });
 
-  it("marks a visibleWhen change as structural (blocked once published, like a required-ness change)", async () => {
+  it("marks a visibleWhen change as structural: allowed once OPEN, blocked once archived", async () => {
     const { person, cycle, gate, detail } = await withGateAndDetail();
     await publishCycle(cycle.id, person.id);
+
+    const updated = await updateField(detail.id, { visibleWhen: { field: gate.key, op: "is", value: "yes" } });
+    expect(updated.visibleWhen).toEqual({ field: gate.key, op: "is", value: "yes" });
+
+    await closeCycle(cycle.id, person.id);
+    await archiveCycle(cycle.id, person.id);
     await expect(
-      updateField(detail.id, { visibleWhen: { field: gate.key, op: "is", value: "yes" } })
+      updateField(detail.id, { visibleWhen: { field: gate.key, op: "is", value: "no" } })
     ).rejects.toBeInstanceOf(FormEditError);
   });
 });

@@ -552,17 +552,34 @@ export async function reconcileDeactivationRequests(
   ticketDescription: string
 ): Promise<YnhhTicket> {
   return prisma.$transaction(async (tx) => {
-    const ticket = await tx.ynhhTicket.create({
-      data: { submittedById: actorPersonId, description: ticketDescription, status: "OPEN" },
-    });
+    // Classify each person's existing open DEACTIVATE request first. A request
+    // already SUBMITTED onto a ticket is in flight; re-pointing it to a fresh
+    // ticket would strip it from -- and orphan -- its current one (e.g. a manager
+    // clicking Generate twice). So only PENDING requests (offboard-queued, no
+    // ticket yet) are moved, and persons with no request get a new one.
+    const toAttach: { personId: string; existingId: string | null }[] = [];
     for (const personId of personIds) {
       const open = await tx.epicRequest.findFirst({
         where: { personId, kind: "DEACTIVATE", status: { in: ["PENDING", "SUBMITTED"] } },
-        select: { id: true },
+        select: { id: true, status: true, ticketId: true },
       });
-      if (open) {
+      if (open && open.status === "SUBMITTED" && open.ticketId) continue;
+      toAttach.push({ personId, existingId: open?.id ?? null });
+    }
+    // Nothing new to submit: don't create an empty (orphan) ticket. Mirrors the
+    // duplicate rejection submitEpicRequests already performs on the grant path.
+    if (toAttach.length === 0) {
+      throw new SupportStateError(
+        "Every selected person already has a submitted deactivation request. Refresh to see current status."
+      );
+    }
+    const ticket = await tx.ynhhTicket.create({
+      data: { submittedById: actorPersonId, description: ticketDescription, status: "OPEN" },
+    });
+    for (const { personId, existingId } of toAttach) {
+      if (existingId) {
         await tx.epicRequest.update({
-          where: { id: open.id },
+          where: { id: existingId },
           data: { status: "SUBMITTED", ticketId: ticket.id },
         });
       } else {
@@ -666,20 +683,25 @@ export type PendingEpicRequestRow = {
 };
 
 /**
- * Un-submitted, attach-origin Epic requests: PENDING, not yet grouped under a
- * YNHH ticket, and attached from a support ticket (techRequestId set). These
- * are the rows the /support/epic "Pending" tab batches into a YNHH ticket.
+ * Un-submitted access-granting Epic requests awaiting a YNHH ticket: PENDING,
+ * not yet grouped under a ticket, and NOT a deactivation. These are the rows the
+ * /support/epic "Pending" tab batches into a YNHH ticket via createTicket.
  *
- * Scoped to techRequestId: { not: null } to exclude PENDING/ticketId-null
- * requests created by other flows (offboarding's DEACTIVATE, recruitment
- * promotion's NEW) that have no techRequestId. Those don't belong in this
- * tab -- letting a DEACTIVATE leak in here would let a manager batch it
- * through the generic createTicket pipeline instead of the deactivation
- * pipeline (reconcileDeactivationRequests / listPendingDeactivations).
+ * Includes access-granting requests regardless of origin -- both attach-origin
+ * requests (raised from a support ticket, techRequestId set) and the NEW request
+ * that recruitment promotion creates for a promoted volunteer who needs Epic
+ * (techRequestId null). Previously this was scoped to techRequestId: { not: null },
+ * which also excluded promotion's NEW requests: they were invisible here, absent
+ * from the Tracker (no ticket), and un-cancellable, yet still blocked
+ * submit/attach as a duplicate -- deadlocking Epic provisioning for new members.
+ *
+ * DEACTIVATE requests are excluded because they have their own pipeline
+ * (listPendingDeactivations / reconcileDeactivationRequests); batching one
+ * through the generic createTicket path here would bypass that pipeline.
  */
 export async function listPendingEpicRequests(): Promise<PendingEpicRequestRow[]> {
   const rows = await prisma.epicRequest.findMany({
-    where: { status: "PENDING", ticketId: null, techRequestId: { not: null } },
+    where: { status: "PENDING", ticketId: null, kind: { not: "DEACTIVATE" } },
     orderBy: { createdAt: "asc" },
     include: {
       person: { select: { id: true, name: true, epicId: true } },

@@ -738,18 +738,81 @@ it("stores a drawn SIGNATURE answer as a private png blob with audit context", a
     files: {},
   });
 
-  const answers = app.answers as Record<string, { storedName?: string; mimeType?: string; method?: string; name?: string; signedAt?: string }>;
+  const answers = app.answers as Record<string, { storedName?: string; mimeType?: string; method?: string; name?: string; signedAt?: string; size?: number; fileName?: string }>;
   const sig = answers.signature;
   expect(sig.mimeType).toBe("image/png");
   expect(sig.method).toBe("draw");
   expect(sig.name).toBe("Sig Ner");
   expect(typeof sig.signedAt).toBe("string");
+  expect(sig.fileName).toBe("signature.png");
+  expect(sig.size).toBeGreaterThan(0);
   // The raw data URL and the companion keys must not linger in stored answers.
   expect(typeof answers.signature).toBe("object");
   expect((answers as Record<string, unknown>).signature__method).toBeUndefined();
-  // The blob exists in storage.
+  // The blob exists in storage, and size matches the decoded byte length.
   const bytes = await getObject(`recruitment/${cycle.id}/${sig.storedName}`);
   expect(bytes?.length).toBeGreaterThan(0);
+  expect(sig.size).toBe(bytes!.length);
+});
+
+it("records a typed SIGNATURE's method and trims the printed name", async () => {
+  const { cycle } = await openVolunteerCycle();
+  const idSection = await prisma.formSection.findFirstOrThrow({ where: { cycleId: cycle.id }, orderBy: { order: "asc" } });
+  await addField(idSection.id, { label: "Signature", type: "SIGNATURE", required: true });
+  void cycle;
+
+  const PNG_1x1 =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQAY3Y2wAAAAAElFTkSuQmCC";
+
+  const app = await submitApplication("apply-v", {
+    applicantType: "NEW",
+    answers: {
+      first_name: "Ty", last_name: "Ped", email: "typed@yale.edu", "1st_choice_department": "SRHD", srhd_essay: "x",
+      signature: PNG_1x1, signature__method: "type", signature__name: "  Ty Ped  ",
+    },
+    files: {},
+  });
+
+  const sig = (app.answers as Record<string, { method?: string; name?: string }>).signature;
+  expect(sig.method).toBe("type");
+  expect(sig.name).toBe("Ty Ped"); // surrounding whitespace trimmed
+});
+
+it("cleans up the persisted FILE blob when signature persistence fails (no orphan)", async () => {
+  // A required FILE and a required SIGNATURE both submit. The file is valid and is
+  // persisted to a blob BEFORE the signature loop; the signature payload passes
+  // zod's data-URL prefix check but fails the PNG magic-byte decode. The submit must
+  // reject AND the already-uploaded FILE blob (potential PII) must be cleaned up,
+  // not left orphaned in storage.
+  const { cycle } = await openVolunteerCycle();
+  const idSection = await prisma.formSection.findFirstOrThrow({ where: { cycleId: cycle.id }, orderBy: { order: "asc" } });
+  await addField(idSection.id, { label: "Proof", type: "FILE", required: true });
+  await addField(idSection.id, { label: "Signature", type: "SIGNATURE", required: true });
+
+  await expect(
+    submitApplication("apply-v", {
+      applicantType: "NEW",
+      answers: {
+        first_name: "Or", last_name: "Phan", email: "orphan-sig@yale.edu", "1st_choice_department": "SRHD", srhd_essay: "x",
+        // Passes zod's `startsWith("data:image/png;base64,")` but decodes to the bytes
+        // of "hello" -- no PNG magic bytes -- so decodeSignaturePng throws.
+        signature: "data:image/png;base64,aGVsbG8=", signature__method: "draw", signature__name: "Or Phan",
+      },
+      files: { proof: { fileName: "proof.pdf", mimeType: "application/pdf", bytes: Buffer.from("proof-bytes") } },
+    }),
+  ).rejects.toBeInstanceOf(SubmissionValidationError);
+
+  // The FILE blob persisted before the failed signature loop must have been cleaned
+  // up: nothing lingers under the cycle prefix.
+  let entries: string[] = [];
+  try {
+    entries = await fs.readdir(path.join(config.UPLOAD_DIR, "recruitment", cycle.id));
+  } catch {
+    // dir may not exist -- fine, means nothing was ever written
+  }
+  expect(entries).toHaveLength(0);
+  // And no application/applicant was created for this attempt.
+  expect(await prisma.applicant.count({ where: { emailLower: "orphan-sig@yale.edu" } })).toBe(0);
 });
 
 it("rejects a required SIGNATURE that was not signed", async () => {

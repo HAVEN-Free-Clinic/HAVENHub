@@ -55,6 +55,20 @@ describe("buildContractSignatureView", () => {
     const rows = buildContractSignatureView(layout, {});
     expect(rows.some((r) => r.blockId === "initials" && r.title === "Initials")).toBe(true);
   });
+
+  it("returns a fully-blank row shape for an unsigned agreement (signatures = {})", () => {
+    const rows = buildContractSignatureView(layout, {});
+    const row = rows.find((r) => r.blockId === "agreement")!;
+    expect(row).toMatchObject({
+      blockId: "agreement",
+      title: "Volunteer agreement",
+      method: null,
+      name: "",
+      signedAt: null,
+      imageKey: null,
+      legacyText: null,
+    });
+  });
 });
 
 describe("isStoredSignature", () => {

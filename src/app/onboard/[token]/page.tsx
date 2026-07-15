@@ -23,7 +23,16 @@ export default async function OnboardPage({ params }: { params: Promise<{ token:
       </main>
     );
   }
-  const prefill = { firstName: contract.firstName, lastName: contract.lastName, email: contract.email, netId: contract.netId ?? "", phone: contract.phone ?? "" };
+  const prefill = {
+    firstName: contract.firstName,
+    lastName: contract.lastName,
+    email: contract.email,
+    netId: contract.netId ?? "",
+    phone: contract.phone ?? "",
+    yaleAffiliation: contract.yaleAffiliation ?? "",
+    gradYear: contract.gradYear ?? "",
+    spanish: contract.spanishSelfReported,
+  };
   let layout = DEFAULT_CONTRACT_LAYOUT;
   try {
     if (contract.templateSnapshot) layout = parseContractLayout(contract.templateSnapshot);

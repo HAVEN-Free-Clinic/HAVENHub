@@ -4,6 +4,7 @@ import { submitPublicApplication, type SubmitResult } from "./actions";
 import { saveDraftAction, uploadDraftFileAction } from "./draft-actions";
 import { deriveSteps, stepIndexForKeys, type WizardSection, type WizardStep } from "./wizard-steps";
 import { missingRequiredKeys } from "./wizard-validation";
+import { parseFieldCondition, visibleFields } from "@/modules/recruitment/engine/field-visibility";
 import { WizardProgress } from "./wizard-progress";
 import { WizardReview, formatFieldValue, type ReviewGroup } from "./wizard-review";
 import { applicantTypeLabel, type ApplicantType } from "@/modules/recruitment/engine/visibility";
@@ -69,10 +70,65 @@ export function ApplyWizard({
       ? initialRenewalDepartment
       : currentDepartments[0] ?? "",
   );
-  const [deptChoice, setDeptChoice] = useState<string>(() => {
-    const key = def.sections.flatMap((s) => s.fields).find((f) => f.type === "DEPARTMENT_CHOICE")?.key;
-    return key ? prefillString(prefill?.values[key] ?? initialAnswers[key]) : "";
+  const departmentChoiceKey = useMemo(
+    () => def.sections.flatMap((s) => s.fields).find((f) => f.type === "DEPARTMENT_CHOICE")?.key,
+    [def.sections],
+  );
+  const [deptChoice, setDeptChoice] = useState<string>(() =>
+    departmentChoiceKey ? prefillString(prefill?.values[departmentChoiceKey] ?? initialAnswers[departmentChoiceKey]) : "",
+  );
+
+  // Field keys that some other field's visibleWhen condition depends on. Only
+  // these need to live in reactive state (answers below) -- every other
+  // keystroke can stay in the uncontrolled DOM without forcing a re-render.
+  const controllingKeys = useMemo(
+    () =>
+      new Set(
+        def.sections
+          .flatMap((s) => s.fields)
+          .map((f) => parseFieldCondition(f.visibleWhen)?.field)
+          .filter((k): k is string => Boolean(k)),
+      ),
+    [def.sections],
+  );
+
+  // Single source of truth for condition-driven visibility (visibleFields
+  // below reads only this map). Seeded from any resumed draft/prefill answer,
+  // and mirrors deptChoice/renewalDept so a section-level department pick also
+  // satisfies a field-level visibleWhen condition keyed on the same field.
+  const [answers, setAnswers] = useState<Record<string, string | string[]>>(() => {
+    const seed: Record<string, string | string[]> = {};
+    for (const key of controllingKeys) {
+      const raw = prefill?.values[key] ?? initialAnswers[key];
+      if (typeof raw === "string") seed[key] = raw;
+      else if (Array.isArray(raw) && raw.every((v) => typeof v === "string")) seed[key] = raw as string[];
+    }
+    if (departmentChoiceKey && controllingKeys.has(departmentChoiceKey) && !(departmentChoiceKey in seed)) {
+      const deptSeed = applicantType === "RENEWAL" ? renewalDept : deptChoice;
+      if (deptSeed) seed[departmentChoiceKey] = deptSeed;
+    }
+    return seed;
   });
+
+  // Generalizes the old DEPARTMENT_CHOICE-only onDeptChoice callback: deptChoice
+  // always tracks the department control (it drives section-level visibility
+  // via selectedDepartmentCodes), while answers only tracks keys that a
+  // visibleWhen condition actually reads, to avoid re-rendering on every
+  // unrelated keystroke.
+  function handleValueChange(key: string, value: string | string[]) {
+    if (key === departmentChoiceKey) setDeptChoice(typeof value === "string" ? value : value[0] ?? "");
+    if (controllingKeys.has(key)) setAnswers((a) => ({ ...a, [key]: value }));
+  }
+
+  // Mirrors the renewal-department picker (a plain Select in the intro step,
+  // not a FieldPreview control) into answers, so a visibleWhen condition keyed
+  // on the department field also sees a renewing applicant's department.
+  function handleRenewalDeptChange(v: string) {
+    setRenewalDept(v);
+    if (departmentChoiceKey && controllingKeys.has(departmentChoiceKey)) {
+      setAnswers((a) => ({ ...a, [departmentChoiceKey]: v }));
+    }
+  }
 
   const [result, setResult] = useState<SubmitResult | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -204,7 +260,9 @@ export function ApplyWizard({
         groups.push({
           stepIndex: i,
           title: st.title,
-          rows: st.section.fields.map((f) => ({ label: f.label, value: formatFieldValue(f, values, def.subcommittees) })),
+          // Condition-hidden fields were never asked, so they are omitted here
+          // too (rather than showing a misleading "Not provided" row).
+          rows: visibleFields(st.section.fields, answers).map((f) => ({ label: f.label, value: formatFieldValue(f, values, def.subcommittees) })),
         });
       }
     });
@@ -324,7 +382,7 @@ export function ApplyWizard({
                 {applicantType === "RENEWAL" && signedIn && eligible && (
                   currentDepartments.length > 1 ? (
                     <Field label="Current department">
-                      <Select value={renewalDept} onChange={(e) => setRenewalDept(e.target.value)} className="sm:max-w-xs">
+                      <Select value={renewalDept} onChange={(e) => handleRenewalDeptChange(e.target.value)} className="sm:max-w-xs">
                         {currentDepartments.map((d) => <option key={d} value={d}>{d}</option>)}
                       </Select>
                     </Field>
@@ -357,21 +415,21 @@ export function ApplyWizard({
             <div key={st.id} className={cx("space-y-4", i === stepIndex ? "block" : "hidden")}>
               <Card className="space-y-4">
                 <FormSection description={st.section.description ?? undefined}>
-                  {st.section.fields.map((f) =>
+                  {visibleFields(st.section.fields, answers).map((f) =>
                     f.type === "FILE" ? (
                       <div key={f.key} onChange={(e) => { e.stopPropagation(); handleFileChange(f.key, e as unknown as React.ChangeEvent<HTMLInputElement>); }}>
                         {/* The wizard owns the attached-file status line below (fileStatus),
                             so it must not also hand the draft file object to FieldPreview,
                             which would render a second "Attached: <file>" span. */}
                         <FieldPreview f={f} departments={def.departments} subcommittees={def.subcommittees}
-                          fieldError={fieldErrors[f.key]} onDeptChoice={undefined}
+                          fieldError={fieldErrors[f.key]} onValueChange={handleValueChange}
                           prefill={undefined} locked={lockedKeys.has(f.key)} />
                         {fileStatus[f.key] && <p className="mt-1 text-xs text-muted-foreground" role="status" aria-live="polite">{fileStatus[f.key]}</p>}
                       </div>
                     ) : (
                       <FieldPreview key={f.key} f={f} departments={def.departments} subcommittees={def.subcommittees}
                         fieldError={fieldErrors[f.key]}
-                        onDeptChoice={f.type === "DEPARTMENT_CHOICE" ? setDeptChoice : undefined}
+                        onValueChange={handleValueChange}
                         prefill={prefill?.values[f.key] ?? initialAnswers[f.key]} locked={lockedKeys.has(f.key)} />
                     ),
                   )}

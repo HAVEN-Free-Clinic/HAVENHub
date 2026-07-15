@@ -90,25 +90,27 @@ export function readApplicantCookie(value: string | undefined): string | null {
   }
 }
 
-export type ApplicantIdentity = { email: string; personId: string | null };
+export type ApplicantIdentity = { email: string; personId: string | null; firstName: string | null };
 
 /** The current applicant: from the NextAuth Person session if signed in,
- *  otherwise from the signed applicant cookie, otherwise null. */
+ *  otherwise from the signed applicant cookie, otherwise null.
+ *  `firstName` is the name from the Entra sign-in (null on the magic-link cookie
+ *  path, which carries only a verified email). */
 export async function getApplicantIdentity(): Promise<ApplicantIdentity | null> {
   const session = await auth();
   if (session?.personId && session.user?.email) {
-    return { email: session.user.email.toLowerCase(), personId: session.personId };
+    return { email: session.user.email.toLowerCase(), personId: session.personId, firstName: session.applicantFirstName ?? null };
   }
   // A tenant-valid Yale login that matched no Person still carries a verified email
   // (stamped in the jwt callback). Treat it as a prospective applicant, exactly like
   // the magic-link cookie path. personId is preserved if present so a recognized
   // member who happens to lack a user.email claim is never downgraded.
   if (session?.applicantEmail) {
-    return { email: session.applicantEmail, personId: session.personId ?? null };
+    return { email: session.applicantEmail, personId: session.personId ?? null, firstName: session.applicantFirstName ?? null };
   }
   const store = await cookies();
   const email = readApplicantCookie(store.get(APPLICANT_COOKIE)?.value);
-  return email ? { email, personId: null } : null;
+  return email ? { email, personId: null, firstName: null } : null;
 }
 
 // ---------------------------------------------------------------------------

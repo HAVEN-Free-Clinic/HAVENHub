@@ -114,6 +114,47 @@ export function applicantEmailFromClaims(
   return raw ? raw.toLowerCase() : null;
 }
 
+/**
+ * Name suffixes and post-nominal credentials that can trail a display name after a
+ * comma ("Jane Doe, RN"), so we don't mistake them for a "Last, First" first name.
+ * Lowercased, periods stripped.
+ */
+const NAME_SUFFIXES = new Set([
+  "jr", "sr", "ii", "iii", "iv", "v",
+  "md", "do", "rn", "np", "pa", "phd", "mph", "msn", "dnp", "dds", "dmd",
+  "psyd", "edd", "lcsw", "esq", "mba", "ms", "ma", "bs", "ba",
+]);
+
+/**
+ * The applicant's first name for a friendly greeting, taken from the Entra sign-in.
+ * Prefers the explicit `given_name` claim (present when the tenant surfaces it);
+ * otherwise derives it from the display `name` claim, handling "First Last",
+ * "Last, First" (common in Active Directory), and "First Last, <suffix>" (e.g.
+ * "Jane Doe, RN"). Returns null when no usable name is present, so the caller can
+ * greet without one rather than fall back to an email local part.
+ */
+export function firstNameFromClaims(claims: {
+  given_name?: string | null;
+  name?: string | null;
+}): string | null {
+  const given = claims.given_name?.trim();
+  if (given) return given;
+  const display = claims.name?.trim();
+  if (!display) return null;
+  // A comma is ambiguous: "Last, First" (the name follows the comma) vs
+  // "First Last, <suffix/credential>" (the name precedes it). Take the segment
+  // after the comma as the name, unless its first token is a known suffix -- then
+  // the name is the segment before the comma.
+  let segment = display;
+  if (display.includes(",")) {
+    const [before, after] = display.split(",", 2).map((s) => s.trim());
+    const afterHead = after?.split(/\s+/)[0]?.toLowerCase().replace(/\./g, "");
+    segment = afterHead && NAME_SUFFIXES.has(afterHead) ? before : after;
+  }
+  const first = segment?.split(/\s+/)[0]?.trim();
+  return first || null;
+}
+
 async function link(person: Person, entraObjectId?: string | null): Promise<Person> {
   if (!entraObjectId || person.entraObjectId === entraObjectId) return person;
   // A Person already bound to a DIFFERENT oid is never re-linked here, because that would

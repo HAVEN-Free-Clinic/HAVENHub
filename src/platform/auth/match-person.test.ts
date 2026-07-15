@@ -7,6 +7,7 @@ import {
   getActivePerson,
   entraTenantAllowed,
   applicantEmailFromClaims,
+  firstNameFromClaims,
 } from "./match-person";
 
 describe("netIdFromUpn", () => {
@@ -178,5 +179,38 @@ describe("applicantEmailFromClaims", () => {
   it("returns null when nothing is usable", () => {
     expect(applicantEmailFromClaims({}, null)).toBeNull();
     expect(applicantEmailFromClaims({})).toBeNull();
+  });
+});
+
+describe("firstNameFromClaims", () => {
+  it("prefers the given_name claim", () => {
+    expect(firstNameFromClaims({ given_name: "Jack", name: "Carney, Jack" })).toBe("Jack");
+  });
+  it("trims the given_name claim", () => {
+    expect(firstNameFromClaims({ given_name: "  Jack  " })).toBe("Jack");
+  });
+  it("derives the first token from a 'First Last' display name", () => {
+    expect(firstNameFromClaims({ name: "Jack Carney" })).toBe("Jack");
+  });
+  it("derives the first name from a 'Last, First' display name", () => {
+    expect(firstNameFromClaims({ name: "Carney, Jack" })).toBe("Jack");
+  });
+  it("handles a 'Last, First Middle' display name", () => {
+    expect(firstNameFromClaims({ name: "Carney, Jack Ryan" })).toBe("Jack");
+  });
+  it("takes the name before the comma for a 'First Last, <credential>' display name", () => {
+    expect(firstNameFromClaims({ name: "Jane Doe, RN" })).toBe("Jane");
+    expect(firstNameFromClaims({ name: "John Smith, MD" })).toBe("John");
+    expect(firstNameFromClaims({ name: "Jane Doe, Ph.D." })).toBe("Jane");
+    expect(firstNameFromClaims({ name: "John Smith, Jr" })).toBe("John");
+  });
+  it("ignores a blank given_name and falls back to the display name", () => {
+    expect(firstNameFromClaims({ given_name: "   ", name: "Jack Carney" })).toBe("Jack");
+  });
+  it("returns null when no name claim is usable", () => {
+    expect(firstNameFromClaims({})).toBeNull();
+    expect(firstNameFromClaims({ given_name: null, name: null })).toBeNull();
+    expect(firstNameFromClaims({ name: "   " })).toBeNull();
+    expect(firstNameFromClaims({ name: "Carney," })).toBeNull();
   });
 });

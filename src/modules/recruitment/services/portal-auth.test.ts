@@ -124,7 +124,7 @@ it("omits next entirely when no deep-link target is given", async () => {
 it("getApplicantIdentity returns the SSO session identity when a Person session exists", async () => {
   vi.mocked(auth).mockResolvedValueOnce({ personId: "p1", user: { email: "Member@Yale.edu" } } as never);
   // cookies() is not called on the SSO path (early return); no need to queue a value.
-  expect(await getApplicantIdentity()).toEqual({ email: "member@yale.edu", personId: "p1" });
+  expect(await getApplicantIdentity()).toEqual({ email: "member@yale.edu", personId: "p1", firstName: null });
 });
 
 it("getApplicantIdentity returns an applicant identity for a Yale session with no Person", async () => {
@@ -135,7 +135,19 @@ it("getApplicantIdentity returns an applicant identity for a Yale session with n
     applicantEmail: "newbie@yale.edu",
     user: {},
   } as never);
-  expect(await getApplicantIdentity()).toEqual({ email: "newbie@yale.edu", personId: null });
+  expect(await getApplicantIdentity()).toEqual({ email: "newbie@yale.edu", personId: null, firstName: null });
+});
+
+it("getApplicantIdentity carries the Entra first name for a brand-new Yale applicant", async () => {
+  // The jwt callback stamps applicantFirstName from the sign-in so the portal can
+  // greet the applicant by name rather than their email local part.
+  vi.mocked(auth).mockResolvedValueOnce({
+    personId: null,
+    applicantEmail: "newbie@yale.edu",
+    applicantFirstName: "Jordan",
+    user: {},
+  } as never);
+  expect(await getApplicantIdentity()).toEqual({ email: "newbie@yale.edu", personId: null, firstName: "Jordan" });
 });
 
 it("getApplicantIdentity prefers the Person session over applicantEmail when both are present", async () => {
@@ -145,7 +157,7 @@ it("getApplicantIdentity prefers the Person session over applicantEmail when bot
     applicantEmail: "member@yale.edu",
     user: { email: "Member@Yale.edu" },
   } as never);
-  expect(await getApplicantIdentity()).toEqual({ email: "member@yale.edu", personId: "p9" });
+  expect(await getApplicantIdentity()).toEqual({ email: "member@yale.edu", personId: "p9", firstName: null });
 });
 
 it("getApplicantIdentity preserves personId when a member session lacks a user.email claim", async () => {
@@ -156,7 +168,7 @@ it("getApplicantIdentity preserves personId when a member session lacks a user.e
     applicantEmail: "member@yale.edu",
     user: {},
   } as never);
-  expect(await getApplicantIdentity()).toEqual({ email: "member@yale.edu", personId: "p9" });
+  expect(await getApplicantIdentity()).toEqual({ email: "member@yale.edu", personId: "p9", firstName: null });
 });
 
 it("getApplicantIdentity falls back to the signed cookie when there is no SSO session", async () => {
@@ -164,7 +176,7 @@ it("getApplicantIdentity falls back to the signed cookie when there is no SSO se
   vi.mocked(cookies).mockResolvedValueOnce({
     get: (n: string) => (n === APPLICANT_COOKIE ? { value: signApplicantCookie("guest@yale.edu") } : undefined),
   } as never);
-  expect(await getApplicantIdentity()).toEqual({ email: "guest@yale.edu", personId: null });
+  expect(await getApplicantIdentity()).toEqual({ email: "guest@yale.edu", personId: null, firstName: null });
 });
 
 it("getApplicantIdentity returns null when there is neither a session nor a valid cookie", async () => {

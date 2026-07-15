@@ -6,6 +6,7 @@ import { config } from "@/platform/config";
 import {
   resolvePersonForLogin,
   applicantEmailFromClaims,
+  firstNameFromClaims,
   entraTenantAllowed,
   type LoginProfile,
 } from "./match-person";
@@ -17,6 +18,8 @@ type EntraClaims = {
   tid?: string;
   preferred_username?: string;
   email?: string;
+  given_name?: string;
+  name?: string;
 };
 
 function profileFromEntra(
@@ -116,6 +119,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           // Verified Yale address, stamped whether or not we recognize the Person,
           // so the apply portal can identify a brand-new applicant by email.
           token.applicantEmail = applicantEmailFromClaims(claims, user?.email);
+          // First name from the Entra sign-in, so the portal can greet a brand-new
+          // applicant (no Person yet) by name instead of their email local part.
+          token.applicantFirstName = firstNameFromClaims(claims);
           if (!person) {
             await recordAudit({
               action: "auth.applicant_login",
@@ -142,6 +148,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     async session({ session, token }) {
       session.personId = (token.personId as string | null) ?? null;
       session.applicantEmail = (token.applicantEmail as string | null) ?? null;
+      session.applicantFirstName = (token.applicantFirstName as string | null) ?? null;
       return session;
     },
   },

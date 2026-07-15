@@ -47,3 +47,24 @@ export function visibleFields<T extends { visibleWhen?: unknown }>(
 ): T[] {
   return fields.filter((f) => isFieldVisible(f.visibleWhen, answers));
 }
+
+/**
+ * Merges an `answers` map with the authoritative department selection under
+ * the department-choice field's key, so a `visibleWhen` condition keyed on
+ * that field sees the current department regardless of how the applicant
+ * navigated there. `answers[departmentChoiceKey]` alone can go stale:
+ * interacting with the DEPARTMENT_CHOICE control's own onChange updates it,
+ * but switching applicantType (chooseType) or rendering a single-department
+ * RENEWAL's read-only field (no onChange at all) do not. The caller's
+ * `selectedDepartmentCodes` is already the authoritative selection for every
+ * navigation path, so it always wins here, overriding any stale/absent
+ * `answers` entry for that key. Returns a new object; does not mutate
+ * `answers`.
+ */
+export function mergeDepartmentAnswer(
+  answers: Record<string, string | string[]>,
+  departmentChoiceKey: string | undefined,
+  selectedDepartmentCodes: string[],
+): Record<string, string | string[]> {
+  return { ...answers, ...(departmentChoiceKey ? { [departmentChoiceKey]: selectedDepartmentCodes } : {}) };
+}

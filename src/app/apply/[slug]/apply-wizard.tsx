@@ -4,7 +4,7 @@ import { submitPublicApplication, type SubmitResult } from "./actions";
 import { saveDraftAction, uploadDraftFileAction } from "./draft-actions";
 import { deriveSteps, stepIndexForKeys, type WizardSection, type WizardStep } from "./wizard-steps";
 import { missingRequiredKeys } from "./wizard-validation";
-import { parseFieldCondition, visibleFields } from "@/modules/recruitment/engine/field-visibility";
+import { mergeDepartmentAnswer, parseFieldCondition, visibleFields } from "@/modules/recruitment/engine/field-visibility";
 import { WizardProgress } from "./wizard-progress";
 import { WizardReview, formatFieldValue, type ReviewGroup } from "./wizard-review";
 import { applicantTypeLabel, type ApplicantType } from "@/modules/recruitment/engine/visibility";
@@ -102,6 +102,13 @@ export function ApplyWizard({
       const raw = prefill?.values[key] ?? initialAnswers[key];
       if (typeof raw === "string") seed[key] = raw;
       else if (Array.isArray(raw) && raw.every((v) => typeof v === "string")) seed[key] = raw as string[];
+      // A resumed draft's FILE answer is an object ({ storedName, fileName, ... };
+      // storedName is the server's source-of-truth for "attached", mirroring the
+      // same check field-preview.tsx uses for its own draftFile detection). FILE
+      // controls never write a string/array value, so without this an
+      // isAnswered condition on a resumed-with-attachment draft would wrongly
+      // hide its dependent field.
+      else if (raw && typeof raw === "object" && "storedName" in (raw as object)) seed[key] = "attached";
     }
     if (departmentChoiceKey && controllingKeys.has(departmentChoiceKey) && !(departmentChoiceKey in seed)) {
       const deptSeed = applicantType === "RENEWAL" ? renewalDept : deptChoice;
@@ -168,6 +175,17 @@ export function ApplyWizard({
     [applicantType, renewalDept, deptChoice],
   );
 
+  // Answers used for field-level visibility: `answers` merged with the
+  // authoritative department selection (see mergeDepartmentAnswer) so a field
+  // condition keyed on the department-choice field is correct regardless of
+  // navigation path. This is separate from, and does not change, the existing
+  // department -> section visibility mechanism (deriveSteps/isSectionVisible),
+  // which already reads selectedDepartmentCodes directly.
+  const effectiveAnswers = useMemo(
+    () => mergeDepartmentAnswer(answers, departmentChoiceKey, selectedDepartmentCodes),
+    [answers, selectedDepartmentCodes, departmentChoiceKey],
+  );
+
   const steps = useMemo<WizardStep[]>(
     () => deriveSteps({ sections: def.sections, acceptsRenewals: def.acceptsRenewals, applicantType, selectedDepartmentCodes }),
     [def.sections, def.acceptsRenewals, applicantType, selectedDepartmentCodes],
@@ -202,13 +220,13 @@ export function ApplyWizard({
       const form = formRef.current;
       if (!form) return;
       const fd = new FormData(form);
-      const answers: Record<string, unknown> = {};
+      const draftAnswers: Record<string, unknown> = {};
       for (const [k, v] of fd.entries()) {
         if (k.startsWith("__") || v instanceof File) continue;
-        answers[k] = answers[k] === undefined ? v : ([] as unknown[]).concat(answers[k], v);
+        draftAnswers[k] = draftAnswers[k] === undefined ? v : ([] as unknown[]).concat(draftAnswers[k], v);
       }
       const res = await saveDraftAction(def.slug, {
-        answers,
+        answers: draftAnswers,
         applicantType,
         renewalDepartment: applicantType === "RENEWAL" ? renewalDept : null,
       });
@@ -219,6 +237,12 @@ export function ApplyWizard({
   async function handleFileChange(fieldKey: string, e: React.ChangeEvent<HTMLInputElement> | React.SyntheticEvent) {
     const input = e.target as HTMLInputElement;
     const file = input.files?.[0];
+    // A FILE control never writes to `answers` (its value isn't a meaningful
+    // string/array), so an isAnswered condition on this field would never
+    // react. Mirror presence with a marker instead -- the value's content is
+    // irrelevant, isAnswered only checks non-empty. Gated the same as every
+    // other field by handleValueChange's controllingKeys check.
+    handleValueChange(fieldKey, file ? "attached" : "");
     if (!file) return;
     setFileStatus((prev) => ({ ...prev, [fieldKey]: "Uploading..." }));
     const fd = new FormData();
@@ -262,7 +286,7 @@ export function ApplyWizard({
           title: st.title,
           // Condition-hidden fields were never asked, so they are omitted here
           // too (rather than showing a misleading "Not provided" row).
-          rows: visibleFields(st.section.fields, answers).map((f) => ({ label: f.label, value: formatFieldValue(f, values, def.subcommittees) })),
+          rows: visibleFields(st.section.fields, effectiveAnswers).map((f) => ({ label: f.label, value: formatFieldValue(f, values, def.subcommittees) })),
         });
       }
     });
@@ -415,7 +439,7 @@ export function ApplyWizard({
             <div key={st.id} className={cx("space-y-4", i === stepIndex ? "block" : "hidden")}>
               <Card className="space-y-4">
                 <FormSection description={st.section.description ?? undefined}>
-                  {visibleFields(st.section.fields, answers).map((f) =>
+                  {visibleFields(st.section.fields, effectiveAnswers).map((f) =>
                     f.type === "FILE" ? (
                       <div key={f.key} onChange={(e) => { e.stopPropagation(); handleFileChange(f.key, e as unknown as React.ChangeEvent<HTMLInputElement>); }}>
                         {/* The wizard owns the attached-file status line below (fileStatus),

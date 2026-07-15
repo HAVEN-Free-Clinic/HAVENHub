@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseFieldCondition, isFieldVisible } from "./field-visibility";
+import { parseFieldCondition, isFieldVisible, mergeDepartmentAnswer } from "./field-visibility";
 
 describe("parseFieldCondition", () => {
   it("parses a valid is-condition", () => {
@@ -52,5 +52,29 @@ describe("isFieldVisible", () => {
   });
   it("malformed condition -> visible (fail open)", () => {
     expect(isFieldVisible({ nonsense: true }, {})).toBe(true);
+  });
+});
+
+describe("mergeDepartmentAnswer", () => {
+  it("overrides a stale department answer with the authoritative selection", () => {
+    expect(mergeDepartmentAnswer({ dept: "OLD", other: "x" }, "dept", ["NEW"]))
+      .toEqual({ dept: ["NEW"], other: "x" });
+  });
+  it("adds the department key even when answers has no prior entry for it", () => {
+    // Covers navigation paths that never write to `answers` directly: an
+    // applicantType switch (chooseType) or a single-department RENEWAL's
+    // read-only field (no onChange at all).
+    expect(mergeDepartmentAnswer({}, "dept", ["NEW"])).toEqual({ dept: ["NEW"] });
+  });
+  it("clears to an empty selection when the applicant has no department chosen", () => {
+    expect(mergeDepartmentAnswer({ dept: "OLD" }, "dept", [])).toEqual({ dept: [] });
+  });
+  it("is a no-op passthrough when there is no department-choice field in the form", () => {
+    expect(mergeDepartmentAnswer({ a: "b" }, undefined, ["NEW"])).toEqual({ a: "b" });
+  });
+  it("does not mutate the input answers object", () => {
+    const answers = { dept: "OLD" };
+    mergeDepartmentAnswer(answers, "dept", ["NEW"]);
+    expect(answers).toEqual({ dept: "OLD" });
   });
 });

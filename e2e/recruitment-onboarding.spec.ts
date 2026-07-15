@@ -51,6 +51,9 @@ test("onboarding: accept via department decision, then send onboarding link", as
   const slug = `onboard-e2e-${Date.now()}`;
   await page.fill('input[name="publicSlug"]', slug);
   await page.fill('input[name="departments"]', "SRHD");
+  // Build the form ourselves (minimal name+email seed) so the apply wizard stays
+  // a simple identity-only flow; the default form has required files + subcommittees.
+  await page.uncheck('input[name="seedDefaultForm"]');
   await page.click('button:has-text("Create")');
   await page.waitForURL((url) => url.pathname.includes("/builder"));
   const cycleId = page.url().split("/cycles/")[1].split("/")[0];

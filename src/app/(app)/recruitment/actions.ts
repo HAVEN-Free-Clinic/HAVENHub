@@ -24,6 +24,9 @@ export async function createCycleAction(formData: FormData) {
   const termId = String(formData.get("termId") ?? "");
   const departments = String(formData.get("departments") ?? "").split(",").map((d) => d.trim()).filter(Boolean);
   const slug = slugify(String(formData.get("publicSlug") || title));
+  // Default on (the New-cycle form ships the checkbox checked); unchecked seeds the
+  // minimal name+email form so an admin can build from scratch.
+  const seedDefaultForm = formData.get("seedDefaultForm") === "on";
   if (!title || !slug) {
     redirect(`/recruitment/cycles/new?error=${encodeURIComponent("Title is required.")}`);
   }
@@ -32,7 +35,7 @@ export async function createCycleAction(formData: FormData) {
   }
   let cycle;
   try {
-    cycle = await createCycle({ track, termId, title, publicSlug: slug, departments, acceptsRenewals: false, createdById: person.personId }, true);
+    cycle = await createCycle({ track, termId, title, publicSlug: slug, departments, acceptsRenewals: false, createdById: person.personId }, seedDefaultForm);
   } catch (err) {
     // publicSlug is unique. A colliding slug throws P2002; surface the same
     // friendly reserved-word flow instead of the generic error page (audit3 L2).

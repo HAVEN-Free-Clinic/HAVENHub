@@ -186,9 +186,9 @@ describe("listEmailTemplates", () => {
 describe("emailHealthCounts", () => {
   beforeEach(resetDb);
 
-  it("returns exact queued, failed, and sentToday counts", async () => {
+  it("counts sentToday by the display-zone (default Eastern) day, not UTC", async () => {
+    // 11:00 EDT on 2026-06-08. Eastern midnight today is 2026-06-08T04:00:00Z.
     const now = new Date("2026-06-08T15:00:00Z");
-    const startOfToday = new Date(Date.UTC(2026, 5, 8)); // June 8 2026 00:00 UTC
 
     // 2 QUEUED
     await seedEmail({ status: "QUEUED" });
@@ -197,21 +197,13 @@ describe("emailHealthCounts", () => {
     // 1 FAILED
     await seedEmail({ status: "FAILED", attempts: 8 });
 
-    // 2 SENT today (sentAt >= startOfToday)
-    await seedEmail({
-      status: "SENT",
-      sentAt: new Date(startOfToday.getTime() + 3_600_000),
-    });
-    await seedEmail({
-      status: "SENT",
-      sentAt: new Date(startOfToday.getTime() + 7_200_000),
-    });
+    // 2 SENT clearly within Eastern "today" (after 04:00Z, before now).
+    await seedEmail({ status: "SENT", sentAt: new Date("2026-06-08T12:00:00Z") });
+    await seedEmail({ status: "SENT", sentAt: new Date("2026-06-08T13:00:00Z") });
 
-    // 1 SENT yesterday (should NOT count toward sentToday)
-    await seedEmail({
-      status: "SENT",
-      sentAt: new Date(startOfToday.getTime() - 1), // 1 ms before midnight UTC
-    });
+    // SENT at 03:00Z = 2026-06-07 23:00 EDT -> yesterday in Eastern, though it is
+    // still "today" in UTC. It must NOT count (this is the whole fix).
+    await seedEmail({ status: "SENT", sentAt: new Date("2026-06-08T03:00:00Z") });
 
     const counts = await emailHealthCounts(now);
     expect(counts.queued).toBe(2);
@@ -219,14 +211,10 @@ describe("emailHealthCounts", () => {
     expect(counts.sentToday).toBe(2);
   });
 
-  it("excludes a SENT row whose sentAt is before today UTC midnight", async () => {
-    const now = new Date("2026-06-08T00:00:00Z");
-    const startOfToday = new Date(Date.UTC(2026, 5, 8));
-
-    await seedEmail({
-      status: "SENT",
-      sentAt: new Date(startOfToday.getTime() - 1000), // 1 second before midnight
-    });
+  it("excludes a SENT row before Eastern midnight today", async () => {
+    const now = new Date("2026-06-08T15:00:00Z"); // 11:00 EDT
+    // 03:59Z = 2026-06-07 23:59 EDT -> before Eastern midnight (04:00Z) -> excluded.
+    await seedEmail({ status: "SENT", sentAt: new Date("2026-06-08T03:59:00Z") });
 
     const counts = await emailHealthCounts(now);
     expect(counts.sentToday).toBe(0);

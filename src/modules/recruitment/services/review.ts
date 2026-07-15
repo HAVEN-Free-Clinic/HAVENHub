@@ -27,6 +27,34 @@ export async function reviewScope(personId: string): Promise<ReviewScope> {
   return { all, departmentCodes };
 }
 
+/** The minimal application shape needed to decide viewer access. */
+export type ViewableApplication = {
+  departmentChoices: string[];
+  routedDepartmentCode: string | null;
+  cycle: { track: string };
+};
+
+/** May this viewer see one application's detail (and its uploaded files)?
+ *  This is the single source of truth shared by the applicant detail page and
+ *  the file-download route so the two can never drift. It encodes exactly the
+ *  same track-aware model as listApplicantsForReview: SRR/review_all, cycle
+ *  managers, and committee scorers see every application; a scope-director sees
+ *  a VOLUNTEER application only when it was ROUTED to their department, and a
+ *  DIRECTOR-track application when it RANKED their department (director-track
+ *  cycles have no routing stage). Pass the viewer's already-resolved scope and
+ *  permission flags so callers that need them for rendering don't re-query. */
+export function canViewApplication(
+  app: ViewableApplication,
+  ctx: { scope: ReviewScope; managesCycles: boolean; canScore: boolean },
+): boolean {
+  if (ctx.scope.all || ctx.managesCycles || ctx.canScore) return true;
+  const mine = new Set(ctx.scope.departmentCodes);
+  if (app.cycle.track === "VOLUNTEER") {
+    return app.routedDepartmentCode != null && mine.has(app.routedDepartmentCode);
+  }
+  return app.departmentChoices.some((d) => mine.has(d));
+}
+
 export type ReviewApplication = Application & {
   applicant: { firstName: string; lastName: string; email: string };
   acceptances: Acceptance[];

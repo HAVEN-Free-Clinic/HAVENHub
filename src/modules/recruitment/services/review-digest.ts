@@ -19,7 +19,8 @@ import { claimReminderDispatch } from "@/platform/email/reminder-dispatch";
 export async function pendingReviewCount(departmentCodes: string[]): Promise<number> {
   if (departmentCodes.length === 0) return 0;
   const activeStatus = { in: ["OPEN", "CLOSED"] as CycleStatus[] };
-  const [volunteer, director] = await Promise.all([
+  const codes = new Set(departmentCodes);
+  const [volunteer, directorApps] = await Promise.all([
     prisma.application.count({
       where: {
         status: "SUBMITTED",
@@ -28,17 +29,28 @@ export async function pendingReviewCount(departmentCodes: string[]): Promise<num
         cycle: { track: "VOLUNTEER", status: activeStatus },
       },
     }),
-    prisma.application.count({
+    // A single `interviews: { none: {...} }` over the whole department set excluded
+    // an application as soon as ANY one of the director's departments had a decided
+    // interview -- so a director of A and B stopped seeing an applicant who was
+    // decided for A but still needs B. Count per-application: it awaits review when
+    // at least one of the director's ranked departments has no decided interview.
+    prisma.application.findMany({
       where: {
         status: "SUBMITTED",
         departmentChoices: { hasSome: departmentCodes },
         cycle: { track: "DIRECTOR", status: activeStatus },
-        // Interview.decision is a non-nullable enum (default PENDING), so
-        // `not: "PENDING"` is safe (no NULL-row drop). `none` => no decided interview.
-        interviews: { none: { departmentCode: { in: departmentCodes }, decision: { not: "PENDING" } } },
+      },
+      select: {
+        departmentChoices: true,
+        // decision is a non-nullable enum (default PENDING); `not: "PENDING"` is safe.
+        interviews: { where: { decision: { not: "PENDING" } }, select: { departmentCode: true } },
       },
     }),
   ]);
+  const director = directorApps.filter((a) => {
+    const decided = new Set(a.interviews.map((i) => i.departmentCode));
+    return a.departmentChoices.some((d) => codes.has(d) && !decided.has(d));
+  }).length;
   return volunteer + director;
 }
 

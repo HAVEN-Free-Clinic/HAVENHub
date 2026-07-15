@@ -2,6 +2,7 @@
 import { getApplicantIdentity } from "@/modules/recruitment/services/portal-auth";
 import { saveDraft, uploadDraftFile, DraftError } from "@/modules/recruitment/services/drafts";
 import type { ApplicantType } from "@/modules/recruitment/engine/visibility";
+import { getPostHogClient } from "@/platform/posthog/posthog-server";
 
 export async function saveDraftAction(
   slug: string,
@@ -11,6 +12,13 @@ export async function saveDraftAction(
   if (!identity) return { ok: false };
   try {
     await saveDraft(slug, identity, payload);
+    const posthog = getPostHogClient();
+    posthog.capture({
+      distinctId: identity.personId ?? identity.email,
+      event: "application_draft_saved",
+      properties: { slug, applicant_type: payload.applicantType ?? "NEW" },
+    });
+    await posthog.flush();
     return { ok: true };
   } catch (err) {
     if (err instanceof DraftError) return { ok: false };

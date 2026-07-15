@@ -1,0 +1,62 @@
+[
+  {
+    "event_name": "user_signed_in",
+    "event_description": "Fired server-side when a Yale SSO or dev-credentials user successfully completes authentication.",
+    "file": "src/platform/auth/auth.ts"
+  },
+  {
+    "event_name": "applicant_magic_link_requested",
+    "event_description": "Fired when an applicant requests a magic-link sign-in email to access the apply portal.",
+    "file": "src/app/apply/portal-actions.ts"
+  },
+  {
+    "event_name": "application_draft_saved",
+    "event_description": "Fired when an applicant saves their in-progress application draft.",
+    "file": "src/app/apply/[slug]/draft-actions.ts"
+  },
+  {
+    "event_name": "application_submitted",
+    "event_description": "Fired when an applicant successfully submits a recruitment application.",
+    "file": "src/app/apply/[slug]/actions.ts"
+  },
+  {
+    "event_name": "applicant_accepted",
+    "event_description": "Fired when a recruitment coordinator accepts an applicant into a department.",
+    "file": "src/app/(app)/recruitment/cycles/[id]/applicants/actions.ts"
+  },
+  {
+    "event_name": "acceptance_revoked",
+    "event_description": "Fired when a previously granted acceptance is revoked by a coordinator.",
+    "file": "src/app/(app)/recruitment/cycles/[id]/applicants/actions.ts"
+  },
+  {
+    "event_name": "interview_scheduled",
+    "event_description": "Fired when an applicant is scheduled for a department interview.",
+    "file": "src/app/(app)/recruitment/cycles/[id]/applicants/actions.ts"
+  },
+  {
+    "event_name": "recruitment_decisions_released",
+    "event_description": "Fired when a recruitment coordinator bulk-releases cycle decisions to all applicants.",
+    "file": "src/app/(app)/recruitment/cycles/[id]/decisions/actions.ts"
+  },
+  {
+    "event_name": "members_promoted",
+    "event_description": "Fired when accepted members are promoted into active membership after completing onboarding contracts.",
+    "file": "src/app/(app)/recruitment/cycles/[id]/onboarding/actions.ts"
+  },
+  {
+    "event_name": "incident_report_submitted",
+    "event_description": "Fired when a signed-in member submits a new incident or concern report.",
+    "file": "src/app/(app)/incidents/actions.ts"
+  },
+  {
+    "event_name": "training_quiz_graded",
+    "event_description": "Fired when a member submits a training quiz attempt, capturing pass/fail and score.",
+    "file": "src/app/(app)/training/actions.ts"
+  },
+  {
+    "event_name": "scorm_progress_saved",
+    "event_description": "Fired when a learner's SCORM course progress is committed, including completion status.",
+    "file": "src/app/(app)/learning/actions.ts"
+  }
+]

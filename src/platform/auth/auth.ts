@@ -5,6 +5,7 @@ import type { Person } from "@prisma/client";
 import { config } from "@/platform/config";
 import { resolvePersonForLogin, type LoginProfile } from "./match-person";
 import { recordAudit } from "@/platform/audit";
+import { getPostHogClient } from "@/platform/posthog/posthog-server";
 
 type EntraClaims = {
   oid?: string;
@@ -107,8 +108,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     async jwt({ token, user, account, profile }) {
       if (account) {
         // Initial sign-in only
+        let personId: string | null = null;
         if (account.provider === "credentials" && user) {
           token.personId = user.id;
+          personId = user.id ?? null;
         } else {
           const person = await resolveEntraLogin(
             profile,
@@ -116,6 +119,16 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             user?.email
           );
           token.personId = person?.id ?? null;
+          personId = person?.id ?? null;
+        }
+        if (personId) {
+          const posthog = getPostHogClient();
+          posthog.capture({
+            distinctId: personId,
+            event: "user_signed_in",
+            properties: { provider: account.provider },
+          });
+          await posthog.flush();
         }
       }
       return token;

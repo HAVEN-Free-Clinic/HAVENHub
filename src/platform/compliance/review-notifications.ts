@@ -7,6 +7,7 @@ import {
   complianceDateReviewContext,
   complianceVerificationReviewContext,
 } from "@/platform/email/templates/compliance";
+import { log } from "@/platform/logging";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -32,8 +33,9 @@ export async function notifyDatelessCertReview(
     (p) => p.id !== volunteer.id,
   );
   if (recipients.length === 0) {
-    console.warn(
+    log.warn(
       `[compliance] ${volunteer.name} (${volunteer.id}) uploaded a certificate without a parsed completion date, but no compliance manager exists to review it.`,
+      { volunteerId: volunteer.id },
     );
     return 0;
   }
@@ -84,8 +86,9 @@ export async function notifyCertNeedsVerification(
     (p) => p.id !== volunteer.id,
   );
   if (recipients.length === 0) {
-    console.warn(
+    log.warn(
       `[compliance] ${volunteer.name} (${volunteer.id}) uploaded a certificate awaiting verification, but no compliance manager exists to verify it.`,
+      { volunteerId: volunteer.id },
     );
     return 0;
   }

@@ -9,6 +9,7 @@ import { selectCurrentClinicDate, getCurrentClinicChannelLink } from "@/platform
 import { notify } from "@/platform/notifications/notify";
 import { renderEmail } from "./templates/renderEmail";
 import { claimReminderDispatch } from "./reminder-dispatch";
+import { log, errorAttrs } from "@/platform/logging";
 
 export const ROLE_LABEL: Record<ShiftRole, string> = {
   DIRECTOR: "Director",
@@ -274,7 +275,10 @@ export async function runShiftReminders(now: Date = new Date()): Promise<ShiftRe
       // Per-recipient isolation: a single failed render/notify must not abort the
       // rest of the weekly batch. Log and continue; the 6-day idempotency guard
       // means this person is retried on the next Monday cron tick.
-      console.error(`[shift-reminders] Failed to remind person ${item.person.id}:`, err);
+      log.error(
+        `[shift-reminders] Failed to remind person ${item.person.id}`,
+        errorAttrs(err, { personId: item.person.id }),
+      );
     }
   }
 

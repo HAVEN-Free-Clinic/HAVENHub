@@ -28,10 +28,13 @@
  * claimable. Re-looping would burn all 8 retries during a transient outage
  * (issue #63).
  */
+import { after } from "next/server";
+
 import { authorizeCron } from "@/platform/cron";
 import { dispatchDueCampaigns } from "@/platform/email/campaigns/dispatch";
 import { drainEmailQueue } from "@/platform/email/send";
 import { resolveEmailTransport } from "@/platform/email/transport";
+import { log, flushLogs } from "@/platform/logging";
 import { drainTeamsQueue } from "@/platform/notifications/send";
 import { resolveTeamsTransport } from "@/platform/notifications/teams-transport";
 
@@ -51,6 +54,13 @@ export async function GET(req: Request): Promise<Response> {
 
   const teamsTransport = await resolveTeamsTransport();
   const teams = await drainTeamsQueue(teamsTransport);
+
+  log.info("[cron/email] backstop tick complete", {
+    result: JSON.stringify({ dispatched: executed, errors, emails, teams }),
+  });
+  // Flush after the response is sent so batched logs reach PostHog before the
+  // serverless function freezes.
+  after(() => flushLogs());
 
   return Response.json({ ok: true, dispatched: executed, errors, emails, teams });
 }

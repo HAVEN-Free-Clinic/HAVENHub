@@ -146,6 +146,13 @@ export function FieldPreview({
       );
       break;
     }
+    case "SIGNATURE":
+      control = (
+        <div className="mt-1.5 flex h-24 items-center justify-center rounded-lg border border-dashed border-border-strong bg-muted text-xs text-muted-foreground">
+          Applicant will sign here
+        </div>
+      );
+      break;
     default: control = <Input type="text" name={f.key} required={required} disabled={disabled} aria-invalid={invalid} className={cx("mt-1.5", lockedCls)} onChange={onTextChange} {...textProps} />;
   }
   // Group field types (MULTI_SELECT, SUBCOMMITTEE_RANK) render multiple controls,

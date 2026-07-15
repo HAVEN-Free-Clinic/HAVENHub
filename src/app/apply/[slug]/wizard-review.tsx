@@ -2,7 +2,7 @@ import { Card } from "@/platform/ui/card";
 import { Alert } from "@/platform/ui/alert";
 import type { WizardField } from "./wizard-steps";
 
-export type ReviewRow = { label: string; value: string };
+export type ReviewRow = { label: string; value: string; imageSrc?: string };
 export type ReviewGroup = { stepIndex: number; title: string; rows: ReviewRow[] };
 
 /** Human-readable display of a submitted answer, by field type. Values come from
@@ -35,6 +35,8 @@ export function formatFieldValue(
         .join(" › ");
     case "FILE":
       return one || "Not attached";
+    case "SIGNATURE":
+      return one ? "Signed" : "";
     default:
       return one;
   }
@@ -63,7 +65,12 @@ export function WizardReview({
               <div key={r.label} className="grid gap-1 sm:grid-cols-[180px_1fr] sm:gap-4">
                 <dt className="text-xs text-muted-foreground">{r.label}</dt>
                 <dd className="text-sm text-foreground">
-                  {r.value || <span className="italic text-subtle-foreground">Not provided</span>}
+                  {r.imageSrc ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- inline signature data URL, not a remote asset
+                    <img src={r.imageSrc} alt={`${r.label} signature`} className="h-16 rounded border border-border-subtle bg-surface" />
+                  ) : (
+                    r.value || <span className="italic text-subtle-foreground">Not provided</span>
+                  )}
                 </dd>
               </div>
             ))}

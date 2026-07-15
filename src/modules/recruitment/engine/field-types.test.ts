@@ -1,10 +1,10 @@
-import { expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { FieldType } from "@prisma/client";
-import { FIELD_TYPE_META, fieldTypesByGroup } from "./field-types";
+import { FIELD_TYPE_META, FIELD_GROUP_ORDER, FIELD_GROUP_LABELS, fieldTypesByGroup } from "./field-types";
 
 const ALL_TYPES: FieldType[] = [
   "SHORT_TEXT", "LONG_TEXT", "SINGLE_SELECT", "MULTI_SELECT", "CHECKBOX",
-  "EMAIL", "PHONE", "NUMBER", "DATE", "FILE", "DEPARTMENT_CHOICE", "SUBCOMMITTEE_RANK",
+  "EMAIL", "PHONE", "NUMBER", "DATE", "FILE", "DEPARTMENT_CHOICE", "SUBCOMMITTEE_RANK", "SIGNATURE",
 ];
 
 it("has metadata for every FieldType", () => {
@@ -40,4 +40,24 @@ it("exposes SUBCOMMITTEE_RANK in a Subcommittee group", () => {
   const groups = fieldTypesByGroup();
   const sub = groups.find((g) => g.group === "Subcommittee");
   expect(sub?.types).toContain("SUBCOMMITTEE_RANK");
+});
+
+describe("SIGNATURE field type registration", () => {
+  it("has a registry entry in a Signature group", () => {
+    expect(FIELD_TYPE_META.SIGNATURE).toBeDefined();
+    expect(FIELD_TYPE_META.SIGNATURE.group).toBe("Signature");
+    expect(FIELD_TYPE_META.SIGNATURE.hasOptions).toBe(false);
+    expect(FIELD_TYPE_META.SIGNATURE.isFile).toBe(false);
+  });
+
+  it("groups SIGNATURE under Signature", () => {
+    const sig = fieldTypesByGroup().find((g) => g.group === "Signature");
+    expect(sig?.types).toContain("SIGNATURE");
+  });
+
+  it("every group in FIELD_GROUP_ORDER has a label (guards the missing-Subcommittee bug)", () => {
+    for (const group of FIELD_GROUP_ORDER) {
+      expect(FIELD_GROUP_LABELS[group]).toBeTruthy();
+    }
+  });
 });

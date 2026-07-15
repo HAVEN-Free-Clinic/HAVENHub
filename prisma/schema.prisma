@@ -1192,6 +1192,8 @@ model RecruitmentCycle {
   isTermTraining  Boolean          @default(false)
   quizPassPercent Int              @default(80)
   quizMaxAttempts Int              @default(3)
+  routeTopPercent    Int              @default(20)
+  routeBottomPercent Int              @default(30)
   createdById     String
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt

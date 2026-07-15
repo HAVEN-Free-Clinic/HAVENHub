@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { getApplication } from "@/modules/recruitment/services/submissions";
 import { visibleSections, applicantTypeLabel } from "@/modules/recruitment/engine/visibility";
 import { requirePersonSession } from "@/platform/auth/session";
-import { reviewScope, listAcceptances } from "@/modules/recruitment/services/review";
+import { reviewScope, listAcceptances, canViewApplication } from "@/modules/recruitment/services/review";
 import { can } from "@/platform/rbac/engine";
 import { scheduleInterviewAction, committeeScoreAction, routeAction, decideRoutedAction } from "../actions";
 import { listApplicationInterviews } from "@/modules/recruitment/services/interviews";
@@ -30,21 +30,19 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
   if (!app) notFound();
   const person = await requirePersonSession();
   if (app.cycleId !== id) notFound();
-  const [scope, managesCycles, acceptances] = await Promise.all([
+  const [scope, managesCycles, canScorePerm, acceptances] = await Promise.all([
     reviewScope(person.personId),
     can(person.personId, "recruitment.manage_cycles"),
+    can(person.personId, "recruitment.score"),
     listAcceptances(applicationId),
   ]);
   const seeAll = scope.all || managesCycles;
-  const isScorer = scope.all || (await can(person.personId, "recruitment.score"));
   // Committee scoring applies to both tracks; only routing is volunteer-only.
-  const canScore = isScorer;
-  // Mirror listApplicantsForReview's director visibility: routing (not applicant ranking) drives a director's queue.
-  const canView =
-    seeAll ||
-    isScorer ||
-    app.departmentChoices.some((d) => scope.departmentCodes.includes(d)) ||
-    (app.routedDepartmentCode != null && scope.departmentCodes.includes(app.routedDepartmentCode));
+  const canScore = scope.all || canScorePerm;
+  // Shared with the file-download route: mirror listApplicantsForReview exactly so
+  // access to the detail page and its files can never drift (routing drives a
+  // director's queue on volunteer cycles; ranking on director-track cycles).
+  const canView = canViewApplication(app, { scope, managesCycles, canScore: canScorePerm });
   if (!canView) notFound();
   const eligible = seeAll
     ? app.cycle.departments
@@ -71,7 +69,10 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
     applicantType: app.applicantType,
     selectedDepartmentCodes: app.departmentChoices,
   });
-  const scoreSummary = canScore ? await committeeScoreSummary(applicationId) : null;
+  // The routed-decision director is told to "decide from the committee score", so
+  // they must be able to see it even without recruitment.score (they get the
+  // read-only average below; only scorers get the entry form).
+  const scoreSummary = canScore || canDecideRouted ? await committeeScoreSummary(applicationId) : null;
   const myScore = scoreSummary?.scores.find((s) => s.scorerId === person.personId) ?? null;
   const canRoute = scope.all && app.cycle.track === "VOLUNTEER"; // recruitment.review_all; routing is volunteer-only
   const routedOffChoice = app.routedDepartmentCode != null && !app.departmentChoices.includes(app.routedDepartmentCode);
@@ -155,12 +156,13 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
         </Card>
       )}
 
-      {canScore && scoreSummary && (
+      {scoreSummary && (canScore || canDecideRouted) && (
         <Card>
           <SectionHeader>Committee score</SectionHeader>
           <p className="mt-1 text-xs text-subtle-foreground">
             Average {scoreSummary.average != null ? scoreSummary.average.toFixed(1) : "-"} · {scoreSummary.count} scored
           </p>
+          {canScore && (
           <form action={committeeScoreAction.bind(null, id, applicationId)} className="mt-3 flex flex-wrap items-end gap-3">
             <div className="w-28">
               <Field label="Your score">
@@ -179,6 +181,7 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
             </div>
             <SubmitButton size="sm" pendingLabel="Saving…">{myScore ? "Update score" : "Submit score"}</SubmitButton>
           </form>
+          )}
         </Card>
       )}
 

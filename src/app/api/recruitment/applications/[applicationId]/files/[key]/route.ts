@@ -4,25 +4,11 @@ import { getObject } from "@/platform/storage";
 import { getApplication } from "@/modules/recruitment/services/submissions";
 import { reviewScope, canViewApplication } from "@/modules/recruitment/services/review";
 import { can } from "@/platform/rbac/engine";
+import { INLINE_SAFE_MIME_TYPES } from "@/modules/recruitment/services/file-preview";
 
 type RouteContext = {
   params: Promise<{ applicationId: string; key: string }>;
 };
-
-/**
- * Mime types we are willing to render inline (preview). Everything else is forced
- * to download even when `?inline=1` is requested -- the stored mimeType comes from
- * the applicant's browser and an inline `text/html` or `image/svg+xml` would be a
- * stored-XSS vector. Mirrors src/app/(app)/my-info/certificate/[id]/route.ts.
- * SVG is intentionally excluded; it can carry script.
- */
-const INLINE_SAFE_MIME_TYPES = new Set([
-  "application/pdf",
-  "image/png",
-  "image/jpeg",
-  "image/gif",
-  "image/webp",
-]);
 
 type StoredFile = { storedName?: string; fileName?: string; mimeType?: string };
 

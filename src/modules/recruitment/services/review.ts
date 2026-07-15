@@ -56,9 +56,9 @@ export function canViewApplication(
 }
 
 export type ReviewApplication = Application & {
-  applicant: { firstName: string; lastName: string; email: string };
+  applicant: { firstName: string; lastName: string; email: string; applicantPersonId: string | null };
   acceptances: Acceptance[];
-  committeeScores: { score: number }[];
+  committeeScores: { score: number; scorerId: string }[];
   interviews: { decision: "PENDING" | "ACCEPT" | "REJECT" | "WAITLIST" }[];
 };
 
@@ -75,9 +75,9 @@ export async function listApplicantsForReview(cycleId: string, viewerId: string)
   const apps = await prisma.application.findMany({
     where: { cycleId, status: "SUBMITTED" },
     include: {
-      applicant: { select: { firstName: true, lastName: true, email: true } },
+      applicant: { select: { firstName: true, lastName: true, email: true, applicantPersonId: true } },
       acceptances: true,
-      committeeScores: { select: { score: true } },
+      committeeScores: { select: { score: true, scorerId: true } },
       interviews: { select: { decision: true } },
     },
     orderBy: [{ submittedAt: "desc" }, { createdAt: "desc" }],

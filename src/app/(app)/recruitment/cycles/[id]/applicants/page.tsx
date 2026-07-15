@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requirePersonSession } from "@/platform/auth/session";
 import { getCycle } from "@/modules/recruitment/services/cycles";
-import { listApplicantsForReview } from "@/modules/recruitment/services/review";
+import { listApplicantsForReview, reviewScope } from "@/modules/recruitment/services/review";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 import { PageHeader } from "@/platform/ui/page-header";
@@ -12,6 +12,10 @@ import { Pagination } from "@/platform/ui/pagination";
 import { applicantTypeLabel } from "@/modules/recruitment/engine/visibility";
 import { scoreAverage } from "@/modules/recruitment/engine/scoring";
 import { applicationStage, applicationStageLabel } from "@/modules/recruitment/engine/application-stage";
+import { can } from "@/platform/rbac/engine";
+import { SpeedScoreLauncher } from "@/modules/recruitment/components/speed-score-launcher";
+import { speedScoreAction, loadReviewApplicationAction } from "./actions";
+import type { SpeedScoreItem } from "@/modules/recruitment/engine/speed-score-queue";
 
 const PAGE_SIZE = 50;
 
@@ -29,6 +33,21 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
   const [person, cycle] = await Promise.all([requirePersonSession(), getCycle(id)]);
   if (!cycle) notFound();
   const apps = await listApplicantsForReview(id, person.personId);
+  const [scope, canScorePerm] = await Promise.all([
+    reviewScope(person.personId),
+    can(person.personId, "recruitment.score"),
+  ]);
+  const canScore = scope.all || canScorePerm;
+  const speedItems: SpeedScoreItem[] = canScore
+    ? apps
+        .filter((a) => a.applicant.applicantPersonId !== person.personId) // never queue your own application
+        .map((a) => ({
+          applicationId: a.id,
+          name: `${a.applicant.firstName} ${a.applicant.lastName}`,
+          typeLabel: applicantTypeLabel(a.applicantType),
+          myScore: a.committeeScores.find((c) => c.scorerId === person.personId)?.score ?? null,
+        }))
+    : [];
   const pageCount = Math.max(1, Math.ceil(apps.length / PAGE_SIZE));
   const page = Math.min(Math.max(1, Number(pageParam) || 1), pageCount);
   const pageApps = apps.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -41,7 +60,16 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
           section: { label: "Applicants", slug: "applicants" },
         })}
       />
-      <PageHeader title="Applicants" description={cycle.title} />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <PageHeader title="Applicants" description={cycle.title} />
+        {canScore && speedItems.length > 0 && (
+          <SpeedScoreLauncher
+            items={speedItems}
+            onScore={speedScoreAction}
+            onLoad={loadReviewApplicationAction}
+          />
+        )}
+      </div>
       <Table>
         <THead>
           <tr>

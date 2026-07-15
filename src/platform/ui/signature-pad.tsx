@@ -14,6 +14,13 @@ const TYPED_FONT = "'Snell Roundhand', 'Segoe Script', 'Bradley Hand', cursive";
  * form's FormData with no submit-plumbing changes. Companion hidden inputs record
  * the method (draw/type) and the printed name for the audit trail.
  *
+ * The PNG lives in React state and drives a CONTROLLED hidden input. An
+ * uncontrolled input whose value is set imperatively via a ref is reset back to
+ * its defaultValue on the next re-render (e.g. the autosave/`setState` that fires
+ * right after a stroke), which silently dropped the captured signature before
+ * submit. A controlled value survives every re-render, matching how the sibling
+ * __method / __name inputs already work.
+ *
  * The <canvas> is ALWAYS mounted (never conditionally rendered per mode) so
  * signature_pad stays bound to a single live node for the component's lifetime,
  * and the typed-name rasterization has a real canvas to draw onto. Draw vs. type
@@ -38,32 +45,32 @@ export function SignaturePad({
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const padRef = useRef<SignaturePadLib | null>(null);
-  const hiddenRef = useRef<HTMLInputElement | null>(null);
-  // Keep the latest onChange in a ref so the one-time init effect's endStroke
-  // handler always calls the current callback, never a stale first-render closure.
-  // Updated in an effect (not during render) so refs are only touched outside render.
-  const onChangeRef = useRef(onChange);
-  useEffect(() => {
-    onChangeRef.current = onChange;
-  });
-
   const [mode, setMode] = useState<"draw" | "type">("draw");
   const [typed, setTyped] = useState("");
-  const [empty, setEmpty] = useState(!defaultValue);
+  // The captured PNG data URL. Drives the controlled hidden input below.
+  const [value, setValue] = useState(defaultValue);
 
-  // Push the current PNG (or "") into the hidden input the form serializes, and
-  // notify the owner so autosave can pick it up.
+  // Keep the latest onChange and value in refs so the one-time init effect's
+  // endStroke handler and resize() (both captured once, with [] deps) always see
+  // the current values without re-binding. Updated in effects, never during render
+  // (react-hooks/refs forbids mutating a ref in the render body).
+  const onChangeRef = useRef(onChange);
+  const valueRef = useRef(value);
+  useEffect(() => { onChangeRef.current = onChange; });
+  useEffect(() => { valueRef.current = value; });
+
+  // Push the current PNG (or "") into React state -> the controlled hidden input,
+  // and notify the owner so autosave can pick it up.
   function commit(dataUrl: string) {
-    if (hiddenRef.current) hiddenRef.current.value = dataUrl;
-    setEmpty(!dataUrl);
+    setValue(dataUrl);
     onChangeRef.current?.();
   }
 
   // Refit the canvas backing store to its CSS box, preserving the current image.
   // Drawn strokes are re-rendered from vector data; a seeded/typed raster (no
-  // stroke data) is re-rendered from the last committed PNG in the hidden input.
-  // A canvas inside a display:none wizard step has zero size, so this early-returns
-  // and reruns via ResizeObserver once the pad becomes visible.
+  // stroke data) is re-rendered from the last committed PNG. A canvas inside a
+  // display:none wizard step has zero size, so this early-returns and reruns via
+  // ResizeObserver once the pad becomes visible.
   function resize() {
     const canvas = canvasRef.current;
     const pad = padRef.current;
@@ -72,7 +79,7 @@ export function SignaturePad({
     if (width === 0 || height === 0) return;
     const ratio = Math.max(window.devicePixelRatio || 1, 1);
     const strokes = pad.toData();
-    const current = hiddenRef.current?.value ?? "";
+    const current = valueRef.current;
     canvas.width = width * ratio;
     canvas.height = height * ratio;
     const ctx = canvas.getContext("2d");
@@ -81,8 +88,6 @@ export function SignaturePad({
     if (strokes.length) {
       pad.fromData(strokes);
     } else if (ctx && current.startsWith("data:image/png")) {
-      // A seeded (defaultValue) or typed signature is a raster with no stroke data;
-      // redraw it directly at CSS dimensions (the context is already ratio-scaled).
       const img = new Image();
       img.onload = () => ctx.drawImage(img, 0, 0, width, height);
       img.src = current;
@@ -97,8 +102,6 @@ export function SignaturePad({
     padRef.current = pad;
     const onEnd = () => commit(pad.toDataURL("image/png"));
     pad.addEventListener("endStroke", onEnd);
-    // Seed defaultValue into the hidden input is already done via the input's
-    // defaultValue attribute; resize() re-renders it onto the canvas from there.
     resize();
     const ro = new ResizeObserver(() => resize());
     ro.observe(canvas);
@@ -126,15 +129,15 @@ export function SignaturePad({
   // Rasterize the typed name in a cursive face onto the shared (always-mounted)
   // canvas so the stored artifact is always a PNG on the same hidden input the
   // draw path writes.
-  function renderTyped(value: string) {
-    setTyped(value);
+  function renderTyped(v: string) {
+    setTyped(v);
     const canvas = canvasRef.current;
     const pad = padRef.current;
     if (!canvas || !pad) return;
     pad.clear();
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    if (!value.trim()) { commit(""); return; }
+    if (!v.trim()) { commit(""); return; }
     const ratio = Math.max(window.devicePixelRatio || 1, 1);
     const w = canvas.width / ratio;
     const h = canvas.height / ratio;
@@ -142,9 +145,11 @@ export function SignaturePad({
     ctx.textBaseline = "middle";
     ctx.textAlign = "center";
     ctx.font = `italic ${Math.min(h * 0.5, 44)}px ${TYPED_FONT}`;
-    ctx.fillText(value, w / 2, h / 2);
+    ctx.fillText(v, w / 2, h / 2);
     commit(canvas.toDataURL("image/png"));
   }
+
+  const empty = !value;
 
   return (
     <div className="block">
@@ -153,7 +158,7 @@ export function SignaturePad({
         {required && <span className="text-critical" aria-hidden="true"> *</span>}
       </span>
 
-      <input ref={hiddenRef} type="hidden" name={name} defaultValue={defaultValue} />
+      <input type="hidden" name={name} value={value} readOnly />
       <input type="hidden" name={`${name}__method`} value={mode} readOnly />
       <input type="hidden" name={`${name}__name`} value={mode === "type" ? typed : personName} readOnly />
 

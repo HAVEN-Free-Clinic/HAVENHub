@@ -484,7 +484,7 @@ function PendingTab({
   if (pending.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
-        No pending Epic requests. Attach some from a support ticket.
+        No pending Epic requests. Attach some from a support ticket, or promote a volunteer who needs Epic access.
       </p>
     );
   }
@@ -504,10 +504,12 @@ function PendingTab({
               <Checkbox name="requestIds" value={r.id} />
               <Badge>{r.kind}</Badge>
               <span className="font-medium">{r.person.name}</span>
-              {r.techRequest && (
+              {r.techRequest ? (
                 <Link href={`/support/${r.techRequest.id}`} className="text-xs text-brand-fg underline underline-offset-2">
                   #{r.techRequest.number}
                 </Link>
+              ) : (
+                <span className="text-xs text-subtle-foreground">Promotion</span>
               )}
             </li>
           ))}

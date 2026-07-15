@@ -1,6 +1,7 @@
 "use server";
 import { redirect } from "next/navigation";
 import { requirePermission } from "@/platform/auth/session";
+import { getPostHogClient } from "@/lib/posthog-server";
 import { parseZonedInput } from "@/platform/dates";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { isUniqueConstraintError } from "@/platform/db";
@@ -36,6 +37,13 @@ export async function createCycleAction(formData: FormData) {
   let cycle;
   try {
     cycle = await createCycle({ track, termId, title, publicSlug: slug, departments, acceptsRenewals: false, createdById: person.personId }, seedDefaultForm);
+    const posthog = getPostHogClient();
+    posthog.capture({
+      distinctId: person.personId,
+      event: "recruitment_cycle_created",
+      properties: { track, term_id: termId, department_count: departments.length },
+    });
+    await posthog.shutdown();
   } catch (err) {
     // publicSlug is unique. A colliding slug throws P2002; surface the same
     // friendly reserved-word flow instead of the generic error page (audit3 L2).
@@ -62,6 +70,9 @@ export async function publishCycleAction(cycleId: string) {
     errorRedirect: (m) => `/recruitment/cycles/${cycleId}?error=${encodeURIComponent(m)}`,
     revalidate: `/recruitment/cycles/${cycleId}`,
   });
+  const posthog = getPostHogClient();
+  posthog.capture({ distinctId: person.personId, event: "recruitment_cycle_published", properties: { cycle_id: cycleId } });
+  await posthog.shutdown();
 }
 
 export async function closeCycleAction(cycleId: string) {
@@ -72,6 +83,9 @@ export async function closeCycleAction(cycleId: string) {
     errorRedirect: (m) => `/recruitment/cycles/${cycleId}?error=${encodeURIComponent(m)}`,
     revalidate: `/recruitment/cycles/${cycleId}`,
   });
+  const posthog = getPostHogClient();
+  posthog.capture({ distinctId: person.personId, event: "recruitment_cycle_closed", properties: { cycle_id: cycleId } });
+  await posthog.shutdown();
 }
 
 export async function reopenCycleAction(cycleId: string) {

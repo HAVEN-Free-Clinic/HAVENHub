@@ -169,6 +169,68 @@ describe("setCycleDepartments", () => {
     expect((audit!.before as { departments: string[] }).departments).toEqual(["SRHD"]);
     expect((audit!.after as { departments: string[] }).departments).toEqual(["SRHD", "MDIC"]);
   });
+
+  it("does not add a supplement section on a minimal (non-templated) cycle", async () => {
+    const { person, cycle } = await makeCycle([]);
+    await setCycleDepartments(cycle.id, ["MDIC"], person.id);
+    const section = await prisma.formSection.findFirst({ where: { cycleId: cycle.id, departmentCode: "MDIC" } });
+    expect(section).toBeNull();
+  });
+});
+
+describe("setCycleDepartments supplement section sync", () => {
+  async function makeTemplatedCycle(departments: string[]) {
+    const { person, term } = await seedTermAndPerson();
+    const cycle = await createCycle(
+      {
+        track: "VOLUNTEER", termId: term.id, title: "V",
+        publicSlug: `v-sync-${departments.join("-").toLowerCase() || "none"}`,
+        departments, acceptsRenewals: false, createdById: person.id,
+      },
+      true
+    );
+    return { person, cycle };
+  }
+
+  it("adds a supplement section with fields when a supplement department is added to a templated cycle", async () => {
+    const { person, cycle } = await makeTemplatedCycle([]);
+    await setCycleDepartments(cycle.id, ["MDIC"], person.id);
+    const section = await prisma.formSection.findFirst({
+      where: { cycleId: cycle.id, departmentCode: "MDIC" },
+      include: { fields: true },
+    });
+    expect(section).not.toBeNull();
+    expect(section!.fields.length).toBeGreaterThan(0);
+  });
+
+  it("removes a supplement section when its department is later removed with no applications", async () => {
+    const { person, cycle } = await makeTemplatedCycle([]);
+    await setCycleDepartments(cycle.id, ["MDIC"], person.id);
+    await setCycleDepartments(cycle.id, [], person.id);
+    const section = await prisma.formSection.findFirst({ where: { cycleId: cycle.id, departmentCode: "MDIC" } });
+    expect(section).toBeNull();
+  });
+
+  it("preserves a supplement section when its department is removed but has an application", async () => {
+    const { person, cycle } = await makeTemplatedCycle([]);
+    await setCycleDepartments(cycle.id, ["MDIC"], person.id);
+    const applicant = await prisma.applicant.create({
+      data: { cycleId: cycle.id, firstName: "A", lastName: "A", email: "sync-a@yale.edu", emailLower: "sync-a@yale.edu" },
+    });
+    await prisma.application.create({
+      data: { cycleId: cycle.id, applicantId: applicant.id, answers: {}, applicantType: "NEW", departmentChoices: ["MDIC"] },
+    });
+    await setCycleDepartments(cycle.id, [], person.id);
+    const section = await prisma.formSection.findFirst({ where: { cycleId: cycle.id, departmentCode: "MDIC" } });
+    expect(section).not.toBeNull();
+  });
+
+  it("does not add a section for a non-supplement department on a templated cycle", async () => {
+    const { person, cycle } = await makeTemplatedCycle([]);
+    await setCycleDepartments(cycle.id, ["BVHD"], person.id);
+    const sections = await prisma.formSection.findMany({ where: { cycleId: cycle.id, departmentCode: { not: null } } });
+    expect(sections).toEqual([]);
+  });
 });
 
 describe("setApplicationWindow", () => {

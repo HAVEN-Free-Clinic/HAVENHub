@@ -74,7 +74,7 @@ export function resolveRenewalPrefill(
       lockedKeys.push(f.key);
     } else if ((f.type === "PHONE" || f.key === "phone") && ctx.phone) {
       values[f.key] = ctx.phone;
-    } else if (f.key === "netid" && ctx.netId) {
+    } else if (f.key === "net_id" && ctx.netId) {
       values[f.key] = ctx.netId;
     }
   }

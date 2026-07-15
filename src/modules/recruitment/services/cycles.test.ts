@@ -231,6 +231,28 @@ describe("setCycleDepartments supplement section sync", () => {
     const sections = await prisma.formSection.findMany({ where: { cycleId: cycle.id, departmentCode: { not: null } } });
     expect(sections).toEqual([]);
   });
+
+  it("never deletes a hand-authored section whose departmentCode is not a real supplement department", async () => {
+    const { person, cycle } = await makeTemplatedCycle(["BVHD"]);
+    // BVHD is not in SUPPLEMENT_DEPARTMENTS.VOLUNTEER, so the admin authored this
+    // section by hand (free-text departmentCode on the builder), not via the
+    // template. Removing BVHD from the cycle's department list must not touch it.
+    const handAuthored = await prisma.formSection.create({
+      data: { cycleId: cycle.id, title: "BVHD Custom Section", order: 99, departmentCode: "BVHD", appliesTo: "NEW" },
+    });
+    await setCycleDepartments(cycle.id, [], person.id);
+    const stillThere = await prisma.formSection.findUnique({ where: { id: handAuthored.id } });
+    expect(stillThere).not.toBeNull();
+  });
+
+  it("re-adding a removed supplement department creates exactly one section with no unique-key error", async () => {
+    const { person, cycle } = await makeTemplatedCycle([]);
+    await setCycleDepartments(cycle.id, ["MDIC"], person.id);
+    await setCycleDepartments(cycle.id, [], person.id);
+    await setCycleDepartments(cycle.id, ["MDIC"], person.id);
+    const sections = await prisma.formSection.findMany({ where: { cycleId: cycle.id, departmentCode: "MDIC" } });
+    expect(sections.length).toBe(1);
+  });
 });
 
 describe("setApplicationWindow", () => {

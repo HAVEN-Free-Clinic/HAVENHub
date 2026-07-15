@@ -7,7 +7,7 @@ import { getApplicationTemplate, getSupplementSections } from "../templates";
 import { getQuizTemplate } from "../templates/quiz";
 import { materializeTemplate } from "../templates/materialize";
 import { termSaturdays } from "../templates/term-dates";
-import { normalizeDeptCode } from "../templates/application/supplements/dept-codes";
+import { normalizeDeptCode, SUPPLEMENT_DEPARTMENTS } from "../templates/application/supplements/dept-codes";
 
 export class CyclePublishError extends Error {
   constructor(message: string) {
@@ -271,16 +271,20 @@ export async function setCycleDepartments(
 
   const added = next.filter((c) => !cycle.departments.includes(c));
   const removed = cycle.departments.filter((c) => !next.includes(c));
-  const removedWithApplicants: RemovedDepartmentImpact[] = [];
-  for (const code of removed) {
-    const applicantCount = await prisma.application.count({ where: { cycleId: id, departmentChoices: { has: code } } });
-    if (applicantCount > 0) removedWithApplicants.push({ code, applicantCount });
-  }
-  const removedWithApplicantCodes = new Set(removedWithApplicants.map((r) => r.code));
-  const removedNoApplicants = removed.filter((c) => !removedWithApplicantCodes.has(c));
 
-  const updated = await prisma.$transaction(async (tx) => {
+  const { updated, removedWithApplicants } = await prisma.$transaction(async (tx) => {
     const updatedCycle = await tx.recruitmentCycle.update({ where: { id }, data: { departments: next } });
+
+    // Computed inside the transaction (not before it) so a concurrent application
+    // submission can't slip in between the count and the delete below and have
+    // its section removed out from under it.
+    const removedWithApplicants: RemovedDepartmentImpact[] = [];
+    for (const code of removed) {
+      const applicantCount = await tx.application.count({ where: { cycleId: id, departmentChoices: { has: code } } });
+      if (applicantCount > 0) removedWithApplicants.push({ code, applicantCount });
+    }
+    const removedWithApplicantCodes = new Set(removedWithApplicants.map((r) => r.code));
+    const removedNoApplicants = removed.filter((c) => !removedWithApplicantCodes.has(c));
 
     const hasDefaultTemplate = (await tx.formField.count({ where: { cycleId: id, type: "DEPARTMENT_CHOICE" } })) > 0;
     if (hasDefaultTemplate) {
@@ -297,14 +301,23 @@ export async function setCycleDepartments(
           await materializeTemplate(tx, id, toAdd.map((s, i) => ({ ...s, order: maxOrder + 1 + i })));
         }
       }
-      if (removedNoApplicants.length > 0) {
+      // Only auto-delete a section this sync (or the default template) could
+      // itself have created: departmentCode is free-text an admin can also set
+      // on a hand-authored builder section, so the allowlist gate keeps a
+      // removed-but-not-a-real-supplement-department (e.g. BVHD) from ever
+      // deleting anything.
+      const allowedSupplementCodes = SUPPLEMENT_DEPARTMENTS[cycle.track];
+      const removableCodes = removedNoApplicants
+        .map((c) => normalizeDeptCode(c))
+        .filter((c) => allowedSupplementCodes.includes(c));
+      if (removableCodes.length > 0) {
         await tx.formSection.deleteMany({
-          where: { cycleId: id, departmentCode: { in: removedNoApplicants.map(normalizeDeptCode) } },
+          where: { cycleId: id, departmentCode: { in: removableCodes } },
         });
       }
     }
 
-    return updatedCycle;
+    return { updated: updatedCycle, removedWithApplicants };
   });
 
   await recordAudit({

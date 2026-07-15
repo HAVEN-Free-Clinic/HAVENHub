@@ -214,6 +214,16 @@ describe("reopenDecision", () => {
     const { lead, application } = await seed();
     await expect(reopenDecision(application.id, lead.id)).rejects.toBeInstanceOf(RoutingError);
   });
+
+  it("reopening a routed ACCEPT tears down the not-emailed acceptance so release can't email it", async () => {
+    const { lead, application } = await seed();
+    await routeApplication(application.id, "EDUC", lead.id);
+    await decideRoutedApplication(application.id, "ACCEPT", lead.id, null);
+    expect(await prisma.acceptance.count({ where: { applicationId: application.id } })).toBe(1);
+    const reopened = await reopenDecision(application.id, lead.id);
+    expect(reopened.decision).toBe("PENDING");
+    expect(await prisma.acceptance.count({ where: { applicationId: application.id } })).toBe(0);
+  });
 });
 
 describe("applyTierRoutes / applyTierRejects", () => {

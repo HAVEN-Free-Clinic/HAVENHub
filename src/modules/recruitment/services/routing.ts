@@ -180,19 +180,33 @@ export async function reopenDecision(applicationId: string, actorId: string): Pr
   }
   const app = await prisma.application.findUnique({
     where: { id: applicationId },
-    include: { cycle: { select: { decisionsReleasedAt: true, track: true } }, acceptances: { select: { emailedAt: true } } },
+    include: {
+      cycle: { select: { decisionsReleasedAt: true, track: true } },
+      acceptances: { select: { emailedAt: true, contract: { select: { id: true } } } },
+    },
   });
   if (!app) throw new RoutingError("Application not found.");
   if (app.status !== "SUBMITTED") throw new RoutingError("This application hasn't been submitted yet.");
   if (app.cycle.track !== "VOLUNTEER") throw new RoutingError("Routing applies to volunteer cycles.");
   if (app.decision === "PENDING") throw new RoutingError("This application has no decision to reopen.");
   if (app.cycle.decisionsReleasedAt) throw new AcceptanceError("Decisions were already released; reopening is blocked.");
-  if (app.acceptances.some((a) => a.emailedAt != null)) throw new AcceptanceError("This applicant was already emailed; reopening is blocked.");
-  const updated = await prisma.application.update({
-    where: { id: applicationId },
-    data: { decision: "PENDING", decidedById: null, decidedAt: null, decisionNotes: null },
+  // An emailed acceptance or an onboarding contract must be torn down first (mirrors
+  // rejectApplication): reopening under it would leave the applicant emailed-accepted,
+  // or cascade-destroy onboarding data.
+  if (app.acceptances.some((a) => a.emailedAt != null || a.contract != null)) {
+    throw new AcceptanceError("This applicant has an emailed acceptance or onboarding contract. Resolve that before reopening.");
+  }
+  const updated = await prisma.$transaction(async (tx) => {
+    // A reversible reopen must not leave a live acceptance behind, or releaseDecisions
+    // would later email it. Emailed/contract acceptances are blocked above, so this
+    // only drops the not-emailed, contract-free ones.
+    await tx.acceptance.deleteMany({ where: { applicationId, emailedAt: null } });
+    return tx.application.update({
+      where: { id: applicationId },
+      data: { decision: "PENDING", decidedById: null, decidedAt: null, decisionNotes: null },
+    });
   });
-  await recordAudit({ actorPersonId: actorId, action: "recruitment.application_reopen", entityType: "Application", entityId: applicationId, after: { decision: "PENDING" } });
+  await recordAudit({ actorPersonId: actorId, action: "recruitment.application_reopen", entityType: "Application", entityId: applicationId, before: { decision: app.decision }, after: { decision: "PENDING" } });
   return updated;
 }
 

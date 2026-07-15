@@ -77,7 +77,7 @@ function RouteRow({ r, kind, h }: { r: SpeedRouteRow; kind: "top" | "middle" | "
               {r.routedDepartmentCode ? `Routed to ${r.routedDepartmentCode}` : ""}
               {decided ? ` ${r.decision.toLowerCase()}` : ""}
             </span>
-            {decided && !r.acceptanceEmailed && (
+            {r.decision === "REJECT" && !r.acceptanceEmailed && (
               <Button type="button" size="sm" variant="ghost" disabled={h.busy} onClick={() => h.onReopen(r.applicationId)}>Reopen</Button>
             )}
           </div>

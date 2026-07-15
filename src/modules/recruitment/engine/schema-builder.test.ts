@@ -164,6 +164,27 @@ it("excludes SUBCOMMITTEE_RANK from the generated scalar schema (handled in subm
   expect(parsed).toEqual({ name: "Ann" });
 });
 
+describe("SIGNATURE validation", () => {
+  const sig = (required: boolean): SectionDef[] => [
+    { id: "s", appliesTo: "BOTH", departmentCode: null,
+      fields: [{ key: "sign", type: "SIGNATURE", required, options: null, validation: null }] },
+  ];
+  const PNG = "data:image/png;base64,iVBORw0KGgo=";
+
+  it("accepts a png data URL for a required signature", () => {
+    expect(buildApplicationSchema(sig(true), ctx).safeParse({ sign: PNG }).success).toBe(true);
+  });
+  it("rejects an empty required signature", () => {
+    expect(buildApplicationSchema(sig(true), ctx).safeParse({ sign: "" }).success).toBe(false);
+  });
+  it("rejects a non-png value for a required signature", () => {
+    expect(buildApplicationSchema(sig(true), ctx).safeParse({ sign: "typed name" }).success).toBe(false);
+  });
+  it("allows an empty optional signature", () => {
+    expect(buildApplicationSchema(sig(false), ctx).safeParse({ sign: "" }).success).toBe(true);
+  });
+});
+
 describe("visibleWhen (condition-hidden fields)", () => {
   const conditionalSections: SectionDef[] = [
     {

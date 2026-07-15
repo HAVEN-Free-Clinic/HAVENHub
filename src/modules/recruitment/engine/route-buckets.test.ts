@@ -52,11 +52,14 @@ describe("bucketByPercentile", () => {
     expect(r.middle).toHaveLength(4);
   });
 
-  it("keeps a clean bottom tie in the bottom tier", () => {
-    // 5,4,3,2,2,2 with top 20 / bottom 30: the 2-tie does not straddle (3 is above), so it stays bottom-eligible.
+  it("spares a bottom tie when the cut lands inside it, even at the minimum (favor the applicant)", () => {
+    // 5,4,3,2,2,2 with top 20 / bottom 30: nominal bottom 2 lands INSIDE the 2.0 tie,
+    // so the whole tie moves up to middle and nobody is auto-rejected. Contrast with
+    // the 10-element clean spread above, where bottom 30 lands exactly at the tie edge.
     const r = bucketByPercentile({ items: items([5, 4, 3, 2, 2, 2]), topPercent: 20, bottomPercent: 30 });
     expect(r.top).toEqual(["a0"]);
-    expect(r.bottom).toEqual(["a3", "a4", "a5"]); // the three 2.0s
+    expect(r.bottom).toEqual([]);
+    expect(r.middle).toEqual(["a1", "a2", "a3", "a4", "a5"]);
   });
 
   it("rejects nobody when every average is equal", () => {

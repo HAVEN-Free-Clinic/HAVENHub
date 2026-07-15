@@ -46,10 +46,9 @@ export function bucketByPercentile(input: {
     // The applicant just above the reject line, unless that slot is already in top.
     const aboveVal =
       aboveIdx >= 0 && !topSet.has(sorted[aboveIdx].applicationId) ? sorted[aboveIdx].average : null;
-    const minVal = sorted[N - 1].average; // Last item is minimum in descending sort
-    // Straddle: the boundary value appears above the line AND is above the minimum,
-    // so spare the whole tie (exclusive cut). Otherwise the boundary tie is clean (inclusive cut).
-    const straddle = boundaryVal > minVal && aboveVal != null && aboveVal === boundaryVal;
+    // Straddle: the boundary value also appears above the line, so spare the whole
+    // tie (exclusive cut). Otherwise the boundary tie is clean (inclusive cut).
+    const straddle = aboveVal != null && aboveVal === boundaryVal;
     for (const s of sorted) {
       if (topSet.has(s.applicationId)) continue;
       if (straddle ? s.average < boundaryVal : s.average <= boundaryVal) {

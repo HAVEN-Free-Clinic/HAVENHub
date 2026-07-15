@@ -16,20 +16,16 @@ import { can } from "@/platform/rbac/engine";
 import { SpeedScoreLauncher } from "@/modules/recruitment/components/speed-score-launcher";
 import { speedScoreAction, loadReviewApplicationAction } from "./actions";
 import type { SpeedScoreItem } from "@/modules/recruitment/engine/speed-score-queue";
+import { rosterDecision, type RosterDecisionStatus } from "@/modules/recruitment/engine/decision-summary";
+import { DecisionFilter } from "@/modules/recruitment/components/decision-filter";
 
 const PAGE_SIZE = 50;
 
-function decision(depts: string[]): { label: string; tone: "default" | "success" | "critical" } {
-  if (depts.length === 0) return { label: "None", tone: "default" };
-  const distinct = [...new Set(depts)];
-  return distinct.length > 1
-    ? { label: `Conflict: ${distinct.join(" + ")}`, tone: "critical" }
-    : { label: `Accepted: ${distinct[0]}`, tone: "success" };
-}
+const DECISION_STATUSES = new Set<RosterDecisionStatus>(["ACCEPTED", "WAITLIST", "REJECTED", "NONE"]);
 
-export default async function ApplicantsPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ page?: string }> }) {
+export default async function ApplicantsPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ page?: string; decision?: string }> }) {
   const { id } = await params;
-  const { page: pageParam } = await searchParams;
+  const { page: pageParam, decision: decisionParam } = await searchParams;
   const [person, cycle] = await Promise.all([requirePersonSession(), getCycle(id)]);
   if (!cycle) notFound();
   const apps = await listApplicantsForReview(id, person.personId);
@@ -48,9 +44,15 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
           myScore: a.committeeScores.find((c) => c.scorerId === person.personId)?.score ?? null,
         }))
     : [];
-  const pageCount = Math.max(1, Math.ceil(apps.length / PAGE_SIZE));
+  const decisionFilter = decisionParam && DECISION_STATUSES.has(decisionParam as RosterDecisionStatus)
+    ? (decisionParam as RosterDecisionStatus)
+    : null;
+  const filtered = decisionFilter
+    ? apps.filter((a) => rosterDecision({ acceptances: a.acceptances, applicationDecision: a.decision, interviews: a.interviews }).status === decisionFilter)
+    : apps;
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const page = Math.min(Math.max(1, Number(pageParam) || 1), pageCount);
-  const pageApps = apps.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const pageApps = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   return (
     <div className="space-y-6">
       <SetBreadcrumb
@@ -70,6 +72,12 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
           />
         )}
       </div>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <DecisionFilter />
+        <span className="pb-2 text-sm whitespace-nowrap text-muted-foreground">
+          {filtered.length.toLocaleString()} {filtered.length === 1 ? "applicant" : "applicants"}
+        </span>
+      </div>
       <Table>
         <THead>
           <tr>
@@ -84,7 +92,7 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
         </THead>
         <tbody>
           {pageApps.map((a) => {
-            const d = decision(a.acceptances.map((x) => x.departmentCode));
+            const d = rosterDecision({ acceptances: a.acceptances, applicationDecision: a.decision, interviews: a.interviews });
             return (
               <TR key={a.id}>
                 <TD>
@@ -118,10 +126,10 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
               </TR>
             );
           })}
-          {apps.length === 0 && (
+          {filtered.length === 0 && (
             <TR>
               <TD colSpan={7} className="py-10 text-center text-subtle-foreground">
-                No applicants in your review scope.
+                {apps.length === 0 ? "No applicants in your review scope." : "No applicants match this filter."}
               </TD>
             </TR>
           )}
@@ -130,7 +138,7 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
       <Pagination
         page={page}
         pageCount={pageCount}
-        hrefFor={(p) => `/recruitment/cycles/${id}/applicants?page=${p}`}
+        hrefFor={(p) => `/recruitment/cycles/${id}/applicants?${decisionFilter ? `decision=${decisionFilter}&` : ""}page=${p}`}
       />
     </div>
   );

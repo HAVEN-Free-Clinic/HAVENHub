@@ -85,6 +85,7 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
           <Link href={`/recruitment/cycles/${id}/builder/contract`} className={navLink}>Edit onboarding contract</Link>
         )}
         <Link href={`/recruitment/cycles/${id}/applicants`} className={navLink}>View applicants</Link>
+        <Link href={`/recruitment/cycles/${id}/waitlist`} className={navLink}>Waitlist</Link>
         {canReviewAll && (
           <Link href={`/recruitment/cycles/${id}/decisions`} className={navLink}>Decisions</Link>
         )}

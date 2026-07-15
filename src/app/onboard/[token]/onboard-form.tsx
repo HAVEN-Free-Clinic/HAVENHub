@@ -9,7 +9,7 @@ import { FormActions } from "@/platform/ui/form";
 import { SYSTEM_FIELDS } from "@/modules/recruitment/contract/system-fields";
 import type { ContractLayout } from "@/modules/recruitment/contract/layout";
 
-type Prefill = { firstName: string; lastName: string; email: string; netId: string; phone: string };
+type Prefill = { firstName: string; lastName: string; email: string; netId: string; phone: string; yaleAffiliation: string; gradYear: string; spanish: boolean };
 type Ctx = { firstName: string; orgName: string };
 
 export function OnboardForm({

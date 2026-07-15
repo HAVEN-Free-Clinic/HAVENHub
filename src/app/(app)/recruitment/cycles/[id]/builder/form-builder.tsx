@@ -25,6 +25,10 @@ export function FormBuilder({
   const [, startTransition] = useTransition();
   const [reorderError, setReorderError] = useState<string | null>(null);
   const refresh = () => router.refresh();
+  // The full cycle-wide field list, used as the pool of candidate "controlling"
+  // fields for each question's "Show only when" condition -- a gate can live in
+  // a different section than the question it controls.
+  const allFields = sections.flatMap((s) => s.fields);
 
   function addSection() {
     startTransition(async () => {
@@ -43,9 +47,10 @@ export function FormBuilder({
 
   return (
     <div className="space-y-4">
-      {!editable && (
+      {status !== "DRAFT" && (
         <Alert tone="warning">
-          This cycle is {status}. You can edit labels, help text, and descriptions; structural changes (types, required, adding, deleting, reordering scope) are locked to protect submitted answers.
+          This cycle is {status}. Applicants may have already submitted. Changes take effect for new submissions
+          immediately; existing answers are kept as-is and may no longer match the updated form.
         </Alert>
       )}
       {reorderError && <Alert tone="error">{reorderError}</Alert>}
@@ -67,6 +72,7 @@ export function FormBuilder({
             <SectionCard
               cycleId={cycleId}
               section={section}
+              allFields={allFields}
               departments={departments}
               subcommittees={subcommittees}
               editable={editable}

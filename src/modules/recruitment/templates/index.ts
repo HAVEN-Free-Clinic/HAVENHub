@@ -22,6 +22,14 @@ export function getApplicationTemplate(track: Track, departments: string[], avai
        volunteerDepartmentSection(), availabilitySection(availabilityDates), acknowledgementsSection(track), additionalInfoSection()]
     : [identitySection(), directorHavenExperienceSection(), languagesSection(), directorEssaysSection(),
        directorDepartmentSection(), availabilitySection(availabilityDates), subcommitteeSection(), directorLogisticsSection()];
-  const supplements = track === "VOLUNTEER" ? volunteerSupplementSections(departments) : directorSupplementSections(departments);
+  const supplements = getSupplementSections(track, departments);
   return renumber([...shared, ...supplements]);
+}
+
+/** Department supplement sections only (no shared/identity sections), gated to
+ *  real supplement departments and normalized by the track-specific composer.
+ *  Used both by getApplicationTemplate above and to sync a cycle's supplement
+ *  sections when its department list changes after creation. */
+export function getSupplementSections(track: Track, departments: string[]): TemplateSection[] {
+  return track === "VOLUNTEER" ? volunteerSupplementSections(departments) : directorSupplementSections(departments);
 }

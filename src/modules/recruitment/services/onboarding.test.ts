@@ -19,7 +19,7 @@ async function cleanOnboardingUploads() {
   await fs.rm(path.join(config.UPLOAD_DIR, "onboarding"), { recursive: true, force: true });
 }
 
-async function seed() {
+async function seed(answers: Record<string, string> = {}) {
   const term = await prisma.term.create({ data: { code: "FA26", name: "Fall", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
   await prisma.department.create({ data: { code: "SRHD", name: "SRHD" } });
   const srr = await prisma.person.create({ data: { name: "SRR", status: "ACTIVE" } });
@@ -28,7 +28,7 @@ async function seed() {
   const plain = await prisma.person.create({ data: { name: "Nobody", status: "ACTIVE" } });
   const cycle = await prisma.recruitmentCycle.create({ data: { track: "VOLUNTEER", termId: term.id, title: "V", publicSlug: "v", departments: ["SRHD"], createdById: srr.id, status: "OPEN" } });
   const applicant = await prisma.applicant.create({ data: { cycleId: cycle.id, firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu", emailLower: "ada@yale.edu", netId: "al99" } });
-  const application = await prisma.application.create({ data: { cycleId: cycle.id, applicantId: applicant.id, answers: {}, applicantType: "NEW", departmentChoices: ["SRHD"] } });
+  const application = await prisma.application.create({ data: { cycleId: cycle.id, applicantId: applicant.id, answers, applicantType: "NEW", departmentChoices: ["SRHD"] } });
   const acceptance = await prisma.acceptance.create({ data: { applicationId: application.id, departmentCode: "SRHD", approvedById: srr.id } });
   return { srr, plain, cycle, acceptance };
 }
@@ -90,6 +90,47 @@ it("getContractByToken returns the contract", async () => {
   const { srr, acceptance } = await seed();
   const c = await createOrResendContract(acceptance.id, srr.id, "http://test");
   expect((await getContractByToken(c.token))?.id).toBe(c.id);
+});
+
+describe("createOrResendContract prefill from application answers", () => {
+  it("carries yaleAffiliation, gradYear, and spanishSelfReported from the application answers", async () => {
+    const { srr, acceptance } = await seed({
+      yale_affiliation: "yale_college",
+      grad_year: "2027",
+      spanish_proficiency: "conversational",
+    });
+    const c = await createOrResendContract(acceptance.id, srr.id, "http://test");
+    expect(c.yaleAffiliation).toBe("yale_college");
+    expect(c.gradYear).toBe("2027");
+    expect(c.spanishSelfReported).toBe(true);
+  });
+
+  it("treats spanish_proficiency \"none\" as spanishSelfReported false", async () => {
+    const { srr, acceptance } = await seed({
+      yale_affiliation: "yale_college",
+      grad_year: "2027",
+      spanish_proficiency: "none",
+    });
+    const c = await createOrResendContract(acceptance.id, srr.id, "http://test");
+    expect(c.spanishSelfReported).toBe(false);
+  });
+
+  it("leaves the columns blank/false and does not throw when the keys are absent", async () => {
+    const { srr, acceptance } = await seed();
+    const c = await createOrResendContract(acceptance.id, srr.id, "http://test");
+    expect(c.yaleAffiliation).toBeNull();
+    expect(c.gradYear).toBeNull();
+    expect(c.spanishSelfReported).toBe(false);
+  });
+
+  it("does not clobber a director-edited contract on resend", async () => {
+    const { srr, acceptance } = await seed({ yale_affiliation: "yale_college", grad_year: "2027" });
+    const c1 = await createOrResendContract(acceptance.id, srr.id, "http://test");
+    await prisma.onboardingContract.update({ where: { id: c1.id }, data: { yaleAffiliation: "edited_by_director" } });
+    const c2 = await createOrResendContract(acceptance.id, srr.id, "http://test");
+    expect(c2.id).toBe(c1.id);
+    expect(c2.yaleAffiliation).toBe("edited_by_director");
+  });
 });
 
 describe("onboarding link expiry", () => {

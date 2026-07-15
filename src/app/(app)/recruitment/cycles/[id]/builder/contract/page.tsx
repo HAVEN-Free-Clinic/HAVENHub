@@ -25,7 +25,7 @@ export default async function ContractBuilderPage({ params }: { params: Promise<
         })}
       />
       <PageHeader title="Onboarding contract" description={cycle.title} />
-      <ContractEditor cycleId={id} initialLayout={layout} hasOverride={hasOverride} />
+      <ContractEditor cycleId={id} initialLayout={layout} hasOverride={hasOverride} status={cycle.status} />
     </div>
   );
 }

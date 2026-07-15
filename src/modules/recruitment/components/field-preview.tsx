@@ -14,14 +14,28 @@ export type PreviewFieldDef = {
   validation: Record<string, unknown> | null;
 };
 
+// Reads the current value(s) for `name` back out of the owning <form> via
+// FormData. Used for the group controls (MULTI_SELECT, SUBCOMMITTEE_RANK)
+// where several inputs share one name and the changed control alone does not
+// carry the full set of selected values.
+function namedFormValues(el: HTMLInputElement | HTMLSelectElement, name: string): string[] {
+  const form = el.form;
+  if (!form) return [];
+  return new FormData(form).getAll(name).filter((v): v is string => typeof v === "string");
+}
+
 export function FieldPreview({
-  f, departments, subcommittees = [], fieldError, onDeptChoice, disabled = false, prefill, locked = false,
+  f, departments, subcommittees = [], fieldError, onValueChange, disabled = false, prefill, locked = false,
 }: {
   f: PreviewFieldDef;
   departments: string[];
   subcommittees?: { id: string; name: string }[];
   fieldError?: string;
-  onDeptChoice?: (v: string) => void;
+  // Notifies the caller of the field's current value on every change, keyed by
+  // field key. Controls stay uncontrolled (defaultValue/defaultChecked); this
+  // only adds a notification so a caller can react (e.g. re-evaluate other
+  // fields' visibleWhen conditions) without taking over the control.
+  onValueChange?: (key: string, value: string | string[]) => void;
   disabled?: boolean;
   // A draft/renewal answer: string (text, single-select), string[] (multi-select,
   // subcommittee rank), or a file-reference object. Narrowed per control below.
@@ -46,7 +60,7 @@ export function FieldPreview({
     return (
       <div>
         <label className={cx("flex min-h-[44px] items-start gap-2.5 py-1", disabled ? "cursor-default" : "cursor-pointer")}>
-          <Checkbox name={f.key} required={required} disabled={disabled} aria-invalid={invalid} className="mt-0.5" defaultChecked={isPrefillChecked(prefill)} />
+          <Checkbox name={f.key} required={required} disabled={disabled} aria-invalid={invalid} className="mt-0.5" defaultChecked={isPrefillChecked(prefill)} onChange={(e) => onValueChange?.(f.key, e.target.checked ? "on" : "")} />
           <span className="text-sm text-foreground">{f.label}{req}</span>
         </label>
         {help}
@@ -55,14 +69,15 @@ export function FieldPreview({
     );
   }
 
+  const onTextChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => onValueChange?.(f.key, e.target.value);
   const labelEl = <span className="block text-sm font-medium text-foreground">{f.label}{req}</span>;
   let control: React.ReactNode;
   switch (f.type) {
-    case "LONG_TEXT": control = <Textarea name={f.key} required={required} disabled={disabled} aria-invalid={invalid} className={cx("mt-1.5", lockedCls)} rows={4} {...textProps} />; break;
-    case "NUMBER": control = <Input type="number" name={f.key} required={required} disabled={disabled} aria-invalid={invalid} className={cx("mt-1.5", lockedCls)} {...textProps} />; break;
-    case "DATE": control = <Input type="date" name={f.key} required={required} disabled={disabled} aria-invalid={invalid} className={cx("mt-1.5", lockedCls)} {...textProps} />; break;
-    case "EMAIL": control = <Input type="email" name={f.key} required={required} disabled={disabled} aria-invalid={invalid} className={cx("mt-1.5", lockedCls)} {...textProps} />; break;
-    case "PHONE": control = <Input type="tel" name={f.key} required={required} disabled={disabled} aria-invalid={invalid} className={cx("mt-1.5", lockedCls)} {...textProps} />; break;
+    case "LONG_TEXT": control = <Textarea name={f.key} required={required} disabled={disabled} aria-invalid={invalid} className={cx("mt-1.5", lockedCls)} rows={4} onChange={onTextChange} {...textProps} />; break;
+    case "NUMBER": control = <Input type="number" name={f.key} required={required} disabled={disabled} aria-invalid={invalid} className={cx("mt-1.5", lockedCls)} onChange={onTextChange} {...textProps} />; break;
+    case "DATE": control = <Input type="date" name={f.key} required={required} disabled={disabled} aria-invalid={invalid} className={cx("mt-1.5", lockedCls)} onChange={onTextChange} {...textProps} />; break;
+    case "EMAIL": control = <Input type="email" name={f.key} required={required} disabled={disabled} aria-invalid={invalid} className={cx("mt-1.5", lockedCls)} onChange={onTextChange} {...textProps} />; break;
+    case "PHONE": control = <Input type="tel" name={f.key} required={required} disabled={disabled} aria-invalid={invalid} className={cx("mt-1.5", lockedCls)} onChange={onTextChange} {...textProps} />; break;
     case "FILE": {
       const accept = Array.isArray(f.validation?.acceptedTypes) ? (f.validation!.acceptedTypes as string[]).join(",") : undefined;
       // A resumed draft stores the upload as { storedName, fileName, ... }. storedName is
@@ -91,18 +106,19 @@ export function FieldPreview({
       break;
     }
     case "DEPARTMENT_CHOICE":
-      control = <Select name={f.key} required={required} disabled={disabled} aria-invalid={invalid} className="mt-1.5" onChange={(e) => onDeptChoice?.(e.target.value)} defaultValue={prefillString(prefill)}><option value="" disabled>Select…</option>{departments.map((d) => <option key={d} value={d}>{d}</option>)}</Select>;
+      control = <Select name={f.key} required={required} disabled={disabled} aria-invalid={invalid} className="mt-1.5" onChange={(e) => onValueChange?.(f.key, e.target.value)} defaultValue={prefillString(prefill)}><option value="" disabled>Select…</option>{departments.map((d) => <option key={d} value={d}>{d}</option>)}</Select>;
       break;
     case "SINGLE_SELECT":
-      control = <Select name={f.key} required={required} disabled={disabled} aria-invalid={invalid} className="mt-1.5" defaultValue={prefillString(prefill)}><option value="" disabled>Select…</option>{(f.options ?? []).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</Select>;
+      control = <Select name={f.key} required={required} disabled={disabled} aria-invalid={invalid} className="mt-1.5" onChange={(e) => onValueChange?.(f.key, e.target.value)} defaultValue={prefillString(prefill)}><option value="" disabled>Select…</option>{(f.options ?? []).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</Select>;
       break;
     case "MULTI_SELECT": {
       const selected = new Set(asPrefillList(prefill));
+      const onMultiChange = (e: React.ChangeEvent<HTMLInputElement>) => onValueChange?.(f.key, namedFormValues(e.target, f.key));
       control = (
         <span className="mt-1 flex flex-col">
           {(f.options ?? []).map((o) => (
             <label key={o.value} className={cx("flex min-h-[44px] items-center gap-2.5 py-1 text-sm text-foreground", disabled ? "cursor-default" : "cursor-pointer")}>
-              <Checkbox name={f.key} value={o.value} disabled={disabled} defaultChecked={selected.has(o.value)} /> {o.label}
+              <Checkbox name={f.key} value={o.value} disabled={disabled} defaultChecked={selected.has(o.value)} onChange={onMultiChange} /> {o.label}
             </label>
           ))}
         </span>
@@ -113,12 +129,13 @@ export function FieldPreview({
       const rankCount = typeof f.validation?.rankCount === "number" ? f.validation.rankCount : 3;
       const ordinals = ["1st choice", "2nd choice", "3rd choice", "4th choice", "5th choice"];
       const ranks = asPrefillList(prefill); // one entry per rank, "" for an unranked slot
+      const onRankChange = (e: React.ChangeEvent<HTMLSelectElement>) => onValueChange?.(f.key, namedFormValues(e.target, f.key));
       control = (
         <span className="mt-1 flex flex-col gap-2">
           {Array.from({ length: rankCount }).map((_, i) => (
             <div key={i} className="flex items-center gap-2 text-sm">
               <span className="w-20 shrink-0 text-xs text-muted-foreground">{ordinals[i] ?? `Choice ${i + 1}`}</span>
-              <Select name={f.key} required={f.required && i === 0} disabled={disabled} defaultValue={ranks[i] ?? ""} className="flex-1">
+              <Select name={f.key} required={f.required && i === 0} disabled={disabled} defaultValue={ranks[i] ?? ""} className="flex-1" onChange={onRankChange}>
                 <option value="">{i === 0 && f.required ? "Select…" : "None"}</option>
                 {subcommittees.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
               </Select>
@@ -129,7 +146,7 @@ export function FieldPreview({
       );
       break;
     }
-    default: control = <Input type="text" name={f.key} required={required} disabled={disabled} aria-invalid={invalid} className={cx("mt-1.5", lockedCls)} {...textProps} />;
+    default: control = <Input type="text" name={f.key} required={required} disabled={disabled} aria-invalid={invalid} className={cx("mt-1.5", lockedCls)} onChange={onTextChange} {...textProps} />;
   }
   // Group field types (MULTI_SELECT, SUBCOMMITTEE_RANK) render multiple controls,
   // so wrapping them in one <label> would nest labels (invalid) or bind the group

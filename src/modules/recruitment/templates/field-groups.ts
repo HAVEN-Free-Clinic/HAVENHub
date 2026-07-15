@@ -27,7 +27,8 @@ export function identitySection(): TemplateSection {
     { key: "email", label: "Yale email", type: "EMAIL", required: true },
     { key: "phone", label: "Phone number", type: "PHONE", required: false },
     { key: "yale_affiliation", label: "Yale affiliation", type: "SINGLE_SELECT", required: true, options: YALE_AFFILIATION },
-    { key: "yale_affiliation_other", label: "If other or staff, please specify your school/title and department", type: "SHORT_TEXT", required: false },
+    { key: "yale_affiliation_other", label: "If other or staff, please specify your school/title and department", type: "SHORT_TEXT", required: false,
+      visibleWhen: { field: "yale_affiliation", op: "isAnyOf", value: ["other_yale", "staff"] } },
     { key: "grad_year", label: "Graduation year", type: "SINGLE_SELECT", required: true, options: GRAD_YEAR },
   ], { description: "If you are a returning volunteer, your record is pulled automatically and you can skip this section." });
 }
@@ -35,8 +36,10 @@ export function identitySection(): TemplateSection {
 export function eligibilitySection(): TemplateSection {
   return sec("Medical and language experience", "NEW", [
     { key: "licensed_professional", label: "Are you a licensed medical professional? (Including EMT)", type: "SINGLE_SELECT", required: true, options: YES_NO },
-    { key: "medical_certifications", label: "If you hold active certifications/licenses, please select all that apply", type: "MULTI_SELECT", required: false, options: MEDICAL_CERTIFICATIONS },
-    { key: "medical_details", label: "Medical professional details", type: "SHORT_TEXT", required: false },
+    { key: "medical_certifications", label: "If you hold active certifications/licenses, please select all that apply", type: "MULTI_SELECT", required: false, options: MEDICAL_CERTIFICATIONS,
+      visibleWhen: { field: "licensed_professional", op: "is", value: "yes" } },
+    { key: "medical_details", label: "Medical professional details", type: "SHORT_TEXT", required: false,
+      visibleWhen: { field: "licensed_professional", op: "is", value: "yes" } },
   ]);
 }
 
@@ -45,7 +48,8 @@ export function languagesSection(): TemplateSection {
     { key: "spanish_proficiency", label: "Spanish proficiency level", type: "SINGLE_SELECT", required: true, options: SPANISH_PROFICIENCY,
       helpText: "If you wish to speak Spanish at HAVEN (regardless of role) you must pass an assessment with the Department of Interpretation and Diversity. Everyone selecting Conversational or above will be invited to this assessment." },
     { key: "other_languages", label: "Do you speak other languages?", type: "SINGLE_SELECT", required: true, options: YES_NO },
-    { key: "other_languages_detail", label: "Which other languages do you speak?", type: "SHORT_TEXT", required: false },
+    { key: "other_languages_detail", label: "Which other languages do you speak?", type: "SHORT_TEXT", required: false,
+      visibleWhen: { field: "other_languages", op: "is", value: "yes" } },
   ]);
 }
 

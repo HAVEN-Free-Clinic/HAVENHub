@@ -170,4 +170,31 @@ describe("DB: getContractLayoutForEdit / saveCycleContractLayout / resetCycleCon
     const row = await prisma.recruitmentCycleContract.findUnique({ where: { cycleId: cycle.id } });
     expect(row).toBeNull();
   });
+
+  // Mirrors form-builder's assertCycleEditable: the contract layout stays
+  // editable through OPEN and CLOSED, and locks only once ARCHIVED (the
+  // terminal, retired state) -- directors may need to adjust the onboarding
+  // contract mid-cycle, same as the application and quiz forms.
+  it("saveCycleContractLayout succeeds on an OPEN cycle but is blocked once archived", async () => {
+    const cycle = await seedCycle();
+    expect(cycle.status).toBe("OPEN");
+    const customized = applyBlockOp(DEFAULT_CONTRACT_LAYOUT, { t: "addAgreement" });
+    await saveCycleContractLayout(cycle.id, customized);
+    const afterOpen = await getContractLayoutForEdit(cycle.id);
+    expect(afterOpen.hasOverride).toBe(true);
+
+    await prisma.recruitmentCycle.update({ where: { id: cycle.id }, data: { status: "ARCHIVED" } });
+    await expect(saveCycleContractLayout(cycle.id, customized)).rejects.toBeInstanceOf(ContractLayoutError);
+  });
+
+  it("resetCycleContractLayout is blocked once a cycle is archived", async () => {
+    const cycle = await seedCycle();
+    const customized = applyBlockOp(DEFAULT_CONTRACT_LAYOUT, { t: "addAgreement" });
+    await saveCycleContractLayout(cycle.id, customized);
+
+    await prisma.recruitmentCycle.update({ where: { id: cycle.id }, data: { status: "ARCHIVED" } });
+    await expect(resetCycleContractLayout(cycle.id)).rejects.toBeInstanceOf(ContractLayoutError);
+    const row = await prisma.recruitmentCycleContract.findUnique({ where: { cycleId: cycle.id } });
+    expect(row).not.toBeNull();
+  });
 });

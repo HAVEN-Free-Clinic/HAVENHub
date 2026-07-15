@@ -41,6 +41,7 @@ export default async function BuilderPage({ params }: { params: Promise<{ id: st
         options: (f.options as { value: string; label: string }[] | null) ?? null,
         validation: (f.validation as Record<string, unknown> | null) ?? null,
         correctValue: f.correctValue,
+        visibleWhen: f.visibleWhen ?? null,
       })),
     }));
 
@@ -68,7 +69,7 @@ export default async function BuilderPage({ params }: { params: Promise<{ id: st
       <FormBuilder
         cycleId={id}
         cycleTitle={cycle.title}
-        editable={cycle.status === "DRAFT"}
+        editable={cycle.status !== "ARCHIVED"}
         status={cycle.status}
         departments={cycle.departments}
         subcommittees={subcommittees}

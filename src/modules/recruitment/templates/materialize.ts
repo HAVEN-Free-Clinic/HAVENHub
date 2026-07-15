@@ -13,6 +13,7 @@ export async function materializeTemplate(tx: Prisma.TransactionClient, cycleId:
         required: f.required, helpText: f.helpText ?? null, order: f.order,
         options: (f.options ?? undefined) as Prisma.InputJsonValue | undefined,
         correctValue: f.correctValue ?? null,
+        visibleWhen: (f.visibleWhen ?? undefined) as Prisma.InputJsonValue | undefined,
       })),
     });
   }

@@ -359,6 +359,137 @@ it("drops the losing concurrent submit's freshly-uploaded blob instead of orphan
   expect(files[0]).toBe(stored);
 });
 
+async function openCycleWithConditionalField() {
+  const person = await prisma.person.create({ data: { name: "Lead", status: "ACTIVE" } });
+  const term = await prisma.term.create({ data: { code: "FA26", name: "Fall 2026", startDate: new Date(), endDate: new Date() } });
+  const cycle = await createCycle({ track: "VOLUNTEER", termId: term.id, title: "V", publicSlug: "apply-cond", departments: ["SRHD"], acceptsRenewals: false, createdById: person.id });
+  const idSection = (await prisma.formSection.findFirstOrThrow({ where: { cycleId: cycle.id }, orderBy: { order: "asc" } }));
+  await addField(idSection.id, { label: "1st choice department", type: "DEPARTMENT_CHOICE", required: true });
+  const gate = await addField(idSection.id, { label: "Do you speak other languages?", type: "SINGLE_SELECT", required: false, options: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }] });
+  const detail = await addField(idSection.id, { label: "Which languages?", type: "SHORT_TEXT", required: true });
+  // form-builder.ts::addField does not yet accept visibleWhen (that lands in a later
+  // task), so this test writes the condition directly onto the created field.
+  await prisma.formField.update({ where: { id: detail.id }, data: { visibleWhen: { field: gate.key, op: "is", value: "yes" } } });
+  await publishCycle(cycle.id, person.id);
+  return { person, cycle, gateKey: gate.key, detailKey: detail.key };
+}
+
+it("submits successfully when a condition-hidden required field is left unanswered", async () => {
+  const { gateKey } = await openCycleWithConditionalField();
+  const app = await submitApplication("apply-cond", {
+    applicantType: "NEW",
+    // The gate says "no", so the dependent required "detail" field stays hidden
+    // and unanswered; validation must not block on it.
+    answers: { first_name: "Ann", last_name: "Lee", email: "ann@yale.edu", "1st_choice_department": "SRHD", [gateKey]: "no" },
+    files: {},
+  });
+  expect(app.status).toBe("SUBMITTED");
+});
+
+it("strips a condition-hidden field's stale answer from the persisted Application.answers", async () => {
+  const { gateKey, detailKey } = await openCycleWithConditionalField();
+  const app = await submitApplication("apply-cond", {
+    applicantType: "NEW",
+    // Submit the hidden field's key anyway (e.g. a stale value from before the
+    // applicant flipped the gate back to "no"); it must not persist.
+    answers: {
+      first_name: "Bo", last_name: "Ng", email: "bo@yale.edu", "1st_choice_department": "SRHD",
+      [gateKey]: "no", [detailKey]: "Spanish, French",
+    },
+    files: {},
+  });
+  expect(Object.keys(app.answers as object)).not.toContain(detailKey);
+});
+
+it("keeps a visible conditional field's answer in the persisted Application.answers", async () => {
+  const { gateKey, detailKey } = await openCycleWithConditionalField();
+  const app = await submitApplication("apply-cond", {
+    applicantType: "NEW",
+    answers: {
+      first_name: "Cy", last_name: "Oz", email: "cy@yale.edu", "1st_choice_department": "SRHD",
+      [gateKey]: "yes", [detailKey]: "Spanish, French",
+    },
+    files: {},
+  });
+  expect((app.answers as Record<string, unknown>)[detailKey]).toBe("Spanish, French");
+});
+
+async function openCycleWithConditionalFileField() {
+  const person = await prisma.person.create({ data: { name: "Lead", status: "ACTIVE" } });
+  const term = await prisma.term.create({ data: { code: "FA26", name: "Fall 2026", startDate: new Date(), endDate: new Date() } });
+  const cycle = await createCycle({ track: "VOLUNTEER", termId: term.id, title: "V", publicSlug: "apply-condfile", departments: ["SRHD"], acceptsRenewals: false, createdById: person.id });
+  const idSection = (await prisma.formSection.findFirstOrThrow({ where: { cycleId: cycle.id }, orderBy: { order: "asc" } }));
+  await addField(idSection.id, { label: "1st choice department", type: "DEPARTMENT_CHOICE", required: true });
+  const gate = await addField(idSection.id, { label: "Do you have proof of certification?", type: "SINGLE_SELECT", required: false, options: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }] });
+  const proof = await addField(idSection.id, { label: "Upload proof", type: "FILE", required: false });
+  // form-builder.ts::addField does not yet accept visibleWhen (a later task), so this
+  // test writes the condition directly onto the created field, mirroring the sibling
+  // scalar conditional-field fixture above.
+  await prisma.formField.update({ where: { id: proof.id }, data: { visibleWhen: { field: gate.key, op: "is", value: "yes" } } });
+  await publishCycle(cycle.id, person.id);
+  return { person, cycle, gateKey: gate.key, proofKey: proof.key };
+}
+
+it("does not persist a file uploaded under a condition-hidden FILE field's key (no orphaned blob)", async () => {
+  const { cycle, gateKey, proofKey } = await openCycleWithConditionalFileField();
+  const app = await submitApplication("apply-condfile", {
+    applicantType: "NEW",
+    // The gate says "no", so the "proof" FILE field is hidden. DOM unmounting of
+    // hidden fields is a later task, so a hidden file input can still submit its
+    // FormData entry today -- the server must not persist it.
+    answers: { first_name: "Ann", last_name: "Lee", email: "ann@yale.edu", "1st_choice_department": "SRHD", [gateKey]: "no" },
+    files: { [proofKey]: { fileName: "cert.pdf", mimeType: "application/pdf", bytes: Buffer.from("cert") } },
+  });
+  expect(app.status).toBe("SUBMITTED");
+  expect(Object.keys(app.answers as object)).not.toContain(proofKey);
+  // No blob was ever written for this cycle: the hidden field's file must be
+  // dropped before persistFiles, not persisted-then-orphaned.
+  let entries: string[] = [];
+  try {
+    entries = await fs.readdir(path.join(config.UPLOAD_DIR, "recruitment", cycle.id));
+  } catch {
+    // dir may not exist yet -- fine, means nothing was ever written
+  }
+  expect(entries).toHaveLength(0);
+});
+
+it("persists a file uploaded under a visible FILE field's key (control)", async () => {
+  const { cycle, gateKey, proofKey } = await openCycleWithConditionalFileField();
+  const app = await submitApplication("apply-condfile", {
+    applicantType: "NEW",
+    answers: { first_name: "Bo", last_name: "Ng", email: "bo@yale.edu", "1st_choice_department": "SRHD", [gateKey]: "yes" },
+    files: { [proofKey]: { fileName: "cert.pdf", mimeType: "application/pdf", bytes: Buffer.from("cert") } },
+  });
+  const stored = (app.answers as Record<string, { storedName: string }>)[proofKey];
+  expect(stored).toBeTruthy();
+  expect(await getObject(`recruitment/${cycle.id}/${stored.storedName}`)).not.toBeNull();
+});
+
+it("cleans up a draft-uploaded file's blob when its FILE field becomes condition-hidden before submit", async () => {
+  const { cycle, gateKey, proofKey } = await openCycleWithConditionalFileField();
+  const identity = { email: "orphan@yale.edu", personId: null };
+  // Draft while the gate says "yes" (the proof field is visible) and upload a
+  // file to it, the way an applicant would mid-form before backtracking.
+  await saveDraft("apply-condfile", identity, {
+    answers: { first_name: "Or", last_name: "Fan", email: "orphan@yale.edu", "1st_choice_department": "SRHD", [gateKey]: "yes" },
+  });
+  await uploadDraftFile("apply-condfile", identity, proofKey, { fileName: "cert.pdf", mimeType: "application/pdf", bytes: Buffer.from("cert") });
+  const draft = await getDraft("apply-condfile", identity);
+  const storedName = (draft!.answers as Record<string, { storedName: string }>)[proofKey].storedName;
+  expect(await getObject(`recruitment/${cycle.id}/${storedName}`)).not.toBeNull();
+
+  // Flip the gate to "no" before submitting, hiding the proof field. The strip
+  // loop removes its answer key; the earlier draft blob must not be left behind.
+  const app = await submitApplication("apply-condfile", {
+    applicantType: "NEW",
+    answers: { first_name: "Or", last_name: "Fan", email: "orphan@yale.edu", "1st_choice_department": "SRHD", [gateKey]: "no" },
+    files: {},
+  });
+  expect(app.status).toBe("SUBMITTED");
+  expect(Object.keys(app.answers as object)).not.toContain(proofKey);
+  expect(await getObject(`recruitment/${cycle.id}/${storedName}`)).toBeNull();
+});
+
 async function makeVolunteer(deptCode: string) {
   const person = await prisma.person.create({ data: { name: "Reed Renew", contactEmail: "reed-old@yale.edu", status: "ACTIVE" } });
   const term = await prisma.term.create({ data: { code: "SP26", name: "Spring 2026", startDate: new Date("2026-01-01"), endDate: new Date("2026-05-01") } });

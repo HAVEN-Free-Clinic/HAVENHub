@@ -51,6 +51,23 @@ describe("getApplicationTemplate", () => {
     expect(keys.filter((k) => k === "subcommittee_rank")).toHaveLength(1);
   });
 
+  it("VOLUNTEER template carries visibleWhen conditions on the gated fields", () => {
+    const fields = getApplicationTemplate("VOLUNTEER", [], dates).flatMap((s) => s.fields);
+    const byKey = (key: string) => fields.find((f) => f.key === key)!;
+    expect(byKey("other_languages_detail").visibleWhen).toEqual({ field: "other_languages", op: "is", value: "yes" });
+    expect(byKey("medical_certifications").visibleWhen).toEqual({ field: "licensed_professional", op: "is", value: "yes" });
+    expect(byKey("medical_details").visibleWhen).toEqual({ field: "licensed_professional", op: "is", value: "yes" });
+    expect(byKey("yale_affiliation_other").visibleWhen).toEqual({ field: "yale_affiliation", op: "isAnyOf", value: ["other_yale", "staff"] });
+  });
+
+  it("DIRECTOR template carries the shared identity/language visibleWhen conditions (no eligibilitySection)", () => {
+    const fields = getApplicationTemplate("DIRECTOR", [], dates).flatMap((s) => s.fields);
+    const byKey = (key: string) => fields.find((f) => f.key === key)!;
+    expect(byKey("other_languages_detail").visibleWhen).toEqual({ field: "other_languages", op: "is", value: "yes" });
+    expect(byKey("yale_affiliation_other").visibleWhen).toEqual({ field: "yale_affiliation", op: "isAnyOf", value: ["other_yale", "staff"] });
+    expect(fields.find((f) => f.key === "medical_certifications")).toBeUndefined();
+  });
+
   it("volunteer department section requires a cover letter ahead of the resume", () => {
     const t = getApplicationTemplate("VOLUNTEER", [], dates);
     const deptSection = t.find((s) => s.fields.some((f) => f.key === "cover_letter"))!;

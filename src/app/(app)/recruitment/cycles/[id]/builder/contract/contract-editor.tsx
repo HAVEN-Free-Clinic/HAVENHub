@@ -37,13 +37,18 @@ export function ContractEditor({
   initialLayout,
   hasOverride,
   mode = "cycle",
+  status,
 }: {
   cycleId: string;
   initialLayout: ContractLayout;
   hasOverride: boolean;
   mode?: "cycle" | "global";
+  status?: string;
 }) {
   const router = useRouter();
+  // The global master template has no cycle, so it has no cycle status to lock
+  // on -- only a per-cycle override can be archived out from under an edit.
+  const editable = mode === "global" || status !== "ARCHIVED";
   const [layout, setLayout] = useState<ContractLayout>(initialLayout);
   const [seededFrom, setSeededFrom] = useState<ContractLayout>(initialLayout);
   const [pending, startTransition] = useTransition();
@@ -122,6 +127,13 @@ export function ContractEditor({
         Edits apply to links sent from now on; already-sent links keep the contract they were issued with.
       </p>
 
+      {mode === "cycle" && status !== undefined && status !== "DRAFT" && (
+        <Alert tone="warning">
+          This cycle is {status}. Applicants may have already submitted. Changes take effect for new submissions
+          immediately; existing answers are kept as-is and may no longer match the updated form.
+        </Alert>
+      )}
+
       <SortableList
         items={items}
         onReorder={handleReorder}
@@ -159,12 +171,13 @@ export function ContractEditor({
       />
 
       <Card size="compact" className="flex flex-wrap items-center gap-3 border-dashed">
-        <Button type="button" variant="outline" size="sm" onClick={addAgreement}>
+        <Button type="button" variant="outline" size="sm" onClick={addAgreement} disabled={!editable}>
           <Plus className="h-4 w-4" aria-hidden /> Add agreement
         </Button>
         <TypePicker
           label="Add question"
           onPick={addCustom}
+          disabled={!editable}
           types={["SHORT_TEXT", "LONG_TEXT", "SINGLE_SELECT", "MULTI_SELECT", "CHECKBOX", "EMAIL", "PHONE", "NUMBER", "DATE"]}
         />
       </Card>
@@ -172,7 +185,7 @@ export function ContractEditor({
       {error && <Alert tone="error">{error}</Alert>}
 
       <div className="flex flex-wrap items-center gap-3">
-        <Button type="button" onClick={save} disabled={pending}>
+        <Button type="button" onClick={save} disabled={pending || !editable}>
           {pending ? "Saving…" : "Save contract"}
         </Button>
         {saved && (
@@ -186,7 +199,7 @@ export function ContractEditor({
             variant={confirmReset ? "danger" : "ghost"}
             size="sm"
             onClick={reset}
-            disabled={pending}
+            disabled={pending || !editable}
             onBlur={() => setConfirmReset(false)}
           >
             {confirmReset ? "Confirm reset to default?" : "Reset to default"}

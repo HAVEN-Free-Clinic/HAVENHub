@@ -3,11 +3,11 @@ import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { isSectionVisible } from "../engine/visibility";
 import type { TemplateSection } from "../templates/types";
-import { getApplicationTemplate } from "../templates";
+import { getApplicationTemplate, getSupplementSections } from "../templates";
 import { getQuizTemplate } from "../templates/quiz";
 import { materializeTemplate } from "../templates/materialize";
 import { termSaturdays } from "../templates/term-dates";
-import { normalizeDeptCode } from "../templates/application/supplements/dept-codes";
+import { normalizeDeptCode, SUPPLEMENT_DEPARTMENTS } from "../templates/application/supplements/dept-codes";
 
 export class CyclePublishError extends Error {
   constructor(message: string) {
@@ -251,7 +251,15 @@ export type RemovedDepartmentImpact = { code: string; applicantCount: number };
 /** Replace a cycle's department list (add or remove). Allowed on any non-archived
  *  cycle. Removal is never blocked: the new list is always saved, and any removed
  *  department that still has applicants is reported back so the caller can warn.
- *  Codes are trimmed, de-duplicated, and emptied entries dropped (order preserved). */
+ *  Codes are trimmed, de-duplicated, and emptied entries dropped (order preserved).
+ *
+ *  When the cycle already carries the materialized default template (detected by
+ *  the presence of a DEPARTMENT_CHOICE field -- see createCycle's seedDefaultForm),
+ *  the department-gated supplement sections are kept in sync: newly-added supplement
+ *  departments get their section appended, and removed departments have their
+ *  section dropped -- but only when nobody has applied under that department, so an
+ *  applicant's existing answers are never orphaned. Minimal/primitive cycles (no
+ *  DEPARTMENT_CHOICE field) never get sections synced, preserving prior behavior. */
 export async function setCycleDepartments(
   id: string,
   departmentCodes: string[],
@@ -267,14 +275,57 @@ export async function setCycleDepartments(
     if (code && !next.includes(code)) next.push(code);
   }
 
+  const added = next.filter((c) => !cycle.departments.includes(c));
   const removed = cycle.departments.filter((c) => !next.includes(c));
-  const removedWithApplicants: RemovedDepartmentImpact[] = [];
-  for (const code of removed) {
-    const applicantCount = await prisma.application.count({ where: { cycleId: id, departmentChoices: { has: code } } });
-    if (applicantCount > 0) removedWithApplicants.push({ code, applicantCount });
-  }
 
-  const updated = await prisma.recruitmentCycle.update({ where: { id }, data: { departments: next } });
+  const { updated, removedWithApplicants } = await prisma.$transaction(async (tx) => {
+    const updatedCycle = await tx.recruitmentCycle.update({ where: { id }, data: { departments: next } });
+
+    // Computed inside the transaction (not before it) so a concurrent application
+    // submission can't slip in between the count and the delete below and have
+    // its section removed out from under it.
+    const removedWithApplicants: RemovedDepartmentImpact[] = [];
+    for (const code of removed) {
+      const applicantCount = await tx.application.count({ where: { cycleId: id, departmentChoices: { has: code } } });
+      if (applicantCount > 0) removedWithApplicants.push({ code, applicantCount });
+    }
+    const removedWithApplicantCodes = new Set(removedWithApplicants.map((r) => r.code));
+    const removedNoApplicants = removed.filter((c) => !removedWithApplicantCodes.has(c));
+
+    const hasDefaultTemplate = (await tx.formField.count({ where: { cycleId: id, type: "DEPARTMENT_CHOICE" } })) > 0;
+    if (hasDefaultTemplate) {
+      if (added.length > 0) {
+        const existingSupplementSections = await tx.formSection.findMany({
+          where: { cycleId: id, departmentCode: { not: null } },
+          select: { departmentCode: true },
+        });
+        const existingCodes = new Set(existingSupplementSections.map((s) => s.departmentCode));
+        const toAdd = getSupplementSections(cycle.track, added).filter((s) => !existingCodes.has(s.departmentCode));
+        if (toAdd.length > 0) {
+          const maxOrderAgg = await tx.formSection.aggregate({ where: { cycleId: id }, _max: { order: true } });
+          const maxOrder = maxOrderAgg._max.order ?? -1;
+          await materializeTemplate(tx, id, toAdd.map((s, i) => ({ ...s, order: maxOrder + 1 + i })));
+        }
+      }
+      // Only auto-delete a section this sync (or the default template) could
+      // itself have created: departmentCode is free-text an admin can also set
+      // on a hand-authored builder section, so the allowlist gate keeps a
+      // removed-but-not-a-real-supplement-department (e.g. BVHD) from ever
+      // deleting anything.
+      const allowedSupplementCodes = SUPPLEMENT_DEPARTMENTS[cycle.track];
+      const removableCodes = removedNoApplicants
+        .map((c) => normalizeDeptCode(c))
+        .filter((c) => allowedSupplementCodes.includes(c));
+      if (removableCodes.length > 0) {
+        await tx.formSection.deleteMany({
+          where: { cycleId: id, departmentCode: { in: removableCodes } },
+        });
+      }
+    }
+
+    return { updated: updatedCycle, removedWithApplicants };
+  });
+
   await recordAudit({
     actorPersonId: actorId,
     action: "recruitment.cycle_set_departments",

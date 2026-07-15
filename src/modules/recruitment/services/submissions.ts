@@ -10,6 +10,7 @@ import {
   type SectionDef, type FieldDef,
 } from "../engine/schema-builder";
 import { visibleSections, type ApplicantType } from "../engine/visibility";
+import { isFieldVisible } from "../engine/field-visibility";
 import { getRenewalContext } from "./renewal";
 import { renderCycleEmail } from "../email/render";
 
@@ -34,7 +35,7 @@ const DEPT_CHOICE_KEY_TYPE: FieldType = "DEPARTMENT_CHOICE";
 const SUBCOMMITTEE_RANK_TYPE: FieldType = "SUBCOMMITTEE_RANK";
 
 function toSectionDefs(
-  sections: { id: string; appliesTo: SectionDef["appliesTo"]; departmentCode: string | null; fields: { key: string; type: FieldType; required: boolean; options: unknown; validation: unknown }[] }[],
+  sections: { id: string; appliesTo: SectionDef["appliesTo"]; departmentCode: string | null; fields: { key: string; type: FieldType; required: boolean; options: unknown; validation: unknown; visibleWhen: unknown }[] }[],
   departments: string[],
   applicantType: ApplicantType
 ): SectionDef[] {
@@ -50,6 +51,7 @@ function toSectionDefs(
       required: f.type === DEPT_CHOICE_KEY_TYPE && applicantType === "RENEWAL" ? false : f.required,
       options: f.type === DEPT_CHOICE_KEY_TYPE ? departments.map((d) => ({ value: d, label: d })) : (f.options as FieldDef["options"]) ?? null,
       validation: (f.validation as FieldDef["validation"]) ?? null,
+      visibleWhen: f.visibleWhen ?? null,
     })),
   }));
 }
@@ -171,7 +173,12 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
     }
   }
 
-  const ctx = { applicantType: input.applicantType, selectedDepartmentCodes };
+  // Cast is safe: isFieldVisible (via asArray) only ever compares string values;
+  // an answer that is not a plain string/string[] (e.g. a file ref, a checkbox
+  // boolean) is simply not string-comparable, so a condition targeting it
+  // resolves the same way it would for any other unmatched value.
+  const answersForVisibility = input.answers as unknown as Record<string, string | string[] | undefined>;
+  const ctx = { applicantType: input.applicantType, selectedDepartmentCodes, answers: answersForVisibility };
 
   const schema = buildApplicationSchema(sectionDefs, ctx);
   const parsed = schema.safeParse(input.answers);
@@ -229,16 +236,28 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
   // Enforce upload rules: a file may only be uploaded under the key of a visible
   // FILE field. Rejecting unknown keys is also the primary defense against a
   // path-traversal write (the key is used to build the on-disk filename).
+  //
+  // A FILE field can itself be condition-hidden (`visibleWhen`), same as any other
+  // field. Its section being visible is not enough -- the field's own condition
+  // must also hold, or its file is dropped here (never handed to persistFiles, so
+  // no blob is ever written for it) instead of being rejected as "unknown field".
+  // This mirrors how a hidden scalar field's answer is silently excluded rather
+  // than treated as an error, and closes the orphaned-blob gap a hidden file
+  // input can otherwise open (DOM unmounting of hidden fields is a later task, so
+  // a hidden file input can still submit its FormData entry today).
   const visibleFields = visibleSections(sectionDefs, ctx).flatMap((s) => s.fields);
-  const allowedFileKeys = new Set(visibleFields.filter((f) => f.type === "FILE").map((f) => f.key));
+  const fileFields = visibleFields.filter((f) => f.type === "FILE");
   const maxMb = await getSetting<number>("uploads.maxMb");
+  const filesToPersist: Record<string, UploadedFile> = {};
   for (const [key, file] of Object.entries(input.files)) {
-    if (!allowedFileKeys.has(key)) {
+    const field = fileFields.find((f) => f.key === key);
+    if (!field) {
       throw new SubmissionValidationError("Unexpected file upload.", { [key]: "unknown field" });
     }
-    const field = visibleFields.find((f) => f.key === key);
-    const problem = validateUploadedFile(file, field?.validation, maxMb);
+    if (!isFieldVisible(field.visibleWhen, ctx.answers)) continue; // condition-hidden: silently skip, not persisted
+    const problem = validateUploadedFile(file, field.validation, maxMb);
     if (problem) throw new SubmissionValidationError(problem.message, { [key]: problem.detail });
+    filesToPersist[key] = file;
   }
 
   // Subcommittee ranking: hoisted into its own column like departmentChoices, and
@@ -252,10 +271,25 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
     subcommitteeRanking = resolveRanking(input.answers[rankField.key], rankField.required, rankCount, activeIds, rankField.key);
   }
 
-  const fileRefs = await persistFiles(cycle.id, input.files);
+  const fileRefs = await persistFiles(cycle.id, filesToPersist);
   const draftFileRefs = Object.fromEntries(draftFileKeys.map((k) => [k, draftAnswers[k]]));
   const answersWithFiles = { ...draftFileRefs, ...parsed.data, ...fileRefs.answerPatch };
   if (rankField) delete (answersWithFiles as Record<string, unknown>)[rankField.key];
+  // Strip any condition-hidden field's stale answer (e.g. the applicant answered
+  // it, then flipped the gate that hides it) so persisted answers only ever
+  // reflect what was actually visible at submission time. A stripped FILE field
+  // can carry an existing DRAFT-uploaded blob under this same key (uploaded back
+  // when the field was still visible); without deleting that blob too, its
+  // answer key is gone from `answers` but the file lingers orphaned in storage.
+  const orphanedDraftFileKeys: string[] = [];
+  for (const field of visibleFields) {
+    if (!isFieldVisible(field.visibleWhen, ctx.answers)) {
+      delete (answersWithFiles as Record<string, unknown>)[field.key];
+      if (field.type === "FILE" && draftFileKeys.includes(field.key)) {
+        orphanedDraftFileKeys.push(`recruitment/${cycle.id}/${(draftAnswers[field.key] as { storedName: string }).storedName}`);
+      }
+    }
+  }
 
   let application: Application;
   try {
@@ -332,6 +366,10 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
     .filter((k) => draftFileKeys.includes(k))
     .map((k) => `recruitment/${cycle.id}/${(draftAnswers[k] as { storedName: string }).storedName}`);
   if (supersededKeys.length > 0) await cleanupFiles(supersededKeys);
+  // Same idea for a FILE field's draft blob orphaned by a visibility condition
+  // (see the strip loop above): now that the submission has committed, it's
+  // safe to delete.
+  if (orphanedDraftFileKeys.length > 0) await cleanupFiles(orphanedDraftFileKeys);
 
   await recordAudit({ action: "recruitment.application_submit", entityType: "Application", entityId: application.id });
   return application;

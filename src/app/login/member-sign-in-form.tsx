@@ -6,7 +6,7 @@ import { Button } from "@/platform/ui/button";
 import { Alert } from "@/platform/ui/alert";
 
 export function MemberSignInForm({ callbackUrl }: { callbackUrl: string }) {
-  const [state, setState] = useState<"idle" | "sent" | "invalid" | "use-yale">("idle");
+  const [state, setState] = useState<"idle" | "sent" | "invalid" | "use-yale" | "error">("idle");
   const [pending, setPending] = useState(false);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -16,7 +16,7 @@ export function MemberSignInForm({ callbackUrl }: { callbackUrl: string }) {
       const res = await requestMemberLoginLinkAction(new FormData(e.currentTarget));
       setState(res.status);
     } catch {
-      setState("invalid");
+      setState("error");
     } finally {
       setPending(false);
     }
@@ -33,16 +33,11 @@ export function MemberSignInForm({ callbackUrl }: { callbackUrl: string }) {
   return (
     <form onSubmit={onSubmit} className="space-y-3">
       <input type="hidden" name="callbackUrl" value={callbackUrl} />
-      {state === "invalid" && (
-        <p className="rounded-xl border border-critical/20 bg-critical/5 px-3 py-2 text-sm text-critical">
-          Enter a valid email address.
-        </p>
-      )}
+      {state === "invalid" && <Alert tone="error">Enter a valid email address.</Alert>}
       {state === "use-yale" && (
-        <p className="rounded-xl border border-warning/30 bg-warning/5 px-3 py-2 text-sm text-warning">
-          That is a Yale email. Use &ldquo;Sign in with Yale&rdquo; above.
-        </p>
+        <Alert tone="warning">That is a Yale email. Use &ldquo;Sign in with Yale&rdquo; above.</Alert>
       )}
+      {state === "error" && <Alert tone="error">Something went wrong. Please try again.</Alert>}
       <Field label="Email">
         <Input id="member-email" name="email" type="email" required placeholder="you@example.com" />
       </Field>

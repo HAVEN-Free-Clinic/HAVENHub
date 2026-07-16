@@ -1,9 +1,10 @@
 "use client";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Plus } from "lucide-react";
+import { Plus, Eye } from "lucide-react";
 import { SectionCard, type BuilderSection } from "./section-card";
 import { SortableList } from "./sortable-list";
+import { ApplyPreview } from "./apply-preview";
 import type { ApplicantScope } from "@prisma/client";
 import { addSectionAction, reorderSectionsAction } from "./actions";
 import { Alert } from "@/platform/ui/alert";
@@ -11,7 +12,7 @@ import { Button } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
 
 export function FormBuilder({
-  cycleId, cycleTitle, editable, status, departments, subcommittees, sections,
+  cycleId, cycleTitle, editable, status, departments, subcommittees, sections, acceptsRenewals,
 }: {
   cycleId: string;
   cycleTitle: string;
@@ -20,10 +21,12 @@ export function FormBuilder({
   departments: string[];
   subcommittees: { id: string; name: string }[];
   sections: BuilderSection[];
+  acceptsRenewals: boolean;
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [reorderError, setReorderError] = useState<string | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const refresh = () => router.refresh();
   // The full cycle-wide field list, used as the pool of candidate "controlling"
   // fields for each question's "Show only when" condition -- a gate can live in
@@ -57,9 +60,14 @@ export function FormBuilder({
 
       <Card pad={false} className="overflow-hidden">
         <div className="h-2 bg-brand" aria-hidden />
-        <div className="p-5">
-          <h2 className="text-lg font-semibold text-foreground">{cycleTitle}</h2>
-          <p className="text-sm text-muted-foreground">Application form</p>
+        <div className="flex items-start justify-between gap-3 p-5">
+          <div>
+            <h2 className="text-lg font-semibold text-foreground">{cycleTitle}</h2>
+            <p className="text-sm text-muted-foreground">Application form</p>
+          </div>
+          <Button type="button" variant="outline" size="sm" onClick={() => setPreviewOpen(true)}>
+            <Eye className="h-4 w-4" aria-hidden /> Preview form
+          </Button>
         </div>
       </Card>
 
@@ -86,6 +94,16 @@ export function FormBuilder({
       <Button type="button" variant="outline" onClick={addSection} disabled={!editable}>
         <Plus className="h-4 w-4" aria-hidden /> Add section
       </Button>
+
+      <ApplyPreview
+        open={previewOpen}
+        onClose={() => setPreviewOpen(false)}
+        sections={sections}
+        departments={departments}
+        subcommittees={subcommittees}
+        acceptsRenewals={acceptsRenewals}
+        cycleTitle={cycleTitle}
+      />
     </div>
   );
 }

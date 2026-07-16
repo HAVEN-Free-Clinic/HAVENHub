@@ -74,6 +74,7 @@ export default async function BuilderPage({ params }: { params: Promise<{ id: st
         departments={cycle.departments}
         subcommittees={subcommittees}
         sections={sections}
+        acceptsRenewals={cycle.acceptsRenewals}
       />
     </div>
   );

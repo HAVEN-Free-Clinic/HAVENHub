@@ -455,28 +455,34 @@ export async function sendEpicEmail(
 }
 
 /**
- * Cancels a PENDING Epic request (support.manage_requests). Used to discard a
- * wrongly-attached or wrong-kind request so a corrected one can be attached.
- * A SUBMITTED request is already at YNHH and is not cancellable here.
- * Does not touch Person.epicId. Audits "epic.cancel".
+ * Cancels an OPEN (PENDING or SUBMITTED) Epic request (support.manage_requests).
+ * Used to discard a wrongly-attached, wrong-kind, or superseded request so a
+ * corrected one can be submitted, including one that is already blocking a
+ * re-submission from the Epic generator. SUBMITTED requests are cancellable too:
+ * the YNHH email is sent manually, so "SUBMITTED" only records intent to submit,
+ * and an admin must be able to abandon one made in error. Cancelling never
+ * touches Person.epicId (revocation, if needed, happens via a DEACTIVATE
+ * request). A COMPLETED or already-CANCELLED request cannot be cancelled.
+ * Audits "epic.cancel".
  */
 export async function cancelEpicRequest(actorPersonId: string, requestId: string): Promise<void> {
   await requireManageEpic(actorPersonId);
   const req = await prisma.epicRequest.findUnique({ where: { id: requestId } });
   if (!req) throw new EpicNotFoundError(`EpicRequest not found: ${requestId}`);
-  if (req.status !== "PENDING") {
+  if (req.status !== "PENDING" && req.status !== "SUBMITTED") {
     throw new EpicStateError(
-      `Cannot cancel a request with status ${req.status}. Only a PENDING request can be cancelled.`
+      `Cannot cancel a request with status ${req.status}. Only an open (PENDING or SUBMITTED) request can be cancelled.`
     );
   }
-  // Atomic claim: guard against a concurrent createTicket claiming the row PENDING->SUBMITTED between the read above and this write.
+  // Atomic claim: only flip a row still in an open status, so a concurrent
+  // complete/cancel can't be clobbered between the read above and this write.
   const claimed = await prisma.epicRequest.updateMany({
-    where: { id: requestId, status: "PENDING" },
+    where: { id: requestId, status: { in: ["PENDING", "SUBMITTED"] } },
     data: { status: "CANCELLED" },
   });
   if (claimed.count !== 1) {
     throw new EpicStateError(
-      "This request was just submitted by a concurrent action. Refresh and try again."
+      "This request was just resolved by a concurrent action. Refresh and try again."
     );
   }
   await recordAudit({

@@ -14,7 +14,7 @@ import {
   listIncidentPeople,
 } from "./itcm";
 import { persistAttachment } from "./attachments";
-import { createTechRequest, SupportForbiddenError, SupportNotFoundError, SupportStateError } from "./tech-request";
+import { createTechRequest, SupportConflictError, SupportForbiddenError, SupportNotFoundError, SupportStateError } from "./tech-request";
 
 // ---------------------------------------------------------------------------
 // Helpers (copied from tech-request.test.ts / epic.test.ts)
@@ -358,11 +358,15 @@ describe("submitEpicRequests", () => {
       data: { personId: person.id, kind: "NEW", status: "PENDING", requestedById: actor.id },
     });
 
-    await expect(
-      submitEpicRequests(actor.id, "NEW", "New - Individual - Alice", [
-        { personId: person.id, mirrorEpicId: null },
-      ])
-    ).rejects.toBeInstanceOf(SupportStateError);
+    // The open-request block is a recoverable conflict: a SupportConflictError
+    // (a SupportStateError subclass) carrying the blocked person's name so the
+    // caller can keep the generated artifacts and point at the Tracker.
+    const err = await submitEpicRequests(actor.id, "NEW", "New - Individual - Alice", [
+      { personId: person.id, mirrorEpicId: null },
+    ]).catch((e) => e);
+    expect(err).toBeInstanceOf(SupportConflictError);
+    expect(err).toBeInstanceOf(SupportStateError);
+    expect((err as SupportConflictError).personNames).toEqual(["Alice"]);
 
     // The whole transaction rolls back: no new ticket, no second request.
     expect(await prisma.ynhhTicket.count()).toBe(0);

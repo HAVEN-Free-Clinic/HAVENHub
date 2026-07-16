@@ -770,12 +770,25 @@ describe("cancelEpicRequest", () => {
     expect(stillThere.epicId).toBe("E-123");
   });
 
-  it("refuses to cancel a non-PENDING request", async () => {
+  it("cancels a SUBMITTED request (so a blocking request can be cleared)", async () => {
     const person = await createPerson("P");
     const mgr = await createPerson("Manager");
     await grantPermission(mgr.id, "support.manage_requests");
     const req = await pendingRequest(person.id, mgr.id);
     await prisma.epicRequest.update({ where: { id: req.id }, data: { status: "SUBMITTED" } });
+
+    await cancelEpicRequest(mgr.id, req.id);
+
+    const after = await prisma.epicRequest.findUniqueOrThrow({ where: { id: req.id } });
+    expect(after.status).toBe("CANCELLED");
+  });
+
+  it("refuses to cancel a COMPLETED request", async () => {
+    const person = await createPerson("P");
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const req = await pendingRequest(person.id, mgr.id);
+    await prisma.epicRequest.update({ where: { id: req.id }, data: { status: "COMPLETED" } });
 
     await expect(cancelEpicRequest(mgr.id, req.id)).rejects.toThrow(EpicStateError);
   });

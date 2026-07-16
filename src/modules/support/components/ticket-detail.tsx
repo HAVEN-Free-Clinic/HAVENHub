@@ -299,7 +299,7 @@ export async function TicketDetail({
                         YNHH SR#: {r.ticket.serviceRequestNumber ?? "(not set)"}
                       </span>
                     )}
-                    {isOpen && r.status === "PENDING" && cancelEpicAction && (
+                    {isOpen && (r.status === "PENDING" || r.status === "SUBMITTED") && cancelEpicAction && (
                       <form action={cancelEpicAction} className="ml-auto">
                         <input type="hidden" name="epicRequestId" value={r.id} />
                         <SubmitButton size="sm" variant="ghost" pendingLabel="Cancelling…">

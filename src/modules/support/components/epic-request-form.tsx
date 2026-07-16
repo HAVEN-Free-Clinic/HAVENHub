@@ -18,6 +18,7 @@
  */
 
 import { useState, useMemo } from "react";
+import Link from "next/link";
 import type { DepartmentWithMembers, EpicAuthorizer, MemberLite, PendingDeactivation } from "@/modules/support/services/itcm";
 import { Button } from "@/platform/ui/button";
 import { Select } from "@/platform/ui/select";
@@ -89,6 +90,9 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
   const [loading, setLoading] = useState(false);
   const [emailDraft, setEmailDraft] = useState<{ subject: string; body: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Set when generation succeeded but tracking was skipped because an open Epic
+  // request already exists; shown as a warning that points at the Tracker.
+  const [trackingWarning, setTrackingWarning] = useState<string | null>(null);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
 
   const isBulk = requestType.startsWith("bulk");
@@ -108,6 +112,10 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
   }, [selectedDept]);
 
   function togglePerson(id: string, person: MemberLite) {
+    // Clear any prior generation feedback: an error/warning naming the previously
+    // selected person is stale the moment the selection changes.
+    setError(null);
+    setTrackingWarning(null);
     setSelectedPeopleIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) {
@@ -154,6 +162,7 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
       return;
     }
     setError(null);
+    setTrackingWarning(null);
     setLoading(true);
     setEmailDraft(null);
 
@@ -200,6 +209,13 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
       // authorizer's initials, derived from their name on the server.
       const subject = EMAIL_SUBJECTS[requestType](selectedAuthorizer.initials, todayMMDDYYYY());
       setEmailDraft({ subject, body: data.emailBody });
+
+      // Generation can succeed while tracking is skipped because an open request
+      // already exists. The artifacts above are still valid; surface the warning
+      // (with a Tracker link, rendered below) rather than silently dropping it.
+      if (data.trackingWarning) {
+        setTrackingWarning(data.trackingWarning);
+      }
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -256,6 +272,8 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
                 setRequestType(safe as RequestType);
                 setSelectedPeopleIds(new Set());
                 setSelectedPeopleMap(new Map());
+                setError(null);
+                setTrackingWarning(null);
               }}
             >
               <option value="new">New</option>
@@ -276,6 +294,8 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
                 setRequestType(safe as RequestType);
                 setSelectedPeopleIds(new Set());
                 setSelectedPeopleMap(new Map());
+                setError(null);
+                setTrackingWarning(null);
               }}
             >
               <option value="individual">Individual</option>
@@ -391,6 +411,8 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
                   setSelectedDeptId(e.target.value);
                   setSelectedPeopleIds(new Set());
                   setSelectedPeopleMap(new Map());
+                  setError(null);
+                  setTrackingWarning(null);
                 }}
               >
                 <option value="">Choose a department</option>
@@ -482,6 +504,19 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
         <SectionHeader level="title">3. Generate</SectionHeader>
 
         {error && <Alert tone="error">{error}</Alert>}
+
+        {trackingWarning && (
+          <Alert tone="warning">
+            {trackingWarning}{" "}
+            <Link
+              href="/support/epic?tab=tracker"
+              className="font-medium underline underline-offset-2"
+            >
+              Open the Tracker
+            </Link>{" "}
+            to cancel or complete it. Your PDF{isBulk ? " and spreadsheet were" : " was"} still generated below.
+          </Alert>
+        )}
 
         <Button
           variant="primary"

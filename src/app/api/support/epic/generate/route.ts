@@ -24,7 +24,7 @@ import { auth } from "@/platform/auth/auth";
 import { getActivePerson } from "@/platform/auth/match-person";
 import { can } from "@/platform/rbac/engine";
 import { findMirrorPerson, getPeopleByIds, listEpicAuthorizers, reconcileDeactivationRequests, submitEpicRequests } from "@/modules/support/services/itcm";
-import { SupportStateError, SupportNotFoundError } from "@/modules/support/services/tech-request";
+import { SupportConflictError, SupportStateError, SupportNotFoundError } from "@/modules/support/services/tech-request";
 import {
   generatePdf,
   type RequestType,
@@ -398,6 +398,10 @@ export async function POST(req: Request) {
   // (resolved above), so tracking is always recorded - never silently skipped.
   const ticketDescription = `${REQUEST_TYPE_LABELS[requestType]} - ${people.map((p) => p.name).join(", ")}`;
 
+  // Set when the tracking guard trips on an already-open request so we can return
+  // the generated artifacts with a warning instead of discarding them.
+  let trackingWarning: string | null = null;
+
   if (isDeactivate) {
     // Deactivation requests already exist (queued at offboard) or are created
     // here for an ad-hoc deactivation; link them to a ticket as SUBMITTED. The
@@ -436,10 +440,19 @@ export async function POST(req: Request) {
         people.map((p) => ({ personId: p.id, mirrorEpicId: mirrorByPersonId.get(p.id)?.epicId ?? null }))
       );
     } catch (err) {
-      if (err instanceof SupportStateError || err instanceof SupportNotFoundError) {
+      // An existing OPEN request is a recoverable conflict, not bad input: the
+      // PDF/spreadsheet/email were already built above and are still exactly what
+      // the admin needs to send to YNHH. Return them (below) with a warning that
+      // points at the Tracker, rather than 400-ing and discarding the artifacts.
+      // Genuine input errors (wrong kind, non-active person, missing person) keep
+      // their 400 since their artifacts would be wrong.
+      if (err instanceof SupportConflictError) {
+        trackingWarning = err.message;
+      } else if (err instanceof SupportStateError || err instanceof SupportNotFoundError) {
         return NextResponse.json({ error: err.message }, { status: 400 });
+      } else {
+        throw err;
       }
-      throw err;
     }
   }
 
@@ -449,6 +462,9 @@ export async function POST(req: Request) {
     xlsxBase64,
     xlsxFilename,
     emailBody,
+    // Non-null when tracking was skipped because an open request already exists;
+    // the client shows it as a warning and keeps the downloaded artifacts.
+    trackingWarning,
   });
 }
 

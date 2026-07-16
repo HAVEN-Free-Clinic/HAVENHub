@@ -23,7 +23,7 @@ import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { recordAudit } from "@/platform/audit";
 import { can } from "@/platform/rbac/engine";
-import { MANAGE, SupportForbiddenError, SupportNotFoundError, SupportStateError } from "./tech-request";
+import { MANAGE, SupportConflictError, SupportForbiddenError, SupportNotFoundError, SupportStateError } from "./tech-request";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -655,9 +655,11 @@ export async function submitEpicRequests(
       include: { person: { select: { name: true } } },
     });
     if (open.length > 0) {
-      const names = [...new Set(open.map((r) => r.person.name))].join(", ");
-      throw new SupportStateError(
-        `An open Epic request already exists for: ${names}. Cancel it before submitting another.`
+      const uniqueNames = [...new Set(open.map((r) => r.person.name))];
+      const names = uniqueNames.join(", ");
+      throw new SupportConflictError(
+        `An open Epic request already exists for: ${names}. Cancel or complete it in the Tracker before submitting another.`,
+        uniqueNames
       );
     }
 

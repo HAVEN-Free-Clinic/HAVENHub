@@ -34,6 +34,7 @@ import {
   completeRequest,
   sendEpicEmail,
   linkEpicRequestToTicket,
+  cancelEpicRequest,
   EpicForbiddenError,
   EpicNotFoundError,
   EpicStateError,
@@ -155,6 +156,24 @@ async function sendEpicEmailFromTrackerAction(formData: FormData) {
   redirect("/support/epic?tab=tracker");
 }
 
+async function cancelEpicRequestAction(formData: FormData) {
+  "use server";
+  const session = await requirePermission("support.manage_requests");
+  const requestId = String(formData.get("requestId") ?? "");
+  // Return to whichever tab initiated the cancel (Tracker or Pending).
+  const tab = String(formData.get("tab") ?? "tracker") === "pending" ? "pending" : "tracker";
+  try {
+    await cancelEpicRequest(session.personId, requestId);
+  } catch (err) {
+    if (err instanceof EpicForbiddenError || err instanceof EpicNotFoundError || err instanceof EpicStateError) {
+      redirect(`/support/epic?tab=${tab}&error=${encodeURIComponent(err.message)}`);
+    }
+    throw err;
+  }
+  revalidatePath("/support/epic");
+  redirect(`/support/epic?tab=${tab}`);
+}
+
 async function linkEpicRequestAction(formData: FormData) {
   "use server";
   const session = await requirePermission("support.manage_requests");
@@ -219,6 +238,7 @@ export default async function EpicRequestsPage({ searchParams }: PageProps) {
         completeEpicRequestAction={completeEpicRequestAction}
         sendEpicEmailFromTrackerAction={sendEpicEmailFromTrackerAction}
         linkEpicRequestAction={linkEpicRequestAction}
+        cancelEpicRequestAction={cancelEpicRequestAction}
       />
     </div>
   );

@@ -1,5 +1,9 @@
 import { randomBytes, createHash } from "node:crypto";
 import { prisma } from "@/platform/db";
+import { getSetting } from "@/platform/settings/service";
+import { queueEmail } from "@/platform/email/send";
+import { renderEmail } from "@/platform/email/templates/renderEmail";
+import { safeLoginPath } from "@/platform/auth/safe-next";
 
 const TOKEN_TTL_MS = 30 * 60 * 1000; // 30 minutes
 const YALE_DOMAIN = "@yale.edu";
@@ -64,4 +68,58 @@ export async function verifyAndConsumeMemberToken(rawToken: string): Promise<{ p
   });
   if (!person?.contactEmail || person.contactEmail.toLowerCase() !== token.emailLower) return null;
   return { personId: person.id };
+}
+
+const RATE_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+const RATE_MAX = 3;
+
+function firstNameFromName(name: string): string {
+  const first = name.trim().split(/\s+/)[0];
+  return first || "there";
+}
+
+export type MemberLinkRequest = "sent" | "use-yale" | "disabled";
+
+/** Guarded issuer: honors the kill-switch, refuses Yale addresses, rate-limits,
+ *  resolves an ACTIVE Person by contactEmail, and emails a one-time
+ *  /login/verify link. Returns "sent" for a match, a non-match, AND a
+ *  rate-limited request, so it never reveals whether an email is a member. */
+export async function requestMemberLoginLink(email: string, next?: string | null): Promise<MemberLinkRequest> {
+  const enabled = await getSetting<boolean>("auth.memberMagicLinkEnabled");
+  if (!enabled) return "disabled";
+
+  const emailLower = email.trim().toLowerCase();
+  if (emailLower.endsWith(YALE_DOMAIN)) return "use-yale";
+
+  const recent = await prisma.memberLoginToken.count({
+    where: { emailLower, createdAt: { gt: new Date(Date.now() - RATE_WINDOW_MS) } },
+  });
+  if (recent >= RATE_MAX) return "sent";
+
+  const person = await prisma.person.findFirst({
+    where: { contactEmail: { equals: emailLower, mode: "insensitive" }, status: "ACTIVE" },
+    select: { id: true, name: true, contactEmail: true },
+  });
+  // Silent no-op: never reveal whether an email maps to an active member.
+  if (!person?.contactEmail || person.contactEmail.toLowerCase().endsWith(YALE_DOMAIN)) {
+    return "sent";
+  }
+
+  const raw = await issueMemberToken(person.id, emailLower);
+  const base = await getSetting<string>("app.baseUrl");
+  const safeNext = safeLoginPath(next);
+  const nextParam = safeNext === "/" ? "" : `&next=${encodeURIComponent(safeNext)}`;
+  const loginUrl = `${base}/login/verify?token=${encodeURIComponent(raw)}${nextParam}`;
+  const mail = await renderEmail("auth.member_login_link", {
+    firstName: firstNameFromName(person.name),
+    loginUrl,
+  });
+  await queueEmail(prisma, {
+    to: person.contactEmail,
+    subject: mail.subject,
+    html: mail.html,
+    template: "auth.member_login_link",
+    personId: person.id,
+  });
+  return "sent";
 }

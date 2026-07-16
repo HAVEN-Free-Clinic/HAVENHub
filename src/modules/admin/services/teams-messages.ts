@@ -8,6 +8,7 @@
 
 import type { TeamsMessage, TeamsMessageStatus, Person } from "@prisma/client";
 import { prisma } from "@/platform/db";
+import { recordAudit } from "@/platform/audit";
 
 // ---------------------------------------------------------------------------
 // Typed errors
@@ -78,9 +79,10 @@ export async function listTeamsMessages(params: {
  * Throws TeamsMessageStateError for QUEUED/SENT. The actual send is performed by
  * the delivery cron; this function only resets the row state.
  *
+ * @param actorPersonId - The admin performing the retry (recorded in the audit log).
  * @param id - The TeamsMessage row to retry.
  */
-export async function retryTeamsMessage(id: string): Promise<void> {
+export async function retryTeamsMessage(actorPersonId: string, id: string): Promise<void> {
   const row = await prisma.teamsMessage.findUnique({ where: { id } });
   if (!row) throw new TeamsMessageNotFoundError(id);
   if (row.status !== "FAILED" && row.status !== "FALLBACK" && row.status !== "LOGGED") {
@@ -91,5 +93,14 @@ export async function retryTeamsMessage(id: string): Promise<void> {
   await prisma.teamsMessage.update({
     where: { id },
     data: { status: "QUEUED", attempts: 0, lastError: null, lockedAt: null },
+  });
+  // Requeuing can trigger a fresh Teams send; audit it like every email retry sibling.
+  await recordAudit({
+    actorPersonId,
+    action: "teamsMessage.retry",
+    entityType: "TeamsMessage",
+    entityId: id,
+    before: { status: row.status, attempts: row.attempts },
+    after: { status: "QUEUED" },
   });
 }

@@ -132,11 +132,11 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
 
   async function retryAction(formData: FormData) {
     "use server";
-    await requirePermission("admin.manage_sync");
+    const actor = await requirePermission("admin.manage_sync");
     const id = (formData.get("id") as string | null) ?? "";
 
     try {
-      await retryTeamsMessage(id);
+      await retryTeamsMessage(actor.personId, id);
     } catch (err) {
       if (
         err instanceof TeamsMessageNotFoundError ||

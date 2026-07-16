@@ -19,7 +19,7 @@ import { Alert } from "@/platform/ui/alert";
 import { buttonClasses } from "@/platform/ui/button";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { prisma } from "@/platform/db";
-import { Checkbox } from "@/platform/ui/checkbox";
+import { MultiCombobox } from "@/platform/ui/multi-combobox";
 import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
 import { SectionHeader } from "@/platform/ui/section-header";
@@ -58,7 +58,20 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
     ...activeDepts.map((d) => ({ code: d.code, name: d.name, known: true })),
     ...cycle.departments.filter((c) => !activeCodes.has(c)).map((c) => ({ code: c, name: null as string | null, known: false })),
   ];
-  const selected = new Set(cycle.departments);
+  // Annotate each option so staff see the consequence of removing a department
+  // (applicant counts, and codes no longer in the active department list) both in
+  // the dropdown and on the selected chip.
+  const deptSelectOptions = deptOptions.map((d) => {
+    const c = counts.get(d.code) ?? 0;
+    const parts: string[] = [];
+    if (c > 0) parts.push(`${c} applicant${c === 1 ? "" : "s"}`);
+    if (!d.known) parts.push("not in department list");
+    return {
+      value: d.code,
+      label: d.name ? `${d.code} - ${d.name}` : d.code,
+      note: parts.length ? parts.join(" · ") : undefined,
+    };
+  });
   const applyUrl = await portalUrl(cycle.publicSlug);
   const navLink = buttonClasses("outline", "sm");
   // The opensAt/closesAt window is a soft gate *inside* the OPEN status: the public
@@ -145,16 +158,17 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
           </div>
         ) : (
           <form action={setCycleDepartmentsAction.bind(null, id)} className="space-y-3">
-            <div className="grid gap-2 sm:grid-cols-2">
-              {deptOptions.map((d) => (
-                <label key={d.code} className="flex items-center gap-2 text-sm">
-                  <Checkbox name="departments" value={d.code} defaultChecked={selected.has(d.code)} />
-                  <span className="text-foreground">{d.code}{d.name ? ` - ${d.name}` : ""}</span>
-                  <span className="text-xs text-subtle-foreground">{counts.get(d.code) ? `${counts.get(d.code)} applicant${counts.get(d.code) === 1 ? "" : "s"}` : ""}{!d.known ? " · not in department list" : ""}</span>
-                </label>
-              ))}
-              {deptOptions.length === 0 && <p className="text-sm text-subtle-foreground">No departments configured.</p>}
-            </div>
+            {deptSelectOptions.length === 0 ? (
+              <p className="text-sm text-subtle-foreground">No departments configured.</p>
+            ) : (
+              <MultiCombobox
+                name="departments"
+                options={deptSelectOptions}
+                defaultValue={cycle.departments}
+                ariaLabel="Departments"
+                placeholder="Search departments…"
+              />
+            )}
             <FormActions>
               <SubmitButton size="sm" variant="outline" pendingLabel="Saving…">Save departments</SubmitButton>
             </FormActions>

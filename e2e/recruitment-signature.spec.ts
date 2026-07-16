@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { prisma, tag } from "./fixtures";
 import { applicantSessionCookie } from "./portal-cookie";
+import { selectDepartments } from "./recruitment-helpers";
 
 test.setTimeout(120_000);
 
@@ -20,7 +21,7 @@ test("apply: draw a signature field and submit; it persists as a png blob", asyn
   await page.fill('input[name="title"]', "Signature E2E");
   const slug = `sig-${t}`;
   await page.fill('input[name="publicSlug"]', slug);
-  await page.fill('input[name="departments"]', "SRHD");
+  await selectDepartments(page, ["SRHD"]);
   await page.uncheck('input[name="seedDefaultForm"]');
   await page.click('button:has-text("Create")');
   await page.waitForURL((url) => url.pathname.includes("/builder"));
@@ -96,7 +97,7 @@ test("apply: type a signature via the fallback input and submit; it persists as 
   await page.fill('input[name="title"]', "Signature Type E2E");
   const slug = `sig-type-${t}`;
   await page.fill('input[name="publicSlug"]', slug);
-  await page.fill('input[name="departments"]', "SRHD");
+  await selectDepartments(page, ["SRHD"]);
   await page.uncheck('input[name="seedDefaultForm"]');
   await page.click('button:has-text("Create")');
   await page.waitForURL((url) => url.pathname.includes("/builder"));

@@ -56,3 +56,20 @@ it("redirects to the builder on a successful create with a fresh slug", async ()
   const cycle = await prisma.recruitmentCycle.findFirstOrThrow({ where: { publicSlug: "fresh-one" } });
   expect(err.digest).toBe(`NEXT_REDIRECT;/recruitment/cycles/${cycle.id}/builder`);
 });
+
+it("stores every department the multi-select submits (getAll, not comma-split)", async () => {
+  const { term } = await actor();
+  // The department multi-select posts one "departments" value per chosen chip,
+  // so the action must read them all back with getAll -- a stale comma-split
+  // would collapse them into a single bogus "SRHD, MDIC" code.
+  const fd = new FormData();
+  fd.set("title", "Multi");
+  fd.set("track", "VOLUNTEER");
+  fd.set("termId", term.id);
+  fd.set("publicSlug", "multi-dept");
+  fd.append("departments", "SRHD");
+  fd.append("departments", "MDIC");
+  await createCycleAction(fd).catch((e) => e); // redirects on success
+  const cycle = await prisma.recruitmentCycle.findFirstOrThrow({ where: { publicSlug: "multi-dept" } });
+  expect([...cycle.departments].sort()).toEqual(["MDIC", "SRHD"]);
+});

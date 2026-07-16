@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { applicantSessionCookie } from "./portal-cookie";
+import { selectDepartments } from "./recruitment-helpers";
 
 test.setTimeout(120_000);
 
@@ -49,7 +50,7 @@ test("review: accept via department decision, release with no conflicts", async 
   await page.fill('input[name="title"]', "Review E2E");
   const slug = `review-e2e-${Date.now()}`;
   await page.fill('input[name="publicSlug"]', slug);
-  await page.fill('input[name="departments"]', "SRHD, MDIC");
+  await selectDepartments(page, ["SRHD", "MDIC"]);
   // Build the form ourselves (minimal name+email seed) so the apply wizard stays
   // a simple identity-only flow; the default form has required files + subcommittees.
   await page.uncheck('input[name="seedDefaultForm"]');

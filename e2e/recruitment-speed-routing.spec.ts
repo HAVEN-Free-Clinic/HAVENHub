@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { applicantSessionCookie } from "./portal-cookie";
+import { selectDepartments } from "./recruitment-helpers";
 
 test.setTimeout(150_000);
 
@@ -58,7 +59,7 @@ test("speed route: score a spread, apply top + bottom, keyboard-route the middle
   await page.fill('input[name="title"]', "Bulk Tier E2E");
   const slug = `speed-route-e2e-${Date.now()}`;
   await page.fill('input[name="publicSlug"]', slug);
-  await page.fill('input[name="departments"]', "SRHD");
+  await selectDepartments(page, ["SRHD"]);
   await page.uncheck('input[name="seedDefaultForm"]');
   await page.click('button:has-text("Create")');
   await page.waitForURL((url) => url.pathname.includes("/builder"));

@@ -12,6 +12,7 @@ export async function materializeTemplate(tx: Prisma.TransactionClient, cycleId:
         sectionId: section.id, cycleId, key: f.key, label: f.label, type: f.type,
         required: f.required, helpText: f.helpText ?? null, order: f.order,
         options: (f.options ?? undefined) as Prisma.InputJsonValue | undefined,
+        validation: (f.validation ?? undefined) as Prisma.InputJsonValue | undefined,
         correctValue: f.correctValue ?? null,
         visibleWhen: (f.visibleWhen ?? undefined) as Prisma.InputJsonValue | undefined,
       })),

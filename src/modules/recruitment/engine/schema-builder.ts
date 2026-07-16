@@ -28,6 +28,12 @@ export type FieldValidation = {
   maxFileMB?: number;
   acceptedTypes?: string[];
   rankCount?: number;
+  /**
+   * Soft target word count for paragraph (LONG_TEXT) fields. Surfaces a live
+   * "127 / 300 words" counter to applicants but is NEVER enforced -- it is
+   * deliberately absent from fieldSchema() so going over cannot block a submit.
+   */
+  wordLimit?: number;
 };
 
 export type FieldDef = {

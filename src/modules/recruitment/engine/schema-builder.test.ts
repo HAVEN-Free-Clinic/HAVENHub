@@ -71,6 +71,21 @@ describe("buildApplicationSchema", () => {
     const result = schema.safeParse({ email: "a@yale.edu", essay: "long enough answer", year: 2026, agree: true, dept: "nope", srhd_q1: "x" });
     expect(result.success).toBe(false);
   });
+
+  it("never enforces a soft word limit (wordLimit is display-only)", () => {
+    const secs: SectionDef[] = [
+      {
+        id: "s",
+        appliesTo: "BOTH",
+        departmentCode: null,
+        fields: [{ key: "essay", type: "LONG_TEXT", required: true, options: null, validation: { wordLimit: 3 } }],
+      },
+    ];
+    const schema = buildApplicationSchema(secs, { applicantType: "NEW", selectedDepartmentCodes: [] });
+    const twentyWords = Array.from({ length: 20 }, (_, i) => `word${i}`).join(" ");
+    // 20 words far exceeds wordLimit 3, but a soft limit must not block submission.
+    expect(schema.safeParse({ essay: twentyWords }).success).toBe(true);
+  });
 });
 
 describe("MULTI_SELECT normalization", () => {

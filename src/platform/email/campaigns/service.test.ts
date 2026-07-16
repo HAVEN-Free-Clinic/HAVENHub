@@ -213,6 +213,36 @@ describe("campaign scheduling", () => {
     ).rejects.toBeInstanceOf(CampaignValidationError);
   });
 
+  it("rejects a recurring cadence finer than the dispatch interval (audit #36)", async () => {
+    const c = await createDraft(null, "TooFine");
+    await updateCampaign(null, c.id, { subject: "s", body: "<p>hi</p>", audience: ALL_ACTIVE });
+    await expect(
+      scheduleCampaign(null, c.id, { scheduleType: "RECURRING", cronExpr: "*/5 * * * *" }, new Date("2026-06-10T12:00:00Z")),
+    ).rejects.toBeInstanceOf(CampaignValidationError);
+  });
+
+  it("requires confirmation to schedule a large-audience campaign, like sendCampaignNow (audit #39)", async () => {
+    for (let i = 0; i < 26; i++) await activePerson(`Person ${i}`, `p${i}@example.com`);
+    const c = await createDraft(null, "Big");
+    await updateCampaign(null, c.id, { subject: "s", body: "<p>hi</p>", audience: ALL_ACTIVE });
+    const at = new Date("2030-01-01T12:00:00Z");
+
+    // Without a matching confirmCount the schedule is blocked, carrying the count.
+    let expected = 0;
+    try {
+      await scheduleCampaign(null, c.id, { scheduleType: "SCHEDULED", scheduledAt: at });
+    } catch (err) {
+      if (!(err instanceof CampaignConfirmationError)) throw err;
+      expected = err.expected;
+    }
+    expect(expected).toBeGreaterThan(25);
+
+    // Confirming the resolved count permits it.
+    await scheduleCampaign(null, c.id, { scheduleType: "SCHEDULED", scheduledAt: at }, undefined, { confirmCount: expected });
+    const after = await prisma.emailCampaign.findUniqueOrThrow({ where: { id: c.id } });
+    expect(after.status).toBe("SCHEDULED");
+  });
+
   it("refuses to schedule a campaign with a blank subject", async () => {
     const c = await createDraft(null, "NoSubjectSched");
     await updateCampaign(null, c.id, { subject: "", body: "<p>hi</p>", audience: ALL_ACTIVE });

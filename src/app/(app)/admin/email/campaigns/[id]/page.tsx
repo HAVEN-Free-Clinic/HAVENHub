@@ -200,9 +200,14 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
     if (!scheduledAt) {
       redirect(`/admin/email/campaigns/${id}?error=${encodeURIComponent("Pick a valid date and time")}`);
     }
+    const rawCount = formData.get("confirmCount");
+    const confirmCount = rawCount !== null && rawCount !== "" ? Number(rawCount) : undefined;
     try {
-      await scheduleCampaign(actor.personId, id, { scheduleType: "SCHEDULED", scheduledAt });
+      await scheduleCampaign(actor.personId, id, { scheduleType: "SCHEDULED", scheduledAt }, undefined, { confirmCount });
     } catch (err) {
+      if (err instanceof CampaignConfirmationError) {
+        redirect(`/admin/email/campaigns/${id}?error=${encodeURIComponent(`This campaign targets ${err.expected} recipients. Type ${err.expected} in the confirmation field and schedule again.`)}`);
+      }
       if (err instanceof CampaignValidationError) {
         redirect(`/admin/email/campaigns/${id}?error=${encodeURIComponent(err.problems.join("; "))}`);
       }
@@ -216,9 +221,14 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
     "use server";
     const actor = await requirePermission("admin.send_email_campaign");
     const cronExpr = ((formData.get("cronExpr") as string | null) ?? "").trim();
+    const rawCount = formData.get("confirmCount");
+    const confirmCount = rawCount !== null && rawCount !== "" ? Number(rawCount) : undefined;
     try {
-      await scheduleCampaign(actor.personId, id, { scheduleType: "RECURRING", cronExpr });
+      await scheduleCampaign(actor.personId, id, { scheduleType: "RECURRING", cronExpr }, undefined, { confirmCount });
     } catch (err) {
+      if (err instanceof CampaignConfirmationError) {
+        redirect(`/admin/email/campaigns/${id}?error=${encodeURIComponent(`This campaign targets ${err.expected} recipients. Type ${err.expected} in the confirmation field and start recurring again.`)}`);
+      }
       if (err instanceof CampaignValidationError) {
         redirect(`/admin/email/campaigns/${id}?error=${encodeURIComponent(err.problems.join("; "))}`);
       }
@@ -404,6 +414,9 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
                   className="w-auto"
                 />
               </Field>
+              <Field label="Confirm count (required for >25 recipients)">
+                <Input name="confirmCount" type="number" min={1} placeholder="e.g. 42" className="w-24" />
+              </Field>
               <Button type="submit">Schedule</Button>
             </form>
             <p className="text-xs text-muted-foreground">
@@ -417,6 +430,9 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
             <form action={scheduleRecurringAction} className="flex flex-wrap items-end gap-3">
               <Field label="Cron expression">
                 <CronPresets />
+              </Field>
+              <Field label="Confirm count (required for >25 recipients)">
+                <Input name="confirmCount" type="number" min={1} placeholder="e.g. 42" className="w-24" />
               </Field>
               <Button type="submit">Start recurring</Button>
             </form>

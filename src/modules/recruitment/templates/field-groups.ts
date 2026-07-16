@@ -96,12 +96,12 @@ export function directorEssaysSection(): TemplateSection {
   return sec("Short answer questions", "BOTH", [
     { key: "essay_community_care", label:
         "Share a story or experience that influenced your commitment to community-centered care. How does this connect to why you want to lead at HAVEN, and how would that experience inform your leadership?",
-      type: "LONG_TEXT", required: true, helpText: "Please limit response to 300 words." },
+      type: "LONG_TEXT", required: true, helpText: "Please limit response to 300 words.", validation: { wordLimit: 300 } },
     { key: "essay_priorities", label: "What do you believe should be important priorities for a student-run free clinic?",
-      type: "LONG_TEXT", required: true, helpText: "Please limit response to 300 words." },
+      type: "LONG_TEXT", required: true, helpText: "Please limit response to 300 words.", validation: { wordLimit: 300 } },
     { key: "essay_accountability", label:
         "Directors must regularly hold volunteers and peers accountable. Describe a time you had to give direct feedback or enforce a policy. How did you approach it, and what did you learn from the experience?",
-      type: "LONG_TEXT", required: true, helpText: "Please limit response to 300 words." },
+      type: "LONG_TEXT", required: true, helpText: "Please limit response to 300 words.", validation: { wordLimit: 300 } },
   ]);
 }
 

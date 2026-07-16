@@ -246,6 +246,30 @@ export function FieldCard({
             </Field>
           )}
 
+          {field.type === "LONG_TEXT" && (
+            <Field label="Word limit" hint="Optional. Shows applicants a soft counter like 127 / 300 words; it does not block submission. Leave blank for no counter.">
+              <Input
+                type="number"
+                min={1}
+                placeholder="No limit"
+                defaultValue={typeof field.validation?.wordLimit === "number" ? String(field.validation.wordLimit) : ""}
+                disabled={!editable}
+                onBlur={(e) => {
+                  const raw = e.target.value.trim();
+                  const parsed = raw === "" ? 0 : Math.floor(Number(raw) || 0);
+                  // Blank or 0 clears the limit (drop the key so no counter shows).
+                  const next = parsed > 0 ? parsed : undefined;
+                  const current = typeof field.validation?.wordLimit === "number" ? field.validation.wordLimit : undefined;
+                  if (next === current) return;
+                  const validation: Record<string, unknown> = { ...(field.validation ?? {}) };
+                  if (next === undefined) delete validation.wordLimit;
+                  else validation.wordLimit = next;
+                  save({ validation });
+                }}
+              />
+            </Field>
+          )}
+
           {otherFields.length > 0 && (
             <VisibleWhenEditor
               visibleWhen={field.visibleWhen}

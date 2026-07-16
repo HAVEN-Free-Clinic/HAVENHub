@@ -1,7 +1,8 @@
-import { Input, Textarea } from "@/platform/ui/input";
+import { Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { asPrefillList, isPrefillChecked, prefillString } from "./field-prefill";
+import { WordCountTextarea } from "./word-count-textarea";
 import { cx } from "@/platform/ui/cx";
 
 export type PreviewFieldDef = {
@@ -73,7 +74,12 @@ export function FieldPreview({
   const labelEl = <span className="block text-sm font-medium text-foreground">{f.label}{req}</span>;
   let control: React.ReactNode;
   switch (f.type) {
-    case "LONG_TEXT": control = <Textarea name={f.key} required={required} disabled={disabled} aria-invalid={invalid} className={cx("mt-1.5", lockedCls)} rows={4} onChange={onTextChange} {...textProps} />; break;
+    case "LONG_TEXT": {
+      const wl = f.validation?.wordLimit;
+      const wordLimit = typeof wl === "number" ? wl : null;
+      control = <WordCountTextarea name={f.key} required={required} disabled={disabled} aria-invalid={invalid} className={cx("mt-1.5", lockedCls)} wordLimit={wordLimit} onChange={onTextChange} {...textProps} />;
+      break;
+    }
     case "NUMBER": control = <Input type="number" name={f.key} required={required} disabled={disabled} aria-invalid={invalid} className={cx("mt-1.5", lockedCls)} onChange={onTextChange} {...textProps} />; break;
     case "DATE": control = <Input type="date" name={f.key} required={required} disabled={disabled} aria-invalid={invalid} className={cx("mt-1.5", lockedCls)} onChange={onTextChange} {...textProps} />; break;
     case "EMAIL": control = <Input type="email" name={f.key} required={required} disabled={disabled} aria-invalid={invalid} className={cx("mt-1.5", lockedCls)} onChange={onTextChange} {...textProps} />; break;

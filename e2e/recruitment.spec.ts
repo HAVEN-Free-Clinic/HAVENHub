@@ -59,7 +59,7 @@ test("recruitment: build (TypePicker), publish, public apply via portal, view su
   // --- Publish ---
   await page.goto(`/recruitment/cycles/${cycleId}`);
   await page.click('button:has-text("Publish")');
-  await expect(page.locator("span").filter({ hasText: "OPEN" })).toBeVisible();
+  await expect(page.locator("span").filter({ hasText: /^OPEN$/ })).toBeVisible();
 
   // --- Public NEW application as a verified portal applicant ---
   const applicantEmail = `e2e-applicant-${Date.now()}@yale.edu`;

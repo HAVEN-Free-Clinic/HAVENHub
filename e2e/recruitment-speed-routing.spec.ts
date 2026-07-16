@@ -72,7 +72,7 @@ test("speed route: score a spread, apply top + bottom, keyboard-route the middle
 
   await page.goto(`/recruitment/cycles/${cycleId}`);
   await page.click('button:has-text("Publish")');
-  await expect(page.locator("span").filter({ hasText: "OPEN" })).toBeVisible();
+  await expect(page.locator("span").filter({ hasText: /^OPEN$/ })).toBeVisible();
 
   // Four applicants.
   const browser = context.browser()!;

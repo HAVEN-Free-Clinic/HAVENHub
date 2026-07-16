@@ -64,7 +64,7 @@ test("speed score: score two applicants with the keyboard and see the roster upd
 
   await page.goto(`/recruitment/cycles/${cycleId}`);
   await page.click('button:has-text("Publish")');
-  await expect(page.locator("span").filter({ hasText: "OPEN" })).toBeVisible();
+  await expect(page.locator("span").filter({ hasText: /^OPEN$/ })).toBeVisible();
 
   // --- Submit two applications so the queue advances between them ---
   const browser = context.browser()!;

@@ -79,7 +79,7 @@ export const SETTINGS: SettingDef<unknown>[] = [
     key: "uploads.maxMb",
     category: "Operations",
     label: "Max upload size (MB)",
-    help: "Largest allowed file upload, in megabytes. Airtable caps attachments at 5 MB.",
+    help: "Largest allowed file upload, in megabytes. Applies to all file uploads across the app.",
     input: { type: "number", min: 1 },
     schema: z.number().int().positive(),
     envDefault: () => config.MAX_UPLOAD_MB,

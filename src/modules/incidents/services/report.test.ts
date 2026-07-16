@@ -613,6 +613,27 @@ describe("getReport", () => {
     expect(report.attachments).toEqual([]);
   });
 
+  it("denies manage powers to a self-reporting subject-manager: reviewNotes stripped, canManage false (audit #11)", async () => {
+    const selfManager = await createPerson("Self Manager", "self01");
+    await grantPermission(selfManager.id, "incidents.manage");
+    // They file a report about an incident they were involved in and list themselves
+    // among the subjects. reviewReport/decideStrike reject a subject server-side, so
+    // getReport must not hand them manage powers (reviewNotes leak + dead-end controls).
+    const r = await submitReport(selfManager.id, {
+      concernTypes: ["OTHER"],
+      description: "self-report",
+      subjects: [{ personId: selfManager.id }],
+    });
+    await prisma.incidentReport.update({
+      where: { id: r.id },
+      data: { reviewNotes: "M appears culpable; recommend removal." },
+    });
+
+    const { report, canManage } = await getReport(selfManager.id, r.id);
+    expect(canManage).toBe(false);
+    expect(report.reviewNotes).toBeNull();
+  });
+
   it("getReport returns the linked subjects with names", async () => {
     const owner = await createPerson("Owner", "gr-own");
     const a = await createPerson("Alex", "gr-a");

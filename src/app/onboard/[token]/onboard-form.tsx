@@ -10,7 +10,7 @@ import { SYSTEM_FIELDS } from "@/modules/recruitment/contract/system-fields";
 import type { ContractLayout } from "@/modules/recruitment/contract/layout";
 
 type Prefill = { firstName: string; lastName: string; email: string; netId: string; phone: string; yaleAffiliation: string; gradYear: string; spanish: boolean };
-type Ctx = { firstName: string; orgName: string };
+type Ctx = { firstName: string; orgName: string; todayIso: string };
 
 export function OnboardForm({
   token, prefill, layout, ctx,
@@ -21,9 +21,17 @@ export function OnboardForm({
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setSubmitting(true);
-    const res = await submitOnboarding(token, new FormData(e.currentTarget));
-    setResult(res);
-    setSubmitting(false);
+    try {
+      const res = await submitOnboarding(token, new FormData(e.currentTarget));
+      setResult(res);
+    } catch {
+      // A blob/DB failure inside submitContract would otherwise re-throw and
+      // freeze the button on "Submitting..." with no feedback. Surface a
+      // retryable error and always re-enable submit.
+      setResult({ ok: false, message: "Something went wrong submitting your onboarding. Please try again." });
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   if (result?.ok) {

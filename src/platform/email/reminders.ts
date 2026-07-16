@@ -158,16 +158,25 @@ export async function runComplianceReminders(
     const cert = certMap.get(person.id) ?? null;
     const status = complianceStatus(cert, activeTerm.endDate, now);
     const existing = reminderMap.get(person.id) ?? null;
-    const ehsMissing = ehsMissingByPerson.get(person.id) ?? [];
+    const ehsMissingAll = ehsMissingByPerson.get(person.id) ?? [];
     const clearance = clearanceByPerson.get(person.id);
+    // A term can disable the HIPAA/EHS onboarding step. loadClearanceMap drops a
+    // disabled step from `tasks`, so its absence means "not required this term":
+    // such an item must not block clearance, nag, or escalate. Neutralize a
+    // disabled leg for both the done-gate and the reminder body.
+    const hipaaEnabled = clearance?.tasks.some((t) => t.key === "hipaa") ?? true;
+    const ehsEnabled = clearance?.tasks.some((t) => t.key === "ehs") ?? true;
+    const effectiveStatus = hipaaEnabled ? status : "COMPLIANT";
+    const ehsMissing = ehsEnabled ? ehsMissingAll : [];
     // Outstanding items beyond HIPAA/EHS (profile, training, learning), for the body.
     const otherItems = (clearance?.missing ?? [])
       .map((k) => REMINDER_ITEM_LABELS[k])
       .filter((s): s is string => Boolean(s));
-    // Done when HIPAA + EHS are fully compliant (this keeps reminding on EXPIRING_SOON,
-    // the renewal nudge) AND there are no other outstanding items (profile/training/learning).
+    // Done when the (enabled) HIPAA + EHS legs are fully compliant (this keeps
+    // reminding on EXPIRING_SOON, the renewal nudge) AND there are no other
+    // outstanding items (profile/training/learning).
     const isDone =
-      isFullyCompliant({ hipaaStatus: status, ehsMissingCount: ehsMissing.length }) &&
+      isFullyCompliant({ hipaaStatus: effectiveStatus, ehsMissingCount: ehsMissing.length }) &&
       otherItems.length === 0;
 
     // --- Fully cleared: reset any lingering reminder state ---
@@ -246,7 +255,7 @@ export async function runComplianceReminders(
       "compliance-reminder",
       complianceReminderContext({
         personName: person.name,
-        status,
+        status: effectiveStatus,
         expiresAt,
         appUrl: baseUrl,
         brandColor,
@@ -275,7 +284,7 @@ export async function runComplianceReminders(
     //    re-queues next run rather than marking escalated with nothing sent.
     const shouldEscalate = claimed.remindersSent >= threshold && claimed.escalatedAt === null;
     if (shouldEscalate) {
-      await sendEscalations(person, termId, status, ehsMissing, otherItems, result);
+      await sendEscalations(person, termId, effectiveStatus, ehsMissing, otherItems, result);
       await prisma.complianceReminder.updateMany({
         where: { personId: person.id, escalatedAt: null },
         data: { escalatedAt: now },

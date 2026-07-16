@@ -311,6 +311,12 @@ export function ApplyWizard({
     if (cur.kind === "section") {
       if (transferIntoCurrent) return; // blocked; the alert is shown in-step
       const values = collectValues();
+      // Validate against the same department-merged answers used to render the
+      // fields (effectiveAnswers), not the raw form values. A renewal's department
+      // is not in the raw form (the DEPARTMENT_CHOICE control isn't rendered), so
+      // without this merge a shown, department-conditional required field would be
+      // evaluated as hidden and could be skipped.
+      if (departmentChoiceKey) values[departmentChoiceKey] = selectedDepartmentCodes;
       const missing = missingRequiredKeys(cur.section.fields, values);
       if (missing.length) {
         setFieldErrors((p) => ({ ...p, ...Object.fromEntries(missing.map((k) => [k, "This field is required."])) }));
@@ -339,17 +345,25 @@ export function ApplyWizard({
     if (steps[stepIndex].kind !== "review") { handleNext(); return; }
     if (transferIntoCurrent) return;
     setSubmitting(true);
-    const fd = new FormData(e.currentTarget);
-    fd.set("__applicantType", applicantType);
-    if (applicantType === "RENEWAL") fd.set("__renewalDepartment", renewalDept);
-    const res = await submitPublicApplication(def.slug, fd);
-    setSubmitting(false);
-    if (!res.ok && res.fieldErrors) {
-      setFieldErrors(res.fieldErrors);
-      const idx = stepIndexForKeys(steps, Object.keys(res.fieldErrors));
-      if (idx != null) goTo(idx);
+    try {
+      const fd = new FormData(e.currentTarget);
+      fd.set("__applicantType", applicantType);
+      if (applicantType === "RENEWAL") fd.set("__renewalDepartment", renewalDept);
+      const res = await submitPublicApplication(def.slug, fd);
+      if (!res.ok && res.fieldErrors) {
+        setFieldErrors(res.fieldErrors);
+        const idx = stepIndexForKeys(steps, Object.keys(res.fieldErrors));
+        if (idx != null) goTo(idx);
+      }
+      setResult(res);
+    } catch {
+      // A server-action throw (e.g. a signature blob-storage or DB failure) would
+      // otherwise leave the button stuck on "Submitting…" with no feedback. Show a
+      // retryable error and always re-enable the button.
+      setResult({ ok: false, message: "Something went wrong submitting your application. Please try again." });
+    } finally {
+      setSubmitting(false);
     }
-    setResult(res);
   }
 
   if (result?.ok) {
@@ -453,6 +467,8 @@ export function ApplyWizard({
                         helpText={f.helpText}
                         personName={[prefill?.values.first_name ?? initialAnswers.first_name, prefill?.values.last_name ?? initialAnswers.last_name].filter(Boolean).join(" ")}
                         defaultValue={typeof initialAnswers[f.key] === "string" ? (initialAnswers[f.key] as string) : ""}
+                        defaultMethod={initialAnswers[`${f.key}__method`] === "type" ? "type" : "draw"}
+                        defaultName={typeof initialAnswers[`${f.key}__name`] === "string" ? (initialAnswers[`${f.key}__name`] as string) : ""}
                         error={fieldErrors[f.key]}
                         onChange={scheduleSave}
                       />

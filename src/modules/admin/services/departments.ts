@@ -99,7 +99,15 @@ export async function createDepartment(
     action: "department.create",
     entityType: "Department",
     entityId: dept.id,
-    after: { code: dept.code, name: dept.name, isActive: dept.isActive },
+    // Record the capacity fields the department was provisioned with, matching the
+    // update-path audit shape (which captures every later change to them).
+    after: {
+      code: dept.code,
+      name: dept.name,
+      isActive: dept.isActive,
+      idealHeadcount: dept.idealHeadcount,
+      patientCapacityPerProvider: dept.patientCapacityPerProvider,
+    },
   });
   return dept;
 }

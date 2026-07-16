@@ -338,7 +338,11 @@ export async function offboardingView(viewerPersonId: string): Promise<{
   if (!isExecutor) return { departments, flagged: null };
 
   const allFlags = await prisma.offboardFlag.findMany({
-    where: { termId: activeTerm.id },
+    // Only still-ACTIVE people. The /admin/people offboard path flips
+    // Person.status without deleting OffboardFlag rows (only executeOffboard
+    // deletes them), so without this filter an already-offboarded person lingers
+    // in the flagged queue with an empty department list.
+    where: { termId: activeTerm.id, person: { status: "ACTIVE" } },
     include: {
       person: true,
       flaggedBy: { select: { name: true } },

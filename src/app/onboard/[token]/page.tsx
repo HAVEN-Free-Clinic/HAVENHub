@@ -40,10 +40,12 @@ export default async function OnboardPage({ params }: { params: Promise<{ token:
     /* invalid snapshot -> fall back to the code default */
   }
   const orgName = await getSetting<string>("branding.orgName");
+  // Stamp the date once on the server so the HIPAA date bounds hydrate identically.
+  const todayIso = new Date().toISOString().slice(0, 10);
   return (
     <main className="mx-auto max-w-2xl px-6 py-10">
       <h1 className="text-2xl font-bold tracking-tight">HAVEN onboarding</h1>
-      <OnboardForm token={contract.token} prefill={prefill} layout={layout} ctx={{ firstName: contract.firstName, orgName }} />
+      <OnboardForm token={contract.token} prefill={prefill} layout={layout} ctx={{ firstName: contract.firstName, orgName, todayIso }} />
     </main>
   );
 }

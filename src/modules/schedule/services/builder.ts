@@ -1060,5 +1060,16 @@ async function buildRhdBlock(
     ? (({ attending: _attending, ...rest }) => rest)(clinic) as RhdClinic
     : null;
 
-  return { readiness, attendingOptions, clinic: clinicRow };
+  // Options are active attendings only, but a clinic can still reference a
+  // now-inactive attending (deactivating one does not cascade to RhdClinic). Union
+  // the currently-assigned attending in so the Select shows it as selected --
+  // otherwise it renders "-- none --" and re-saving the clinic form (to edit any
+  // other field) silently unassigns the attending.
+  const attendingOptionsWithCurrent =
+    clinic?.attending && !attendingOptions.some((o) => o.id === clinic.attending!.id)
+      ? [...attendingOptions, { id: clinic.attending.id, scheduleName: clinic.attending.scheduleName }]
+          .sort((a, b) => a.scheduleName.localeCompare(b.scheduleName))
+      : attendingOptions;
+
+  return { readiness, attendingOptions: attendingOptionsWithCurrent, clinic: clinicRow };
 }

@@ -34,14 +34,20 @@ export async function unreadCount(personId: string): Promise<number> {
   return prisma.notification.count({ where: { personId, readAt: null } });
 }
 
-/** The most recent notifications for a person, newest-first. */
+/**
+ * The bell-dropdown notifications for a person: unread first (newest unread first),
+ * then read (newest first). Ordering unread ahead of read keeps the dropdown in
+ * agreement with the unread badge -- otherwise, when every unread row is older than
+ * the person's 10 most-recent (read) rows, the badge shows N unread while the
+ * dropdown shows none of them.
+ */
 export async function recentNotifications(
   personId: string,
   limit = 10
 ): Promise<Notification[]> {
   return prisma.notification.findMany({
     where: { personId },
-    orderBy: { createdAt: "desc" },
+    orderBy: [{ readAt: { sort: "desc", nulls: "first" } }, { createdAt: "desc" }, { id: "desc" }],
     take: limit,
   });
 }
@@ -55,7 +61,7 @@ export async function listNotifications(
   const [rows, total] = await Promise.all([
     prisma.notification.findMany({
       where: { personId },
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       skip: (page - 1) * NOTIFICATIONS_PAGE_SIZE,
       take: NOTIFICATIONS_PAGE_SIZE,
     }),

@@ -87,9 +87,9 @@ describe("runScheduleConfigImport", () => {
     expect(updated.patientCapacityPerProvider).toBe(10);
   });
 
-  it("sets config to null when roster numbers are absent", async () => {
+  it("does not clobber admin-set config when roster numbers are absent (audit #19)", async () => {
     const dept = await seedDept("SURG", "Surgery");
-    // Pre-set some values
+    // An admin set these capacity values in-app.
     await prisma.department.update({
       where: { id: dept.id },
       data: { idealHeadcount: 3, patientCapacityPerProvider: 8 },
@@ -100,17 +100,17 @@ describe("runScheduleConfigImport", () => {
         id: "rowSurg",
         fields: {
           [FLD_DEPT_CODE]: "SURG",
-          // No headcount or capacity fields -- absent means null
+          // No headcount or capacity fields -- a blank Airtable cell must not clear them.
         },
       },
     ]);
 
     const report = await runScheduleConfigImport(reader, { ...BASE_OPTS, dryRun: false });
-    expect(report.deptConfigChanged).toBe(1);
+    expect(report.deptConfigChanged).toBe(0);
 
     const updated = await prisma.department.findUniqueOrThrow({ where: { id: dept.id } });
-    expect(updated.idealHeadcount).toBeNull();
-    expect(updated.patientCapacityPerProvider).toBeNull();
+    expect(updated.idealHeadcount).toBe(3);
+    expect(updated.patientCapacityPerProvider).toBe(8);
   });
 
   it("adds unknown department code to unknownDepartments list (deduped)", async () => {

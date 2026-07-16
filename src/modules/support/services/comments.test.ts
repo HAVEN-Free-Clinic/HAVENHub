@@ -170,6 +170,26 @@ describe("notifyCommentAdded", () => {
     expect(logs.map((l) => l.toEmail)).toEqual(["assignee@example.com"]);
   });
 
+  it("falls back to current managers when the requester replies but the assignee is no longer active (audit #9)", async () => {
+    const owner = await createPerson("Owner", { contactEmail: "owner@example.com" });
+    // The assignee was a manager but has since been offboarded, yet still lingers
+    // on the ticket (the detail UI keeps a former assignee in the select).
+    const staleAssignee = await createPerson("Stale", { contactEmail: "stale@example.com", status: "OFFBOARDED" });
+    await grantPermission(staleAssignee.id, "support.manage_requests");
+    const currentMgr = await createPerson("Current Manager", { contactEmail: "current@example.com" });
+    await grantPermission(currentMgr.id, "support.manage_requests");
+    let req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
+    req = await prisma.techRequest.update({ where: { id: req.id }, data: { assignedToId: staleAssignee.id } });
+    const comment = await addComment(owner.id, req.id, { body: "an update", visibility: "PUBLIC" });
+
+    await notifyCommentAdded(prisma, req, comment, owner);
+
+    const logs = await prisma.emailLog.findMany({ where: { template: "support.comment_added" } });
+    // A current manager is reached rather than the reply dead-ending at the stale
+    // assignee (which was previously the sole recipient).
+    expect(logs.map((l) => l.toEmail)).toContain("current@example.com");
+  });
+
   it("notifies every manager when the requester replies on an unassigned ticket", async () => {
     const owner = await createPerson("Owner", { contactEmail: "owner@example.com" });
     const mgr1 = await createPerson("Manager One", { contactEmail: "mgr1@example.com" });

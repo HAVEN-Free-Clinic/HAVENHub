@@ -91,6 +91,29 @@ export function complianceStatus(
   return "EXPIRING_SOON";
 }
 
+/**
+ * Compliance status over a person's full certificate history. Prefers the newest
+ * cert, but when that newest cert is an unverified (early) renewal, falls back to
+ * the most recent still-valid VERIFIED cert. Uploading a fresh cert before the old
+ * one expires must not revoke clearance while the new upload awaits verification.
+ * `certs` must be newest-first (uploadedAt desc).
+ */
+export function effectiveComplianceStatus(
+  certs: Array<{ completionDate: Date | null; verifiedAt: Date | null }>,
+  termEnd: Date | null,
+  now: Date = new Date()
+): ComplianceStatus {
+  if (certs.length === 0) return complianceStatus(null, termEnd, now);
+  const newestStatus = complianceStatus(certs[0], termEnd, now);
+  if (newestStatus !== "PENDING_VERIFICATION") return newestStatus;
+  for (const cert of certs) {
+    if (cert.verifiedAt === null) continue;
+    const status = complianceStatus(cert, termEnd, now);
+    if (status === "COMPLIANT" || status === "EXPIRING_SOON") return status;
+  }
+  return newestStatus;
+}
+
 /** The combined clearance a member needs to be active for the term: a valid
  *  certificate AND all required trainings complete. */
 export type OverallClearance = "CLEARED" | "NOT_CLEARED";

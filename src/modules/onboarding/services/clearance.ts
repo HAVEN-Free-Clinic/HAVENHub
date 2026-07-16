@@ -1,6 +1,6 @@
 import type { Track } from "@prisma/client";
 import { prisma } from "@/platform/db";
-import { complianceStatus } from "@/platform/compliance/rules";
+import { effectiveComplianceStatus } from "@/platform/compliance/rules";
 import { loadEhsItemsMap } from "@/platform/ehs/services/status";
 import {
   coursesForMember,
@@ -92,12 +92,14 @@ export async function loadClearanceMap(
       loadEhsItemsMap(termId),
     ]);
 
-  // Newest cert per person (rows are uploadedAt desc; first seen wins).
-  const certByPerson = new Map<string, { completionDate: Date | null; verifiedAt: Date | null }>();
+  // All certs per person, newest first (rows are uploadedAt desc), so an early
+  // renewal (an unverified newest cert) can fall back to a still-valid verified
+  // cert instead of un-clearing the volunteer while the upload awaits verification.
+  const certsByPerson = new Map<string, { completionDate: Date | null; verifiedAt: Date | null }[]>();
   for (const c of certRows) {
-    if (!certByPerson.has(c.personId)) {
-      certByPerson.set(c.personId, { completionDate: c.completionDate, verifiedAt: c.verifiedAt });
-    }
+    const list = certsByPerson.get(c.personId) ?? [];
+    list.push({ completionDate: c.completionDate, verifiedAt: c.verifiedAt });
+    certsByPerson.set(c.personId, list);
   }
 
   const membershipsByPerson = new Map<string, MemberMembership[]>();
@@ -148,7 +150,7 @@ export async function loadClearanceMap(
 
   for (const personId of personIds) {
     const profile = profileByPerson.get(personId) ?? { contactEmail: null, phone: null };
-    const cert = certByPerson.get(personId) ?? null;
+    const certs = certsByPerson.get(personId) ?? [];
     const personMemberships = membershipsByPerson.get(personId) ?? [];
     const kinds = kindsByPerson.get(personId) ?? new Set<Track>();
 
@@ -175,7 +177,7 @@ export async function loadClearanceMap(
 
     const tasks: ClearanceTask[] = [
       applyStep("profile", deriveProfileTaskState(profile)),
-      applyStep("hipaa", deriveHipaaTaskState(complianceStatus(cert, termEnd, now))),
+      applyStep("hipaa", deriveHipaaTaskState(effectiveComplianceStatus(certs, termEnd, now))),
       ...trainingTasks,
       applyStep("learning", deriveLearningTaskState(learningCourses)),
       applyStep("ehs", deriveEhsTaskState(ehsItems)),

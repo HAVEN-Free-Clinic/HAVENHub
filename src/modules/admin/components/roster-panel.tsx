@@ -49,6 +49,11 @@ type RosterPanelProps = {
   skippedCount?: number;
   /** Error string from ?rosterError= redirect. */
   rosterError?: string;
+  /** When false, the add/remove/copy editing controls are hidden (view-only). The
+   *  page admits admin.manage_terms OR admin.manage_roster, but the roster mutations
+   *  require admin.manage_roster; without this a manage_terms-only admin sees forms
+   *  that dead-end at /no-access. Mirrors PersonMembershipsPanel. */
+  canManage: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -60,11 +65,13 @@ function MemberChip({
   membershipId,
   kind,
   removeAction,
+  canManage,
 }: {
   person: Person;
   membershipId: string;
   kind: "DIRECTOR" | "VOLUNTEER";
   removeAction: (formData: FormData) => Promise<void>;
+  canManage: boolean;
 }) {
   return (
     <div className="flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-1.5">
@@ -74,10 +81,12 @@ function MemberChip({
       ) : (
         <Badge tone="default">Volunteer</Badge>
       )}
-      <form action={removeAction} className="ml-auto">
-        <input type="hidden" name="membershipId" value={membershipId} />
-        <ConfirmButton label="Remove" confirmLabel="Remove member?" />
-      </form>
+      {canManage && (
+        <form action={removeAction} className="ml-auto">
+          <input type="hidden" name="membershipId" value={membershipId} />
+          <ConfirmButton label="Remove" confirmLabel="Remove member?" />
+        </form>
+      )}
     </div>
   );
 }
@@ -93,6 +102,7 @@ export async function RosterPanel({
   copiedCount,
   skippedCount,
   rosterError,
+  canManage,
 }: RosterPanelProps): Promise<ReactNode> {
   // Fetch roster groups and all active departments in parallel.
   const [rosterGroups, allActiveDepts, allMembershipsWithIds] = await Promise.all([
@@ -282,6 +292,9 @@ export async function RosterPanel({
         </Alert>
       )}
 
+      {/* Add-member search + results: editing controls, admin.manage_roster only. */}
+      {canManage && (
+      <>
       {/* Add-member search box (global, above cards) */}
       <NavForm className="flex items-end gap-3">
         {/* No other params are preserved; this form resets all query state. */}
@@ -357,6 +370,8 @@ export async function RosterPanel({
           )}
         </Card>
       )}
+      </>
+      )}
 
       {/* Department cards */}
       <div className="space-y-6">
@@ -397,6 +412,7 @@ export async function RosterPanel({
                               membershipId={membershipId}
                               kind="DIRECTOR"
                               removeAction={removeAction}
+                              canManage={canManage}
                             />
                           );
                         })}
@@ -421,6 +437,7 @@ export async function RosterPanel({
                               membershipId={membershipId}
                               kind="VOLUNTEER"
                               removeAction={removeAction}
+                              canManage={canManage}
                             />
                           );
                         })}
@@ -434,8 +451,8 @@ export async function RosterPanel({
         })}
       </div>
 
-      {/* Copy-roster section: PLANNING terms only */}
-      {term.status === "PLANNING" && (
+      {/* Copy-roster section: PLANNING terms only, admin.manage_roster only */}
+      {canManage && term.status === "PLANNING" && (
         <Card>
           <h3 className="mb-4 text-sm font-semibold text-foreground-soft">Copy roster from another term</h3>
           {sourceTerms.length === 0 ? (

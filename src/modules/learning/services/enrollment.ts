@@ -271,10 +271,16 @@ export async function persistScoCmi(
       where: { personId_courseId_scoId: { personId, courseId, scoId } },
       select: { completedAt: true },
     });
-    const scoCompletedAt = sco.completed ? (existingSco?.completedAt ?? new Date()) : null;
+    // Latch completion: once a SCO has completed (completedAt set), a later commit --
+    // a review re-open reporting "incomplete"/"browsed", or the 30s autocommit --
+    // must never downgrade it. Keeping the persisted lesson_status "completed" also
+    // keeps the course rollup from silently reverting COMPLETE -> IN_PROGRESS and
+    // un-clearing a volunteer who already finished (standard LMS behavior).
+    const scoComplete = sco.completed || existingSco?.completedAt != null;
+    const scoCompletedAt = scoComplete ? (existingSco?.completedAt ?? new Date()) : null;
     const scoData = {
       completedAt: scoCompletedAt,
-      lessonStatus: capText(cmi.lessonStatus, MAX_LESSON_STATUS),
+      lessonStatus: scoComplete ? "completed" : capText(cmi.lessonStatus, MAX_LESSON_STATUS),
       scoreRaw: sanitizeScore(cmi.scoreRaw),
       suspendData: capText(cmi.suspendData, MAX_SUSPEND_DATA),
       lessonLocation: capText(cmi.lessonLocation, MAX_LESSON_LOCATION),
@@ -306,14 +312,17 @@ export async function persistScoCmi(
       where: { personId_courseId: { personId, courseId } },
       select: { completedAt: true },
     });
-    const completedAt = roll.completed ? (existingCourse?.completedAt ?? new Date()) : null;
+    // Latch course completion too (defense in depth alongside the per-SCO latch):
+    // a completed course never reverts on a later commit.
+    const courseComplete = roll.completed || existingCourse?.completedAt != null;
+    const completedAt = courseComplete ? (existingCourse?.completedAt ?? new Date()) : null;
 
     // lessonStatus is a rollup token so existing readers (dashboard, getMyCourses)
     // keep deriving the course status from CourseProgress unchanged.
     const courseData = {
-      status: roll.status,
+      status: courseComplete ? ("COMPLETE" as const) : roll.status,
       completedAt,
-      lessonStatus: roll.completed ? "completed" : "incomplete",
+      lessonStatus: courseComplete ? "completed" : "incomplete",
       scoreRaw: rolledScore,
       suspendData: null,
       lessonLocation: null,

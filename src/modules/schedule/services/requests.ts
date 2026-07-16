@@ -27,7 +27,6 @@ import {
   planApply,
 } from "../engine/requests";
 import type { ScheduleRowForValidation } from "../engine/requests";
-import { manageableScheduleDepartmentIds } from "./builder";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { queueEmail } from "@/platform/email/send";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
@@ -140,15 +139,12 @@ export async function countPendingApprovals(personId: string): Promise<number> {
   const term = await getActiveTerm();
   if (!term) return 0;
 
-  const [requestDeptIds, builderDeptIds] = await Promise.all([
-    manageableRequestDepartmentIds(personId),
-    manageableScheduleDepartmentIds(personId),
-  ]);
-  // Only departments the person can BOTH act on (approve/deny) AND open in the
-  // builder, so the dashboard Approvals card never links to a page they would
-  // hit /no-access on.
-  const builderDepts = new Set(builderDeptIds);
-  const departmentIds = requestDeptIds.filter((id) => builderDepts.has(id));
+  // Every department the person can approve/deny requests for. The dashboard
+  // Approvals card links to the dedicated /schedule/requests page, which is
+  // reachable by any approver (including schedule.manage_requests holders who are
+  // not builders), so this no longer intersects with builder-openable departments
+  // -- doing so previously hid a manage_requests holder's approvals entirely.
+  const departmentIds = await manageableRequestDepartmentIds(personId);
   if (departmentIds.length === 0) return 0;
 
   return prisma.shiftRequest.count({
@@ -703,12 +699,21 @@ export async function approveRequest(
     // desirable).
     const addPersonIds = [...new Set(mutations.filter((m) => m.op !== "remove").map((m) => m.personId))];
     if (addPersonIds.length > 0) {
-      const activeCount = await tx.person.count({
-        where: { id: { in: addPersonIds }, status: "ACTIVE" },
+      // Require an ACTIVE TermMembership in THIS department/term, not merely
+      // Person.status === "ACTIVE". A single-department offboard or roster removal
+      // sets TermMembership.status = "REMOVED" while leaving Person.status ACTIVE
+      // and does not delete leftover ShiftAssignment rows, so a globally-active
+      // person who is no longer in this department must not be swapped back onto
+      // its shifts. Mirrors the (person, department) active-membership check used
+      // by setAssignment (builder.ts) and the shift-reminders cron.
+      const activeMembers = await tx.termMembership.findMany({
+        where: { termId: req.termId, departmentId: req.departmentId, personId: { in: addPersonIds }, status: "ACTIVE" },
+        select: { personId: true },
       });
-      if (activeCount !== addPersonIds.length) {
+      const activeSet = new Set(activeMembers.map((m) => m.personId));
+      if (addPersonIds.some((id) => !activeSet.has(id))) {
         throw new RequestValidationError(
-          "A participant has been offboarded and can no longer be scheduled.",
+          "A participant is no longer an active member of this department and can no longer be scheduled.",
         );
       }
     }
@@ -1004,7 +1009,7 @@ export async function eligibleSwapPartners(
   const actorRole = actorAssignment.role;
   const requesterDates = term.clinicDates.filter((d) => isoDateKey(d) === requesterDateKey);
 
-  const [partners, actorAssignments, othersOnRequesterDate] = await Promise.all([
+  const [partners, actorAssignments, othersOnRequesterDate, activeMemberships] = await Promise.all([
     prisma.shiftAssignment.findMany({
       where: {
         termId: term.id,
@@ -1016,7 +1021,7 @@ export async function eligibleSwapPartners(
       select: {
         personId: true,
         clinicDate: true,
-        person: { select: { name: true, status: true } },
+        person: { select: { name: true } },
       },
     }),
     prisma.shiftAssignment.findMany({
@@ -1032,19 +1037,29 @@ export async function eligibleSwapPartners(
       },
       select: { personId: true },
     }),
+    // Everyone still an ACTIVE member of THIS department this term. A leftover
+    // ShiftAssignment survives a single-department removal (which leaves
+    // Person.status ACTIVE), so membership -- not Person.status -- is the gate.
+    prisma.termMembership.findMany({
+      where: { termId: term.id, departmentId, status: "ACTIVE" },
+      select: { personId: true },
+    }),
   ]);
 
   const actorBusyDateKeys = new Set(actorAssignments.map((a) => isoDateKey(a.clinicDate)));
   const partnerIdsOnRequesterDate = new Set(othersOnRequesterDate.map((a) => a.personId));
+  const activeMemberIds = new Set(activeMemberships.map((m) => m.personId));
 
   return partners
     .filter(
       (p) =>
-        // Partners are read from ShiftAssignment rows, which outlive an offboarded
-        // membership, so an offboarded person with a leftover future shift would
-        // otherwise be offered (and, once approved, re-scheduled). Skip them
-        // (audit F5); approveRequest re-checks this on the write path.
-        p.person.status === "ACTIVE" &&
+        // Partners are read from ShiftAssignment rows, which outlive a removed
+        // membership, so a person no longer in this department (single-dept
+        // offboard / roster removal, both of which leave Person.status ACTIVE)
+        // with a leftover future shift would otherwise be offered and, once
+        // approved, re-scheduled. Gate on active membership, not Person.status;
+        // approveRequest re-checks this on the write path.
+        activeMemberIds.has(p.personId) &&
         !actorBusyDateKeys.has(isoDateKey(p.clinicDate)) &&
         !partnerIdsOnRequesterDate.has(p.personId),
     )

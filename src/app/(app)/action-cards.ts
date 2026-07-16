@@ -87,7 +87,7 @@ export function buildActionCards(input: ActionCardInput): ActionCard[] {
   if (input.pendingApprovals > 0) {
     cards.push({
       key: "approvals",
-      href: "/schedule/builder",
+      href: "/schedule/requests",
       icon: ClipboardCheck,
       hue: "admin",
       label: "Approvals",

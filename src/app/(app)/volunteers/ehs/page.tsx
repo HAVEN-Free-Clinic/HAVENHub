@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requirePermission } from "@/platform/auth/session";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Button, buttonClasses } from "@/platform/ui/button";
+import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { Pagination } from "@/platform/ui/pagination";
 import { getEhsDashboard } from "@/platform/ehs/services/status";
@@ -16,6 +17,7 @@ export default async function EhsDashboardPage({
 }) {
   await requirePermission("volunteers.manage_compliance");
   const { trainings, rows } = await getEhsDashboard();
+  const trainingNameById = new Map(trainings.map((t) => [t.id, t.name]));
   const sp = await searchParams;
 
   // Render-level pagination: bounds the DOM (one form per row plus one per
@@ -70,35 +72,51 @@ export default async function EhsDashboardPage({
                         type="submit"
                         size="sm"
                         variant={row.addedToEhs ? "primary" : "outline"}
+                        aria-label={`${row.addedToEhs ? "Remove from" : "Add to"} EHS: ${row.name}`}
                       >
                         {row.addedToEhs ? "Added" : "Add"}
                       </Button>
                     </form>
                   </TD>
-                  {row.cells.map((cell) => (
-                    <TD key={cell.trainingId} className="text-center">
-                      {cell.state === "NA" ? (
-                        <span className="text-xs text-subtle-foreground">n/a</span>
-                      ) : (
-                        <form action={toggleEhsCompletionAction} className="inline">
-                          <input type="hidden" name="personId" value={row.personId} />
-                          <input type="hidden" name="trainingId" value={cell.trainingId} />
-                          <input
-                            type="hidden"
-                            name="complete"
-                            value={cell.state === "COMPLETE" ? "0" : "1"}
-                          />
-                          <Button
-                            type="submit"
-                            size="sm"
-                            variant={cell.state === "COMPLETE" ? "primary" : "outline"}
-                          >
-                            {cell.state === "COMPLETE" ? "Complete" : "Mark"}
-                          </Button>
-                        </form>
-                      )}
-                    </TD>
-                  ))}
+                  {row.cells.map((cell) => {
+                    const trainingName = trainingNameById.get(cell.trainingId) ?? "training";
+                    return (
+                      <TD key={cell.trainingId} className="text-center">
+                        {cell.state === "NA" ? (
+                          <span className="text-xs text-subtle-foreground">n/a</span>
+                        ) : cell.state === "COMPLETE" ? (
+                          // Unmarking hard-deletes the completion and its provenance, so
+                          // guard it behind a two-click confirm (was a single click on a
+                          // button whose label described the state, not the action).
+                          <form action={toggleEhsCompletionAction} className="inline">
+                            <input type="hidden" name="personId" value={row.personId} />
+                            <input type="hidden" name="trainingId" value={cell.trainingId} />
+                            <input type="hidden" name="complete" value="0" />
+                            <ConfirmButton
+                              size="sm"
+                              label="✓ Complete"
+                              confirmLabel="Unmark?"
+                              aria-label={`Unmark ${trainingName} complete for ${row.name}`}
+                            />
+                          </form>
+                        ) : (
+                          <form action={toggleEhsCompletionAction} className="inline">
+                            <input type="hidden" name="personId" value={row.personId} />
+                            <input type="hidden" name="trainingId" value={cell.trainingId} />
+                            <input type="hidden" name="complete" value="1" />
+                            <Button
+                              type="submit"
+                              size="sm"
+                              variant="outline"
+                              aria-label={`Mark ${trainingName} complete for ${row.name}`}
+                            >
+                              Mark
+                            </Button>
+                          </form>
+                        )}
+                      </TD>
+                    );
+                  })}
                 </TR>
               ))}
               {rows.length === 0 && (

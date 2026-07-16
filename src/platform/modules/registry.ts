@@ -30,6 +30,7 @@ export const MODULES: ModuleManifest[] = [
       { label: "My schedule", href: "/schedule" },
       { label: "Full schedule", href: "/schedule/full" },
       { label: "Builder", href: "/schedule/builder" },
+      { label: "Approvals", href: "/schedule/requests", permission: "schedule.manage_requests" },
       { label: "Attendings", href: "/schedule/attendings" },
     ],
   },
@@ -50,6 +51,10 @@ export const MODULES: ModuleManifest[] = [
     description: "Compliance, rosters, offboarding",
     icon: Users,
     accessPermission: "volunteers.view",
+    // A Spanish-review reviewer is granted only volunteers.verify_spanish; it is
+    // their sole page, so it also grants module access (the tile, the layout, and
+    // the nav). Every other page still enforces its own permission.
+    additionalAccessPermissions: ["volunteers.verify_spanish"],
     permissions: [
       "volunteers.view",
       "volunteers.manage_compliance",

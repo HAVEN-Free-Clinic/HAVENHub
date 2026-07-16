@@ -578,10 +578,19 @@ export async function reconcileDeactivationRequests(
     });
     for (const { personId, existingId } of toAttach) {
       if (existingId) {
-        await tx.epicRequest.update({
-          where: { id: existingId },
+        // Atomic claim: only flip a still-PENDING request. Without the status
+        // precondition, a concurrent reconcile (e.g. a double-clicked Generate)
+        // could re-point a request the other run already SUBMITTED onto its own
+        // ticket, orphaning it there. Mirrors createTicket's updateMany claim.
+        const claimed = await tx.epicRequest.updateMany({
+          where: { id: existingId, status: "PENDING" },
           data: { status: "SUBMITTED", ticketId: ticket.id },
         });
+        if (claimed.count !== 1) {
+          throw new SupportStateError(
+            "A selected deactivation was just submitted by another action. Refresh to see current status."
+          );
+        }
       } else {
         await tx.epicRequest.create({
           data: { personId, kind: "DEACTIVATE", status: "SUBMITTED", ticketId: ticket.id, requestedById: actorPersonId },

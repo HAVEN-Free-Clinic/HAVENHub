@@ -115,7 +115,7 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
                   <dd className="mt-0.5 text-sm text-foreground">
                     {f.type === "SIGNATURE" && fileVal?.storedName ? (
                       // eslint-disable-next-line @next/next/no-img-element -- authenticated same-origin file route, not a remote asset
-                      <img src={fileHref} alt={`${f.label} signature`} className="h-20 rounded border border-border-subtle bg-surface" />
+                      <img src={fileHref} alt={`${f.label} signature`} className="h-20 rounded border border-border-subtle bg-white" />
                     ) : fileVal?.storedName ? (
                       <a href={fileHref} target="_blank" rel="noopener noreferrer" className="font-medium text-brand-fg hover:underline">
                         {display}

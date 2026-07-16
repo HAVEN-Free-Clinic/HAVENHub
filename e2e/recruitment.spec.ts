@@ -72,15 +72,22 @@ test("recruitment: build (TypePicker), publish, public apply via portal, view su
   // when their section is the visible step, advance with Continue, and submit on
   // the final Review step (Submit application shows only there).
   const submit = apply.getByRole("button", { name: "Submit application" });
+  const continueBtn = apply.getByRole("button", { name: "Continue" });
   const firstName = apply.locator('input[name="first_name"]');
   for (let i = 0; i < 8; i++) {
+    // Settle on the current step before acting: non-review steps show Continue,
+    // the Review step shows Submit (mutually exclusive). Without this, an immediate
+    // isVisible() could miss the just-mounted Submit and then blind-click a Continue
+    // already gone on Review, hanging the whole test. Bounded so a stuck page fails
+    // fast for the retry instead of consuming the full timeout.
+    await expect(continueBtn.or(submit)).toBeVisible({ timeout: 45_000 });
     if (await submit.isVisible().catch(() => false)) break;
     if (await firstName.isVisible().catch(() => false)) {
       await firstName.fill("Ann");
       await apply.fill('input[name="last_name"]', "New");
       await apply.fill('input[name="email"]', applicantEmail);
     }
-    await apply.getByRole("button", { name: "Continue" }).click();
+    await continueBtn.click();
   }
   await expect(submit).toBeVisible();
   await submit.click();

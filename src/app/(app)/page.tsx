@@ -24,6 +24,7 @@ import { buildActionCards, type ActionCard } from "./action-cards";
 import { listMyCertificates } from "@/modules/my-info/services/my-info";
 import { getOnboardingStatus, type OnboardingTask } from "@/modules/onboarding/services/onboarding";
 import { isInterviewPanelist } from "@/modules/recruitment/services/interviews";
+import { reviewScope } from "@/modules/recruitment/services/review";
 import { complianceStatus, certExpiresAt } from "@/platform/compliance/rules";
 import { getSetting } from "@/platform/settings/service";
 import { isoDateKey, formatCalendarDate } from "@/platform/dates";
@@ -177,19 +178,26 @@ export default async function HubPage() {
   // One permission fetch per render; tiles filter in memory (never can() in a loop).
   const permissions = await getEffectivePermissions(person.personId);
 
-  const [schedule, certificates, isPanelist, orgName, onboarding, pendingApprovals] = await Promise.all([
+  const [schedule, certificates, isPanelist, orgName, onboarding, pendingApprovals, recruitmentScope] = await Promise.all([
     mySchedule(person.personId),
     listMyCertificates(person.personId),
     isInterviewPanelist(person.personId),
     getSetting<string>("branding.orgName"),
     getOnboardingStatus(person.personId),
     countPendingApprovals(person.personId),
+    reviewScope(person.personId),
   ]);
   const { term, shifts } = schedule;
 
   // --- Module visibility ---
+  // A department director reviews recruitment applications by scope (not a
+  // recruitment permission), so surface the recruitment tile for them too --
+  // matching the sub-nav, which the recruitment layout also renders by scope.
+  const isRecruitmentReviewer = recruitmentScope.all || recruitmentScope.departmentCodes.length > 0;
   const activeModules = MODULES.filter(
-    (m) => m.status === "active" && canAccessModule(m, permissions)
+    (m) =>
+      m.status === "active" &&
+      (canAccessModule(m, permissions) || (m.id === "recruitment" && isRecruitmentReviewer))
   );
   const accessible = new Set(activeModules.map((m) => m.id));
 

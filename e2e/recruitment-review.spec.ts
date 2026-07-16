@@ -71,15 +71,20 @@ test("review: accept via department decision, release with no conflicts", async 
   // The application is a multi-step wizard: fill the identity section while it is the
   // visible step, advance with Continue, and Submit only on the final Review step.
   const submit = apply.getByRole("button", { name: "Submit application" });
+  const continueBtn = apply.getByRole("button", { name: "Continue" });
   const firstNameField = apply.locator('input[name="first_name"]');
   for (let i = 0; i < 8; i++) {
+    // Settle on the step before acting: non-review steps show Continue, Review
+    // shows Submit. Avoids the flaky blind-click of a Continue already replaced by
+    // Submit on Review (which hung the whole test).
+    await expect(continueBtn.or(submit)).toBeVisible({ timeout: 45_000 });
     if (await submit.isVisible().catch(() => false)) break;
     if (await firstNameField.isVisible().catch(() => false)) {
       await firstNameField.fill("Onee");
       await apply.fill('input[name="last_name"]', "X");
       await apply.fill('input[name="email"]', applicantEmail);
     }
-    await apply.getByRole("button", { name: "Continue" }).click();
+    await continueBtn.click();
   }
   await expect(submit).toBeVisible();
   await submit.click();

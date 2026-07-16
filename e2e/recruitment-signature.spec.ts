@@ -65,8 +65,14 @@ test("apply: draw a signature field and submit; it persists as a png blob", asyn
 
   // Advance to review and submit.
   const submit = apply.getByRole("button", { name: "Submit application" });
-  for (let i = 0; i < 8 && !(await submit.isVisible().catch(() => false)); i++) {
-    await apply.getByRole("button", { name: "Continue" }).click();
+  const continueBtn = apply.getByRole("button", { name: "Continue" });
+  for (let i = 0; i < 8; i++) {
+    // Settle on the step before acting: non-review steps show Continue, Review
+    // shows Submit. Avoids the flaky blind-click of a Continue already replaced by
+    // Submit on Review (which hung the whole test).
+    await expect(continueBtn.or(submit)).toBeVisible({ timeout: 45_000 });
+    if (await submit.isVisible().catch(() => false)) break;
+    await continueBtn.click();
   }
   await expect(submit).toBeVisible();
   await submit.click();
@@ -138,8 +144,14 @@ test("apply: type a signature via the fallback input and submit; it persists as 
 
   // Advance to review and submit.
   const submit = apply.getByRole("button", { name: "Submit application" });
-  for (let i = 0; i < 8 && !(await submit.isVisible().catch(() => false)); i++) {
-    await apply.getByRole("button", { name: "Continue" }).click();
+  const continueBtn = apply.getByRole("button", { name: "Continue" });
+  for (let i = 0; i < 8; i++) {
+    // Settle on the step before acting: non-review steps show Continue, Review
+    // shows Submit. Avoids the flaky blind-click of a Continue already replaced by
+    // Submit on Review (which hung the whole test).
+    await expect(continueBtn.or(submit)).toBeVisible({ timeout: 45_000 });
+    if (await submit.isVisible().catch(() => false)) break;
+    await continueBtn.click();
   }
   await expect(submit).toBeVisible();
   await submit.click();

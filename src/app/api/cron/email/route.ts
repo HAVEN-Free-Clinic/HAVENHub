@@ -28,8 +28,6 @@
  * claimable. Re-looping would burn all 8 retries during a transient outage
  * (issue #63).
  */
-import { after } from "next/server";
-
 import { authorizeCron } from "@/platform/cron";
 import { dispatchDueCampaigns } from "@/platform/email/campaigns/dispatch";
 import { drainEmailQueue } from "@/platform/email/send";
@@ -58,9 +56,11 @@ export async function GET(req: Request): Promise<Response> {
   log.info("[cron/email] backstop tick complete", {
     result: JSON.stringify({ dispatched: executed, errors, emails, teams }),
   });
-  // Flush after the response is sent so batched logs reach PostHog before the
-  // serverless function freezes.
-  after(() => flushLogs());
+  // Flush before returning so the tick's logs reach PostHog. The
+  // SimpleLogRecordProcessor exports each record eagerly, so this only awaits
+  // the in-flight send; unlike `after()` it needs no request scope, so the
+  // route stays callable directly (e.g. from unit tests).
+  await flushLogs();
 
   return Response.json({ ok: true, dispatched: executed, errors, emails, teams });
 }

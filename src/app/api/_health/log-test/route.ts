@@ -1,5 +1,3 @@
-import { after } from "next/server";
-
 import { errorAttrs, flushLogs, log } from "@/platform/logging";
 
 /**
@@ -25,7 +23,7 @@ export async function GET(): Promise<Response> {
     errorAttrs(new Error("synthetic error for log-test"), { at }),
   );
 
-  after(() => flushLogs());
+  await flushLogs();
 
   return Response.json({ ok: true, emitted: ["debug", "info", "warn", "error"], at });
 }

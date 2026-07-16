@@ -10,6 +10,7 @@ import { renderInlineEmail, loadLayoutSource } from "@/platform/email/templates/
 import { queueEmail, queueEmails } from "@/platform/email/send";
 import type { Prisma } from "@prisma/client";
 import { isValidCron, nextCronAfter, cronMinIntervalMinutes, CAMPAIGN_DISPATCH_CADENCE_MINUTES } from "./cron";
+import { getStarter } from "./starters";
 
 export const CAMPAIGN_CONFIRM_THRESHOLD = 25;
 
@@ -46,15 +47,22 @@ export class CampaignAlreadyDispatchedError extends Error {
   }
 }
 
-export async function createDraft(actorId: string | null, name: string) {
+export async function createDraft(
+  actorId: string | null,
+  name: string,
+  opts: { starterId?: string } = {},
+) {
+  // A starter seeds the draft's subject + body (and supplies a default name when the
+  // creator left it blank). An unknown / omitted starter falls back to an empty draft.
+  const starter = opts.starterId ? getStarter(opts.starterId) : undefined;
   return prisma.emailCampaign.create({
     data: {
-      name,
+      name: name || starter?.name || "Untitled campaign",
       createdById: actorId,
       status: "DRAFT",
       audienceJson: { recordType: "PERSON", match: "ALL", conditions: [] },
-      subject: "",
-      body: "",
+      subject: starter?.subject ?? "",
+      body: starter?.body ?? "",
     },
   });
 }

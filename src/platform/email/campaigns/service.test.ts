@@ -34,6 +34,34 @@ describe("campaign service", () => {
     ).rejects.toBeInstanceOf(CampaignValidationError);
   });
 
+  it("seeds subject/body/name from a starter and stays empty without one", async () => {
+    const blank = await createDraft(null, "");
+    expect(blank.subject).toBe("");
+    expect(blank.body).toBe("");
+    expect(blank.name).toBe("Untitled campaign");
+
+    const seeded = await createDraft(null, "", { starterId: "welcome" });
+    expect(seeded.name).toBe("Welcome to HAVEN Hub");
+    expect(seeded.subject).toContain("Welcome to HAVEN Hub");
+    expect(seeded.body).toContain("docs.havenfreeclinic.org");
+
+    // An explicit name wins over the starter's default name.
+    const named = await createDraft(null, "Fall blast", { starterId: "welcome" });
+    expect(named.name).toBe("Fall blast");
+
+    // An unknown starter id falls back to an empty draft rather than throwing.
+    const unknown = await createDraft(null, "Mystery", { starterId: "nope" });
+    expect(unknown.body).toBe("");
+
+    // The seeded body passes the same validation updateCampaign enforces on save.
+    const saved = await updateCampaign(null, seeded.id, {
+      subject: seeded.subject,
+      body: seeded.body,
+      audience: ALL_ACTIVE,
+    });
+    expect(saved.status).toBe("DRAFT");
+  });
+
   it("send-now enqueues one email per recipient and marks SENT", async () => {
     await activePerson("Sam Rivera", "sam@example.com");
     await activePerson("Pat Lee", "pat@example.com");

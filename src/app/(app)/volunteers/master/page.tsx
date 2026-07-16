@@ -361,13 +361,16 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
                         </Badge>
                       </TD>
                       <TD>
-                        {row.isVolunteer ? (
+                        {row.isVolunteer && row.clearance.tasks.some((t) => t.key === "training") ? (
                           <Badge
                             tone={row.trainingState === "COMPLETE" ? "success" : "default"}
                           >
                             {row.trainingState === "COMPLETE" ? "Complete" : "Pending"}
                           </Badge>
                         ) : (
+                          // No designated volunteer training this term -> not required,
+                          // so show "-" rather than a misleading "Pending" that
+                          // contradicts the Cleared badge.
                           <span className="text-subtle-foreground">-</span>
                         )}
                       </TD>

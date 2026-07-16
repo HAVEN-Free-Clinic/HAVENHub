@@ -471,6 +471,27 @@ describe("offboardingView", () => {
     expect(row.flag.note).toBe("ready to exit");
   });
 
+  it("excludes an already-offboarded person from the flagged queue (audit #35)", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("ITCM");
+    const executor = await createPerson("Executor", "exec001");
+    const vol = await createPerson("Volunteer", "vol001");
+    const flagger = await createPerson("Flagger", "flg001");
+
+    await grantPermission(executor.id, "volunteers.manage_offboarding");
+    await createMembership(vol.id, term.id, dept.id, "VOLUNTEER");
+    await prisma.offboardFlag.create({
+      data: { personId: vol.id, termId: term.id, flaggedById: flagger.id, note: "ready to exit" },
+    });
+
+    // Offboarded via the /admin/people path: Person.status flips but the flag row
+    // is not deleted. The flagged queue must not keep showing them.
+    await prisma.person.update({ where: { id: vol.id }, data: { status: "OFFBOARDED" } });
+
+    const result = await offboardingView(executor.id);
+    expect(result.flagged).toEqual([]);
+  });
+
   it("no active term returns empty departments and null flagged", async () => {
     await createTerm("ARCHIVED");
     const person = await createPerson("Person", "p001");

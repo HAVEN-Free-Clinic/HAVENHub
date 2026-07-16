@@ -234,13 +234,15 @@ export default async function VolunteersPage({ searchParams }: PageProps) {
                           </Badge>
                         </TD>
                         <TD>
-                          {m.kind === "VOLUNTEER" ? (
+                          {m.kind === "VOLUNTEER" && m.clearance.tasks.some((t) => t.key === "training") ? (
                             <Badge
                               tone={m.trainingState === "COMPLETE" ? "success" : "default"}
                             >
                               {m.trainingState === "COMPLETE" ? "Complete" : "Pending"}
                             </Badge>
                           ) : (
+                            // No designated volunteer training this term -> not required,
+                            // so show "-" rather than a misleading "Pending".
                             <span className="text-subtle-foreground">-</span>
                           )}
                         </TD>

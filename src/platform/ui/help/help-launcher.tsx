@@ -94,30 +94,35 @@ export function HelpLauncher({
 
   return (
     <>
+      {/* Persistent floating help bubble, bottom-right on every authenticated page.
+          Rendered outside the glass-bar toolbar (see AppShell), so `fixed` anchors to
+          the viewport rather than the toolbar's backdrop-filter containing block. */}
       <button
         type="button"
         onClick={toggle}
-        aria-label="Help and documentation"
+        aria-label={open ? "Close help" : "Help and documentation"}
         aria-haspopup="dialog"
         aria-expanded={open}
-        className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+        className="fixed bottom-6 right-6 z-50 inline-flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-brand to-brand-deep text-white shadow-lg transition hover:shadow-xl hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
       >
-        <CircleHelp aria-hidden className="h-4 w-4" />
+        {open ? (
+          <X aria-hidden className="h-6 w-6" />
+        ) : (
+          <CircleHelp aria-hidden className="h-6 w-6" />
+        )}
       </button>
 
-      {/* Portal to <body>: the app-shell toolbar (glass-bar) uses backdrop-filter,
-          which makes it the containing block for position:fixed descendants. Rendered
-          inline, this panel would anchor to the toolbar (top) and fly off-screen, so we
-          escape to <body> for `fixed` to resolve against the viewport. */}
+      {/* Portal the panel to <body> so its `fixed` positioning is robust regardless of
+          any transformed/filtered ancestor. It floats just above the bubble. */}
       {open &&
         typeof document !== "undefined" &&
         createPortal(
           <div
             role="dialog"
             aria-label="Help and documentation"
-            className="fixed inset-x-0 bottom-0 z-50 sm:inset-x-auto sm:bottom-4 sm:right-4"
+            className="fixed bottom-24 left-4 right-4 z-50 sm:left-auto sm:right-6"
           >
-          <div className="glass-panel flex h-[80vh] w-full flex-col overflow-hidden rounded-t-2xl sm:h-[600px] sm:w-[400px] sm:rounded-2xl">
+          <div className="glass-panel flex h-[70vh] max-h-[calc(100dvh-8rem)] w-full flex-col overflow-hidden rounded-2xl sm:h-[600px] sm:w-[400px]">
             <div className="flex items-center justify-between border-b border-border-subtle px-4 py-2.5">
               <span className="text-sm font-semibold text-foreground">Help</span>
               <button

@@ -94,9 +94,6 @@ export async function AppShell({
 
           <div className="flex shrink-0 items-center gap-2 sm:gap-3">
             <ThemeToggle initial={resolvedTheme} />
-            {gitbookEnabled && (
-              <HelpLauncher siteURL={config.GITBOOK_SITE_URL as string} moduleLabels={moduleLabels} />
-            )}
             <NotificationBell />
             <div className="hidden items-center gap-2.5 sm:flex">
               <span
@@ -151,6 +148,13 @@ export async function AppShell({
           {formatOrgLine(org)}
         </div>
       </footer>
+
+      {/* Persistent floating help bubble. Mounted OUTSIDE the glass-bar toolbar so its
+          fixed positioning anchors to the viewport, not the toolbar's backdrop-filter
+          containing block. Renders only when GitBook is configured. */}
+      {gitbookEnabled && (
+        <HelpLauncher siteURL={config.GITBOOK_SITE_URL as string} moduleLabels={moduleLabels} />
+      )}
     </div>
   );
 }

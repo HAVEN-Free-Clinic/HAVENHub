@@ -72,6 +72,10 @@ export function MultiCombobox({
     commit([...selected, value]);
     setQuery("");
     setActive(0);
+    // Close after each pick (like the single-select Combobox) so the floating
+    // option list never lingers over -- and intercept clicks meant for -- the
+    // fields below. Clicking the input again (onClick) reopens it to add more.
+    setOpen(false);
   }
   function remove(value: string) {
     commit(selected.filter((v) => v !== value));
@@ -155,6 +159,9 @@ export function MultiCombobox({
             setActive(0);
           }}
           onFocus={() => setOpen(true)}
+          // Reopen on click too: after a pick the input keeps focus while the
+          // list is closed, so onFocus alone would not fire on the next click.
+          onClick={() => setOpen(true)}
           onKeyDown={onKeyDown}
         />
       </div>

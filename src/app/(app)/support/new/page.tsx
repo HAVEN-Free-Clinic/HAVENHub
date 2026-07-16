@@ -6,7 +6,8 @@ import { createTechRequest, SupportForbiddenError, SupportStateError } from "@/m
 import { notifyTicketSubmitted } from "@/modules/support/services/notifications";
 import { persistAttachment } from "@/modules/support/services/attachments";
 import { SubmitForm } from "@/modules/support/components/submit-form";
-import { getPostHogClient } from "@/platform/posthog/posthog-server";
+import { captureEvent } from "@/platform/posthog/capture";
+import { activeTermGroup } from "@/platform/posthog/groups";
 import { ALL_CATEGORIES } from "@/modules/support/filter-options";
 import type { TechRequestCategory } from "@prisma/client";
 
@@ -70,13 +71,12 @@ export default async function SubmitPage({ searchParams }: PageProps) {
       throw err;
     }
 
-    const posthog = getPostHogClient();
-    posthog.capture({
+    await captureEvent({
       distinctId: session.personId,
       event: "support_request_submitted",
       properties: { category, request_id: req.id, has_attachments: files.length > 0 },
+      groups: await activeTermGroup(),
     });
-    await posthog.flush();
     redirect(`/support/${req.id}?submitted=1`);
   }
 

@@ -2,7 +2,7 @@
 import { cookies } from "next/headers";
 import { signOut } from "@/platform/auth/auth";
 import { requestMagicLink, APPLICANT_COOKIE } from "@/modules/recruitment/services/portal-auth";
-import { getPostHogClient } from "@/platform/posthog/posthog-server";
+import { captureEvent } from "@/platform/posthog/capture";
 
 export async function requestMagicLinkAction(formData: FormData): Promise<{ ok: boolean }> {
   const email = String(formData.get("email") ?? "").trim();
@@ -12,13 +12,11 @@ export async function requestMagicLinkAction(formData: FormData): Promise<{ ok: 
   // emailed verify link returns them there; requestMagicLink sanitizes it.
   const next = String(formData.get("next") ?? "").trim() || null;
   await requestMagicLink(email, next);
-  const posthog = getPostHogClient();
-  posthog.capture({
+  await captureEvent({
     distinctId: email,
     event: "applicant_magic_link_requested",
     properties: { has_next: !!next },
   });
-  await posthog.flush();
   return { ok: true };
 }
 

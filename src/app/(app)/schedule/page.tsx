@@ -23,6 +23,8 @@ import {
   RequestForbiddenError,
   RequestNotFoundError,
 } from "@/modules/schedule/services/requests";
+import { captureEvent } from "@/platform/posthog/capture";
+import { activeTermGroup } from "@/platform/posthog/groups";
 import { isoDateKey } from "@/modules/schedule/engine/map";
 import { displayDate } from "@/modules/schedule/engine/display";
 import { CalendarDate } from "@/platform/dates/display";
@@ -117,6 +119,12 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
       }
       throw err;
     }
+    await captureEvent({
+      event: "shift_change_requested",
+      distinctId: actor.personId,
+      properties: { department_id: departmentId, request_kind: kind || (targetId ? "swap" : "drop"), date_key: dateKey },
+      groups: await activeTermGroup(),
+    });
     revalidatePath("/schedule");
     redirect("/schedule?requested=1");
   }

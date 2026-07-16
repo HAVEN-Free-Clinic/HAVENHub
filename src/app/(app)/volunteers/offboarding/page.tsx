@@ -1,5 +1,6 @@
 import { requirePermission } from "@/platform/auth/session";
-import { getPostHogClient } from "@/platform/posthog/posthog-server";
+import { captureEvent } from "@/platform/posthog/capture";
+import { activeTermGroup } from "@/platform/posthog/groups";
 import { PageHeader } from "@/platform/ui/page-header";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { Badge } from "@/platform/ui/badge";
@@ -82,13 +83,12 @@ export default async function OffboardingPage({ searchParams }: PageProps) {
     if (!personId) return;
     try {
       await executeOffboard(actor.personId, personId);
-      const posthog = getPostHogClient();
-      posthog.capture({
+      await captureEvent({
         distinctId: actor.personId,
         event: "volunteer_offboarded",
         properties: { offboarded_person_id: personId },
+        groups: await activeTermGroup(),
       });
-      await posthog.flush();
     } catch (err) {
       if (err instanceof OffboardForbiddenError) {
         redirect(`/volunteers/offboarding?error=${encodeURIComponent(err.message)}`);

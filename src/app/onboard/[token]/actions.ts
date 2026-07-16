@@ -1,6 +1,8 @@
 "use server";
 import { submitContract, ContractError, ContractValidationError, type ContractSubmission } from "@/modules/recruitment/services/onboarding";
 import { collectSignatureInputs } from "@/modules/recruitment/contract/signatures";
+import { captureEvent } from "@/platform/posthog/capture";
+import { activeTermGroup } from "@/platform/posthog/groups";
 
 export type SubmitResult = { ok: true } | { ok: false; message: string; fieldErrors?: Record<string, string> };
 
@@ -40,7 +42,12 @@ export async function submitOnboarding(token: string, formData: FormData): Promi
     hipaaFile: file instanceof File && file.size > 0 ? { fileName: file.name, mimeType: file.type, bytes: Buffer.from(await file.arrayBuffer()) } : undefined,
   };
   try {
-    await submitContract(token, input);
+    const contract = await submitContract(token, input);
+    await captureEvent({
+      event: "onboarding_contract_submitted",
+      distinctId: contract.email,
+      groups: await activeTermGroup(),
+    });
     return { ok: true };
   } catch (err) {
     if (err instanceof ContractValidationError) return { ok: false, message: err.message, fieldErrors: err.fieldErrors };

@@ -54,3 +54,8 @@ export function register() {
     logs.setGlobalLoggerProvider(loggerProvider);
   }
 }
+
+// Next.js calls `onRequestError` for every server-side error (RSC, route
+// handlers, server actions). This ships them to PostHog Error Tracking; see
+// `@/platform/posthog/request-error`.
+export { onRequestError } from "@/platform/posthog/request-error";

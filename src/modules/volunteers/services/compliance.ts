@@ -9,6 +9,8 @@
 import type { Department, HipaaCertificate, Person } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
+import { captureEvent } from "@/platform/posthog/capture";
+import { activeTermGroup } from "@/platform/posthog/groups";
 import { complianceStatus } from "@/platform/compliance/rules";
 import type { ComplianceStatus, TrainingState } from "@/platform/compliance/rules";
 import { manageableDepartmentIds } from "@/platform/departments";
@@ -521,6 +523,17 @@ export async function verifyCertificate(
     entityId: certId,
     after: { certId, ownerPersonId: cert.personId },
   });
+
+  // Fire once, on the not-verified -> verified transition, attributed to the
+  // certificate owner (the person being cleared) for the clearance funnel.
+  if (!cert.verifiedAt) {
+    await captureEvent({
+      event: "hipaa_certificate_verified",
+      distinctId: cert.personId,
+      properties: { verified_by: actorPersonId, via: "verify" },
+      groups: await activeTermGroup(),
+    });
+  }
 }
 
 /**
@@ -606,6 +619,17 @@ export async function setCompletionDateAsManager(
     before,
     after: { completionDate, extraction: "MANUAL", verifiedById: actorPersonId, verifiedAt: now },
   });
+
+  // Setting the date also verifies the cert; fire the same milestone once, on
+  // the not-verified -> verified transition.
+  if (!cert.verifiedAt) {
+    await captureEvent({
+      event: "hipaa_certificate_verified",
+      distinctId: cert.personId,
+      properties: { verified_by: actorPersonId, via: "set_date" },
+      groups: await activeTermGroup(),
+    });
+  }
 }
 
 export { CompletionDateError };

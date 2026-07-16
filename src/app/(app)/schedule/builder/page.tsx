@@ -47,6 +47,8 @@ import {
   RequestNotFoundError,
   RequestValidationError,
 } from "@/modules/schedule/services/requests";
+import { captureEvent } from "@/platform/posthog/capture";
+import { activeTermGroup } from "@/platform/posthog/groups";
 import { BuilderCell } from "@/modules/schedule/components/builder-cell";
 import { BuilderGrid } from "@/modules/schedule/components/builder-grid";
 import { CapacityPanel } from "@/modules/schedule/components/capacity-panel";
@@ -404,7 +406,15 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     const requestId = (formData.get("requestId") as string) ?? "";
     const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode });
     await runAction({
-      work: () => approveRequest(actor.personId, requestId),
+      work: async () => {
+        await approveRequest(actor.personId, requestId);
+        await captureEvent({
+          event: "shift_request_approved",
+          distinctId: actor.personId,
+          properties: { request_id: requestId, department_id: dept.id },
+          groups: await activeTermGroup(),
+        });
+      },
       domainErrors: [RequestValidationError, RequestForbiddenError, RequestNotFoundError],
       errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message }),
       revalidate: "/schedule/builder",
@@ -419,7 +429,15 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     const note = ((formData.get("denyNote") as string) ?? "").trim() || undefined;
     const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode });
     await runAction({
-      work: () => denyRequest(actor.personId, requestId, note),
+      work: async () => {
+        await denyRequest(actor.personId, requestId, note);
+        await captureEvent({
+          event: "shift_request_denied",
+          distinctId: actor.personId,
+          properties: { request_id: requestId, department_id: dept.id },
+          groups: await activeTermGroup(),
+        });
+      },
       domainErrors: [RequestValidationError, RequestForbiddenError, RequestNotFoundError],
       errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message }),
       revalidate: "/schedule/builder",

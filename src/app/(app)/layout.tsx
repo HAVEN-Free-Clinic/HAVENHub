@@ -20,6 +20,8 @@ export default async function AppGroupLayout({ children }: { children: ReactNode
         personId={person.personId}
         name={person.name}
         email={person.email}
+        termId={activeTerm?.id ?? null}
+        termName={activeTerm?.name ?? null}
       />
       <AppShell
         userName={person.name}

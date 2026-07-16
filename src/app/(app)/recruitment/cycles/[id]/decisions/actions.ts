@@ -3,7 +3,8 @@ import { redirect } from "next/navigation";
 import { requirePersonSession } from "@/platform/auth/session";
 import { releaseDecisions } from "@/modules/recruitment/services/decisions";
 import { RecruitmentAuthError, AcceptanceError } from "@/modules/recruitment/services/review";
-import { getPostHogClient } from "@/platform/posthog/posthog-server";
+import { captureEvent } from "@/platform/posthog/capture";
+import { termGroupForCycle } from "@/platform/posthog/groups";
 
 export async function releaseDecisionsAction(cycleId: string) {
   const person = await requirePersonSession();
@@ -18,12 +19,11 @@ export async function releaseDecisionsAction(cycleId: string) {
     }
     throw err;
   }
-  const posthog = getPostHogClient();
-  posthog.capture({
+  await captureEvent({
     distinctId: person.personId,
     event: "recruitment_decisions_released",
     properties: { cycle_id: cycleId, sent, skipped_conflicted: skipped },
+    groups: await termGroupForCycle(cycleId),
   });
-  await posthog.flush();
   redirect(`/recruitment/cycles/${cycleId}/decisions?sent=${sent}&skipped=${skipped}`);
 }

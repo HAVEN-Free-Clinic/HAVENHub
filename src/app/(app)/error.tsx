@@ -3,6 +3,7 @@ import Link from "next/link";
 import { AlertTriangle } from "lucide-react";
 import { Button, buttonClasses } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
+import { CaptureException } from "@/platform/posthog/capture-exception";
 
 /**
  * Single error boundary for the whole authenticated (app) tree. It renders in
@@ -11,9 +12,10 @@ import { Card } from "@/platform/ui/card";
  * unexpected null) instead of falling through to Next's bare error screen.
  * `reset()` re-renders the segment to retry; the link is a guaranteed way back.
  */
-export default function AppError({ reset }: { error: Error & { digest?: string }; reset: () => void }) {
+export default function AppError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
   return (
     <div className="mx-auto max-w-lg py-12">
+      <CaptureException error={error} />
       <Card className="text-center">
         <span className="mx-auto grid h-12 w-12 place-items-center rounded-[13px] bg-critical-faint text-critical">
           <AlertTriangle aria-hidden className="h-6 w-6" />

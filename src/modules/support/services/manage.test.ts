@@ -71,6 +71,18 @@ describe("assignRequest", () => {
     expect(logs.map((l) => l.toEmail)).toContain("mgr@example.com");
   });
 
+  it("refuses to assign to a person who is not a support manager (audit #26)", async () => {
+    const owner = await createPerson("Owner");
+    const mgr = await createPerson("Marla Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const notManager = await createPerson("Not A Manager");
+    const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
+
+    await expect(assignRequest(mgr.id, req.id, notManager.id)).rejects.toThrow(SupportStateError);
+    const fresh = await prisma.techRequest.findUniqueOrThrow({ where: { id: req.id } });
+    expect(fresh.assignedToId).toBeNull();
+  });
+
   it("unassigns when given null and sends no notification", async () => {
     const owner = await createPerson("Owner");
     const mgr = await createPerson("Marla Manager", { contactEmail: "mgr@example.com" });

@@ -138,13 +138,22 @@ export async function notifyCommentAdded(
 
   const recipients: { id: string; entraObjectId: string | null; contactEmail: string | null }[] = [];
   if (authorIsRequester) {
+    let routedToAssignee = false;
     if (req.assignedToId) {
       const assignee = await prisma.person.findUnique({
         where: { id: req.assignedToId },
-        select: { id: true, entraObjectId: true, contactEmail: true },
+        select: { id: true, entraObjectId: true, contactEmail: true, status: true },
       });
-      if (assignee) recipients.push(assignee);
-    } else {
+      // Only route solely to the assignee if they are still an ACTIVE support
+      // manager. An offboarded or de-permissioned assignee lingers on the ticket
+      // (the detail UI keeps a former assignee in the select), so without this a
+      // requester's reply would reach a stale assignee and no current manager.
+      if (assignee && assignee.status === "ACTIVE" && (await can(assignee.id, MANAGE))) {
+        recipients.push({ id: assignee.id, entraObjectId: assignee.entraObjectId, contactEmail: assignee.contactEmail });
+        routedToAssignee = true;
+      }
+    }
+    if (!routedToAssignee) {
       const managers = await peopleWithAnyPermission([MANAGE]);
       recipients.push(...managers);
     }

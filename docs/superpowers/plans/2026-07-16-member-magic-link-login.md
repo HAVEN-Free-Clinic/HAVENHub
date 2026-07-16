@@ -17,8 +17,8 @@
 - **Token security is fixed:** 256-bit random token (`randomBytes(32).toString("base64url")`), only its SHA-256 hex hash stored, single-use via atomic `updateMany` claim (`count === 1`), 30-minute TTL, rate limit 3 per 15 minutes per email.
 - **Enumeration-safe:** `requestMemberLoginLink` returns the same `"sent"` result for a match, a non-match, and a rate-limited request. Never reveal whether an email maps to an active member. The only distinct result is `"use-yale"` for `@yale.edu` addresses (the domain is public and reveals nothing about membership).
 - **Email link base = the `app.baseUrl` setting** (`getSetting<string>("app.baseUrl")`), NOT `PORTAL_BASE_URL`/`pickPortalEmailBase` (those are apply-portal specific). Never derive the base from the request Host header.
-- **Prisma migrations:** hand-name the migration dir with a UTC timestamp prefix `YYYYMMDDHHMMSS_name`. Run `prisma migrate dev` ONLY against the throwaway local Postgres (`postgresql://haven:haven_dev@localhost:5434/havenhub_test`), NEVER Neon. The repo `.env` points every DB url (including `TEST_DATABASE_URL`) at shared Neon.
-- **Vitest ignores `.env`.** Run DB-backed tests with an explicit per-worktree `TEST_DATABASE_URL` (e.g. `postgresql://haven:haven_dev@localhost:5434/havenhub_test`) to avoid the shared-DB deadlock. Apply migrations to it with `prisma migrate deploy` first.
+- **Prisma migrations:** hand-name the migration dir with a UTC timestamp prefix `YYYYMMDDHHMMSS_name`. Run `prisma migrate dev` ONLY against the throwaway local Postgres (`postgresql://haven:haven_dev@localhost:5434/havenhub_test_mml`), NEVER Neon. The repo `.env` points every DB url (including `TEST_DATABASE_URL`) at shared Neon.
+- **Vitest ignores `.env`.** Run DB-backed tests with an explicit per-worktree `TEST_DATABASE_URL` (e.g. `postgresql://haven:haven_dev@localhost:5434/havenhub_test_mml`) to avoid the shared-DB deadlock. Apply migrations to it with `prisma migrate deploy` first.
 - **Before pushing, run the whole-repo `npm run lint`** (the pre-push and CI checks job lint the entire repo; typecheck + tests miss the eslint boundary).
 
 ---
@@ -79,16 +79,17 @@ CREATE INDEX "MemberLoginToken_personId_idx" ON "MemberLoginToken"("personId");
 
 Run:
 ```bash
-DATABASE_URL='postgresql://haven:haven_dev@localhost:5434/havenhub_test' npx prisma migrate deploy
-DATABASE_URL='postgresql://haven:haven_dev@localhost:5434/havenhub_test' npx prisma migrate status
+npx prisma generate
+DATABASE_URL='postgresql://haven:haven_dev@localhost:5434/havenhub_test_mml' npx prisma migrate deploy
+DATABASE_URL='postgresql://haven:haven_dev@localhost:5434/havenhub_test_mml' npx prisma migrate status
 ```
-Expected: `migrate status` reports "Database schema is up to date!". If it reports drift on the throwaway DB, resolve with `npx prisma migrate resolve --applied 20260716120000_add_member_login_token` then re-run `migrate deploy` (do NOT `migrate reset` a shared DB). The `migrate deploy` regenerates the Prisma client for this worktree so `prisma.memberLoginToken` is typed.
+Expected: `prisma generate` succeeds (this worktree has its OWN real `node_modules`, so generating does not disturb other worktrees) and now the TS client exposes `prisma.memberLoginToken`. `migrate deploy` applies every migration (baseline through the new one) to the empty per-worktree DB, and `migrate status` reports "Database schema is up to date!". If it reports drift, resolve with `DATABASE_URL='postgresql://haven:haven_dev@localhost:5434/havenhub_test_mml' npx prisma migrate resolve --applied 20260716120000_add_member_login_token` then re-run `migrate deploy` (never `migrate reset`).
 
 - [ ] **Step 5: Verify the table exists.**
 
 Run:
 ```bash
-DATABASE_URL='postgresql://haven:haven_dev@localhost:5434/havenhub_test' npx prisma db execute --stdin <<'SQL'
+DATABASE_URL='postgresql://haven:haven_dev@localhost:5434/havenhub_test_mml' npx prisma db execute --stdin <<'SQL'
 SELECT to_regclass('"MemberLoginToken"') IS NOT NULL AS exists;
 SQL
 ```
@@ -135,7 +136,7 @@ it("defaults auth.memberMagicLinkEnabled to true and honors an override", async 
 
 - [ ] **Step 2: Run it to verify it fails.**
 
-Run: `TEST_DATABASE_URL='postgresql://haven:haven_dev@localhost:5434/havenhub_test' npx vitest run src/platform/settings/member-magic-link-setting.test.ts`
+Run: `TEST_DATABASE_URL='postgresql://haven:haven_dev@localhost:5434/havenhub_test_mml' npx vitest run src/platform/settings/member-magic-link-setting.test.ts`
 Expected: FAIL (getSetting throws "Unregistered setting key: auth.memberMagicLinkEnabled").
 
 - [ ] **Step 3: Register the setting.** In `src/platform/settings/registry.ts`, add this entry to the `SETTINGS` array (place it after the `app.baseUrl` entry). `z` and `config` are already imported in this file:
@@ -157,7 +158,7 @@ Note: `category: "Operations"` groups it in the auto-rendered `/admin/settings` 
 
 - [ ] **Step 4: Run the test to verify it passes.**
 
-Run: `TEST_DATABASE_URL='postgresql://haven:haven_dev@localhost:5434/havenhub_test' npx vitest run src/platform/settings/member-magic-link-setting.test.ts`
+Run: `TEST_DATABASE_URL='postgresql://haven:haven_dev@localhost:5434/havenhub_test_mml' npx vitest run src/platform/settings/member-magic-link-setting.test.ts`
 Expected: PASS.
 
 - [ ] **Step 5: Commit.**
@@ -213,7 +214,7 @@ it("registers auth.member_login_link with firstName + loginUrl and renders both"
 
 - [ ] **Step 2: Run it to verify it fails.**
 
-Run: `TEST_DATABASE_URL='postgresql://haven:haven_dev@localhost:5434/havenhub_test' npx vitest run src/platform/email/templates/auth-template.test.ts`
+Run: `TEST_DATABASE_URL='postgresql://haven:haven_dev@localhost:5434/havenhub_test_mml' npx vitest run src/platform/email/templates/auth-template.test.ts`
 Expected: FAIL (`getDescriptor` returns undefined; `renderEmail` throws "Unknown email template: auth.member_login_link").
 
 - [ ] **Step 3: Extend the `TemplateGroup` union.** In `src/platform/email/templates/types.ts`, add `"auth"` to the union:
@@ -267,12 +268,12 @@ and inside `const ALL: TemplateDescriptor[] = [ ... ]` add:
 
 - [ ] **Step 7: Run the test to verify it passes.**
 
-Run: `TEST_DATABASE_URL='postgresql://haven:haven_dev@localhost:5434/havenhub_test' npx vitest run src/platform/email/templates/auth-template.test.ts`
+Run: `TEST_DATABASE_URL='postgresql://haven:haven_dev@localhost:5434/havenhub_test_mml' npx vitest run src/platform/email/templates/auth-template.test.ts`
 Expected: PASS.
 
 - [ ] **Step 8: Run the registry test to confirm no regressions.**
 
-Run: `TEST_DATABASE_URL='postgresql://haven:haven_dev@localhost:5434/havenhub_test' npx vitest run src/platform/email/templates/registry.test.ts`
+Run: `TEST_DATABASE_URL='postgresql://haven:haven_dev@localhost:5434/havenhub_test_mml' npx vitest run src/platform/email/templates/registry.test.ts`
 Expected: PASS (unique keys, every descriptor has a group).
 
 - [ ] **Step 9: Commit.**
@@ -449,7 +450,7 @@ it("rejects when the member's contactEmail changed after issue", async () => {
 
 - [ ] **Step 2: Run to verify it fails.**
 
-Run: `TEST_DATABASE_URL='postgresql://haven:haven_dev@localhost:5434/havenhub_test' npx vitest run src/platform/auth/member-magic-link.test.ts`
+Run: `TEST_DATABASE_URL='postgresql://haven:haven_dev@localhost:5434/havenhub_test_mml' npx vitest run src/platform/auth/member-magic-link.test.ts`
 Expected: FAIL ("Cannot find module './member-magic-link'").
 
 - [ ] **Step 3: Implement the token trio** at `src/platform/auth/member-magic-link.ts`:
@@ -528,7 +529,7 @@ Note: if a transitive import pulls `next/headers` and Vitest errors on it, add `
 
 - [ ] **Step 4: Run the tests to verify they pass.**
 
-Run: `TEST_DATABASE_URL='postgresql://haven:haven_dev@localhost:5434/havenhub_test' npx vitest run src/platform/auth/member-magic-link.test.ts`
+Run: `TEST_DATABASE_URL='postgresql://haven:haven_dev@localhost:5434/havenhub_test_mml' npx vitest run src/platform/auth/member-magic-link.test.ts`
 Expected: PASS (6 tests).
 
 - [ ] **Step 5: Commit.**
@@ -634,7 +635,7 @@ it("builds the link from the configurable app.baseUrl setting", async () => {
 
 - [ ] **Step 2: Run to verify it fails.**
 
-Run: `TEST_DATABASE_URL='postgresql://haven:haven_dev@localhost:5434/havenhub_test' npx vitest run src/platform/auth/member-magic-link.request.test.ts`
+Run: `TEST_DATABASE_URL='postgresql://haven:haven_dev@localhost:5434/havenhub_test_mml' npx vitest run src/platform/auth/member-magic-link.request.test.ts`
 Expected: FAIL (`requestMemberLoginLink` is not exported).
 
 - [ ] **Step 3: Append the issuer.** Add these imports to the top of `src/platform/auth/member-magic-link.ts`:
@@ -705,7 +706,7 @@ export async function requestMemberLoginLink(email: string, next?: string | null
 
 - [ ] **Step 4: Run the tests to verify they pass.**
 
-Run: `TEST_DATABASE_URL='postgresql://haven:haven_dev@localhost:5434/havenhub_test' npx vitest run src/platform/auth/member-magic-link.request.test.ts`
+Run: `TEST_DATABASE_URL='postgresql://haven:haven_dev@localhost:5434/havenhub_test_mml' npx vitest run src/platform/auth/member-magic-link.request.test.ts`
 Expected: PASS (7 tests).
 
 - [ ] **Step 5: Commit.**
@@ -1132,7 +1133,7 @@ Expected: no errors.
 
 - [ ] **Step 2: Run the full unit suite** against the local test DB.
 
-Run: `TEST_DATABASE_URL='postgresql://haven:haven_dev@localhost:5434/havenhub_test' npx vitest run`
+Run: `TEST_DATABASE_URL='postgresql://haven:haven_dev@localhost:5434/havenhub_test_mml' npx vitest run`
 Expected: all pass. (If a pre-existing flake appears, e.g. the known `inbox.test.ts` createdAt-tie ordering flake, re-run to confirm it is unrelated.)
 
 - [ ] **Step 3: Lint the WHOLE repo** (required before push; CI lints).

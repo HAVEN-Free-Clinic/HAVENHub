@@ -259,6 +259,7 @@ export default async function TermDetailPage({ params, searchParams }: PageProps
         copiedCount={copied !== undefined ? Number(copied) : undefined}
         skippedCount={skipped !== undefined ? Number(skipped) : undefined}
         rosterError={rosterError}
+        canManage={await can(session.personId, "admin.manage_roster")}
       />
     </div>
   );

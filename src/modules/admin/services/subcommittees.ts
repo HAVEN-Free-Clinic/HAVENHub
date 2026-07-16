@@ -65,7 +65,7 @@ export async function createSubcommittee(
     action: "subcommittee.create",
     entityType: "Subcommittee",
     entityId: sc.id,
-    after: { name: sc.name, isActive: sc.isActive },
+    after: { name: sc.name, isActive: sc.isActive, order: sc.order },
   });
   return sc;
 }

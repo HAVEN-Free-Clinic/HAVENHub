@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
 import { CircleHelp, X } from "lucide-react";
@@ -104,12 +105,18 @@ export function HelpLauncher({
         <CircleHelp aria-hidden className="h-4 w-4" />
       </button>
 
-      {open && (
-        <div
-          role="dialog"
-          aria-label="Help and documentation"
-          className="fixed inset-x-0 bottom-0 z-50 sm:inset-x-auto sm:bottom-4 sm:right-4"
-        >
+      {/* Portal to <body>: the app-shell toolbar (glass-bar) uses backdrop-filter,
+          which makes it the containing block for position:fixed descendants. Rendered
+          inline, this panel would anchor to the toolbar (top) and fly off-screen, so we
+          escape to <body> for `fixed` to resolve against the viewport. */}
+      {open &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            role="dialog"
+            aria-label="Help and documentation"
+            className="fixed inset-x-0 bottom-0 z-50 sm:inset-x-auto sm:bottom-4 sm:right-4"
+          >
           <div className="glass-panel flex h-[80vh] w-full flex-col overflow-hidden rounded-t-2xl sm:h-[600px] sm:w-[400px] sm:rounded-2xl">
             <div className="flex items-center justify-between border-b border-border-subtle px-4 py-2.5">
               <span className="text-sm font-semibold text-foreground">Help</span>
@@ -145,8 +152,9 @@ export function HelpLauncher({
               )}
             </div>
           </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </>
   );
 }

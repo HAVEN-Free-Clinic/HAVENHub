@@ -6,7 +6,7 @@ import { prisma } from "@/platform/db";
 vi.mock("next/headers", () => ({ cookies: vi.fn(async () => ({ get: vi.fn(), set: vi.fn() })), headers: vi.fn(async () => ({ get: vi.fn(() => null) })) }));
 vi.mock("@/platform/auth/auth", () => ({ auth: vi.fn(async () => null) }));
 
-import { issueMagicToken, verifyMagicToken, requestMagicLink } from "./portal-auth";
+import { issueMagicToken, verifyMagicToken, peekMagicToken, requestMagicLink } from "./portal-auth";
 import { signApplicantCookie, readApplicantCookie, getApplicantIdentity, APPLICANT_COOKIE } from "./portal-auth";
 import { auth } from "@/platform/auth/auth";
 import { cookies } from "next/headers";
@@ -32,6 +32,18 @@ it("issues a token that verifies once and returns the email", async () => {
   expect(typeof raw).toBe("string");
   expect(await verifyMagicToken(raw)).toBe("reed@yale.edu"); // normalized
   expect(await verifyMagicToken(raw)).toBeNull(); // single-use
+});
+
+it("peekMagicToken validates without consuming; verify claims it only on confirm (audit #18)", async () => {
+  const raw = await issueMagicToken("Peek@Yale.edu");
+  // Peeking (rendering the confirmation) does not consume the token.
+  expect(await peekMagicToken(raw)).toBe("peek@yale.edu");
+  expect(await peekMagicToken(raw)).toBe("peek@yale.edu");
+  // The token is claimed only when the applicant confirms.
+  expect(await verifyMagicToken(raw)).toBe("peek@yale.edu");
+  // After that it is spent for both peek and verify.
+  expect(await peekMagicToken(raw)).toBeNull();
+  expect(await verifyMagicToken(raw)).toBeNull();
 });
 
 it("rejects an expired token", async () => {

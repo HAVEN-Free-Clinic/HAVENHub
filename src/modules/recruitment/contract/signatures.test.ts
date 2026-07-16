@@ -69,6 +69,30 @@ describe("buildContractSignatureView", () => {
       legacyText: null,
     });
   });
+
+  it("falls back to a legacy dedicated column when the signatures JSON has no entry", () => {
+    // Pre-layout contracts stored typed names in dedicated columns, not the JSON.
+    const rows = buildContractSignatureView(layout, {}, {
+      agreementSignature: "Ada Lovelace",
+      initials: "AL",
+    });
+    const agreement = rows.find((r) => r.blockId === "agreement")!;
+    expect(agreement.legacyText).toBe("Ada Lovelace");
+    expect(agreement.name).toBe("Ada Lovelace");
+    const initials = rows.find((r) => r.blockId === "initials")!;
+    expect(initials.legacyText).toBe("AL");
+  });
+
+  it("prefers the signatures JSON over a legacy column when both exist", () => {
+    const rows = buildContractSignatureView(
+      layout,
+      { agreement: { method: "draw", name: "Ada", imageKey: "onboarding/c1/sig.png", signedAt: "2026-07-15T00:00:00.000Z" } },
+      { agreementSignature: "Stale Legacy" },
+    );
+    const agreement = rows.find((r) => r.blockId === "agreement")!;
+    expect(agreement.imageKey).toBe("onboarding/c1/sig.png");
+    expect(agreement.legacyText).toBeNull();
+  });
 });
 
 describe("isStoredSignature", () => {

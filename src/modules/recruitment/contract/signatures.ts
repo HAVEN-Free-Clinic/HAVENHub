@@ -52,11 +52,35 @@ export type ContractSignatureRow = {
 };
 
 /**
- * Normalize a contract's stored signatures into display rows, one per agreement
- * block plus an Initials row when that system field is enabled. Handles both the
- * new object shape (StoredSignature) and the legacy typed-name string shape.
+ * Legacy (pre-layout) contracts stored typed signatures in dedicated columns
+ * rather than the `signatures` JSON map. Each maps to a fixed default-layout block.
  */
-export function buildContractSignatureView(layout: ContractLayout, signatures: unknown): ContractSignatureRow[] {
+export type LegacyContractSignatures = {
+  agreementSignature?: string | null;
+  professionalismSignature?: string | null;
+  trainingSignature?: string | null;
+  initials?: string | null;
+};
+
+const LEGACY_COLUMN_BY_BLOCK: Record<string, keyof LegacyContractSignatures> = {
+  agreement: "agreementSignature",
+  professionalism: "professionalismSignature",
+  training: "trainingSignature",
+  initials: "initials",
+};
+
+/**
+ * Normalize a contract's stored signatures into display rows, one per agreement
+ * block plus an Initials row when that system field is enabled. Handles the new
+ * object shape (StoredSignature), the per-block legacy typed-name string in the
+ * JSON map, and -- when `legacy` is supplied -- the pre-layout dedicated columns,
+ * so a contract signed before the JSON map existed does not read as "Not signed".
+ */
+export function buildContractSignatureView(
+  layout: ContractLayout,
+  signatures: unknown,
+  legacy?: LegacyContractSignatures,
+): ContractSignatureRow[] {
   const map = (signatures ?? {}) as Record<string, unknown>;
   const rows: ContractSignatureRow[] = [];
 
@@ -67,6 +91,11 @@ export function buildContractSignatureView(layout: ContractLayout, signatures: u
     }
     if (typeof raw === "string" && raw.trim()) {
       return { blockId, title, method: null, name: raw, signedAt: null, imageKey: null, legacyText: raw };
+    }
+    const legacyCol = LEGACY_COLUMN_BY_BLOCK[blockId];
+    const legacyVal = legacy && legacyCol ? legacy[legacyCol] : undefined;
+    if (typeof legacyVal === "string" && legacyVal.trim()) {
+      return { blockId, title, method: null, name: legacyVal, signedAt: null, imageKey: null, legacyText: legacyVal };
     }
     return { blockId, title, method: null, name: "", signedAt: null, imageKey: null, legacyText: null };
   };

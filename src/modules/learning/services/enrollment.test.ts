@@ -107,6 +107,28 @@ it("stamps course completedAt once and preserves it across later commits", async
   expect(again.completedAt?.getTime()).toBe(first.completedAt?.getTime());
 });
 
+it("latches completion: a SCO reverting to incomplete on review does not downgrade COMPLETE (audit #12)", async () => {
+  const { learner, course } = await seed();
+  await persistScoCmi(learner.id, course.id, "ITEM-A", {
+    lessonStatus: "completed", scoreRaw: null, suspendData: null, lessonLocation: null,
+  });
+  await persistScoCmi(learner.id, course.id, "ITEM-B", {
+    lessonStatus: "completed", scoreRaw: null, suspendData: null, lessonLocation: null,
+  });
+  const done = await prisma.courseProgress.findFirstOrThrow({ where: { personId: learner.id, courseId: course.id } });
+  expect(done.status).toBe("COMPLETE");
+
+  // The learner re-opens the finished course to review; the SCO now reports
+  // "incomplete" (or the 30s autocommit fires mid-review).
+  await persistScoCmi(learner.id, course.id, "ITEM-B", {
+    lessonStatus: "incomplete", scoreRaw: null, suspendData: "b=review", lessonLocation: "2",
+  });
+
+  const after = await prisma.courseProgress.findFirstOrThrow({ where: { personId: learner.id, courseId: course.id } });
+  expect(after.status).toBe("COMPLETE");
+  expect(after.completedAt?.getTime()).toBe(done.completedAt?.getTime());
+});
+
 it("rounds a fractional SCO score to fit the Int column", async () => {
   const { learner, course } = await seed();
   await persistScoCmi(learner.id, course.id, "ITEM-A", {

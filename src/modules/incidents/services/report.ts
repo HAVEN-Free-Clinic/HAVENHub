@@ -648,17 +648,24 @@ export async function getReport(
   const isOwner = report.reporterId === actorPersonId;
   if (!canManage && !isOwner) throw new IncidentForbiddenError();
 
+  const actorIsSubject = report.subjects.some((s) => s.personId === actorPersonId);
+
   // A linked subject who merely holds incidents.manage must never reach a report
   // about themselves through that capability (they could unmask an anonymous
   // reporter or self-adjudicate). Reaching here with !isOwner implies canManage,
   // so this only blocks the manage path; the reporter-owner read path is unaffected.
-  if (!isOwner && report.subjects.some((s) => s.personId === actorPersonId)) {
+  if (!isOwner && actorIsSubject) {
     throw new IncidentForbiddenError();
   }
 
-  // Reviewer-internal notes are never returned to a non-manager, even the owner.
-  const safe = canManage ? report : { ...report, reviewNotes: null };
-  return { report: safe, canManage };
+  // Even on the owner (self-report) path, a linked subject must not exercise manage
+  // powers over a report about themselves: reviewReport/decideStrike both reject a
+  // subject server-side, so returning canManage=true here would leak reviewNotes to
+  // them and render dead-end reviewer controls. Exclude subjects from the effective
+  // manage flag used for both.
+  const effectiveManage = canManage && !actorIsSubject;
+  const safe = effectiveManage ? report : { ...report, reviewNotes: null };
+  return { report: safe, canManage: effectiveManage };
 }
 
 // ---------------------------------------------------------------------------

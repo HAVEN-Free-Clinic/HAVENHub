@@ -7,6 +7,7 @@ import { notifyTicketSubmitted } from "@/modules/support/services/notifications"
 import { persistAttachment } from "@/modules/support/services/attachments";
 import { SubmitForm } from "@/modules/support/components/submit-form";
 import { getPostHogClient } from "@/platform/posthog/posthog-server";
+import { ALL_CATEGORIES } from "@/modules/support/filter-options";
 import type { TechRequestCategory } from "@prisma/client";
 
 type PageProps = {
@@ -20,7 +21,14 @@ export default async function SubmitPage({ searchParams }: PageProps) {
   async function submitAction(formData: FormData) {
     "use server";
     const session = await requireModuleAccess("support");
-    const category = formData.get("category") as TechRequestCategory;
+    // Validate the category against the enum before it reaches Prisma. Every other
+    // enum input in the module is checked this way; without it a crafted POST with
+    // a bad category throws an uncaught PrismaClientValidationError.
+    const rawCategory = String(formData.get("category") ?? "");
+    if (!(ALL_CATEGORIES as string[]).includes(rawCategory)) {
+      redirect(`/support/new?error=${encodeURIComponent("Choose a valid category.")}`);
+    }
+    const category = rawCategory as TechRequestCategory;
 
     let req;
     try {

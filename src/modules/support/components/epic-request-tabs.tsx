@@ -347,8 +347,11 @@ function TrackerTable({
                       </form>
                     )}
 
-                    {(r.status === "PENDING" || r.status === "SUBMITTED" || r.status === "COMPLETED") && (
+                    {(r.status === "PENDING" || r.status === "SUBMITTED" || r.status === "COMPLETED") && r.kind !== "DEACTIVATE" && (
                       <div className="flex flex-wrap gap-1">
+                        {/* Onboarding / activation / password-reset templates model NEW/MODIFY/RENEW
+                            access requests, not a DEACTIVATE, whose email would send an
+                            access-instructions message to a person being offboarded. */}
                         {(["epic-onboarding", "epic-activation", "epic-password-reset"] as const).map((tpl) => (
                           <form key={tpl} action={sendEpicEmailFromTrackerAction}>
                             <input type="hidden" name="requestId" value={r.id} />

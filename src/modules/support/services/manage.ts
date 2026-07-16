@@ -82,6 +82,15 @@ export async function assignRequest(
     throw new SupportStateError(`Cannot reassign a ${before.status} ticket.`);
   }
 
+  // A ticket may only be assigned to a current support manager. The assignee
+  // select is manager-only, but the action reads assigneeId straight from form
+  // data (and deliberately keeps a possibly-stale current assignee in the list),
+  // so validate server-side rather than notifying a non-manager to work a ticket
+  // they cannot open.
+  if (assigneeId && !(await can(assigneeId, MANAGE))) {
+    throw new SupportStateError("A ticket can only be assigned to a support manager.");
+  }
+
   const updated = await prisma.techRequest.update({
     where: { id },
     data: { assignedToId: assigneeId },

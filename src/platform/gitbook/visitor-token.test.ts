@@ -10,12 +10,7 @@ vi.mock("@/platform/rbac/engine", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/platform/rbac/engine")>();
   return { ...actual, getEffectivePermissions: vi.fn() };
 });
-vi.mock("@/modules/schedule/services/builder", () => ({ canManageAnyScheduleDept: vi.fn() }));
-vi.mock("@/modules/schedule/services/attendings", () => ({ canManageAnyRhdDept: vi.fn() }));
-
 import { getEffectivePermissions } from "@/platform/rbac/engine";
-import { canManageAnyScheduleDept } from "@/modules/schedule/services/builder";
-import { canManageAnyRhdDept } from "@/modules/schedule/services/attendings";
 import { mintVisitorToken } from "./visitor-token";
 
 const asMock = (f: unknown) => f as ReturnType<typeof vi.fn>;
@@ -36,8 +31,6 @@ describe("mintVisitorToken", () => {
 
   it("mints an HS256 token with `can` claims, email, and a 1h expiry", async () => {
     asMock(getEffectivePermissions).mockResolvedValue(new Set(["schedule.view"]));
-    asMock(canManageAnyScheduleDept).mockResolvedValue(false);
-    asMock(canManageAnyRhdDept).mockResolvedValue(false);
 
     const { token, expiresAt } = await mintVisitorToken(
       { id: "p1", name: "Jo", contactEmail: "jo@x.com" },
@@ -54,12 +47,18 @@ describe("mintVisitorToken", () => {
     expect(expiresAt).toBe(payload.exp * 1000);
   });
 
-  it("passes the data-driven schedule capability claims through and omits a null email", async () => {
+  it("forwards the caller-supplied derived claims and omits a null email", async () => {
     asMock(getEffectivePermissions).mockResolvedValue(new Set(["schedule.view"]));
-    asMock(canManageAnyScheduleDept).mockResolvedValue(true);
-    asMock(canManageAnyRhdDept).mockResolvedValue(false);
 
-    const { token } = await mintVisitorToken({ id: "p2", name: "Dee", contactEmail: null });
+    const { token } = await mintVisitorToken(
+      { id: "p2", name: "Dee", contactEmail: null },
+      {
+        derived: {
+          "schedule.manages_any_dept": true,
+          "schedule.manages_any_rhd_dept": false,
+        },
+      }
+    );
     const payload = decodePayload(token);
     expect(payload.can.schedule.manages_any_dept).toBe(true);
     expect(payload.can.schedule.manages_any_rhd_dept).toBe(false);

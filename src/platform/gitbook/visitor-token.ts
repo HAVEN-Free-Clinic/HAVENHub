@@ -2,8 +2,6 @@ import { createHmac } from "node:crypto";
 import { config } from "@/platform/config";
 import { getEffectivePermissions } from "@/platform/rbac/engine";
 import { buildAdaptiveClaims } from "@/platform/gitbook/adaptive-claims";
-import { canManageAnyScheduleDept } from "@/modules/schedule/services/builder";
-import { canManageAnyRhdDept } from "@/modules/schedule/services/attendings";
 
 /** Person fields the visitor token needs. */
 export type VisitorPerson = { id: string; name: string; contactEmail: string | null };
@@ -36,25 +34,23 @@ export function signJwt(claims: Record<string, unknown>, key: string): string {
  * (/api/gitbook/embed-token), so both issue byte-identical claims.
  *
  * The nested `can` claim is GitBook adaptive content (visitor.claims.can.<module>.<action>).
- * The two schedule Builder/Attendings leaves gate on a data-driven capability rather than a
- * permission string, so they are computed here and merged in via `derived`.
+ * Permission leaves come from the effective-permission set. Data-driven leaves that gate on a
+ * capability rather than a permission string (the schedule Builder/Attendings leaves) cannot be
+ * derived from permissions, so the caller computes them in the app layer (which may import module
+ * code) and passes them via `opts.derived`; platform code stays free of module imports.
  *
  * Throws if GITBOOK_JWT_KEY is unset; callers translate that into a 503.
  */
 export async function mintVisitorToken(
   person: VisitorPerson,
-  opts: { email?: string | null } = {}
+  opts: { email?: string | null; derived?: Partial<Record<string, boolean>> } = {}
 ): Promise<VisitorToken> {
   const { GITBOOK_JWT_KEY } = config;
   if (!GITBOOK_JWT_KEY) {
     throw new Error("GITBOOK_JWT_KEY is not configured");
   }
 
-  const [perms, managesAnyScheduleDept, managesAnyRhdDept] = await Promise.all([
-    getEffectivePermissions(person.id),
-    canManageAnyScheduleDept(person.id),
-    canManageAnyRhdDept(person.id),
-  ]);
+  const perms = await getEffectivePermissions(person.id);
 
   const now = Math.floor(Date.now() / 1000);
   const exp = now + TOKEN_TTL_SECONDS;
@@ -64,10 +60,7 @@ export async function mintVisitorToken(
       email: person.contactEmail ?? opts.email ?? undefined,
       iat: now,
       exp,
-      ...buildAdaptiveClaims(perms, {
-        "schedule.manages_any_dept": managesAnyScheduleDept,
-        "schedule.manages_any_rhd_dept": managesAnyRhdDept,
-      }),
+      ...buildAdaptiveClaims(perms, opts.derived ?? {}),
     },
     GITBOOK_JWT_KEY
   );

@@ -3,6 +3,7 @@ import { auth } from "@/platform/auth/auth";
 import { getActivePerson } from "@/platform/auth/match-person";
 import { config } from "@/platform/config";
 import { mintVisitorToken } from "@/platform/gitbook/visitor-token";
+import { scheduleDerivedClaims } from "../schedule-claims";
 
 /**
  * GET /api/gitbook/embed-token
@@ -32,6 +33,10 @@ export async function GET(): Promise<Response> {
     return NextResponse.json({ error: "No active person." }, { status: 403 });
   }
 
-  const { token, expiresAt } = await mintVisitorToken(person, { email: session.user?.email });
+  const derived = await scheduleDerivedClaims(person.id);
+  const { token, expiresAt } = await mintVisitorToken(person, {
+    email: session.user?.email,
+    derived,
+  });
   return NextResponse.json({ token, expiresAt }, { headers: { "Cache-Control": "no-store" } });
 }

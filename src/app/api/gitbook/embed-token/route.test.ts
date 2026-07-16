@@ -10,10 +10,12 @@ vi.mock("@/platform/config", () => ({ config: mockConfig }));
 vi.mock("@/platform/auth/auth", () => ({ auth: vi.fn() }));
 vi.mock("@/platform/auth/match-person", () => ({ getActivePerson: vi.fn() }));
 vi.mock("@/platform/gitbook/visitor-token", () => ({ mintVisitorToken: vi.fn() }));
+vi.mock("../schedule-claims", () => ({ scheduleDerivedClaims: vi.fn() }));
 
 import { auth } from "@/platform/auth/auth";
 import { getActivePerson } from "@/platform/auth/match-person";
 import { mintVisitorToken } from "@/platform/gitbook/visitor-token";
+import { scheduleDerivedClaims } from "../schedule-claims";
 
 const asMock = (f: unknown) => f as ReturnType<typeof vi.fn>;
 
@@ -50,6 +52,11 @@ describe("GET /api/gitbook/embed-token", () => {
   it("200 returns { token, expiresAt } with no-store", async () => {
     asMock(auth).mockResolvedValue({ personId: "p1", user: { email: "j@x.com" } });
     asMock(getActivePerson).mockResolvedValue({ id: "p1", name: "Jo", contactEmail: "jo@x.com" });
+    const derived = {
+      "schedule.manages_any_dept": false,
+      "schedule.manages_any_rhd_dept": false,
+    };
+    asMock(scheduleDerivedClaims).mockResolvedValue(derived);
     asMock(mintVisitorToken).mockResolvedValue({ token: "a.b.c", expiresAt: 1234 });
 
     const { GET } = await import("./route");
@@ -60,7 +67,7 @@ describe("GET /api/gitbook/embed-token", () => {
     expect(await res.json()).toEqual({ token: "a.b.c", expiresAt: 1234 });
     expect(mintVisitorToken).toHaveBeenCalledWith(
       { id: "p1", name: "Jo", contactEmail: "jo@x.com" },
-      { email: "j@x.com" }
+      { email: "j@x.com", derived }
     );
   });
 });

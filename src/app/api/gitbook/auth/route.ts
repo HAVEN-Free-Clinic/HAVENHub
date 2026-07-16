@@ -4,6 +4,7 @@ import { getActivePerson } from "@/platform/auth/match-person";
 import { config } from "@/platform/config";
 import { recordAudit } from "@/platform/audit";
 import { mintVisitorToken } from "@/platform/gitbook/visitor-token";
+import { scheduleDerivedClaims } from "../schedule-claims";
 
 /**
  * GET /api/gitbook/auth
@@ -59,7 +60,8 @@ export async function GET(request: NextRequest): Promise<Response> {
     return NextResponse.redirect(new URL("/welcome", request.url));
   }
 
-  const { token } = await mintVisitorToken(person, { email: session.user?.email });
+  const derived = await scheduleDerivedClaims(person.id);
+  const { token } = await mintVisitorToken(person, { email: session.user?.email, derived });
 
   await recordAudit({
     action: "gitbook.visitor_auth",

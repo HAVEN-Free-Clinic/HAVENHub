@@ -25,8 +25,9 @@ test("form builder: preview modal renders the applicant form", async ({ page }) 
   await expect(dialog.getByText(/this is how applicants see/i)).toBeVisible();
 
   // The seeded identity section (shown to a NEW applicant) renders its fields
-  // through the real applicant renderer.
-  await expect(dialog.getByText("First name", { exact: true })).toBeVisible();
+  // through the real applicant renderer -- assert on the input itself, since the
+  // visible label carries a required-asterisk suffix.
+  await expect(dialog.locator('input[name="first_name"]')).toBeVisible();
 
   // Close the preview.
   await dialog.getByRole("button", { name: "Close preview" }).click();

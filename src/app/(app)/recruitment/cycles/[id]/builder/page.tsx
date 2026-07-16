@@ -1,6 +1,4 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowRight } from "lucide-react";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { requirePermission } from "@/platform/auth/session";
 import { prisma } from "@/platform/db";
@@ -54,18 +52,10 @@ export default async function BuilderPage({ params }: { params: Promise<{ id: st
           section: { label: "Form builder", slug: "builder" },
         })}
       />
-      <PageHeader
-        title="Form builder"
-        description={cycle.title}
-        action={
-          <Link
-            href={`/recruitment/cycles/${id}/builder/quiz`}
-            className="inline-flex items-center gap-1 text-sm font-medium text-brand-fg hover:text-brand-hover"
-          >
-            Training quiz <ArrowRight className="h-4 w-4" aria-hidden />
-          </Link>
-        }
-      />
+      {/* The training quiz is reached from the cycle overview page ("Edit quiz"),
+          so no duplicate link here -- this keeps the form builder about the
+          application form only. */}
+      <PageHeader title="Form builder" description={cycle.title} />
       <FormBuilder
         cycleId={id}
         cycleTitle={cycle.title}
@@ -74,6 +64,7 @@ export default async function BuilderPage({ params }: { params: Promise<{ id: st
         departments={cycle.departments}
         subcommittees={subcommittees}
         sections={sections}
+        acceptsRenewals={cycle.acceptsRenewals}
       />
     </div>
   );

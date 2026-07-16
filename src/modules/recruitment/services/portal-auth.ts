@@ -18,6 +18,19 @@ export async function issueMagicToken(email: string): Promise<string> {
   return raw;
 }
 
+/** Validate a raw token WITHOUT consuming it: returns emailLower for a known,
+ *  unused, unexpired token, else null. The verify page peeks first to render the
+ *  "sign in as <email>?" confirmation, and only verifyMagicToken (below) claims
+ *  the token once the applicant confirms -- so a link forwarded to a victim cannot
+ *  silently sign them into the requester's account without an explicit confirm. */
+export async function peekMagicToken(rawToken: string): Promise<string | null> {
+  const token = await prisma.applicantPortalToken.findFirst({
+    where: { tokenHash: hashToken(rawToken), usedAt: null, expiresAt: { gt: new Date() } },
+    select: { emailLower: true },
+  });
+  return token?.emailLower ?? null;
+}
+
 /** Validate a raw token: returns the emailLower and marks it used, or null if
  *  it is unknown, already used, or expired. */
 export async function verifyMagicToken(rawToken: string): Promise<string | null> {

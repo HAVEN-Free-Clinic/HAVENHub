@@ -59,7 +59,7 @@ export async function listTeamsMessages(params: {
   const [rows, total] = await Promise.all([
     prisma.teamsMessage.findMany({
       where,
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       skip: (page - 1) * TEAMS_PAGE_SIZE,
       take: TEAMS_PAGE_SIZE,
       include: { person: { select: { id: true, name: true, contactEmail: true } } },

@@ -58,74 +58,78 @@ export async function backfillEhsCompletions(
 
   for (const record of records) {
     const link = record.fields[COMPLIANCE_NAMES_LINK_FIELD];
-    const linkedId = Array.isArray(link) && link.length > 0 ? String(link[0]) : null;
-    if (!linkedId) {
+    // A Compliance row's "Names" link is an array of linked All-People record ids.
+    // Import for EVERY linked person, not just the first (dedup ids within a row).
+    const linkedIds = Array.isArray(link) ? [...new Set(link.map((v) => String(v)))] : [];
+    if (linkedIds.length === 0) {
       report.unmatchedPeople++;
       continue;
     }
 
-    const person = await prisma.person.findUnique({
-      where: { airtableRecordId: linkedId },
-      select: { id: true, addedToEhs: true },
-    });
-    if (!person) {
-      report.unmatchedPeople++;
-      continue;
-    }
+    for (const linkedId of linkedIds) {
+      const person = await prisma.person.findUnique({
+        where: { airtableRecordId: linkedId },
+        select: { id: true, addedToEhs: true },
+      });
+      if (!person) {
+        report.unmatchedPeople++;
+        continue;
+      }
 
-    // Sync the "Added to EHS?" flag when Airtable says true and the local record is false.
-    if (record.fields[ADDED_TO_EHS_FIELD] === true && !person.addedToEhs) {
-      if (!options.dryRun) {
-        await prisma.person.update({ where: { id: person.id }, data: { addedToEhs: true } });
+      // Sync the "Added to EHS?" flag when Airtable says true and the local record is false.
+      if (record.fields[ADDED_TO_EHS_FIELD] === true && !person.addedToEhs) {
+        if (!options.dryRun) {
+          await prisma.person.update({ where: { id: person.id }, data: { addedToEhs: true } });
+          await recordAudit({
+            actorPersonId: null,
+            action: "ehs.added_to_ehs_import",
+            entityType: "Person",
+            entityId: person.id,
+            after: { addedToEhs: true },
+          });
+        }
+        report.addedToEhs++;
+      }
+
+      for (const field of EHS_CHECKBOX_FIELDS) {
+        if (record.fields[field.fieldId] !== true) continue;
+        const trainingId = idByName.get(field.trainingName);
+        if (!trainingId) continue;
+
+        // Cast for the same stale-client reason as the training query above.
+        const existing = (await prisma.ehsCompletion.findUnique({
+          where: { personId_trainingId: { personId: person.id, trainingId } },
+          select: { id: true },
+        })) as { id: string } | null;
+
+        if (existing) {
+          report.skippedExisting++;
+          continue;
+        }
+        if (options.dryRun) {
+          report.imported++;
+          continue;
+        }
+
+        const created = (await prisma.ehsCompletion.create({
+          data: {
+            personId: person.id,
+            trainingId,
+            source: "IMPORT",
+            completedAt: null,
+            markedById: null,
+          },
+        })) as { id: string };
+
         await recordAudit({
           actorPersonId: null,
-          action: "ehs.added_to_ehs_import",
-          entityType: "Person",
-          entityId: person.id,
-          after: { addedToEhs: true },
+          action: "ehs.completion_import",
+          entityType: "EhsCompletion",
+          entityId: created.id,
+          after: { personId: person.id, trainingId, source: "IMPORT" },
         });
-      }
-      report.addedToEhs++;
-    }
-
-    for (const field of EHS_CHECKBOX_FIELDS) {
-      if (record.fields[field.fieldId] !== true) continue;
-      const trainingId = idByName.get(field.trainingName);
-      if (!trainingId) continue;
-
-      // Cast for the same stale-client reason as the training query above.
-      const existing = (await prisma.ehsCompletion.findUnique({
-        where: { personId_trainingId: { personId: person.id, trainingId } },
-        select: { id: true },
-      })) as { id: string } | null;
-
-      if (existing) {
-        report.skippedExisting++;
-        continue;
-      }
-      if (options.dryRun) {
         report.imported++;
-        continue;
       }
-
-      const created = (await prisma.ehsCompletion.create({
-        data: {
-          personId: person.id,
-          trainingId,
-          source: "IMPORT",
-          completedAt: null,
-          markedById: null,
-        },
-      })) as { id: string };
-
-      await recordAudit({
-        actorPersonId: null,
-        action: "ehs.completion_import",
-        entityType: "EhsCompletion",
-        entityId: created.id,
-        after: { personId: person.id, trainingId, source: "IMPORT" },
-      });
-      report.imported++;
     }
   }
 

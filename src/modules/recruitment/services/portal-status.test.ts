@@ -29,7 +29,7 @@ async function cycleWithApp(
   const app = await prisma.application.create({ data: { cycleId: cycle.id, applicantId: applicant.id, answers: {}, applicantType: "NEW", departmentChoices: ["SRHD"], status: appStatus, submittedAt: appStatus === "SUBMITTED" ? new Date() : null } });
   return { srr, cycle, applicant, app };
 }
-const ID = (email: string) => ({ email, personId: null });
+const ID = (email: string) => ({ email, personId: null, firstName: null });
 
 it("shows Submitted / under review before any decision", async () => {
   await cycleWithApp("c1", "reed@yale.edu");

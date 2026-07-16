@@ -18,7 +18,8 @@ export type FieldType =
   | "DATE"
   | "FILE"
   | "DEPARTMENT_CHOICE"
-  | "SUBCOMMITTEE_RANK";
+  | "SUBCOMMITTEE_RANK"
+  | "SIGNATURE";
 
 export type FieldValidation = {
   min?: number;
@@ -113,6 +114,12 @@ function fieldSchema(field: FieldDef): z.ZodTypeAny {
         return a.length > 0 ? a : undefined;
       };
       return field.required ? z.preprocess(toRequired, arr) : z.preprocess(toOptional, arr.optional());
+    }
+    case "SIGNATURE": {
+      // The pad submits a PNG data URL string. Required means one must be present;
+      // it is converted to a Blob file-ref in submissions.ts after validation.
+      const s = z.string().startsWith("data:image/png;base64,");
+      return field.required ? s : z.union([s, z.literal("")]).optional();
     }
     case "FILE":
       return z.any().optional();

@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { config } from "@/platform/config";
+import { log } from "@/platform/logging";
 import { SETTINGS, getSettingDef, type SettingDef, type SettingInput } from "./registry";
 
 const TTL_MS = 30_000;
@@ -18,7 +19,9 @@ export function _resetSettingsCache(): void {
 function resolveStored(def: SettingDef<unknown>, raw: unknown): { value: unknown; ok: boolean } {
   const parsed = def.schema.safeParse(raw);
   if (parsed.success) return { value: parsed.data, ok: true };
-  console.warn(`[settings] invalid stored value for "${def.key}"; using default`, parsed.error.issues);
+  log.warn(`[settings] invalid stored value for "${def.key}"; using default`, {
+    issues: JSON.stringify(parsed.error.issues),
+  });
   return { value: def.envDefault(), ok: false };
 }
 

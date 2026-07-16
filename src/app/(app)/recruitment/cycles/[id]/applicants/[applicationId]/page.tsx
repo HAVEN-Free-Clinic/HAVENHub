@@ -5,7 +5,7 @@ import { visibleSections, applicantTypeLabel } from "@/modules/recruitment/engin
 import { requirePersonSession } from "@/platform/auth/session";
 import { reviewScope, listAcceptances, canViewApplication } from "@/modules/recruitment/services/review";
 import { can } from "@/platform/rbac/engine";
-import { scheduleInterviewAction, committeeScoreAction, routeAction, decideRoutedAction } from "../actions";
+import { scheduleInterviewAction, committeeScoreAction, routeAction, decideRoutedAction, reopenDecisionAction } from "../actions";
 import { listApplicationInterviews } from "@/modules/recruitment/services/interviews";
 import { DateTime } from "@/platform/dates/display";
 import { committeeScoreSummary } from "@/modules/recruitment/services/committee-scoring";
@@ -103,23 +103,21 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
           <dl className="mt-3 grid gap-3 sm:grid-cols-2">
             {section.fields.map((f) => {
               const val = answers[f.key];
-              const fileVal = f.type === "FILE" && val && typeof val === "object"
-                ? (val as { storedName?: string; fileName?: string })
-                : null;
+              const isFileLike = (f.type === "FILE" || f.type === "SIGNATURE") && val && typeof val === "object";
+              const fileVal = isFileLike ? (val as { storedName?: string; fileName?: string }) : null;
               const display = fileVal
                 ? fileVal.fileName ?? "(file)"
                 : Array.isArray(val) ? val.join(", ") : val === undefined || val === "" ? "(none)" : String(val);
+              const fileHref = `/api/recruitment/applications/${applicationId}/files/${encodeURIComponent(f.key)}?inline=1`;
               return (
                 <div key={f.id}>
                   <dt className="text-xs text-subtle-foreground">{f.label}</dt>
                   <dd className="mt-0.5 text-sm text-foreground">
-                    {fileVal?.storedName ? (
-                      <a
-                        href={`/api/recruitment/applications/${applicationId}/files/${encodeURIComponent(f.key)}?inline=1`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="font-medium text-brand-fg hover:underline"
-                      >
+                    {f.type === "SIGNATURE" && fileVal?.storedName ? (
+                      // eslint-disable-next-line @next/next/no-img-element -- authenticated same-origin file route, not a remote asset
+                      <img src={fileHref} alt={`${f.label} signature`} className="h-20 rounded border border-border-subtle bg-surface" />
+                    ) : fileVal?.storedName ? (
+                      <a href={fileHref} target="_blank" rel="noopener noreferrer" className="font-medium text-brand-fg hover:underline">
                         {display}
                       </a>
                     ) : (
@@ -249,8 +247,23 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
           <SectionHeader>Department decision</SectionHeader>
           {error && <Alert tone="error" className="mt-3">{error}</Alert>}
           {saved === "decision" && <Alert tone="success" className="mt-3">Decision recorded.</Alert>}
+          {saved === "reopened" && <Alert tone="success" className="mt-3">Decision reopened.</Alert>}
           {!app.routedDepartmentCode ? (
-            <p className="mt-3 text-sm text-muted-foreground">Awaiting committee routing.</p>
+            app.decision !== "PENDING" ? (
+              <div className="mt-3 space-y-2">
+                <p className="text-sm text-foreground-soft">
+                  This applicant was <strong className="text-foreground">{decisionLabel[app.decision as keyof typeof decisionLabel]}</strong> without routing.
+                  {app.decisionNotes ? ` ${app.decisionNotes}` : ""}
+                </p>
+                {scope.all && (
+                  <form action={reopenDecisionAction.bind(null, id, applicationId)}>
+                    <SubmitButton size="sm" variant="outline" pendingLabel="Reopening…">Reopen</SubmitButton>
+                  </form>
+                )}
+              </div>
+            ) : (
+              <p className="mt-3 text-sm text-muted-foreground">Awaiting committee routing.</p>
+            )
           ) : canDecideRouted ? (
             <>
               <p className="mt-3 text-sm text-foreground-soft">

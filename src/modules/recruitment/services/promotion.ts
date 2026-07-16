@@ -1,6 +1,7 @@
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { recordAudit } from "@/platform/audit";
+import { log, errorAttrs } from "@/platform/logging";
 import { findAcceptanceConflicts } from "../engine/conflicts";
 import { RecruitmentAuthError } from "./review";
 
@@ -156,7 +157,7 @@ export async function promoteContracts(contractIds: string[], actorId: string): 
       if (wasNew) created += 1; else reactivated += 1;
       await recordAudit({ actorPersonId: actorId, action: "recruitment.promote", entityType: "OnboardingContract", entityId: id });
     } catch (err) {
-      console.error("[promotion] skipping contract", id, err);
+      log.error("[promotion] skipping contract", errorAttrs(err, { contractId: id }));
       skipped += 1;
     }
   }

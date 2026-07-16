@@ -21,6 +21,7 @@ import type {
 } from "@prisma/client";
 import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
+import { log, errorAttrs } from "@/platform/logging";
 import { manageableDepartmentIds } from "@/platform/departments";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { can } from "@/platform/rbac/engine";
@@ -293,7 +294,7 @@ async function notifyReviewersOfSubmission(
       }
     }
   } catch (err) {
-    console.error("[incidents] failed to notify reviewers of a submitted report", report.id, err);
+    log.error("[incidents] failed to notify reviewers of a submitted report", errorAttrs(err, { reportId: report.id }));
   }
 }
 
@@ -331,7 +332,7 @@ async function notifyReporterOfStrikeDecision(
       triggeredById: actorPersonId,
     });
   } catch (err) {
-    console.error("[incidents] failed to notify the reporter of a strike decision", report.id, err);
+    log.error("[incidents] failed to notify the reporter of a strike decision", errorAttrs(err, { reportId: report.id }));
   }
 }
 
@@ -368,7 +369,7 @@ async function notifyReporterOfResolution(report: IncidentReport, actorPersonId:
       triggeredById: actorPersonId,
     });
   } catch (err) {
-    console.error("[incidents] failed to notify the reporter of a report resolution", report.id, err);
+    log.error("[incidents] failed to notify the reporter of a report resolution", errorAttrs(err, { reportId: report.id }));
   }
 }
 
@@ -538,14 +539,14 @@ export async function submitReport(actorPersonId: string, input: SubmitReportInp
         await prisma.incidentReportAttachment
           .deleteMany({ where: { id: { in: createdAttachmentIds } } })
           .catch((cleanupErr) => {
-            console.error("[incidents] failed to clean up attachment rows after storage error", report.id, cleanupErr);
+            log.error("[incidents] failed to clean up attachment rows after storage error", errorAttrs(cleanupErr, { reportId: report.id }));
           });
       }
       if (uploadedStoredNames.length > 0) {
         await Promise.allSettled(
           uploadedStoredNames.map((storedName) =>
             deleteObject(storedName).catch((cleanupErr) => {
-              console.error("[incidents] failed to clean up uploaded blob after storage error", report.id, storedName, cleanupErr);
+              log.error("[incidents] failed to clean up uploaded blob after storage error", errorAttrs(cleanupErr, { reportId: report.id, storedName }));
             })
           )
         );

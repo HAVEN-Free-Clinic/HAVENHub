@@ -32,4 +32,10 @@ describe("formatFieldValue", () => {
     expect(formatFieldValue(field({ key: "cv", type: "FILE" }), { cv: "cv.pdf" }, [])).toBe("cv.pdf");
     expect(formatFieldValue(field({ key: "cv", type: "FILE" }), {}, [])).toBe("Not attached");
   });
+  it("shows Signed for a non-empty SIGNATURE value and empty when unsigned", () => {
+    const f = field({ key: "sig", type: "SIGNATURE" });
+    expect(formatFieldValue(f, { sig: "data:image/png;base64,iVBORw0KGgo=" }, [])).toBe("Signed");
+    expect(formatFieldValue(f, { sig: "" }, [])).toBe("");
+    expect(formatFieldValue(f, {}, [])).toBe("");
+  });
 });

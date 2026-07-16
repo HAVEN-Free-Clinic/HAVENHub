@@ -91,6 +91,11 @@ export default async function OnboardingPage({ params, searchParams }: { params:
                       <>
                         <Badge tone={s.tone}>{s.label}</Badge>
                         {r.contract?.promotedPersonId && <span className="ml-2 text-xs text-subtle-foreground">on roster</span>}
+                        {(r.contract?.status === "SUBMITTED" || r.contract?.status === "PROMOTED") && (
+                          <Link className="ml-2 text-xs text-brand-fg hover:text-brand-hover" href={`/recruitment/cycles/${id}/onboarding/${r.contract.id}`}>
+                            View
+                          </Link>
+                        )}
                       </>
                     )}
                   </TD>

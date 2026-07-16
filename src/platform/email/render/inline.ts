@@ -1,5 +1,7 @@
 import juice from "juice";
 
+import { log, errorAttrs } from "@/platform/logging";
+
 /**
  * Inline the layout's `<style>` rules onto each element and strip the `<style>`
  * block from a fully-rendered email.
@@ -32,11 +34,7 @@ export function inlineEmailHtml(html: string): string {
     // Gmail clip trigger. Set explicitly so a future juice default change is safe.
     return juice(html, { removeStyleTags: true });
   } catch (error) {
-    console.warn(
-      `[email] CSS inlining failed; sending un-inlined HTML: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    );
+    log.warn("[email] CSS inlining failed; sending un-inlined HTML", errorAttrs(error));
     return html;
   }
 }

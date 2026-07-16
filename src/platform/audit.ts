@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
+import { log, errorAttrs } from "@/platform/logging";
 
 export type AuditEntry = {
   actorPersonId?: string | null;
@@ -26,6 +27,6 @@ export async function recordAudit(entry: AuditEntry): Promise<void> {
       },
     });
   } catch (error) {
-    console.error("[audit] failed to record entry", entry.action, error);
+    log.error("[audit] failed to record entry", errorAttrs(error, { action: entry.action }));
   }
 }

@@ -46,6 +46,7 @@ import {
 } from "pdf-lib";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { formatDateOnly } from "@/platform/dates";
+import { log } from "@/platform/logging";
 
 /**
  * Section I authorizer details. Resolved by the caller from the current term's
@@ -96,7 +97,7 @@ function checkBox(form: ReturnType<PDFDocument["getForm"]>, fieldName: string) {
   } catch {
     // Field missing or not a checkbox: log so a re-versioned template surfaces
     // instead of silently shipping an unchecked box.
-    console.warn(`[itcm] PDF checkbox not set: "${fieldName}"`);
+    log.warn(`[itcm] PDF checkbox not set: "${fieldName}"`, { fieldName });
   }
 }
 
@@ -107,7 +108,7 @@ function fillText(form: ReturnType<PDFDocument["getForm"]>, fieldName: string, v
   } catch {
     // Field missing: log so a re-versioned template surfaces instead of
     // silently shipping a blank field.
-    console.warn(`[itcm] PDF text field not set: "${fieldName}"`);
+    log.warn(`[itcm] PDF text field not set: "${fieldName}"`, { fieldName });
   }
 }
 

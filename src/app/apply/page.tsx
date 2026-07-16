@@ -92,15 +92,18 @@ export default async function PortalHome({ searchParams }: { searchParams: Promi
   const actionRow = cx(cardClasses({ interactive: true, pad: false }), "group flex items-center justify-between gap-4 px-4 py-3.5");
   const actionCue = "inline-flex shrink-0 items-center gap-1 text-sm font-medium text-brand-fg";
   const arrow = <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />;
-  // Prefer the signed-in person's real name. An email local part like "j.carney"
-  // would otherwise greet "J", so fall back to the email only when its first
-  // segment is not an initials-style single character; else greet without a name.
+  // Greet by first name, in order of trust: the signed-in member's stored name,
+  // then the first name from the Entra sign-in (a brand-new Yale applicant has no
+  // Person yet), then the email local part. An email local part like "j.carney"
+  // would greet "J", so fall back to it only when its first segment is not an
+  // initials-style single character; else greet without a name.
   const person = identity.personId
     ? await prisma.person.findUnique({ where: { id: identity.personId }, select: { name: true } })
     : null;
   const nameFromPerson = person?.name?.trim().split(/\s+/)[0] ?? "";
+  const nameFromEntra = identity.firstName?.trim() ?? "";
   const emailLocalFirst = identity.email.split("@")[0].split(".")[0];
-  const firstNameRaw = nameFromPerson || (emailLocalFirst.length > 1 ? emailLocalFirst : "");
+  const firstNameRaw = nameFromPerson || nameFromEntra || (emailLocalFirst.length > 1 ? emailLocalFirst : "");
   const firstName = firstNameRaw ? firstNameRaw.charAt(0).toUpperCase() + firstNameRaw.slice(1) : "";
 
   return (

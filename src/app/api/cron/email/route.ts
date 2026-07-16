@@ -32,6 +32,7 @@ import { authorizeCron } from "@/platform/cron";
 import { dispatchDueCampaigns } from "@/platform/email/campaigns/dispatch";
 import { drainEmailQueue } from "@/platform/email/send";
 import { resolveEmailTransport } from "@/platform/email/transport";
+import { log, flushLogs } from "@/platform/logging";
 import { drainTeamsQueue } from "@/platform/notifications/send";
 import { resolveTeamsTransport } from "@/platform/notifications/teams-transport";
 
@@ -51,6 +52,15 @@ export async function GET(req: Request): Promise<Response> {
 
   const teamsTransport = await resolveTeamsTransport();
   const teams = await drainTeamsQueue(teamsTransport);
+
+  log.info("[cron/email] backstop tick complete", {
+    result: JSON.stringify({ dispatched: executed, errors, emails, teams }),
+  });
+  // Flush before returning so the tick's logs reach PostHog. The
+  // SimpleLogRecordProcessor exports each record eagerly, so this only awaits
+  // the in-flight send; unlike `after()` it needs no request scope, so the
+  // route stays callable directly (e.g. from unit tests).
+  await flushLogs();
 
   return Response.json({ ok: true, dispatched: executed, errors, emails, teams });
 }

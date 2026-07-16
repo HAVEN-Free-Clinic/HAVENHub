@@ -13,6 +13,7 @@ import { applicantTypeLabel } from "@/modules/recruitment/engine/visibility";
 import { scoreAverage } from "@/modules/recruitment/engine/scoring";
 import { applicationStage, applicationStageLabel } from "@/modules/recruitment/engine/application-stage";
 import { can } from "@/platform/rbac/engine";
+import { buttonClasses } from "@/platform/ui/button";
 import { SpeedScoreLauncher } from "@/modules/recruitment/components/speed-score-launcher";
 import { speedScoreAction, loadReviewApplicationAction } from "./actions";
 import type { SpeedScoreItem } from "@/modules/recruitment/engine/speed-score-queue";
@@ -34,6 +35,7 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
     can(person.personId, "recruitment.score"),
   ]);
   const canScore = scope.all || canScorePerm;
+  const canSpeedRoute = scope.all && cycle.track === "VOLUNTEER" && apps.some((a) => a.committeeScores.length > 0);
   const speedItems: SpeedScoreItem[] = canScore
     ? apps
         .filter((a) => a.applicant.applicantPersonId !== person.personId) // never queue your own application
@@ -64,13 +66,20 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
       />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <PageHeader title="Applicants" description={cycle.title} />
-        {canScore && speedItems.length > 0 && (
-          <SpeedScoreLauncher
-            items={speedItems}
-            onScore={speedScoreAction}
-            onLoad={loadReviewApplicationAction}
-          />
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {canSpeedRoute && (
+            <Link href={`/recruitment/cycles/${id}/speed-route`} className={buttonClasses("outline", "sm")}>
+              Speed route
+            </Link>
+          )}
+          {canScore && speedItems.length > 0 && (
+            <SpeedScoreLauncher
+              items={speedItems}
+              onScore={speedScoreAction}
+              onLoad={loadReviewApplicationAction}
+            />
+          )}
+        </div>
       </div>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <DecisionFilter />

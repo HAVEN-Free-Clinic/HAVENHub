@@ -9,7 +9,7 @@ import type { Recipient } from "@/platform/email/audience/resolve";
 import { renderInlineEmail, loadLayoutSource } from "@/platform/email/templates/renderEmail";
 import { queueEmail, queueEmails } from "@/platform/email/send";
 import type { Prisma } from "@prisma/client";
-import { isValidCron, nextCronAfter } from "./cron";
+import { isValidCron, nextCronAfter, cronMinIntervalMinutes, CAMPAIGN_DISPATCH_CADENCE_MINUTES } from "./cron";
 
 export const CAMPAIGN_CONFIRM_THRESHOLD = 25;
 
@@ -296,10 +296,29 @@ export async function scheduleCampaign(
   id: string,
   input: ScheduleInput,
   now: Date = new Date(),
+  opts: { confirmCount?: number } = {},
 ): Promise<void> {
   const campaign = await prisma.emailCampaign.findUniqueOrThrow({ where: { id } });
   if (campaign.status !== "DRAFT") throw new Error("Only a draft can be scheduled");
   if (campaign.subject.trim() === "") throw new CampaignValidationError(["Add a subject before sending."]);
+  if (!isAudience(campaign.audienceJson)) throw new CampaignValidationError(["Stored audience is malformed"]);
+
+  // Same large-audience safeguard sendCampaignNow enforces: resolve + dedup the
+  // audience and require the admin to confirm the count before scheduling a blast.
+  // For a recurring campaign this is the count as of now (the audience resolves
+  // live at each run), which is still the right order-of-magnitude check against
+  // an accidental send-all.
+  const { recipients } = await resolveAudience(campaign.audienceJson);
+  const seen = new Set<string>();
+  const deduped = recipients.filter((r) => {
+    const key = r.email.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  if (deduped.length > CAMPAIGN_CONFIRM_THRESHOLD && opts.confirmCount !== deduped.length) {
+    throw new CampaignConfirmationError(deduped.length);
+  }
 
   if (input.scheduleType === "SCHEDULED") {
     if (!input.scheduledAt) throw new CampaignValidationError(["A send time is required"]);
@@ -311,12 +330,19 @@ export async function scheduleCampaign(
     if (!input.cronExpr || !isValidCron(input.cronExpr)) {
       throw new CampaignValidationError(["A valid cron expression is required"]);
     }
+    // Reject a cadence finer than the dispatcher can honor; such occurrences would
+    // be silently skipped between the 30-minute dispatch ticks.
+    if (cronMinIntervalMinutes(input.cronExpr, now) < CAMPAIGN_DISPATCH_CADENCE_MINUTES) {
+      throw new CampaignValidationError([
+        `Recurring sends run at most every ${CAMPAIGN_DISPATCH_CADENCE_MINUTES} minutes. Choose a coarser schedule (e.g. daily or weekly).`,
+      ]);
+    }
     await prisma.emailCampaign.update({
       where: { id },
       data: { scheduleType: "RECURRING", cronExpr: input.cronExpr, scheduledAt: null, nextRunAt: nextCronAfter(input.cronExpr, now), status: "ACTIVE" },
     });
   }
-  await recordAudit({ actorPersonId: actorId, action: "campaign.schedule", entityType: "EmailCampaign", entityId: id, after: { scheduleType: input.scheduleType } });
+  await recordAudit({ actorPersonId: actorId, action: "campaign.schedule", entityType: "EmailCampaign", entityId: id, after: { scheduleType: input.scheduleType, recipientCount: deduped.length } });
 }
 
 export async function cancelCampaign(actorId: string | null, id: string): Promise<void> {

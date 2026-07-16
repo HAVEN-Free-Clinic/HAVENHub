@@ -18,25 +18,7 @@ import {
   VITALS,
   type OptionList,
 } from "./strings";
-import type { AvsData } from "./types";
-
-function validate(data: AvsData): { messages: string[]; fields: StringFieldKey[] } {
-  const messages: string[] = [];
-  const fields: StringFieldKey[] = [];
-  if (!data.lastName.trim()) {
-    messages.push("Last name is required.");
-    fields.push("lastName");
-  }
-  if (!data.visitDate.trim()) {
-    messages.push("Visit date is required.");
-    fields.push("visitDate");
-  }
-  if (!data.primaryReason.trim()) {
-    messages.push("Reason for visit is required.");
-    fields.push("primaryReason");
-  }
-  return { messages, fields };
-}
+import { validateAvs } from "./validate";
 
 export function AvsTool({ brandColor }: { brandColor: string }) {
   const [data, dispatch] = useReducer(avsReducer, initialAvsData);
@@ -50,7 +32,7 @@ export function AvsTool({ brandColor }: { brandColor: string }) {
   };
 
   async function handleGenerate() {
-    const { messages, fields } = validate(data);
+    const { messages, fields } = validateAvs(data);
     if (messages.length) {
       setErrors(messages);
       setInvalidFields(fields);
@@ -77,7 +59,10 @@ export function AvsTool({ brandColor }: { brandColor: string }) {
       document.body.appendChild(a);
       a.click();
       a.remove();
-      URL.revokeObjectURL(url);
+      // Defer revocation: revoking the blob URL in the same tick as click() can
+      // invalidate it before the browser starts the download (Firefox/Safari),
+      // producing a silently empty or failed download.
+      setTimeout(() => URL.revokeObjectURL(url), 0);
     } catch {
       setErrors(["Could not generate the PDF. Please try again."]);
     } finally {

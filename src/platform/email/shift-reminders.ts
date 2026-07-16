@@ -10,6 +10,7 @@ import { notify } from "@/platform/notifications/notify";
 import { renderEmail } from "./templates/renderEmail";
 import { claimReminderDispatch } from "./reminder-dispatch";
 import { log, errorAttrs } from "@/platform/logging";
+import { captureEvent, flushEvents, GROUP_TERM } from "@/platform/posthog/capture";
 
 export const ROLE_LABEL: Record<ShiftRole, string> = {
   DIRECTOR: "Director",
@@ -271,6 +272,14 @@ export async function runShiftReminders(now: Date = new Date()): Promise<ShiftRe
         teams: { title: "Shift reminder", summary: item.teamsSummary, link: `${baseUrl}/schedule` },
       });
       result.remindersSent++;
+      // Per-recipient engagement event; flush once after the batch.
+      await captureEvent({
+        event: "shift_reminder_sent",
+        distinctId: item.person.id,
+        properties: { target_date: targetKey },
+        groups: { [GROUP_TERM]: term.id },
+        flush: false,
+      });
     } catch (err) {
       // Per-recipient isolation: a single failed render/notify must not abort the
       // rest of the weekly batch. Log and continue; the 6-day idempotency guard
@@ -282,5 +291,6 @@ export async function runShiftReminders(now: Date = new Date()): Promise<ShiftRe
     }
   }
 
+  if (result.remindersSent > 0) await flushEvents();
   return result;
 }

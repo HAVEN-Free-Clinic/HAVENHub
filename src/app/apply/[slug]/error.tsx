@@ -1,10 +1,12 @@
 "use client";
 import { Button } from "@/platform/ui/button";
+import { CaptureException } from "@/platform/posthog/capture-exception";
 import { PortalNotice } from "../portal-notice";
 
-export default function ApplyError({ reset }: { error: Error; reset: () => void }) {
+export default function ApplyError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
   return (
     <div className="flex min-h-screen flex-col bg-canvas">
+      <CaptureException error={error} />
       <div aria-hidden="true" className="h-1 w-full bg-brand" />
       <main className="mx-auto flex w-full max-w-2xl grow items-center px-6 py-16">
         <PortalNotice

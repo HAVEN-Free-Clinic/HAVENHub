@@ -2,6 +2,7 @@ import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { recordAudit } from "@/platform/audit";
 import { log, errorAttrs } from "@/platform/logging";
+import { aliasPerson, flushEvents } from "@/platform/posthog/capture";
 import { findAcceptanceConflicts } from "../engine/conflicts";
 import { RecruitmentAuthError } from "./review";
 
@@ -34,6 +35,9 @@ export function parseAvailabilityDates(answer: unknown): Date[] {
 export async function promoteContracts(contractIds: string[], actorId: string): Promise<{ created: number; reactivated: number; skipped: number }> {
   if (!(await can(actorId, "recruitment.review_all"))) throw new RecruitmentAuthError("Only SRR can promote onboarding contracts.");
   let created = 0, reactivated = 0, skipped = 0;
+  // Pre-conversion apply-portal events were keyed by the applicant email; alias
+  // each into the resolved person id so those events join the person timeline.
+  let aliasedAny = false;
 
   for (const id of contractIds) {
     const contract = await prisma.onboardingContract.findUnique({
@@ -62,7 +66,7 @@ export async function promoteContracts(contractIds: string[], actorId: string): 
     );
 
     try {
-      const wasNew = await prisma.$transaction(async (tx) => {
+      const result = await prisma.$transaction(async (tx) => {
         let person = contract.netId
           ? await tx.person.findFirst({ where: { netId: { equals: contract.netId, mode: "insensitive" } } })
           : null;
@@ -152,14 +156,19 @@ export async function promoteContracts(contractIds: string[], actorId: string): 
         }
 
         await tx.onboardingContract.update({ where: { id: contract.id }, data: { status: "PROMOTED", promotedAt: new Date(), promotedById: actorId, promotedPersonId: person.id } });
-        return isNew;
+        return { isNew, personId: person.id };
       });
-      if (wasNew) created += 1; else reactivated += 1;
+      if (result.isNew) created += 1; else reactivated += 1;
       await recordAudit({ actorPersonId: actorId, action: "recruitment.promote", entityType: "OnboardingContract", entityId: id });
+      if (contract.email) {
+        await aliasPerson({ personId: result.personId, previousDistinctId: contract.email, flush: false });
+        aliasedAny = true;
+      }
     } catch (err) {
       log.error("[promotion] skipping contract", errorAttrs(err, { contractId: id }));
       skipped += 1;
     }
   }
+  if (aliasedAny) await flushEvents();
   return { created, reactivated, skipped };
 }

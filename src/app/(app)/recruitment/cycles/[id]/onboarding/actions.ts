@@ -2,7 +2,8 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/platform/db";
 import { requirePersonSession } from "@/platform/auth/session";
-import { getPostHogClient } from "@/platform/posthog/posthog-server";
+import { captureEvent } from "@/platform/posthog/capture";
+import { termGroupForCycle } from "@/platform/posthog/groups";
 import { getSetting } from "@/platform/settings/service";
 import { createOrResendContract, ContractError } from "@/modules/recruitment/services/onboarding";
 import { promoteContracts } from "@/modules/recruitment/services/promotion";
@@ -32,13 +33,12 @@ export async function sendLinksAction(cycleId: string, formData: FormData) {
     }
   }
   if (sent > 0) {
-    const posthog = getPostHogClient();
-    posthog.capture({
+    await captureEvent({
       distinctId: person.personId,
       event: "onboarding_links_sent",
       properties: { cycle_id: cycleId, sent, failed },
+      groups: await termGroupForCycle(cycleId),
     });
-    await posthog.flush();
   }
   redirect(bounce(cycleId, failed > 0 ? { msg: `Sent ${sent} onboarding link(s).`, err: `${failed} could not be sent.` } : { msg: `Sent ${sent} onboarding link(s).` }));
 }
@@ -51,13 +51,12 @@ export async function promoteAction(cycleId: string, formData: FormData) {
   const owned = (await prisma.onboardingContract.findMany({ where: { id: { in: ids }, acceptance: { application: { cycleId } } }, select: { id: true } })).map((c) => c.id);
   try {
     const res = await promoteContracts(owned, person.personId);
-    const posthog = getPostHogClient();
-    posthog.capture({
+    await captureEvent({
       distinctId: person.personId,
       event: "volunteers_promoted",
       properties: { cycle_id: cycleId, created: res.created, reactivated: res.reactivated, skipped: res.skipped },
+      groups: await termGroupForCycle(cycleId),
     });
-    await posthog.flush();
     redirect(bounce(cycleId, { msg: `Promoted: ${res.created} new, ${res.reactivated} returning, ${res.skipped} skipped.` }));
   } catch (err) {
     if (err instanceof RecruitmentAuthError) redirect(bounce(cycleId, { err: (err as Error).message }));

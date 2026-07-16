@@ -1,5 +1,7 @@
 import { prisma, runSerializable } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
+import { captureEvent, flushEvents } from "@/platform/posthog/capture";
+import { activeTermGroup } from "@/platform/posthog/groups";
 import { coursesForMember, type AssignableCourse, type MemberMembership } from "../engine/assignment";
 import { deriveStatus, rollupStatus } from "../engine/status";
 import type { ScoEntry } from "../engine/manifest";
@@ -265,7 +267,7 @@ export async function persistScoCmi(
   // blocking a learner who finished every SCO. Serializable makes Postgres abort the
   // loser of a conflicting pair; runSerializable retries it, and the retry reads the
   // winner's committed SCO and rolls up correctly.
-  await runSerializable(async (tx) => {
+  const transitions = await runSerializable(async (tx) => {
     // 1. Upsert this SCO's state (untrusted TEXT fields bounded before they hit the row).
     const existingSco = await tx.scoProgress.findUnique({
       where: { personId_courseId_scoId: { personId, courseId, scoId } },
@@ -332,5 +334,34 @@ export async function persistScoCmi(
       create: { personId, courseId, ...courseData },
       update: courseData,
     });
+
+    // Transition flags for authoritative analytics, computed against the
+    // once-only `completedAt` stamps so each event fires exactly once. Returned
+    // (not captured here) so a Serializable retry never double-fires.
+    return {
+      courseStarted: !existingCourse,
+      scoNewlyCompleted: sco.completed && !existingSco?.completedAt,
+      courseNewlyCompleted: roll.completed && !existingCourse?.completedAt,
+    };
   });
+
+  // Fire after commit so events reflect the committed state. The authoritative
+  // server-side course_completed replaces the best-effort client event.
+  if (
+    transitions.courseStarted ||
+    transitions.scoNewlyCompleted ||
+    transitions.courseNewlyCompleted
+  ) {
+    const groups = await activeTermGroup();
+    if (transitions.courseStarted) {
+      await captureEvent({ event: "course_started", distinctId: personId, properties: { course_id: courseId }, groups, flush: false });
+    }
+    if (transitions.scoNewlyCompleted) {
+      await captureEvent({ event: "sco_completed", distinctId: personId, properties: { course_id: courseId, sco_id: scoId }, groups, flush: false });
+    }
+    if (transitions.courseNewlyCompleted) {
+      await captureEvent({ event: "course_completed", distinctId: personId, properties: { course_id: courseId, sco_count: scos.length }, groups, flush: false });
+    }
+    await flushEvents();
+  }
 }

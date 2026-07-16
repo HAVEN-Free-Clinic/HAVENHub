@@ -6,7 +6,8 @@ import {
 import type { ApplicantType } from "@/modules/recruitment/engine/visibility";
 import { auth } from "@/platform/auth/auth";
 import { getApplicantIdentity } from "@/modules/recruitment/services/portal-auth";
-import { getPostHogClient } from "@/platform/posthog/posthog-server";
+import { captureEvent } from "@/platform/posthog/capture";
+import { termGroupForCycleSlug } from "@/platform/posthog/groups";
 
 export type SubmitResult =
   | { ok: true }
@@ -51,8 +52,7 @@ export async function submitPublicApplication(slug: string, formData: FormData):
       identityEmail: identity?.email ?? null,
     });
     const distinctId = session?.personId ?? identity?.email ?? slug;
-    const posthog = getPostHogClient();
-    posthog.capture({
+    await captureEvent({
       distinctId,
       event: "application_submitted",
       properties: {
@@ -60,8 +60,8 @@ export async function submitPublicApplication(slug: string, formData: FormData):
         applicant_type: applicantType,
         renewal_department: renewalDepartment ?? null,
       },
+      groups: await termGroupForCycleSlug(slug),
     });
-    await posthog.flush();
     return { ok: true };
   } catch (err) {
     if (err instanceof SubmissionValidationError) return { ok: false, message: err.message, fieldErrors: err.fieldErrors };

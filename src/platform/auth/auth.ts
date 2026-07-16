@@ -11,7 +11,8 @@ import {
   type LoginProfile,
 } from "./match-person";
 import { recordAudit } from "@/platform/audit";
-import { getPostHogClient } from "@/platform/posthog/posthog-server";
+import { prisma } from "@/platform/db";
+import { captureEvent, GROUP_TERM, type PersonProperties } from "@/platform/posthog/capture";
 
 type EntraClaims = {
   oid?: string;
@@ -134,13 +135,38 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           }
         }
         if (personId) {
-          const posthog = getPostHogClient();
-          posthog.capture({
-            distinctId: personId,
+          // Enrich the person profile with their active-term departments and the
+          // term name at login (low frequency). Best-effort: a query hiccup must
+          // never block sign-in. A person can hold several departments in a term,
+          // so `departments` is an array and there is no single-department group.
+          let termId: string | undefined;
+          const setProps: PersonProperties = {};
+          try {
+            const term = await prisma.term.findFirst({
+              where: { status: "ACTIVE" },
+              orderBy: { startDate: "desc" },
+              select: { id: true, name: true },
+            });
+            if (term) {
+              termId = term.id;
+              setProps.active_term = term.name;
+              const memberships = await prisma.termMembership.findMany({
+                where: { personId, termId: term.id, status: "ACTIVE" },
+                select: { department: { select: { code: true } } },
+              });
+              const departments = [...new Set(memberships.map((m) => m.department.code))];
+              if (departments.length > 0) setProps.departments = departments;
+            }
+          } catch {
+            // best-effort enrichment
+          }
+          await captureEvent({
             event: "user_signed_in",
+            distinctId: personId,
             properties: { provider: account.provider },
+            groups: termId ? { [GROUP_TERM]: termId } : undefined,
+            setPersonProperties: Object.keys(setProps).length > 0 ? setProps : undefined,
           });
-          await posthog.flush();
         }
       }
       return token;

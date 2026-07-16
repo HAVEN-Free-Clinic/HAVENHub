@@ -1,8 +1,7 @@
 "use client";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { Check } from "lucide-react";
 import { Scorm12API } from "scorm-again";
-import posthog from "posthog-js";
 import { persistCmiAction } from "../actions";
 import { Alert } from "@/platform/ui/alert";
 import { deriveStatus, parseScore } from "@/modules/learning/engine/status";
@@ -38,7 +37,6 @@ export function ScormPlayer({ courseId, scos }: Props) {
   const [live, setLive] = useState<Record<string, ScoLive>>(() =>
     Object.fromEntries(scos.map((s) => [s.id, { lessonStatus: s.cmi.lessonStatus, scoreRaw: s.cmi.scoreRaw }]))
   );
-  const completionFiredRef = useRef(false);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const apiRef = useRef<InstanceType<typeof Scorm12API> | null>(null);
   const pendingSaveRef = useRef<Promise<void>>(Promise.resolve());
@@ -117,13 +115,6 @@ export function ScormPlayer({ courseId, scos }: Props) {
 
   const single = scos.length <= 1;
   const allComplete = scos.length > 0 && scos.every((s) => deriveStatus(live[s.id]?.lessonStatus).completed);
-
-  useEffect(() => {
-    if (allComplete && !completionFiredRef.current) {
-      completionFiredRef.current = true;
-      posthog.capture("course_completed", { course_id: courseId, sco_count: scos.length });
-    }
-  }, [allComplete, courseId, scos.length]);
 
   return (
     <div className="space-y-4">

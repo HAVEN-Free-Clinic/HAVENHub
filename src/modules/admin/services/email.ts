@@ -10,6 +10,8 @@ import type { EmailLog, EmailStatus, Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { GraphTransport, LogTransport } from "@/platform/email/transport";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
+import { formatForDateInput, parseZonedInput } from "@/platform/dates/format";
 import { getAccessToken as defaultGetAccessToken } from "@/platform/email/oauth";
 import { getSetting } from "@/platform/settings/service";
 
@@ -53,10 +55,12 @@ export const EMAIL_PAGE_SIZE = 25;
  */
 export async function emailHealthCounts(now?: Date): Promise<EmailHealthCounts> {
   const d = now ?? new Date();
-  const y = d.getUTCFullYear();
-  const m = d.getUTCMonth();
-  const day = d.getUTCDate();
-  const startOfTodayUtc = new Date(Date.UTC(y, m, day));
+  // Start of "today" in the configured display zone (the zone the rows render in),
+  // not UTC -- otherwise "Sent today" counts a different day than the one shown.
+  const zone = await getDisplayTimeZone();
+  const startOfToday =
+    parseZonedInput(`${formatForDateInput(d, zone)}T00:00`, zone) ??
+    new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
 
   const [queued, failed, sentToday] = await Promise.all([
     prisma.emailLog.count({ where: { status: "QUEUED" } }),
@@ -64,7 +68,7 @@ export async function emailHealthCounts(now?: Date): Promise<EmailHealthCounts> 
     prisma.emailLog.count({
       where: {
         status: "SENT",
-        sentAt: { gte: startOfTodayUtc },
+        sentAt: { gte: startOfToday },
       },
     }),
   ]);
@@ -172,6 +176,7 @@ export async function retryEmail(actorPersonId: string, emailId: string): Promis
       status: "QUEUED",
       attempts: 0,
       lastError: null,
+      lockedAt: null,
     },
   });
 
@@ -200,7 +205,7 @@ export async function retryEmail(actorPersonId: string, emailId: string): Promis
 export async function retryAllFailedEmails(actorPersonId: string): Promise<number> {
   const { count } = await prisma.emailLog.updateMany({
     where: { status: "FAILED" },
-    data: { status: "QUEUED", attempts: 0, lastError: null },
+    data: { status: "QUEUED", attempts: 0, lastError: null, lockedAt: null },
   });
 
   if (count === 0) return 0;

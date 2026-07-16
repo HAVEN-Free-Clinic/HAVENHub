@@ -4,6 +4,8 @@ import { cardClasses } from "@/platform/ui/card";
 import { fullSchedule } from "@/modules/schedule/services/schedule";
 import { isoDateKey } from "@/modules/schedule/engine/map";
 import { displayDate } from "@/modules/schedule/engine/display";
+import { formatCalendarDate } from "@/platform/dates";
+import Link from "next/link";
 
 type PageProps = {
   searchParams: Promise<{ date?: string; [key: string]: string | string[] | undefined }>;
@@ -17,13 +19,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
   const selectedKey = selectedDate ? isoDateKey(selectedDate) : null;
 
   const selectedDisplay = selectedDate
-    ? selectedDate.toLocaleDateString("en-US", {
-        weekday: "long",
-        month: "long",
-        day: "numeric",
-        year: "numeric",
-        timeZone: "UTC",
-      })
+    ? formatCalendarDate(selectedDate, { weekday: "long", month: "long", day: "numeric", year: "numeric" })
     : null;
 
   const totalVolunteers = departments.reduce((acc, d) => acc + d.volunteers.length, 0);
@@ -57,18 +53,18 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
                 const key = isoDateKey(d);
                 const isSelected = key === selectedKey;
                 return (
-<a                  
+                  <Link
                     key={key}
                     href={`/schedule/full?date=${key}`}
                     aria-current={isSelected ? "page" : undefined}
                     className={
                       isSelected
-                        ? "rounded-full px-3 py-1 text-sm font-medium bg-brand text-white"
-                        : "rounded-full px-3 py-1 text-sm font-medium bg-muted-strong text-foreground-soft hover:bg-muted-strong transition-colors"
+                        ? "inline-flex items-center justify-center min-h-11 rounded-full px-3 py-1 text-sm font-medium bg-brand text-white"
+                        : "inline-flex items-center justify-center min-h-11 rounded-full px-3 py-1 text-sm font-medium bg-muted text-foreground-soft hover:bg-muted-strong transition-colors"
                     }
                   >
                     {displayDate(key)}
-                  </a>
+                  </Link>
                 );
               })}
             </nav>
@@ -91,7 +87,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
                     <span className="text-sm font-black uppercase tracking-widest text-white">
                       {department.code}
                     </span>
-                    <div className="flex items-center gap-2 text-xs text-white/70">
+                    <div className="flex items-center gap-2 text-xs text-white">
                       {directors.length > 0 && <span className="bg-white/20 rounded-full px-2 py-0.5 font-medium">{directors.length} {directors.length === 1 ? "director" : "directors"}</span>}
                       {volunteers.length > 0 && <span className="bg-white/20 rounded-full px-2 py-0.5 font-medium">{volunteers.length} {volunteers.length === 1 ? "volunteer" : "volunteers"}</span>}
                       {shadows.length > 0 && <span className="bg-white/20 rounded-full px-2 py-0.5 font-medium">{shadows.length} {shadows.length === 1 ? "shadow" : "shadows"}</span>}
@@ -104,7 +100,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
                     {/* Directors */}
                     {directors.length > 0 && (
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-widest text-brand-fg/40 mb-1.5">Directors</p>
+                        <p className="text-xs font-semibold uppercase tracking-widest text-subtle-foreground mb-1.5">Directors</p>
                         <ul className="flex flex-col gap-1">
                           {directors.map((p) => (
                             <li key={p.id} className="flex flex-wrap items-center gap-1.5">
@@ -123,7 +119,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
                     {/* Volunteers */}
                     {volunteers.length > 0 && (
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-widest text-brand-fg/40 mb-1.5">Volunteers</p>
+                        <p className="text-xs font-semibold uppercase tracking-widest text-subtle-foreground mb-1.5">Volunteers</p>
                         <ul className="flex flex-col gap-1">
                           {volunteers.map((v) => (
                             <li key={v.id} className="flex flex-wrap items-center gap-1.5">
@@ -146,7 +142,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
                     {/* Shadows */}
                     {shadows.length > 0 && (
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-widest text-brand-fg/40 mb-1.5">Shadows</p>
+                        <p className="text-xs font-semibold uppercase tracking-widest text-subtle-foreground mb-1.5">Shadows</p>
                         <ul className="flex flex-col gap-1">
                           {shadows.map((p) => (
                             <li key={p.id} className="flex flex-wrap items-center gap-1.5">

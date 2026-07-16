@@ -2,27 +2,59 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requirePersonSession } from "@/platform/auth/session";
 import { getCycle } from "@/modules/recruitment/services/cycles";
-import { listApplicantsForReview } from "@/modules/recruitment/services/review";
+import { listApplicantsForReview, reviewScope } from "@/modules/recruitment/services/review";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { Badge } from "@/platform/ui/badge";
+import { Pagination } from "@/platform/ui/pagination";
 import { applicantTypeLabel } from "@/modules/recruitment/engine/visibility";
+import { scoreAverage } from "@/modules/recruitment/engine/scoring";
+import { applicationStage, applicationStageLabel } from "@/modules/recruitment/engine/application-stage";
+import { can } from "@/platform/rbac/engine";
+import { buttonClasses } from "@/platform/ui/button";
+import { SpeedScoreLauncher } from "@/modules/recruitment/components/speed-score-launcher";
+import { speedScoreAction, loadReviewApplicationAction } from "./actions";
+import type { SpeedScoreItem } from "@/modules/recruitment/engine/speed-score-queue";
+import { rosterDecision, type RosterDecisionStatus } from "@/modules/recruitment/engine/decision-summary";
+import { DecisionFilter } from "@/modules/recruitment/components/decision-filter";
 
-function decision(depts: string[]): { label: string; tone: "default" | "success" | "critical" } {
-  if (depts.length === 0) return { label: "None", tone: "default" };
-  const distinct = [...new Set(depts)];
-  return distinct.length > 1
-    ? { label: `Conflict: ${distinct.join(" + ")}`, tone: "critical" }
-    : { label: `Accepted: ${distinct[0]}`, tone: "success" };
-}
+const PAGE_SIZE = 50;
 
-export default async function ApplicantsPage({ params }: { params: Promise<{ id: string }> }) {
+const DECISION_STATUSES = new Set<RosterDecisionStatus>(["ACCEPTED", "WAITLIST", "REJECTED", "NONE"]);
+
+export default async function ApplicantsPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ page?: string; decision?: string }> }) {
   const { id } = await params;
+  const { page: pageParam, decision: decisionParam } = await searchParams;
   const [person, cycle] = await Promise.all([requirePersonSession(), getCycle(id)]);
   if (!cycle) notFound();
   const apps = await listApplicantsForReview(id, person.personId);
+  const [scope, canScorePerm] = await Promise.all([
+    reviewScope(person.personId),
+    can(person.personId, "recruitment.score"),
+  ]);
+  const canScore = scope.all || canScorePerm;
+  const canSpeedRoute = scope.all && cycle.track === "VOLUNTEER" && apps.some((a) => a.committeeScores.length > 0);
+  const speedItems: SpeedScoreItem[] = canScore
+    ? apps
+        .filter((a) => a.applicant.applicantPersonId !== person.personId) // never queue your own application
+        .map((a) => ({
+          applicationId: a.id,
+          name: `${a.applicant.firstName} ${a.applicant.lastName}`,
+          typeLabel: applicantTypeLabel(a.applicantType),
+          myScore: a.committeeScores.find((c) => c.scorerId === person.personId)?.score ?? null,
+        }))
+    : [];
+  const decisionFilter = decisionParam && DECISION_STATUSES.has(decisionParam as RosterDecisionStatus)
+    ? (decisionParam as RosterDecisionStatus)
+    : null;
+  const filtered = decisionFilter
+    ? apps.filter((a) => rosterDecision({ acceptances: a.acceptances, applicationDecision: a.decision, interviews: a.interviews }).status === decisionFilter)
+    : apps;
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const page = Math.min(Math.max(1, Number(pageParam) || 1), pageCount);
+  const pageApps = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   return (
     <div className="space-y-6">
       <SetBreadcrumb
@@ -32,20 +64,44 @@ export default async function ApplicantsPage({ params }: { params: Promise<{ id:
           section: { label: "Applicants", slug: "applicants" },
         })}
       />
-      <PageHeader title="Applicants" description={cycle.title} />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <PageHeader title="Applicants" description={cycle.title} />
+        <div className="flex flex-wrap items-center gap-2">
+          {canSpeedRoute && (
+            <Link href={`/recruitment/cycles/${id}/speed-route`} className={buttonClasses("outline", "sm")}>
+              Speed route
+            </Link>
+          )}
+          {canScore && speedItems.length > 0 && (
+            <SpeedScoreLauncher
+              items={speedItems}
+              onScore={speedScoreAction}
+              onLoad={loadReviewApplicationAction}
+            />
+          )}
+        </div>
+      </div>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <DecisionFilter />
+        <span className="pb-2 text-sm whitespace-nowrap text-muted-foreground">
+          {filtered.length.toLocaleString()} {filtered.length === 1 ? "applicant" : "applicants"}
+        </span>
+      </div>
       <Table>
         <THead>
           <tr>
             <TH>Name</TH>
             <TH>Email</TH>
             <TH>Type</TH>
+            <TH>Committee avg</TH>
+            <TH>Stage</TH>
             <TH>Ranked</TH>
             <TH>Decision</TH>
           </tr>
         </THead>
         <tbody>
-          {apps.map((a) => {
-            const d = decision(a.acceptances.map((x) => x.departmentCode));
+          {pageApps.map((a) => {
+            const d = rosterDecision({ acceptances: a.acceptances, applicationDecision: a.decision, interviews: a.interviews });
             return (
               <TR key={a.id}>
                 <TD>
@@ -58,6 +114,20 @@ export default async function ApplicantsPage({ params }: { params: Promise<{ id:
                 </TD>
                 <TD className="text-foreground-soft">{a.applicant.email}</TD>
                 <TD className="text-foreground-soft">{applicantTypeLabel(a.applicantType)}</TD>
+                <TD className="text-foreground-soft">
+                  {(() => {
+                    const s = scoreAverage(a.committeeScores.map((c) => c.score));
+                    return s.average != null ? `${s.average.toFixed(1)} · ${s.count}` : "-";
+                  })()}
+                </TD>
+                <TD>
+                  <Badge>{applicationStageLabel[applicationStage({
+                    scoreCount: a.committeeScores.length,
+                    routedDepartmentCode: a.routedDepartmentCode,
+                    applicationDecision: a.decision,
+                    interviews: a.interviews,
+                  })]}</Badge>
+                </TD>
                 <TD className="text-foreground-soft">{a.departmentChoices.join(", ")}</TD>
                 <TD>
                   <Badge tone={d.tone}>{d.label}</Badge>
@@ -65,15 +135,20 @@ export default async function ApplicantsPage({ params }: { params: Promise<{ id:
               </TR>
             );
           })}
-          {apps.length === 0 && (
+          {filtered.length === 0 && (
             <TR>
-              <TD colSpan={5} className="py-10 text-center text-subtle-foreground">
-                No applicants in your review scope.
+              <TD colSpan={7} className="py-10 text-center text-subtle-foreground">
+                {apps.length === 0 ? "No applicants in your review scope." : "No applicants match this filter."}
               </TD>
             </TR>
           )}
         </tbody>
       </Table>
+      <Pagination
+        page={page}
+        pageCount={pageCount}
+        hrefFor={(p) => `/recruitment/cycles/${id}/applicants?${decisionFilter ? `decision=${decisionFilter}&` : ""}page=${p}`}
+      />
     </div>
   );
 }

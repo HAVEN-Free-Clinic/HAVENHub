@@ -45,6 +45,12 @@ describe("email-templates service", () => {
     ).rejects.toBeInstanceOf(TemplateValidationError);
   });
 
+  it("rejects a blank/whitespace-only subject", async () => {
+    await expect(
+      saveTemplateOverride(null, "compliance-reminder", { subject: "   ", body: "hello" }),
+    ).rejects.toBeInstanceOf(TemplateValidationError);
+  });
+
   it("reset deletes the override and reverts to default", async () => {
     await saveTemplateOverride(null, "compliance-reminder", { subject: "X", body: "Y" });
     await resetTemplateOverride(null, "compliance-reminder");

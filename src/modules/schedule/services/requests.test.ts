@@ -19,6 +19,8 @@ import {
   approveRequest,
   denyRequest,
   eligibleSwapPartners,
+  remindDirectors,
+  requestApproverRecipients,
   RequestForbiddenError,
   RequestNotFoundError,
   RequestValidationError,
@@ -486,6 +488,8 @@ describe("listDepartmentRequests", () => {
     const target = await createPerson("Target Tom");
 
     await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(requester.id, term.id, dept.id, "VOLUNTEER");
+    await createMembership(target.id, term.id, dept.id, "VOLUNTEER");
     await createShift(term.id, dept.id, requester.id, dates[0], "VOLUNTEER");
     await createShift(term.id, dept.id, target.id, dates[1], "VOLUNTEER");
 
@@ -618,6 +622,8 @@ describe("approveRequest", () => {
     const vol2 = await createPerson("Vol2");
 
     await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(vol1.id, term.id, dept.id, "VOLUNTEER");
+    await createMembership(vol2.id, term.id, dept.id, "VOLUNTEER");
     await createShift(term.id, dept.id, vol1.id, dates[0], "VOLUNTEER");
     await createShift(term.id, dept.id, vol2.id, dates[1], "VOLUNTEER");
 
@@ -643,6 +649,39 @@ describe("approveRequest", () => {
 
     expect(vol2Shifts).toHaveLength(1);
     expect(isoDateKey(vol2Shifts[0].clinicDate)).toBe(isoDateKey(dates[0]));
+  });
+
+  it("rejects a swap onto a person no longer an active member of the department (audit #8/#25)", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("AABB");
+    const director = await createPerson("Director");
+    const vol1 = await createPerson("Vol1");
+    const removed = await createPerson("Removed");
+
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(vol1.id, term.id, dept.id, "VOLUNTEER");
+    await createMembership(removed.id, term.id, dept.id, "VOLUNTEER"); // active when the request is made
+    await createShift(term.id, dept.id, vol1.id, dates[0], "VOLUNTEER");
+    await createShift(term.id, dept.id, removed.id, dates[1], "VOLUNTEER");
+
+    const req = await createRequest(vol1.id, {
+      requesterDateKey: isoDateKey(dates[0]),
+      departmentId: dept.id,
+      targetId: removed.id,
+      targetDateKey: isoDateKey(dates[1]),
+    });
+
+    // Then removed is taken off this department (single-dept offboard): membership
+    // REMOVED, Person.status stays ACTIVE, and the future shift is left behind.
+    await prisma.termMembership.updateMany({
+      where: { personId: removed.id, termId: term.id, departmentId: dept.id },
+      data: { status: "REMOVED" },
+    });
+
+    await expect(approveRequest(director.id, req.id)).rejects.toBeInstanceOf(RequestValidationError);
+    const still = await prisma.shiftRequest.findUniqueOrThrow({ where: { id: req.id } });
+    expect(still.status).toBe("PENDING");
   });
 
   it("stale swap (target's assignment deleted before approval): RequestValidationError, request still PENDING", async () => {
@@ -784,6 +823,41 @@ describe("approveRequest", () => {
 
     await expect(approveRequest(director.id, req.id)).rejects.toBeInstanceOf(RequestValidationError);
   });
+
+  it("refuses to swap an offboarded participant onto a shift, leaving the request PENDING (audit F5)", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("AABB");
+    const director = await createPerson("Director");
+    const vol1 = await createPerson("Vol1");
+    const offboarded = await createPerson("Vol2");
+
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createShift(term.id, dept.id, vol1.id, dates[0], "VOLUNTEER");
+    await createShift(term.id, dept.id, offboarded.id, dates[1], "VOLUNTEER");
+
+    // The swap request is created while the target is still active.
+    const req = await createRequest(vol1.id, {
+      requesterDateKey: isoDateKey(dates[0]),
+      departmentId: dept.id,
+      targetId: offboarded.id,
+      targetDateKey: isoDateKey(dates[1]),
+    });
+
+    // Target is offboarded afterward; their leftover future shift remains.
+    await prisma.person.update({ where: { id: offboarded.id }, data: { status: "OFFBOARDED" } });
+
+    await expect(approveRequest(director.id, req.id)).rejects.toBeInstanceOf(RequestValidationError);
+
+    // The offboarded person was NOT re-scheduled onto the requester's date, and the
+    // whole transaction rolled back (request stays PENDING).
+    const onRequesterDate = await prisma.shiftAssignment.findMany({
+      where: { termId: term.id, departmentId: dept.id, personId: offboarded.id, clinicDate: dates[0] },
+    });
+    expect(onRequesterDate).toHaveLength(0);
+    const reqAfter = await prisma.shiftRequest.findUniqueOrThrow({ where: { id: req.id } });
+    expect(reqAfter.status).toBe("PENDING");
+  });
 });
 
 describe("denyRequest", () => {
@@ -868,6 +942,8 @@ describe("eligibleSwapPartners", () => {
     const partner1 = await createPerson("Zara");
     const partner2 = await createPerson("Aaron");
 
+    await createMembership(partner1.id, term.id, dept.id, "VOLUNTEER");
+    await createMembership(partner2.id, term.id, dept.id, "VOLUNTEER");
     await createShift(term.id, dept.id, actor.id, dates[0], "VOLUNTEER");
     await createShift(term.id, dept.id, partner1.id, dates[1], "VOLUNTEER");
     await createShift(term.id, dept.id, partner2.id, dates[2], "VOLUNTEER");
@@ -965,6 +1041,40 @@ describe("eligibleSwapPartners", () => {
     expect(ids).not.toContain(dir.id);
   });
 
+  it("excludes an offboarded person with a leftover future shift (audit F5)", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("AABB");
+    const actor = await createPerson("Actor");
+    const offboarded = await createPerson("Gone");
+
+    await createShift(term.id, dept.id, actor.id, dates[0], "VOLUNTEER");
+    await createShift(term.id, dept.id, offboarded.id, dates[1], "VOLUNTEER");
+    // Offboarding flips Person.status but leaves the future ShiftAssignment behind.
+    await prisma.person.update({ where: { id: offboarded.id }, data: { status: "OFFBOARDED" } });
+
+    const partners = await eligibleSwapPartners(actor.id, isoDateKey(dates[0]), dept.id);
+    expect(partners.map((p) => p.personId)).not.toContain(offboarded.id);
+  });
+
+  it("excludes a person removed from the department (REMOVED membership) though Person.status stays ACTIVE (audit #8/#25)", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("AABB");
+    const actor = await createPerson("Actor");
+    const removed = await createPerson("Removed");
+
+    // A single-department removal sets TermMembership.status = REMOVED but leaves
+    // Person.status ACTIVE and does not delete the leftover future shift.
+    await createMembership(actor.id, term.id, dept.id, "VOLUNTEER");
+    await createMembership(removed.id, term.id, dept.id, "VOLUNTEER", "REMOVED");
+    await createShift(term.id, dept.id, actor.id, dates[0], "VOLUNTEER");
+    await createShift(term.id, dept.id, removed.id, dates[1], "VOLUNTEER");
+
+    const partners = await eligibleSwapPartners(actor.id, isoDateKey(dates[0]), dept.id);
+    expect(partners.map((p) => p.personId)).not.toContain(removed.id);
+  });
+
   // The dropdown must only offer swaps that createRequest/assertNoSwapCollision
   // will accept. The two cases below mirror that guard's two collision checks so
   // volunteers never pick a partner that always fails with "Partner is not eligible".
@@ -977,6 +1087,8 @@ describe("eligibleSwapPartners", () => {
     const collidingPartner = await createPerson("Colliding");
     const cleanPartner = await createPerson("Clean");
 
+    await createMembership(collidingPartner.id, term.id, dept.id, "VOLUNTEER");
+    await createMembership(cleanPartner.id, term.id, dept.id, "VOLUNTEER");
     // Actor works dates[0] (the shift being requested) AND dates[1].
     await createShift(term.id, dept.id, actor.id, dates[0], "VOLUNTEER");
     await createShift(term.id, dept.id, actor.id, dates[1], "VOLUNTEER");
@@ -1001,6 +1113,8 @@ describe("eligibleSwapPartners", () => {
     const collidingPartner = await createPerson("Colliding");
     const cleanPartner = await createPerson("Clean");
 
+    await createMembership(collidingPartner.id, term.id, dept.id, "VOLUNTEER");
+    await createMembership(cleanPartner.id, term.id, dept.id, "VOLUNTEER");
     await createShift(term.id, dept.id, actor.id, dates[0], "VOLUNTEER");
     // collidingPartner offers dates[1] but ALSO holds a SHADOW row on dates[0],
     // the actor's requester date; assertNoSwapCollision rejects this
@@ -1054,5 +1168,203 @@ describe("manage_requests scope", () => {
     await grantPermission(actor.id, "schedule.edit_own_dept");
 
     await expect(listDepartmentRequests(actor.id, dept.id)).rejects.toBeInstanceOf(RequestForbiddenError);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Approver notifications (audit L1)
+//
+// createRequest must email the department's ACTUAL approvers -- the same set
+// approveRequest routes through (directors by membership + one-hop delegated
+// directors) -- not merely whoever holds a DIRECTOR shift. queueEmail records one
+// EmailLog per recipient (personId + template), so we assert on that.
+// ---------------------------------------------------------------------------
+
+async function createPersonWithEmail(name: string, contactEmail: string) {
+  return prisma.person.create({ data: { name, contactEmail } });
+}
+
+describe("createRequest approver notifications (L1)", () => {
+  it("notifies a department director who holds a DIRECTOR membership but NO DIRECTOR shift", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("NOTA");
+    const requester = await createPerson("Requester");
+
+    // Director oversees the department by membership only; they are NOT on any
+    // DIRECTOR shift, so the old shift-assignment recipient query missed them.
+    const director = await createPersonWithEmail("Off-shift Dir", "dir@example.org");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+
+    await createShift(term.id, dept.id, requester.id, dates[0], "VOLUNTEER");
+
+    await createRequest(requester.id, {
+      requesterDateKey: isoDateKey(dates[0]),
+      departmentId: dept.id,
+    });
+
+    const notice = await prisma.emailLog.findFirst({
+      where: { template: "schedule-request-submitted-director", personId: director.id },
+    });
+    expect(notice).not.toBeNull();
+    expect(notice?.toEmail).toBe("dir@example.org");
+  });
+
+  it("notifies a one-hop delegated director (PCAR director for an SCTP request)", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const pcar = await createDepartment("PCAR");
+    const sctp = await createDepartment("SCTP");
+    await delegate(pcar.id, sctp.id);
+
+    const requester = await createPerson("SCTP Vol");
+    const pcarDirector = await createPersonWithEmail("PCAR Dir", "pcar@example.org");
+    await createMembership(pcarDirector.id, term.id, pcar.id, "DIRECTOR");
+
+    await createShift(term.id, sctp.id, requester.id, dates[0], "VOLUNTEER");
+
+    await createRequest(requester.id, {
+      requesterDateKey: isoDateKey(dates[0]),
+      departmentId: sctp.id,
+    });
+
+    const notice = await prisma.emailLog.findFirst({
+      where: { template: "schedule-request-submitted-director", personId: pcarDirector.id },
+    });
+    expect(notice).not.toBeNull();
+    expect(notice?.toEmail).toBe("pcar@example.org");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// requestApproverRecipients (audit M3)
+//
+// The exported helper backs both the createRequest/remindDirectors notifications
+// AND the 48h pending-request reminder cron. It must return the department's
+// ACTUAL approvers (directors by ACTIVE membership + one-hop delegated directors
+// + in-department schedule.manage_requests holders), NOT whoever holds a DIRECTOR
+// shift on the calendar. Mirrors the createRequest L1 recipient tests above.
+// ---------------------------------------------------------------------------
+
+describe("requestApproverRecipients (M3)", () => {
+  it("includes a director who holds a DIRECTOR membership but NO DIRECTOR shift", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("APR1");
+
+    const director = await createPersonWithEmail("Off-shift Dir", "dir@example.org");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+
+    const recipients = await requestApproverRecipients(dept.id);
+
+    expect(recipients.map((r) => r.id)).toContain(director.id);
+    expect(recipients.find((r) => r.id === director.id)?.contactEmail).toBe("dir@example.org");
+  });
+
+  it("includes a one-hop delegated director (PCAR director for an SCTP request)", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const pcar = await createDepartment("PCAR");
+    const sctp = await createDepartment("SCTP");
+    await delegate(pcar.id, sctp.id);
+
+    const pcarDirector = await createPersonWithEmail("PCAR Dir", "pcar@example.org");
+    await createMembership(pcarDirector.id, term.id, pcar.id, "DIRECTOR");
+
+    const recipients = await requestApproverRecipients(sctp.id);
+
+    expect(recipients.map((r) => r.id)).toContain(pcarDirector.id);
+  });
+
+  it("includes an in-department schedule.manage_requests holder", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("APR2");
+
+    const manager = await createPersonWithEmail("Manage Reqs", "mgr@example.org");
+    await createMembership(manager.id, term.id, dept.id, "VOLUNTEER");
+    await grantPermission(manager.id, "schedule.manage_requests");
+
+    const recipients = await requestApproverRecipients(dept.id);
+
+    expect(recipients.map((r) => r.id)).toContain(manager.id);
+  });
+
+  it("excludes a blanket schedule.edit_all admin who is not a member or director", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("APR3");
+
+    // A real director so the set is non-empty and we prove the admin is dropped
+    // rather than everyone being dropped.
+    const director = await createPersonWithEmail("Real Dir", "real@example.org");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+
+    const admin = await createPersonWithEmail("Org Admin", "admin@example.org");
+    await grantPermission(admin.id, "schedule.edit_all");
+
+    const recipients = await requestApproverRecipients(dept.id);
+
+    expect(recipients.map((r) => r.id)).toContain(director.id);
+    expect(recipients.map((r) => r.id)).not.toContain(admin.id);
+  });
+
+  it("excludes someone who only holds a DIRECTOR shift but has no DIRECTOR membership", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("APR4");
+
+    // On a DIRECTOR shift, but their membership is VOLUNTEER-kind -- the old
+    // shift-assignment heuristic would have reminded them; the approver set does not.
+    const shiftOnlyDirector = await createPersonWithEmail("Shift Dir", "shift@example.org");
+    await createMembership(shiftOnlyDirector.id, term.id, dept.id, "VOLUNTEER");
+    await createShift(term.id, dept.id, shiftOnlyDirector.id, dates[0], "DIRECTOR");
+
+    const recipients = await requestApproverRecipients(dept.id);
+
+    expect(recipients.map((r) => r.id)).not.toContain(shiftOnlyDirector.id);
+  });
+});
+
+describe("remindDirectors throttle (F15)", () => {
+  it("skips an approver notified within the window so repeated clicks can't flood directors", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("AABB");
+    const director = await createPersonWithEmail("Dir", "dir@example.org");
+    const requester = await createPerson("Vol");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createShift(term.id, dept.id, requester.id, dates[0], "VOLUNTEER");
+
+    const req = await createRequest(requester.id, {
+      requesterDateKey: isoDateKey(dates[0]),
+      departmentId: dept.id,
+    });
+    // Age the request past the 5-day reminder gate.
+    await prisma.shiftRequest.update({
+      where: { id: req.id },
+      data: { createdAt: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000) },
+    });
+    // Start clean: drop the original submission-notice email so we isolate the
+    // reminder throttle.
+    await prisma.emailLog.deleteMany({});
+
+    const template = "schedule-request-submitted-director";
+    const count = () => prisma.emailLog.count({ where: { personId: director.id, template } });
+
+    await remindDirectors(requester.id, req.id);
+    expect(await count()).toBe(1);
+
+    // Immediate second reminder: throttled, no new email.
+    await remindDirectors(requester.id, req.id);
+    expect(await count()).toBe(1);
+
+    // Push the sole reminder outside the 3-day window; a new reminder now sends.
+    await prisma.emailLog.updateMany({
+      where: { personId: director.id, template },
+      data: { createdAt: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000) },
+    });
+    await remindDirectors(requester.id, req.id);
+    expect(await count()).toBe(2);
   });
 });

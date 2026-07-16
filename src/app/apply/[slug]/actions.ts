@@ -6,6 +6,8 @@ import {
 import type { ApplicantType } from "@/modules/recruitment/engine/visibility";
 import { auth } from "@/platform/auth/auth";
 import { getApplicantIdentity } from "@/modules/recruitment/services/portal-auth";
+import { captureEvent } from "@/platform/posthog/capture";
+import { termGroupForCycleSlug } from "@/platform/posthog/groups";
 
 export type SubmitResult =
   | { ok: true }
@@ -34,6 +36,13 @@ export async function submitPublicApplication(slug: string, formData: FormData):
 
   const session = await auth();
   const identity = await getApplicantIdentity();
+  if (!identity) {
+    // The apply page redirects unauthenticated visitors, but this server action is a
+    // directly-callable endpoint, so we re-enforce the identity gate here. Without a
+    // verified portal identity (Yale SSO or a magic-link cookie) we refuse the
+    // submission rather than trust a client-supplied email (spoofing / dedup squatting).
+    return { ok: false, message: "Please verify your email before submitting your application." };
+  }
 
   try {
     await submitApplication(slug, {
@@ -41,6 +50,17 @@ export async function submitPublicApplication(slug: string, formData: FormData):
       sessionPersonId: session?.personId ?? null,
       sessionEmail: session?.user?.email ?? null,
       identityEmail: identity?.email ?? null,
+    });
+    const distinctId = session?.personId ?? identity?.email ?? slug;
+    await captureEvent({
+      distinctId,
+      event: "application_submitted",
+      properties: {
+        slug,
+        applicant_type: applicantType,
+        renewal_department: renewalDepartment ?? null,
+      },
+      groups: await termGroupForCycleSlug(slug),
     });
     return { ok: true };
   } catch (err) {

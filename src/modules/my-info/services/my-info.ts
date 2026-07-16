@@ -23,12 +23,13 @@ import type { HipaaCertificate } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { recordAudit } from "@/platform/audit";
+import { log, errorAttrs } from "@/platform/logging";
 import { updatePersonFields } from "@/platform/people";
 import { getSetting } from "@/platform/settings/service";
 import { putObject } from "@/platform/storage";
 import { extractCompletionDate } from "@/platform/compliance/parser";
 import type { ParsedDate } from "@/platform/compliance/parser";
-import { notifyDatelessCertReview } from "@/platform/compliance/review-notifications";
+import { notifyDatelessCertReview, notifyCertNeedsVerification } from "@/platform/compliance/review-notifications";
 
 // ---------------------------------------------------------------------------
 // Typed error
@@ -52,6 +53,7 @@ export type MyInfoInput = {
   contactEmail?: string | null;
   yaleAffiliation?: string | null;
   gradYear?: string | null;
+  dietaryRestrictions?: string | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -148,6 +150,7 @@ export async function updateMyInfo(personId: string, input: MyInfoInput): Promis
     "contactEmail",
     "yaleAffiliation",
     "gradYear",
+    "dietaryRestrictions",
   ];
 
   const clean: MyInfoInput = {};
@@ -252,18 +255,19 @@ export async function saveCertificate(
     }
   }
 
-  // Dedup signal for the review notification (step 7): capture whether the
-  // member's CURRENT newest cert is already dateless BEFORE inserting the new
-  // row. A re-upload that re-fails parsing must not re-alert compliance managers.
-  const alreadyPending =
-    parsedDate === null &&
-    (
-      await prisma.hipaaCertificate.findFirst({
-        where: { personId },
-        orderBy: { uploadedAt: "desc" },
-        select: { completionDate: true },
-      })
-    )?.completionDate === null;
+  // Dedup signals for the review notifications (step 7): snapshot the member's
+  // CURRENT newest cert BEFORE inserting the new row so a re-upload into the same
+  // state does not re-alert compliance managers.
+  const priorNewest = await prisma.hipaaCertificate.findFirst({
+    where: { personId },
+    orderBy: { uploadedAt: "desc" },
+    select: { completionDate: true, verifiedAt: true },
+  });
+  // Dateless: newest existing cert already had no date (parse also failed now).
+  const alreadyPending = parsedDate === null && priorNewest?.completionDate === null;
+  // Awaiting verification: newest existing cert already had a date but was unverified.
+  const alreadyPendingVerification =
+    priorNewest != null && priorNewest.completionDate !== null && priorNewest.verifiedAt === null;
 
   // --- 3. Transaction: create the certificate row ---
   const cert = await prisma.$transaction(async (tx) => {
@@ -302,7 +306,7 @@ export async function saveCertificate(
     try {
       await prisma.hipaaCertificate.delete({ where: { id: cert.id } });
     } catch (cleanupErr) {
-      console.error("[my-info] failed to clean up cert row after disk error", cert.id, cleanupErr);
+      log.error("[my-info] failed to clean up cert row after disk error", errorAttrs(cleanupErr, { certId: cert.id }));
     }
     throw err;
   }
@@ -316,9 +320,13 @@ export async function saveCertificate(
     after: { fileName: cert.fileName, size: cert.size },
   });
 
-  // --- 7. Dateless cert: alert compliance managers (the member cannot self-fix) ---
-  // The cert is already durably saved and audited; a notification hiccup must
-  // not surface to the member as a failed upload, so failures are logged only.
+  // --- 7. Alert compliance managers that the new cert needs their attention ---
+  // The cert is already durably saved and audited; a notification hiccup must not
+  // surface to the member as a failed upload, so failures are logged only. A fresh
+  // upload is always unverified (verifiedAt defaults to null), so there are two
+  // manager-facing cases, deduped against the pre-insert snapshot:
+  //   - no readable date  -> a manager must set the date (member cannot self-fix)
+  //   - date but unverified -> a manager must verify it (blocks the member until then)
   if (parsedDate === null && !alreadyPending) {
     try {
       const owner = await prisma.person.findUnique({
@@ -327,7 +335,17 @@ export async function saveCertificate(
       });
       await notifyDatelessCertReview(prisma, { id: personId, name: owner?.name ?? "A volunteer" });
     } catch (err) {
-      console.error("[my-info] failed to notify compliance managers of dateless cert", cert.id, err);
+      log.error("[my-info] failed to notify compliance managers of dateless cert", errorAttrs(err, { certId: cert.id }));
+    }
+  } else if (parsedDate !== null && !alreadyPendingVerification) {
+    try {
+      const owner = await prisma.person.findUnique({
+        where: { id: personId },
+        select: { name: true },
+      });
+      await notifyCertNeedsVerification(prisma, { id: personId, name: owner?.name ?? "A volunteer" });
+    } catch (err) {
+      log.error("[my-info] failed to notify compliance managers of cert awaiting verification", errorAttrs(err, { certId: cert.id }));
     }
   }
 

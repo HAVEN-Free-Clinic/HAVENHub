@@ -1,5 +1,7 @@
 import { getAccessToken } from "./oauth";
+import { inlineEmailHtml } from "./render/inline";
 import { getSetting } from "@/platform/settings/service";
+import { log } from "@/platform/logging";
 
 /** A single outbound email message. */
 export type EmailMessage = {
@@ -28,7 +30,7 @@ export interface EmailTransport {
 export class LogTransport implements EmailTransport {
   async send(message: EmailMessage): Promise<void> {
     const from = message.from ?? "(default sender)";
-    console.log(`[email] from=${from} to=${message.to} subject=${message.subject}`);
+    log.info(`[email] from=${from} to=${message.to} subject=${message.subject}`);
   }
 }
 
@@ -66,9 +68,16 @@ export class GraphTransport implements EmailTransport {
     const sender = message.from?.trim() || this.sender;
     const url = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(sender)}/sendMail`;
 
+    // Inline the layout's <style> rules and drop the <style> block just before
+    // delivery. Gmail clips messages that carry an embedded <style> block behind
+    // "[Message clipped] / View entire message" -- even tiny ones. This is the
+    // single seam every real send funnels through (queue drain, admin test-send,
+    // notification email), so rendered/stored HTML stays untouched. See render/inline.ts.
+    const html = inlineEmailHtml(message.html);
+
     const graphMessage: Record<string, unknown> = {
       subject: message.subject,
-      body: { contentType: "HTML", content: message.html },
+      body: { contentType: "HTML", content: html },
       toRecipients: [{ emailAddress: { address: message.to } }],
     };
     // A display name requires an explicit from block; without one the mailbox's
@@ -111,8 +120,8 @@ export async function resolveEmailTransport(): Promise<EmailTransport> {
     // back to the log transport (with a warning) rather than build a malformed
     // Graph request that fails opaquely at send time.
     if (!sender) {
-      console.warn(
-        "[email] transport is graph but no sender is configured; falling back to log transport"
+      log.warn(
+        "[email] transport is graph but no sender is configured; falling back to log transport",
       );
       return new LogTransport();
     }

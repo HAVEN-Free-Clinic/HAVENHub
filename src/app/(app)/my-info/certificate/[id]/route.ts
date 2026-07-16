@@ -2,6 +2,7 @@ import { auth } from "@/platform/auth/auth";
 import { getActivePerson } from "@/platform/auth/match-person";
 import { prisma } from "@/platform/db";
 import { getObject } from "@/platform/storage";
+import { log } from "@/platform/logging";
 import { canViewCertificate } from "@/platform/compliance/access";
 import { certificateContentDisposition } from "./content-disposition";
 
@@ -63,12 +64,10 @@ export async function GET(
   // --- Read the file from storage (storedName comes only from the DB row) ---
   const buf = await getObject(cert.storedName);
   if (!buf) {
-    console.error(
-      "[my-info/certificate] file missing in storage for cert id",
-      cert.id,
-      "stored name",
-      cert.storedName
-    );
+    log.error("[my-info/certificate] file missing in storage", {
+      certId: cert.id,
+      storedName: cert.storedName,
+    });
     return Response.json({ error: "Not found" }, { status: 404 });
   }
   // Copy into a standalone Uint8Array (a valid BodyInit) so the Response owns
@@ -87,6 +86,9 @@ export async function GET(
     status: 200,
     headers: {
       "Content-Type": cert.mimeType,
+      // Protected health document: never cache to disk/bfcache or intermediaries.
+      "Cache-Control": "private, no-store, max-age=0",
+      "Pragma": "no-cache",
       "Content-Disposition": certificateContentDisposition(cert.fileName, renderInline),
       "Content-Length": String(fileByteLength),
       // Defense-in-depth: never sniff a different type than declared, and deny the

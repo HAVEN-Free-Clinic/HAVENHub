@@ -17,9 +17,22 @@
  *   person.create / person.update / person.offboard / person.reactivate
  */
 
-import type { Person } from "@prisma/client";
+import { Prisma, type Person } from "@prisma/client";
 import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
+
+/**
+ * Options for setPersonStatusField / setPersonStatus.
+ *
+ * assertInvariant runs inside the OFFBOARDED transaction, before any mutation,
+ * and may throw to abort the whole flip atomically. Offboard call sites pass the
+ * last-admin guard here so the check and the Person.status flip commit together
+ * (see setPersonStatusField). When present, the transaction escalates to
+ * Serializable so two concurrent offboards cannot both pass and lock everyone out.
+ */
+export type SetPersonStatusOptions = {
+  assertInvariant?: (tx: Prisma.TransactionClient) => Promise<void>;
+};
 
 export class PersonConflictError extends Error {
   constructor(public field: string) {
@@ -53,6 +66,7 @@ export type PersonInput = {
   epicId?: string | null;
   yaleAffiliation?: string | null;
   gradYear?: string | null;
+  dietaryRestrictions?: string | null;
   spanishSelfReported?: boolean;
   spanishVerified?: boolean;
   licensedRN?: boolean;
@@ -147,6 +161,7 @@ export async function updatePersonFields(
     "epicId",
     "yaleAffiliation",
     "gradYear",
+    "dietaryRestrictions",
     "spanishSelfReported",
     "spanishVerified",
     "licensedRN",
@@ -217,7 +232,8 @@ export async function updatePersonFields(
 export async function setPersonStatusField(
   actorPersonId: string,
   personId: string,
-  status: "ACTIVE" | "OFFBOARDED"
+  status: "ACTIVE" | "OFFBOARDED",
+  opts: SetPersonStatusOptions = {}
 ): Promise<Person> {
   const existingOrNull = await prisma.person.findUnique({ where: { id: personId } });
   if (!existingOrNull) throw new PersonNotFoundError(personId);
@@ -245,6 +261,11 @@ export async function setPersonStatusField(
 
   const updated = await prisma.$transaction(async (tx) => {
     if (status === "OFFBOARDED") {
+      // Run the caller-supplied invariant (e.g. the last-admin guard) inside this
+      // transaction BEFORE any mutation, so the check and the status flip commit
+      // atomically. Throwing here rolls the whole offboard back.
+      if (opts.assertInvariant) await opts.assertInvariant(tx);
+
       const { count } = await tx.termMembership.updateMany({
         where: { personId, status: "ACTIVE" },
         data: { status: "REMOVED" },
@@ -306,7 +327,13 @@ export async function setPersonStatusField(
       where: { id: personId },
       data: { status },
     });
-  });
+  },
+  // Escalate to Serializable only when an invariant must hold across the flip, so
+  // concurrent offboards conflict-abort instead of both committing (write skew).
+  // Other callers keep the default isolation and behavior.
+  opts.assertInvariant
+    ? { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+    : undefined);
 
   const action = status === "OFFBOARDED" ? "person.offboard" : "person.reactivate";
 

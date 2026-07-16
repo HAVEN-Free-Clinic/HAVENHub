@@ -96,7 +96,7 @@ export function ClearanceCard({
             <ShieldCheck aria-hidden className="h-6 w-6" />
           </span>
           <div className="min-w-0">
-            <p className="text-xs font-bold uppercase tracking-wider text-success">Cleared</p>
+            <p className="text-xs font-bold uppercase tracking-wider text-success-foreground">Cleared</p>
             <p className="mt-0.5 text-[17px] font-bold tracking-tight text-foreground">
               You&apos;re fully cleared{forTerm}
             </p>
@@ -111,7 +111,7 @@ export function ClearanceCard({
             <AlertTriangle aria-hidden className="h-6 w-6" />
           </span>
           <div className="min-w-0">
-            <p className="text-xs font-bold uppercase tracking-wider text-warning">Not yet cleared</p>
+            <p className="text-xs font-bold uppercase tracking-wider text-warning-foreground">Not yet cleared</p>
             <p className="mt-0.5 text-[17px] font-bold tracking-tight text-foreground">
               A few steps left{forTerm}
             </p>

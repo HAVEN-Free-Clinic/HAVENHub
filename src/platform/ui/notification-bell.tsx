@@ -96,7 +96,9 @@ export function NotificationBell() {
           if (next) void refresh();
         }}
         aria-label={count > 0 ? `Notifications, ${count} unread` : "Notifications"}
-        className="relative inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+        aria-haspopup="true"
+        aria-expanded={open}
+        className="relative inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
       >
         <Bell aria-hidden className="h-4 w-4" />
         {count > 0 && (
@@ -107,7 +109,7 @@ export function NotificationBell() {
       </button>
 
       {open && (
-        <div className="glass-panel absolute right-0 top-10 z-40 w-80 overflow-hidden rounded-xl border border-border shadow-lg">
+        <div className="glass-panel absolute right-0 top-10 z-40 w-80 overflow-hidden rounded-xl">
           <div className="flex items-center justify-between border-b border-border-subtle px-4 py-2.5">
             <span className="text-sm font-semibold text-foreground">Notifications</span>
             {count > 0 && (

@@ -15,8 +15,12 @@
 import type { ShiftRequest } from "@prisma/client";
 import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
-import { isoDateKey } from "@/platform/dates";
-import { manageableDepartmentIds, memberDepartmentIds } from "@/platform/departments";
+import { formatCalendarDate, isoDateKey } from "@/platform/dates";
+import {
+  departmentDirectorPersonIds,
+  manageableDepartmentIds,
+  memberDepartmentIds,
+} from "@/platform/departments";
 import { can } from "@/platform/rbac/engine";
 import {
   validateRequest,
@@ -24,12 +28,13 @@ import {
 } from "../engine/requests";
 import type { ScheduleRowForValidation } from "../engine/requests";
 import { getActiveTerm } from "@/platform/terms/active-term";
+import { queueEmail } from "@/platform/email/send";
+import { renderEmail } from "@/platform/email/templates/renderEmail";
 
 // ---------------------------------------------------------------------------
 // Typed errors
 // ---------------------------------------------------------------------------
 
-/** Actor lacks permission to perform the operation on this department. */
 export class RequestForbiddenError extends Error {
   constructor(message = "Forbidden") {
     super(message);
@@ -37,7 +42,6 @@ export class RequestForbiddenError extends Error {
   }
 }
 
-/** No ShiftRequest matching the provided id was found. */
 export class RequestNotFoundError extends Error {
   constructor(message = "Request not found") {
     super(message);
@@ -45,7 +49,6 @@ export class RequestNotFoundError extends Error {
   }
 }
 
-/** The request input is invalid or conflicts with schedule state. */
 export class RequestValidationError extends Error {
   constructor(message: string) {
     super(message);
@@ -68,10 +71,6 @@ export type RequestRow = {
 // Private helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Builds ScheduleRowForValidation[] for a (term, department) pair by loading
- * all ShiftAssignments and grouping them by UTC date key.
- */
 async function buildScheduleRows(
   termId: string,
   departmentId: string,
@@ -101,11 +100,6 @@ async function buildScheduleRows(
   return [...byDate.values()];
 }
 
-/**
- * Departments the actor may decide requests for: director membership +
- * one-hop delegation, UNION member departments when the actor holds
- * schedule.manage_requests, UNION all departments when schedule.edit_all.
- */
 export async function manageableRequestDepartmentIds(personId: string): Promise<string[]> {
   const [base, manageRequests, editAll] = await Promise.all([
     manageableDepartmentIds(personId),
@@ -127,7 +121,6 @@ export async function manageableRequestDepartmentIds(personId: string): Promise<
   return [...ids];
 }
 
-/** True when the actor may decide requests for the given department. */
 export async function canManageRequestsForDept(
   personId: string,
   departmentId: string,
@@ -136,9 +129,29 @@ export async function canManageRequestsForDept(
 }
 
 /**
- * Checks that actor may decide requests for the given department.
- * Throws RequestForbiddenError if not.
+ * How many PENDING shift-change requests this person is responsible for deciding,
+ * across every department they can manage requests for, in the active term. Used
+ * by the dashboard action feed. Returns 0 when there is no active term or the
+ * person manages no departments. One count query; reuses the same scope resolver
+ * as the approve/deny path.
  */
+export async function countPendingApprovals(personId: string): Promise<number> {
+  const term = await getActiveTerm();
+  if (!term) return 0;
+
+  // Every department the person can approve/deny requests for. The dashboard
+  // Approvals card links to the dedicated /schedule/requests page, which is
+  // reachable by any approver (including schedule.manage_requests holders who are
+  // not builders), so this no longer intersects with builder-openable departments
+  // -- doing so previously hid a manage_requests holder's approvals entirely.
+  const departmentIds = await manageableRequestDepartmentIds(personId);
+  if (departmentIds.length === 0) return 0;
+
+  return prisma.shiftRequest.count({
+    where: { termId: term.id, departmentId: { in: departmentIds }, status: "PENDING" },
+  });
+}
+
 async function scopeCheck(actorPersonId: string, departmentId: string): Promise<void> {
   if (!(await canManageRequestsForDept(actorPersonId, departmentId))) {
     throw new RequestForbiddenError();
@@ -146,23 +159,58 @@ async function scopeCheck(actorPersonId: string, departmentId: string): Promise<
 }
 
 /**
- * Guards against same-date-other-role collisions that the engine's validateRequest
- * does not cover.
+ * The people who should be notified about a shift request for `departmentId`:
+ * the department's ACTUAL approvers, derived from the same authority
+ * approveRequest/denyRequest enforce (manageableRequestDepartmentIds), NOT merely
+ * whoever holds a DIRECTOR shift on the calendar.
  *
- * Background: planApply emits "add" ops for named swaps which the service applies
- * via upsert (update role on conflict). The unique constraint on
- * (termId, departmentId, clinicDate, personId) means a single row per person per
- * date. If the target already holds a SHADOW assignment on the requester's date,
- * the upsert would silently overwrite that row's role. Symmetrically, if the
- * requester holds any assignment on the target's date, their new add-row would
- * clobber it. validateRequest only verifies that each party has an assignment on
- * their own offered date in the correct role; the cross-date collision check is
- * the service's responsibility.
+ * Recipients =
+ *   - department directors by membership + one-hop delegated directors
+ *     ({@link departmentDirectorPersonIds}), PLUS
+ *   - schedule.manage_requests holders who are ACTIVE members of the department
+ *     (manageableRequestDepartmentIds only extends such a holder to departments
+ *     they belong to).
  *
- * Throws RequestValidationError("Partner is not eligible") when:
- *   - the target holds ANY assignment on requesterDate (in this term + department), or
- *   - the requester holds ANY assignment on targetDate (in this term + department).
+ * Blanket schedule.edit_all admins are intentionally excluded so a routine drop
+ * request does not email every org-wide administrator. Deduped by person; the
+ * caller no-ops any recipient without a contactEmail.
+ *
+ * Exported so the pending-request reminder cron
+ * (src/app/api/cron/schedule-reminders/route.ts) reminds this same approver set
+ * instead of re-deriving recipients from whoever holds a DIRECTOR shift.
  */
+export async function requestApproverRecipients(
+  departmentId: string,
+): Promise<Array<{ id: string; name: string; contactEmail: string | null }>> {
+  const activeTerm = await getActiveTerm();
+  if (!activeTerm) return [];
+
+  const [directorIds, memberships] = await Promise.all([
+    departmentDirectorPersonIds(departmentId),
+    prisma.termMembership.findMany({
+      where: { termId: activeTerm.id, departmentId, status: "ACTIVE" },
+      select: { personId: true },
+    }),
+  ]);
+
+  const memberIds = [...new Set(memberships.map((m) => m.personId))];
+  const manageRequestsMemberIds = (
+    await Promise.all(
+      memberIds.map(async (pid) =>
+        (await can(pid, "schedule.manage_requests")) ? pid : null,
+      ),
+    )
+  ).filter((pid): pid is string => pid !== null);
+
+  const personIds = [...new Set([...directorIds, ...manageRequestsMemberIds])];
+  if (personIds.length === 0) return [];
+
+  return prisma.person.findMany({
+    where: { id: { in: personIds } },
+    select: { id: true, name: true, contactEmail: true },
+  });
+}
+
 async function assertNoSwapCollision(
   termId: string,
   departmentId: string,
@@ -190,17 +238,40 @@ async function assertNoSwapCollision(
   }
 }
 
-/**
- * Creates a PENDING shift drop or swap request for the actor.
- *
- * Validates that:
- *   - An active term exists.
- *   - requesterDateKey and (if provided) targetDateKey resolve to canonical
- *     clinic dates in the term.
- *   - The actor holds an assignment on requesterDateKey in the department.
- *   - The engine validateRequest passes.
- *   - No PENDING request already exists for (requesterId, requesterDate, departmentId).
- */
+async function sendScheduleEmail(
+  templateKey: string,
+  to: string | null | undefined,
+  personId: string,
+  triggeredById: string,
+  vars: Record<string, string>,
+): Promise<void> {
+  if (!to) return;
+  try {
+    // Route through the shared renderEmail path so schedule lifecycle emails get
+    // the branded layout AND honor any admin EmailTemplate override, instead of
+    // shipping the bare code-default fragment.
+    const { subject, html } = await renderEmail(templateKey, vars);
+    await queueEmail(prisma, {
+      to,
+      subject,
+      html,
+      template: templateKey,
+      personId,
+      triggeredById,
+    });
+  } catch {
+    // Best-effort: never block the domain mutation on email failure.
+  }
+}
+
+function fmtEmailDate(d: Date): string {
+  return formatCalendarDate(d, { month: "long", day: "numeric", year: "numeric" });
+}
+
+// ---------------------------------------------------------------------------
+// createRequest
+// ---------------------------------------------------------------------------
+
 export async function createRequest(
   actorPersonId: string,
   input: {
@@ -216,7 +287,6 @@ export async function createRequest(
     throw new RequestValidationError("No active term.");
   }
 
-  // Resolve requesterDate from clinic dates
   const clinicDateMap = new Map<string, Date>();
   for (const d of term.clinicDates) {
     clinicDateMap.set(isoDateKey(d), d);
@@ -229,7 +299,6 @@ export async function createRequest(
     );
   }
 
-  // Resolve optional targetDate
   let canonicalTargetDate: Date | null = null;
   if (input.targetDateKey !== undefined) {
     const d = clinicDateMap.get(input.targetDateKey);
@@ -241,7 +310,6 @@ export async function createRequest(
     canonicalTargetDate = d;
   }
 
-  // Build schedule rows and run engine validation
   const scheduleRows = await buildScheduleRows(term.id, input.departmentId);
 
   const validationResult = validateRequest({
@@ -256,9 +324,6 @@ export async function createRequest(
     throw new RequestValidationError(validationResult.error);
   }
 
-  // Swap collision guard: the engine does not check for cross-date same-person
-  // rows. If the target has any assignment on the requester's date (or vice versa),
-  // the upsert in planApply would clobber that row's role.
   if (input.targetId && canonicalTargetDate) {
     await assertNoSwapCollision(
       term.id,
@@ -270,11 +335,6 @@ export async function createRequest(
     );
   }
 
-  // Duplicate guard + create inside a transaction.
-  // The in-tx findFirst gives a friendly error for the sequential case.
-  // The partial unique index "ShiftRequest_pending_unique" is the race-window
-  // backstop: if two concurrent requests slip through we catch P2002 and
-  // surface the same user-facing message.
   let created: ShiftRequest;
   try {
     created = await prisma.$transaction(async (tx) => {
@@ -307,9 +367,6 @@ export async function createRequest(
       });
     });
   } catch (err) {
-    // Race backstop: two concurrent createRequest calls can both pass the
-    // in-tx findFirst check before either commits; the partial unique index
-    // then rejects the second insert with a unique violation (P2002).
     if (isUniqueConstraintError(err)) {
       throw new RequestValidationError("You already have a pending request for this shift.");
     }
@@ -317,6 +374,7 @@ export async function createRequest(
   }
 
   const isSwap = !!(input.targetId && input.targetDateKey);
+
   await recordAudit({
     actorPersonId,
     action: "schedule.request",
@@ -330,14 +388,111 @@ export async function createRequest(
     },
   });
 
+  try {
+    const [requester, department] = await Promise.all([
+      prisma.person.findUnique({
+        where: { id: actorPersonId },
+        select: { name: true, contactEmail: true },
+      }),
+      prisma.department.findUnique({
+        where: { id: input.departmentId },
+        select: { name: true },
+      }),
+    ]);
+
+    const requesterFirstName = requester?.name?.split(" ")[0] ?? requester?.name ?? "";
+    const deptName = department?.name ?? "";
+    const requesterDateStr = fmtEmailDate(canonicalRequesterDate);
+
+    let partner: { name: string; contactEmail: string | null } | null = null;
+    let partnerDateStr = "";
+
+    if (isSwap && input.targetId && canonicalTargetDate) {
+      partner = await prisma.person.findUnique({
+        where: { id: input.targetId },
+        select: { name: true, contactEmail: true },
+      });
+      partnerDateStr = fmtEmailDate(canonicalTargetDate);
+      const partnerFirstName = partner?.name?.split(" ")[0] ?? partner?.name ?? "";
+
+      await Promise.all([
+        sendScheduleEmail(
+          "schedule-swap-submitted-requester",
+          requester?.contactEmail,
+          actorPersonId,
+          actorPersonId,
+          {
+            requesterName: requesterFirstName,
+            partnerName: partner?.name ?? "",
+            requesterDate: requesterDateStr,
+            partnerDate: partnerDateStr,
+            departmentName: deptName,
+          },
+        ),
+        sendScheduleEmail(
+          "schedule-swap-submitted-partner",
+          partner?.contactEmail,
+          input.targetId,
+          actorPersonId,
+          {
+            partnerName: partnerFirstName,
+            requesterName: requester?.name ?? "",
+            requesterDate: requesterDateStr,
+            partnerDate: partnerDateStr,
+            departmentName: deptName,
+          },
+        ),
+      ]);
+    } else {
+      await sendScheduleEmail(
+        "schedule-drop-submitted-requester",
+        requester?.contactEmail,
+        actorPersonId,
+        actorPersonId,
+        {
+          requesterName: requesterFirstName,
+          requesterDate: requesterDateStr,
+          departmentName: deptName,
+        },
+      );
+    }
+
+    // Notify the department's actual approvers (directors by membership, one-hop
+    // delegated directors, and schedule.manage_requests holders in the
+    // department), the same authority approveRequest enforces -- not merely
+    // whoever happens to hold a DIRECTOR shift on the calendar.
+    const approvers = await requestApproverRecipients(input.departmentId);
+
+    await Promise.all(
+      approvers.map((approver) =>
+        sendScheduleEmail(
+          "schedule-request-submitted-director",
+          approver.contactEmail,
+          approver.id,
+          actorPersonId,
+          {
+            directorName: approver.name?.split(" ")[0] ?? approver.name ?? "",
+            requesterName: requester?.name ?? "",
+            requestType: isSwap ? "swap" : "drop",
+            requesterDate: requesterDateStr,
+            partnerName: partner?.name ?? "",
+            partnerDate: partnerDateStr,
+            departmentName: deptName,
+          },
+        )
+      )
+    );
+  } catch {
+    // Best-effort notifications.
+  }
+
   return created;
 }
 
-/**
- * Cancels a PENDING shift request.
- *
- * Only the original requester may cancel. Only PENDING requests can be cancelled.
- */
+// ---------------------------------------------------------------------------
+// cancelRequest
+// ---------------------------------------------------------------------------
+
 export async function cancelRequest(
   actorPersonId: string,
   requestId: string,
@@ -355,10 +510,17 @@ export async function cancelRequest(
     throw new RequestValidationError("Only pending requests can be cancelled.");
   }
 
-  await prisma.shiftRequest.update({
-    where: { id: requestId },
+  // Atomic guarded transition: the read-time check above gives the friendly
+  // message for the common case; this precondition closes the race window so a
+  // request already approved/denied by a director cannot also be flipped to
+  // CANCELLED.
+  const { count } = await prisma.shiftRequest.updateMany({
+    where: { id: requestId, status: "PENDING" },
     data: { status: "CANCELLED" },
   });
+  if (count === 0) {
+    throw new RequestValidationError("This request was already decided.");
+  }
 
   await recordAudit({
     actorPersonId,
@@ -366,19 +528,45 @@ export async function cancelRequest(
     entityType: "ShiftRequest",
     entityId: requestId,
   });
+
+  try {
+    if (req.targetId && req.targetDate) {
+      const [requester, partner, department] = await Promise.all([
+        prisma.person.findUnique({
+          where: { id: req.requesterId },
+          select: { name: true },
+        }),
+        prisma.person.findUnique({
+          where: { id: req.targetId },
+          select: { name: true, contactEmail: true },
+        }),
+        prisma.department.findUnique({
+          where: { id: req.departmentId },
+          select: { name: true },
+        }),
+      ]);
+      await sendScheduleEmail(
+        "schedule-request-cancelled-partner",
+        partner?.contactEmail,
+        req.targetId,
+        actorPersonId,
+        {
+          partnerName: partner?.name?.split(" ")[0] ?? "",
+          requesterName: requester?.name ?? "",
+          partnerDate: fmtEmailDate(req.targetDate),
+          departmentName: department?.name ?? "",
+        },
+      );
+    }
+  } catch {
+    // Best-effort notifications.
+  }
 }
 
-/**
- * Lists shift requests for a department in the active term.
- *
- * Ordering: PENDING first (createdAt asc), then decided (most recent first, max
- * 10 decided). The decided bucket sorts by updatedAt, not decidedAt: CANCELLED
- * rows are self-service withdrawals with no decider and a null decidedAt, so a
- * decidedAt-desc sort would float them ahead of every real decision (Postgres
- * sorts NULLS FIRST on DESC) and bury approvals/denials. updatedAt is the moment
- * each row reached its terminal state, giving a true chronological history.
- * Requires actor to be a manageable-department director or hold schedule.edit_all.
- */
+// ---------------------------------------------------------------------------
+// listDepartmentRequests
+// ---------------------------------------------------------------------------
+
 export async function listDepartmentRequests(
   viewerPersonId: string,
   departmentId: string,
@@ -402,17 +590,13 @@ export async function listDepartmentRequests(
       where: {
         termId: term.id,
         departmentId,
-        // CANCELLED rows share the decided bucket deliberately: self-service
-      // withdrawals are part of recent history and relevant to directors.
-      status: { in: ["APPROVED", "DENIED", "CANCELLED"] },
+        status: { in: ["APPROVED", "DENIED", "CANCELLED"] },
       },
       include: {
         requester: { select: { name: true } },
         target: { select: { name: true } },
         decidedBy: { select: { name: true } },
       },
-      // Sort by updatedAt, not decidedAt: CANCELLED rows have a null decidedAt
-      // and would otherwise sort NULLS FIRST, burying real approvals/denials.
       orderBy: { updatedAt: "desc" },
       take: 10,
     }),
@@ -428,16 +612,10 @@ export async function listDepartmentRequests(
   return [...pendingRows.map(toRow), ...decidedRows.map(toRow)];
 }
 
-/**
- * Approves a PENDING shift request.
- *
- * Re-validates the request against the CURRENT schedule state before applying
- * mutations. If validation fails, throws RequestValidationError and leaves the
- * request PENDING.
- *
- * Applies all mutations (remove/add assignments) and marks the request APPROVED
- * in a single $transaction.
- */
+// ---------------------------------------------------------------------------
+// approveRequest
+// ---------------------------------------------------------------------------
+
 export async function approveRequest(
   actorPersonId: string,
   requestId: string,
@@ -453,7 +631,6 @@ export async function approveRequest(
     throw new RequestValidationError("Only pending requests can be approved.");
   }
 
-  // Re-validate against current schedule state
   const scheduleRows = await buildScheduleRows(req.termId, req.departmentId);
 
   const requesterDateKey = isoDateKey(req.requesterDate);
@@ -471,9 +648,6 @@ export async function approveRequest(
     throw new RequestValidationError(validationResult.error);
   }
 
-  // Swap collision guard (re-checked at approval time against current data).
-  // Must run before the transaction so a collision discovered here keeps the
-  // request PENDING and leaves all assignments untouched.
   if (req.targetId && req.targetDate) {
     await assertNoSwapCollision(
       req.termId,
@@ -485,7 +659,6 @@ export async function approveRequest(
     );
   }
 
-  // Plan mutations
   const mutations = planApply({
     scheduleRows,
     requesterId: req.requesterId,
@@ -494,7 +667,6 @@ export async function approveRequest(
     targetDate: targetDateKey,
   });
 
-  // Fetch term clinic dates once (needed to resolve canonical Date objects).
   const term = await prisma.term.findUniqueOrThrow({
     where: { id: req.termId },
     select: { clinicDates: true },
@@ -507,10 +679,6 @@ export async function approveRequest(
   const now = new Date();
 
   await prisma.$transaction(async (tx) => {
-    // In-transaction swap collision guard: a concurrent assignment could have
-    // been created in the window between the pre-tx check above and this tx
-    // acquiring its snapshot. Re-running inside the tx means any collision
-    // created after the outer check rolls the whole transaction back.
     if (req.targetId && req.targetDate) {
       await assertNoSwapCollision(
         req.termId,
@@ -523,7 +691,59 @@ export async function approveRequest(
       );
     }
 
-    // Apply mutations
+    // Re-assert that anyone being ASSIGNED here is still ACTIVE (audit F5).
+    // validateRequest / the swap-partner list are derived purely from
+    // ShiftAssignment rows, which outlive an offboarded person, so without this an
+    // offboarded volunteer with a leftover future assignment could be swapped onto
+    // a shift. Only "add" ops need the check ("remove" of an offboarded person is
+    // desirable).
+    const addPersonIds = [...new Set(mutations.filter((m) => m.op !== "remove").map((m) => m.personId))];
+    if (addPersonIds.length > 0) {
+      // Require an ACTIVE TermMembership in THIS department/term, not merely
+      // Person.status === "ACTIVE". A single-department offboard or roster removal
+      // sets TermMembership.status = "REMOVED" while leaving Person.status ACTIVE
+      // and does not delete leftover ShiftAssignment rows, so a globally-active
+      // person who is no longer in this department must not be swapped back onto
+      // its shifts. Mirrors the (person, department) active-membership check used
+      // by setAssignment (builder.ts) and the shift-reminders cron.
+      const activeMembers = await tx.termMembership.findMany({
+        where: { termId: req.termId, departmentId: req.departmentId, personId: { in: addPersonIds }, status: "ACTIVE" },
+        select: { personId: true },
+      });
+      const activeSet = new Set(activeMembers.map((m) => m.personId));
+      if (addPersonIds.some((id) => !activeSet.has(id))) {
+        throw new RequestValidationError(
+          "A participant is no longer an active member of this department and can no longer be scheduled.",
+        );
+      }
+    }
+
+    // Capture each moved person's existing role tags BEFORE any delete, so a swap
+    // carries triage/walk-in/cc/remote onto the person's new date instead of
+    // silently resetting them to defaults. Each person is removed from exactly one
+    // date per plan, so keying by personId is unambiguous.
+    const tagsByPerson = new Map<
+      string,
+      { triage: boolean; walkin: boolean; cc: boolean; remote: boolean }
+    >();
+    for (const mutation of mutations) {
+      if (mutation.op !== "remove") continue;
+      const canonicalDate = clinicDateMap.get(mutation.dateKey);
+      if (!canonicalDate) continue;
+      const existing = await tx.shiftAssignment.findUnique({
+        where: {
+          termId_departmentId_clinicDate_personId: {
+            termId: req.termId,
+            departmentId: req.departmentId,
+            clinicDate: canonicalDate,
+            personId: mutation.personId,
+          },
+        },
+        select: { triage: true, walkin: true, cc: true, remote: true },
+      });
+      if (existing) tagsByPerson.set(mutation.personId, existing);
+    }
+
     for (const mutation of mutations) {
       const dbRole = mutation.role.toUpperCase() as "DIRECTOR" | "VOLUNTEER" | "SHADOW";
 
@@ -535,13 +755,6 @@ export async function approveRequest(
       }
 
       if (mutation.op === "remove") {
-        // Capture the delete count and assert exactly one row was removed.
-        // The re-validation above (outside the tx) catches all deterministic
-        // cases (e.g. assignment already deleted). This count guard is a
-        // last-resort race backstop: if the row vanishes between validation
-        // and this tx the delete would silently succeed with count=0, leaving
-        // the schedule in a half-mutated state. Rolling back here keeps the
-        // request PENDING so the director can retry with fresh state.
         const { count } = await tx.shiftAssignment.deleteMany({
           where: {
             termId: req.termId,
@@ -557,7 +770,7 @@ export async function approveRequest(
           );
         }
       } else {
-        // Add idempotently: upsert on the unique key
+        const carriedTags = tagsByPerson.get(mutation.personId) ?? {};
         await tx.shiftAssignment.upsert({
           where: {
             termId_departmentId_clinicDate_personId: {
@@ -573,21 +786,28 @@ export async function approveRequest(
             clinicDate: canonicalDate,
             personId: mutation.personId,
             role: dbRole,
+            ...carriedTags,
           },
-          update: { role: dbRole },
+          update: { role: dbRole, ...carriedTags },
         });
       }
     }
 
-    // Mark request approved
-    await tx.shiftRequest.update({
-      where: { id: requestId },
+    // Atomic status flip: only a still-PENDING request becomes APPROVED. If a
+    // concurrent deny/cancel decided it first, count === 0 and the whole
+    // transaction rolls back, so applied mutations can never coexist with a
+    // DENIED/CANCELLED status.
+    const { count } = await tx.shiftRequest.updateMany({
+      where: { id: requestId, status: "PENDING" },
       data: {
         status: "APPROVED",
         decidedById: actorPersonId,
         decidedAt: now,
       },
     });
+    if (count === 0) {
+      throw new RequestValidationError("This request was already decided.");
+    }
   });
 
   await recordAudit({
@@ -604,14 +824,65 @@ export async function approveRequest(
       })),
     },
   });
+
+  try {
+    const isSwap = !!(req.targetId && req.targetDate);
+    const [requester, department] = await Promise.all([
+      prisma.person.findUnique({
+        where: { id: req.requesterId },
+        select: { name: true, contactEmail: true },
+      }),
+      prisma.department.findUnique({
+        where: { id: req.departmentId },
+        select: { name: true },
+      }),
+    ]);
+
+    const requesterFirstName = requester?.name?.split(" ")[0] ?? "";
+    const deptName = department?.name ?? "";
+    const requesterDateStr = fmtEmailDate(req.requesterDate);
+
+    await sendScheduleEmail(
+      "schedule-request-approved",
+      requester?.contactEmail,
+      req.requesterId,
+      actorPersonId,
+      {
+        recipientName: requesterFirstName,
+        requestType: isSwap ? "swap" : "drop",
+        requesterDate: requesterDateStr,
+        partnerDate: req.targetDate ? fmtEmailDate(req.targetDate) : "",
+        departmentName: deptName,
+      },
+    );
+
+    if (isSwap && req.targetId && req.targetDate) {
+      const partner = await prisma.person.findUnique({
+        where: { id: req.targetId },
+        select: { name: true, contactEmail: true },
+      });
+      await sendScheduleEmail(
+        "schedule-request-approved-partner",
+        partner?.contactEmail,
+        req.targetId,
+        actorPersonId,
+        {
+          partnerName: partner?.name?.split(" ")[0] ?? "",
+          requesterDate: requesterDateStr,
+          partnerDate: fmtEmailDate(req.targetDate),
+          departmentName: deptName,
+        },
+      );
+    }
+  } catch {
+    // Best-effort notifications.
+  }
 }
 
-/**
- * Denies a PENDING shift request.
- *
- * When a note is provided it is appended to the existing request note as
- * "\nDenied: <note>".
- */
+// ---------------------------------------------------------------------------
+// denyRequest
+// ---------------------------------------------------------------------------
+
 export async function denyRequest(
   actorPersonId: string,
   requestId: string,
@@ -634,8 +905,12 @@ export async function denyRequest(
     newNote = newNote ? `${newNote}\nDenied: ${note}` : `Denied: ${note}`;
   }
 
-  await prisma.shiftRequest.update({
-    where: { id: requestId },
+  // Atomic guarded transition: the read-time check above covers the common case;
+  // this precondition closes the race window so an applied approval cannot also
+  // be flipped to DENIED (which would leave mutations applied under a DENIED
+  // status).
+  const { count } = await prisma.shiftRequest.updateMany({
+    where: { id: requestId, status: "PENDING" },
     data: {
       status: "DENIED",
       decidedById: actorPersonId,
@@ -643,6 +918,9 @@ export async function denyRequest(
       note: newNote,
     },
   });
+  if (count === 0) {
+    throw new RequestValidationError("This request was already decided.");
+  }
 
   await recordAudit({
     actorPersonId,
@@ -651,17 +929,60 @@ export async function denyRequest(
     entityId: requestId,
     after: { note: newNote },
   });
+
+  try {
+    const isSwap = !!(req.targetId && req.targetDate);
+    const [requester, department] = await Promise.all([
+      prisma.person.findUnique({
+        where: { id: req.requesterId },
+        select: { name: true, contactEmail: true },
+      }),
+      prisma.department.findUnique({
+        where: { id: req.departmentId },
+        select: { name: true },
+      }),
+    ]);
+    await sendScheduleEmail(
+      "schedule-request-denied",
+      requester?.contactEmail,
+      req.requesterId,
+      actorPersonId,
+      {
+        requesterName: requester?.name?.split(" ")[0] ?? "",
+        requestType: isSwap ? "swap" : "drop",
+        requesterDate: fmtEmailDate(req.requesterDate),
+        departmentName: department?.name ?? "",
+      },
+    );
+
+    if (isSwap && req.targetId && req.targetDate) {
+      const partner = await prisma.person.findUnique({
+        where: { id: req.targetId },
+        select: { name: true, contactEmail: true },
+      });
+      await sendScheduleEmail(
+        "schedule-request-denied-partner",
+        partner?.contactEmail,
+        req.targetId,
+        actorPersonId,
+        {
+          partnerName: partner?.name?.split(" ")[0] ?? "",
+          requesterName: requester?.name ?? "",
+          requesterDate: fmtEmailDate(req.requesterDate),
+          partnerDate: fmtEmailDate(req.targetDate),
+          departmentName: department?.name ?? "",
+        },
+      );
+    }
+  } catch {
+    // Best-effort notifications.
+  }
 }
 
-/**
- * Returns eligible swap partners for the actor in a given department.
- *
- * Eligible partners are persons assigned in the same department with the same
- * role as the actor on the actor's requesterDateKey, but on DIFFERENT dates.
- * Shadows cannot swap, so returns [] when the actor is a shadow.
- *
- * Results are sorted by dateKey then name.
- */
+// ---------------------------------------------------------------------------
+// eligibleSwapPartners
+// ---------------------------------------------------------------------------
+
 export async function eligibleSwapPartners(
   actorPersonId: string,
   requesterDateKey: string,
@@ -670,7 +991,6 @@ export async function eligibleSwapPartners(
   const term = await getActiveTerm();
   if (!term) return [];
 
-  // Find actor's role on the requester date
   const actorAssignment = await prisma.shiftAssignment.findFirst({
     where: {
       termId: term.id,
@@ -684,14 +1004,12 @@ export async function eligibleSwapPartners(
   });
 
   if (!actorAssignment) return [];
-  // Shadows cannot swap
   if (actorAssignment.role === "SHADOW") return [];
 
   const actorRole = actorAssignment.role;
   const requesterDates = term.clinicDates.filter((d) => isoDateKey(d) === requesterDateKey);
 
-  const [partners, actorAssignments, othersOnRequesterDate] = await Promise.all([
-    // Same-dept, same-role assignments on different dates, excluding actor.
+  const [partners, actorAssignments, othersOnRequesterDate, activeMemberships] = await Promise.all([
     prisma.shiftAssignment.findMany({
       where: {
         termId: term.id,
@@ -706,12 +1024,10 @@ export async function eligibleSwapPartners(
         person: { select: { name: true } },
       },
     }),
-    // Every date the actor is already assigned in this department (any role).
     prisma.shiftAssignment.findMany({
       where: { termId: term.id, departmentId, personId: actorPersonId },
       select: { clinicDate: true },
     }),
-    // Anyone else holding an assignment on the requester's date (any role).
     prisma.shiftAssignment.findMany({
       where: {
         termId: term.id,
@@ -721,18 +1037,29 @@ export async function eligibleSwapPartners(
       },
       select: { personId: true },
     }),
+    // Everyone still an ACTIVE member of THIS department this term. A leftover
+    // ShiftAssignment survives a single-department removal (which leaves
+    // Person.status ACTIVE), so membership -- not Person.status -- is the gate.
+    prisma.termMembership.findMany({
+      where: { termId: term.id, departmentId, status: "ACTIVE" },
+      select: { personId: true },
+    }),
   ]);
 
-  // Mirror assertNoSwapCollision so the dropdown only offers swaps createRequest
-  // will accept. A partner is un-swappable when:
-  //   - the actor already works the partner's date (requesterOnTargetDate), or
-  //   - the partner also works the actor's requester date (targetOnRequesterDate).
   const actorBusyDateKeys = new Set(actorAssignments.map((a) => isoDateKey(a.clinicDate)));
   const partnerIdsOnRequesterDate = new Set(othersOnRequesterDate.map((a) => a.personId));
+  const activeMemberIds = new Set(activeMemberships.map((m) => m.personId));
 
   return partners
     .filter(
       (p) =>
+        // Partners are read from ShiftAssignment rows, which outlive a removed
+        // membership, so a person no longer in this department (single-dept
+        // offboard / roster removal, both of which leave Person.status ACTIVE)
+        // with a leftover future shift would otherwise be offered and, once
+        // approved, re-scheduled. Gate on active membership, not Person.status;
+        // approveRequest re-checks this on the write path.
+        activeMemberIds.has(p.personId) &&
         !actorBusyDateKeys.has(isoDateKey(p.clinicDate)) &&
         !partnerIdsOnRequesterDate.has(p.personId),
     )
@@ -742,4 +1069,87 @@ export async function eligibleSwapPartners(
       dateKey: isoDateKey(p.clinicDate),
     }))
     .sort((a, b) => a.dateKey.localeCompare(b.dateKey) || a.name.localeCompare(b.name));
+}
+
+// ---------------------------------------------------------------------------
+// remindDirectors
+// ---------------------------------------------------------------------------
+
+/** The director-notification template, reused for the manual reminder. */
+const REMINDER_TEMPLATE = "schedule-request-submitted-director";
+/** An approver notified with REMINDER_TEMPLATE within this window is skipped, so
+ *  repeated manual reminders can't flood directors (mirrors the cron throttle). */
+const REMINDER_THROTTLE_MS = 3 * 24 * 60 * 60 * 1000;
+
+/**
+ * Re-sends the director notification for a PENDING shift request.
+ * Only callable by the requester. Only allowed if the request has been
+ * pending for more than 5 calendar days.
+ *
+ * Per-approver throttled (REMINDER_THROTTLE_MS): an approver who already received
+ * this template recently is skipped, so a requester clicking "Remind" repeatedly
+ * cannot flood every director (audit F15).
+ */
+export async function remindDirectors(
+  actorPersonId: string,
+  requestId: string,
+): Promise<void> {
+  const req = await prisma.shiftRequest.findUnique({
+    where: { id: requestId },
+    include: {
+      requester: { select: { name: true } },
+      target: { select: { name: true } },
+      department: { select: { id: true, name: true } },
+      term: { select: { id: true } },
+    },
+  });
+
+  if (!req) throw new RequestNotFoundError();
+  if (req.requesterId !== actorPersonId) throw new RequestForbiddenError("Only the requester can send a reminder.");
+  if (req.status !== "PENDING") throw new RequestValidationError("Only pending requests can send reminders.");
+
+  const daysSince = Math.floor((Date.now() - req.createdAt.getTime()) / (1000 * 60 * 60 * 24));
+  if (daysSince < 5) throw new RequestValidationError("You can only send a reminder after 5 days.");
+
+  const isSwap = !!(req.targetId && req.targetDate);
+  const requesterDateStr = fmtEmailDate(req.requesterDate);
+  const partnerDateStr = req.targetDate ? fmtEmailDate(req.targetDate) : "";
+
+  // Same approver set as the initial notification: directors by membership,
+  // one-hop delegated directors, and in-department schedule.manage_requests
+  // holders -- the people who can actually decide this request.
+  const approvers = await requestApproverRecipients(req.departmentId);
+  const throttleCutoff = new Date(Date.now() - REMINDER_THROTTLE_MS);
+
+  await Promise.all(
+    approvers.map(async (approver) => {
+      if (!approver.contactEmail) return;
+      // Throttle: skip an approver already notified with this template inside the
+      // window (a prior reminder or the original submission notice), so repeated
+      // clicks are a no-op rather than an email flood (audit F15).
+      const already = await prisma.emailLog.findFirst({
+        where: { personId: approver.id, template: REMINDER_TEMPLATE, createdAt: { gte: throttleCutoff } },
+        select: { id: true },
+      });
+      if (already) return;
+      // Shared render path: branded layout + admin override, not a bare fragment.
+      const { subject, html } = await renderEmail(REMINDER_TEMPLATE, {
+        directorName: approver.name?.split(" ")[0] ?? approver.name ?? "",
+        requesterName: req.requester.name,
+        requestType: isSwap ? "swap" : "drop",
+        requesterDate: requesterDateStr,
+        partnerName: req.target?.name ?? "",
+        partnerDate: partnerDateStr,
+        departmentName: req.department.name,
+      });
+      await queueEmail(prisma, {
+        to: approver.contactEmail,
+        subject,
+        html,
+        template: REMINDER_TEMPLATE,
+        personId: approver.id,
+        triggeredById: actorPersonId,
+      });
+    })
+  );
 }

@@ -27,6 +27,7 @@ import {
   RosterCopyError,
 } from "./roster";
 import { TermNotFoundError } from "./terms";
+import { LastAdminError } from "@/platform/rbac/last-admin";
 
 const ACTOR = "actor-person-id";
 
@@ -795,5 +796,150 @@ describe("membershipHasDirectorShifts", () => {
 
   it("returns false for an unknown membership id", async () => {
     expect(await membershipHasDirectorShifts("nope")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Last-admin guard (audit L7): dept/kind-scoped admin grants resolve through
+// ACTIVE memberships, so removing/demoting the last such member must not strip
+// the only admin path.
+// ---------------------------------------------------------------------------
+
+/** admin.access role assigned to a department for a term (dept-scoped grant). */
+async function seedDeptAdminRole(departmentId: string, termId: string) {
+  const role = await prisma.role.create({
+    data: { name: `Dept Admin ${departmentId}`, grants: { create: [{ permission: "admin.access" }] } },
+  });
+  await prisma.roleAssignment.create({ data: { roleId: role.id, departmentId, termId } });
+  return role;
+}
+
+/** admin.access role assigned to the DIRECTOR kind for a term (kind-scoped grant). */
+async function seedDirectorAdminRole(termId: string) {
+  const role = await prisma.role.create({
+    data: { name: `Director Admin ${termId}`, grants: { create: [{ permission: "admin.access" }] } },
+  });
+  await prisma.roleAssignment.create({ data: { roleId: role.id, kind: "DIRECTOR", termId } });
+  return role;
+}
+
+describe("removeMembership last-admin guard", () => {
+  beforeEach(resetDb);
+
+  it("refuses to remove the last membership that confers admin via a dept-scoped grant", async () => {
+    const term = await seedTerm("SU26", "ACTIVE");
+    const dept = await seedDepartment("ADMINDEPT");
+    await seedDeptAdminRole(dept.id, term.id);
+    const person = await seedPerson("Sole Dept Admin");
+    const membership = await seedMembership({
+      personId: person.id,
+      termId: term.id,
+      departmentId: dept.id,
+      kind: "DIRECTOR",
+    });
+
+    await expect(removeMembership(ACTOR, membership.id)).rejects.toBeInstanceOf(LastAdminError);
+
+    // Membership stays ACTIVE (the guard rolls the soft-remove back).
+    const found = await prisma.termMembership.findUnique({ where: { id: membership.id } });
+    expect(found?.status).toBe("ACTIVE");
+    // No audit row for a refused removal.
+    const logs = await prisma.auditLog.findMany({ where: { action: "roster.remove" } });
+    expect(logs).toHaveLength(0);
+  });
+
+  it("allows removing an admin-conferring membership when another dept admin remains", async () => {
+    const term = await seedTerm("SU26", "ACTIVE");
+    const dept = await seedDepartment("ADMINDEPT");
+    await seedDeptAdminRole(dept.id, term.id);
+    const p1 = await seedPerson("Dept Admin 1");
+    const p2 = await seedPerson("Dept Admin 2");
+    const m1 = await seedMembership({ personId: p1.id, termId: term.id, departmentId: dept.id, kind: "DIRECTOR" });
+    await seedMembership({ personId: p2.id, termId: term.id, departmentId: dept.id, kind: "VOLUNTEER" });
+
+    await expect(removeMembership(ACTOR, m1.id)).resolves.toBeUndefined();
+    const found = await prisma.termMembership.findUnique({ where: { id: m1.id } });
+    expect(found?.status).toBe("REMOVED");
+  });
+
+  it("does not guard removal of a membership that confers no admin access", async () => {
+    const term = await seedTerm("SU26", "ACTIVE");
+    const dept = await seedDepartment("REGULAR");
+    const person = await seedPerson("Regular Member");
+    const membership = await seedMembership({
+      personId: person.id,
+      termId: term.id,
+      departmentId: dept.id,
+      kind: "VOLUNTEER",
+    });
+
+    await expect(removeMembership(ACTOR, membership.id)).resolves.toBeUndefined();
+    const found = await prisma.termMembership.findUnique({ where: { id: membership.id } });
+    expect(found?.status).toBe("REMOVED");
+  });
+});
+
+describe("changeMembershipKind last-admin guard", () => {
+  beforeEach(resetDb);
+
+  it("refuses to demote the last DIRECTOR when the DIRECTOR kind confers the only admin access", async () => {
+    const term = await seedTerm("SU26", "ACTIVE");
+    const dept = await seedDepartment("DEPT");
+    await seedDirectorAdminRole(term.id);
+    const person = await seedPerson("Sole Director Admin");
+    const membership = await seedMembership({
+      personId: person.id,
+      termId: term.id,
+      departmentId: dept.id,
+      kind: "DIRECTOR",
+    });
+
+    await expect(
+      changeMembershipKind(ACTOR, { membershipId: membership.id, toKind: "VOLUNTEER" })
+    ).rejects.toBeInstanceOf(LastAdminError);
+
+    // Whole swap rolled back: DIRECTOR row stays ACTIVE, no VOLUNTEER row created.
+    const dirRow = await prisma.termMembership.findUnique({ where: { id: membership.id } });
+    expect(dirRow?.status).toBe("ACTIVE");
+    const volRow = await prisma.termMembership.findFirst({
+      where: { personId: person.id, termId: term.id, departmentId: dept.id, kind: "VOLUNTEER" },
+    });
+    expect(volRow).toBeNull();
+  });
+
+  it("allows demotion when another DIRECTOR still confers admin access", async () => {
+    const term = await seedTerm("SU26", "ACTIVE");
+    const dept = await seedDepartment("DEPT");
+    await seedDirectorAdminRole(term.id);
+    const p1 = await seedPerson("Director 1");
+    const p2 = await seedPerson("Director 2");
+    const m1 = await seedMembership({ personId: p1.id, termId: term.id, departmentId: dept.id, kind: "DIRECTOR" });
+    await seedMembership({ personId: p2.id, termId: term.id, departmentId: dept.id, kind: "DIRECTOR" });
+
+    await expect(
+      changeMembershipKind(ACTOR, { membershipId: m1.id, toKind: "VOLUNTEER" })
+    ).resolves.toBeUndefined();
+
+    const dirRow = await prisma.termMembership.findUnique({ where: { id: m1.id } });
+    expect(dirRow?.status).toBe("REMOVED");
+  });
+
+  it("does not guard a kind change for a member who confers no admin access", async () => {
+    const term = await seedTerm("SU26", "ACTIVE");
+    const dept = await seedDepartment("DEPT");
+    const person = await seedPerson("Regular Director");
+    const membership = await seedMembership({
+      personId: person.id,
+      termId: term.id,
+      departmentId: dept.id,
+      kind: "DIRECTOR",
+    });
+
+    await expect(
+      changeMembershipKind(ACTOR, { membershipId: membership.id, toKind: "VOLUNTEER" })
+    ).resolves.toBeUndefined();
+
+    const dirRow = await prisma.termMembership.findUnique({ where: { id: membership.id } });
+    expect(dirRow?.status).toBe("REMOVED");
   });
 });

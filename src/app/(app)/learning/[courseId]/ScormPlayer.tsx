@@ -130,11 +130,11 @@ export function ScormPlayer({ courseId, scos }: Props) {
                 return (
                   <li key={s.id}>
                     {/* eslint-disable-next-line no-restricted-syntax -- course-page nav tab, state-dependent active/inactive styling */}
-                    <button type="button" onClick={() => goTo(i)} aria-current={isActive ? "page" : undefined} className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition ${isActive ? "bg-teal-50 font-medium text-teal-800" : "text-foreground-soft hover:bg-muted"}`}>
+                    <button type="button" onClick={() => goTo(i)} aria-current={isActive ? "page" : undefined} className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition ${isActive ? "bg-brand-faint font-medium text-brand-fg" : "text-foreground-soft hover:bg-muted"}`}>
                       <span
                         aria-hidden
                         className={`grid h-5 w-5 shrink-0 place-items-center rounded-full border text-[11px] ${
-                          done ? "border-teal-600 bg-teal-600 text-white" : "border-border-strong text-subtle-foreground"
+                          done ? "border-brand bg-brand text-white" : "border-border-strong text-subtle-foreground"
                         }`}
                       >
                         {done ? <Check className="h-4 w-4" /> : i + 1}
@@ -157,6 +157,7 @@ export function ScormPlayer({ courseId, scos }: Props) {
           ref={iframeRef}
           title="Course content"
           src={`/learning/play/${courseId}/${scos[0].href}`}
+          sandbox="allow-scripts allow-same-origin allow-forms"
           className="h-[80vh] w-full rounded-xl border border-border"
         />
       </div>

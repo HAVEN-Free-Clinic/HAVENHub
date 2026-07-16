@@ -36,7 +36,7 @@ import {
   BuilderValidationError,
   compareBuilderMembers,
 } from "@/modules/schedule/services/builder";
-import type { BuilderMemberIntake } from "@/modules/schedule/services/builder";
+import type { BuilderMemberIntake, BuilderAssignmentEntry } from "@/modules/schedule/services/builder";
 import { createAttending, AttendingValidationError, AttendingForbiddenError } from "@/modules/schedule/services/attendings";
 import {
   listDepartmentRequests,
@@ -47,6 +47,8 @@ import {
   RequestNotFoundError,
   RequestValidationError,
 } from "@/modules/schedule/services/requests";
+import { captureEvent } from "@/platform/posthog/capture";
+import { activeTermGroup } from "@/platform/posthog/groups";
 import { BuilderCell } from "@/modules/schedule/components/builder-cell";
 import { BuilderGrid } from "@/modules/schedule/components/builder-grid";
 import { CapacityPanel } from "@/modules/schedule/components/capacity-panel";
@@ -54,9 +56,31 @@ import { ReadinessPanel } from "@/modules/schedule/components/readiness-panel";
 import { PendingRequests } from "@/modules/schedule/components/pending-requests";
 import { displayDate } from "@/modules/schedule/engine/display";
 import { rolesForDept } from "@/modules/schedule/engine/capacity";
-import { isoDateKey } from "@/platform/dates";
+import { isoDateKey, formatCalendarDate } from "@/platform/dates";
 import { Checkbox } from "@/platform/ui/checkbox";
+import { NavForm } from "@/platform/ui/nav-form";
+import Link from "next/link";
 import { AlertTriangle } from "lucide-react";
+
+// ---------------------------------------------------------------------------
+// Booked-count parsing
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse a booked-count form field: empty -> null; otherwise require a
+ * non-negative integer. Rejects NaN, negatives, and fractional input so a blank
+ * or malformed value never persists as NaN or a negative count. Throws
+ * BuilderValidationError (a domain error runAction turns into an inline error
+ * redirect); call it inside an action's `work` closure so the throw is caught.
+ */
+function parseBookedCount(raw: string, label: string): number | null {
+  if (raw.trim() === "") return null;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 0) {
+    throw new BuilderValidationError(`${label} must be a whole number of 0 or more.`);
+  }
+  return n;
+}
 
 // ---------------------------------------------------------------------------
 // Page props
@@ -163,10 +187,27 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     });
   }
 
-  const assignmentsOnDate: Record<string, { role: "VOLUNTEER" | "SHADOW" | "DIRECTOR"; tags: { triage: boolean; walkin: boolean; cc: boolean; remote: boolean } }> =
+  const assignmentsOnDate: Record<string, BuilderAssignmentEntry> =
     selectedDateKey ? (assignmentsByDate[selectedDateKey] ?? {}) : {};
 
   const memberByPersonId = new Map(members.map((m) => [m.person.id, m]));
+
+  // Resolve an assignee's display name and flag person, preferring the ACTIVE
+  // member record but falling back to the identity carried on the assignment. An
+  // assignee who lost their ACTIVE membership (offboarded) is absent from
+  // `members`, so without this fallback the Day view printed their raw personId
+  // cuid; now it shows their name and flags (audit M12).
+  function assigneeInfo(pid: string): {
+    name: string;
+    flagPerson: { spanishVerified: boolean; licensedRN: boolean } | null;
+  } {
+    const member = memberByPersonId.get(pid);
+    const entry = assignmentsOnDate[pid];
+    return {
+      name: member?.person.name ?? entry?.person.name ?? pid,
+      flagPerson: member?.person ?? entry?.person ?? null,
+    };
+  }
 
   const assignedDirectors = Object.entries(assignmentsOnDate)
     .filter(([, a]) => a.role === "DIRECTOR")
@@ -304,10 +345,14 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     const departmentId = (formData.get("departmentId") as string) ?? "";
     const dateKey = (formData.get("dateKey") as string) ?? "";
     const raw = (formData.get("patientsBooked") as string) ?? "";
-    const patientsBooked = raw === "" ? null : Number(raw);
     const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode });
     await runAction({
-      work: () => setPatientsBooked(actor.personId, { departmentId, dateKey, patientsBooked }),
+      work: () =>
+        setPatientsBooked(actor.personId, {
+          departmentId,
+          dateKey,
+          patientsBooked: parseBookedCount(raw, "Patients booked"),
+        }),
       domainErrors: [BuilderValidationError, BuilderForbiddenError],
       errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message }),
       revalidate: "/schedule/builder",
@@ -324,10 +369,15 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     const rawProceduresBooked = (formData.get("proceduresBooked") as string) ?? "";
     const attendingId = rawAttendingId === "" ? null : rawAttendingId;
     const directorName = rawDirectorName.trim() === "" ? null : rawDirectorName.trim();
-    const proceduresBooked = rawProceduresBooked === "" ? null : Number(rawProceduresBooked);
     const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode });
     await runAction({
-      work: () => upsertRhdClinic(actor.personId, { dateKey, attendingId, directorName, proceduresBooked }),
+      work: () =>
+        upsertRhdClinic(actor.personId, {
+          dateKey,
+          attendingId,
+          directorName,
+          proceduresBooked: parseBookedCount(rawProceduresBooked, "Procedures booked"),
+        }),
       domainErrors: [BuilderValidationError, BuilderForbiddenError],
       errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message }),
       revalidate: "/schedule/builder",
@@ -356,7 +406,15 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     const requestId = (formData.get("requestId") as string) ?? "";
     const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode });
     await runAction({
-      work: () => approveRequest(actor.personId, requestId),
+      work: async () => {
+        await approveRequest(actor.personId, requestId);
+        await captureEvent({
+          event: "shift_request_approved",
+          distinctId: actor.personId,
+          properties: { request_id: requestId, department_id: dept.id },
+          groups: await activeTermGroup(),
+        });
+      },
       domainErrors: [RequestValidationError, RequestForbiddenError, RequestNotFoundError],
       errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message }),
       revalidate: "/schedule/builder",
@@ -371,7 +429,15 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     const note = ((formData.get("denyNote") as string) ?? "").trim() || undefined;
     const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode });
     await runAction({
-      work: () => denyRequest(actor.personId, requestId, note),
+      work: async () => {
+        await denyRequest(actor.personId, requestId, note);
+        await captureEvent({
+          event: "shift_request_denied",
+          distinctId: actor.personId,
+          properties: { request_id: requestId, department_id: dept.id },
+          groups: await activeTermGroup(),
+        });
+      },
       domainErrors: [RequestValidationError, RequestForbiddenError, RequestNotFoundError],
       errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message }),
       revalidate: "/schedule/builder",
@@ -380,12 +446,11 @@ export default async function BuilderPage({ searchParams }: PageProps) {
   }
 
   const selectedDisplay = selectedDateKey
-    ? new Date(selectedDateKey + "T12:00:00Z").toLocaleDateString("en-US", {
+    ? formatCalendarDate(new Date(selectedDateKey + "T12:00:00Z"), {
         weekday: "long",
         month: "long",
         day: "numeric",
         year: "numeric",
-        timeZone: "UTC",
       })
     : null;
 
@@ -402,11 +467,10 @@ export default async function BuilderPage({ searchParams }: PageProps) {
   function assignCard(member: (typeof unassignedMembers)[number], available: boolean) {
     const isDirectorKind = member.kind === "DIRECTOR";
     return (
-      <div
+      <Card
         key={member.person.id}
-        className={`rounded-2xl border px-3 py-3 ${
-          available ? "border-border bg-surface" : "border-border bg-muted opacity-75"
-        }`}
+        pad={false}
+        className={`px-3 py-3${available ? "" : " opacity-75"}`}
       >
         <div className="flex flex-wrap items-center gap-2 mb-2">
           <span className="text-sm font-semibold text-foreground">{member.person.name}</span>
@@ -454,7 +518,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
           />
         </div>
         <IntakeNotes intake={member.intake} />
-      </div>
+      </Card>
     );
   }
 
@@ -470,23 +534,23 @@ export default async function BuilderPage({ searchParams }: PageProps) {
           </div>
           <div className="flex items-center gap-3">
             {mode === "availability" ? (
-              <a href={href({ mode: "assign" })} className="px-3 py-1.5 rounded-lg bg-white/10 text-xs font-medium text-white/80 hover:text-white transition-colors">
+              <Link href={href({ mode: "assign" })} className="inline-flex items-center min-h-11 px-3 py-1.5 rounded-lg bg-white/10 text-xs font-medium text-white/80 hover:text-white transition-colors">
                 &larr; Back to assigning
-              </a>
+              </Link>
             ) : (
               <>
                 {/* View toggle */}
                 <div className="flex items-center rounded-lg bg-white/10 overflow-hidden">
-                  <a href={href({ view: "saturday" })} className={`px-3 py-1.5 text-xs font-medium transition-colors ${view === "saturday" ? "bg-white text-brand" : "text-white/70 hover:text-white"}`}>Day view</a>
-                  <a href={href({ view: "grid" })} className={`px-3 py-1.5 text-xs font-medium transition-colors border-l border-white/20 ${view === "grid" ? "bg-white text-brand" : "text-white/70 hover:text-white"}`}>Grid view</a>
+                  <Link href={href({ view: "saturday" })} className={`inline-flex items-center min-h-11 px-3 py-1.5 text-xs font-medium transition-colors ${view === "saturday" ? "bg-white text-brand" : "text-white/70 hover:text-white"}`}>Day view</Link>
+                  <Link href={href({ view: "grid" })} className={`inline-flex items-center min-h-11 px-3 py-1.5 text-xs font-medium transition-colors border-l border-white/20 ${view === "grid" ? "bg-white text-brand" : "text-white/70 hover:text-white"}`}>Grid view</Link>
                 </div>
-                <a href={href({ mode: "availability" })} className="px-3 py-1.5 rounded-lg bg-white/10 text-xs font-medium text-white/80 hover:text-white transition-colors">
+                <Link href={href({ mode: "availability" })} className="inline-flex items-center min-h-11 px-3 py-1.5 rounded-lg bg-white/10 text-xs font-medium text-white/80 hover:text-white transition-colors">
                   Edit availability
-                </a>
+                </Link>
               </>
             )}
             {/* Department selector */}
-            <form method="GET" action="/schedule/builder" className="flex items-center gap-2">
+            <NavForm action="/schedule/builder" className="flex items-center gap-2">
               {dateParam && <input type="hidden" name="date" value={dateParam} />}
               {view !== "saturday" && <input type="hidden" name="view" value={view} />}
               {mode !== "assign" && <input type="hidden" name="mode" value={mode} />}
@@ -497,7 +561,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                 ))}
               </Select>
               <Button type="submit" variant="outline" size="sm" className="text-foreground border-border-strong bg-surface">Go</Button>
-            </form>
+            </NavForm>
           </div>
         </div>
       </div>
@@ -509,25 +573,27 @@ export default async function BuilderPage({ searchParams }: PageProps) {
         </Alert>
       )}
 
-      {/* Date strip -- hidden in the Grid view, which already shows every date as a column */}
-      {clinicDates.length > 0 && !(view === "grid" && mode !== "availability") && (
+      {/* Date strip -- hidden in Grid view (dates are already columns there) and in
+          edit-availability mode (availability is edited per member across all dates, so the
+          per-date picker is just noise). */}
+      {clinicDates.length > 0 && mode !== "availability" && view !== "grid" && (
         <nav className="flex flex-wrap gap-2 mb-6" aria-label="Clinic dates">
           {clinicDates.map((d) => {
             const key = isoDateKey(d);
             const isSelected = key === selectedDateKey;
             return (
-              <a
+              <Link
                 key={key}
                 href={href({ date: key })}
                 aria-current={isSelected ? "page" : undefined}
                 className={
                   isSelected
-                    ? "rounded-full px-3 py-1 text-sm font-medium bg-brand text-white"
-                    : "rounded-full px-3 py-1 text-sm font-medium bg-muted-strong text-foreground-soft hover:bg-muted-strong transition-colors"
+                    ? "inline-flex items-center justify-center min-h-11 rounded-full px-3 py-1 text-sm font-medium bg-brand text-white"
+                    : "inline-flex items-center justify-center min-h-11 rounded-full px-3 py-1 text-sm font-medium bg-muted text-foreground-soft hover:bg-muted-strong transition-colors"
                 }
               >
                 {displayDate(key)}
-              </a>
+              </Link>
             );
           })}
         </nav>
@@ -549,20 +615,20 @@ export default async function BuilderPage({ searchParams }: PageProps) {
             <div className="mb-4 flex items-center gap-3">
               <span className="text-sm font-semibold text-foreground-soft">Assigning as:</span>
               <div className="flex items-center rounded-lg border border-border overflow-hidden">
-                <a
+                <Link
                   href={href({ gmode: "assign" })}
                   aria-current={gmode === "assign" ? "true" : undefined}
-                  className={`px-3 py-1.5 text-xs font-medium transition-colors ${gmode === "assign" ? "bg-brand text-white" : "text-muted-foreground hover:text-foreground-soft"}`}
+                  className={`inline-flex items-center min-h-11 px-3 py-1.5 text-xs font-medium transition-colors ${gmode === "assign" ? "bg-brand text-white" : "text-muted-foreground hover:text-foreground-soft"}`}
                 >
                   Volunteer
-                </a>
-                <a
+                </Link>
+                <Link
                   href={href({ gmode: "shadow" })}
                   aria-current={gmode === "shadow" ? "true" : undefined}
-                  className={`px-3 py-1.5 text-xs font-medium transition-colors border-l ${gmode === "shadow" ? "border-border bg-amber-400 text-white" : "border-transparent text-muted-foreground hover:text-foreground-soft"}`}
+                  className={`inline-flex items-center min-h-11 px-3 py-1.5 text-xs font-medium transition-colors border-l ${gmode === "shadow" ? "border-border bg-warning text-white" : "border-transparent text-muted-foreground hover:text-foreground-soft"}`}
                 >
                   Shadow
-                </a>
+                </Link>
               </div>
             </div>
             <BuilderGrid
@@ -589,16 +655,16 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                 </span>
               </div>
 
-              {/* HIPAA banner */}
+              {/* Clearance banner: volunteers scheduled here who are not fully cleared */}
               {data.banner.length > 0 && (
                 <Card size="compact" pad={false} role="status" className="mb-4 px-4 py-3 text-sm text-foreground-soft">
                   <p className="font-semibold mb-1 flex items-center gap-1.5 text-foreground">
                     <AlertTriangle className="h-4 w-4 shrink-0 text-warning" aria-hidden />
-                    HIPAA issues on this date
+                    Clearance issues on this date
                   </p>
                   <ul className="list-disc list-inside space-y-0.5">
                     {data.banner.flatMap((b) =>
-                      b.nonCompliant.map((v) => (
+                      b.notCleared.map((v) => (
                         <li key={v.id}>{v.name}</li>
                       ))
                     )}
@@ -616,13 +682,12 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                 ) : (
                   <div className="flex flex-col gap-2">
                     {assignedDirectors.map((pid) => {
-                      const m = memberByPersonId.get(pid);
-                      const name = m?.person.name ?? pid;
+                      const { name, flagPerson } = assigneeInfo(pid);
                       return (
                         <Card key={pid} pad={false} className="px-3 py-2 flex items-center justify-between">
                           <span className="flex flex-wrap items-center gap-2">
                             <span className="text-sm font-bold text-foreground">{name}</span>
-                            {m?.person && flagBadges(m.person)}
+                            {flagPerson && flagBadges(flagPerson)}
                           </span>
                           <form action={unassignAction} className="flex items-center gap-2">
                             <input type="hidden" name="departmentId" value={dept.id} />
@@ -647,8 +712,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                 ) : (
                   <div className="flex flex-col gap-2">
                     {assignedVolunteers.map((pid) => {
-                      const m = memberByPersonId.get(pid);
-                      const name = m?.person.name ?? pid;
+                      const { name, flagPerson } = assigneeInfo(pid);
                       const assignment = assignmentsOnDate[pid]!;
                       const tags = assignment.tags;
                       const personConflicts = conflicts[pid] ?? [];
@@ -656,7 +720,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                         <Card key={pid} pad={false} className="px-3 py-2">
                           <div className="flex flex-wrap items-center gap-2 text-sm">
                             <span className="font-medium text-foreground">{name}</span>
-                            {m?.person && flagBadges(m.person)}
+                            {flagPerson && flagBadges(flagPerson)}
                             {personConflicts.length > 0 && (
                               <Badge tone="warning" title={personConflicts.join(", ")}>
                                 Also in {personConflicts.join(", ")}
@@ -679,7 +743,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                             <input type="hidden" name="departmentId" value={dept.id} />
                             <input type="hidden" name="dateKey" value={selectedDateKey ?? ""} />
                             <input type="hidden" name="personId" value={pid} />
-                            <Input name="reason" aria-label="Removal reason" placeholder="Reason (optional)" className="flex-1 min-w-32 py-1 text-xs" />
+                            <Input name="reason" aria-label="Removal reason" placeholder="Reason (optional)" className="flex-1 min-w-32" />
                             <ConfirmButton label="Remove" confirmLabel="Remove this volunteer?" />
                           </form>
                         </Card>
@@ -699,13 +763,12 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                 ) : (
                   <div className="flex flex-col gap-2">
                     {assignedShadows.map((pid) => {
-                      const m = memberByPersonId.get(pid);
-                      const name = m?.person.name ?? pid;
+                      const { name, flagPerson } = assigneeInfo(pid);
                       return (
                         <Card key={pid} pad={false} className="px-3 py-2 flex items-center justify-between">
                           <span className="flex flex-wrap items-center gap-2">
                             <span className="text-sm font-medium text-foreground-soft">{name}</span>
-                            {m?.person && flagBadges(m.person)}
+                            {flagPerson && flagBadges(flagPerson)}
                           </span>
                           <form action={unassignAction} className="flex items-center gap-2">
                             <input type="hidden" name="departmentId" value={dept.id} />

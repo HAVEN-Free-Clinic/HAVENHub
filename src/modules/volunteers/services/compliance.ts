@@ -9,15 +9,22 @@
 import type { Department, HipaaCertificate, Person } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
-import { complianceStatus, overallClearance } from "@/platform/compliance/rules";
-import type { ComplianceStatus, TrainingState, OverallClearance } from "@/platform/compliance/rules";
-import { canViewCertificate } from "@/platform/compliance/access";
+import { captureEvent } from "@/platform/posthog/capture";
+import { activeTermGroup } from "@/platform/posthog/groups";
+import { complianceStatus } from "@/platform/compliance/rules";
+import type { ComplianceStatus, TrainingState } from "@/platform/compliance/rules";
 import { manageableDepartmentIds } from "@/platform/departments";
 import { can } from "@/platform/rbac/engine";
 import { parseCompletionDate, CompletionDateError } from "@/platform/compliance/completion-date";
 import { getActiveTerm } from "@/platform/terms/active-term";
+import { loadClearanceMap, type ClearanceSummary } from "@/platform/clearance";
 
 export type { ComplianceStatus };
+export type { ClearanceSummary };
+
+/** Placeholder used before loadClearanceMap fills the real value; also the value
+ *  for a person the map has no entry for (should not happen for active members). */
+const EMPTY_CLEARANCE: ClearanceSummary = { onboarded: true, cleared: true, tasks: [], missing: [] };
 
 // ---------------------------------------------------------------------------
 // Typed errors
@@ -48,7 +55,8 @@ export type MemberCompliance = {
   status: ComplianceStatus;
   verifiedByName: string | null;
   trainingState: TrainingState;
-  overallClearance: OverallClearance;
+  /** Full clearance: profile + HIPAA + training + learning + EHS (the real gate). */
+  clearance: ClearanceSummary;
 };
 
 type DepartmentCompliance = {
@@ -188,8 +196,17 @@ export async function departmentCompliance(
       status,
       verifiedByName,
       trainingState,
-      overallClearance: overallClearance(status, trainingState === "COMPLETE"),
+      clearance: EMPTY_CLEARANCE,
     });
+  }
+
+  // Attach full clearance (profile + HIPAA + training + learning + EHS) per member.
+  const allMemberIds = [...deptMap.values()].flatMap((e) => e.members.map((m) => m.person.id));
+  const clearanceMap = await loadClearanceMap(allMemberIds, activeTerm.id);
+  for (const entry of deptMap.values()) {
+    for (const m of entry.members) {
+      m.clearance = clearanceMap.get(m.person.id) ?? EMPTY_CLEARANCE;
+    }
   }
 
   // 6. Sort members and build counts per department.
@@ -234,9 +251,17 @@ export type MasterQuery = {
  * The master view is one row per PERSON, not per membership, so it does not
  * carry a membership `kind`. Omitting it (rather than using a placeholder) keeps
  * the type honest -- the master table never displays a director/volunteer badge.
+ *
+ * `isVolunteer` is true when the person holds at least one ACTIVE VOLUNTEER
+ * membership in the active term. Director-only members train on the DIRECTOR
+ * track, so volunteer-track training does not apply to them; the master view
+ * uses this flag to render "-" for Training/Overall instead of flagging them
+ * as Pending/Not Cleared (mirroring the department view's per-membership
+ * kind-gating).
  */
 export type MasterComplianceRow = Omit<MemberCompliance, "kind"> & {
   departments: string[];
+  isVolunteer: boolean;
 };
 
 export type MasterComplianceResult = {
@@ -245,6 +270,10 @@ export type MasterComplianceResult = {
   page: number;
   pageCount: number;
   summary: Record<ComplianceStatus, number>;
+  /** People fully cleared (all six requirements) across the pre-status scope. */
+  clearedCount: number;
+  /** People with at least one outstanding required EHS training across the scope. */
+  ehsMissingCount: number;
 };
 
 const EMPTY_SUMMARY: Record<ComplianceStatus, number> = {
@@ -282,6 +311,8 @@ export async function masterCompliance(
       page: 1,
       pageCount: 0,
       summary: { ...EMPTY_SUMMARY },
+      clearedCount: 0,
+      ehsMissingCount: 0,
     };
   }
 
@@ -320,6 +351,7 @@ export async function masterCompliance(
     {
       person: Person & { hipaaCertificates: HipaaCertificate[] };
       deptCodes: Set<string>;
+      isVolunteer: boolean;
     }
   >();
 
@@ -327,10 +359,13 @@ export async function masterCompliance(
     const existing = personMap.get(m.personId);
     if (existing) {
       existing.deptCodes.add(m.department.code);
+      // A person volunteering in any department trains on the VOLUNTEER track.
+      if (m.kind === "VOLUNTEER") existing.isVolunteer = true;
     } else {
       personMap.set(m.personId, {
         person: m.person,
         deptCodes: new Set([m.department.code]),
+        isVolunteer: m.kind === "VOLUNTEER",
       });
     }
   }
@@ -370,7 +405,7 @@ export async function masterCompliance(
   }
 
   // 6. Compute status for each person and build the full scope rows.
-  const scopeRows: MasterComplianceRow[] = scope.map(({ person, deptCodes }) => {
+  const scopeRows: MasterComplianceRow[] = scope.map(({ person, deptCodes, isVolunteer }) => {
     const newestCert: HipaaCertificate | null =
       person.hipaaCertificates.length > 0 ? person.hipaaCertificates[0] : null;
 
@@ -391,10 +426,20 @@ export async function masterCompliance(
       status: computedStatus,
       verifiedByName,
       departments: Array.from(deptCodes).sort(),
+      isVolunteer,
       trainingState,
-      overallClearance: overallClearance(computedStatus, trainingState === "COMPLETE"),
+      clearance: EMPTY_CLEARANCE,
     };
   });
+
+  // Full clearance for the whole scope (matches how summary is computed pre-pagination).
+  const scopeIds = scopeRows.map((r) => r.person.id);
+  const clearanceMap = await loadClearanceMap(scopeIds, activeTerm.id);
+  for (const row of scopeRows) {
+    row.clearance = clearanceMap.get(row.person.id) ?? EMPTY_CLEARANCE;
+  }
+  const clearedCount = scopeRows.filter((r) => r.clearance.cleared).length;
+  const ehsMissingCount = scopeRows.filter((r) => r.clearance.missing.includes("ehs")).length;
 
   // 7. Compute summary over the FULL scope (before status filter).
   const summary: Record<ComplianceStatus, number> = { ...EMPTY_SUMMARY };
@@ -420,7 +465,7 @@ export async function masterCompliance(
   const offset = (page - 1) * pageSize;
   const rows = filteredRows.slice(offset, offset + pageSize);
 
-  return { rows, total, page, pageCount, summary };
+  return { rows, total, page, pageCount, summary, clearedCount, ehsMissingCount };
 }
 
 /**
@@ -429,7 +474,16 @@ export async function masterCompliance(
  * Re-verify is allowed and updates the stamp. Audits with action
  * "compliance.verify" and payload { certId, ownerPersonId }.
  *
- * Throws CertificateNotFoundError when the cert does not exist.
+ * Authorization mirrors setCompletionDateAsManager: only holders of
+ * `volunteers.manage_compliance` or `admin.access` may verify. Department
+ * directors keep read access to their members' certificates (canViewCertificate)
+ * but attesting a certificate is a compliance-manager/admin action, not a
+ * director one. The existence check fires first, so an unauthorized actor
+ * probing a nonexistent certId still gets CertificateNotFoundError.
+ *
+ * Throws CertificateNotFoundError when the cert does not exist, or
+ * ComplianceForbiddenError when the actor is neither manager nor admin, or when
+ * the actor owns the certificate (self-verification is disallowed).
  */
 export async function verifyCertificate(
   actorPersonId: string,
@@ -438,13 +492,20 @@ export async function verifyCertificate(
   const cert = await prisma.hipaaCertificate.findUnique({ where: { id: certId } });
   if (!cert) throw new CertificateNotFoundError(certId);
 
-  // The mutation scope must match the read scope: actors may only verify
-  // certificates they are also permitted to view (self, manage_compliance, or
-  // director of a department the certificate owner belongs to in the active term).
-  const allowed = await canViewCertificate(actorPersonId, cert.personId);
-  if (!allowed) {
+  const isManager = await can(actorPersonId, "volunteers.manage_compliance");
+  const isAdmin = await can(actorPersonId, "admin.access");
+  if (!isManager && !isAdmin) {
     throw new ComplianceForbiddenError(
-      "You can only verify certificates for members of your departments."
+      "Only compliance managers or admins can verify certificates."
+    );
+  }
+
+  // Separation of duties: verification must be independent. A compliance
+  // manager/admin who is also a clinical volunteer cannot attest their own
+  // certificate; another manager or admin must verify it.
+  if (cert.personId === actorPersonId) {
+    throw new ComplianceForbiddenError(
+      "You cannot verify your own certificate; another compliance manager or admin must verify it."
     );
   }
 
@@ -462,6 +523,17 @@ export async function verifyCertificate(
     entityId: certId,
     after: { certId, ownerPersonId: cert.personId },
   });
+
+  // Fire once, on the not-verified -> verified transition, attributed to the
+  // certificate owner (the person being cleared) for the clearance funnel.
+  if (!cert.verifiedAt) {
+    await captureEvent({
+      event: "hipaa_certificate_verified",
+      distinctId: cert.personId,
+      properties: { verified_by: actorPersonId, via: "verify" },
+      groups: await activeTermGroup(),
+    });
+  }
 }
 
 /**
@@ -480,9 +552,9 @@ export async function verifyCertificate(
  * real prior state (including any existing completionDate) so overwrites are
  * fully traceable.
  *
- * Throws ComplianceForbiddenError (neither manager nor admin),
- * CertificateNotFoundError (no such cert), or CompletionDateError (already set
- * for non-admin, or invalid date).
+ * Throws ComplianceForbiddenError (neither manager nor admin, or the actor owns
+ * the cert, since self-dating is disallowed), CertificateNotFoundError (no such
+ * cert), or CompletionDateError (already set for non-admin, or invalid date).
  */
 export async function setCompletionDateAsManager(
   actorPersonId: string,
@@ -499,6 +571,14 @@ export async function setCompletionDateAsManager(
 
   const cert = await prisma.hipaaCertificate.findUnique({ where: { id: certId } });
   if (!cert) throw new CertificateNotFoundError(certId);
+
+  // Separation of duties: setting a completion date also verifies the cert, so
+  // the actor cannot do it for their own certificate; another manager or admin must.
+  if (cert.personId === actorPersonId) {
+    throw new ComplianceForbiddenError(
+      "You cannot set the completion date on your own certificate; another compliance manager or admin must."
+    );
+  }
 
   // Set-once for compliance managers: a cert that already has a date is rejected.
   // Superadmins (admin.access) may overwrite to correct a wrong date. As before,
@@ -539,6 +619,17 @@ export async function setCompletionDateAsManager(
     before,
     after: { completionDate, extraction: "MANUAL", verifiedById: actorPersonId, verifiedAt: now },
   });
+
+  // Setting the date also verifies the cert; fire the same milestone once, on
+  // the not-verified -> verified transition.
+  if (!cert.verifiedAt) {
+    await captureEvent({
+      event: "hipaa_certificate_verified",
+      distinctId: cert.personId,
+      properties: { verified_by: actorPersonId, via: "set_date" },
+      groups: await activeTermGroup(),
+    });
+  }
 }
 
 export { CompletionDateError };

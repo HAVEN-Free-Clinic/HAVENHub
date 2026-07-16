@@ -62,6 +62,12 @@ test("admin email: create a campaign with an audience condition and preview", as
     await expect(
       page.locator("select").filter({ hasText: "Full name" }),
     ).toBeVisible();
+
+    // --- Step 5: Add a nested group (Airtable-style) and confirm it renders ---
+    // The root group's "+ Add group" button appends an empty nested group, which
+    // shows its own empty-state notice until a condition is added to it.
+    await page.getByRole("button", { name: /Add group/i }).first().click();
+    await expect(page.getByText(/Empty group/)).toBeVisible();
   } finally {
     // Cleanup: delete the draft campaign (EmailCampaignRun rows cascade-delete).
     // A draft has no runs, but the catch guard keeps cleanup idempotent.

@@ -195,6 +195,33 @@ describe("flagForOffboarding", () => {
     expect(auditRows).toHaveLength(1);
   });
 
+  it("concurrent flags don't 500: both return the same row with one audit (audit F14)", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("ITCM");
+    const actor = await createPerson("Director", "dir001");
+    const target = await createPerson("Volunteer", "vol001");
+
+    await createMembership(actor.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(target.id, term.id, dept.id, "VOLUNTEER");
+
+    // Two near-simultaneous flags both pass the findUnique fast-path; the loser
+    // hits @@unique([personId, termId]) and must be absorbed as the already-flagged
+    // path, not surface a raw P2002 500.
+    const [flag1, flag2] = await Promise.all([
+      flagForOffboarding(actor.id, target.id, "A"),
+      flagForOffboarding(actor.id, target.id, "B"),
+    ]);
+
+    expect(flag1.id).toBe(flag2.id);
+    expect(
+      await prisma.offboardFlag.count({ where: { personId: target.id, termId: term.id } }),
+    ).toBe(1);
+    const auditRows = await prisma.auditLog.findMany({
+      where: { action: "offboard.flag", entityId: flag1.id },
+    });
+    expect(auditRows).toHaveLength(1);
+  });
+
   it("no active term -> OffboardForbiddenError", async () => {
     await createTerm("ARCHIVED");
     const actor = await createPerson("Director", "dir001");
@@ -442,6 +469,27 @@ describe("offboardingView", () => {
     expect(row.flaggedByName).toBe("Flagger");
     expect(row.departmentNames).toContain("ITCM Dept");
     expect(row.flag.note).toBe("ready to exit");
+  });
+
+  it("excludes an already-offboarded person from the flagged queue (audit #35)", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("ITCM");
+    const executor = await createPerson("Executor", "exec001");
+    const vol = await createPerson("Volunteer", "vol001");
+    const flagger = await createPerson("Flagger", "flg001");
+
+    await grantPermission(executor.id, "volunteers.manage_offboarding");
+    await createMembership(vol.id, term.id, dept.id, "VOLUNTEER");
+    await prisma.offboardFlag.create({
+      data: { personId: vol.id, termId: term.id, flaggedById: flagger.id, note: "ready to exit" },
+    });
+
+    // Offboarded via the /admin/people path: Person.status flips but the flag row
+    // is not deleted. The flagged queue must not keep showing them.
+    await prisma.person.update({ where: { id: vol.id }, data: { status: "OFFBOARDED" } });
+
+    const result = await offboardingView(executor.id);
+    expect(result.flagged).toEqual([]);
   });
 
   it("no active term returns empty departments and null flagged", async () => {

@@ -16,6 +16,7 @@ import type { Department, Person } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
+import { isEffectiveActiveAdmin, assertActiveAdminRemainsTx } from "@/platform/rbac/last-admin";
 import { TermNotFoundError } from "./terms";
 
 // ---------------------------------------------------------------------------
@@ -186,10 +187,29 @@ export async function removeMembership(
     return;
   }
 
-  await prisma.termMembership.update({
-    where: { id: membershipId },
-    data: { status: "REMOVED" },
-  });
+  // Last-admin guard (audit L7): dept/kind-scoped admin grants resolve through
+  // ACTIVE memberships. If this member is currently the only person who
+  // effectively holds admin access, soft-removing this membership could strip the
+  // last admin path. Non-admin members skip the guard (fast path); for an admin,
+  // remove and recompute inside one Serializable tx so the update rolls back if it
+  // would leave zero effective admins (and concurrent removals conflict-abort).
+  if (await isEffectiveActiveAdmin(membership.personId)) {
+    await prisma.$transaction(
+      async (tx) => {
+        await tx.termMembership.update({
+          where: { id: membershipId },
+          data: { status: "REMOVED" },
+        });
+        await assertActiveAdminRemainsTx(tx);
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+    );
+  } else {
+    await prisma.termMembership.update({
+      where: { id: membershipId },
+      data: { status: "REMOVED" },
+    });
+  }
 
   await recordAudit({
     actorPersonId,
@@ -239,30 +259,43 @@ export async function changeMembershipKind(
     if (directorShifts > 0) throw new DirectorHasShiftAssignmentsError(input.membershipId);
   }
 
-  await prisma.$transaction(async (tx) => {
-    await tx.termMembership.upsert({
-      where: {
-        personId_termId_departmentId_kind: {
+  // Last-admin guard (audit L7): a kind-scoped admin grant (e.g. the DIRECTOR
+  // kind confers admin.access) resolves through the membership kind, so swapping
+  // kind can drop this person out of the admin set. When they are currently an
+  // effective admin, run the swap and recompute inside one Serializable tx and
+  // refuse if it would leave zero effective admins. Non-admins skip the guard.
+  const guardAdmin = await isEffectiveActiveAdmin(membership.personId);
+
+  await prisma.$transaction(
+    async (tx) => {
+      await tx.termMembership.upsert({
+        where: {
+          personId_termId_departmentId_kind: {
+            personId: membership.personId,
+            termId: membership.termId,
+            departmentId: membership.departmentId,
+            kind: input.toKind,
+          },
+        },
+        update: { status: "ACTIVE" },
+        create: {
           personId: membership.personId,
           termId: membership.termId,
           departmentId: membership.departmentId,
           kind: input.toKind,
+          status: "ACTIVE",
         },
-      },
-      update: { status: "ACTIVE" },
-      create: {
-        personId: membership.personId,
-        termId: membership.termId,
-        departmentId: membership.departmentId,
-        kind: input.toKind,
-        status: "ACTIVE",
-      },
-    });
-    await tx.termMembership.update({
-      where: { id: membership.id },
-      data: { status: "REMOVED" },
-    });
-  });
+      });
+      await tx.termMembership.update({
+        where: { id: membership.id },
+        data: { status: "REMOVED" },
+      });
+      if (guardAdmin) await assertActiveAdminRemainsTx(tx);
+    },
+    guardAdmin
+      ? { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+      : undefined
+  );
 
   await recordAudit({
     actorPersonId,

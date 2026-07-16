@@ -23,6 +23,20 @@ export class SubcommitteeValidationError extends Error {
 
 export type SubcommitteeRow = Subcommittee & { _count: { assignedApplications: number } };
 
+/**
+ * Display order is a sort key stored as an Int. Resolve an incoming value to a
+ * whole number, falling back when it is absent. Crafted form input can arrive as
+ * NaN (e.g. Number("abc")), which nullish coalescing does not catch, so guard it
+ * here and surface a friendly validation error instead of a Prisma 500.
+ */
+function resolveOrder(order: number | undefined, fallback: number): number {
+  if (order === undefined) return fallback;
+  if (!Number.isInteger(order)) {
+    throw new SubcommitteeValidationError("Display order must be a whole number.");
+  }
+  return order;
+}
+
 /** All subcommittees, active first then by order then name, with usage counts. */
 export async function listSubcommittees(): Promise<SubcommitteeRow[]> {
   return prisma.subcommittee.findMany({
@@ -41,16 +55,17 @@ export async function createSubcommittee(
 ): Promise<Subcommittee> {
   const name = input.name.trim();
   if (!name) throw new SubcommitteeValidationError("Name is required.");
+  const order = resolveOrder(input.order, 0);
 
   const sc = await prisma.subcommittee.create({
-    data: { name, isActive: input.isActive ?? true, order: input.order ?? 0 },
+    data: { name, isActive: input.isActive ?? true, order },
   });
   await recordAudit({
     actorPersonId,
     action: "subcommittee.create",
     entityType: "Subcommittee",
     entityId: sc.id,
-    after: { name: sc.name, isActive: sc.isActive },
+    after: { name: sc.name, isActive: sc.isActive, order: sc.order },
   });
   return sc;
 }
@@ -64,10 +79,11 @@ export async function updateSubcommittee(
   if (!before) throw new SubcommitteeNotFoundError(id);
   const name = input.name.trim();
   if (!name) throw new SubcommitteeValidationError("Name is required.");
+  const order = resolveOrder(input.order, before.order);
 
   const sc = await prisma.subcommittee.update({
     where: { id },
-    data: { name, isActive: input.isActive, order: input.order ?? before.order },
+    data: { name, isActive: input.isActive, order },
   });
   await recordAudit({
     actorPersonId,

@@ -21,8 +21,11 @@ import { prisma } from "@/platform/db";
 import { termRoster, addMembership, removeMembership, copyRosterFromTerm, membershipHasDirectorShifts, MembershipForeignKeyError, MembershipNotFoundError, RosterCopyError } from "@/modules/admin/services/roster";
 import { searchPeople } from "@/modules/admin/services/people";
 import { listTerms, TermNotFoundError } from "@/modules/admin/services/terms";
+import { LastAdminError } from "@/platform/rbac/last-admin";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
+import { NavForm } from "@/platform/ui/nav-form";
+import Link from "next/link";
 import { Card } from "@/platform/ui/card";
 import { Input, Field } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
@@ -46,6 +49,11 @@ type RosterPanelProps = {
   skippedCount?: number;
   /** Error string from ?rosterError= redirect. */
   rosterError?: string;
+  /** When false, the add/remove/copy editing controls are hidden (view-only). The
+   *  page admits admin.manage_terms OR admin.manage_roster, but the roster mutations
+   *  require admin.manage_roster; without this a manage_terms-only admin sees forms
+   *  that dead-end at /no-access. Mirrors PersonMembershipsPanel. */
+  canManage: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -57,11 +65,13 @@ function MemberChip({
   membershipId,
   kind,
   removeAction,
+  canManage,
 }: {
   person: Person;
   membershipId: string;
   kind: "DIRECTOR" | "VOLUNTEER";
   removeAction: (formData: FormData) => Promise<void>;
+  canManage: boolean;
 }) {
   return (
     <div className="flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-1.5">
@@ -71,10 +81,12 @@ function MemberChip({
       ) : (
         <Badge tone="default">Volunteer</Badge>
       )}
-      <form action={removeAction} className="ml-auto">
-        <input type="hidden" name="membershipId" value={membershipId} />
-        <ConfirmButton label="Remove" confirmLabel="Remove member?" />
-      </form>
+      {canManage && (
+        <form action={removeAction} className="ml-auto">
+          <input type="hidden" name="membershipId" value={membershipId} />
+          <ConfirmButton label="Remove" confirmLabel="Remove member?" />
+        </form>
+      )}
     </div>
   );
 }
@@ -90,6 +102,7 @@ export async function RosterPanel({
   copiedCount,
   skippedCount,
   rosterError,
+  canManage,
 }: RosterPanelProps): Promise<ReactNode> {
   // Fetch roster groups and all active departments in parallel.
   const [rosterGroups, allActiveDepts, allMembershipsWithIds] = await Promise.all([
@@ -107,6 +120,18 @@ export async function RosterPanel({
 
   // Build a lookup: deptId -> roster group
   const rosterByDept = new Map(rosterGroups.map((g) => [g.department.id, g]));
+
+  // Cards to render: every active department PLUS any INACTIVE department that
+  // still has active members this term. Otherwise deactivating a department hides
+  // its remaining members from the roster with no way to remove/move them here.
+  const activeIds = new Set(allActiveDepts.map((d) => d.id));
+  const displayDepts = [
+    ...allActiveDepts.map((d) => ({ id: d.id, code: d.code, name: d.name, isActive: true })),
+    ...rosterGroups
+      .map((g) => g.department)
+      .filter((d) => !activeIds.has(d.id))
+      .map((d) => ({ id: d.id, code: d.code, name: d.name, isActive: false })),
+  ].sort((a, b) => a.code.localeCompare(b.code));
 
   // Build membership id lookup: "${personId}:${deptId}:${kind}" -> membershipId
   const membershipIdMap = new Map<string, string>();
@@ -157,6 +182,9 @@ export async function RosterPanel({
     try {
       await removeMembership(actorSession.personId, membershipId);
     } catch (err) {
+      if (err instanceof LastAdminError) {
+        redirect(`${termDetailHref}?rosterError=${encodeURIComponent(err.message)}`);
+      }
       if (err instanceof MembershipNotFoundError) {
         redirect(
           `${termDetailHref}?rosterError=${encodeURIComponent("Member no longer exists; the page may be stale.")}`
@@ -264,8 +292,11 @@ export async function RosterPanel({
         </Alert>
       )}
 
+      {/* Add-member search + results: editing controls, admin.manage_roster only. */}
+      {canManage && (
+      <>
       {/* Add-member search box (global, above cards) */}
-      <form method="GET" className="flex items-end gap-3">
+      <NavForm className="flex items-end gap-3">
         {/* No other params are preserved; this form resets all query state. */}
         <Field label="Search people to add">
           <Input
@@ -280,14 +311,14 @@ export async function RosterPanel({
           Search
         </Button>
         {addq && (
-          <a
+          <Link
             href={termDetailHref}
             className="text-sm text-muted-foreground hover:text-foreground self-end pb-2"
           >
             Clear
-          </a>
+          </Link>
         )}
-      </form>
+      </NavForm>
 
       {/* Search results panel */}
       {addq && addq.trim() && (
@@ -296,7 +327,7 @@ export async function RosterPanel({
             <p className="text-sm font-medium text-foreground-soft">
               {searchResults.length === 0
                 ? `No results for "${addq}"`
-                : `${searchResults.length} result(s) for "${addq}" -- select department and role, then Add`}
+                : `${searchResults.length} result(s) for "${addq}" · select department and role, then Add`}
             </p>
           </div>
           {searchResults.length > 0 && (
@@ -318,7 +349,7 @@ export async function RosterPanel({
                       <Select name="departmentId" className="w-48">
                         {allActiveDepts.map((dept) => (
                           <option key={dept.id} value={dept.id}>
-                            {dept.code} -- {dept.name}
+                            {dept.code} · {dept.name}
                           </option>
                         ))}
                       </Select>
@@ -339,10 +370,12 @@ export async function RosterPanel({
           )}
         </Card>
       )}
+      </>
+      )}
 
       {/* Department cards */}
       <div className="space-y-6">
-        {allActiveDepts.map((dept) => {
+        {displayDepts.map((dept) => {
           const group = rosterByDept.get(dept.id);
           const directors = group?.directors ?? [];
           const volunteers = group?.volunteers ?? [];
@@ -354,7 +387,8 @@ export async function RosterPanel({
               className="rounded-2xl border border-border bg-muted p-5"
             >
               <h3 className="mb-4 text-sm font-semibold text-foreground-soft">
-                {dept.code} -- {dept.name}
+                {dept.code} · {dept.name}
+                {!dept.isActive && <span className="ml-2 text-xs font-normal text-subtle-foreground">(inactive: remaining members)</span>}
               </h3>
 
               {isEmpty ? (
@@ -378,6 +412,7 @@ export async function RosterPanel({
                               membershipId={membershipId}
                               kind="DIRECTOR"
                               removeAction={removeAction}
+                              canManage={canManage}
                             />
                           );
                         })}
@@ -402,6 +437,7 @@ export async function RosterPanel({
                               membershipId={membershipId}
                               kind="VOLUNTEER"
                               removeAction={removeAction}
+                              canManage={canManage}
                             />
                           );
                         })}
@@ -415,8 +451,8 @@ export async function RosterPanel({
         })}
       </div>
 
-      {/* Copy-roster section: PLANNING terms only */}
-      {term.status === "PLANNING" && (
+      {/* Copy-roster section: PLANNING terms only, admin.manage_roster only */}
+      {canManage && term.status === "PLANNING" && (
         <Card>
           <h3 className="mb-4 text-sm font-semibold text-foreground-soft">Copy roster from another term</h3>
           {sourceTerms.length === 0 ? (
@@ -428,7 +464,7 @@ export async function RosterPanel({
                   <Select name="fromTermId" className="w-56">
                     {sourceTerms.map((t) => (
                       <option key={t.id} value={t.id}>
-                        {t.code} -- {t.name}
+                        {t.code} · {t.name}
                       </option>
                     ))}
                   </Select>

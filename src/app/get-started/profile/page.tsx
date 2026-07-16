@@ -29,6 +29,10 @@ export default async function OnboardingProfilePage({
         contactEmail: (formData.get("contactEmail") as string) || null,
         yaleAffiliation: (formData.get("yaleAffiliation") as string) || null,
         gradYear: (formData.get("gradYear") as string) || null,
+        // The shared MyInfoForm renders a dietaryRestrictions field; the onboarding
+        // action must read it too (matching /my-info) or the answer is silently
+        // discarded.
+        dietaryRestrictions: (formData.get("dietaryRestrictions") as string) || null,
       });
     } catch (err) {
       if (err instanceof PersonConflictError) {

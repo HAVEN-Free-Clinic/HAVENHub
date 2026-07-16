@@ -142,3 +142,80 @@ describe("resolveAudience compliance status (issue #72)", () => {
     expect(res.recipients.map((r) => r.email)).toEqual(["pending@example.com"]);
   });
 });
+
+describe("resolveAudience clearance + nested groups", () => {
+  async function activeTerm() {
+    return prisma.term.create({
+      data: {
+        code: "SU26",
+        name: "Summer 2026",
+        startDate: new Date("2026-05-01"),
+        endDate: new Date("2026-09-26"),
+        status: "ACTIVE",
+      },
+    });
+  }
+
+  it("isCleared=true matches fully-cleared active-term members", async () => {
+    const term = await activeTerm();
+    const dept = await prisma.department.create({ data: { code: "PCAR", name: "Primary Care" } });
+
+    const cleared = await prisma.person.create({
+      data: { name: "Cleared", contactEmail: "cleared@x.edu", phone: "555-1", status: "ACTIVE" },
+    });
+    await prisma.termMembership.create({
+      data: { personId: cleared.id, termId: term.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" },
+    });
+    await cert(cleared.id, new Date()); // valid + verified -> COMPLIANT
+
+    const notCleared = await prisma.person.create({
+      data: { name: "NotCleared", contactEmail: "notcleared@x.edu", phone: "555-2", status: "ACTIVE" },
+    });
+    await prisma.termMembership.create({
+      data: { personId: notCleared.id, termId: term.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" },
+    });
+    // no cert -> HIPAA incomplete -> not cleared
+
+    const res = await resolveAudience({
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "isCleared", op: "isTrue" }],
+    });
+    expect(res.recipients.map((r) => r.email)).toEqual(["cleared@x.edu"]);
+  });
+
+  it("resolves a nested group (ANY of a plain condition OR a nested ALL group)", async () => {
+    const term = await activeTerm();
+    const dept = await prisma.department.create({ data: { code: "PCAR", name: "Primary Care" } });
+
+    const volRn = await prisma.person.create({
+      data: { name: "Vol RN", contactEmail: "volrn@x.edu", status: "ACTIVE", licensedRN: true },
+    });
+    await prisma.termMembership.create({
+      data: { personId: volRn.id, termId: term.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" },
+    });
+    const volNonRn = await prisma.person.create({
+      data: { name: "Vol NonRN", contactEmail: "volnonrn@x.edu", status: "ACTIVE", licensedRN: false },
+    });
+    await prisma.termMembership.create({
+      data: { personId: volNonRn.id, termId: term.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" },
+    });
+
+    // ANY of: status=OFFBOARDED, OR (role=VOLUNTEER AND licensedRN). Only volRn qualifies.
+    const res = await resolveAudience({
+      recordType: "PERSON",
+      match: "ANY",
+      conditions: [
+        { field: "status", op: "eq", value: "OFFBOARDED" },
+        {
+          match: "ALL",
+          children: [
+            { field: "role", op: "eq", value: "VOLUNTEER" },
+            { field: "licensedRN", op: "isTrue" },
+          ],
+        },
+      ],
+    });
+    expect(res.recipients.map((r) => r.email)).toEqual(["volrn@x.edu"]);
+  });
+});

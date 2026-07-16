@@ -67,6 +67,37 @@ enum CertificateExtraction {
   NONE
 }
 
+enum PatientImpact {
+  YES
+  NO
+  UNSURE
+}
+
+enum IssueNature {
+  SYSTEM
+  INDIVIDUAL
+  BOTH_UNSURE
+}
+
+enum PriorOccurrence {
+  YES
+  NO
+  UNSURE
+}
+
+enum IncidentReportStatus {
+  SUBMITTED
+  UNDER_REVIEW
+  RESOLVED
+  DISMISSED
+}
+
+enum StrikeDecision {
+  PENDING
+  APPROVED
+  DECLINED
+}
+
 model Person {
   id                        String               @id @default(cuid())
   netId                     String?              @unique
@@ -76,6 +107,12 @@ model Person {
   phone                     String?
   epicId                    String?
   yaleAffiliation           String?
+  /// Date of birth, carried from the onboarding contract at promotion (used for
+  /// records + YNHH Epic identity). Date-only value; stored at UTC midnight.
+  dateOfBirth               DateTime?
+  /// Dietary restrictions/allergies for in-person events (orientation, training),
+  /// carried from onboarding and member-editable via /my-info.
+  dietaryRestrictions       String?
   /// UI appearance preference: null = use the app default (ui.defaultTheme).
   /// One of "light" | "dark" | "system". Stored as a string (not an enum) to
   /// match the settings registry's string select and avoid a Prisma enum migration.
@@ -99,10 +136,30 @@ model Person {
   epicRequestsSubmitted     EpicRequest[]        @relation("epicRequestRequestedBy")
   /// YNHH tickets this person submitted.
   ynhhTicketsSubmitted      YnhhTicket[]         @relation("ynhhTicketSubmittedBy")
+  /// One-off YNHH incidents that concern this person.
+  ynhhTicketsAbout          YnhhTicket[]         @relation("ynhhTicketPerson")
+  /// IT Support tickets this person submitted.
+  techRequests         TechRequest[]           @relation("techRequestRequester")
+  /// IT Support tickets assigned to this person to work.
+  assignedTechRequests TechRequest[]           @relation("techRequestAssignee")
+  /// Comments this person authored on IT Support tickets.
+  techRequestComments  TechRequestComment[]    @relation("techRequestCommentAuthor")
+  /// Files this person uploaded to IT Support tickets or comments.
+  techRequestUploads   TechRequestAttachment[] @relation("techRequestUploader")
   /// Disciplinary actions recorded against this person.
   disciplinaryActions       DisciplinaryAction[] @relation("disciplinaryActionPerson")
   /// Disciplinary actions this person issued.
   disciplinaryActionsIssued DisciplinaryAction[] @relation("disciplinaryActionIssuedBy")
+  /// Incident reports this person filed.
+  incidentReportsFiled           IncidentReport[]           @relation("incidentReportReporter")
+  /// Incident reports naming this person as a subject.
+  incidentSubjectLinks           IncidentReportSubject[]    @relation("incidentReportSubjectPerson")
+  /// Incident reports this person resolved or dismissed.
+  incidentReportsResolved        IncidentReport[]           @relation("incidentReportResolvedBy")
+  /// Incident-report strike decisions this person made.
+  incidentSubjectStrikeDecisions IncidentReportSubject[]    @relation("incidentReportSubjectStrikeDecidedBy")
+  /// Incident-report attachments this person uploaded.
+  incidentAttachmentsUploaded    IncidentReportAttachment[] @relation("incidentAttachmentUploadedBy")
   /// Email log rows addressed to or triggered by this person.
   emailLogs                 EmailLog[]           @relation("emailLogPerson")
   /// Email log rows this person triggered (may differ from the recipient).
@@ -124,9 +181,12 @@ model Person {
   interviewsDecided         Interview[]          @relation("interviewDecidedBy")
   interviewPanels           InterviewPanelist[]  @relation("interviewPanelistPerson")
   interviewEvaluations      Evaluation[]         @relation("interviewEvaluator")
+  committeeScores           CommitteeScore[]     @relation("committeeScoreScorer")
   trainings                Training[]  @relation("trainingPerson")
   trainingAttendanceMarked Training[]  @relation("trainingAttendanceRecorder")
   subcommitteeAssignments  Application[] @relation("applicationSubcommitteeAssigner")
+  applicationsRouted       Application[] @relation("applicationRoutedBy")
+  applicationsDecided      Application[] @relation("applicationDecidedBy")
   courseProgress            CourseProgress[]
   scoProgress               ScoProgress[]
   addedToEhs           Boolean         @default(false)
@@ -193,8 +253,34 @@ model Term {
   rhdClinics         RhdClinic[]
   recruitmentCycles  RecruitmentCycle[]
   trainings Training[]
+  onboardingSteps    TermOnboardingStep[]
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
+}
+
+/// Per-term override of the onboarding checklist. A missing row for a given kind
+/// means the built-in default (enabled, default label/description/blocking/order).
+/// kind is one of the OnboardingTaskKey values: profile | hipaa | training |
+/// directorTraining | learning | ehs.
+model TermOnboardingStep {
+  id          String   @id @default(cuid())
+  termId      String
+  kind        String
+  enabled     Boolean  @default(true)
+  /// Override the display label; null keeps the built-in copy.
+  label       String?
+  /// Override the description; null keeps the built-in copy.
+  description String?
+  /// Override whether the step blocks clearance; null keeps the built-in default.
+  blocking    Boolean?
+  /// Checklist display order.
+  order       Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  term        Term     @relation(fields: [termId], references: [id], onDelete: Cascade)
+
+  @@unique([termId, kind])
+  @@index([termId])
 }
 
 model Department {
@@ -404,6 +490,7 @@ enum FieldType {
   FILE
   DEPARTMENT_CHOICE
   SUBCOMMITTEE_RANK
+  SIGNATURE
 }
 
 enum ApplicantScope {
@@ -428,13 +515,6 @@ enum InterviewDecision {
   ACCEPT
   REJECT
   WAITLIST
-}
-
-enum Recommendation {
-  STRONG_YES
-  YES
-  MAYBE
-  NO
 }
 
 enum ContractStatus {
@@ -491,6 +571,7 @@ model EpicRequest {
   notes         String?
   requestedById String
   ticketId      String?
+  techRequestId String?
   completedAt   DateTime?
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
@@ -500,9 +581,12 @@ model EpicRequest {
   requestedBy   Person            @relation("epicRequestRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict)
   /// The YNHH ticket opened for this request (optional).
   ticket        YnhhTicket?       @relation(fields: [ticketId], references: [id], onDelete: SetNull)
+  /// The IT Support ticket this request is attached to, if any. SetNull: deleting the ticket detaches its requests but keeps them for YNHH/audit history.
+  techRequest   TechRequest?      @relation("techRequestEpic", fields: [techRequestId], references: [id], onDelete: SetNull)
 
   @@index([status])
   @@index([personId, status])
+  @@index([techRequestId])
 }
 
 /// A service request ticket opened with YNHH IT, grouping one or more EPIC
@@ -511,14 +595,139 @@ model YnhhTicket {
   id                   String           @id @default(cuid())
   serviceRequestNumber String?
   description          String?
+  /// One-off incident subject. Set for standalone YNHH incidents logged directly (not Epic batches).
+  subject              String?
+  /// Resolution notes captured when a one-off incident is resolved.
+  resolution           String?
   status               YnhhTicketStatus @default(OPEN)
   submittedById        String
+  personId             String?
   submittedAt          DateTime         @default(now())
   closedAt             DateTime?
   /// EPIC requests grouped under this ticket.
   requests             EpicRequest[]
   /// Person who submitted the ticket to YNHH IT. Restrict: any referencing row blocks deletion of this person.
   submittedBy          Person           @relation("ynhhTicketSubmittedBy", fields: [submittedById], references: [id], onDelete: Restrict)
+  /// Optional person a one-off YNHH incident concerns. SetNull: keep the log entry if the person is deleted.
+  person               Person?          @relation("ynhhTicketPerson", fields: [personId], references: [id], onDelete: SetNull)
+  /// Files attached to a one-off YNHH incident.
+  attachments          TechRequestAttachment[]
+}
+
+enum TechRequestCategory {
+  EPIC
+  DUO_MFA
+  GENERAL_IT
+  TEAMS
+  OTHER
+}
+
+enum TechRequestPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum TechRequestStatus {
+  SUBMITTED
+  IN_PROGRESS
+  AWAITING_REQUESTER
+  AWAITING_YNHH
+  RESOLVED
+  CLOSED
+  CANCELLED
+}
+
+enum CommentVisibility {
+  PUBLIC
+  INTERNAL
+}
+
+/// An IT Support ticket. The umbrella over all tech requests; the EPIC category
+/// links to an EpicRequest once a manager promotes it. Cascade-deleted with the
+/// requester (the subject of the request).
+model TechRequest {
+  id            String              @id @default(cuid())
+  number        Int                 @unique @default(autoincrement())
+  requesterId   String
+  category      TechRequestCategory
+  epicSubtype   EpicRequestKind?
+  subject       String
+  description   String
+  priority      TechRequestPriority @default(MEDIUM)
+  status        TechRequestStatus   @default(SUBMITTED)
+  assignedToId  String?
+  resolution    String?
+  resolvedAt    DateTime?
+  // EPIC intake fields captured at submit, used when promoting to an EpicRequest.
+  epicJobTitle  String?
+  epicMirrorId  String?
+  epicStartDate DateTime?
+  epicEndDate   DateTime?
+  worksAtYnhh   Boolean?
+  govId         String?
+  netId         String?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  /// Subject of the request. Cascade: tickets belong to the requester.
+  requester   Person       @relation("techRequestRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  /// Manager assigned to work the ticket. Restrict: an assigned person cannot be deleted out from under open work.
+  assignedTo  Person?      @relation("techRequestAssignee", fields: [assignedToId], references: [id], onDelete: Restrict)
+  /// Epic access requests attached to this ticket (0..n). See EpicRequest.techRequestId.
+  epicRequests EpicRequest[] @relation("techRequestEpic")
+
+  comments    TechRequestComment[]
+  attachments TechRequestAttachment[]
+
+  @@index([status])
+  @@index([requesterId])
+  @@index([assignedToId])
+}
+
+/// A comment on a TechRequest. PUBLIC is visible to the requester and managers;
+/// INTERNAL is manager-only. Cascade-deleted with the ticket.
+model TechRequestComment {
+  id         String            @id @default(cuid())
+  requestId  String
+  authorId   String
+  body       String
+  visibility CommentVisibility @default(PUBLIC)
+  createdAt  DateTime          @default(now())
+
+  request     TechRequest             @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  /// Author of the comment. Restrict: keep authorship stable for audit.
+  author      Person                  @relation("techRequestCommentAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  attachments TechRequestAttachment[]
+
+  @@index([requestId])
+}
+
+/// A file attached to a ticket or a comment (exactly one of requestId/commentId).
+/// storageKey is the key passed to putObject/getObject; bytes live in Blob.
+model TechRequestAttachment {
+  id           String   @id @default(cuid())
+  requestId    String?
+  commentId    String?
+  ynhhTicketId String?
+  storageKey   String
+  filename     String
+  mimeType     String
+  size         Int
+  uploadedById String
+  createdAt    DateTime @default(now())
+
+  request    TechRequest?        @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  comment    TechRequestComment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  /// One-off YNHH incident this file is attached to (manager-only download).
+  ynhhTicket YnhhTicket?         @relation(fields: [ynhhTicketId], references: [id], onDelete: Cascade)
+  /// Uploader. Restrict: keep provenance stable for audit.
+  uploadedBy Person              @relation("techRequestUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
+
+  @@index([requestId])
+  @@index([commentId])
+  @@index([ynhhTicketId])
 }
 
 /// A formal disciplinary action recorded against a volunteer or director.
@@ -537,12 +746,96 @@ model DisciplinaryAction {
   confidential    Boolean  @default(false)
   patientInvolved Boolean  @default(false)
   createdAt       DateTime @default(now())
+  /// When this strike was issued by approving an incident report's strike request.
+  reportId        String?
+  report          IncidentReport? @relation("incidentReportStrikeAction", fields: [reportId], references: [id], onDelete: SetNull)
   /// Subject of the action. Cascade: records belong to the person.
   person          Person   @relation("disciplinaryActionPerson", fields: [personId], references: [id], onDelete: Cascade)
   /// Person who issued the action. Restrict: the issuer should not be deleted while records exist.
   issuedBy        Person   @relation("disciplinaryActionIssuedBy", fields: [issuedById], references: [id], onDelete: Restrict)
 
   @@index([personId])
+  @@unique([reportId, personId])
+}
+
+/// A Professional Standards Incident Report. Any signed-in person may file one
+/// about anyone; reviewers (incidents.manage) triage them. A director filing
+/// about a volunteer they manage may request a strike, which a reviewer approves
+/// (issuing a linked DisciplinaryAction) or declines.
+model IncidentReport {
+  id                    String               @id @default(cuid())
+  number                Int                  @unique @default(autoincrement())
+  reporterId            String
+  anonymous             Boolean              @default(false)
+  concernTypes          String[]             @default([])
+  description           String               @db.Text
+  occurredAt            DateTime?
+  setting               String?
+  subjectDescription    String?
+  patientImpact         PatientImpact?
+  patientImpactDetail   String?
+  immediateRisk         Boolean              @default(false)
+  issueNature           IssueNature?
+  priorOccurrence       PriorOccurrence?
+  priorOccurrenceDetail String?
+  status                IncidentReportStatus @default(SUBMITTED)
+  reviewNotes           String?              @db.Text
+  resolvedById          String?
+  resolvedAt            DateTime?
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+  /// The person who filed the report. Restrict: the reporter is load-bearing for the record.
+  reporter              Person               @relation("incidentReportReporter", fields: [reporterId], references: [id], onDelete: Restrict)
+  /// The reviewer who resolved or dismissed the report.
+  resolvedBy            Person?              @relation("incidentReportResolvedBy", fields: [resolvedById], references: [id], onDelete: Restrict)
+  attachments           IncidentReportAttachment[]
+  subjects              IncidentReportSubject[]
+  strikeActions         DisciplinaryAction[]       @relation("incidentReportStrikeAction")
+
+  @@index([status])
+  @@index([reporterId])
+}
+
+/// Links an incident report to one person involved (one row per person) and
+/// carries that person's per-report strike-request state, so a single report
+/// can hold independent strike requests against multiple people.
+model IncidentReportSubject {
+  id                String          @id @default(cuid())
+  reportId          String
+  personId          String
+  /// null = linked for context only. PENDING/APPROVED/DECLINED = strike request state.
+  strikeDecision    StrikeDecision?
+  strikeDecidedById String?
+  strikeDecidedAt   DateTime?
+  createdAt         DateTime        @default(now())
+  /// Cascade: the link belongs to the report.
+  report            IncidentReport  @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  /// Cascade: the link is meaningless without the person.
+  person            Person          @relation("incidentReportSubjectPerson", fields: [personId], references: [id], onDelete: Cascade)
+  /// The reviewer who decided this person's strike request.
+  strikeDecidedBy   Person?         @relation("incidentReportSubjectStrikeDecidedBy", fields: [strikeDecidedById], references: [id], onDelete: SetNull)
+
+  @@unique([reportId, personId])
+  @@index([reportId])
+  @@index([personId])
+}
+
+/// A file attached to an incident report. Bytes live in storage under storedName
+/// (src/platform/storage.ts putObject/getObject); this row is the metadata +
+/// ownership record. Mirrors the HipaaCertificate storage-key convention.
+model IncidentReportAttachment {
+  id           String         @id @default(cuid())
+  reportId     String
+  fileName     String
+  storedName   String
+  size         Int
+  mimeType     String
+  uploadedById String
+  createdAt    DateTime       @default(now())
+  report       IncidentReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  uploadedBy   Person         @relation("incidentAttachmentUploadedBy", fields: [uploadedById], references: [id], onDelete: Restrict)
+
+  @@index([reportId])
 }
 
 enum EmailCampaignStatus {
@@ -607,6 +900,9 @@ model EmailLog {
   attempts      Int               @default(0)
   lastError     String?
   sentAt        DateTime?
+  /// Set while a drain worker is sending this row so a concurrent drain skips it.
+  /// Cleared on completion; a stale lock (crashed worker) is reclaimable after a timeout.
+  lockedAt      DateTime?
   createdAt     DateTime          @default(now())
   /// SetNull: email logs outlive the people they reference.
   person        Person?           @relation("emailLogPerson", fields: [personId], references: [id], onDelete: SetNull)
@@ -685,6 +981,21 @@ model ComplianceReminder {
   person         Person    @relation(fields: [personId], references: [id], onDelete: Cascade)
 }
 
+/// Idempotency marker for periodic reminder dispatches (shift reminders + schedule
+/// request reminders, which have no per-person state table of their own). One row
+/// per (kind, personId, periodKey); the unique index turns "insert the marker" into
+/// an atomic claim, so two overlapping cron runs cannot both send the same reminder.
+/// Rows are lightweight (one per person per period) and retained.
+model ReminderDispatch {
+  id        String   @id @default(cuid())
+  kind      String
+  personId  String
+  periodKey String
+  createdAt DateTime @default(now())
+
+  @@unique([kind, personId, periodKey])
+}
+
 /// Single-row store for the delegated Graph mail credential (the rotating
 /// refresh token and connection metadata). id defaults to a fixed sentinel so
 /// there is at most one row.
@@ -723,6 +1034,9 @@ model TeamsMessage {
   attempts        Int                @default(0)
   lastError       String?
   sentAt          DateTime?
+  /// Per-row send claim: set when a drain worker takes the row, cleared on
+  /// completion. Lets overlapping drains avoid double-sending (mirrors EmailLog).
+  lockedAt        DateTime?
   createdAt       DateTime           @default(now())
   /// Cascade: Teams messages do not outlive the person they address.
   person          Person             @relation("teamsMessagePerson", fields: [personId], references: [id], onDelete: Cascade)
@@ -879,6 +1193,8 @@ model RecruitmentCycle {
   isTermTraining  Boolean          @default(false)
   quizPassPercent Int              @default(80)
   quizMaxAttempts Int              @default(3)
+  routeTopPercent    Int              @default(20)
+  routeBottomPercent Int              @default(30)
   createdById     String
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
@@ -891,8 +1207,18 @@ model RecruitmentCycle {
   applications Application[]
   trainings    Training[]
   cycleEmails  RecruitmentCycleEmail[]
+  contract     RecruitmentCycleContract?
 
   @@index([status, track])
+}
+
+model RecruitmentCycleContract {
+  id        String   @id @default(cuid())
+  cycleId   String   @unique
+  layout    Json
+  updatedAt DateTime @updatedAt
+
+  cycle RecruitmentCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
 }
 
 model FormSection {
@@ -922,6 +1248,7 @@ model FormField {
   required     Boolean   @default(false)
   options      Json?
   validation   Json?
+  visibleWhen  Json?
   correctValue String?
   order        Int
 
@@ -974,6 +1301,15 @@ model Application {
   assignedSubcommitteeId   String?
   assignedSubcommitteeById String?
   assignedSubcommitteeAt   DateTime?
+  routedDepartmentCode String?
+  routedById           String?
+  routedAt             DateTime?
+  // The routed department's decision on a VOLUNTEER application (no interview).
+  // Director-track decisions live on Interview.decision instead.
+  decision             InterviewDecision @default(PENDING)
+  decidedById          String?
+  decidedAt            DateTime?
+  decisionNotes        String?
   status            ApplicationStatus @default(SUBMITTED)
   submittedAt       DateTime?
   createdAt         DateTime          @default(now())
@@ -983,8 +1319,11 @@ model Application {
   applicant   Applicant        @relation(fields: [applicantId], references: [id], onDelete: Cascade)
   acceptances Acceptance[]
   interviews  Interview[]
+  committeeScores CommitteeScore[]
   assignedSubcommittee   Subcommittee? @relation("applicationAssignedSubcommittee", fields: [assignedSubcommitteeId], references: [id], onDelete: SetNull)
   assignedSubcommitteeBy Person?       @relation("applicationSubcommitteeAssigner", fields: [assignedSubcommitteeById], references: [id], onDelete: SetNull)
+  routedBy    Person? @relation("applicationRoutedBy", fields: [routedById], references: [id], onDelete: SetNull)
+  decidedBy   Person? @relation("applicationDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
 
   @@unique([cycleId, applicantId])
   @@index([cycleId, submittedAt])
@@ -1005,6 +1344,22 @@ model Acceptance {
   contract    OnboardingContract?
 
   @@unique([applicationId, departmentCode])
+  @@index([applicationId])
+}
+
+model CommitteeScore {
+  id            String   @id @default(cuid())
+  applicationId String
+  scorerId      String
+  score         Int
+  comments      String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  scorer      Person      @relation("committeeScoreScorer", fields: [scorerId], references: [id], onDelete: Cascade)
+
+  @@unique([applicationId, scorerId])
   @@index([applicationId])
 }
 
@@ -1039,12 +1394,19 @@ model OnboardingContract {
   hipaaSize                Int?
   hipaaCompletedAt         DateTime?
   sentAt                   DateTime?
+  /// When the onboarding link stops being usable. Set (and refreshed) on every
+  /// send/resend. Null on contracts created before this field existed: those are
+  /// grandfathered (no expiry) until the next resend stamps one.
+  expiresAt                DateTime?
   submittedAt              DateTime?
   promotedAt               DateTime?
   promotedById             String?
   promotedPersonId         String?
   createdAt                DateTime       @default(now())
   updatedAt                DateTime       @updatedAt
+  templateSnapshot Json?
+  customAnswers    Json?
+  signatures       Json?
 
   acceptance     Acceptance @relation(fields: [acceptanceId], references: [id], onDelete: Cascade)
   promotedBy     Person?    @relation("contractPromotedBy", fields: [promotedById], references: [id], onDelete: SetNull)
@@ -1135,13 +1497,13 @@ model InterviewPanelist {
 }
 
 model Evaluation {
-  id             String         @id @default(cuid())
-  interviewId    String
-  evaluatorId    String
-  recommendation Recommendation
-  comments       String?
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  id          String   @id @default(cuid())
+  interviewId String
+  evaluatorId String
+  score       Int
+  comments    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   interview Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
   evaluator Person    @relation("interviewEvaluator", fields: [evaluatorId], references: [id], onDelete: Cascade)
@@ -1185,6 +1547,10 @@ model Course {
   scormUploadedAt DateTime?
   /// Ordered SCO list from imsmanifest.xml: [{ id, title, href }]. Null = legacy single-SCO package.
   scormScos       Json?
+  /// Per-upload storage key: files live under scorm/<courseId>/<scormBlobKey>/ so a
+  /// re-ingest stages the new package without overwriting the live one before the DB
+  /// commit. Null = legacy package stored at the flat scorm/<courseId>/ prefix.
+  scormBlobKey    String?
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
   departments     CourseDepartment[]

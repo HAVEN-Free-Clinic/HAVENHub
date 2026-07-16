@@ -161,6 +161,29 @@ describe("GraphTransport", () => {
     const parsed = JSON.parse(String(init.body));
     expect(parsed.message.from).toBeUndefined();
   });
+
+  it("inlines the layout <style> and drops the <style> block before delivery (Gmail clip fix)", async () => {
+    const fetchMock = vi.fn(async () => new Response("", { status: 202 }));
+    const transport = new GraphTransport({
+      getAccessToken: fakeGetAccessToken,
+      sender: "hfc.it@yale.edu",
+      fetchImpl: fetchMock as typeof fetch,
+    });
+    const html =
+      "<!DOCTYPE html><html><head><style>" +
+      ".email-content a { color: #00356b; text-decoration: underline; }" +
+      "</style></head><body><table><tr>" +
+      '<td class="email-content"><p><a href="https://x">Open</a></p></td>' +
+      "</tr></table></body></html>";
+    await transport.send({ ...msg, html });
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const sent = JSON.parse(String(init.body)).message.body.content as string;
+    // The <style> block that triggers Gmail's "[Message clipped]" is gone...
+    expect(sent).not.toMatch(/<style[\s>]/i);
+    // ...and its rule is inlined onto the <a>, so the rendered look is preserved.
+    expect(sent).toMatch(/<a\b[^>]*style="[^"]*color:\s*#00356b/i);
+  });
 });
 
 // ---------------------------------------------------------------------------

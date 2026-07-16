@@ -88,6 +88,73 @@ export const getActivePerson = cache(
   }
 );
 
+/**
+ * True unless the Entra token asserts a tenant (tid) different from the one we are
+ * configured for. The pinned issuer already restricts sign-in to Yale's tenant, so
+ * this is defense in depth. A missing tid or missing config is allowed.
+ */
+export function entraTenantAllowed(
+  claims: { tid?: string | null },
+  configuredTenantId: string | null | undefined,
+): boolean {
+  if (configuredTenantId && claims.tid && claims.tid !== configuredTenantId) return false;
+  return true;
+}
+
+/**
+ * The verified address used to key a prospective applicant. Entra always carries a
+ * UPN (preferred_username); the email claim can be absent, so fall back to it, then
+ * to the NextAuth-provided user email. Lowercased; null when nothing is usable.
+ */
+export function applicantEmailFromClaims(
+  claims: { email?: string | null; preferred_username?: string | null },
+  fallbackEmail?: string | null,
+): string | null {
+  const raw = claims.email ?? claims.preferred_username ?? fallbackEmail ?? null;
+  return raw ? raw.toLowerCase() : null;
+}
+
+/**
+ * Name suffixes and post-nominal credentials that can trail a display name after a
+ * comma ("Jane Doe, RN"), so we don't mistake them for a "Last, First" first name.
+ * Lowercased, periods stripped.
+ */
+const NAME_SUFFIXES = new Set([
+  "jr", "sr", "ii", "iii", "iv", "v",
+  "md", "do", "rn", "np", "pa", "phd", "mph", "msn", "dnp", "dds", "dmd",
+  "psyd", "edd", "lcsw", "esq", "mba", "ms", "ma", "bs", "ba",
+]);
+
+/**
+ * The applicant's first name for a friendly greeting, taken from the Entra sign-in.
+ * Prefers the explicit `given_name` claim (present when the tenant surfaces it);
+ * otherwise derives it from the display `name` claim, handling "First Last",
+ * "Last, First" (common in Active Directory), and "First Last, <suffix>" (e.g.
+ * "Jane Doe, RN"). Returns null when no usable name is present, so the caller can
+ * greet without one rather than fall back to an email local part.
+ */
+export function firstNameFromClaims(claims: {
+  given_name?: string | null;
+  name?: string | null;
+}): string | null {
+  const given = claims.given_name?.trim();
+  if (given) return given;
+  const display = claims.name?.trim();
+  if (!display) return null;
+  // A comma is ambiguous: "Last, First" (the name follows the comma) vs
+  // "First Last, <suffix/credential>" (the name precedes it). Take the segment
+  // after the comma as the name, unless its first token is a known suffix -- then
+  // the name is the segment before the comma.
+  let segment = display;
+  if (display.includes(",")) {
+    const [before, after] = display.split(",", 2).map((s) => s.trim());
+    const afterHead = after?.split(/\s+/)[0]?.toLowerCase().replace(/\./g, "");
+    segment = afterHead && NAME_SUFFIXES.has(afterHead) ? before : after;
+  }
+  const first = segment?.split(/\s+/)[0]?.trim();
+  return first || null;
+}
+
 async function link(person: Person, entraObjectId?: string | null): Promise<Person> {
   if (!entraObjectId || person.entraObjectId === entraObjectId) return person;
   // A Person already bound to a DIFFERENT oid is never re-linked here, because that would

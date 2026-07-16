@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import { Document, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
 import type { LocalizedSummary, SummaryItem } from "./types";
 
@@ -5,6 +6,14 @@ import type { LocalizedSummary, SummaryItem } from "./types";
 const DEFAULT_BRAND = "#00356b";
 const INK = "#1c2b2d";
 const MUTED = "#5c7073";
+
+/**
+ * Points of vertical space a section heading needs ahead of it before it will
+ * render on the current page. Sections flow (wrap) across pages, so a heading
+ * near the bottom of a page would otherwise be orphaned above a page break;
+ * this pushes it to the next page unless at least one row can sit beneath it.
+ */
+const SECTION_MIN_PRESENCE = 48;
 
 /**
  * Mix a `#rrggbb` hex toward white. `strength` is the share of the brand color
@@ -32,7 +41,7 @@ export function createAvsStyles(brand: string) {
     docTitle: { fontSize: 16, color: brand, fontFamily: "Helvetica-Bold" },
     headerName: { fontSize: 12, marginTop: 2 },
     headerDate: { fontSize: 10, color: MUTED, marginTop: 2 },
-    block: { marginBottom: 14 },
+    sectionGap: { marginTop: 14 },
     heading: {
       fontSize: 8,
       letterSpacing: 1,
@@ -100,10 +109,20 @@ function Item({ item, styles }: { item: SummaryItem; styles: AvsStyles }) {
     return (
       <View style={styles.item}>
         {item.meds.map((m, i) => (
-          <View key={i} style={styles.medRow}>
+          <View key={i} style={styles.medRow} wrap={false}>
             <Text style={styles.medName}>{m.name}</Text>
-            {m.dose.trim() ? <Text style={styles.medDetail}>{m.dose}</Text> : null}
-            {m.costSource.trim() ? <Text style={styles.medDetail}>{m.costSource}</Text> : null}
+            {m.dose.trim() ? (
+              <>
+                <Text style={styles.label}>{item.doseLabel}</Text>
+                <Text style={styles.medDetail}>{m.dose}</Text>
+              </>
+            ) : null}
+            {m.costSource.trim() ? (
+              <>
+                <Text style={styles.label}>{item.costSourceLabel}</Text>
+                <Text style={styles.medDetail}>{m.costSource}</Text>
+              </>
+            ) : null}
           </View>
         ))}
       </View>
@@ -134,12 +153,17 @@ export function AvsDocument({
           ) : null}
         </View>
         {summary.blocks.map((b, i) => (
-          <View key={i} style={styles.block} wrap={false}>
-            <Text style={styles.heading}>{b.heading}</Text>
+          <Fragment key={i}>
+            <Text
+              style={i === 0 ? styles.heading : [styles.sectionGap, styles.heading]}
+              minPresenceAhead={SECTION_MIN_PRESENCE}
+            >
+              {b.heading}
+            </Text>
             {b.items.map((item, j) => (
               <Item key={j} item={item} styles={styles} />
             ))}
-          </View>
+          </Fragment>
         ))}
         <Text style={styles.footer}>{summary.disclaimer}</Text>
       </Page>

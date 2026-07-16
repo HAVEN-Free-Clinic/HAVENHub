@@ -7,9 +7,10 @@ import { PERSON_VARIABLES } from "@/platform/email/audience/variables";
 import { resolveAudience } from "@/platform/email/audience/resolve";
 import type { Recipient } from "@/platform/email/audience/resolve";
 import { renderInlineEmail, loadLayoutSource } from "@/platform/email/templates/renderEmail";
-import { queueEmail } from "@/platform/email/send";
+import { queueEmail, queueEmails } from "@/platform/email/send";
 import type { Prisma } from "@prisma/client";
-import { isValidCron, nextCronAfter } from "./cron";
+import { isValidCron, nextCronAfter, cronMinIntervalMinutes, CAMPAIGN_DISPATCH_CADENCE_MINUTES } from "./cron";
+import { getStarter } from "./starters";
 
 export const CAMPAIGN_CONFIRM_THRESHOLD = 25;
 
@@ -46,15 +47,22 @@ export class CampaignAlreadyDispatchedError extends Error {
   }
 }
 
-export async function createDraft(actorId: string | null, name: string) {
+export async function createDraft(
+  actorId: string | null,
+  name: string,
+  opts: { starterId?: string } = {},
+) {
+  // A starter seeds the draft's subject + body (and supplies a default name when the
+  // creator left it blank). An unknown / omitted starter falls back to an empty draft.
+  const starter = opts.starterId ? getStarter(opts.starterId) : undefined;
   return prisma.emailCampaign.create({
     data: {
-      name,
+      name: name || starter?.name || "Untitled campaign",
       createdById: actorId,
       status: "DRAFT",
       audienceJson: { recordType: "PERSON", match: "ALL", conditions: [] },
-      subject: "",
-      body: "",
+      subject: starter?.subject ?? "",
+      body: starter?.body ?? "",
     },
   });
 }
@@ -119,10 +127,19 @@ export async function previewAudience(id: string) {
   }
   const audience = campaign.audienceJson;
   const { recipients, excludedNoEmail } = await resolveAudience(audience);
+  // Dedup by lowercased email exactly as the send path does, so the previewed
+  // count matches what the confirm-count workflow will actually enqueue.
+  const seen = new Set<string>();
+  const deduped = recipients.filter((r) => {
+    const key = r.email.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
   return {
-    count: recipients.length,
+    count: deduped.length,
     excludedNoEmail,
-    sample: recipients.slice(0, 20),
+    sample: deduped.slice(0, 20),
   };
 }
 
@@ -189,6 +206,20 @@ export async function executeRun(
   }
   const layoutSource = await loadLayoutSource();
 
+  // Render every recipient BEFORE opening the claim transaction. renderInlineEmail
+  // is pure CPU (no DB round-trips), so doing it up front keeps the transaction
+  // short and independent of recipient count.
+  const rendered = await Promise.all(
+    deduped.map(async (recipient) => {
+      const { subject, html } = await renderInlineEmail(
+        { subject: campaign.subject, body: campaign.body },
+        recipient.variables,
+        layoutSource,
+      );
+      return { to: recipient.email, subject, html, personId: recipient.recordId };
+    }),
+  );
+
   const runId = await prisma.$transaction(async (tx) => {
     // Guard against double-dispatch with an atomic claim: apply the status
     // transition up front as a conditional updateMany gated on claimWhere. This
@@ -196,9 +227,14 @@ export async function executeRun(
     // concurrent writers on the row -- so of two overlapping passes (lapping
     // cron ticks, or a "send now" racing the per-minute drainer) the first
     // commits the transition and the second re-evaluates claimWhere against the
-    // updated row, matches zero rows, and aborts here, before creating a run or
-    // enqueuing anything. The whole transaction commits atomically, so if the
-    // enqueue below throws, the claim rolls back and the campaign stays eligible.
+    // updated row, matches zero rows, and aborts here.
+    //
+    // The per-recipient enqueue is deliberately OUTSIDE this transaction (below).
+    // Enqueuing hundreds of rows inside one interactive tx exceeded the ~5s
+    // timeout and rolled the whole thing back, including the claim -- so a large
+    // SCHEDULED/RECURRING campaign re-dispatched and failed identically every cron
+    // tick forever (audit F1). Keeping only the claim + run row here bounds the tx
+    // to two writes.
     const claimed = await tx.emailCampaign.updateMany({
       where: { id: campaignId, ...opts.claimWhere },
       data: opts.statusUpdate,
@@ -208,19 +244,18 @@ export async function executeRun(
     }
 
     const run = await tx.emailCampaignRun.create({ data: { campaignId, recipientCount: deduped.length } });
-    for (const recipient of deduped) {
-      const { subject, html } = await renderInlineEmail(
-        { subject: campaign.subject, body: campaign.body },
-        recipient.variables,
-        layoutSource,
-      );
-      await queueEmail(tx, {
-        to: recipient.email, subject, html, template: "campaign",
-        personId: recipient.recordId, triggeredById: opts.actorId, campaignRunId: run.id,
-      });
-    }
     return run.id;
   });
+
+  // The claim has committed (campaign marked sent), so enqueue the recipients now
+  // in chunked createMany batches. Trade-off: a crash between the claim commit and
+  // here can leave a marked-sent campaign with un-enqueued recipients -- rare, and
+  // far preferable to the previous fail-forever behavior.
+  await queueEmails(
+    prisma,
+    "campaign",
+    rendered.map((r) => ({ ...r, triggeredById: opts.actorId, campaignRunId: runId })),
+  );
 
   await recordAudit({
     actorPersonId: opts.actorId, action: "campaign.send",
@@ -269,10 +304,29 @@ export async function scheduleCampaign(
   id: string,
   input: ScheduleInput,
   now: Date = new Date(),
+  opts: { confirmCount?: number } = {},
 ): Promise<void> {
   const campaign = await prisma.emailCampaign.findUniqueOrThrow({ where: { id } });
   if (campaign.status !== "DRAFT") throw new Error("Only a draft can be scheduled");
   if (campaign.subject.trim() === "") throw new CampaignValidationError(["Add a subject before sending."]);
+  if (!isAudience(campaign.audienceJson)) throw new CampaignValidationError(["Stored audience is malformed"]);
+
+  // Same large-audience safeguard sendCampaignNow enforces: resolve + dedup the
+  // audience and require the admin to confirm the count before scheduling a blast.
+  // For a recurring campaign this is the count as of now (the audience resolves
+  // live at each run), which is still the right order-of-magnitude check against
+  // an accidental send-all.
+  const { recipients } = await resolveAudience(campaign.audienceJson);
+  const seen = new Set<string>();
+  const deduped = recipients.filter((r) => {
+    const key = r.email.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  if (deduped.length > CAMPAIGN_CONFIRM_THRESHOLD && opts.confirmCount !== deduped.length) {
+    throw new CampaignConfirmationError(deduped.length);
+  }
 
   if (input.scheduleType === "SCHEDULED") {
     if (!input.scheduledAt) throw new CampaignValidationError(["A send time is required"]);
@@ -284,12 +338,19 @@ export async function scheduleCampaign(
     if (!input.cronExpr || !isValidCron(input.cronExpr)) {
       throw new CampaignValidationError(["A valid cron expression is required"]);
     }
+    // Reject a cadence finer than the dispatcher can honor; such occurrences would
+    // be silently skipped between the 30-minute dispatch ticks.
+    if (cronMinIntervalMinutes(input.cronExpr, now) < CAMPAIGN_DISPATCH_CADENCE_MINUTES) {
+      throw new CampaignValidationError([
+        `Recurring sends run at most every ${CAMPAIGN_DISPATCH_CADENCE_MINUTES} minutes. Choose a coarser schedule (e.g. daily or weekly).`,
+      ]);
+    }
     await prisma.emailCampaign.update({
       where: { id },
       data: { scheduleType: "RECURRING", cronExpr: input.cronExpr, scheduledAt: null, nextRunAt: nextCronAfter(input.cronExpr, now), status: "ACTIVE" },
     });
   }
-  await recordAudit({ actorPersonId: actorId, action: "campaign.schedule", entityType: "EmailCampaign", entityId: id, after: { scheduleType: input.scheduleType } });
+  await recordAudit({ actorPersonId: actorId, action: "campaign.schedule", entityType: "EmailCampaign", entityId: id, after: { scheduleType: input.scheduleType, recipientCount: deduped.length } });
 }
 
 export async function cancelCampaign(actorId: string | null, id: string): Promise<void> {

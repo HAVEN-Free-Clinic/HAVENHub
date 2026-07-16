@@ -2,6 +2,7 @@ import { z } from "zod";
 import { config, type AppConfig } from "@/platform/config";
 import { brandingAssetSchema, type BrandingAsset } from "@/platform/branding/asset-types";
 import { NOTIFICATION_TYPES, channelSettingKey, type NotificationChannel } from "@/platform/notifications/registry";
+import { US_TIME_ZONES, US_TIME_ZONE_IDS } from "@/platform/dates/zone";
 
 export interface SettingValidateCtx {
   /** Env config, for checking that required secrets are present. */
@@ -30,6 +31,12 @@ export interface SettingDef<T> {
   help: string;
   /** Render hint for the auto-generated form. */
   input: SettingInput;
+  /**
+   * When true, excluded from the auto-rendered /admin/settings form (and its
+   * category list) but still fully readable/writable via getSetting/setSetting
+   * by key. Use for settings edited through their own dedicated UI.
+   */
+  hidden?: boolean;
   /** Validates both stored DB values and submitted form input. */
   schema: z.ZodType<T>;
   /** Seed value, sourced from env via `config`. */
@@ -72,7 +79,7 @@ export const SETTINGS: SettingDef<unknown>[] = [
     key: "uploads.maxMb",
     category: "Operations",
     label: "Max upload size (MB)",
-    help: "Largest allowed file upload, in megabytes. Airtable caps attachments at 5 MB.",
+    help: "Largest allowed file upload, in megabytes. Applies to all file uploads across the app.",
     input: { type: "number", min: 1 },
     schema: z.number().int().positive(),
     envDefault: () => config.MAX_UPLOAD_MB,
@@ -163,6 +170,16 @@ export const SETTINGS: SettingDef<unknown>[] = [
     secret: false,
   }),
   define<string>({
+    key: "branding.applyPortalTitle",
+    category: "Branding",
+    label: "Application portal title",
+    help: "The browser-tab title for the public application portal (the /apply pages and the apply subdomain). Overrides the application name there only; the rest of the hub keeps the application name above.",
+    input: { type: "text" },
+    schema: z.string().min(1),
+    envDefault: () => "HAVEN Application Portal",
+    secret: false,
+  }),
+  define<string>({
     key: "branding.orgName",
     category: "Branding",
     label: "Organization name",
@@ -242,6 +259,17 @@ export const SETTINGS: SettingDef<unknown>[] = [
     envDefault: () => "system",
     secret: false,
   }),
+  define<unknown>({
+    key: "onboarding.contractTemplate",
+    category: "Onboarding",
+    label: "Onboarding contract (master template)",
+    help: "The default onboarding contract every new cycle inherits. Edit per cycle from the cycle's Form builder.",
+    input: { type: "textarea" },
+    hidden: true,
+    schema: z.unknown(),
+    envDefault: () => null,
+    secret: false,
+  }),
   ...NOTIFICATION_TYPES.map((t) =>
     define<NotificationChannel>({
       key: channelSettingKey(t.key),
@@ -261,6 +289,16 @@ export const SETTINGS: SettingDef<unknown>[] = [
       secret: false,
     })
   ),
+  define<string>({
+    key: "display.timeZone",
+    category: "Operations",
+    label: "Display time zone",
+    help: "All dates and times across the app are shown in this time zone. Calendar dates (clinic days, term dates) are unaffected.",
+    input: { type: "select", options: US_TIME_ZONES.map((tz) => ({ value: tz.value, label: tz.label })) },
+    schema: z.enum(US_TIME_ZONE_IDS),
+    envDefault: () => config.DISPLAY_TIME_ZONE,
+    secret: false,
+  }),
 ];
 
 const BY_KEY = new Map(SETTINGS.map((d) => [d.key, d]));
@@ -272,7 +310,8 @@ export function getSettingDef(key: string): SettingDef<unknown> {
   return def;
 }
 
-/** Distinct categories, in first-seen order, for rendering form groups. */
+/** Distinct categories, in first-seen order, for rendering form groups. Hidden
+ * settings (edited via their own dedicated UI) do not surface a category here. */
 export function listCategories(): string[] {
-  return [...new Set(SETTINGS.map((d) => d.category))];
+  return [...new Set(SETTINGS.filter((d) => !d.hidden).map((d) => d.category))];
 }

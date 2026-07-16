@@ -9,6 +9,7 @@ import { Alert } from "@/platform/ui/alert";
 import { Select } from "@/platform/ui/select";
 import { Input, Textarea, Field } from "@/platform/ui/input";
 import { FormActions } from "@/platform/ui/form";
+import { SectionHeader } from "@/platform/ui/section-header";
 import { listCategories } from "@/platform/settings/registry";
 import {
   getCategory,
@@ -135,7 +136,7 @@ export default async function SettingsPage({ searchParams }: PageProps) {
 
       {groups.map(({ category, settings }) => (
         <section key={category} className="space-y-4">
-          <h2 className="text-lg font-semibold">{category}</h2>
+          <SectionHeader level="title">{category}</SectionHeader>
           <div className="space-y-6">
             {settings.map((s) => (
               <Card key={s.key} pad={false} className="p-4">
@@ -185,7 +186,7 @@ export default async function SettingsPage({ searchParams }: PageProps) {
                       <FormActions>
                         <Button type="submit" variant="primary" size="sm">Save</Button>
                         {s.isOverridden && (
-                          <span className="text-xs text-warning">Currently overriding the default</span>
+                          <span className="text-xs text-muted-foreground">Currently overriding the default</span>
                         )}
                       </FormActions>
                     </form>

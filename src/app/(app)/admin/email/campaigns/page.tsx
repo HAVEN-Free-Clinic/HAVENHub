@@ -5,6 +5,24 @@ import { isoDateKey } from "@/platform/dates";
 import { PageHeader } from "@/platform/ui/page-header";
 import { buttonClasses } from "@/platform/ui/button";
 import { cardClasses } from "@/platform/ui/card";
+import { Badge } from "@/platform/ui/badge";
+
+/** Human labels for the raw EmailCampaignStatus enum surfaced in the list. */
+const STATUS_LABELS: Record<string, string> = {
+  DRAFT: "Draft",
+  SENT: "Sent",
+  SCHEDULED: "Scheduled",
+  ACTIVE: "Recurring",
+  CANCELLED: "Cancelled",
+};
+
+const STATUS_TONES: Record<string, "default" | "brand" | "success"> = {
+  DRAFT: "default",
+  SENT: "success",
+  SCHEDULED: "brand",
+  ACTIVE: "brand",
+  CANCELLED: "default",
+};
 
 export default async function EmailCampaignsPage() {
   await requirePermission("admin.send_email_campaign");
@@ -50,7 +68,9 @@ export default async function EmailCampaignsPage() {
                 </Link>
                 <span className="ml-2 text-xs text-subtle-foreground">{isoDateKey(c.createdAt)}</span>
               </span>
-              <span className="text-xs text-muted-foreground">{c.status}</span>
+              <Badge tone={STATUS_TONES[c.status] ?? "default"}>
+                {STATUS_LABELS[c.status] ?? c.status}
+              </Badge>
             </li>
           ))}
         </ul>

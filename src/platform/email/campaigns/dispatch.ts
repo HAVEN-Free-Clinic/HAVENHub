@@ -1,4 +1,5 @@
 import { prisma } from "@/platform/db";
+import { log, errorAttrs } from "@/platform/logging";
 import { executeRun, CampaignAlreadyDispatchedError } from "./service";
 import { nextCronAfter } from "./cron";
 
@@ -45,7 +46,7 @@ export async function dispatchDueCampaigns(now: Date): Promise<DispatchSummary> 
         continue;
       }
       errors++;
-      console.error("[campaign-dispatch] run failed", campaign.id, err);
+      log.error("[campaign-dispatch] run failed", errorAttrs(err, { campaignId: campaign.id }));
     }
   }
   return { executed, errors };

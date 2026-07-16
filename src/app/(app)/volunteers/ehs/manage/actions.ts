@@ -1,6 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { requirePermission } from "@/platform/auth/session";
 import { runAction } from "@/platform/actions";
 import {
@@ -46,6 +45,11 @@ export async function setTrainingDepartmentsAction(formData: FormData): Promise<
   const person = await requirePermission("volunteers.manage_compliance");
   const trainingId = String(formData.get("trainingId"));
   const departmentIds = formData.getAll("departmentIds").map(String);
-  await setTrainingDepartments(trainingId, departmentIds, person.personId);
-  revalidatePath(`/volunteers/ehs/manage/${trainingId}`);
+  await runAction({
+    work: () => setTrainingDepartments(trainingId, departmentIds, person.personId),
+    domainErrors: [EhsValidationError],
+    errorRedirect: (msg) =>
+      `/volunteers/ehs/manage/${trainingId}?error=${encodeURIComponent(msg)}`,
+    revalidate: `/volunteers/ehs/manage/${trainingId}`,
+  });
 }

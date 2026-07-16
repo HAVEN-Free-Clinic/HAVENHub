@@ -1,4 +1,4 @@
-import { getSetting, setSetting, resetSetting } from "@/platform/settings/service";
+import { getSetting, setSetting } from "@/platform/settings/service";
 import { putObject, getObject, deleteObject } from "@/platform/storage";
 import { type BrandingAsset, type BrandingAssetName } from "./asset-types";
 
@@ -41,11 +41,21 @@ export async function saveBrandingAsset(
 
   await putObject(assetKey(asset), file.bytes, file.type);
   const current = await getSetting<BrandingAsset>(`branding.${asset}`);
-  await setSetting(
-    `branding.${asset}`,
-    { contentType: file.type, version: current.version + 1 },
-    actorPersonId
-  );
+  try {
+    // Bump the descriptor only after the bytes land. If this write fails, the new
+    // bytes already sit at the fixed key while the descriptor still records the
+    // previous contentType/version, so the route would serve the new bytes under a
+    // stale contentType. Drop the bytes so the route falls back to the bundled
+    // default instead of serving a mismatched type.
+    await setSetting(
+      `branding.${asset}`,
+      { contentType: file.type, version: current.version + 1 },
+      actorPersonId
+    );
+  } catch (err) {
+    await deleteObject(assetKey(asset)).catch(() => undefined);
+    throw err;
+  }
 }
 
 /** Remove the custom asset; the descriptor resets to default so the route serves the bundled default. */
@@ -54,7 +64,12 @@ export async function removeBrandingAsset(
   actorPersonId: string | null
 ): Promise<void> {
   await deleteObject(assetKey(asset));
-  await resetSetting(`branding.${asset}`, actorPersonId);
+  // Keep the version counter monotonic across upload/remove cycles. Resetting it
+  // let a later re-upload reuse an old version number, so the cache-busting query
+  // param (?v=) repeated and browsers kept serving the stale cached logo/favicon.
+  // Empty contentType still makes readBrandingAsset fall back to the bundled default.
+  const current = await getSetting<BrandingAsset>(`branding.${asset}`);
+  await setSetting(`branding.${asset}`, { contentType: "", version: current.version + 1 }, actorPersonId);
 }
 
 /** For the public route: the descriptor + bytes, or null when no custom asset exists. */

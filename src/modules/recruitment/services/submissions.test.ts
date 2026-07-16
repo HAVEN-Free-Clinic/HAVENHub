@@ -1,3 +1,5 @@
+import path from "node:path";
+import { promises as fs } from "node:fs";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
@@ -47,6 +49,24 @@ it("accepts a valid NEW submission, dedups, and queues a confirmation email", as
   ).rejects.toBeInstanceOf(DuplicateApplicationError);
 });
 
+it("uses the verified identity email for a NEW submission, ignoring a spoofed form email (audit H1)", async () => {
+  const { cycle } = await openVolunteerCycle();
+  await submitApplication("apply-v", {
+    applicantType: "NEW",
+    answers: { first_name: "Eve", last_name: "X", email: "attacker-typed@evil.com", "1st_choice_department": "MDIC" },
+    files: {},
+    identityEmail: "verified@yale.edu",
+  });
+  // The owner/dedup key and the confirmation email use the verified identity,
+  // never the spoofable client form value.
+  const emails = await prisma.emailLog.findMany();
+  expect(emails.map((e) => e.toEmail)).toEqual(["verified@yale.edu"]);
+  const owner = await prisma.applicant.findUnique({ where: { cycleId_emailLower: { cycleId: cycle.id, emailLower: "verified@yale.edu" } } });
+  expect(owner).not.toBeNull();
+  const spoofed = await prisma.applicant.findUnique({ where: { cycleId_emailLower: { cycleId: cycle.id, emailLower: "attacker-typed@evil.com" } } });
+  expect(spoofed).toBeNull();
+});
+
 it("does not require the SRHD supplement when MDIC is chosen", async () => {
   await openVolunteerCycle();
   const app = await submitApplication("apply-v", {
@@ -72,6 +92,25 @@ it("routes a RENEWAL submission and stores renewalDepartment", async () => {
   expect(app.renewalDepartment).toBe("SRHD");
   expect(app.departmentChoices).toEqual(["SRHD"]);
   expect(Object.keys(app.answers as object)).not.toContain("1st_choice_department");
+  // A returning volunteer skips the committee: auto-routed to their department so
+  // its director sees + decides directly (no SRR routing step).
+  expect(app.routedDepartmentCode).toBe("SRHD");
+  expect(app.routedAt).not.toBeNull();
+});
+
+it("does NOT auto-route a TRANSFER (it goes through the committee like a new applicant)", async () => {
+  await openVolunteerCycle();
+  const person = await makeVolunteer("SRHD"); // currently in SRHD, transferring to MDIC
+  const app = await submitApplication("apply-v", {
+    applicantType: "TRANSFER",
+    answers: { first_name: "Tr", last_name: "An", email: "tr@yale.edu", "1st_choice_department": "MDIC", srhd_essay: "n/a" },
+    files: {},
+    sessionPersonId: person.id,
+    sessionEmail: "tr@yale.edu",
+  });
+  expect(app.applicantType).toBe("TRANSFER");
+  expect(app.departmentChoices).toEqual(["MDIC"]);
+  expect(app.routedDepartmentCode).toBeNull(); // committee routes it, not auto
 });
 
 it("rejects a renewalDepartment outside the cycle departments", async () => {
@@ -89,6 +128,35 @@ it("rejects a renewal into an in-cycle department the person does not belong to"
   await expect(
     submitApplication("apply-v", { applicantType: "RENEWAL", renewalDepartment: "MDIC", answers: { first_name: "D", last_name: "E", continue_reason: "x" }, files: {}, sessionPersonId: person.id, sessionEmail: "d@yale.edu" })
   ).rejects.toBeInstanceOf(SubmissionValidationError);
+});
+
+it("preserves a RENEWAL answer for a field conditioned on the department (server mirrors the client department merge) [audit #1]", async () => {
+  const lead = await prisma.person.create({ data: { name: "Lead", status: "ACTIVE" } });
+  const term = await prisma.term.create({ data: { code: "FA26", name: "Fall 2026", startDate: new Date(), endDate: new Date() } });
+  const cycle = await createCycle({ track: "VOLUNTEER", termId: term.id, title: "V", publicSlug: "apply-rv", departments: ["SRHD", "MDIC"], acceptsRenewals: true, createdById: lead.id });
+  const idSection = await prisma.formSection.findFirstOrThrow({ where: { cycleId: cycle.id }, orderBy: { order: "asc" } });
+  const deptField = await addField(idSection.id, { label: "1st choice department", type: "DEPARTMENT_CHOICE", required: true });
+  const renew = await addSection(cycle.id, { title: "Renewal", appliesTo: "RENEWAL", departmentCode: null });
+  await addField(renew.id, { label: "Continue reason", type: "LONG_TEXT", required: true });
+  // A renewal-section field shown only when the (renewal) department is SRHD.
+  const srhdOnly = await addField(renew.id, { label: "SRHD renewal note", type: "LONG_TEXT", required: false });
+  await prisma.formField.update({ where: { id: srhdOnly.id }, data: { visibleWhen: { field: deptField.key, op: "is", value: "SRHD" } } });
+  await publishCycle(cycle.id, lead.id);
+
+  const person = await makeVolunteer("SRHD");
+  const app = await submitApplication("apply-rv", {
+    applicantType: "RENEWAL",
+    renewalDepartment: "SRHD",
+    // The renewal never renders/submits the DEPARTMENT_CHOICE field, so the
+    // server must merge renewalDepartment before evaluating field visibility.
+    // Without that merge the condition is checked against an empty department and
+    // this answer -- shown to and provided by the applicant -- is silently dropped.
+    answers: { first_name: "Re", last_name: "New", email: "srhd@yale.edu", continue_reason: "yes", srhd_renewal_note: "kept" },
+    files: {},
+    sessionPersonId: person.id,
+    sessionEmail: "srhd@yale.edu",
+  });
+  expect((app.answers as Record<string, unknown>).srhd_renewal_note).toBe("kept");
 });
 
 it("rejects a missing required answer", async () => {
@@ -152,7 +220,7 @@ it("deletes the superseded draft file blob when a new file replaces it on submit
   // file for the same field. The new blob wins, so the old one must be deleted
   // rather than left orphaned in storage.
   const { cycle } = await openVolunteerCycle();
-  const identity = { email: "ann@yale.edu", personId: null };
+  const identity = { email: "ann@yale.edu", personId: null, firstName: null };
   await saveDraft("apply-v", identity, { answers: {} });
   await uploadDraftFile("apply-v", identity, "resume", { fileName: "old.pdf", mimeType: "application/pdf", bytes: Buffer.from("old") });
   const draft = await getDraft("apply-v", identity);
@@ -258,7 +326,7 @@ it("rejects duplicate or unknown subcommittee IDs and over-count", async () => {
 
 it("finalizes an existing draft into a submission (no duplicate Applicant)", async () => {
   await openVolunteerCycle();
-  const ID = { email: "ann@yale.edu", personId: null };
+  const ID = { email: "ann@yale.edu", personId: null, firstName: null };
   await saveDraft("apply-v", ID, { answers: { first_name: "Ann", last_name: "Lee", email: "ann@yale.edu" } });
   const app = await submitApplication("apply-v", {
     applicantType: "NEW",
@@ -276,6 +344,179 @@ it("rejects submitting when the application is already SUBMITTED", async () => {
   const args = { applicantType: "NEW" as const, answers: { first_name: "Bo", last_name: "Ng", email: "bo@yale.edu", "1st_choice_department": "MDIC" }, files: {} };
   await submitApplication("apply-v", args);
   await expect(submitApplication("apply-v", args)).rejects.toBeInstanceOf(DuplicateApplicationError);
+});
+
+it("two concurrent submits of the same draft flip it once and queue one confirmation email (audit3 L9)", async () => {
+  await openVolunteerCycle();
+  const ID = { email: "race@yale.edu", personId: null, firstName: null };
+  await saveDraft("apply-v", ID, { answers: { first_name: "Ray", last_name: "Sun", email: "race@yale.edu" } });
+  const args = { applicantType: "NEW" as const, answers: { first_name: "Ray", last_name: "Sun", email: "race@yale.edu", "1st_choice_department": "MDIC" }, files: {} };
+  // Fire two submits at once. The atomic status: "DRAFT" claim (mirroring
+  // submitContract) means only one flips DRAFT->SUBMITTED; the loser throws
+  // DuplicateApplicationError instead of double-sending the confirmation email.
+  const settled = await Promise.allSettled([submitApplication("apply-v", args), submitApplication("apply-v", args)]);
+  const fulfilled = settled.filter((s) => s.status === "fulfilled");
+  const rejected = settled.filter((s) => s.status === "rejected") as PromiseRejectedResult[];
+  expect(fulfilled).toHaveLength(1);
+  expect(rejected).toHaveLength(1);
+  expect(rejected[0].reason).toBeInstanceOf(DuplicateApplicationError);
+
+  expect(await prisma.application.count({ where: { applicant: { emailLower: "race@yale.edu" } } })).toBe(1);
+  const app = await prisma.application.findFirstOrThrow({ where: { applicant: { emailLower: "race@yale.edu" } } });
+  expect(app.status).toBe("SUBMITTED");
+  expect(await prisma.emailLog.count({ where: { template: "recruitment.application_received", toEmail: "race@yale.edu" } })).toBe(1);
+});
+
+it("drops the losing concurrent submit's freshly-uploaded blob instead of orphaning it (audit3 L9)", async () => {
+  const { cycle } = await openVolunteerCycle();
+  const ID = { email: "racef@yale.edu", personId: null, firstName: null };
+  await saveDraft("apply-v", ID, { answers: { first_name: "Ray", last_name: "Sun", email: "racef@yale.edu" } });
+  const mkArgs = () => ({
+    applicantType: "NEW" as const,
+    answers: { first_name: "Ray", last_name: "Sun", email: "racef@yale.edu", "1st_choice_department": "MDIC" },
+    files: { resume: { fileName: "resume.pdf", mimeType: "application/pdf", bytes: Buffer.from(`r-${Math.random()}`) } },
+  });
+  // Each submit persists its own blob before the transaction; the loser's blob
+  // must be cleaned up on DuplicateApplicationError, not left orphaned.
+  const settled = await Promise.allSettled([submitApplication("apply-v", mkArgs()), submitApplication("apply-v", mkArgs())]);
+  expect(settled.filter((s) => s.status === "fulfilled")).toHaveLength(1);
+
+  const files = await fs.readdir(path.join(config.UPLOAD_DIR, "recruitment", cycle.id));
+  expect(files).toHaveLength(1); // only the winning submission's blob survives
+  const app = await prisma.application.findFirstOrThrow({ where: { applicant: { emailLower: "racef@yale.edu" } } });
+  const stored = (app.answers as { resume: { storedName: string } }).resume.storedName;
+  expect(files[0]).toBe(stored);
+});
+
+async function openCycleWithConditionalField() {
+  const person = await prisma.person.create({ data: { name: "Lead", status: "ACTIVE" } });
+  const term = await prisma.term.create({ data: { code: "FA26", name: "Fall 2026", startDate: new Date(), endDate: new Date() } });
+  const cycle = await createCycle({ track: "VOLUNTEER", termId: term.id, title: "V", publicSlug: "apply-cond", departments: ["SRHD"], acceptsRenewals: false, createdById: person.id });
+  const idSection = (await prisma.formSection.findFirstOrThrow({ where: { cycleId: cycle.id }, orderBy: { order: "asc" } }));
+  await addField(idSection.id, { label: "1st choice department", type: "DEPARTMENT_CHOICE", required: true });
+  const gate = await addField(idSection.id, { label: "Do you speak other languages?", type: "SINGLE_SELECT", required: false, options: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }] });
+  const detail = await addField(idSection.id, { label: "Which languages?", type: "SHORT_TEXT", required: true });
+  // form-builder.ts::addField does not yet accept visibleWhen (that lands in a later
+  // task), so this test writes the condition directly onto the created field.
+  await prisma.formField.update({ where: { id: detail.id }, data: { visibleWhen: { field: gate.key, op: "is", value: "yes" } } });
+  await publishCycle(cycle.id, person.id);
+  return { person, cycle, gateKey: gate.key, detailKey: detail.key };
+}
+
+it("submits successfully when a condition-hidden required field is left unanswered", async () => {
+  const { gateKey } = await openCycleWithConditionalField();
+  const app = await submitApplication("apply-cond", {
+    applicantType: "NEW",
+    // The gate says "no", so the dependent required "detail" field stays hidden
+    // and unanswered; validation must not block on it.
+    answers: { first_name: "Ann", last_name: "Lee", email: "ann@yale.edu", "1st_choice_department": "SRHD", [gateKey]: "no" },
+    files: {},
+  });
+  expect(app.status).toBe("SUBMITTED");
+});
+
+it("strips a condition-hidden field's stale answer from the persisted Application.answers", async () => {
+  const { gateKey, detailKey } = await openCycleWithConditionalField();
+  const app = await submitApplication("apply-cond", {
+    applicantType: "NEW",
+    // Submit the hidden field's key anyway (e.g. a stale value from before the
+    // applicant flipped the gate back to "no"); it must not persist.
+    answers: {
+      first_name: "Bo", last_name: "Ng", email: "bo@yale.edu", "1st_choice_department": "SRHD",
+      [gateKey]: "no", [detailKey]: "Spanish, French",
+    },
+    files: {},
+  });
+  expect(Object.keys(app.answers as object)).not.toContain(detailKey);
+});
+
+it("keeps a visible conditional field's answer in the persisted Application.answers", async () => {
+  const { gateKey, detailKey } = await openCycleWithConditionalField();
+  const app = await submitApplication("apply-cond", {
+    applicantType: "NEW",
+    answers: {
+      first_name: "Cy", last_name: "Oz", email: "cy@yale.edu", "1st_choice_department": "SRHD",
+      [gateKey]: "yes", [detailKey]: "Spanish, French",
+    },
+    files: {},
+  });
+  expect((app.answers as Record<string, unknown>)[detailKey]).toBe("Spanish, French");
+});
+
+async function openCycleWithConditionalFileField() {
+  const person = await prisma.person.create({ data: { name: "Lead", status: "ACTIVE" } });
+  const term = await prisma.term.create({ data: { code: "FA26", name: "Fall 2026", startDate: new Date(), endDate: new Date() } });
+  const cycle = await createCycle({ track: "VOLUNTEER", termId: term.id, title: "V", publicSlug: "apply-condfile", departments: ["SRHD"], acceptsRenewals: false, createdById: person.id });
+  const idSection = (await prisma.formSection.findFirstOrThrow({ where: { cycleId: cycle.id }, orderBy: { order: "asc" } }));
+  await addField(idSection.id, { label: "1st choice department", type: "DEPARTMENT_CHOICE", required: true });
+  const gate = await addField(idSection.id, { label: "Do you have proof of certification?", type: "SINGLE_SELECT", required: false, options: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }] });
+  const proof = await addField(idSection.id, { label: "Upload proof", type: "FILE", required: false });
+  // form-builder.ts::addField does not yet accept visibleWhen (a later task), so this
+  // test writes the condition directly onto the created field, mirroring the sibling
+  // scalar conditional-field fixture above.
+  await prisma.formField.update({ where: { id: proof.id }, data: { visibleWhen: { field: gate.key, op: "is", value: "yes" } } });
+  await publishCycle(cycle.id, person.id);
+  return { person, cycle, gateKey: gate.key, proofKey: proof.key };
+}
+
+it("does not persist a file uploaded under a condition-hidden FILE field's key (no orphaned blob)", async () => {
+  const { cycle, gateKey, proofKey } = await openCycleWithConditionalFileField();
+  const app = await submitApplication("apply-condfile", {
+    applicantType: "NEW",
+    // The gate says "no", so the "proof" FILE field is hidden. DOM unmounting of
+    // hidden fields is a later task, so a hidden file input can still submit its
+    // FormData entry today -- the server must not persist it.
+    answers: { first_name: "Ann", last_name: "Lee", email: "ann@yale.edu", "1st_choice_department": "SRHD", [gateKey]: "no" },
+    files: { [proofKey]: { fileName: "cert.pdf", mimeType: "application/pdf", bytes: Buffer.from("cert") } },
+  });
+  expect(app.status).toBe("SUBMITTED");
+  expect(Object.keys(app.answers as object)).not.toContain(proofKey);
+  // No blob was ever written for this cycle: the hidden field's file must be
+  // dropped before persistFiles, not persisted-then-orphaned.
+  let entries: string[] = [];
+  try {
+    entries = await fs.readdir(path.join(config.UPLOAD_DIR, "recruitment", cycle.id));
+  } catch {
+    // dir may not exist yet -- fine, means nothing was ever written
+  }
+  expect(entries).toHaveLength(0);
+});
+
+it("persists a file uploaded under a visible FILE field's key (control)", async () => {
+  const { cycle, gateKey, proofKey } = await openCycleWithConditionalFileField();
+  const app = await submitApplication("apply-condfile", {
+    applicantType: "NEW",
+    answers: { first_name: "Bo", last_name: "Ng", email: "bo@yale.edu", "1st_choice_department": "SRHD", [gateKey]: "yes" },
+    files: { [proofKey]: { fileName: "cert.pdf", mimeType: "application/pdf", bytes: Buffer.from("cert") } },
+  });
+  const stored = (app.answers as Record<string, { storedName: string }>)[proofKey];
+  expect(stored).toBeTruthy();
+  expect(await getObject(`recruitment/${cycle.id}/${stored.storedName}`)).not.toBeNull();
+});
+
+it("cleans up a draft-uploaded file's blob when its FILE field becomes condition-hidden before submit", async () => {
+  const { cycle, gateKey, proofKey } = await openCycleWithConditionalFileField();
+  const identity = { email: "orphan@yale.edu", personId: null, firstName: null };
+  // Draft while the gate says "yes" (the proof field is visible) and upload a
+  // file to it, the way an applicant would mid-form before backtracking.
+  await saveDraft("apply-condfile", identity, {
+    answers: { first_name: "Or", last_name: "Fan", email: "orphan@yale.edu", "1st_choice_department": "SRHD", [gateKey]: "yes" },
+  });
+  await uploadDraftFile("apply-condfile", identity, proofKey, { fileName: "cert.pdf", mimeType: "application/pdf", bytes: Buffer.from("cert") });
+  const draft = await getDraft("apply-condfile", identity);
+  const storedName = (draft!.answers as Record<string, { storedName: string }>)[proofKey].storedName;
+  expect(await getObject(`recruitment/${cycle.id}/${storedName}`)).not.toBeNull();
+
+  // Flip the gate to "no" before submitting, hiding the proof field. The strip
+  // loop removes its answer key; the earlier draft blob must not be left behind.
+  const app = await submitApplication("apply-condfile", {
+    applicantType: "NEW",
+    answers: { first_name: "Or", last_name: "Fan", email: "orphan@yale.edu", "1st_choice_department": "SRHD", [gateKey]: "no" },
+    files: {},
+  });
+  expect(app.status).toBe("SUBMITTED");
+  expect(Object.keys(app.answers as object)).not.toContain(proofKey);
+  expect(await getObject(`recruitment/${cycle.id}/${storedName}`)).toBeNull();
 });
 
 async function makeVolunteer(deptCode: string) {
@@ -473,4 +714,146 @@ it("links an applicant to a person and blocks a second per cycle, but allows ano
   await prisma.applicant.create({ data: { cycleId: cycle.id, firstName: "B", lastName: "B", email: "b@yale.edu", emailLower: "b@yale.edu" } });
   const anon = await prisma.applicant.count({ where: { cycleId: cycle.id, applicantPersonId: null } });
   expect(anon).toBe(2);
+});
+
+it("captures the applicant's NetID from the net_id answer key (NEW)", async () => {
+  await openVolunteerCycle();
+  await submitApplication("apply-v", {
+    applicantType: "NEW",
+    answers: { first_name: "Nel", last_name: "Idd", email: "nel@yale.edu", net_id: "ni42", "1st_choice_department": "MDIC" },
+    files: {},
+  });
+  const applicant = await prisma.applicant.findFirstOrThrow({ where: { emailLower: "nel@yale.edu" } });
+  expect(applicant.netId).toBe("ni42");
+});
+
+it("fills a RENEWAL applicant's identity from their matched record, not the (absent) NEW-only identity fields", async () => {
+  await openVolunteerCycle();
+  const person = await makeVolunteer("SRHD");
+  await prisma.person.update({ where: { id: person.id }, data: { netId: "reed7", phone: "203-555-0100" } });
+  // In the real default template the identity section is NEW-only, so a returning
+  // applicant submits none of it. Here (a minimal test cycle whose identity
+  // section is BOTH) we submit bogus identity to satisfy the schema and assert the
+  // matched RECORD wins -- the same code path that fills it when answers are absent.
+  await submitApplication("apply-v", {
+    applicantType: "RENEWAL",
+    renewalDepartment: "SRHD",
+    answers: { first_name: "Ignored", last_name: "Ignored", net_id: "ignored", continue_reason: "still in" },
+    files: {},
+    sessionPersonId: person.id,
+    sessionEmail: "reed@yale.edu",
+  });
+  const applicant = await prisma.applicant.findFirstOrThrow({ where: { emailLower: "reed@yale.edu" } });
+  expect(applicant.firstName).toBe("Reed");
+  expect(applicant.lastName).toBe("Renew");
+  expect(applicant.netId).toBe("reed7");
+  expect(applicant.phone).toBe("203-555-0100");
+});
+
+it("stores a drawn SIGNATURE answer as a private png blob with audit context", async () => {
+  const { cycle } = await openVolunteerCycle();
+  const idSection = await prisma.formSection.findFirstOrThrow({ where: { cycleId: cycle.id }, orderBy: { order: "asc" } });
+  await addField(idSection.id, { label: "Signature", type: "SIGNATURE", required: true });
+
+  const PNG_1x1 =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQAY3Y2wAAAAAElFTkSuQmCC";
+
+  const app = await submitApplication("apply-v", {
+    applicantType: "NEW",
+    answers: {
+      first_name: "Sig", last_name: "Ner", email: "sig@yale.edu", "1st_choice_department": "SRHD", srhd_essay: "x",
+      signature: PNG_1x1, signature__method: "draw", signature__name: "Sig Ner",
+    },
+    files: {},
+  });
+
+  const answers = app.answers as Record<string, { storedName?: string; mimeType?: string; method?: string; name?: string; signedAt?: string; size?: number; fileName?: string }>;
+  const sig = answers.signature;
+  expect(sig.mimeType).toBe("image/png");
+  expect(sig.method).toBe("draw");
+  expect(sig.name).toBe("Sig Ner");
+  expect(typeof sig.signedAt).toBe("string");
+  expect(sig.fileName).toBe("signature.png");
+  expect(sig.size).toBeGreaterThan(0);
+  // The raw data URL and the companion keys must not linger in stored answers.
+  expect(typeof answers.signature).toBe("object");
+  expect((answers as Record<string, unknown>).signature__method).toBeUndefined();
+  // The blob exists in storage, and size matches the decoded byte length.
+  const bytes = await getObject(`recruitment/${cycle.id}/${sig.storedName}`);
+  expect(bytes?.length).toBeGreaterThan(0);
+  expect(sig.size).toBe(bytes!.length);
+});
+
+it("records a typed SIGNATURE's method and trims the printed name", async () => {
+  const { cycle } = await openVolunteerCycle();
+  const idSection = await prisma.formSection.findFirstOrThrow({ where: { cycleId: cycle.id }, orderBy: { order: "asc" } });
+  await addField(idSection.id, { label: "Signature", type: "SIGNATURE", required: true });
+  void cycle;
+
+  const PNG_1x1 =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQAY3Y2wAAAAAElFTkSuQmCC";
+
+  const app = await submitApplication("apply-v", {
+    applicantType: "NEW",
+    answers: {
+      first_name: "Ty", last_name: "Ped", email: "typed@yale.edu", "1st_choice_department": "SRHD", srhd_essay: "x",
+      signature: PNG_1x1, signature__method: "type", signature__name: "  Ty Ped  ",
+    },
+    files: {},
+  });
+
+  const sig = (app.answers as Record<string, { method?: string; name?: string }>).signature;
+  expect(sig.method).toBe("type");
+  expect(sig.name).toBe("Ty Ped"); // surrounding whitespace trimmed
+});
+
+it("cleans up the persisted FILE blob when signature persistence fails (no orphan)", async () => {
+  // A required FILE and a required SIGNATURE both submit. The file is valid and is
+  // persisted to a blob BEFORE the signature loop; the signature payload passes
+  // zod's data-URL prefix check but fails the PNG magic-byte decode. The submit must
+  // reject AND the already-uploaded FILE blob (potential PII) must be cleaned up,
+  // not left orphaned in storage.
+  const { cycle } = await openVolunteerCycle();
+  const idSection = await prisma.formSection.findFirstOrThrow({ where: { cycleId: cycle.id }, orderBy: { order: "asc" } });
+  await addField(idSection.id, { label: "Proof", type: "FILE", required: true });
+  await addField(idSection.id, { label: "Signature", type: "SIGNATURE", required: true });
+
+  await expect(
+    submitApplication("apply-v", {
+      applicantType: "NEW",
+      answers: {
+        first_name: "Or", last_name: "Phan", email: "orphan-sig@yale.edu", "1st_choice_department": "SRHD", srhd_essay: "x",
+        // Passes zod's `startsWith("data:image/png;base64,")` but decodes to the bytes
+        // of "hello" -- no PNG magic bytes -- so decodeSignaturePng throws.
+        signature: "data:image/png;base64,aGVsbG8=", signature__method: "draw", signature__name: "Or Phan",
+      },
+      files: { proof: { fileName: "proof.pdf", mimeType: "application/pdf", bytes: Buffer.from("proof-bytes") } },
+    }),
+  ).rejects.toBeInstanceOf(SubmissionValidationError);
+
+  // The FILE blob persisted before the failed signature loop must have been cleaned
+  // up: nothing lingers under the cycle prefix.
+  let entries: string[] = [];
+  try {
+    entries = await fs.readdir(path.join(config.UPLOAD_DIR, "recruitment", cycle.id));
+  } catch {
+    // dir may not exist -- fine, means nothing was ever written
+  }
+  expect(entries).toHaveLength(0);
+  // And no application/applicant was created for this attempt.
+  expect(await prisma.applicant.count({ where: { emailLower: "orphan-sig@yale.edu" } })).toBe(0);
+});
+
+it("rejects a required SIGNATURE that was not signed", async () => {
+  const { cycle } = await openVolunteerCycle();
+  const idSection = await prisma.formSection.findFirstOrThrow({ where: { cycleId: cycle.id }, orderBy: { order: "asc" } });
+  await addField(idSection.id, { label: "Signature", type: "SIGNATURE", required: true });
+  void cycle;
+  await expect(
+    submitApplication("apply-v", {
+      applicantType: "NEW",
+      answers: { first_name: "No", last_name: "Sign", email: "nosign@yale.edu", "1st_choice_department": "SRHD", srhd_essay: "x", signature: "" },
+      files: {},
+    }),
+  ).rejects.toBeInstanceOf(SubmissionValidationError);
 });

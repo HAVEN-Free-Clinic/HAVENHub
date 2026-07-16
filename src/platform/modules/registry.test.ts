@@ -40,13 +40,12 @@ describe("module registry", () => {
       [
         "admin",
         "clinic",
+        "incidents",
         "learning",
         "my-info",
-        "patient-trackers",
         "recruitment",
-        "referrals",
         "schedule",
-        "triage",
+        "support",
         "volunteers",
       ].sort()
     );

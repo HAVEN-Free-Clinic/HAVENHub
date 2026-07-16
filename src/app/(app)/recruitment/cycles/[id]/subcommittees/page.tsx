@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { requirePersonSession } from "@/platform/auth/session";
+import { requirePermission, requirePersonSession } from "@/platform/auth/session";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { listAcceptedForAssignment, listAssignableSubcommittees } from "@/modules/recruitment/services/subcommittees";
 import { RecruitmentAuthError } from "@/modules/recruitment/services/review";
@@ -21,6 +21,7 @@ type PageProps = {
 export default async function AssignSubcommitteesPage({ params, searchParams }: PageProps) {
   const { id } = await params;
   const { error, saved } = await searchParams;
+  await requirePermission("recruitment.access");
   const [person, cycle] = await Promise.all([requirePersonSession(), getCycle(id)]);
   if (!cycle) notFound();
 
@@ -76,7 +77,7 @@ export default async function AssignSubcommitteesPage({ params, searchParams }: 
               </TD>
               <TD>
                 <form action={assignSubcommitteeAction.bind(null, id, r.applicationId)} className="flex items-center gap-2">
-                  <Select name="subcommitteeId" defaultValue={r.assignedSubcommitteeId ?? ""} className="w-44">
+                  <Select name="subcommitteeId" defaultValue={r.assignedSubcommitteeId ?? ""} className="w-44" aria-label={`Subcommittee for ${r.applicant.firstName} ${r.applicant.lastName}`}>
                     <option value="">Unassigned</option>
                     {subcommittees.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                   </Select>

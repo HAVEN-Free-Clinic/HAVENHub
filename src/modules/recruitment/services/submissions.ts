@@ -1,7 +1,9 @@
+import { randomUUID } from "node:crypto";
 import type { Application, FieldType } from "@prisma/client";
 import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { getSetting } from "@/platform/settings/service";
 import { queueEmail } from "@/platform/email/send";
+import { putObject } from "@/platform/storage";
 import { persistFiles, cleanupFiles, validateUploadedFile, type UploadedFile } from "./upload";
 export type { UploadedFile } from "./upload";
 import { recordAudit } from "@/platform/audit";
@@ -10,8 +12,10 @@ import {
   type SectionDef, type FieldDef,
 } from "../engine/schema-builder";
 import { visibleSections, type ApplicantType } from "../engine/visibility";
+import { isFieldVisible, mergeDepartmentAnswer } from "../engine/field-visibility";
 import { getRenewalContext } from "./renewal";
 import { renderCycleEmail } from "../email/render";
+import { decodeSignaturePng, SignatureError } from "./signature";
 
 export class CycleNotOpenError extends Error { constructor(m = "This application is closed.") { super(m); this.name = "CycleNotOpenError"; } }
 export class DuplicateApplicationError extends Error { constructor(m = "You have already applied.") { super(m); this.name = "DuplicateApplicationError"; } }
@@ -34,7 +38,7 @@ const DEPT_CHOICE_KEY_TYPE: FieldType = "DEPARTMENT_CHOICE";
 const SUBCOMMITTEE_RANK_TYPE: FieldType = "SUBCOMMITTEE_RANK";
 
 function toSectionDefs(
-  sections: { id: string; appliesTo: SectionDef["appliesTo"]; departmentCode: string | null; fields: { key: string; type: FieldType; required: boolean; options: unknown; validation: unknown }[] }[],
+  sections: { id: string; appliesTo: SectionDef["appliesTo"]; departmentCode: string | null; fields: { key: string; type: FieldType; required: boolean; options: unknown; validation: unknown; visibleWhen: unknown }[] }[],
   departments: string[],
   applicantType: ApplicantType
 ): SectionDef[] {
@@ -50,6 +54,7 @@ function toSectionDefs(
       required: f.type === DEPT_CHOICE_KEY_TYPE && applicantType === "RENEWAL" ? false : f.required,
       options: f.type === DEPT_CHOICE_KEY_TYPE ? departments.map((d) => ({ value: d, label: d })) : (f.options as FieldDef["options"]) ?? null,
       validation: (f.validation as FieldDef["validation"]) ?? null,
+      visibleWhen: f.visibleWhen ?? null,
     })),
   }));
 }
@@ -105,6 +110,10 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
   let renewalAllowedDepartments: string[] = [];
   // For a TRANSFER: where the person is coming from (their active departments).
   let transferFromDepartments: string[] = [];
+  // A returning applicant's identity comes from their matched record, not the
+  // form: the identity section (first_name/last_name/net_id) is NEW-only, so it is
+  // never rendered for them and their answers carry none of it. Capture it here.
+  let returningIdentity: { name: string | null; netId: string | null; phone: string | null } | null = null;
   const isReturning = input.applicantType === "RENEWAL" || input.applicantType === "TRANSFER";
   if (isReturning) {
     const roleNoun = cycle.track === "DIRECTOR" ? "director" : "volunteer";
@@ -116,6 +125,7 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
       throw new SubmissionValidationError(`We do not see a current ${roleNoun} membership for your account.`);
     }
     applicantPersonId = renewalCtx.personId;
+    returningIdentity = { name: renewalCtx.name, netId: renewalCtx.netId, phone: renewalCtx.phone };
     if (input.applicantType === "RENEWAL") {
       renewalAllowedDepartments = renewalCtx.currentDepartments.filter((d) => cycle.departments.includes(d));
     } else {
@@ -129,9 +139,11 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
   }
 
   if (input.applicantType === "NEW" && input.identityEmail) {
-    // The apply page is identity-gated; the authoritative email is the verified
-    // identity (magic-link or SSO), not the form value. Override so the dedup +
-    // owner key cannot be a different, unverified address.
+    // NEW applicants reach this service only through the identity-gated apply action
+    // (submitPublicApplication rejects a null identity), so identityEmail is the
+    // verified address (Yale SSO or magic-link). It is authoritative: the dedup +
+    // owner key must be the verified identity, never the client form value, so an
+    // attacker cannot submit under a victim's email or squat their dedup slot.
     input.answers = { ...input.answers, email: input.identityEmail };
   }
 
@@ -164,7 +176,25 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
     }
   }
 
-  const ctx = { applicantType: input.applicantType, selectedDepartmentCodes };
+  // Cast is safe: isFieldVisible (via asArray) only ever compares string values;
+  // an answer that is not a plain string/string[] (e.g. a file ref, a checkbox
+  // boolean) is simply not string-comparable, so a condition targeting it
+  // resolves the same way it would for any other unmatched value.
+  //
+  // Merge the authoritative department under the DEPARTMENT_CHOICE field key so a
+  // field-level visibleWhen condition keyed on that field is evaluated exactly as
+  // the client rendered it (apply-wizard uses the same mergeDepartmentAnswer). A
+  // RENEWAL declares its department via renewalDepartment and never submits the
+  // department-choice field, so without this merge every such condition would be
+  // evaluated against an empty value here, silently dropping (or hard-blocking) an
+  // answer the applicant actually saw and gave.
+  const deptChoiceKey = cycle.sections.flatMap((s) => s.fields).find((f) => f.type === DEPT_CHOICE_KEY_TYPE)?.key;
+  const answersForVisibility = mergeDepartmentAnswer(
+    input.answers as Record<string, string | string[]>,
+    deptChoiceKey,
+    selectedDepartmentCodes,
+  ) as Record<string, string | string[] | undefined>;
+  const ctx = { applicantType: input.applicantType, selectedDepartmentCodes, answers: answersForVisibility };
 
   const schema = buildApplicationSchema(sectionDefs, ctx);
   const parsed = schema.safeParse(input.answers);
@@ -178,8 +208,28 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
   // the client-submitted value is ignored so it cannot be spoofed.
   const email = (isReturning ? input.sessionEmail! : String(input.answers.email ?? "")).trim();
   const emailLower = email.toLowerCase();
-  const firstName = String(input.answers.first_name ?? "").trim();
-  const lastName = String(input.answers.last_name ?? "").trim();
+  // Returning applicants: split the matched record's name (the identity fields are
+  // NEW-only, so answers.first_name/last_name are absent for them). New applicants:
+  // read the form. The template key is net_id (snake_case, like first_name), not
+  // "netid" -- reading answers.netid always yielded null, dropping every NetID.
+  const returningName = (returningIdentity?.name ?? "").trim();
+  const returningNameSplit = returningName.indexOf(" ");
+  const firstName = (
+    isReturning
+      ? returningNameSplit === -1 ? returningName : returningName.slice(0, returningNameSplit)
+      : String(input.answers.first_name ?? "")
+  ).trim();
+  const lastName = (
+    isReturning
+      ? returningNameSplit === -1 ? "" : returningName.slice(returningNameSplit + 1)
+      : String(input.answers.last_name ?? "")
+  ).trim();
+  const identityNetId = isReturning
+    ? returningIdentity?.netId ?? null
+    : typeof input.answers.net_id === "string" ? input.answers.net_id : null;
+  const identityPhone = isReturning
+    ? returningIdentity?.phone ?? null
+    : typeof input.answers.phone === "string" ? input.answers.phone : null;
 
   const existingApplicant = await prisma.applicant.findUnique({
     where: { cycleId_emailLower: { cycleId: cycle.id, emailLower } },
@@ -202,16 +252,28 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
   // Enforce upload rules: a file may only be uploaded under the key of a visible
   // FILE field. Rejecting unknown keys is also the primary defense against a
   // path-traversal write (the key is used to build the on-disk filename).
+  //
+  // A FILE field can itself be condition-hidden (`visibleWhen`), same as any other
+  // field. Its section being visible is not enough -- the field's own condition
+  // must also hold, or its file is dropped here (never handed to persistFiles, so
+  // no blob is ever written for it) instead of being rejected as "unknown field".
+  // This mirrors how a hidden scalar field's answer is silently excluded rather
+  // than treated as an error, and closes the orphaned-blob gap a hidden file
+  // input can otherwise open (DOM unmounting of hidden fields is a later task, so
+  // a hidden file input can still submit its FormData entry today).
   const visibleFields = visibleSections(sectionDefs, ctx).flatMap((s) => s.fields);
-  const allowedFileKeys = new Set(visibleFields.filter((f) => f.type === "FILE").map((f) => f.key));
+  const fileFields = visibleFields.filter((f) => f.type === "FILE");
   const maxMb = await getSetting<number>("uploads.maxMb");
+  const filesToPersist: Record<string, UploadedFile> = {};
   for (const [key, file] of Object.entries(input.files)) {
-    if (!allowedFileKeys.has(key)) {
+    const field = fileFields.find((f) => f.key === key);
+    if (!field) {
       throw new SubmissionValidationError("Unexpected file upload.", { [key]: "unknown field" });
     }
-    const field = visibleFields.find((f) => f.key === key);
-    const problem = validateUploadedFile(file, field?.validation, maxMb);
+    if (!isFieldVisible(field.visibleWhen, ctx.answers)) continue; // condition-hidden: silently skip, not persisted
+    const problem = validateUploadedFile(file, field.validation, maxMb);
     if (problem) throw new SubmissionValidationError(problem.message, { [key]: problem.detail });
+    filesToPersist[key] = file;
   }
 
   // Subcommittee ranking: hoisted into its own column like departmentChoices, and
@@ -225,24 +287,92 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
     subcommitteeRanking = resolveRanking(input.answers[rankField.key], rankField.required, rankCount, activeIds, rankField.key);
   }
 
-  const fileRefs = await persistFiles(cycle.id, input.files);
+  const fileRefs = await persistFiles(cycle.id, filesToPersist);
   const draftFileRefs = Object.fromEntries(draftFileKeys.map((k) => [k, draftAnswers[k]]));
   const answersWithFiles = { ...draftFileRefs, ...parsed.data, ...fileRefs.answerPatch };
   if (rankField) delete (answersWithFiles as Record<string, unknown>)[rankField.key];
+  // Strip any condition-hidden field's stale answer (e.g. the applicant answered
+  // it, then flipped the gate that hides it) so persisted answers only ever
+  // reflect what was actually visible at submission time. A stripped FILE field
+  // can carry an existing DRAFT-uploaded blob under this same key (uploaded back
+  // when the field was still visible); without deleting that blob too, its
+  // answer key is gone from `answers` but the file lingers orphaned in storage.
+  const orphanedDraftFileKeys: string[] = [];
+  for (const field of visibleFields) {
+    if (!isFieldVisible(field.visibleWhen, ctx.answers)) {
+      delete (answersWithFiles as Record<string, unknown>)[field.key];
+      if (field.type === "FILE" && draftFileKeys.includes(field.key)) {
+        orphanedDraftFileKeys.push(`recruitment/${cycle.id}/${(draftAnswers[field.key] as { storedName: string }).storedName}`);
+      }
+    }
+  }
 
+  // Declared out here so the outer catch below can clean up any signature blobs
+  // written before a failure (mirrors fileRefs.storageKeys).
+  const signatureStorageKeys: string[] = [];
   let application: Application;
   try {
+    // Drawn signatures: each SIGNATURE answer arrived as a PNG data URL. Store it as
+    // a private blob (like FILE) and replace the answer with a file-ref carrying the
+    // audit context (method + printed name + server-stamped signedAt). Companion
+    // keys (`${key}__method` / `${key}__name`) live only in the raw input.answers;
+    // the zod object stripped them, so they never reach answersWithFiles.
+    //
+    // This loop runs INSIDE the try so a putObject failure -- or a decode-failure on a
+    // payload that passed zod's prefix check but fails the PNG magic-byte check -- is
+    // caught below and cleans up the already-persisted FILE blobs (which can be PII)
+    // plus any signature blobs written in earlier iterations, instead of escaping and
+    // orphaning them. The onboarding contract path (onboarding.ts) does the same.
+    for (const field of visibleFields) {
+      if (field.type !== "SIGNATURE") continue;
+      if (!isFieldVisible(field.visibleWhen, ctx.answers)) continue;
+      const raw = (answersWithFiles as Record<string, unknown>)[field.key];
+      if (typeof raw !== "string" || raw === "") { delete (answersWithFiles as Record<string, unknown>)[field.key]; continue; }
+      let bytes: Buffer;
+      try {
+        bytes = decodeSignaturePng(raw);
+      } catch (err) {
+        // Rethrows as SubmissionValidationError, now caught by the outer catch ->
+        // cleanup -> rethrow, so the caller still receives the validation error.
+        if (err instanceof SignatureError) throw new SubmissionValidationError("Please provide a valid signature.", { [field.key]: "invalid signature" });
+        throw err;
+      }
+      const safeKey = field.key.replace(/[^a-z0-9_]/gi, "_");
+      const storedName = `${safeKey}-${randomUUID()}.png`;
+      const storageKey = `recruitment/${cycle.id}/${storedName}`;
+      await putObject(storageKey, bytes, "image/png");
+      signatureStorageKeys.push(storageKey);
+      const rawMethod = input.answers[`${field.key}__method`];
+      const rawName = input.answers[`${field.key}__name`];
+      const method: "type" | "draw" = rawMethod === "type" ? "type" : "draw";
+      const typedName = typeof rawName === "string" ? rawName.trim() : "";
+      // Printed name for the audit trail. A typed signature carries its own name;
+      // a drawn signature's companion field is only a best-effort client hint
+      // (blank for a new applicant, since the pad has no live name), so fall back
+      // to the authoritative identity name resolved above.
+      const signerName = method === "type" ? typedName : (`${firstName} ${lastName}`.trim() || typedName);
+      (answersWithFiles as Record<string, unknown>)[field.key] = {
+        storedName,
+        fileName: "signature.png",
+        mimeType: "image/png",
+        size: bytes.length,
+        method,
+        name: signerName,
+        signedAt: new Date().toISOString(),
+      };
+    }
+
     application = await prisma.$transaction(async (tx) => {
       let applicantId = existingApplicant?.id;
       if (applicantId) {
         // Finalize the existing draft applicant: fill in identity fields from answers.
         await tx.applicant.update({
           where: { id: applicantId },
-          data: { applicantPersonId, firstName, lastName, email, emailLower, netId: typeof input.answers.netid === "string" ? input.answers.netid : null, phone: typeof input.answers.phone === "string" ? input.answers.phone : null },
+          data: { applicantPersonId, firstName, lastName, email, emailLower, netId: identityNetId, phone: identityPhone },
         });
       } else {
         const created = await tx.applicant.create({
-          data: { cycleId: cycle.id, applicantPersonId, firstName, lastName, email, emailLower, netId: typeof input.answers.netid === "string" ? input.answers.netid : null, phone: typeof input.answers.phone === "string" ? input.answers.phone : null },
+          data: { cycleId: cycle.id, applicantPersonId, firstName, lastName, email, emailLower, netId: identityNetId, phone: identityPhone },
         });
         applicantId = created.id;
       }
@@ -251,11 +381,31 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
         applicantType: input.applicantType, departmentChoices: selectedDepartmentCodes, subcommitteeRanking,
         renewalDepartment: input.applicantType === "RENEWAL" ? input.renewalDepartment! : null,
         transferFromDepartments,
+        // Returning members (RENEWAL only, NOT TRANSFER) skip committee scoring +
+        // routing: auto-route them straight to their current department so its
+        // director sees and decides them directly. Routing is volunteer-only (the
+        // director track is ranking-based and already visible to the dept). A
+        // TRANSFER is treated like a NEW applicant and goes through the committee.
+        ...(input.applicantType === "RENEWAL" && cycle.track === "VOLUNTEER"
+          ? { routedDepartmentCode: input.renewalDepartment!, routedAt: new Date() }
+          : {}),
         status: "SUBMITTED" as const, submittedAt: new Date(),
       };
-      const app = existingApp
-        ? await tx.application.update({ where: { id: existingApp.id }, data: appData })
-        : await tx.application.create({ data: { cycleId: cycle.id, applicantId, ...appData } });
+      let app: Application;
+      if (existingApp) {
+        // Claim the draft atomically: the status: "DRAFT" precondition means only
+        // one of two concurrent submits can flip the row. Without it both would
+        // flip DRAFT->SUBMITTED and queue a confirmation email, and the last
+        // write's file refs would win, orphaning the loser's freshly-uploaded
+        // blob (audit3 L9). Mirrors submitContract (onboarding.ts). The loser
+        // throws DuplicateApplicationError, which the outer catch turns into a
+        // cleanupFiles(fileRefs.storageKeys) so its new blob is dropped.
+        const claimed = await tx.application.updateMany({ where: { id: existingApp.id, status: "DRAFT" }, data: appData });
+        if (claimed.count === 0) throw new DuplicateApplicationError();
+        app = await tx.application.findUniqueOrThrow({ where: { id: existingApp.id } });
+      } else {
+        app = await tx.application.create({ data: { cycleId: cycle.id, applicantId, ...appData } });
+      }
       const receivedEmail = await renderCycleEmail(cycle.id, "recruitment.application_received", {
         firstName: firstName || "there",
         cycleTitle: cycle.title,
@@ -270,10 +420,10 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
     });
   } catch (err) {
     if (isUniqueConstraintError(err)) {
-      await cleanupFiles(fileRefs.storageKeys);
+      await cleanupFiles([...fileRefs.storageKeys, ...signatureStorageKeys]);
       throw new DuplicateApplicationError();
     }
-    await cleanupFiles(fileRefs.storageKeys);
+    await cleanupFiles([...fileRefs.storageKeys, ...signatureStorageKeys]);
     throw err;
   }
 
@@ -285,6 +435,10 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
     .filter((k) => draftFileKeys.includes(k))
     .map((k) => `recruitment/${cycle.id}/${(draftAnswers[k] as { storedName: string }).storedName}`);
   if (supersededKeys.length > 0) await cleanupFiles(supersededKeys);
+  // Same idea for a FILE field's draft blob orphaned by a visibility condition
+  // (see the strip loop above): now that the submission has committed, it's
+  // safe to delete.
+  if (orphanedDraftFileKeys.length > 0) await cleanupFiles(orphanedDraftFileKeys);
 
   await recordAudit({ action: "recruitment.application_submit", entityType: "Application", entityId: application.id });
   return application;

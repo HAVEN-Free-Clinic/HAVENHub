@@ -5,7 +5,11 @@ import { getRenewalContext, resolveRenewalPrefill } from "@/modules/recruitment/
 import { getApplicantIdentity } from "@/modules/recruitment/services/portal-auth";
 import { getDraft } from "@/modules/recruitment/services/drafts";
 import type { ApplicantType } from "@/modules/recruitment/engine/visibility";
-import { ApplyForm } from "./apply-form";
+import { getSupportContact } from "@/platform/branding/support";
+import { SupportLink } from "@/platform/branding/support-link";
+import { PortalShell } from "../portal-shell";
+import { PortalNotice } from "../portal-notice";
+import { ApplyWizard } from "./apply-wizard";
 
 export default async function ApplyPage({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<{ type?: string }> }) {
   const { slug } = await params;
@@ -18,12 +22,23 @@ export default async function ApplyPage({ params, searchParams }: { params: Prom
   const now = new Date();
   const open = cycle && cycle.status === "OPEN" && (!cycle.opensAt || cycle.opensAt <= now) && (!cycle.closesAt || cycle.closesAt >= now);
 
-  if (!cycle || !open) {
+  // Unknown slug (no such cycle): send to the portal entrance rather than imply a
+  // real-but-closed form exists. Signed out lands on the sign-in page; signed in
+  // lands on the applications dashboard. A real cycle that is merely closed keeps
+  // the friendly public notice below.
+  if (!cycle) redirect("/apply");
+
+  if (!open) {
+    const support = await getSupportContact();
     return (
-      <main className="mx-auto max-w-2xl px-6 py-16 text-center">
-        <h1 className="text-xl font-bold">Applications are closed</h1>
-        <p className="mt-2 text-muted-foreground">This recruitment form is not currently accepting submissions.</p>
-      </main>
+      <PortalShell>
+        <PortalNotice tone="neutral" title="Applications are closed">
+          <p>This recruitment form is not currently accepting submissions. It may reopen for the next cycle.</p>
+          {support.email && (
+            <p><SupportLink email={support.email}>{support.label}</SupportLink></p>
+          )}
+        </PortalNotice>
+      </PortalShell>
     );
   }
 
@@ -32,10 +47,11 @@ export default async function ApplyPage({ params, searchParams }: { params: Prom
   const draft = await getDraft(slug, identity);
   if (draft?.status === "SUBMITTED") {
     return (
-      <main className="mx-auto max-w-2xl px-6 py-16 text-center">
-        <h1 className="text-xl font-bold">Application submitted</h1>
-        <p className="mt-2 text-muted-foreground">You have already submitted this application. We will be in touch.</p>
-      </main>
+      <PortalShell>
+        <PortalNotice tone="success" title="Application submitted">
+          <p>You have already submitted this application. We will be in touch by email.</p>
+        </PortalNotice>
+      </PortalShell>
     );
   }
 
@@ -54,7 +70,7 @@ export default async function ApplyPage({ params, searchParams }: { params: Prom
     subcommittees,
     sections: cycle.sections.map((s) => ({
       id: s.id, title: s.title, description: s.description, appliesTo: s.appliesTo, departmentCode: s.departmentCode,
-      fields: s.fields.map((f) => ({ key: f.key, label: f.label, helpText: f.helpText, type: f.type, required: f.required, options: (f.options as { value: string; label: string }[] | null) ?? null, validation: (f.validation as Record<string, unknown> | null) ?? null })),
+      fields: s.fields.map((f) => ({ key: f.key, label: f.label, helpText: f.helpText, type: f.type, required: f.required, options: (f.options as { value: string; label: string }[] | null) ?? null, validation: (f.validation as Record<string, unknown> | null) ?? null, visibleWhen: f.visibleWhen ?? null })),
     })),
   };
 
@@ -80,13 +96,8 @@ export default async function ApplyPage({ params, searchParams }: { params: Prom
   const initialApplicantType: ApplicantType = type === "renewal" ? "RENEWAL" : type === "transfer" ? "TRANSFER" : "NEW";
 
   return (
-    <main className="mx-auto max-w-2xl px-6 py-10">
-      <h1 className="text-2xl font-bold tracking-tight">{def.title}</h1>
-      <p className="mt-2 text-sm text-muted-foreground">
-        Complete the fields below to submit your application. Required fields are marked with{" "}
-        <span className="font-medium text-critical">*</span>.
-      </p>
-      <ApplyForm def={def} signedIn={signedIn} signedInName={signedInName} eligible={eligible} isReturning={isReturning} prefill={prefill} currentDepartments={currentDepartments} initialApplicantType={initialApplicantType} initialAnswers={draft?.answers ?? {}} initialApplicantTypeFromDraft={draft?.applicantType} initialRenewalDepartment={draft?.renewalDepartment ?? null} />
-    </main>
+    <PortalShell width="wide">
+      <ApplyWizard def={def} signedIn={signedIn} signedInName={signedInName} eligible={eligible} isReturning={isReturning} prefill={prefill} currentDepartments={currentDepartments} initialApplicantType={initialApplicantType} initialAnswers={draft?.answers ?? {}} initialApplicantTypeFromDraft={draft?.applicantType} initialRenewalDepartment={draft?.renewalDepartment ?? null} />
+    </PortalShell>
   );
 }

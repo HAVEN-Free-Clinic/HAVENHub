@@ -8,7 +8,7 @@ import {
   NOTIFICATIONS_PAGE_SIZE,
 } from "@/platform/notifications/inbox";
 import { markAllReadAction } from "@/platform/notifications/inbox-actions";
-import { fmtDateTime } from "@/platform/dates";
+import { DateTime } from "@/platform/dates/display";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Pagination } from "@/platform/ui/pagination";
 import { Button } from "@/platform/ui/button";
@@ -67,12 +67,15 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
                 <button type="submit" className="flex w-full flex-col items-start gap-1 px-4 py-3 text-left transition-colors hover:bg-muted">
                   <span className="flex w-full items-center gap-2">
                     {!n.readAt && (
-                      <span aria-hidden className="h-2 w-2 shrink-0 rounded-full bg-brand" />
+                      <>
+                        <span aria-hidden className="h-2 w-2 shrink-0 rounded-full bg-brand" />
+                        <span className="sr-only">Unread</span>
+                      </>
                     )}
                     <span className="font-medium text-foreground">{n.title}</span>
                   </span>
                   <span className="text-sm text-muted-foreground">{n.body}</span>
-                  <span className="text-xs text-subtle-foreground">{fmtDateTime(n.createdAt)}</span>
+                  <span className="text-xs text-subtle-foreground"><DateTime value={n.createdAt} /></span>
                 </button>
               </form>
             </li>

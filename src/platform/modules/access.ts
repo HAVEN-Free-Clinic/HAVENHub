@@ -7,10 +7,14 @@ export type NavModule = { id: string; title: string; href: string };
 
 /** True when the user may use this module (no permission required, or held). */
 export function canAccessModule(
-  mod: Pick<ModuleManifest, "accessPermission">,
+  mod: Pick<ModuleManifest, "accessPermission" | "additionalAccessPermissions">,
   perms: Set<string>,
 ): boolean {
-  return !mod.accessPermission || hasPermission(perms, mod.accessPermission);
+  return (
+    !mod.accessPermission ||
+    hasPermission(perms, mod.accessPermission) ||
+    (mod.additionalAccessPermissions?.some((p) => hasPermission(perms, p)) ?? false)
+  );
 }
 
 /**

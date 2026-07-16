@@ -26,6 +26,7 @@ function statusLabel(c: { status: string } | null): { label: string; tone: Tone 
 export default async function OnboardingPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ msg?: string; err?: string }> }) {
   const { id } = await params;
   const { msg, err } = await searchParams;
+  await requirePermission("recruitment.access");
   await requirePermission("recruitment.review_all");
   const cycle = await getCycle(id);
   if (!cycle) notFound();
@@ -52,7 +53,7 @@ export default async function OnboardingPage({ params, searchParams }: { params:
         <Table>
           <THead>
             <tr>
-              <TH className="w-10"></TH>
+              <TH className="w-10"><span className="sr-only">Select</span></TH>
               <TH>Applicant</TH>
               <TH>Dept</TH>
               <TH>Status</TH>
@@ -63,9 +64,24 @@ export default async function OnboardingPage({ params, searchParams }: { params:
               const s = statusLabel(r.contract);
               return (
                 <TR key={r.id}>
-                  <TD>{!r.contract && !r.conflicted && <Checkbox name="acceptanceId" value={r.id} />}</TD>
+                  <TD>{!r.contract && !r.conflicted && <Checkbox name="acceptanceId" value={r.id} aria-label={`Select ${r.application.applicant.firstName} ${r.application.applicant.lastName}`} />}</TD>
                   <TD className="font-medium text-foreground">
                     {r.application.applicant.firstName} {r.application.applicant.lastName}
+                    {(() => {
+                      // Surface any per-cycle custom onboarding answers so they are
+                      // readable here instead of being collected and never seen.
+                      const ca = (r.contract?.customAnswers ?? {}) as Record<string, unknown>;
+                      const entries = Object.entries(ca).filter(([, v]) => v != null && v !== "");
+                      return entries.length > 0 ? (
+                        <dl className="mt-1 space-y-0.5 text-xs font-normal text-subtle-foreground">
+                          {entries.map(([k, v]) => (
+                            <div key={k}>
+                              <span className="font-medium">{k}:</span> {Array.isArray(v) ? v.join(", ") : String(v)}
+                            </div>
+                          ))}
+                        </dl>
+                      ) : null;
+                    })()}
                   </TD>
                   <TD className="text-foreground-soft">{r.departmentCode}</TD>
                   <TD>
@@ -75,6 +91,11 @@ export default async function OnboardingPage({ params, searchParams }: { params:
                       <>
                         <Badge tone={s.tone}>{s.label}</Badge>
                         {r.contract?.promotedPersonId && <span className="ml-2 text-xs text-subtle-foreground">on roster</span>}
+                        {(r.contract?.status === "SUBMITTED" || r.contract?.status === "PROMOTED") && (
+                          <Link className="ml-2 text-xs text-brand-fg hover:text-brand-hover" href={`/recruitment/cycles/${id}/onboarding/${r.contract.id}`}>
+                            View
+                          </Link>
+                        )}
                       </>
                     )}
                   </TD>

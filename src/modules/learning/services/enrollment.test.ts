@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
-import { LearningAuthError } from "./errors";
+import { LearningAuthError, LearningValidationError } from "./errors";
 import { getMyCourses, getCourseForLearner, persistScoCmi, isCourseAssignedTo } from "./enrollment";
 
 /** A learner assigned to one active, department-scoped course with a package. */
@@ -107,6 +107,28 @@ it("stamps course completedAt once and preserves it across later commits", async
   expect(again.completedAt?.getTime()).toBe(first.completedAt?.getTime());
 });
 
+it("latches completion: a SCO reverting to incomplete on review does not downgrade COMPLETE (audit #12)", async () => {
+  const { learner, course } = await seed();
+  await persistScoCmi(learner.id, course.id, "ITEM-A", {
+    lessonStatus: "completed", scoreRaw: null, suspendData: null, lessonLocation: null,
+  });
+  await persistScoCmi(learner.id, course.id, "ITEM-B", {
+    lessonStatus: "completed", scoreRaw: null, suspendData: null, lessonLocation: null,
+  });
+  const done = await prisma.courseProgress.findFirstOrThrow({ where: { personId: learner.id, courseId: course.id } });
+  expect(done.status).toBe("COMPLETE");
+
+  // The learner re-opens the finished course to review; the SCO now reports
+  // "incomplete" (or the 30s autocommit fires mid-review).
+  await persistScoCmi(learner.id, course.id, "ITEM-B", {
+    lessonStatus: "incomplete", scoreRaw: null, suspendData: "b=review", lessonLocation: "2",
+  });
+
+  const after = await prisma.courseProgress.findFirstOrThrow({ where: { personId: learner.id, courseId: course.id } });
+  expect(after.status).toBe("COMPLETE");
+  expect(after.completedAt?.getTime()).toBe(done.completedAt?.getTime());
+});
+
 it("rounds a fractional SCO score to fit the Int column", async () => {
   const { learner, course } = await seed();
   await persistScoCmi(learner.id, course.id, "ITEM-A", {
@@ -114,6 +136,26 @@ it("rounds a fractional SCO score to fit the Int column", async () => {
   });
   const row = await getCourseForLearner(learner.id, course.id);
   expect(row.scos[0].cmi.scoreRaw).toBe(84);
+});
+
+it("clamps an out-of-range SCO score so the int4 column never overflows", async () => {
+  const { learner, course } = await seed();
+  await persistScoCmi(learner.id, course.id, "ITEM-A", {
+    lessonStatus: "passed", scoreRaw: 2147483648, suspendData: null, lessonLocation: null,
+  });
+  const row = await getCourseForLearner(learner.id, course.id);
+  expect(row.scos[0].cmi.scoreRaw).toBe(100);
+  const cp = await prisma.courseProgress.findFirstOrThrow({ where: { personId: learner.id, courseId: course.id } });
+  expect(cp.scoreRaw).toBe(100);
+});
+
+it("stores a non-finite SCO score as null instead of throwing", async () => {
+  const { learner, course } = await seed();
+  await persistScoCmi(learner.id, course.id, "ITEM-A", {
+    lessonStatus: "passed", scoreRaw: NaN, suspendData: null, lessonLocation: null,
+  });
+  const row = await getCourseForLearner(learner.id, course.id);
+  expect(row.scos[0].cmi.scoreRaw).toBeNull();
 });
 
 it("getMyCourses reports COMPLETE only after the rollup completes", async () => {
@@ -166,6 +208,35 @@ it("persistScoCmi refuses an unassigned course", async () => {
   await expect(
     persistScoCmi(learner.id, unassigned.id, "ITEM-A", { lessonStatus: "completed", scoreRaw: null, suspendData: null, lessonLocation: null })
   ).rejects.toBeInstanceOf(LearningAuthError);
+});
+
+it("persistScoCmi rejects a scoId that is not in the course manifest (no orphan row written)", async () => {
+  const { learner, course } = await seed();
+  await expect(
+    persistScoCmi(learner.id, course.id, "NOT-A-REAL-SCO", { lessonStatus: "completed", scoreRaw: null, suspendData: "x".repeat(70000), lessonLocation: null })
+  ).rejects.toBeInstanceOf(LearningValidationError);
+  const rows = await prisma.scoProgress.findMany({ where: { personId: learner.id, courseId: course.id } });
+  expect(rows).toHaveLength(0);
+});
+
+it("caps oversized suspendData and lessonLocation before persisting", async () => {
+  const { learner, course } = await seed();
+  await persistScoCmi(learner.id, course.id, "ITEM-A", {
+    lessonStatus: "completed", scoreRaw: null, suspendData: "x".repeat(70000), lessonLocation: "y".repeat(2000),
+  });
+  const row = await getCourseForLearner(learner.id, course.id);
+  expect(row.scos[0].cmi.suspendData?.length).toBe(64000);
+  expect(row.scos[0].cmi.lessonLocation?.length).toBe(1000);
+});
+
+it("leaves a normal-sized suspendData untouched", async () => {
+  const { learner, course } = await seed();
+  await persistScoCmi(learner.id, course.id, "ITEM-A", {
+    lessonStatus: "completed", scoreRaw: null, suspendData: "a=1;b=2", lessonLocation: "page-3",
+  });
+  const row = await getCourseForLearner(learner.id, course.id);
+  expect(row.scos[0].cmi.suspendData).toBe("a=1;b=2");
+  expect(row.scos[0].cmi.lessonLocation).toBe("page-3");
 });
 
 it("excludes a DIRECTORS course from a volunteer's assigned courses", async () => {

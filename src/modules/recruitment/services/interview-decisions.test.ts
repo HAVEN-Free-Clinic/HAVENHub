@@ -29,6 +29,34 @@ it("ACCEPT records the decision and creates an Acceptance", async () => {
   expect(acc).not.toBeNull();
 });
 
+it("ACCEPT is a no-op success when an acceptance already exists, not a P2002 (audit F13)", async () => {
+  const { iv, director, application } = await seedInterview();
+  // Simulate the race winner having already committed the acceptance.
+  await prisma.acceptance.create({ data: { applicationId: application.id, departmentCode: "EDUC", approvedById: director.id, notes: "first" } });
+
+  // A second ACCEPT must resolve idempotently (createMany skipDuplicates), not
+  // throw a raw unique-constraint 500.
+  const updated = await decideInterview(iv.id, "ACCEPT", director.id, "second");
+  expect(updated.decision).toBe("ACCEPT");
+
+  const accs = await prisma.acceptance.findMany({ where: { applicationId: application.id, departmentCode: "EDUC" } });
+  expect(accs).toHaveLength(1);
+  expect(accs[0].notes).toBe("first"); // existing kept as-is
+});
+
+it("refuses to flip a decision away from ACCEPT once an onboarding contract exists (audit M1)", async () => {
+  const { iv, director, application } = await seedInterview();
+  await decideInterview(iv.id, "ACCEPT", director.id, null);
+  const acc = await prisma.acceptance.findUniqueOrThrow({ where: { applicationId_departmentCode: { applicationId: application.id, departmentCode: "EDUC" } } });
+  // Onboarding was started/promoted without the acceptance ever being emailed.
+  await prisma.onboardingContract.create({ data: { acceptanceId: acc.id, token: "tok-m1", status: "PROMOTED", firstName: "C", lastName: "I", email: "c@y.edu" } });
+  await expect(decideInterview(iv.id, "REJECT", director.id, null)).rejects.toBeInstanceOf(AcceptanceError);
+  // The contract and its acceptance are preserved and the decision stays ACCEPT.
+  expect(await prisma.onboardingContract.findFirst({ where: { acceptanceId: acc.id } })).not.toBeNull();
+  expect(await prisma.acceptance.findUnique({ where: { id: acc.id } })).not.toBeNull();
+  expect((await prisma.interview.findUniqueOrThrow({ where: { id: iv.id } })).decision).toBe("ACCEPT");
+});
+
 it("changing ACCEPT to REJECT removes the not-yet-emailed Acceptance", async () => {
   const { iv, director, application } = await seedInterview();
   await decideInterview(iv.id, "ACCEPT", director.id, null);
@@ -58,7 +86,32 @@ it("rejects a decider outside the interview's department scope", async () => {
   await expect(decideInterview(iv.id, "ACCEPT", outsider.id, null)).rejects.toBeInstanceOf(RecruitmentAuthError);
 });
 
+it("blocks a director from deciding their own interview (self-approval, separation of duties)", async () => {
+  const { iv, director, application } = await seedInterview();
+  // The applicant is the director themselves (a signed-in incumbent re-applying).
+  await prisma.applicant.update({ where: { id: application.applicantId }, data: { applicantPersonId: director.id } });
+  await expect(decideInterview(iv.id, "ACCEPT", director.id, null)).rejects.toBeInstanceOf(RecruitmentAuthError);
+  expect(await prisma.acceptance.count({ where: { applicationId: application.id } })).toBe(0);
+  expect((await prisma.interview.findUniqueOrThrow({ where: { id: iv.id } })).decidedById).toBeNull();
+});
+
+it("still lets a director decide an interview for a different signed-in applicant", async () => {
+  const { iv, director, outsider, application } = await seedInterview();
+  await prisma.applicant.update({ where: { id: application.applicantId }, data: { applicantPersonId: outsider.id } });
+  const updated = await decideInterview(iv.id, "ACCEPT", director.id, null);
+  expect(updated.decision).toBe("ACCEPT");
+});
+
 it("throws InterviewError for a missing interview", async () => {
   const { director } = await seedInterview();
   await expect(decideInterview("nope", "ACCEPT", director.id, null)).rejects.toBeInstanceOf(InterviewError);
+});
+
+it("refuses to accept an interview whose application is a DRAFT and mints no Acceptance (audit3 L1)", async () => {
+  const { iv, director, application } = await seedInterview();
+  // The application reverted to DRAFT after the interview was created; an ACCEPT
+  // must not turn a draft into an Acceptance.
+  await prisma.application.update({ where: { id: application.id }, data: { status: "DRAFT" } });
+  await expect(decideInterview(iv.id, "ACCEPT", director.id, null)).rejects.toBeInstanceOf(InterviewError);
+  expect(await prisma.acceptance.count({ where: { applicationId: application.id } })).toBe(0);
 });

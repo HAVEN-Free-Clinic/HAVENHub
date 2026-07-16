@@ -1,6 +1,7 @@
 import type { ApplicantScope, FieldType, FormField, FormSection } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { uniqueKey } from "../engine/field-key";
+import { parseFieldCondition } from "../engine/field-visibility";
 
 export class FormEditError extends Error {
   constructor(message: string) {
@@ -12,8 +13,17 @@ export class FormEditError extends Error {
 async function assertCycleEditable(cycleId: string, structural: boolean): Promise<void> {
   const cycle = await prisma.recruitmentCycle.findUnique({ where: { id: cycleId } });
   if (!cycle) throw new FormEditError("Cycle not found.");
-  if (structural && cycle.status !== "DRAFT") {
-    throw new FormEditError("This cycle is published; that change would invalidate existing answers.");
+  if (structural && cycle.status === "ARCHIVED") {
+    throw new FormEditError("This cycle is archived and can no longer be edited.");
+  }
+}
+
+/** Throws when `visibleWhen` is present, non-null, and does not parse as a
+ *  valid FieldCondition -- an invalid condition is never persisted. */
+function assertValidVisibleWhen(visibleWhen: unknown): void {
+  if (visibleWhen === undefined || visibleWhen === null) return;
+  if (!parseFieldCondition(visibleWhen)) {
+    throw new FormEditError("Invalid visibility condition.");
   }
 }
 
@@ -30,10 +40,14 @@ export async function addSection(
 
 export async function addField(
   sectionId: string,
-  input: { label: string; type: FieldType; required: boolean; helpText?: string; options?: unknown; validation?: unknown; correctValue?: string | null }
+  input: {
+    label: string; type: FieldType; required: boolean; helpText?: string; options?: unknown; validation?: unknown;
+    correctValue?: string | null; visibleWhen?: unknown | null;
+  }
 ): Promise<FormField> {
   const section = await prisma.formSection.findUnique({ where: { id: sectionId } });
   if (!section) throw new FormEditError("Section not found.");
+  assertValidVisibleWhen(input.visibleWhen);
   const structural = input.required === true && section.purpose !== "QUIZ";
   await assertCycleEditable(section.cycleId, structural);
 
@@ -46,6 +60,7 @@ export async function addField(
       sectionId, cycleId: section.cycleId, key, label: input.label, type: input.type,
       required: input.required, helpText: input.helpText ?? null,
       options: (input.options ?? undefined) as never, validation: (input.validation ?? undefined) as never,
+      visibleWhen: (input.visibleWhen ?? undefined) as never,
       correctValue: input.correctValue ?? null,
       order: count,
     },
@@ -54,14 +69,21 @@ export async function addField(
 
 export async function updateField(
   fieldId: string,
-  patch: { label?: string; helpText?: string; type?: FieldType; required?: boolean; options?: unknown; validation?: unknown; correctValue?: string | null }
+  patch: {
+    label?: string; helpText?: string; type?: FieldType; required?: boolean; options?: unknown; validation?: unknown;
+    correctValue?: string | null; visibleWhen?: unknown | null;
+  }
 ): Promise<FormField> {
   const field = await prisma.formField.findUnique({ where: { id: fieldId }, include: { section: { select: { purpose: true } } } });
   if (!field) throw new FormEditError("Field not found.");
+  assertValidVisibleWhen(patch.visibleWhen);
 
+  // A visibleWhen change is structural: it changes whether/when a required
+  // field is actually enforced, the same way flipping `required` itself is.
   const structural = field.section.purpose !== "QUIZ" && (
     (patch.type !== undefined && patch.type !== field.type) ||
-    (patch.required === true && field.required === false)
+    (patch.required === true && field.required === false) ||
+    patch.visibleWhen !== undefined
   );
   await assertCycleEditable(field.cycleId, structural);
 
@@ -74,6 +96,7 @@ export async function updateField(
       required: patch.required ?? undefined,
       options: patch.options === undefined ? undefined : (patch.options as never),
       validation: patch.validation === undefined ? undefined : (patch.validation as never),
+      visibleWhen: patch.visibleWhen === undefined ? undefined : (patch.visibleWhen as never),
       correctValue: patch.correctValue === undefined ? undefined : patch.correctValue,
     },
   });

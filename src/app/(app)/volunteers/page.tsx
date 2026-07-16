@@ -1,9 +1,9 @@
 import { requirePermission } from "@/platform/auth/session";
 import { can } from "@/platform/rbac/engine";
 import { PageHeader } from "@/platform/ui/page-header";
+import { SectionHeader } from "@/platform/ui/section-header";
 import { Badge } from "@/platform/ui/badge";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
-import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Alert } from "@/platform/ui/alert";
 import { CertificateViewer } from "@/modules/my-info/components/certificate-viewer";
 import {
@@ -16,9 +16,9 @@ import {
 import { CompletionDateError } from "@/platform/compliance/completion-date";
 import type { ComplianceStatus } from "@/platform/compliance/rules";
 import { certExpiresAt } from "@/platform/compliance/rules";
-import { fmtDate } from "@/platform/dates";
+import { CalendarDate, DateOnly } from "@/platform/dates/display";
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
+import type { OnboardingTaskKey, OnboardingTaskState } from "@/modules/onboarding/engine/status";
 
 // requireModuleAccess("volunteers") is already enforced by the layout.
 // We additionally require the same permission here in the server action for defense in depth.
@@ -51,6 +51,28 @@ const STATUS_TONE: Record<ComplianceStatus, Tone> = {
   NO_CERTIFICATE: "default",
 };
 
+// Clearance task display (EHS column).
+function taskState(
+  clearance: { tasks: { key: OnboardingTaskKey; state: OnboardingTaskState }[] },
+  key: OnboardingTaskKey
+): OnboardingTaskState | null {
+  return clearance.tasks.find((t) => t.key === key)?.state ?? null;
+}
+
+const TASK_STATE_LABEL: Record<OnboardingTaskState, string> = {
+  COMPLETE: "Complete",
+  IN_PROGRESS: "In progress",
+  INCOMPLETE: "Incomplete",
+  NOT_REQUIRED: "Not required",
+};
+
+const TASK_STATE_TONE: Record<OnboardingTaskState, Tone> = {
+  COMPLETE: "success",
+  IN_PROGRESS: "warning",
+  INCOMPLETE: "critical",
+  NOT_REQUIRED: "default",
+};
+
 // ---------------------------------------------------------------------------
 // Count chips helper
 // ---------------------------------------------------------------------------
@@ -76,28 +98,25 @@ export default async function VolunteersPage({ searchParams }: PageProps) {
 
   const departments = await departmentCompliance(viewer.personId);
 
-  // Server action: verify a certificate.
-  // The service enforces scope (mutation scope matches read scope), so a
-  // ComplianceForbiddenError here means the actor crafted an out-of-scope certId.
-  async function verifyAction(formData: FormData) {
+  // Server action: verify a certificate. certId is bound per-row. The service
+  // requires manage_compliance or admin, so directors (volunteers.view only)
+  // get a ComplianceForbiddenError surfaced in the viewer modal.
+  async function verifyAction(certId: string): Promise<{ error?: string }> {
     "use server";
     const actor = await requirePermission("volunteers.view");
-    const certId = formData.get("certId") as string;
-    if (!certId) return;
     try {
       await verifyCertificate(actor.personId, certId);
     } catch (err) {
-      if (err instanceof ComplianceForbiddenError) {
-        redirect(
-          `/volunteers?error=${encodeURIComponent(err.message)}`
-        );
-      }
+      if (err instanceof ComplianceForbiddenError) return { error: err.message };
+      if (err instanceof CertificateNotFoundError) return { error: "Certificate not found." };
       throw err;
     }
     revalidatePath("/volunteers");
+    return {};
   }
 
   const isAdmin = await can(viewer.personId, "admin.access");
+  const isManager = await can(viewer.personId, "volunteers.manage_compliance");
 
   async function setDateAction(certId: string, dateIso: string): Promise<{ error?: string }> {
     "use server";
@@ -140,7 +159,7 @@ export default async function VolunteersPage({ searchParams }: PageProps) {
     <div>
       <PageHeader
         title="Compliance"
-        description="HIPAA compliance status for your departments."
+        description="Clearance status for your departments: HIPAA, training, learning, and EHS."
       />
 
       {errorMessage && (
@@ -159,6 +178,8 @@ export default async function VolunteersPage({ searchParams }: PageProps) {
             chips.push({ label: "expiring", count: counts.EXPIRING_SOON, tone: "warning" });
           if (counts.EXPIRED > 0)
             chips.push({ label: "expired", count: counts.EXPIRED, tone: "critical" });
+          if (counts.PENDING_VERIFICATION > 0)
+            chips.push({ label: "needs verification", count: counts.PENDING_VERIFICATION, tone: "warning" });
           if (counts.UNKNOWN_DATE > 0)
             chips.push({ label: "date unknown", count: counts.UNKNOWN_DATE, tone: "default" });
           if (counts.NO_CERTIFICATE > 0)
@@ -167,9 +188,9 @@ export default async function VolunteersPage({ searchParams }: PageProps) {
           return (
             <section key={department.id}>
               <div className="mb-3 flex flex-wrap items-baseline gap-3">
-                <h2 className="text-base font-semibold">
+                <SectionHeader level="title">
                   {department.code} · {department.name}
-                </h2>
+                </SectionHeader>
                 <span className="flex flex-wrap gap-1.5">
                   {chips.map((c) => (
                     <CountChip key={c.label} {...c} />
@@ -184,7 +205,8 @@ export default async function VolunteersPage({ searchParams }: PageProps) {
                     <TH>Role</TH>
                     <TH>Status</TH>
                     <TH>Training</TH>
-                    <TH>Overall</TH>
+                    <TH>EHS</TH>
+                    <TH>Cleared</TH>
                     <TH>Completed</TH>
                     <TH>Expires</TH>
                     <TH>Verified</TH>
@@ -196,6 +218,7 @@ export default async function VolunteersPage({ searchParams }: PageProps) {
                     const expiresAt = m.cert?.completionDate
                       ? certExpiresAt(m.cert.completionDate)
                       : null;
+                    const ehsState = taskState(m.clearance, "ehs");
 
                     return (
                       <TR key={m.person.id}>
@@ -211,39 +234,40 @@ export default async function VolunteersPage({ searchParams }: PageProps) {
                           </Badge>
                         </TD>
                         <TD>
-                          {m.kind === "VOLUNTEER" ? (
+                          {m.kind === "VOLUNTEER" && m.clearance.tasks.some((t) => t.key === "training") ? (
                             <Badge
                               tone={m.trainingState === "COMPLETE" ? "success" : "default"}
                             >
                               {m.trainingState === "COMPLETE" ? "Complete" : "Pending"}
                             </Badge>
                           ) : (
+                            // No designated volunteer training this term -> not required,
+                            // so show "-" rather than a misleading "Pending".
                             <span className="text-subtle-foreground">-</span>
                           )}
                         </TD>
                         <TD>
-                          {m.kind === "VOLUNTEER" ? (
-                            <Badge
-                              tone={
-                                m.overallClearance === "CLEARED" ? "success" : "critical"
-                              }
-                            >
-                              {m.overallClearance === "CLEARED" ? "Cleared" : "Not Cleared"}
-                            </Badge>
+                          {ehsState ? (
+                            <Badge tone={TASK_STATE_TONE[ehsState]}>{TASK_STATE_LABEL[ehsState]}</Badge>
                           ) : (
                             <span className="text-subtle-foreground">-</span>
                           )}
                         </TD>
-                        <TD className="text-foreground-soft tabular-nums">
-                          {fmtDate(m.cert?.completionDate)}
+                        <TD>
+                          <Badge tone={m.clearance.cleared ? "success" : "critical"}>
+                            {m.clearance.cleared ? "Cleared" : "Not cleared"}
+                          </Badge>
                         </TD>
                         <TD className="text-foreground-soft tabular-nums">
-                          {fmtDate(expiresAt)}
+                          <CalendarDate value={m.cert?.completionDate} />
+                        </TD>
+                        <TD className="text-foreground-soft tabular-nums">
+                          <CalendarDate value={expiresAt} />
                         </TD>
                         <TD className="text-foreground-soft text-xs">
                           {m.cert?.verifiedAt ? (
                             <span>
-                              {m.verifiedByName} {fmtDate(m.cert.verifiedAt)}
+                              {m.verifiedByName} <DateOnly value={m.cert.verifiedAt} />
                             </span>
                           ) : (
                             "-"
@@ -260,13 +284,10 @@ export default async function VolunteersPage({ searchParams }: PageProps) {
                                 canEditDate={isAdmin}
                                 canEditExistingDate={isAdmin}
                                 onSetDate={setDateAction.bind(null, m.cert.id)}
+                                canVerify={isManager || isAdmin}
+                                verified={Boolean(m.cert.verifiedAt)}
+                                onVerify={verifyAction.bind(null, m.cert.id)}
                               />
-                            )}
-                            {m.cert && (
-                              <form action={verifyAction}>
-                                <input type="hidden" name="certId" value={m.cert.id} />
-                                <ConfirmButton label="Verify" confirmLabel="Confirm?" />
-                              </form>
                             )}
                           </div>
                         </TD>

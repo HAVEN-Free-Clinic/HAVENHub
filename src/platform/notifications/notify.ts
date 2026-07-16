@@ -61,7 +61,9 @@ export async function notify(
   }
 
   if (wantsTeams) {
-    const teamsUserId = await resolveTeamsUser(input.person, deps);
+    // Pass `db` so the identity cache write joins the caller's transaction (if any)
+    // rather than contending with it on a separate connection.
+    const teamsUserId = await resolveTeamsUser(input.person, deps, db);
     if (teamsUserId) {
       await queueTeamsMessage(db, {
         personId: input.person.id,

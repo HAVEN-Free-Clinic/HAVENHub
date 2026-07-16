@@ -27,6 +27,8 @@ import {
 import { searchPeople } from "@/modules/admin/services/people";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
+import { NavForm } from "@/platform/ui/nav-form";
+import Link from "next/link";
 import { Card } from "@/platform/ui/card";
 import { Input, Field } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
@@ -289,7 +291,7 @@ export async function AssignmentForm({
         <h3 className="text-sm font-semibold text-foreground-soft">Assign role to person</h3>
 
         {/* Person search box */}
-        <form method="GET" className="flex items-end gap-3">
+        <NavForm className="flex items-end gap-3">
           <Field label="Search people">
             <Input
               type="search"
@@ -303,18 +305,18 @@ export async function AssignmentForm({
             Search
           </Button>
           {assignq && (
-            <a
+            <Link
               href={pageHref}
               className="self-end pb-2 text-sm text-muted-foreground hover:text-foreground"
             >
               Clear
-            </a>
+            </Link>
           )}
-        </form>
+        </NavForm>
 
         {/* Person search results */}
         {assignq && assignq.trim() && (
-          <div className="rounded-2xl border border-border">
+          <div className="overflow-hidden rounded-xl border border-border-subtle">
             <div className="border-b border-border-subtle px-4 py-3">
               <p className="text-sm font-medium text-foreground-soft">
                 {personResults.length === 0
@@ -369,7 +371,7 @@ export async function AssignmentForm({
             <Select name="departmentId" className="w-56">
               {departments.map((d) => (
                 <option key={d.id} value={d.id}>
-                  {d.code} -- {d.name}
+                  {d.code} · {d.name}
                 </option>
               ))}
             </Select>

@@ -168,6 +168,13 @@ describe("updateMyInfo", () => {
     expect(updated.epicId).toBe("ORIGINAL-EPIC");
   });
 
+  it("lets a member set their dietary restrictions", async () => {
+    const person = await createPerson({ name: "Dee Eater", netId: "dee001" });
+    await updateMyInfo(person.id, { dietaryRestrictions: "Vegan, shellfish allergy" });
+    const updated = await prisma.person.findUniqueOrThrow({ where: { id: person.id } });
+    expect(updated.dietaryRestrictions).toBe("Vegan, shellfish allergy");
+  });
+
   it("delegates to updatePersonFields with self as actor (audit row has actorPersonId === personId)", async () => {
     const person = await createPerson({ name: "Bob" });
 
@@ -479,6 +486,10 @@ async function countReviewNotifications(): Promise<number> {
   return prisma.notification.count({ where: { type: "compliance-date-review" } });
 }
 
+async function countVerificationNotifications(): Promise<number> {
+  return prisma.notification.count({ where: { type: "compliance-verification-review" } });
+}
+
 const nullParse = async (_bytes: Buffer) => null;
 const dateParse = async (_bytes: Buffer) => ({
   date: new Date(Date.UTC(2026, 0, 10, 12, 0, 0, 0)),
@@ -496,13 +507,64 @@ describe("saveCertificate compliance-manager notification", () => {
     expect(notes.map((n) => n.personId)).toEqual([manager.id]);
   });
 
-  it("does not notify when the completion date parses successfully", async () => {
-    await createComplianceManager();
+  it("notifies compliance managers to verify when the completion date parses successfully", async () => {
+    const manager = await createComplianceManager();
     const volunteer = await createPerson({ name: "Val Volunteer" });
 
     await saveCertificate(volunteer.id, makePdfFile(), dateParse);
 
+    // A parsed cert is unverified (PENDING_VERIFICATION), which blocks the member,
+    // so managers get a verification-review alert (not the dateless date-review one).
     expect(await countReviewNotifications()).toBe(0);
+    const notes = await prisma.notification.findMany({ where: { type: "compliance-verification-review" } });
+    expect(notes.map((n) => n.personId)).toEqual([manager.id]);
+  });
+
+  it("does not re-notify for verification when the member already has a pending-verification cert (dedup)", async () => {
+    await createComplianceManager();
+    const volunteer = await createPerson({ name: "Val Volunteer" });
+    // A pre-existing dated-but-unverified cert (managers were already alerted).
+    await prisma.hipaaCertificate.create({
+      data: {
+        personId: volunteer.id,
+        fileName: "old.pdf",
+        storedName: "old.pdf",
+        size: 10,
+        mimeType: "application/pdf",
+        completionDate: new Date("2026-01-05T12:00:00Z"),
+        verifiedAt: null,
+        extraction: "PARSED",
+        uploadedAt: new Date("2026-01-01T00:00:00Z"),
+      },
+    });
+
+    await saveCertificate(volunteer.id, makePdfFile(), dateParse);
+
+    expect(await countVerificationNotifications()).toBe(0);
+  });
+
+  it("notifies for verification again when the member's prior newest cert was verified", async () => {
+    const manager = await createComplianceManager();
+    const volunteer = await createPerson({ name: "Val Volunteer" });
+    // A prior, verified cert; a fresh parsed upload is a new pending-verification case.
+    await prisma.hipaaCertificate.create({
+      data: {
+        personId: volunteer.id,
+        fileName: "old.pdf",
+        storedName: "old.pdf",
+        size: 10,
+        mimeType: "application/pdf",
+        completionDate: new Date("2025-06-01T12:00:00Z"),
+        verifiedAt: new Date("2025-06-02T12:00:00Z"),
+        extraction: "PARSED",
+        uploadedAt: new Date("2026-01-01T00:00:00Z"),
+      },
+    });
+
+    await saveCertificate(volunteer.id, makePdfFile(), dateParse);
+
+    const notes = await prisma.notification.findMany({ where: { type: "compliance-verification-review" } });
+    expect(notes.map((n) => n.personId)).toEqual([manager.id]);
   });
 
   it("does not re-notify when the member already has a dateless certificate (dedup)", async () => {

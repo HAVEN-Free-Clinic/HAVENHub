@@ -26,6 +26,24 @@ import type { BuilderMember, BuilderAssignmentEntry } from "@/modules/schedule/s
 
 type AssignmentsByDate = Record<string, Record<string, BuilderAssignmentEntry>>;
 
+/**
+ * One matrix row. Derived from the UNION of ACTIVE members and any person who
+ * still carries a live assignment (a former member offboarded out of their
+ * ACTIVE membership while a future ShiftAssignment outlives it). Non-member rows
+ * take their identity from the assignment-carried person snapshot, have no
+ * membership `kind`, and no resolved availability -- so their shifts are still
+ * visible and clearable in the grid, matching the Day view (audit L3).
+ */
+type GridRow = {
+  personId: string;
+  name: string;
+  /** Membership kind, or null for a non-member assignee (former member). */
+  kind: "DIRECTOR" | "VOLUNTEER" | null;
+  isMember: boolean;
+  /** Resolved-available clinic dates; empty for non-members. */
+  availabilityDates: Date[];
+};
+
 type Props = {
   members: BuilderMember[];
   clinicDates: Date[];
@@ -106,7 +124,7 @@ function CellContent({
 // ---------------------------------------------------------------------------
 
 type GridCellProps = {
-  member: BuilderMember;
+  row: GridRow;
   dateKey: string;
   assignment: BuilderAssignmentEntry | undefined;
   deptId: string;
@@ -118,7 +136,7 @@ type GridCellProps = {
 };
 
 function GridCell({
-  member,
+  row,
   dateKey,
   assignment,
   deptId,
@@ -128,15 +146,15 @@ function GridCell({
   assignAction,
   unassignAction,
 }: GridCellProps) {
-  const isAvailable = member.availability.dates.some(
+  const isAvailable = row.availabilityDates.some(
     (d) => isoDateKey(d) === dateKey,
   );
 
-  // Muted background when member is not resolved-available on this date.
+  // Muted background when the person is not resolved-available on this date.
   const availBg = isAvailable ? "" : "bg-muted";
   const selectedHighlight = isHighlightDate ? "ring-1 ring-inset ring-brand/40" : "";
 
-  const memberName = member.person.name;
+  const memberName = row.name;
   const displayD = displayDate(dateKey);
   const stateLabel = assignment
     ? `${assignment.role.toLowerCase()} on ${displayD}`
@@ -156,6 +174,22 @@ function GridCell({
     </span>
   );
 
+  // A non-member (former member) is not an assignable ACTIVE member: only their
+  // existing shifts are actionable, so a filled cell still posts unassign (below)
+  // while an empty cell renders inert. Otherwise the grid would offer a "+" that
+  // setAssignment rejects on the membership check.
+  if (!row.isMember && !assignment) {
+    return (
+      <td
+        className={`relative border border-border px-2 py-1.5 text-center align-middle min-w-[52px] ${availBg} ${selectedHighlight}`}
+        aria-label={`${ariaLabel} (former member)`}
+      >
+        <CellContent assignment={undefined} deptCode={deptCode} />
+        {unavailableMarker}
+      </td>
+    );
+  }
+
   // Assign mode: empty -> VOLUNTEER; filled -> unassign.
   if (mode === "assign") {
     if (!assignment) {
@@ -168,7 +202,7 @@ function GridCell({
             hidden={{
               departmentId: deptId,
               dateKey,
-              personId: member.person.id,
+              personId: row.personId,
               role: "VOLUNTEER",
             }}
             label="+"
@@ -188,7 +222,7 @@ function GridCell({
           hidden={{
             departmentId: deptId,
             dateKey,
-            personId: member.person.id,
+            personId: row.personId,
           }}
           label={roleGlyph(assignment.role) || "?"}
           variant="grid-filled"
@@ -211,7 +245,7 @@ function GridCell({
           hidden={{
             departmentId: deptId,
             dateKey,
-            personId: member.person.id,
+            personId: row.personId,
             role: "SHADOW",
           }}
           label="+"
@@ -233,7 +267,7 @@ function GridCell({
           hidden={{
             departmentId: deptId,
             dateKey,
-            personId: member.person.id,
+            personId: row.personId,
           }}
           label="S"
           variant="grid-filled"
@@ -272,10 +306,47 @@ export function BuilderGrid({
   assignAction,
   unassignAction,
 }: Props) {
-  // Directors first, then volunteers, alphabetical within each group.
-  const sorted = [...members].sort(compareBuilderMembers);
+  // Row set = ACTIVE members UNION any person carrying a live assignment.
+  // Offboarding drops the ACTIVE membership but leaves ShiftAssignment rows, so a
+  // former member with a future assignment must still get a row (mirroring the Day
+  // view, audit L3) -- otherwise their shift is invisible here and can never be
+  // cleared from the grid.
+  const memberIds = new Set(members.map((m) => m.person.id));
 
-  if (sorted.length === 0) {
+  // Members first, in the shared director-then-volunteer, alphabetical order.
+  const memberRows: GridRow[] = [...members]
+    .sort(compareBuilderMembers)
+    .map((m) => ({
+      personId: m.person.id,
+      name: m.person.name,
+      kind: m.kind,
+      isMember: true,
+      availabilityDates: m.availability.dates,
+    }));
+
+  // Non-member assignees: any personId present in assignmentsByDate that is not an
+  // ACTIVE member, identified by the assignment-carried person snapshot. Deduped
+  // across dates; sorted by name and appended after the member rows.
+  const nonMemberRowByPerson = new Map<string, GridRow>();
+  for (const byPerson of Object.values(assignmentsByDate)) {
+    for (const [pid, entry] of Object.entries(byPerson)) {
+      if (memberIds.has(pid) || nonMemberRowByPerson.has(pid)) continue;
+      nonMemberRowByPerson.set(pid, {
+        personId: pid,
+        name: entry.person.name,
+        kind: null,
+        isMember: false,
+        availabilityDates: [],
+      });
+    }
+  }
+  const nonMemberRows = [...nonMemberRowByPerson.values()].sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
+
+  const rows: GridRow[] = [...memberRows, ...nonMemberRows];
+
+  if (rows.length === 0) {
     return (
       <p className="text-sm text-subtle-foreground">No members in this department.</p>
     );
@@ -313,30 +384,35 @@ export function BuilderGrid({
           </tr>
         </thead>
         <tbody>
-          {sorted.map((member) => {
-            const isDirector = member.kind === "DIRECTOR";
+          {rows.map((row) => {
+            const isDirector = row.kind === "DIRECTOR";
             return (
-              <tr key={member.person.id} className="hover:bg-muted/60">
+              <tr key={row.personId} className="hover:bg-muted/60">
                 {/* Sticky member name column */}
                 <th scope="row" className="sticky left-0 z-10 bg-surface border border-border px-3 py-2 whitespace-nowrap text-left font-normal">
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs font-medium text-foreground">
-                      {member.person.name}
+                      {row.name}
                     </span>
-                    <Badge
-                      tone={isDirector ? "brand" : "default"}
-                    >
-                      {isDirector ? "Dir" : "Vol"}
-                    </Badge>
+                    {row.isMember ? (
+                      <Badge tone={isDirector ? "brand" : "default"}>
+                        {isDirector ? "Dir" : "Vol"}
+                      </Badge>
+                    ) : (
+                      // Former member (offboarded) who still holds a live
+                      // assignment. Flagged so directors can clear the leftover
+                      // shift; they are not an assignable active member.
+                      <Badge tone="warning">Former</Badge>
+                    )}
                   </div>
                 </th>
                 {clinicDates.map((d) => {
                   const dk = isoDateKey(d);
-                  const assignment = assignmentsByDate[dk]?.[member.person.id];
+                  const assignment = assignmentsByDate[dk]?.[row.personId];
                   return (
                     <GridCell
                       key={dk}
-                      member={member}
+                      row={row}
                       dateKey={dk}
                       assignment={assignment}
                       deptId={deptId}

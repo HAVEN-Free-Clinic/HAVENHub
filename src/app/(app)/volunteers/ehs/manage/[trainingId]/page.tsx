@@ -1,6 +1,7 @@
 import { requirePermission } from "@/platform/auth/session";
 import { prisma } from "@/platform/db";
 import { PageHeader } from "@/platform/ui/page-header";
+import { SectionHeader } from "@/platform/ui/section-header";
 import { Card } from "@/platform/ui/card";
 import { Input, Textarea, Field } from "@/platform/ui/input";
 import { Checkbox } from "@/platform/ui/checkbox";
@@ -64,7 +65,7 @@ export default async function EditEhsTrainingPage({
         </Card>
 
         <Card className="space-y-4">
-          <h2 className="font-medium">Department scope</h2>
+          <SectionHeader level="title">Department scope</SectionHeader>
           <form action={setTrainingDepartmentsAction}>
             <input type="hidden" name="trainingId" value={training.id} />
             <div className="space-y-4">

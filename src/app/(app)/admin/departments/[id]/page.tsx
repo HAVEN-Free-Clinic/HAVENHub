@@ -8,6 +8,7 @@ import {
   DepartmentValidationError,
 } from "@/modules/admin/services/departments";
 import { PageHeader } from "@/platform/ui/page-header";
+import { SectionHeader } from "@/platform/ui/section-header";
 import { DepartmentForm } from "@/modules/admin/components/department-form";
 import { DelegationEditor } from "@/modules/admin/components/delegation-editor";
 import { optionalInt } from "@/modules/admin/form-coerce";
@@ -28,12 +29,15 @@ export default async function EditDepartmentPage({ params, searchParams }: PageP
   });
   if (!department) notFound();
 
+  const selectedIds = department.managesDelegations.map((m) => m.managedDepartmentId);
+  // Include already-managed departments even if they are now inactive, otherwise a
+  // deactivated-but-managed department would be absent from the checkbox list and
+  // silently dropped from the delegation set on the next save.
   const candidates = await prisma.department.findMany({
-    where: { isActive: true, id: { not: id } },
+    where: { id: { not: id }, OR: [{ isActive: true }, { id: { in: selectedIds } }] },
     select: { id: true, code: true, name: true },
     orderBy: { code: "asc" },
   });
-  const selectedIds = department.managesDelegations.map((m) => m.managedDepartmentId);
 
   async function updateAction(formData: FormData) {
     "use server";
@@ -75,7 +79,7 @@ export default async function EditDepartmentPage({ params, searchParams }: PageP
       <DepartmentForm action={updateAction} mode="edit" department={department} error={error} saved={saved} />
 
       <section className="space-y-3">
-        <h2 className="text-lg font-semibold">Delegations</h2>
+        <SectionHeader level="title">Delegations</SectionHeader>
         <DelegationEditor action={setDelegationsAction} candidates={candidates} selectedIds={selectedIds} />
       </section>
     </div>

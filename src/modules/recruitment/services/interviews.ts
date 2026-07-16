@@ -9,6 +9,8 @@ import { renderEmail } from "@/platform/email/templates/renderEmail";
 import { notify, type NotifyInput } from "@/platform/notifications/notify";
 import { getSetting } from "@/platform/settings/service";
 import { esc } from "@/platform/email/render/escape";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
+import { formatDateTime } from "@/platform/dates";
 
 export class InterviewError extends Error {
   constructor(message: string) { super(message); this.name = "InterviewError"; }
@@ -24,6 +26,11 @@ async function assertCanManage(departmentCode: string, actorId: string): Promise
 export async function createInterview(applicationId: string, departmentCode: string, createdById: string): Promise<Interview> {
   const app = await prisma.application.findUnique({ where: { id: applicationId }, include: { cycle: true } });
   if (!app) throw new InterviewError("Application not found.");
+  // A DRAFT application is not a real submission, so it must not be
+  // interviewed (and later accepted) (audit3 L1).
+  if (app.status !== "SUBMITTED") throw new InterviewError("This application hasn't been submitted yet.");
+  // Interviews are the DIRECTOR-track review path. Volunteer applications are
+  // decided directly by the routed department (decideRoutedApplication) with no interview.
   if (app.cycle.track !== "DIRECTOR") throw new InterviewError("Interviews apply to director cycles.");
   if (!app.cycle.departments.includes(departmentCode)) throw new InterviewError("That department is not part of this cycle.");
   const scope = await reviewScope(createdById);
@@ -119,23 +126,31 @@ export async function addPanelist(interviewId: string, personId: string, isLead:
   if (!iv) throw new InterviewError("Interview not found.");
   await assertCanManage(iv.departmentCode, actorId);
 
-  // Notify the panelist of the assignment. Skip self-adds: a manager adding
-  // themselves already knows. Built before the write so the notification commits
-  // in the same transaction as the panel row (a P2002 duplicate rolls back both).
-  const assignment = personId === actorId ? null : await buildPanelistAssignmentNotify(iv, personId, actorId);
-
+  let created: InterviewPanelist;
   try {
-    return await prisma.$transaction(async (tx) => {
-      const created = await tx.interviewPanelist.create({ data: { interviewId, personId, isLead } });
-      if (assignment) await notify(tx, assignment);
-      return created;
-    });
+    created = await prisma.interviewPanelist.create({ data: { interviewId, personId, isLead } });
   } catch (err) {
     if (isUniqueConstraintError(err)) {
       throw new InterviewError("That person is already on the panel.");
     }
     throw err;
   }
+
+  // Notify the panelist AFTER the panel row commits. Skip self-adds: a manager
+  // adding themselves already knows. Notifications are best-effort side effects,
+  // so they run post-commit on the global client, the pattern every other notify
+  // caller uses. This keeps notify()'s Microsoft Graph identity lookup out of the
+  // panel-row transaction, where a slow, un-timed lookup could exceed Prisma's
+  // interactive-transaction timeout and roll back an otherwise-valid panelist add
+  // (audit M11); it also means a rejected duplicate never enqueues a stray
+  // notification. All data the notify needs (iv, personId, actorId) is available
+  // here, and buildPanelistAssignmentNotify re-reads the person fresh.
+  if (personId !== actorId) {
+    const assignment = await buildPanelistAssignmentNotify(iv, personId, actorId);
+    if (assignment) await notify(prisma, assignment);
+  }
+
+  return created;
 }
 
 /**
@@ -167,7 +182,8 @@ export async function sendInterviewInvite(interviewId: string, actorId: string):
   if (!iv.scheduledAt) throw new InterviewError("Set an interview time first.");
   const dept = await prisma.department.findUnique({ where: { code: iv.departmentCode }, select: { name: true } });
   const applicant = iv.application.applicant;
-  const interviewTime = iv.scheduledAt.toLocaleString("en-US", { dateStyle: "full", timeStyle: "short", timeZone: "America/New_York" });
+  const zone = await getDisplayTimeZone();
+  const interviewTime = formatDateTime(iv.scheduledAt, zone, { dateStyle: "full", timeStyle: "short" });
   const joinLink = iv.zoomLink ? `<a href="${esc(iv.zoomLink)}">${esc(iv.zoomLink)}</a>` : "link to follow";
   const email = await renderCycleEmail(iv.application.cycle.id, "recruitment.interview_invite", {
     firstName: applicant.firstName || "there",

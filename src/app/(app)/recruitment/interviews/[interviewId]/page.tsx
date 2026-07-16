@@ -1,5 +1,9 @@
 import { notFound } from "next/navigation";
 import { requirePersonSession } from "@/platform/auth/session";
+import { DateTime } from "@/platform/dates/display";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
+import { zoneLabel } from "@/platform/dates/zone";
+import { formatForDateTimeInput } from "@/platform/dates";
 import { can } from "@/platform/rbac/engine";
 import { getInterview, listPanelistCandidates } from "@/modules/recruitment/services/interviews";
 import { reviewScope } from "@/modules/recruitment/services/review";
@@ -19,30 +23,46 @@ import { AddPanelistForm } from "./add-panelist-form";
 import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
 
-const RECS = ["STRONG_YES", "YES", "MAYBE", "NO"];
+const SCORES = [1, 2, 3, 4, 5];
 const decisionTone = { PENDING: "default", ACCEPT: "success", REJECT: "critical", WAITLIST: "warning" } as const;
+const decisionLabel = { PENDING: "Pending", ACCEPT: "Accepted", REJECT: "Rejected", WAITLIST: "Waitlisted" } as const;
+const savedMessage: Record<string, string> = {
+  decision: "Decision recorded.",
+  schedule: "Schedule saved.",
+  panelist: "Panel updated.",
+  invite: "Invite sent.",
+  evaluation: "Evaluation saved.",
+  rescind: "Acceptance rescinded.",
+};
 
-export default async function InterviewDetail({ params, searchParams }: { params: Promise<{ interviewId: string }>; searchParams: Promise<{ error?: string }> }) {
+export default async function InterviewDetail({ params, searchParams }: { params: Promise<{ interviewId: string }>; searchParams: Promise<{ error?: string; saved?: string }> }) {
   const { interviewId } = await params;
-  const { error } = await searchParams;
+  const { error, saved } = await searchParams;
   const person = await requirePersonSession();
   const iv = await getInterview(interviewId);
   if (!iv) notFound();
-  const [scope, managesCycles] = await Promise.all([reviewScope(person.personId), can(person.personId, "recruitment.manage_cycles")]);
+  const [scope, managesCycles, canScore] = await Promise.all([
+    reviewScope(person.personId),
+    can(person.personId, "recruitment.manage_cycles"),
+    can(person.personId, "recruitment.score"),
+  ]);
   const isPanelist = iv.panelists.some((p) => p.person.id === person.personId);
   // This page sits outside the recruitment.access module gate so panelists (who
   // are not recruitment staff) can reach their assigned interview. Access is
-  // therefore enforced here: canView admits cycle staff and panelists; canManage
-  // gates the action controls and matches the service authz exactly (scope.all or
-  // the interview's department is in the actor's review scope) so a control is
-  // never shown to someone whose submit would be rejected.
+  // therefore enforced here: canView admits cycle staff, committee scorers (who
+  // can already open the application detail that links here, so the link must not
+  // 404 on them), and panelists; canManage gates the action controls and matches
+  // the service authz exactly (scope.all or the interview's department is in the
+  // actor's review scope) so a control is never shown to someone whose submit
+  // would be rejected. A scorer gets canManage=false, so this stays read-only.
   const isStaff = scope.all || managesCycles || scope.departmentCodes.includes(iv.departmentCode);
-  const canView = isStaff || isPanelist;
+  const canView = isStaff || canScore || isPanelist;
   if (!canView) notFound();
   const canManage = scope.all || scope.departmentCodes.includes(iv.departmentCode);
   const candidates = canManage ? await listPanelistCandidates(interviewId) : [];
   const summary = evaluationSummary(iv.evaluations);
-  const scheduledValue = iv.scheduledAt ? new Date(iv.scheduledAt.getTime() - iv.scheduledAt.getTimezoneOffset() * 60000).toISOString().slice(0, 16) : "";
+  const zone = await getDisplayTimeZone();
+  const scheduledValue = formatForDateTimeInput(iv.scheduledAt, zone);
   const myEval = iv.evaluations.find((e) => e.evaluator.id === person.personId);
   // Once this department's acceptance has been emailed, the applicant has been
   // told they're in. decideInterview blocks moving the decision off ACCEPT until
@@ -64,9 +84,10 @@ export default async function InterviewDetail({ params, searchParams }: { params
       <PageHeader
         title={`${iv.application.applicant.firstName} ${iv.application.applicant.lastName}`}
         description={`${iv.departmentCode} director interview`}
-        action={<Badge tone={decisionTone[iv.decision as keyof typeof decisionTone] ?? "default"}>{iv.decision}</Badge>}
+        action={<Badge tone={decisionTone[iv.decision as keyof typeof decisionTone] ?? "default"}>{decisionLabel[iv.decision as keyof typeof decisionLabel] ?? iv.decision}</Badge>}
       />
       {error && <Alert tone="error">{error}</Alert>}
+      {saved && savedMessage[saved] && <Alert tone="success">{savedMessage[saved]}</Alert>}
 
       {canManage && (
         <>
@@ -76,6 +97,7 @@ export default async function InterviewDetail({ params, searchParams }: { params
               <Field label="Time">
                 <Input type="datetime-local" name="scheduledAt" defaultValue={scheduledValue} />
               </Field>
+              <p className="text-xs text-muted-foreground">Times are in {zoneLabel(zone)}.</p>
               <Field label="Zoom link">
                 <Input name="zoomLink" defaultValue={iv.zoomLink ?? ""} />
               </Field>
@@ -90,7 +112,7 @@ export default async function InterviewDetail({ params, searchParams }: { params
               <SubmitButton size="sm" variant="outline" pendingLabel="Sending…">
                 {iv.invitedAt ? "Resend invite" : "Send invite"}
               </SubmitButton>
-              {iv.invitedAt && <span className="text-xs text-subtle-foreground">sent {iv.invitedAt.toLocaleString()}</span>}
+              {iv.invitedAt && <span className="text-xs text-subtle-foreground">sent <DateTime value={iv.invitedAt} /></span>}
             </form>
           </Card>
 
@@ -119,16 +141,45 @@ export default async function InterviewDetail({ params, searchParams }: { params
         </>
       )}
 
+      {isPanelist && !canManage && (
+        <Card>
+          <SectionHeader>Schedule</SectionHeader>
+          <dl className="mt-3 space-y-3 text-sm">
+            <div>
+              <dt className="text-xs text-subtle-foreground">Time</dt>
+              <dd className="text-foreground"><DateTime value={iv.scheduledAt} fallback="To be determined" /></dd>
+            </div>
+            <div>
+              <dt className="text-xs text-subtle-foreground">Zoom link</dt>
+              <dd>
+                {iv.zoomLink ? (
+                  <a
+                    className="break-all font-medium text-brand-fg hover:text-brand-hover"
+                    href={iv.zoomLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    {iv.zoomLink}
+                  </a>
+                ) : (
+                  <span className="text-muted-foreground">Not shared yet</span>
+                )}
+              </dd>
+            </div>
+          </dl>
+        </Card>
+      )}
+
       <Card>
-        <SectionHeader>Evaluations ({summary.total})</SectionHeader>
+        <SectionHeader>Evaluations ({summary.count})</SectionHeader>
         <p className="mt-1 text-xs text-subtle-foreground">
-          Strong yes {summary.strongYes} · Yes {summary.yes} · Maybe {summary.maybe} · No {summary.no}
+          Average {summary.average != null ? summary.average.toFixed(1) : "-"}
         </p>
         {iv.evaluations.length > 0 ? (
           <ul className="mt-3 divide-y divide-border-subtle">
             {iv.evaluations.map((e) => (
               <li key={e.id} className="py-2 text-sm text-foreground-soft">
-                <strong className="text-foreground">{e.evaluator.name}</strong>: {e.recommendation.replace("_", " ")}
+                <strong className="text-foreground">{e.evaluator.name}</strong>: {e.score}/5
                 {e.comments ? ` (${e.comments})` : ""}
               </li>
             ))}
@@ -157,7 +208,7 @@ export default async function InterviewDetail({ params, searchParams }: { params
           <form action={decideAction.bind(null, interviewId)} className="mt-3 flex flex-wrap items-end gap-3">
             <div className="w-40">
               <Field label="Outcome">
-                <Select name="outcome" required>
+                <Select name="outcome" required defaultValue={iv.decision === "PENDING" ? "ACCEPT" : iv.decision}>
                   <option value="ACCEPT">Accept</option>
                   <option value="REJECT">Reject</option>
                   <option value="WAITLIST">Waitlist</option>
@@ -171,6 +222,11 @@ export default async function InterviewDetail({ params, searchParams }: { params
             </div>
             <SubmitButton size="sm" pendingLabel="Recording…">Record decision</SubmitButton>
           </form>
+          {iv.decision !== "PENDING" && iv.decidedAt && (
+            <p className="mt-2 text-xs text-subtle-foreground">
+              {decisionLabel[iv.decision as keyof typeof decisionLabel]} · recorded <DateTime value={iv.decidedAt} />
+            </p>
+          )}
           <p className="mt-2 text-xs text-subtle-foreground">Accept creates an acceptance, released from the Decisions page.</p>
         </Card>
       )}
@@ -180,14 +236,14 @@ export default async function InterviewDetail({ params, searchParams }: { params
           <SectionHeader>Your evaluation</SectionHeader>
           <form action={submitEvaluationAction.bind(null, interviewId)} className="mt-3 flex flex-wrap items-end gap-3">
             <div className="w-44">
-              <Field label="Recommendation">
-                <Select name="recommendation" required defaultValue={myEval?.recommendation ?? ""}>
+              <Field label="Score (1-5)">
+                <Select name="score" required defaultValue={myEval?.score != null ? String(myEval.score) : ""}>
                   <option value="" disabled>
                     Select…
                   </option>
-                  {RECS.map((r) => (
-                    <option key={r} value={r}>
-                      {r.replace("_", " ")}
+                  {SCORES.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
                     </option>
                   ))}
                 </Select>

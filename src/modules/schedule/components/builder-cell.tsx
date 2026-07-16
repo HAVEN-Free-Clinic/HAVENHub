@@ -97,7 +97,7 @@ function GridFilledButton({
         disabled={pending}
         aria-label={`Confirm remove. ${ariaLabel ?? label}`}
         // eslint-disable-next-line no-restricted-syntax -- grid-cell action button, not a standard Button
-        className="flex h-9 w-full min-w-[40px] touch-manipulation items-center justify-center rounded-lg border border-critical/30 bg-red-50 text-critical transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+        className="flex h-9 w-full min-w-[40px] touch-manipulation items-center justify-center rounded-lg border border-critical/30 bg-critical-faint text-critical transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
         title="Click again to remove"
       >
         <span className="text-xs font-semibold leading-none">
@@ -117,7 +117,7 @@ function GridFilledButton({
       }}
       aria-label={ariaLabel ?? label}
       // eslint-disable-next-line no-restricted-syntax -- grid-cell action button, not a standard Button
-      className="flex h-9 w-full min-w-[40px] touch-manipulation flex-col items-center justify-center rounded-lg border border-border-strong bg-muted-strong text-foreground-soft hover:bg-red-50 hover:border-critical/30 hover:text-critical transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+      className="flex h-9 w-full min-w-[40px] touch-manipulation flex-col items-center justify-center rounded-lg border border-border-strong bg-muted-strong text-foreground-soft hover:bg-critical-faint hover:border-critical/30 hover:text-critical transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
       title={ariaLabel ?? label}
     >
       {pending ? (

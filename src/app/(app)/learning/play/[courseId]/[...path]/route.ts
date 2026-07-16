@@ -1,5 +1,6 @@
 import { auth } from "@/platform/auth/auth";
 import { getActivePerson } from "@/platform/auth/match-person";
+import { prisma } from "@/platform/db";
 import { getObject } from "@/platform/storage";
 import { can } from "@/platform/rbac/engine";
 import { isCourseAssignedTo } from "@/modules/learning/services/enrollment";
@@ -33,7 +34,18 @@ export async function GET(_request: Request, context: RouteContext): Promise<Res
     return Response.json({ error: "Not found" }, { status: 404 });
   }
 
-  const buf = await getObject(`scorm/${courseId}/${rel}`);
+  // Files are stored under a per-upload versioned prefix (scorm/<courseId>/<key>/)
+  // so a re-ingest never overwrites the live package before the DB commit (F17).
+  // Pre-migration packages have no key and live at the flat prefix; fall back to it.
+  const course = await prisma.course.findUnique({
+    where: { id: courseId },
+    select: { scormBlobKey: true },
+  });
+  const objectKey = course?.scormBlobKey
+    ? `scorm/${courseId}/${course.scormBlobKey}/${rel}`
+    : `scorm/${courseId}/${rel}`;
+
+  const buf = await getObject(objectKey);
   if (!buf) return Response.json({ error: "Not found" }, { status: 404 });
 
   const bytes = new Uint8Array(buf);

@@ -35,7 +35,7 @@ export type SummaryItem =
   | { kind: "text"; label: string; value: string }
   | { kind: "tags"; label: string; values: string[] }
   | { kind: "list"; label: string; values: string[] }
-  | { kind: "meds"; label: string; meds: Medication[] };
+  | { kind: "meds"; label: string; doseLabel: string; costSourceLabel: string; meds: Medication[] };
 
 export type SummaryBlock = {
   heading: string;

@@ -21,20 +21,26 @@ export default async function ManageCoursesPage() {
             <Button type="submit">Create</Button>
           </form>
         </Card>
-        <ul className="space-y-2">
-          {courses.map((c) => (
-            <li key={c.id}>
-              <Link href={`/learning/manage/${c.id}`} className="block">
-                <Card interactive pad={false} className="flex items-center justify-between px-4 py-3">
-                  <span>{c.title}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {c.hasPackage ? "package uploaded" : "no package"}{c.isActive ? "" : " · inactive"}{c.assignToAll ? " · all depts" : ""}
-                  </span>
-                </Card>
-              </Link>
-            </li>
-          ))}
-        </ul>
+        {courses.length === 0 ? (
+          <Card pad={false} className="px-4 py-3 text-sm text-muted-foreground">
+            No courses yet. Create your first using the form above.
+          </Card>
+        ) : (
+          <ul className="space-y-2">
+            {courses.map((c) => (
+              <li key={c.id}>
+                <Link href={`/learning/manage/${c.id}`} className="block">
+                  <Card interactive pad={false} className="flex items-center justify-between px-4 py-3">
+                    <span>{c.title}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {c.hasPackage ? "package uploaded" : "no package"}{c.isActive ? "" : " · inactive"}{c.assignToAll ? " · all depts" : ""}
+                    </span>
+                  </Card>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </>
   );

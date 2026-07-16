@@ -8,12 +8,25 @@ describe("notification registry", () => {
     expect(keys).toEqual(
       [
         "compliance-date-review",
+        "compliance-verification-review",
         "compliance-escalation",
         "compliance-reminder",
         "epic-activation",
         "epic-onboarding",
         "epic-password-reset",
+        "incidents.report_resolved",
+        "incidents.report_submitted",
+        "incidents.strike_decided",
+        "incidents.strike_requested",
         "recruitment.interview_assignment",
+        "recruitment.review_digest",
+        "support.ticket_submitted",
+        "support.ticket_manager_alert",
+        "support.request_assigned",
+        "support.status_changed",
+        "support.comment_added",
+        "support.request_resolved",
+        "shift-reminder",
       ].sort()
     );
     for (const t of NOTIFICATION_TYPES) {

@@ -1,5 +1,6 @@
-import type { Prisma } from "@prisma/client";
+import type { Prisma, TechRequestStatus } from "@prisma/client";
 import type { ComplianceStatus } from "@/platform/compliance/rules";
+import type { ClearanceSummary } from "@/platform/clearance";
 import type { AudienceCondition, ConditionOp } from "./types";
 
 export type PersonFieldKind = "text" | "enum" | "multiEnum" | "boolean";
@@ -13,6 +14,13 @@ export type AudienceCtx = {
    * and injects it here. See loadComplianceStatusMap.
    */
   complianceStatusByPerson?: Map<string, ComplianceStatus>;
+  /**
+   * Full clearance per active-term member, keyed by id. Required only when a
+   * clearance-derived condition (isCleared, learningComplete) is present:
+   * clearance is derived (profile + HIPAA + training + learning + EHS), never a
+   * stored column, so resolveAudience precomputes it via loadClearanceMap.
+   */
+  clearanceByPerson?: Map<string, ClearanceSummary>;
 };
 
 export type PersonFieldDef = {
@@ -42,6 +50,9 @@ const COMPLIANCE_OPTIONS: { value: ComplianceStatus; label: string }[] = [
 ];
 
 const MATCH_NOBODY: Prisma.PersonWhereInput = { id: { in: [] } };
+
+/** IT support ticket statuses that count as "open" (not resolved/closed/cancelled). */
+const OPEN_TECH_STATUSES: TechRequestStatus[] = ["SUBMITTED", "IN_PROGRESS", "AWAITING_REQUESTER", "AWAITING_YNHH"];
 
 const TEXT_OPERATORS: ConditionOp[] = [
   "contains",
@@ -128,7 +139,14 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
       { value: "ACTIVE", label: "Active" },
       { value: "OFFBOARDED", label: "Offboarded" },
     ],
-    compile: (cond) => ({ status: cond.value as "ACTIVE" | "OFFBOARDED" }),
+    // An empty value must never compile to `{ status: undefined }` (which Prisma
+    // treats as "no filter", matching EVERYONE). Mirror the match-nobody safety
+    // the text/enum fields use on a blank value.
+    compile: (cond) => {
+      const value = typeof cond.value === "string" ? cond.value.trim() : "";
+      if (value === "") return MATCH_NOBODY;
+      return { status: value as "ACTIVE" | "OFFBOARDED" };
+    },
   },
   {
     key: "role",
@@ -140,11 +158,19 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
       { value: "DIRECTOR", label: "Director" },
       { value: "VOLUNTEER", label: "Volunteer" },
     ],
-    compile: (cond, ctx) => ({
-      memberships: {
-        some: { termId: ctx.activeTermId ?? "", status: "ACTIVE", kind: cond.value as "DIRECTOR" | "VOLUNTEER" },
-      },
-    }),
+    // An empty value must never compile to `{ kind: "" }` (invalid Track enum,
+    // Prisma throws a 500) nor `{ kind: undefined }` (dropped, matching EVERY
+    // active member). Mirror the match-nobody safety the status field uses: only
+    // the two valid Track values pass through.
+    compile: (cond, ctx) => {
+      const value = typeof cond.value === "string" ? cond.value.trim() : "";
+      if (value !== "DIRECTOR" && value !== "VOLUNTEER") return MATCH_NOBODY;
+      return {
+        memberships: {
+          some: { termId: ctx.activeTermId ?? "", status: "ACTIVE", kind: value },
+        },
+      };
+    },
   },
   {
     key: "department",
@@ -237,6 +263,116 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
       cond.op === "isFalse"
         ? { disciplinaryActions: { none: {} } }
         : { disciplinaryActions: { some: {} } },
+  },
+  {
+    key: "hasApprovedStrike",
+    label: "Has an approved strike",
+    group: "Records",
+    kind: "boolean",
+    operators: ["isTrue", "isFalse"],
+    compile: (cond) =>
+      cond.op === "isFalse"
+        ? { incidentSubjectLinks: { none: { strikeDecision: "APPROVED" } } }
+        : { incidentSubjectLinks: { some: { strikeDecision: "APPROVED" } } },
+  },
+  {
+    key: "hasOpenTechTicket",
+    label: "Has an open IT support ticket",
+    group: "Records",
+    kind: "boolean",
+    operators: ["isTrue", "isFalse"],
+    compile: (cond) =>
+      cond.op === "isFalse"
+        ? { techRequests: { none: { status: { in: OPEN_TECH_STATUSES } } } }
+        : { techRequests: { some: { status: { in: OPEN_TECH_STATUSES } } } },
+  },
+  {
+    key: "hasVerifiedCertificate",
+    label: "Has a verified HIPAA certificate",
+    group: "Records",
+    kind: "boolean",
+    operators: ["isTrue", "isFalse"],
+    compile: (cond) =>
+      cond.op === "isFalse"
+        ? { hipaaCertificates: { none: { verifiedAt: { not: null } } } }
+        : { hipaaCertificates: { some: { verifiedAt: { not: null } } } },
+  },
+  {
+    key: "addedToEhs",
+    label: "Added to Yale EHS",
+    group: "Attributes",
+    kind: "boolean",
+    operators: ["isTrue", "isFalse"],
+    compile: (cond) => ({ addedToEhs: cond.op === "isTrue" }),
+  },
+  {
+    key: "completedVolunteerTraining",
+    label: "Completed volunteer training (this term)",
+    group: "Status & roles",
+    kind: "boolean",
+    operators: ["isTrue", "isFalse"],
+    compile: (cond, ctx) => {
+      const some = { termId: ctx.activeTermId ?? "", track: "VOLUNTEER" as const, status: "COMPLETE" as const };
+      return cond.op === "isFalse"
+        ? { trainings: { none: some } }
+        : { trainings: { some } };
+    },
+  },
+  {
+    key: "flaggedForOffboarding",
+    label: "Flagged for offboarding (this term)",
+    group: "Status & roles",
+    kind: "boolean",
+    operators: ["isTrue", "isFalse"],
+    compile: (cond, ctx) => {
+      const some = { termId: ctx.activeTermId ?? "" };
+      return cond.op === "isFalse"
+        ? { offboardFlags: { none: some } }
+        : { offboardFlags: { some } };
+    },
+  },
+  {
+    key: "isCleared",
+    label: "Cleared to volunteer (full clearance)",
+    group: "Status & roles",
+    kind: "boolean",
+    operators: ["isTrue", "isFalse"],
+    // Derived from full onboarding clearance (profile + HIPAA + training + learning +
+    // EHS), precomputed per active-term member by resolveAudience via loadClearanceMap.
+    compile: (cond, ctx) => {
+      if (!ctx.clearanceByPerson) {
+        throw new Error(
+          "isCleared audience requires a precomputed clearance map; resolveAudience must supply ctx.clearanceByPerson",
+        );
+      }
+      const want = cond.op === "isTrue";
+      const ids: string[] = [];
+      for (const [personId, c] of ctx.clearanceByPerson) {
+        if (c.cleared === want) ids.push(personId);
+      }
+      return { id: { in: ids } };
+    },
+  },
+  {
+    key: "learningComplete",
+    label: "Completed all assigned learning",
+    group: "Status & roles",
+    kind: "boolean",
+    operators: ["isTrue", "isFalse"],
+    compile: (cond, ctx) => {
+      if (!ctx.clearanceByPerson) {
+        throw new Error(
+          "learningComplete audience requires a precomputed clearance map; resolveAudience must supply ctx.clearanceByPerson",
+        );
+      }
+      const wantComplete = cond.op === "isTrue";
+      const ids: string[] = [];
+      for (const [personId, c] of ctx.clearanceByPerson) {
+        const learningDone = !c.missing.includes("learning");
+        if (learningDone === wantComplete) ids.push(personId);
+      }
+      return { id: { in: ids } };
+    },
   },
 ];
 

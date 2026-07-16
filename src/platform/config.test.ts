@@ -242,4 +242,25 @@ describe("loadConfig", () => {
     const config = loadConfig(base);
     expect(config.TEAMS_CLINIC_GROUP_ID).toBeUndefined();
   });
+
+  // --- Portal base URL (custom application subdomain) ---
+
+  it("leaves PORTAL_BASE_URL undefined when absent", () => {
+    const config = loadConfig(base);
+    expect(config.PORTAL_BASE_URL).toBeUndefined();
+  });
+
+  it("treats an empty PORTAL_BASE_URL as unset (does not crash boot)", () => {
+    const config = loadConfig({ ...base, PORTAL_BASE_URL: "" });
+    expect(config.PORTAL_BASE_URL).toBeUndefined();
+  });
+
+  it("accepts a valid PORTAL_BASE_URL", () => {
+    const config = loadConfig({ ...base, PORTAL_BASE_URL: "https://apply.havenfreeclinic.org" });
+    expect(config.PORTAL_BASE_URL).toBe("https://apply.havenfreeclinic.org");
+  });
+
+  it("rejects a non-empty PORTAL_BASE_URL that is not a URL, naming the variable", () => {
+    expect(() => loadConfig({ ...base, PORTAL_BASE_URL: "not-a-url" })).toThrowError(/PORTAL_BASE_URL/);
+  });
 });

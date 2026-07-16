@@ -1,0 +1,45 @@
+import { describe, it, expect } from "vitest";
+import { SYSTEM_FIELDS, DEFAULT_CONTRACT_LAYOUT, defaultContractLayout } from "./system-fields";
+import { parseContractLayout, type AgreementBlock, type SystemFieldBlock } from "./layout";
+
+describe("system fields + default layout", () => {
+  it("marks name, email, epic, hipaa as core", () => {
+    expect(SYSTEM_FIELDS.name.core).toBe(true);
+    expect(SYSTEM_FIELDS.email.core).toBe(true);
+    expect(SYSTEM_FIELDS.epic.core).toBe(true);
+    expect(SYSTEM_FIELDS.hipaa.core).toBe(true);
+  });
+
+  it("DEFAULT_CONTRACT_LAYOUT validates and reproduces today's fields", () => {
+    const layout = parseContractLayout(DEFAULT_CONTRACT_LAYOUT);
+    const systemKeys = layout.blocks
+      .filter((b): b is SystemFieldBlock => b.kind === "system_field")
+      .map((b) => b.systemKey);
+    // parity: every field on today's onboard-form is represented
+    for (const k of ["name","email","netId","phone","dob","dietary","yaleAffiliation","gradYear","epic","spanish","licensedRN","hipaa","initials"]) {
+      expect(systemKeys).toContain(k);
+    }
+    const agreements = layout.blocks
+      .filter((b): b is AgreementBlock => b.kind === "agreement")
+      .map((b) => b.id);
+    expect(agreements).toEqual(["agreement", "professionalism", "training"]);
+  });
+
+  it("default agreement bodies are empty for parity with today's form", () => {
+    const layout = parseContractLayout(DEFAULT_CONTRACT_LAYOUT);
+    for (const b of layout.blocks) if (b.kind === "agreement") expect(b.body).toBe("");
+  });
+});
+
+describe("defaultContractLayout(track)", () => {
+  it("volunteer default keeps the three agreements", () => {
+    const ids = defaultContractLayout("VOLUNTEER").blocks.filter((b): b is AgreementBlock => b.kind === "agreement").map((b) => b.id);
+    expect(ids).toEqual(["agreement", "professionalism", "training"]);
+  });
+  it("director default includes a data-privacy agreement the volunteer default lacks", () => {
+    const dirIds = defaultContractLayout("DIRECTOR").blocks.filter((b) => b.kind === "agreement").map((b) => (b as AgreementBlock).id);
+    const volIds = defaultContractLayout("VOLUNTEER").blocks.filter((b) => b.kind === "agreement").map((b) => (b as AgreementBlock).id);
+    expect(dirIds).toContain("data_privacy");
+    expect(volIds).not.toContain("data_privacy");
+  });
+});

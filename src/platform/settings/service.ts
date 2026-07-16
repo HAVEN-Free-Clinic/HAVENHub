@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { config } from "@/platform/config";
+import { log } from "@/platform/logging";
 import { SETTINGS, getSettingDef, type SettingDef, type SettingInput } from "./registry";
 
 const TTL_MS = 30_000;
@@ -18,7 +19,9 @@ export function _resetSettingsCache(): void {
 function resolveStored(def: SettingDef<unknown>, raw: unknown): { value: unknown; ok: boolean } {
   const parsed = def.schema.safeParse(raw);
   if (parsed.success) return { value: parsed.data, ok: true };
-  console.warn(`[settings] invalid stored value for "${def.key}"; using default`, parsed.error.issues);
+  log.warn(`[settings] invalid stored value for "${def.key}"; using default`, {
+    issues: JSON.stringify(parsed.error.issues),
+  });
   return { value: def.envDefault(), ok: false };
 }
 
@@ -63,7 +66,7 @@ export type ResolvedSetting = {
 
 /** Resolve every setting in a category for rendering a form group. */
 export async function getCategory(category: string): Promise<ResolvedSetting[]> {
-  const defs = SETTINGS.filter((d) => d.category === category);
+  const defs = SETTINGS.filter((d) => d.category === category && !d.hidden);
   const rows = await prisma.setting.findMany({
     where: { key: { in: defs.map((d) => d.key) } },
   });
@@ -75,7 +78,10 @@ export async function getCategory(category: string): Promise<ResolvedSetting[]> 
     if (overrides.has(def.key)) {
       const r = resolveStored(def, overrides.get(def.key));
       value = r.value;
-      isOverridden = r.ok;
+      // A stored row exists, so the setting is overridden even if the value is
+      // invalid (value falls back to the default for display). Keep isOverridden
+      // true so the Reset control stays available to clear the orphan row.
+      isOverridden = true;
     }
     return {
       key: def.key,

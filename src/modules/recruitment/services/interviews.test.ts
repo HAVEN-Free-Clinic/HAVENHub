@@ -33,9 +33,17 @@ it("creates an interview for a director cycle within scope", async () => {
   expect(iv.decision).toBe("PENDING");
 });
 
-it("rejects creating an interview on a volunteer cycle", async () => {
-  const { srr, application } = await seed("VOLUNTEER");
-  await expect(createInterview(application.id, "EDUC", srr.id)).rejects.toBeInstanceOf(InterviewError);
+it("rejects creating an interview for a volunteer cycle (interviews are director-track only)", async () => {
+  // Volunteer applications are decided directly by the routed department
+  // (decideRoutedApplication), with no interview.
+  const term = await prisma.term.create({ data: { code: "FA26", name: "Fall", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
+  const educ = await prisma.department.create({ data: { code: "EDUC", name: "Education" } });
+  const director = await prisma.person.create({ data: { name: "Dir", status: "ACTIVE" } });
+  await prisma.termMembership.create({ data: { personId: director.id, termId: term.id, departmentId: educ.id, kind: "DIRECTOR", status: "ACTIVE" } });
+  const cycle = await prisma.recruitmentCycle.create({ data: { track: "VOLUNTEER", termId: term.id, title: "V", publicSlug: "v", departments: ["EDUC"], createdById: director.id, status: "OPEN" } });
+  const applicant = await prisma.applicant.create({ data: { cycleId: cycle.id, firstName: "A", lastName: "B", email: "a@y.edu", emailLower: "a@y.edu" } });
+  const application = await prisma.application.create({ data: { cycleId: cycle.id, applicantId: applicant.id, answers: {}, applicantType: "NEW", departmentChoices: ["EDUC"], routedDepartmentCode: "EDUC" } });
+  await expect(createInterview(application.id, "EDUC", director.id)).rejects.toBeInstanceOf(InterviewError);
 });
 
 it("rejects a director scheduling outside their department", async () => {
@@ -47,6 +55,14 @@ it("rejects a duplicate interview", async () => {
   const { director, application } = await seed();
   await createInterview(application.id, "EDUC", director.id);
   await expect(createInterview(application.id, "EDUC", director.id)).rejects.toBeInstanceOf(InterviewError);
+});
+
+it("rejects creating an interview for a DRAFT application (audit3 L1)", async () => {
+  const { director, application } = await seed();
+  await prisma.application.update({ where: { id: application.id }, data: { status: "DRAFT" } });
+  // A DRAFT application is not a real submission, so it must not be interviewed.
+  await expect(createInterview(application.id, "EDUC", director.id)).rejects.toBeInstanceOf(InterviewError);
+  expect(await prisma.interview.count({ where: { applicationId: application.id } })).toBe(0);
 });
 
 it("schedules, panels, and invites; invite requires a time and stamps invitedAt + queues email", async () => {
@@ -114,6 +130,9 @@ it("notifies a panelist (in-app) when added to a panel by someone else", async (
   const { director, panelist, application } = await seed();
   const iv = await createInterview(application.id, "EDUC", director.id);
   await addPanelist(iv.id, panelist.id, false, director.id);
+  // The panel row must persist alongside the notification: the notify() runs
+  // post-commit (audit M11), so the panelist add and its assignment note both land.
+  expect(await prisma.interviewPanelist.count({ where: { interviewId: iv.id, personId: panelist.id } })).toBe(1);
   const notes = await prisma.notification.findMany({ where: { personId: panelist.id } });
   expect(notes).toHaveLength(1);
   expect(notes[0].type).toBe("recruitment.interview_assignment");

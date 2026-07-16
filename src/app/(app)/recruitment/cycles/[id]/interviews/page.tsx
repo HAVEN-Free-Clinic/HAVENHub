@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { requirePersonSession } from "@/platform/auth/session";
+import { requirePermission, requirePersonSession } from "@/platform/auth/session";
+import { DateTime } from "@/platform/dates/display";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { listInterviewsForReview } from "@/modules/recruitment/services/interviews";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
@@ -11,16 +12,19 @@ import { Badge } from "@/platform/ui/badge";
 
 type Tone = "default" | "brand" | "success" | "warning" | "critical";
 
+const decisionLabels: Record<string, string> = { ACCEPT: "Accepted", REJECT: "Rejected", WAITLIST: "Waitlisted", PENDING: "Pending" };
+
 function status(iv: { scheduledAt: Date | null; decision: string }): { label: string; tone: Tone } {
   if (iv.decision !== "PENDING") {
     const tone: Tone = iv.decision === "ACCEPT" ? "success" : iv.decision === "REJECT" ? "critical" : "warning";
-    return { label: iv.decision, tone };
+    return { label: decisionLabels[iv.decision] ?? iv.decision, tone };
   }
   return iv.scheduledAt ? { label: "Scheduled", tone: "brand" } : { label: "Offered", tone: "default" };
 }
 
 export default async function InterviewsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  await requirePermission("recruitment.access");
   const person = await requirePersonSession();
   const cycle = await getCycle(id);
   if (!cycle) notFound();
@@ -63,7 +67,7 @@ export default async function InterviewsPage({ params }: { params: Promise<{ id:
                 <TD>
                   <Badge tone={s.tone}>{s.label}</Badge>
                 </TD>
-                <TD className="text-foreground-soft">{iv.scheduledAt ? iv.scheduledAt.toLocaleString() : "TBD"}</TD>
+                <TD className="text-foreground-soft"><DateTime value={iv.scheduledAt} fallback="TBD" /></TD>
                 <TD className="text-foreground-soft">{iv.panelists.length}</TD>
                 <TD className="text-foreground-soft">
                   {iv.evaluations.length}/{iv.panelists.length}

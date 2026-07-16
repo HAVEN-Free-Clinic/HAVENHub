@@ -22,7 +22,12 @@ export function TemplateEditor(props: {
 }) {
   const [subject, setSubject] = useState(props.initialSubject);
   const [body, setBody] = useState(props.initialBody);
-  const [mode, setMode] = useState<Mode>("rich");
+  // TipTap (StarterKit only) cannot represent tables, <style>, or a full HTML
+  // document, so the rich editor would silently drop them on the first edit. For
+  // such templates -- the layout, and any body with a table/style/doctype/head --
+  // lock the editor to HTML source mode so the structured markup round-trips intact.
+  const richUnsafe = props.isLayout || /<table|<style|<!doctype|<head/i.test(props.initialBody);
+  const [mode, setMode] = useState<Mode>(richUnsafe ? "source" : "rich");
   const sourceRef = useRef<HTMLTextAreaElement>(null);
 
   const editor = useEditor({
@@ -34,7 +39,7 @@ export function TemplateEditor(props: {
     ],
     content: props.initialBody,
     editorProps: {
-      attributes: { class: "tt-content" },
+      attributes: { class: "tt-content", "aria-label": "Message body" },
     },
     onUpdate: ({ editor }) => setBody(editor.getHTML()),
   });
@@ -42,7 +47,13 @@ export function TemplateEditor(props: {
   // Sample context: each variable mapped to its sample value, for the live preview.
   const sample = useMemo(() => {
     const ctx: Record<string, unknown> = {};
-    for (const v of props.variables) ctx[v.name] = v.sampleValue;
+    for (const v of props.variables) {
+      // A boolean-flag variable carries a "true"/"false" sample string, but the
+      // template engine treats any non-empty string as truthy, so a "false" flag
+      // would still render its {{#if}} block here. Coerce those to real booleans so
+      // the preview matches how the flag renders at send time.
+      ctx[v.name] = v.sampleValue === "true" ? true : v.sampleValue === "false" ? false : v.sampleValue;
+    }
     // The layout's {{ brandColor }} is injected at render time, not a per-template
     // variable, so seed it with the resolved setting; the preview band and links
     // then match what recipients actually see.
@@ -50,7 +61,10 @@ export function TemplateEditor(props: {
     return ctx;
   }, [props.variables, props.brandColor]);
 
-  const previewSubject = renderTemplate(subject, sample);
+  // The subject is a plain-text header: every send path renders it with
+  // escape:false (renderEmail / recruitment render), so the preview must too or it
+  // shows HTML entities (e.g. O&#39;Brien) the recipient never sees.
+  const previewSubject = renderTemplate(subject, sample, { escape: false });
   // For a normal template, wrap the rendered body inside the (effective) layout.
   // For the layout template itself, the body IS the layout; render it directly.
   const previewDoc = props.isLayout
@@ -63,6 +77,9 @@ export function TemplateEditor(props: {
 
   function switchMode(next: Mode) {
     if (next === mode) return;
+    // Locked to source for templates whose HTML the rich editor cannot represent:
+    // switching to rich would strip tables/style/structure on the next edit.
+    if (next === "rich" && richUnsafe) return;
     // Source -> rich: push the textarea's HTML into the editor.
     if (next === "rich") editor?.commands.setContent(body, { emitUpdate: false });
     setMode(next);
@@ -105,27 +122,28 @@ export function TemplateEditor(props: {
         </Field>
 
         <div className="mt-4 flex items-center justify-between">
-          <label className="text-sm font-medium text-foreground-soft">Message body</label>
+          <span className="text-sm font-medium text-foreground-soft">Message body</span>
           <div className="inline-flex overflow-hidden rounded-lg border border-border text-xs">
             {/* eslint-disable-next-line no-restricted-syntax -- segmented editor-mode toggle, active state applied inline */}
-            <button type="button" onClick={() => switchMode("rich")} className={`px-2 py-1 ${mode === "rich" ? "bg-brand text-white" : "bg-surface text-foreground-soft"}`}>
+            <button type="button" aria-pressed={mode === "rich"} onClick={() => switchMode("rich")} disabled={richUnsafe} title={richUnsafe ? "This template uses tables or a full HTML layout that the formatted editor can't represent. Edit it as HTML." : undefined} className={`px-2 py-1 ${mode === "rich" ? "bg-brand text-white" : "bg-surface text-foreground-soft"} ${richUnsafe ? "cursor-not-allowed opacity-40" : ""}`}>
               Formatted
             </button>
             {/* eslint-disable-next-line no-restricted-syntax -- segmented editor-mode toggle, active state applied inline */}
-            <button type="button" onClick={() => switchMode("source")} className={`px-2 py-1 ${mode === "source" ? "bg-brand text-white" : "bg-surface text-foreground-soft"}`}>
+            <button type="button" aria-pressed={mode === "source"} onClick={() => switchMode("source")} className={`px-2 py-1 ${mode === "source" ? "bg-brand text-white" : "bg-surface text-foreground-soft"}`}>
               HTML
             </button>
           </div>
         </div>
 
         {mode === "rich" ? (
-          <div className="mt-1 rounded-xl border border-border">
+          <div className="mt-1 overflow-hidden rounded-xl border border-border">
             <Toolbar editor={editor} />
             <EditorContent editor={editor} />
           </div>
         ) : (
           <Textarea
             ref={sourceRef}
+            aria-label="Message body"
             value={body}
             onChange={(e) => setBody(e.target.value)}
             rows={16}
@@ -199,38 +217,38 @@ function Toolbar({ editor }: { editor: Editor | null }) {
   return (
     <div className="flex flex-wrap items-center gap-1 border-b border-border p-1">
       {/* eslint-disable-next-line no-restricted-syntax -- editor toolbar toggle, active state applied via btn() helper */}
-      <button type="button" className={btn(editor.isActive("bold"))} onClick={() => editor.chain().focus().toggleBold().run()}>
+      <button type="button" aria-pressed={editor.isActive("bold")} className={btn(editor.isActive("bold"))} onClick={() => editor.chain().focus().toggleBold().run()}>
         <strong>B</strong>
       </button>
       {/* eslint-disable-next-line no-restricted-syntax -- editor toolbar toggle, active state applied via btn() helper */}
-      <button type="button" className={btn(editor.isActive("italic"))} onClick={() => editor.chain().focus().toggleItalic().run()}>
+      <button type="button" aria-pressed={editor.isActive("italic")} className={btn(editor.isActive("italic"))} onClick={() => editor.chain().focus().toggleItalic().run()}>
         <em>I</em>
       </button>
       <span className="mx-1 h-5 w-px bg-border" />
       {/* eslint-disable-next-line no-restricted-syntax -- editor toolbar toggle, active state applied via btn() helper */}
-      <button type="button" className={btn(editor.isActive("heading", { level: 2 }))} onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}>
+      <button type="button" aria-pressed={editor.isActive("heading", { level: 2 })} className={btn(editor.isActive("heading", { level: 2 }))} onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}>
         H2
       </button>
       {/* eslint-disable-next-line no-restricted-syntax -- editor toolbar toggle, active state applied via btn() helper */}
-      <button type="button" className={btn(editor.isActive("heading", { level: 3 }))} onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}>
+      <button type="button" aria-pressed={editor.isActive("heading", { level: 3 })} className={btn(editor.isActive("heading", { level: 3 }))} onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}>
         H3
       </button>
       <span className="mx-1 h-5 w-px bg-border" />
       {/* eslint-disable-next-line no-restricted-syntax -- editor toolbar toggle, active state applied via btn() helper */}
-      <button type="button" className={btn(editor.isActive("bulletList"))} onClick={() => editor.chain().focus().toggleBulletList().run()}>
+      <button type="button" aria-pressed={editor.isActive("bulletList")} className={btn(editor.isActive("bulletList"))} onClick={() => editor.chain().focus().toggleBulletList().run()}>
         • List
       </button>
       {/* eslint-disable-next-line no-restricted-syntax -- editor toolbar toggle, active state applied via btn() helper */}
-      <button type="button" className={btn(editor.isActive("orderedList"))} onClick={() => editor.chain().focus().toggleOrderedList().run()}>
+      <button type="button" aria-pressed={editor.isActive("orderedList")} className={btn(editor.isActive("orderedList"))} onClick={() => editor.chain().focus().toggleOrderedList().run()}>
         1. List
       </button>
       {/* eslint-disable-next-line no-restricted-syntax -- editor toolbar toggle, active state applied via btn() helper */}
-      <button type="button" className={btn(editor.isActive("blockquote"))} onClick={() => editor.chain().focus().toggleBlockquote().run()}>
+      <button type="button" aria-pressed={editor.isActive("blockquote")} className={btn(editor.isActive("blockquote"))} onClick={() => editor.chain().focus().toggleBlockquote().run()}>
         &ldquo; Quote
       </button>
       <span className="mx-1 h-5 w-px bg-border" />
       {/* eslint-disable-next-line no-restricted-syntax -- editor toolbar toggle, active state applied via btn() helper */}
-      <button type="button" className={btn(editor.isActive("link"))} onClick={setLink}>
+      <button type="button" aria-pressed={editor.isActive("link")} className={btn(editor.isActive("link"))} onClick={setLink}>
         Link
       </button>
       <span className="mx-1 h-5 w-px bg-border" />
@@ -250,7 +268,9 @@ function Toolbar({ editor }: { editor: Editor | null }) {
 function EditorStyles() {
   return (
     <style>{`
-      .tt-content { min-height: 16rem; padding: 12px 14px; font-size: 14px; line-height: 1.6; color: #1e293b; outline: none; }
+      /* The editing surface mirrors the light email output and stays light in
+         both app themes, so the dark body text always has a readable background. */
+      .tt-content { min-height: 16rem; padding: 12px 14px; font-size: 14px; line-height: 1.6; color: #1e293b; background: #ffffff; outline: none; }
       .tt-content:focus { outline: none; }
       .tt-content p { margin: 0 0 10px; }
       .tt-content h2 { font-size: 18px; font-weight: 600; margin: 16px 0 8px; }

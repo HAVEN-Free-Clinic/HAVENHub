@@ -7,12 +7,12 @@ export async function resetDb() {
   // CASCADE handles FK ordering. (RESTART IDENTITY would be a no-op: all PKs are cuid text.)
   await prisma.$executeRawUnsafe(
     `TRUNCATE "EhsTrainingDepartment", "EhsCompletion", "EhsTraining", "CourseProgress", "CourseDepartment", "Course",
-              "QuizAttempt", "Training", "Evaluation", "InterviewPanelist", "Interview", "OnboardingContract", "Acceptance", "Application", "Applicant", "Subcommittee", "FormField", "FormSection", "RecruitmentCycleEmail", "RecruitmentCycle",
+              "QuizAttempt", "Training", "Evaluation", "InterviewPanelist", "Interview", "OnboardingContract", "Acceptance", "CommitteeScore", "Application", "Applicant", "Subcommittee", "FormField", "FormSection", "RecruitmentCycleEmail", "RecruitmentCycle",
               "ShiftRequest", "ScheduleDay", "RhdClinic", "RhdAttending",
               "ShiftAssignment", "HipaaCertificate", "RoleAssignment", "RoleGrant", "Role", "TermMembership",
-              "DepartmentDelegation", "Department", "Term", "Person", "AuditLog",
-              "OffboardFlag", "EpicRequest", "YnhhTicket", "DisciplinaryAction", "Notification", "EmailLog", "EmailCampaignRun", "EmailCampaign", "EmailTemplate",
-              "ComplianceReminder", "MailCredential", "Setting", "EmailSenderRule",
+              "DepartmentDelegation", "Department", "TermOnboardingStep", "Term", "Person", "AuditLog",
+              "OffboardFlag", "EpicRequest", "YnhhTicket", "TechRequest", "TechRequestComment", "TechRequestAttachment", "DisciplinaryAction", "Notification", "EmailLog", "EmailCampaignRun", "EmailCampaign", "EmailTemplate",
+              "ComplianceReminder", "ReminderDispatch", "MailCredential", "Setting", "EmailSenderRule",
               "ApplicantPortalToken" CASCADE`
   );
   // The settings resolver holds a process-global 30s in-memory cache. We just

@@ -27,12 +27,13 @@
  */
 
 import type { Department, OffboardFlag, Person } from "@prisma/client";
-import { prisma } from "@/platform/db";
+import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { can } from "@/platform/rbac/engine";
 import { manageableDepartmentIds } from "@/platform/departments";
 import { setPersonStatusField } from "@/platform/people";
 import { getActiveTerm } from "@/platform/terms/active-term";
+import { assertNotLastActiveAdminTx } from "@/platform/rbac/last-admin";
 
 // ---------------------------------------------------------------------------
 // Typed errors
@@ -121,25 +122,41 @@ export async function flagForOffboarding(
   note?: string
 ): Promise<OffboardFlag> {
   const activeTerm = await getActiveTerm();
-  if (!activeTerm) throw new OffboardForbiddenError("No active term -- cannot flag for offboarding.");
+  if (!activeTerm) throw new OffboardForbiddenError("No active term. Cannot flag for offboarding.");
 
   const allowed = await actorCanManageTarget(actorPersonId, personId, activeTerm);
   if (!allowed) throw new OffboardForbiddenError();
 
-  // Check for an existing flag first (upsert-safe, avoids double audit).
+  // Check for an existing flag first (fast path, avoids a second audit on the
+  // common sequential re-flag).
   const existing = await prisma.offboardFlag.findUnique({
     where: { personId_termId: { personId, termId: activeTerm.id } },
   });
   if (existing) return existing;
 
-  const flag = await prisma.offboardFlag.create({
-    data: {
-      personId,
-      termId: activeTerm.id,
-      flaggedById: actorPersonId,
-      note: note ?? null,
-    },
-  });
+  let flag: OffboardFlag;
+  try {
+    flag = await prisma.offboardFlag.create({
+      data: {
+        personId,
+        termId: activeTerm.id,
+        flaggedById: actorPersonId,
+        note: note ?? null,
+      },
+    });
+  } catch (err) {
+    // Two concurrent flags both passed the findUnique above; the loser hits
+    // @@unique([personId, termId]). Return the winner's row with no second audit,
+    // honoring the "upsert-safe / never throws a unique-constraint error"
+    // contract instead of surfacing a raw P2002 500 (audit F14).
+    if (isUniqueConstraintError(err)) {
+      const raced = await prisma.offboardFlag.findUnique({
+        where: { personId_termId: { personId, termId: activeTerm.id } },
+      });
+      if (raced) return raced;
+    }
+    throw err;
+  }
 
   await recordAudit({
     actorPersonId,
@@ -161,7 +178,7 @@ export async function flagForOffboarding(
  */
 export async function unflag(actorPersonId: string, personId: string): Promise<void> {
   const activeTerm = await getActiveTerm();
-  if (!activeTerm) throw new OffboardForbiddenError("No active term -- cannot unflag.");
+  if (!activeTerm) throw new OffboardForbiddenError("No active term. Cannot unflag.");
 
   const allowed = await actorCanManageTarget(actorPersonId, personId, activeTerm);
   if (!allowed) throw new OffboardForbiddenError();
@@ -220,7 +237,14 @@ export async function executeOffboard(actorPersonId: string, personId: string): 
   });
 
   // 1. Flip status (atomically removes memberships + handles Epic). Flags stay.
-  await setPersonStatusField(actorPersonId, personId, "OFFBOARDED");
+  //    Refuse to offboard the last person who can reach the admin module (an
+  //    offboarded person can no longer authenticate). The guard runs INSIDE the
+  //    status-flip transaction (assertInvariant), so the check and the flip commit
+  //    atomically: two concurrent offboards of the last two admins cannot both pass
+  //    a separate read and leave zero admins (write skew). Throws LastAdminError.
+  await setPersonStatusField(actorPersonId, personId, "OFFBOARDED", {
+    assertInvariant: (tx) => assertNotLastActiveAdminTx(tx, personId),
+  });
 
   // 2. Status is durably OFFBOARDED -- now delete the flags (the safe last step).
   await prisma.offboardFlag.deleteMany({ where: { personId } });
@@ -314,7 +338,11 @@ export async function offboardingView(viewerPersonId: string): Promise<{
   if (!isExecutor) return { departments, flagged: null };
 
   const allFlags = await prisma.offboardFlag.findMany({
-    where: { termId: activeTerm.id },
+    // Only still-ACTIVE people. The /admin/people offboard path flips
+    // Person.status without deleting OffboardFlag rows (only executeOffboard
+    // deletes them), so without this filter an already-offboarded person lingers
+    // in the flagged queue with an empty department list.
+    where: { termId: activeTerm.id, person: { status: "ACTIVE" } },
     include: {
       person: true,
       flaggedBy: { select: { name: true } },
@@ -358,5 +386,8 @@ export async function offboardingView(viewerPersonId: string): Promise<{
     departmentNames: (deptNamesByPersonId.get(f.personId) ?? []).sort(),
   }));
 
+  
+
   return { departments, flagged };
 }
+

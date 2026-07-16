@@ -17,6 +17,13 @@ import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { ClinicDatesEditor } from "@/modules/admin/components/clinic-dates-editor";
 import { RosterPanel } from "@/modules/admin/components/roster-panel";
+import { OnboardingStepsEditor } from "@/modules/onboarding/components/onboarding-steps-editor";
+import {
+  listStepConfig,
+  setStepConfig,
+  ONBOARDING_STEP_KINDS,
+  STEP_DEFAULTS,
+} from "@/modules/onboarding/services/step-config";
 
 type PageProps = {
   params: Promise<{ id: string }>;
@@ -27,6 +34,7 @@ type PageProps = {
     copied?: string;
     skipped?: string;
     rosterError?: string;
+    stepsSaved?: string;
   }>;
 };
 
@@ -34,7 +42,7 @@ export default async function TermDetailPage({ params, searchParams }: PageProps
   const session = await requireAnyPermission(["admin.manage_terms", "admin.manage_roster"]);
   const canManageTerms = await can(session.personId, "admin.manage_terms");
   const { id } = await params;
-  const { error, saved, addq, copied, skipped, rosterError } = await searchParams;
+  const { error, saved, addq, copied, skipped, rosterError, stepsSaved } = await searchParams;
 
   // Fetch the term with membership count.
   const term = await prisma.term.findUnique({
@@ -59,6 +67,9 @@ export default async function TermDetailPage({ params, searchParams }: PageProps
   const saturdayIsos = saturdaysBetween(termStartIso, termEndIso).map((d) =>
     d.toISOString().slice(0, 10)
   );
+
+  // Effective onboarding steps for the editor (defaults + this term's overrides).
+  const stepConfig = canManageTerms ? await listStepConfig(id) : [];
 
   // ---------------------------------------------------------------------------
   // Server actions
@@ -142,6 +153,25 @@ export default async function TermDetailPage({ params, searchParams }: PageProps
     redirect(`/admin/terms/${id}`);
   }
 
+  async function saveStepsAction(formData: FormData) {
+    "use server";
+    const actorSession = await requirePermission("admin.manage_terms");
+    for (const kind of ONBOARDING_STEP_KINDS) {
+      const enabled = formData.get(`step.${kind}.enabled`) === "on";
+      const blocking = formData.get(`step.${kind}.blocking`) === "on";
+      const labelRaw = ((formData.get(`step.${kind}.label`) as string) ?? "").trim();
+      const orderRaw = parseInt((formData.get(`step.${kind}.order`) as string) ?? "", 10);
+      await setStepConfig(actorSession.personId, id, kind, {
+        enabled,
+        // Empty or default-matching label keeps the built-in copy (no override stored).
+        label: labelRaw === "" || labelRaw === STEP_DEFAULTS[kind].label ? null : labelRaw,
+        blocking,
+        order: Number.isFinite(orderRaw) ? orderRaw : STEP_DEFAULTS[kind].order,
+      });
+    }
+    redirect(`/admin/terms/${id}?stepsSaved=1`);
+  }
+
   const statusBadge =
     term.status === "ACTIVE" ? (
       <Badge tone="brand">Active</Badge>
@@ -198,13 +228,25 @@ export default async function TermDetailPage({ params, searchParams }: PageProps
         <section>
           <SectionHeader className="mb-4">Clinic dates</SectionHeader>
           <p className="mb-4 text-sm text-muted-foreground">
-            {term.clinicDates.length} date(s) scheduled. All dates are stored and rendered in UTC.
+            {term.clinicDates.length} date(s) scheduled. These are calendar dates with no time of day, so they read the same in every time zone.
           </p>
           <ClinicDatesEditor
             termId={id}
             clinicDates={term.clinicDates}
             saturdayIsos={saturdayIsos}
             updateAction={clinicDatesAction}
+          />
+        </section>
+      )}
+
+      {/* Onboarding steps section */}
+      {canManageTerms && (
+        <section>
+          <SectionHeader className="mb-4">Onboarding steps</SectionHeader>
+          <OnboardingStepsEditor
+            steps={stepConfig}
+            saveAction={saveStepsAction}
+            saved={stepsSaved === "1"}
           />
         </section>
       )}
@@ -217,6 +259,7 @@ export default async function TermDetailPage({ params, searchParams }: PageProps
         copiedCount={copied !== undefined ? Number(copied) : undefined}
         skippedCount={skipped !== undefined ? Number(skipped) : undefined}
         rosterError={rosterError}
+        canManage={await can(session.personId, "admin.manage_roster")}
       />
     </div>
   );

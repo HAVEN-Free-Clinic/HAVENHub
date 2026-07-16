@@ -294,7 +294,7 @@ describe("compliance-escalation via renderEmail", () => {
     };
     const { html } = await renderEmail("compliance-escalation", complianceEscalationContext(params));
     expect(html).not.toContain("not HIPAA compliant");
-    expect(html).toContain("outstanding required EHS training");
+    expect(html).toContain("outstanding clearance requirements");
     expect(html).toContain("BBP Clinical");
   });
 

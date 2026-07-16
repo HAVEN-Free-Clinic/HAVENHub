@@ -4,6 +4,7 @@ import {
   type SectionVisibilityInput,
   type VisibilityContext,
 } from "./visibility";
+import { isFieldVisible } from "./field-visibility";
 
 export type FieldType =
   | "SHORT_TEXT"
@@ -17,7 +18,8 @@ export type FieldType =
   | "DATE"
   | "FILE"
   | "DEPARTMENT_CHOICE"
-  | "SUBCOMMITTEE_RANK";
+  | "SUBCOMMITTEE_RANK"
+  | "SIGNATURE";
 
 export type FieldValidation = {
   min?: number;
@@ -26,6 +28,12 @@ export type FieldValidation = {
   maxFileMB?: number;
   acceptedTypes?: string[];
   rankCount?: number;
+  /**
+   * Soft target word count for paragraph (LONG_TEXT) fields. Surfaces a live
+   * "127 / 300 words" counter to applicants but is NEVER enforced -- it is
+   * deliberately absent from fieldSchema() so going over cannot block a submit.
+   */
+  wordLimit?: number;
 };
 
 export type FieldDef = {
@@ -34,9 +42,17 @@ export type FieldDef = {
   required: boolean;
   options?: { value: string; label: string }[] | null;
   validation?: FieldValidation | null;
+  visibleWhen?: unknown;
 };
 
 export type SectionDef = SectionVisibilityInput & { fields: FieldDef[] };
+
+/** buildApplicationSchema/requiredFileKeys need the current answers so they can
+ *  skip fields whose visibleWhen condition is unmet. Optional (defaults to {})
+ *  so callers that never use conditional fields are unaffected. */
+export type SchemaContext = VisibilityContext & {
+  answers?: Record<string, string | string[] | undefined>;
+};
 
 /** Optional-string helper: required maps to min length 1. */
 function reqString(required: boolean, min?: number): z.ZodTypeAny {
@@ -68,7 +84,12 @@ function fieldSchema(field: FieldDef): z.ZodTypeAny {
       let n = z.coerce.number();
       if (v.min !== undefined) n = n.min(v.min);
       if (v.max !== undefined) n = n.max(v.max);
-      return field.required ? n : n.optional();
+      // HTML number inputs always submit their key ("" when blank) and Number("") === 0,
+      // so a bare z.coerce.number() would silently accept a required blank as 0 and store
+      // 0 for an untouched optional field. Normalize "" (and null) to undefined: the
+      // required branch then rejects it (coerces to NaN), the optional branch drops it.
+      const blankToUndefined = (val: unknown) => (val === "" || val == null ? undefined : val);
+      return field.required ? z.preprocess(blankToUndefined, n) : z.preprocess(blankToUndefined, n.optional());
     }
     case "DATE": {
       const s = z.string().refine((val) => !Number.isNaN(Date.parse(val)), "invalid date");
@@ -88,7 +109,23 @@ function fieldSchema(field: FieldDef): z.ZodTypeAny {
       let arr = z.array(item);
       if (field.required) arr = arr.min(1);
       if (v.max !== undefined) arr = arr.max(v.max);
-      return field.required ? arr : arr.optional();
+      // Checkboxes sharing one name serialize to a scalar string when exactly one is
+      // checked, an array when several are, and are absent when none are (see the apply
+      // action serializer). Without normalization a single selection reaches the schema
+      // as a string and fails "expected array", hard-blocking an applicant who answered.
+      const toRequired = (val: unknown) => (val == null || val === "" ? [] : Array.isArray(val) ? val : [val]);
+      const toOptional = (val: unknown) => {
+        if (val == null || val === "") return undefined;
+        const a = Array.isArray(val) ? val : [val];
+        return a.length > 0 ? a : undefined;
+      };
+      return field.required ? z.preprocess(toRequired, arr) : z.preprocess(toOptional, arr.optional());
+    }
+    case "SIGNATURE": {
+      // The pad submits a PNG data URL string. Required means one must be present;
+      // it is converted to a Blob file-ref in submissions.ts after validation.
+      const s = z.string().startsWith("data:image/png;base64,");
+      return field.required ? s : z.union([s, z.literal("")]).optional();
     }
     case "FILE":
       return z.any().optional();
@@ -100,13 +137,15 @@ function fieldSchema(field: FieldDef): z.ZodTypeAny {
 /** Build a zod schema for the scalar answers of every visible section. */
 export function buildApplicationSchema(
   sections: SectionDef[],
-  ctx: VisibilityContext
+  ctx: SchemaContext
 ): z.ZodType<Record<string, unknown>> {
   const shape: Record<string, z.ZodTypeAny> = {};
+  const answers = ctx.answers ?? {};
   for (const section of visibleSections(sections, ctx)) {
     for (const field of section.fields) {
       if (field.type === "FILE") continue;
       if (field.type === "SUBCOMMITTEE_RANK") continue; // ordered ranking is validated + hoisted in submissions
+      if (!isFieldVisible(field.visibleWhen, answers)) continue; // condition-hidden: excluded from validation
       shape[field.key] = fieldSchema(field);
     }
   }
@@ -114,11 +153,12 @@ export function buildApplicationSchema(
 }
 
 /** Keys of required FILE fields that are visible for this context. */
-export function requiredFileKeys(sections: SectionDef[], ctx: VisibilityContext): string[] {
+export function requiredFileKeys(sections: SectionDef[], ctx: SchemaContext): string[] {
   const keys: string[] = [];
+  const answers = ctx.answers ?? {};
   for (const section of visibleSections(sections, ctx)) {
     for (const field of section.fields) {
-      if (field.type === "FILE" && field.required) keys.push(field.key);
+      if (field.type === "FILE" && field.required && isFieldVisible(field.visibleWhen, answers)) keys.push(field.key);
     }
   }
   return keys;

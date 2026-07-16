@@ -647,14 +647,17 @@ admin setting.
   session a pooler cannot guarantee). Local development uses a Docker Compose
   Postgres on port 5434, with a separate test database.
 - **Scheduled jobs (cron HTTP endpoints under `/api/cron`):**
-  - `/api/cron/email`: per-minute. The sole drainer of the email and Teams
-    queues and the campaign dispatcher. Requires a Vercel plan with per-minute
-    cron and a `CRON_SECRET`.
+  - `/api/cron/email`: every 30 minutes. A backstop that retries failed sends
+    and dispatches scheduled campaigns; primary delivery now fires on enqueue
+    (a post-response flush from `queueEmail` / `queueTeamsMessage`). Concurrent
+    drains are safe via an atomic per-row `lockedAt` claim. Requires a
+    `CRON_SECRET`.
   - `/api/cron/nightly`: nightly compliance recomputation across all people.
-  - `/api/cron/reminders`: daily HIPAA reminder enqueue (drained by the email
-    job, never directly, to avoid double-sending).
-  - `/api/cron/recruitment-drafts`: daily abandoned-draft sweep (registered in
-    `vercel.json` at 04:00, scoped to closed cycles).
+  - `/api/cron/reminders`: daily HIPAA reminder enqueue (delivered by the
+    post-response enqueue flush, or by the email backstop tick; it never drains
+    directly).
+  - `/api/cron/recruitment-drafts`: daily abandoned-draft sweep (scheduled
+    externally via cron-job.org at 04:00 UTC, scoped to closed cycles).
 - **Health:** a `/api/health` endpoint reports service health.
 - **Worktree and migration hygiene:** the repository uses git worktrees for
   parallel work; system-role and other seed-backed changes need a backfill

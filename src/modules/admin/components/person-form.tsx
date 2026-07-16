@@ -14,6 +14,7 @@ import { Checkbox } from "@/platform/ui/checkbox";
 import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
+import { DateOnly } from "@/platform/dates/display";
 
 type PersonFormProps = {
   /** The server action to bind to the form's action prop. */
@@ -49,7 +50,7 @@ export function PersonForm({ action, person, error, saved, children }: PersonFor
         {saved && <Alert tone="success">{saved}</Alert>}
 
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Full Name">
+          <Field label="Full Name" required>
             <Input
               name="name"
               defaultValue={person?.name ?? ""}
@@ -136,7 +137,7 @@ export function PersonForm({ action, person, error, saved, children }: PersonFor
             </label>
             {person?.spanishVerifiedAt && (
               <p className="text-xs text-subtle-foreground">
-                Verified on {new Date(person.spanishVerifiedAt).toLocaleDateString()}
+                Verified on <DateOnly value={new Date(person.spanishVerifiedAt)} />
               </p>
             )}
           </div>

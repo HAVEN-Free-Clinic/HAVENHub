@@ -15,8 +15,8 @@ type RouteCase = {
 // Each entry: the path to visit, the role that should reach the page, and an
 // optional role that should be bounced. Admin is always a valid allowed role
 // (holds *, exempt from the onboarding gate). For routes open to any
-// authenticated person (/, /my-info, /notifications, /training, /clinic*,
-// /learning, /schedule, /schedule/full) there is no meaningful denied role.
+// authenticated person (/, /my-info, /notifications, /training, /learning,
+// /schedule, /schedule/full) there is no meaningful denied role.
 const ROUTES: RouteCase[] = [
   // Hub root: requirePersonSession only
   { path: "/", allowed: "admin" },
@@ -35,13 +35,21 @@ const ROUTES: RouteCase[] = [
   { path: "/admin/email", allowed: "admin", denied: "volunteer" },
   { path: "/admin/email/campaigns", allowed: "admin", denied: "volunteer" },
   { path: "/admin/email/templates", allowed: "admin", denied: "volunteer" },
-  { path: "/admin/itcm", allowed: "admin", denied: "volunteer" },
+  { path: "/support/epic", allowed: "admin", denied: "volunteer" },
   { path: "/admin/notifications", allowed: "admin", denied: "volunteer" },
 
-  // Clinic: no module accessPermission (open to any person session).
-  // /clinic unconditionally redirects to /clinic/avs; use finalPath to reflect that.
-  { path: "/clinic", allowed: "admin", finalPath: "/clinic/avs" },
-  { path: "/clinic/avs", allowed: "admin" },
+  // Clinic: requireModuleAccess("clinic") = clinic.access. No baseline system
+  // role carries it, so the Volunteer role is denied at the layout. /clinic
+  // unconditionally redirects to /clinic/avs; use finalPath to reflect that.
+  { path: "/clinic", allowed: "admin", denied: "volunteer", finalPath: "/clinic/avs" },
+  { path: "/clinic/avs", allowed: "admin", denied: "volunteer" },
+
+  // Incidents: no module accessPermission (open to any signed-in matched
+  // person so anyone can file a report). The Strikes sub-page gates on
+  // incidents.view_strikes at the page level; the Volunteer system role does
+  // not hold it (only Director and Volunteer Operations Manager do), so
+  // volunteer is denied there despite the module layout being open.
+  { path: "/incidents/strikes", allowed: "admin", denied: "volunteer" },
 
   // Learning: requireModuleAccess("learning") = learning.access.
   // All three seeded roles carry learning.access so the module root has no
@@ -78,8 +86,6 @@ const ROUTES: RouteCase[] = [
   { path: "/volunteers", allowed: "admin", denied: "volunteer" },
   { path: "/volunteers/master", allowed: "admin", denied: "volunteer" },
   { path: "/volunteers/offboarding", allowed: "admin", denied: "volunteer" },
-  { path: "/volunteers/epic", allowed: "admin", denied: "volunteer" },
-  { path: "/volunteers/disciplinary", allowed: "admin", denied: "volunteer" },
   { path: "/volunteers/spanish-review", allowed: "admin", denied: "volunteer" },
 ];
 

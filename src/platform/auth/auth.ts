@@ -3,14 +3,24 @@ import MicrosoftEntraID from "next-auth/providers/microsoft-entra-id";
 import Credentials from "next-auth/providers/credentials";
 import type { Person } from "@prisma/client";
 import { config } from "@/platform/config";
-import { resolvePersonForLogin, type LoginProfile } from "./match-person";
+import {
+  resolvePersonForLogin,
+  applicantEmailFromClaims,
+  firstNameFromClaims,
+  entraTenantAllowed,
+  type LoginProfile,
+} from "./match-person";
 import { recordAudit } from "@/platform/audit";
+import { prisma } from "@/platform/db";
+import { captureEvent, GROUP_TERM, type PersonProperties } from "@/platform/posthog/capture";
 
 type EntraClaims = {
   oid?: string;
   tid?: string;
   preferred_username?: string;
   email?: string;
+  given_name?: string;
+  name?: string;
 };
 
 function profileFromEntra(
@@ -83,45 +93,88 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     error: "/login",
   },
   callbacks: {
-    async signIn({ user, account, profile }) {
+    async signIn({ account, profile }) {
       if (account?.provider === "credentials") return true; // authorize() validated
-      const person = await resolveEntraLogin(
-        profile,
-        account?.providerAccountId,
-        user.email
-      );
-      if (!person) {
-        const claims = (profile ?? {}) as EntraClaims;
-        await recordAudit({
-          action: "auth.login_unmatched",
-          entityType: "Auth",
-          after: {
-            upn: claims.preferred_username ?? null,
-            email: claims.email ?? user.email ?? null,
-          },
-        });
-        return "/welcome";
-      }
-      return true;
+      // Admit any Yale-tenant account. Recognized members get a personId in jwt();
+      // everyone else becomes a prospective applicant (personId null). Hub access
+      // stays gated by requirePersonSession, so this only unlocks the apply portal.
+      const claims = (profile ?? {}) as EntraClaims;
+      return entraTenantAllowed(claims, config.AZURE_AD_TENANT_ID);
     },
     async jwt({ token, user, account, profile }) {
       if (account) {
         // Initial sign-in only
+        let personId: string | null = null;
         if (account.provider === "credentials" && user) {
           token.personId = user.id;
+          personId = user.id ?? null;
         } else {
+          const claims = (profile ?? {}) as EntraClaims;
           const person = await resolveEntraLogin(
             profile,
             account.providerAccountId,
             user?.email
           );
           token.personId = person?.id ?? null;
+          personId = person?.id ?? null;
+          // Verified Yale address, stamped whether or not we recognize the Person,
+          // so the apply portal can identify a brand-new applicant by email.
+          token.applicantEmail = applicantEmailFromClaims(claims, user?.email);
+          // First name from the Entra sign-in, so the portal can greet a brand-new
+          // applicant (no Person yet) by name instead of their email local part.
+          token.applicantFirstName = firstNameFromClaims(claims);
+          if (!person) {
+            await recordAudit({
+              action: "auth.applicant_login",
+              entityType: "Auth",
+              after: {
+                upn: claims.preferred_username ?? null,
+                email: token.applicantEmail as string | null,
+              },
+            });
+          }
+        }
+        if (personId) {
+          // Enrich the person profile with their active-term departments and the
+          // term name at login (low frequency). Best-effort: a query hiccup must
+          // never block sign-in. A person can hold several departments in a term,
+          // so `departments` is an array and there is no single-department group.
+          let termId: string | undefined;
+          const setProps: PersonProperties = {};
+          try {
+            const term = await prisma.term.findFirst({
+              where: { status: "ACTIVE" },
+              orderBy: { startDate: "desc" },
+              select: { id: true, name: true },
+            });
+            if (term) {
+              termId = term.id;
+              setProps.active_term = term.name;
+              const memberships = await prisma.termMembership.findMany({
+                where: { personId, termId: term.id, status: "ACTIVE" },
+                select: { department: { select: { code: true } } },
+              });
+              const departments = [...new Set(memberships.map((m) => m.department.code))];
+              if (departments.length > 0) setProps.departments = departments;
+            }
+          } catch {
+            // best-effort enrichment
+          }
+          await captureEvent({
+            event: "user_signed_in",
+            distinctId: personId,
+            properties: { provider: account.provider },
+            groups: termId ? { [GROUP_TERM]: termId } : undefined,
+            setPersonProperties: Object.keys(setProps).length > 0 ? setProps : undefined,
+          });
         }
       }
       return token;
     },
     async session({ session, token }) {
       session.personId = (token.personId as string | null) ?? null;
+      session.applicantEmail = (token.applicantEmail as string | null) ?? null;
+      session.applicantFirstName = (token.applicantFirstName as string | null) ?? null;
       return session;
     },
   },

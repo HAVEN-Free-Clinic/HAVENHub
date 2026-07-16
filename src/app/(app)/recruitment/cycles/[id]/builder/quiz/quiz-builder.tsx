@@ -16,11 +16,12 @@ export type QuizQuestion = { id: string; label: string; options: Choice[]; corre
 export type QuizSection = { id: string; title: string; questions: QuizQuestion[] };
 
 export function QuizBuilder({
-  cycleId, cycleTitle, editable, sections,
+  cycleId, cycleTitle, editable, status, sections,
 }: {
   cycleId: string;
   cycleTitle: string;
   editable: boolean;
+  status: string;
   sections: QuizSection[];
 }) {
   const router = useRouter();
@@ -28,7 +29,11 @@ export function QuizBuilder({
   const [newSectionTitle, setNewSectionTitle] = useState("");
   const refresh = () => router.refresh();
 
-  // Quiz field edits are never "structural" in the service layer, so published-cycle protection here is UI-only: the disabled props below are the only guard. Keep them in sync with editable.
+  // Quiz field edits are never "structural" in the service layer (quiz sections
+  // never invalidate applicant answers), so this lock is UI-only -- the disabled
+  // props below are the only guard. editable now mirrors the relaxed
+  // form-builder guard: unlocked through OPEN/CLOSED, locked once ARCHIVED.
+  // Keep the disabled props in sync with editable.
 
   function addQuizSection() {
     const title = newSectionTitle.trim() || "Quiz";
@@ -47,11 +52,16 @@ export function QuizBuilder({
 
   return (
     <div className="space-y-4">
-      {!editable && <Alert tone="warning">This cycle is published. Quiz edits that change scoring are limited.</Alert>}
+      {status !== "DRAFT" && (
+        <Alert tone="warning">
+          This cycle is {status}. Applicants may have already submitted. Changes take effect for new submissions
+          immediately; existing answers are kept as-is and may no longer match the updated form.
+        </Alert>
+      )}
 
       <Card pad={false} className="overflow-hidden">
         <div className="h-2 bg-brand" aria-hidden />
-        <div className="p-5"><h1 className="text-lg font-semibold text-foreground">{cycleTitle}</h1><p className="text-sm text-muted-foreground">Training quiz</p></div>
+        <div className="p-5"><h2 className="text-lg font-semibold text-foreground">{cycleTitle}</h2><p className="text-sm text-muted-foreground">Training quiz</p></div>
       </Card>
 
       {sections.map((section) => (

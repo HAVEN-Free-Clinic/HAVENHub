@@ -8,13 +8,14 @@ const KEYS = [
   "recruitment.acceptance",
   "recruitment.interview_invite",
   "recruitment.interview_assignment",
+  "recruitment.review_digest",
   "recruitment.onboarding",
   "recruitment.application_received",
   "recruitment.portal_link",
 ];
 
 describe("recruitment email descriptors", () => {
-  it("exports all six keys", () => {
+  it("exports all seven keys", () => {
     expect(recruitmentDescriptors.map((d) => d.key).sort()).toEqual([...KEYS].sort());
   });
 

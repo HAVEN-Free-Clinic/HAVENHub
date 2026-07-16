@@ -1,5 +1,8 @@
+import type { Prisma, PrismaClient } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { getAccessToken } from "@/platform/email/oauth";
+
+type Db = PrismaClient | Prisma.TransactionClient;
 
 export interface ResolveIdentityDeps {
   /** Injected fetch for tests. */
@@ -16,10 +19,18 @@ export interface ResolveIdentityDeps {
  * onto the Person row so future sends skip the lookup. Returns null when no
  * identity can be resolved (no entra id, no email, or a failed/!ok lookup).
  * Never throws.
+ *
+ * The cache write is performed on the provided `db` handle (defaulting to the
+ * global client). notify() passes its transaction handle so the write JOINS the
+ * caller's transaction rather than racing it on a separate pooled connection,
+ * which previously risked a lock cycle (caller tx holds the Person row, this
+ * write waits on it, the caller waits on this write) when notify() runs inside a
+ * transaction.
  */
 export async function resolveTeamsUser(
   person: { id: string; entraObjectId: string | null; contactEmail: string | null },
-  deps: ResolveIdentityDeps = {}
+  deps: ResolveIdentityDeps = {},
+  db: Db = prisma
 ): Promise<string | null> {
   if (person.entraObjectId) return person.entraObjectId;
   if (!person.contactEmail) return null;
@@ -34,7 +45,7 @@ export async function resolveTeamsUser(
     if (!res.ok) return null;
     const json = (await res.json()) as { id?: string };
     if (!json.id) return null;
-    await prisma.person.update({
+    await db.person.update({
       where: { id: person.id },
       data: { entraObjectId: json.id },
     });

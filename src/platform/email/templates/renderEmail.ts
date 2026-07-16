@@ -28,7 +28,11 @@ export async function renderEmail(
   const subjectSource = byKey.get(key)?.subject ?? descriptor.defaultSubject;
   const bodySource = byKey.get(key)?.body ?? descriptor.defaultBody;
 
-  const subject = renderTemplate(subjectSource, context);
+  // The subject is a plain-text header, so render it without HTML-escaping;
+  // otherwise a value with "&" or "'" (e.g. a name like O'Brien) is garbled into
+  // an entity. The layout re-escapes {{ subject }} for the HTML <title>, so this
+  // is not an XSS vector. Bodies stay escaped since they render as HTML.
+  const subject = renderTemplate(subjectSource, context, { escape: false });
   const renderedBody = renderTemplate(bodySource, context);
 
   // The layout's header band + link color track the admin's brand color. Inject
@@ -58,7 +62,10 @@ export async function renderInlineEmail(
   context: Record<string, unknown>,
   layoutSource?: string,
 ): Promise<RenderedEmail> {
-  const subject = renderTemplate(input.subject, context);
+  // Plain-text subject header: render without HTML-escaping so per-recipient merge
+  // vars (firstName, ...) with "&" or "'" are not garbled. The layout re-escapes
+  // {{ subject }} for the <title>, so this is not an XSS vector; the body stays escaped.
+  const subject = renderTemplate(input.subject, context, { escape: false });
   const renderedBody = renderTemplate(input.body, context);
   const src = layoutSource ?? (await loadLayoutSource());
   const brandColor = await getSetting<string>("branding.brandColor");

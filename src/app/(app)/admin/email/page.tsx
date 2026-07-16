@@ -35,6 +35,7 @@ import { prisma } from "@/platform/db";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
+import { NavForm } from "@/platform/ui/nav-form";
 import { Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
@@ -43,7 +44,7 @@ import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Alert } from "@/platform/ui/alert";
 import { StatCard } from "@/platform/ui/stat-card";
 import { Card } from "@/platform/ui/card";
-import { fmtDateTime } from "@/platform/dates";
+import { DateTime } from "@/platform/dates/display";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -220,15 +221,21 @@ export default async function EmailPage({ searchParams }: PageProps) {
   async function testSenderAction(formData: FormData) {
     "use server";
     const a = await requirePermission("admin.manage_sync");
-    const fromEmail = ((formData.get("fromEmail") as string | null) ?? "").trim();
+    const rawFromEmail = ((formData.get("fromEmail") as string | null) ?? "").trim();
     const fromName = ((formData.get("fromName") as string | null) ?? "").trim();
     const person = await prisma.person.findUnique({
       where: { id: a.personId },
       select: { contactEmail: true },
     });
     const toEmail = person?.contactEmail ?? "";
-    if (fromEmail === "" || toEmail === "") {
-      redirect(`/admin/email?senderError=${encodeURIComponent("A from address and a recipient are required to send a test.")}`);
+    // A blank "from" means "use the global default" (as the card says), so resolve
+    // it rather than erroring; only the recipient is genuinely required.
+    const fromEmail = rawFromEmail || ((await getSetting<string>("email.sender")) ?? "");
+    if (toEmail === "") {
+      redirect(`/admin/email?senderError=${encodeURIComponent("Add a contact email to your profile to receive the test.")}`);
+    }
+    if (fromEmail === "") {
+      redirect(`/admin/email?senderError=${encodeURIComponent("No global send-from address is configured yet. Set one before sending a test.")}`);
     }
     try {
       await sendSenderTest(a.personId, { toEmail, fromEmail, fromName: fromName || null });
@@ -314,7 +321,7 @@ export default async function EmailPage({ searchParams }: PageProps) {
           <p className="text-sm font-medium text-foreground-soft">Mailer connection</p>
           {mailConn.connected ? (
             <p className="mt-1 text-sm text-muted-foreground">
-              Connected as {mailConn.account ?? "unknown"} since {fmtDateTime(mailConn.connectedAt)}
+              Connected as {mailConn.account ?? "unknown"} since <DateTime value={mailConn.connectedAt} />
             </p>
           ) : (
             <p className="mt-1 text-sm text-muted-foreground">
@@ -413,7 +420,7 @@ export default async function EmailPage({ searchParams }: PageProps) {
       )}
 
       {/* Filter bar (GET form) */}
-      <form method="GET" className="flex flex-wrap items-end gap-3">
+      <NavForm className="flex flex-wrap items-end gap-3">
         <div className="w-36">
           <Select
             name="status"
@@ -453,7 +460,7 @@ export default async function EmailPage({ searchParams }: PageProps) {
         <Button type="submit" variant="outline" size="sm">
           Filter
         </Button>
-      </form>
+      </NavForm>
 
       {/* Table */}
       {rows.length === 0 ? (
@@ -503,10 +510,10 @@ export default async function EmailPage({ searchParams }: PageProps) {
                     )}
                   </TD>
                   <TD className="tabular-nums text-sm text-foreground-soft whitespace-nowrap">
-                    {fmtDateTime(row.createdAt)}
+                    <DateTime value={row.createdAt} />
                   </TD>
                   <TD className="tabular-nums text-sm text-foreground-soft whitespace-nowrap">
-                    {fmtDateTime(row.sentAt)}
+                    <DateTime value={row.sentAt} />
                   </TD>
                   <TD>
                     {row.status === "FAILED" && (

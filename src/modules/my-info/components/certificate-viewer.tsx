@@ -7,6 +7,8 @@ import { Alert } from "@/platform/ui/alert";
 import { Modal } from "@/platform/ui/modal";
 import { Button, buttonClasses } from "@/platform/ui/button";
 import { Field, Input } from "@/platform/ui/input";
+import { formatForDateInput } from "@/platform/dates";
+import { useTimeZone } from "@/platform/dates/client";
 
 type CertificateViewerProps = {
   certId: string;
@@ -21,6 +23,12 @@ type CertificateViewerProps = {
   canEditExistingDate?: boolean;
   /** Bound server action: (dateIso) => result. Required for entry to render. */
   onSetDate?: (dateIso: string) => Promise<{ error?: string }>;
+  /** True when the viewer may verify (holds manage_compliance or admin). */
+  canVerify?: boolean;
+  /** Whether the cert already carries a verified stamp. */
+  verified?: boolean;
+  /** Bound server action: () => result. Required for the Verify button to render. */
+  onVerify?: () => Promise<{ error?: string }>;
 };
 
 /**
@@ -32,6 +40,10 @@ type CertificateViewerProps = {
  * When canEditDate is true, onSetDate is provided, and the cert has no
  * completion date, a date-entry form appears in the footer so a compliance
  * manager can record the date read off the PDF. Saving also verifies the cert.
+ *
+ * When canVerify is true, onVerify is provided, and the cert already has a date
+ * but no verified stamp (PENDING_VERIFICATION), a Verify button appears so a
+ * compliance manager or admin can attest the cert after reviewing the PDF.
  */
 export function CertificateViewer({
   certId,
@@ -41,12 +53,16 @@ export function CertificateViewer({
   canEditDate,
   canEditExistingDate,
   onSetDate,
+  canVerify,
+  verified,
+  onVerify,
 }: CertificateViewerProps) {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
+  const zone = useTimeZone();
 
   const inlineHref = `/my-info/certificate/${certId}?inline=1`;
   const downloadHref = `/my-info/certificate/${certId}`;
@@ -57,6 +73,11 @@ export function CertificateViewer({
   const canOverwrite = Boolean(canEditExistingDate && onSetDate && hasDate);
   const showForm = canSetNew || (canOverwrite && editing);
   const isOverwrite = canOverwrite && editing;
+
+  // Verify targets the PENDING_VERIFICATION case: a self-uploaded cert that has a
+  // date but no verified stamp. Dateless certs verify via "Save and verify"
+  // above; already-verified certs need no button.
+  const canVerifyNow = Boolean(canVerify && onVerify && hasDate && !verified);
 
   const currentDateValue = completionDate
     ? completionDate.toISOString().split("T")[0]
@@ -78,8 +99,22 @@ export function CertificateViewer({
     });
   }
 
-  // Local-time YYYY-MM-DD so the date input's max matches the user's "today".
-  const today = new Date().toLocaleDateString("en-CA");
+  function handleVerify() {
+    if (!onVerify) return;
+    setError(null);
+    startTransition(async () => {
+      const result = await onVerify();
+      if (result?.error) {
+        setError(result.error);
+        return;
+      }
+      setOpen(false);
+      router.refresh();
+    });
+  }
+
+  // Clinic-local YYYY-MM-DD so the date input's max matches the clinic's "today".
+  const today = formatForDateInput(new Date(), zone);
 
   return (
     <>
@@ -138,18 +173,33 @@ export function CertificateViewer({
                     </Button>
                   )}
                 </form>
-              ) : canOverwrite ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setError(null);
-                    setEditing(true);
-                  }}
-                >
-                  Edit date
-                </Button>
+              ) : canOverwrite || canVerifyNow ? (
+                <div className="flex items-center gap-2">
+                  {canOverwrite && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setError(null);
+                        setEditing(true);
+                      }}
+                    >
+                      Edit date
+                    </Button>
+                  )}
+                  {canVerifyNow && (
+                    <Button
+                      type="button"
+                      variant="primary"
+                      size="sm"
+                      disabled={isPending}
+                      onClick={handleVerify}
+                    >
+                      {isPending ? "Verifying..." : "Verify"}
+                    </Button>
+                  )}
+                </div>
               ) : (
                 <span />
               )}

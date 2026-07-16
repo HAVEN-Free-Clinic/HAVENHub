@@ -11,7 +11,9 @@
  *   Non-compliant (EXPIRING_SOON | EXPIRED | UNKNOWN_DATE | NO_CERTIFICATE):
  *     1. Dedup window check: if lastRemindedAt is within COMPLIANCE_REMINDER_INTERVAL_DAYS,
  *        the person is skipped entirely (no reminder, no escalation evaluation).
- *     2. If no contactEmail, the person is skipped (state is not advanced).
+ *     2. If the person has neither a contactEmail nor a Teams identity, they are
+ *        skipped (state is not advanced). A Teams-reachable member without a
+ *        contactEmail is still reminded, mirroring the escalation path.
  *     3. A reminder email is queued; remindersSent is incremented; lastRemindedAt = now.
  *     4. Escalation fires once per non-compliant streak, guarded by escalatedAt:
  *        when the NEW remindersSent >= COMPLIANCE_ESCALATION_THRESHOLD AND escalatedAt
@@ -27,6 +29,7 @@
 
 import { prisma } from "@/platform/db";
 import { getSetting } from "@/platform/settings/service";
+import { log } from "@/platform/logging";
 import { complianceStatus, certExpiresAt } from "@/platform/compliance/rules";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { notify } from "@/platform/notifications/notify";
@@ -37,6 +40,18 @@ import {
 } from "./templates/compliance";
 import { loadEhsMissingMap } from "@/platform/ehs/services/status";
 import { isFullyCompliant } from "@/platform/ehs/engine/applicability";
+import { loadClearanceMap } from "@/platform/clearance";
+
+/**
+ * Human-readable, self-serviceable outstanding items beyond HIPAA and EHS (those
+ * two have their own dedicated copy in the templates). Keyed by onboarding task key.
+ */
+const REMINDER_ITEM_LABELS: Record<string, string> = {
+  profile: "Confirm your contact details in your profile",
+  training: "Finish this term's volunteer training",
+  directorTraining: "Finish this term's director training",
+  learning: "Complete your assigned learning courses",
+};
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -129,19 +144,43 @@ export async function runComplianceReminders(
   const baseUrl = await getSetting<string>("app.baseUrl");
   const brandColor = await getSetting<string>("branding.brandColor");
 
-  // 5. Load the EHS missing map for all active-term members once per run.
+  // 5. Load the EHS missing map + full clearance for all candidates once per run.
+  //    loadEhsMissingMap gives the EHS names for the template; loadClearanceMap gives
+  //    the overall cleared decision plus the non-HIPAA/non-EHS gaps (profile, training,
+  //    learning) so the reminder covers every item blocking clearance.
   const ehsMissingByPerson = await loadEhsMissingMap(termId);
+  // Clearance is used only for its profile/training/learning gaps (time-independent);
+  // HIPAA still comes from `status` below so the expiring-soon nudge is preserved.
+  const clearanceByPerson = await loadClearanceMap(personIds, termId);
 
   // 5 + 6 + 7. Process each candidate.
   for (const person of persons) {
     const cert = certMap.get(person.id) ?? null;
     const status = complianceStatus(cert, activeTerm.endDate, now);
     const existing = reminderMap.get(person.id) ?? null;
-    const ehsMissing = ehsMissingByPerson.get(person.id) ?? [];
-    const isCompliant = isFullyCompliant({ hipaaStatus: status, ehsMissingCount: ehsMissing.length });
+    const ehsMissingAll = ehsMissingByPerson.get(person.id) ?? [];
+    const clearance = clearanceByPerson.get(person.id);
+    // A term can disable the HIPAA/EHS onboarding step. loadClearanceMap drops a
+    // disabled step from `tasks`, so its absence means "not required this term":
+    // such an item must not block clearance, nag, or escalate. Neutralize a
+    // disabled leg for both the done-gate and the reminder body.
+    const hipaaEnabled = clearance?.tasks.some((t) => t.key === "hipaa") ?? true;
+    const ehsEnabled = clearance?.tasks.some((t) => t.key === "ehs") ?? true;
+    const effectiveStatus = hipaaEnabled ? status : "COMPLIANT";
+    const ehsMissing = ehsEnabled ? ehsMissingAll : [];
+    // Outstanding items beyond HIPAA/EHS (profile, training, learning), for the body.
+    const otherItems = (clearance?.missing ?? [])
+      .map((k) => REMINDER_ITEM_LABELS[k])
+      .filter((s): s is string => Boolean(s));
+    // Done when the (enabled) HIPAA + EHS legs are fully compliant (this keeps
+    // reminding on EXPIRING_SOON, the renewal nudge) AND there are no other
+    // outstanding items (profile/training/learning).
+    const isDone =
+      isFullyCompliant({ hipaaStatus: effectiveStatus, ehsMissingCount: ehsMissing.length }) &&
+      otherItems.length === 0;
 
-    // --- COMPLIANT ---
-    if (isCompliant) {
+    // --- Fully cleared: reset any lingering reminder state ---
+    if (isDone) {
       if (
         existing !== null &&
         (existing.remindersSent > 0 ||
@@ -162,25 +201,51 @@ export async function runComplianceReminders(
       continue;
     }
 
-    // --- Non-compliant ---
+    // --- Not cleared: remind (and escalate at threshold) ---
 
-    // a. Dedup window: skip entirely if within the interval.
-    if (existing?.lastRemindedAt !== null && existing?.lastRemindedAt !== undefined) {
-      const elapsed = now.getTime() - existing.lastRemindedAt.getTime();
-      if (elapsed < intervalMs) {
-        result.skipped++;
-        continue;
-      }
-    }
-
-    // b. No contact email: log a notice and skip (do not advance state).
-    if (!person.contactEmail) {
-      console.log(
-        `[reminders] Skipping person ${person.id} (${person.name}): no contactEmail.`
+    // a. No way to reach the member: skip without advancing state. A member
+    //    reachable on Teams but without a contactEmail is still reminded --
+    //    notify() delivers via Teams and skips the email leg -- mirroring how
+    //    sendEscalations reaches directors that have only an entraObjectId. This
+    //    check runs BEFORE the claim so an unreachable person never gets a row.
+    if (!person.contactEmail && !person.entraObjectId) {
+      log.info(
+        `[reminders] Skipping person ${person.id} (${person.name}): no contactEmail or Teams identity.`,
+        { personId: person.id },
       );
       result.skipped++;
       continue;
     }
+
+    // b. Atomic dedup claim. Ensure a row exists, then claim it for THIS tick only
+    //    when it is outside the reminder interval, incrementing remindersSent in the
+    //    same statement. updateMany is atomic, so two overlapping cron runs cannot
+    //    both win the claim, which prevents duplicate reminders and duplicate
+    //    escalations. count === 0 means we are inside the dedup window (previously an
+    //    early `continue`) or a concurrent run already claimed this tick. Claiming
+    //    before the send trades a possible lost reminder on a mid-run crash
+    //    (recovered next interval) for guaranteed no-duplicate delivery.
+    const cutoff = new Date(now.getTime() - intervalMs);
+    await prisma.complianceReminder.upsert({
+      where: { personId: person.id },
+      create: { personId: person.id, remindersSent: 0 },
+      update: {},
+    });
+    const claim = await prisma.complianceReminder.updateMany({
+      where: {
+        personId: person.id,
+        OR: [{ lastRemindedAt: null }, { lastRemindedAt: { lt: cutoff } }],
+      },
+      data: { lastRemindedAt: now, remindersSent: { increment: 1 }, lastStatus: status },
+    });
+    if (claim.count === 0) {
+      result.skipped++;
+      continue;
+    }
+    const claimed = await prisma.complianceReminder.findUniqueOrThrow({
+      where: { personId: person.id },
+      select: { remindersSent: true, escalatedAt: true },
+    });
 
     // c. Send reminder.
     const expiresAt =
@@ -190,11 +255,12 @@ export async function runComplianceReminders(
       "compliance-reminder",
       complianceReminderContext({
         personName: person.name,
-        status,
+        status: effectiveStatus,
         expiresAt,
         appUrl: baseUrl,
         brandColor,
         ehsMissing,
+        otherItems,
       }),
     );
     await notify(prisma, {
@@ -212,37 +278,18 @@ export async function runComplianceReminders(
       },
     });
 
-    const newRemindersSent = (existing?.remindersSent ?? 0) + 1;
-
-    // Determine whether escalation fires in this step.
-    const shouldEscalate =
-      newRemindersSent >= threshold && (existing?.escalatedAt ?? null) === null;
-
-    // d. Queue escalation emails BEFORE writing escalatedAt. This way a crash
-    //    between the queue call and the upsert re-queues on the next run
-    //    (at-least-once) rather than leaving escalatedAt set with no emails sent.
+    // d. Escalate once per non-compliant streak when the threshold is reached.
+    //    Queue the escalation emails BEFORE stamping escalatedAt (guarded on
+    //    escalatedAt: null so it is atomic and idempotent) so a crash between the two
+    //    re-queues next run rather than marking escalated with nothing sent.
+    const shouldEscalate = claimed.remindersSent >= threshold && claimed.escalatedAt === null;
     if (shouldEscalate) {
-      await sendEscalations(person, termId, status, ehsMissing, result);
+      await sendEscalations(person, termId, effectiveStatus, ehsMissing, otherItems, result);
+      await prisma.complianceReminder.updateMany({
+        where: { personId: person.id, escalatedAt: null },
+        data: { escalatedAt: now },
+      });
     }
-
-    // Upsert the ComplianceReminder row. escalatedAt is set here, after
-    // escalation emails have already been queued above.
-    await prisma.complianceReminder.upsert({
-      where: { personId: person.id },
-      create: {
-        personId: person.id,
-        remindersSent: newRemindersSent,
-        lastRemindedAt: now,
-        lastStatus: status,
-        escalatedAt: shouldEscalate ? now : null,
-      },
-      update: {
-        remindersSent: newRemindersSent,
-        lastRemindedAt: now,
-        lastStatus: status,
-        escalatedAt: shouldEscalate ? now : existing?.escalatedAt ?? null,
-      },
-    });
 
     result.remindersSent++;
   }
@@ -269,6 +316,7 @@ async function sendEscalations(
   termId: string,
   status: import("@/platform/compliance/rules").ComplianceStatus,
   ehsMissing: string[],
+  otherItems: string[],
   result: ReminderRunResult
 ): Promise<void> {
   // Load the volunteer's active-term ACTIVE memberships with department info.
@@ -347,6 +395,7 @@ async function sendEscalations(
         departmentName: director.departmentName,
         status,
         ehsMissing,
+        otherItems,
       }),
     );
     await notify(prisma, {

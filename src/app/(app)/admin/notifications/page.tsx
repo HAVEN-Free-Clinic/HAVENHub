@@ -23,6 +23,7 @@ import { prisma } from "@/platform/db";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
+import { NavForm } from "@/platform/ui/nav-form";
 import { Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
@@ -30,7 +31,7 @@ import { Pagination } from "@/platform/ui/pagination";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Alert } from "@/platform/ui/alert";
 import { StatCard } from "@/platform/ui/stat-card";
-import { fmtDateTime } from "@/platform/dates";
+import { DateTime } from "@/platform/dates/display";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -131,11 +132,11 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
 
   async function retryAction(formData: FormData) {
     "use server";
-    await requirePermission("admin.manage_sync");
+    const actor = await requirePermission("admin.manage_sync");
     const id = (formData.get("id") as string | null) ?? "";
 
     try {
-      await retryTeamsMessage(id);
+      await retryTeamsMessage(actor.personId, id);
     } catch (err) {
       if (
         err instanceof TeamsMessageNotFoundError ||
@@ -217,7 +218,7 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
       </div>
 
       {/* Filter bar (GET form) */}
-      <form method="GET" className="flex flex-wrap items-end gap-3">
+      <NavForm className="flex flex-wrap items-end gap-3">
         <div className="w-36">
           <Select
             name="status"
@@ -257,7 +258,7 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
         <Button type="submit" variant="outline" size="sm">
           Filter
         </Button>
-      </form>
+      </NavForm>
 
       {/* Table */}
       {rows.length === 0 ? (
@@ -307,10 +308,10 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
                     )}
                   </TD>
                   <TD className="tabular-nums text-sm text-foreground-soft whitespace-nowrap">
-                    {fmtDateTime(row.createdAt)}
+                    <DateTime value={row.createdAt} />
                   </TD>
                   <TD className="tabular-nums text-sm text-foreground-soft whitespace-nowrap">
-                    {fmtDateTime(row.sentAt)}
+                    <DateTime value={row.sentAt} />
                   </TD>
                   <TD>
                     {(row.status === "FAILED" || row.status === "FALLBACK" || row.status === "LOGGED") && (

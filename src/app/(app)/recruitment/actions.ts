@@ -1,6 +1,11 @@
 "use server";
 import { redirect } from "next/navigation";
 import { requirePermission } from "@/platform/auth/session";
+import { captureEvent } from "@/platform/posthog/capture";
+import { termGroup, termGroupForCycle } from "@/platform/posthog/groups";
+import { parseZonedInput } from "@/platform/dates";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
+import { isUniqueConstraintError } from "@/platform/db";
 import { runAction } from "@/platform/actions";
 import {
   createCycle, publishCycle, closeCycle, reopenCycle, archiveCycle, setAcceptsRenewals,
@@ -8,6 +13,7 @@ import {
 } from "@/modules/recruitment/services/cycles";
 import { setTrainingCycle, updateQuizSettings, TrainingStateError } from "@/modules/recruitment/services/training";
 import { RecruitmentAuthError } from "@/modules/recruitment/services/review";
+import { isReservedSlug } from "@/modules/recruitment/services/portal-routing";
 
 function slugify(input: string): string {
   return input.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
@@ -18,12 +24,43 @@ export async function createCycleAction(formData: FormData) {
   const title = String(formData.get("title") ?? "").trim();
   const track = String(formData.get("track") ?? "VOLUNTEER") as "VOLUNTEER" | "DIRECTOR";
   const termId = String(formData.get("termId") ?? "");
-  const departments = String(formData.get("departments") ?? "").split(",").map((d) => d.trim()).filter(Boolean);
+  // The Departments field is a multi-select that submits one value per chosen
+  // department (mirrors setCycleDepartmentsAction); read them all back.
+  const departments = formData.getAll("departments").map(String).map((d) => d.trim()).filter(Boolean);
   const slug = slugify(String(formData.get("publicSlug") || title));
+  // Default on (the New-cycle form ships the checkbox checked); unchecked seeds the
+  // minimal name+email form so an admin can build from scratch.
+  const seedDefaultForm = formData.get("seedDefaultForm") === "on";
   if (!title || !slug) {
     redirect(`/recruitment/cycles/new?error=${encodeURIComponent("Title is required.")}`);
   }
-  const cycle = await createCycle({ track, termId, title, publicSlug: slug, departments, acceptsRenewals: false, createdById: person.personId });
+  if (isReservedSlug(slug)) {
+    redirect(`/recruitment/cycles/new?error=${encodeURIComponent(`"${slug}" is a reserved word. Choose a different public link.`)}`);
+  }
+  let cycle;
+  try {
+    cycle = await createCycle({ track, termId, title, publicSlug: slug, departments, acceptsRenewals: false, createdById: person.personId }, seedDefaultForm);
+    await captureEvent({
+      distinctId: person.personId,
+      event: "recruitment_cycle_created",
+      properties: { track, term_id: termId, department_count: departments.length },
+      groups: termGroup(termId),
+    });
+  } catch (err) {
+    // publicSlug is unique. A colliding slug throws P2002; surface the same
+    // friendly reserved-word flow instead of the generic error page (audit3 L2).
+    // Only claim a slug collision when the failing constraint is actually
+    // publicSlug -- any other unique violation (e.g. a duplicate template field
+    // key) must not be mislabeled as "public link already taken".
+    if (isUniqueConstraintError(err)) {
+      const target = String(err.meta?.target ?? "");
+      if (!target || target.includes("publicSlug")) {
+        redirect(`/recruitment/cycles/new?error=${encodeURIComponent(`"${slug}" is already taken as a public link. Choose a different one.`)}`);
+      }
+      redirect(`/recruitment/cycles/new?error=${encodeURIComponent("Could not create the cycle. Please review the departments and try again.")}`);
+    }
+    throw err;
+  }
   redirect(`/recruitment/cycles/${cycle.id}/builder`);
 }
 
@@ -35,6 +72,7 @@ export async function publishCycleAction(cycleId: string) {
     errorRedirect: (m) => `/recruitment/cycles/${cycleId}?error=${encodeURIComponent(m)}`,
     revalidate: `/recruitment/cycles/${cycleId}`,
   });
+  await captureEvent({ distinctId: person.personId, event: "recruitment_cycle_published", properties: { cycle_id: cycleId }, groups: await termGroupForCycle(cycleId) });
 }
 
 export async function closeCycleAction(cycleId: string) {
@@ -45,6 +83,7 @@ export async function closeCycleAction(cycleId: string) {
     errorRedirect: (m) => `/recruitment/cycles/${cycleId}?error=${encodeURIComponent(m)}`,
     revalidate: `/recruitment/cycles/${cycleId}`,
   });
+  await captureEvent({ distinctId: person.personId, event: "recruitment_cycle_closed", properties: { cycle_id: cycleId }, groups: await termGroupForCycle(cycleId) });
 }
 
 export async function reopenCycleAction(cycleId: string) {
@@ -99,9 +138,10 @@ export async function setApplicationWindowAction(cycleId: string, formData: Form
   const person = await requirePermission("recruitment.manage_cycles");
   const rawOpens = String(formData.get("opensAt") ?? "").trim();
   const rawCloses = String(formData.get("closesAt") ?? "").trim();
-  const opensAt = rawOpens ? new Date(rawOpens) : null;
-  const closesAt = rawCloses ? new Date(rawCloses) : null;
-  if ((opensAt && Number.isNaN(opensAt.getTime())) || (closesAt && Number.isNaN(closesAt.getTime()))) {
+  const zone = await getDisplayTimeZone();
+  const opensAt = rawOpens ? parseZonedInput(rawOpens, zone) : null;
+  const closesAt = rawCloses ? parseZonedInput(rawCloses, zone) : null;
+  if ((rawOpens && !opensAt) || (rawCloses && !closesAt)) {
     redirect(`/recruitment/cycles/${cycleId}?error=${encodeURIComponent("Enter valid dates for the application window.")}`);
   }
   try {

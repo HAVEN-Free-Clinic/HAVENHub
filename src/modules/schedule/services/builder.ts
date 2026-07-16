@@ -15,14 +15,14 @@ import { recordAudit } from "@/platform/audit";
 import { isoDateKey } from "@/platform/dates";
 import { manageableDepartmentIds, memberDepartmentIds } from "@/platform/departments";
 import { can } from "@/platform/rbac/engine";
-import { complianceStatus } from "@/platform/compliance/rules";
+import { loadClearanceMap } from "@/platform/clearance";
 import { resolveAvailability } from "../engine/availability";
 import type { ResolvedAvailability } from "../engine/availability";
 import { toScheduleEntries } from "../engine/map";
 import { computeConflicts } from "../engine/conflicts";
 import { computeDayMetrics } from "../engine/capacity";
 import type { DayMetrics } from "../engine/capacity";
-import { summarizeNonCompliant } from "../engine/banner";
+import { summarizeNotCleared } from "../engine/banner";
 import type { DeptBanner } from "../engine/banner";
 import { computeClinicReadiness } from "../engine/rhd";
 import type { ClinicReadiness, RhdPersonLite, Attending } from "../engine/rhd";
@@ -571,6 +571,14 @@ export function compareBuilderMembers(a: BuilderMemberOrder, b: BuilderMemberOrd
 export type BuilderAssignmentEntry = {
   role: "VOLUNTEER" | "SHADOW" | "DIRECTOR";
   tags: { triage: boolean; walkin: boolean; cc: boolean; remote: boolean };
+  /**
+   * Identity of the assignee, carried from the loaded ShiftAssignment.person so a
+   * non-member assignee (someone offboarded out of their ACTIVE membership while a
+   * future ShiftAssignment outlives it) still renders by name + flags in the Day
+   * view instead of a raw personId cuid. Members are always in `members`; this is
+   * the fallback source for everyone else.
+   */
+  person: { name: string; spanishVerified: boolean; licensedRN: boolean };
 };
 
 export type BuilderRhd = {
@@ -711,11 +719,7 @@ export async function builderView(
     }),
     prisma.termMembership.findMany({
       where: { termId: term.id, departmentId: selectedDept.id, status: "ACTIVE" },
-      include: {
-        person: {
-          include: { hipaaCertificates: { orderBy: { uploadedAt: "desc" }, take: 1 } },
-        },
-      },
+      include: { person: true },
       orderBy: { person: { name: "asc" } },
     }),
     selectedDate
@@ -736,6 +740,11 @@ export async function builderView(
     assignmentsByDate[dk][a.personId] = {
       role: a.role as "VOLUNTEER" | "SHADOW" | "DIRECTOR",
       tags: { triage: a.triage, walkin: a.walkin, cc: a.cc, remote: a.remote },
+      person: {
+        name: a.person.name,
+        spanishVerified: a.person.spanishVerified,
+        licensedRN: a.person.licensedRN,
+      },
     };
   }
 
@@ -819,26 +828,26 @@ export async function builderView(
     }
   );
 
-  // Banner: compliance status for VOLUNTEER assignees on selected date.
+  // Banner: full clearance for VOLUNTEER assignees on the selected date. Anyone not
+  // fully cleared (profile, HIPAA, training, learning, or EHS) cannot work that date.
   const volunteerAssigneesOnDate = selectedAssignments.filter((a) => a.role === "VOLUNTEER");
 
   // Build a memberById Map for O(1) lookups instead of O(n) linear scan per assignee.
   const memberById = new Map(members.map((m) => [m.person.id, m]));
 
+  const bannerClearance = await loadClearanceMap(
+    volunteerAssigneesOnDate.map((a) => a.personId),
+    term.id,
+    now
+  );
+
   const bannerVolunteers = volunteerAssigneesOnDate.map((a) => {
-    const memberEntry = memberById.get(a.personId);
-    const certs = memberEntry?.person.hipaaCertificates ?? [];
-    const newestCert = certs.length > 0 ? certs[0] : null;
-    const status = complianceStatus(
-      newestCert ? { completionDate: newestCert.completionDate, verifiedAt: newestCert.verifiedAt } : null,
-      term.endDate,
-      now
-    );
-    const person = memberEntry?.person ?? a.person;
-    return { id: person.id, name: person.name, status };
+    const person = memberById.get(a.personId)?.person ?? a.person;
+    const cleared = bannerClearance.get(a.personId)?.cleared ?? true;
+    return { id: person.id, name: person.name, cleared };
   });
 
-  const banner = summarizeNonCompliant([
+  const banner = summarizeNotCleared([
     {
       departmentId: selectedDept.id,
       departmentName: selectedDept.name,
@@ -1051,5 +1060,16 @@ async function buildRhdBlock(
     ? (({ attending: _attending, ...rest }) => rest)(clinic) as RhdClinic
     : null;
 
-  return { readiness, attendingOptions, clinic: clinicRow };
+  // Options are active attendings only, but a clinic can still reference a
+  // now-inactive attending (deactivating one does not cascade to RhdClinic). Union
+  // the currently-assigned attending in so the Select shows it as selected --
+  // otherwise it renders "-- none --" and re-saving the clinic form (to edit any
+  // other field) silently unassigns the attending.
+  const attendingOptionsWithCurrent =
+    clinic?.attending && !attendingOptions.some((o) => o.id === clinic.attending!.id)
+      ? [...attendingOptions, { id: clinic.attending.id, scheduleName: clinic.attending.scheduleName }]
+          .sort((a, b) => a.scheduleName.localeCompare(b.scheduleName))
+      : attendingOptions;
+
+  return { readiness, attendingOptions: attendingOptionsWithCurrent, clinic: clinicRow };
 }

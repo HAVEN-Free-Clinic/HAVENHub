@@ -1,9 +1,11 @@
-import { prisma } from "@/platform/db";
+import { prisma, runSerializable } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
+import { captureEvent, flushEvents } from "@/platform/posthog/capture";
+import { activeTermGroup } from "@/platform/posthog/groups";
 import { coursesForMember, type AssignableCourse, type MemberMembership } from "../engine/assignment";
 import { deriveStatus, rollupStatus } from "../engine/status";
 import type { ScoEntry } from "../engine/manifest";
-import { LearningAuthError } from "./errors";
+import { LearningAuthError, LearningValidationError } from "./errors";
 
 /** Active term used for assignment (newest ACTIVE term). */
 async function activeTermId(): Promise<string | null> {
@@ -40,10 +42,35 @@ async function assignedCourseIds(personId: string): Promise<string[]> {
   return coursesForMember({ courses: assignable, memberships });
 }
 
-/** True when the course is currently assigned to this person (for the play route). */
+/**
+ * True when the course is currently assigned to this person (for the play route).
+ *
+ * Targeted equivalent of `assignedCourseIds(personId).includes(courseId)`: it loads
+ * only this one course instead of every active course, then runs the exact same pure
+ * `coursesForMember` resolver over it. `coursesForMember` evaluates each course
+ * independently and only ever emits a course's own id, so restricting its input to
+ * this single course yields the identical isActive/hasPackage/scope/kind decision for
+ * this courseId. Same authorization guarantee, far cheaper on the per-file SCORM asset
+ * route (one indexed lookup + the memberships query, not a full course scan per request).
+ */
 export async function isCourseAssignedTo(personId: string, courseId: string): Promise<boolean> {
-  const ids = await assignedCourseIds(personId);
-  return ids.includes(courseId);
+  const termId = await activeTermId();
+  if (!termId) return false;
+  const course = await prisma.course.findUnique({
+    where: { id: courseId },
+    select: { id: true, isActive: true, assignToAll: true, audience: true, scormEntryHref: true, departments: { select: { departmentId: true } } },
+  });
+  if (!course) return false;
+  const memberships = await memberMemberships(personId, termId);
+  const assignable: AssignableCourse = {
+    id: course.id,
+    isActive: course.isActive,
+    assignToAll: course.assignToAll,
+    departmentIds: course.departments.map((d) => d.departmentId),
+    hasPackage: course.scormEntryHref != null,
+    audience: course.audience,
+  };
+  return coursesForMember({ courses: [assignable], memberships }).includes(courseId);
 }
 
 /**
@@ -161,6 +188,40 @@ export type CmiSnapshot = {
 };
 
 /**
+ * Normalize a client-supplied SCORM score before it reaches the int4 score
+ * columns. persistScoCmi is guarded only by `learning.access`, so `cmi.scoreRaw`
+ * is untrusted: a non-finite value (NaN/Infinity) or one outside int4 range would
+ * throw a numeric-overflow at the upsert. SCORM scores are 0-100, so drop
+ * non-finite values to null and clamp the rounded result to that safe range.
+ */
+function sanitizeScore(raw: number | null): number | null {
+  if (raw == null || !Number.isFinite(raw)) return null;
+  return Math.min(100, Math.max(0, Math.round(raw)));
+}
+
+/**
+ * Upper bounds on the untrusted TEXT fields of a persisted CMI snapshot. Like
+ * cmi.scoreRaw, suspendData/lessonLocation/lessonStatus arrive from the client and
+ * land in unbounded TEXT columns, so without a bound an assigned learner could loop
+ * persistScoCmi with megabyte payloads (storage bloat). The caps sit well above real
+ * SCORM traffic: SCORM 1.2 formally limits suspend_data to 4096 and lesson_location
+ * to 255 chars, and lesson_status is a short fixed vocabulary token; these use the
+ * more generous SCORM 2004 ceilings (64000 / 1000) plus headroom so no legitimate
+ * package is ever affected. We truncate rather than reject so a genuine (merely large)
+ * commit still saves its status/score instead of the client's fire-and-forget save
+ * silently dropping everything.
+ */
+const MAX_SUSPEND_DATA = 64000;
+const MAX_LESSON_LOCATION = 1000;
+const MAX_LESSON_STATUS = 100;
+
+/** Truncate an untrusted client string to a bound, leaving null and short values as-is. */
+function capText(value: string | null, max: number): string | null {
+  if (value == null) return null;
+  return value.length > max ? value.slice(0, max) : value;
+}
+
+/**
  * Persist one SCO's CMI snapshot, then recompute the course rollup. Idempotent:
  * re-commits update state; per-SCO and course completedAt are each stamped once
  * (the first time that level becomes COMPLETE) and preserved afterwards.
@@ -179,67 +240,128 @@ export async function persistScoCmi(
     throw new LearningAuthError("This course is not assigned to you.");
   }
 
-  // 1. Upsert this SCO's state.
-  const sco = deriveStatus(cmi.lessonStatus);
-  const existingSco = await prisma.scoProgress.findUnique({
-    where: { personId_courseId_scoId: { personId, courseId, scoId } },
-    select: { completedAt: true },
-  });
-  const scoCompletedAt = sco.completed ? (existingSco?.completedAt ?? new Date()) : null;
-  const scoData = {
-    completedAt: scoCompletedAt,
-    lessonStatus: cmi.lessonStatus,
-    scoreRaw: cmi.scoreRaw == null ? null : Math.round(cmi.scoreRaw),
-    suspendData: cmi.suspendData,
-    lessonLocation: cmi.lessonLocation,
-  };
-  await prisma.scoProgress.upsert({
-    where: { personId_courseId_scoId: { personId, courseId, scoId } },
-    create: { personId, courseId, scoId, ...scoData },
-    update: scoData,
-  });
-
-  // 2. Recompute the course rollup over every SCO in the manifest.
+  // Load the course's manifest once: it both validates the incoming scoId and drives
+  // the rollup in step 2 (no second query).
   const course = await prisma.course.findUniqueOrThrow({
     where: { id: courseId },
     select: { scormScos: true, scormEntryHref: true, title: true },
   });
   const scos = courseScos(course);
-  const rows = await prisma.scoProgress.findMany({
-    where: { personId, courseId },
-    select: { scoId: true, lessonStatus: true, scoreRaw: true },
-  });
-  const statusById = new Map(rows.map((r) => [r.scoId, r.lessonStatus]));
-  const roll = rollupStatus(scos.map((s) => statusById.get(s.id) ?? null));
 
-  // Roll up the course score as the HIGHEST score among the SCOs that reported one
-  // (eXeLearning/Moodle convention: the learner's best quiz score), or null when none
-  // did. For a single-SCO course this is just that SCO's score.
-  const scoreById = new Map(rows.map((r) => [r.scoId, r.scoreRaw]));
-  const scoScores = scos
-    .map((s) => scoreById.get(s.id))
-    .filter((v): v is number => v != null);
-  const rolledScore = scoScores.length ? Math.max(...scoScores) : null;
+  // Reject a scoId that is not one of the course's manifest SCOs, mirroring how
+  // sanitizeScore guards scoreRaw. persistScoCmi is gated only by learning.access and
+  // the unique key is (personId,courseId,scoId), so without this an assigned learner
+  // could loop the persist action with fresh random scoIds and pile up orphan
+  // ScoProgress rows that no reader ever surfaces (self-service storage bloat).
+  if (!scos.some((s) => s.id === scoId)) {
+    throw new LearningValidationError("This SCO is not part of the course.");
+  }
 
-  const existingCourse = await prisma.courseProgress.findUnique({
-    where: { personId_courseId: { personId, courseId } },
-    select: { completedAt: true },
-  });
-  const completedAt = roll.completed ? (existingCourse?.completedAt ?? new Date()) : null;
+  const sco = deriveStatus(cmi.lessonStatus);
 
-  // lessonStatus is a rollup token so existing readers (dashboard, getMyCourses)
-  // keep deriving the course status from CourseProgress unchanged.
-  const courseData = {
-    status: roll.status,
-    completedAt,
-    lessonStatus: roll.completed ? "completed" : "incomplete",
-    scoreRaw: rolledScore,
-    suspendData: null,
-    lessonLocation: null,
-  };
-  await prisma.courseProgress.upsert({
-    where: { personId_courseId: { personId, courseId } },
-    create: { personId, courseId, ...courseData },
-    update: courseData,
+  // Steps 1+2 (upsert this SCO, then recompute the course rollup from ALL SCOs) run
+  // in one Serializable transaction. Without it, two concurrent commits for
+  // different SCOs of the same (person, course) -- e.g. the course open in two tabs
+  // -- can each read the SCO set before the other's write is visible and the last
+  // writer clobbers a COMPLETE rollup with a stale IN_PROGRESS one, silently
+  // blocking a learner who finished every SCO. Serializable makes Postgres abort the
+  // loser of a conflicting pair; runSerializable retries it, and the retry reads the
+  // winner's committed SCO and rolls up correctly.
+  const transitions = await runSerializable(async (tx) => {
+    // 1. Upsert this SCO's state (untrusted TEXT fields bounded before they hit the row).
+    const existingSco = await tx.scoProgress.findUnique({
+      where: { personId_courseId_scoId: { personId, courseId, scoId } },
+      select: { completedAt: true },
+    });
+    // Latch completion: once a SCO has completed (completedAt set), a later commit --
+    // a review re-open reporting "incomplete"/"browsed", or the 30s autocommit --
+    // must never downgrade it. Keeping the persisted lesson_status "completed" also
+    // keeps the course rollup from silently reverting COMPLETE -> IN_PROGRESS and
+    // un-clearing a volunteer who already finished (standard LMS behavior).
+    const scoComplete = sco.completed || existingSco?.completedAt != null;
+    const scoCompletedAt = scoComplete ? (existingSco?.completedAt ?? new Date()) : null;
+    const scoData = {
+      completedAt: scoCompletedAt,
+      lessonStatus: scoComplete ? "completed" : capText(cmi.lessonStatus, MAX_LESSON_STATUS),
+      scoreRaw: sanitizeScore(cmi.scoreRaw),
+      suspendData: capText(cmi.suspendData, MAX_SUSPEND_DATA),
+      lessonLocation: capText(cmi.lessonLocation, MAX_LESSON_LOCATION),
+    };
+    await tx.scoProgress.upsert({
+      where: { personId_courseId_scoId: { personId, courseId, scoId } },
+      create: { personId, courseId, scoId, ...scoData },
+      update: scoData,
+    });
+
+    // 2. Recompute the course rollup over every SCO in the manifest.
+    const rows = await tx.scoProgress.findMany({
+      where: { personId, courseId },
+      select: { scoId: true, lessonStatus: true, scoreRaw: true },
+    });
+    const statusById = new Map(rows.map((r) => [r.scoId, r.lessonStatus]));
+    const roll = rollupStatus(scos.map((s) => statusById.get(s.id) ?? null));
+
+    // Roll up the course score as the HIGHEST score among the SCOs that reported one
+    // (eXeLearning/Moodle convention: the learner's best quiz score), or null when none
+    // did. For a single-SCO course this is just that SCO's score.
+    const scoreById = new Map(rows.map((r) => [r.scoId, r.scoreRaw]));
+    const scoScores = scos
+      .map((s) => scoreById.get(s.id))
+      .filter((v): v is number => v != null);
+    const rolledScore = scoScores.length ? sanitizeScore(Math.max(...scoScores)) : null;
+
+    const existingCourse = await tx.courseProgress.findUnique({
+      where: { personId_courseId: { personId, courseId } },
+      select: { completedAt: true },
+    });
+    // Latch course completion too (defense in depth alongside the per-SCO latch):
+    // a completed course never reverts on a later commit.
+    const courseComplete = roll.completed || existingCourse?.completedAt != null;
+    const completedAt = courseComplete ? (existingCourse?.completedAt ?? new Date()) : null;
+
+    // lessonStatus is a rollup token so existing readers (dashboard, getMyCourses)
+    // keep deriving the course status from CourseProgress unchanged.
+    const courseData = {
+      status: courseComplete ? ("COMPLETE" as const) : roll.status,
+      completedAt,
+      lessonStatus: courseComplete ? "completed" : "incomplete",
+      scoreRaw: rolledScore,
+      suspendData: null,
+      lessonLocation: null,
+    };
+    await tx.courseProgress.upsert({
+      where: { personId_courseId: { personId, courseId } },
+      create: { personId, courseId, ...courseData },
+      update: courseData,
+    });
+
+    // Transition flags for authoritative analytics, computed against the
+    // once-only `completedAt` stamps so each event fires exactly once. Returned
+    // (not captured here) so a Serializable retry never double-fires.
+    return {
+      courseStarted: !existingCourse,
+      scoNewlyCompleted: sco.completed && !existingSco?.completedAt,
+      courseNewlyCompleted: roll.completed && !existingCourse?.completedAt,
+    };
   });
+
+  // Fire after commit so events reflect the committed state. The authoritative
+  // server-side course_completed replaces the best-effort client event.
+  if (
+    transitions.courseStarted ||
+    transitions.scoNewlyCompleted ||
+    transitions.courseNewlyCompleted
+  ) {
+    const groups = await activeTermGroup();
+    if (transitions.courseStarted) {
+      await captureEvent({ event: "course_started", distinctId: personId, properties: { course_id: courseId }, groups, flush: false });
+    }
+    if (transitions.scoNewlyCompleted) {
+      await captureEvent({ event: "sco_completed", distinctId: personId, properties: { course_id: courseId, sco_id: scoId }, groups, flush: false });
+    }
+    if (transitions.courseNewlyCompleted) {
+      await captureEvent({ event: "course_completed", distinctId: personId, properties: { course_id: courseId, sco_count: scos.length }, groups, flush: false });
+    }
+    await flushEvents();
+  }
 }

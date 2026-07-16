@@ -2,17 +2,13 @@ import { Suspense, type CSSProperties } from "react";
 import Link from "next/link";
 import {
   CalendarDays,
-  UserRoundPen,
-  Users,
   ClipboardList,
-  Settings,
   Stethoscope,
   ArrowRight,
   Repeat,
   Check,
   Clock,
   ChevronRight,
-  type LucideIcon,
 } from "lucide-react";
 import { requirePersonSession } from "@/platform/auth/session";
 import { getEffectivePermissions } from "@/platform/rbac/engine";
@@ -23,12 +19,16 @@ import { TimeGreeting } from "@/platform/ui/time-greeting";
 import { Card, cardClasses } from "@/platform/ui/card";
 import { ClinicChannelCard } from "./clinic-channel-card";
 import { mySchedule } from "@/modules/schedule/services/schedule";
+import { countPendingApprovals } from "@/modules/schedule/services/requests";
+import { buildActionCards, type ActionCard } from "./action-cards";
 import { listMyCertificates } from "@/modules/my-info/services/my-info";
-import { requiredTrainingTracks, resolveTrainingState } from "@/modules/recruitment/services/training";
+import { getOnboardingStatus, type OnboardingTask } from "@/modules/onboarding/services/onboarding";
 import { isInterviewPanelist } from "@/modules/recruitment/services/interviews";
+import { reviewScope } from "@/modules/recruitment/services/review";
 import { complianceStatus, certExpiresAt } from "@/platform/compliance/rules";
 import { getSetting } from "@/platform/settings/service";
-import { isoDateKey } from "@/platform/dates";
+import { isoDateKey, formatCalendarDate } from "@/platform/dates";
+import { buildPageMetadata } from "@/platform/branding/metadata";
 
 // ---------------------------------------------------------------------------
 // Presentation helpers (pure)
@@ -42,18 +42,19 @@ const HUE_BY_MODULE: Record<string, string> = {
   recruitment: "recruit",
   "my-interviews": "recruit",
   admin: "admin",
-  triage: "schedule",
-  referrals: "info",
-  "patient-trackers": "volunteers",
 };
 
-/** Inline CSS vars so Tailwind's static scan never has to see dynamic hues. */
-function hueStyle(id: string): CSSProperties {
-  const hue = HUE_BY_MODULE[id] ?? "schedule";
+/** CSS vars for a given hue token key, so Tailwind's static scan never sees dynamic hues. */
+function hueVars(hue: string): CSSProperties {
   return {
     ["--mh" as string]: `var(--mod-${hue})`,
     ["--mhbg" as string]: `var(--mod-${hue}-bg)`,
   } as CSSProperties;
+}
+
+/** Module-tile hue, keyed by module id. */
+function hueStyle(id: string): CSSProperties {
+  return hueVars(HUE_BY_MODULE[id] ?? "schedule");
 }
 
 function timeGreeting(now = new Date()): string {
@@ -65,17 +66,12 @@ function timeGreeting(now = new Date()): string {
 
 /** "Saturday, June 13" (clinic dates are stored at noon UTC, so format in UTC). */
 function fmtLongDate(d: Date): string {
-  return d.toLocaleDateString("en-US", {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-    timeZone: "UTC",
-  });
+  return formatCalendarDate(d, { weekday: "long", month: "long", day: "numeric" });
 }
 
 /** "Aug 2026" */
 function fmtMonthYear(d: Date): string {
-  return d.toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
+  return formatCalendarDate(d, { month: "short", year: "numeric" });
 }
 
 /** Whole calendar days between two YYYY-MM-DD keys. */
@@ -98,6 +94,34 @@ function shiftTags(tags: { triage: boolean; walkin: boolean; cc: boolean; remote
   if (tags.cc) out.push("CC");
   if (tags.remote) out.push("Remote");
   return out;
+}
+
+/**
+ * One "Your status" row from a semester-clearance task. Mirrors My Info's
+ * Clearance card: same labels and satisfied/not-satisfied split. HIPAA keeps the
+ * dashboard's richer expiry-aware sub (passed in); other tasks use short status
+ * text. Links point at the real module page, not the /get-started gate, so they
+ * are valid whether or not the person is already cleared.
+ */
+function clearanceRow(
+  task: OnboardingTask,
+  hipaaSub: string
+): { ok: boolean; title: string; sub: string; href: string } {
+  const href =
+    task.key === "training" || task.key === "directorTraining"
+      ? "/training"
+      : task.key === "learning"
+        ? "/learning"
+        : "/my-info"; // profile, hipaa, ehs
+  const sub =
+    task.key === "hipaa"
+      ? hipaaSub
+      : task.state === "COMPLETE"
+        ? "Complete"
+        : task.state === "IN_PROGRESS"
+          ? "In progress"
+          : "Not started"; // INCOMPLETE
+  return { ok: task.state === "COMPLETE", title: task.label, sub, href };
 }
 
 // ---------------------------------------------------------------------------
@@ -136,43 +160,44 @@ function ModuleTile({ m }: { m: ModuleManifest }) {
 // Page
 // ---------------------------------------------------------------------------
 
+export function generateMetadata() {
+  return buildPageMetadata({ title: "Dashboard" });
+}
+
 /**
  * The hub lives at the root: the deployed domain is hub.havenfreeclinic.org,
  * so "/" is the landing page for signed-in members. Unauthenticated visitors
  * are redirected to /login by requirePersonSession.
  *
  * The home is a personalized dashboard: a greeting, the member's next shift,
- * quick actions, color-coded module tiles, and a side rail with this week's
- * clinic channel and their real compliance status.
+ * a ranked action feed, color-coded module tiles, and a side rail with this
+ * week's clinic channel and their real compliance status.
  */
 export default async function HubPage() {
   const person = await requirePersonSession();
   // One permission fetch per render; tiles filter in memory (never can() in a loop).
   const permissions = await getEffectivePermissions(person.personId);
 
-  const [schedule, certificates, isPanelist, orgName] = await Promise.all([
+  const [schedule, certificates, isPanelist, orgName, onboarding, pendingApprovals, recruitmentScope] = await Promise.all([
     mySchedule(person.personId),
     listMyCertificates(person.personId),
     isInterviewPanelist(person.personId),
     getSetting<string>("branding.orgName"),
+    getOnboardingStatus(person.personId),
+    countPendingApprovals(person.personId),
+    reviewScope(person.personId),
   ]);
   const { term, shifts } = schedule;
-  const tracks = term ? await requiredTrainingTracks(person.personId, term.id) : [];
-  const trainingLines = term
-    ? await Promise.all(
-        tracks.map(async (track) => {
-          const state = await resolveTrainingState(person.personId, term.id, track);
-          const label = track === "DIRECTOR" ? "Director training" : "Volunteer training";
-          return state === "COMPLETE"
-            ? { ok: true, title: `${label} complete`, sub: "You're cleared for this term", href: "/training" }
-            : { ok: false, title: `Complete your ${label.toLowerCase()}`, sub: "Required to be cleared", href: "/training" };
-        })
-      )
-    : [];
 
   // --- Module visibility ---
+  // A department director reviews recruitment applications by scope (not a
+  // recruitment permission), so surface the recruitment tile for them too --
+  // matching the sub-nav, which the recruitment layout also renders by scope.
+  const isRecruitmentReviewer = recruitmentScope.all || recruitmentScope.departmentCodes.length > 0;
   const activeModules = MODULES.filter(
-    (m) => m.status === "active" && canAccessModule(m, permissions)
+    (m) =>
+      m.status === "active" &&
+      (canAccessModule(m, permissions) || (m.id === "recruitment" && isRecruitmentReviewer))
   );
   const accessible = new Set(activeModules.map((m) => m.id));
 
@@ -194,81 +219,76 @@ export default async function HubPage() {
   const expiry =
     newestCert?.completionDate != null ? fmtMonthYear(certExpiresAt(newestCert.completionDate)) : null;
 
-  const hipaaLine =
+  // HIPAA sub copy, expiry aware. Reused for the clearance row and the no-term fallback.
+  const hipaaSub =
     status === "COMPLIANT"
-      ? { ok: true, title: "HIPAA training current", sub: expiry ? `Valid through ${expiry}` : "On file" }
+      ? (expiry ? `Valid through ${expiry}` : "On file")
       : status === "EXPIRING_SOON"
-        ? { ok: false, title: "HIPAA training expiring soon", sub: expiry ? `Renew before ${expiry}` : "Renew soon" }
+        ? (expiry ? `Renew before ${expiry}` : "Renew soon")
         : status === "EXPIRED"
-          ? { ok: false, title: "HIPAA training expired", sub: "Upload a current certificate" }
+          ? "Upload a current certificate"
           : status === "UNKNOWN_DATE"
-            ? { ok: false, title: "HIPAA completion date pending", sub: "A compliance manager will verify it; no action needed" }
+            ? "Completion date pending review"
             : status === "PENDING_VERIFICATION"
-              ? { ok: false, title: "HIPAA certificate awaiting verification", sub: "A coordinator will confirm your completion date" }
-              : { ok: false, title: "Upload your HIPAA certificate", sub: "Required for clinic clearance" };
+              ? "Awaiting verification"
+              : "Required for clinic clearance"; // NO_CERTIFICATE
 
-  const statusLines: Array<{ ok: boolean; title: string; sub: string; href: string }> = [
-    { ...hipaaLine, href: "/my-info" },
-    ...trainingLines,
-  ];
+  // Full semester clearance checklist: same source and items as My Info's Clearance
+  // card. Non-applicable tasks (NOT_REQUIRED) are hidden, matching My Info.
+  const clearanceTasks = onboarding.tasks.filter((t) => t.state !== "NOT_REQUIRED");
+  const statusLines: Array<{ ok: boolean; title: string; sub: string; href: string }> =
+    clearanceTasks.length > 0
+      ? clearanceTasks.map((t) => clearanceRow(t, hipaaSub))
+      : [
+          // No active term: onboarding has no tasks. Fall back to the term-independent
+          // HIPAA line so the card is never empty.
+          {
+            ok: status === "COMPLIANT" || status === "EXPIRING_SOON",
+            title: "HIPAA certificate",
+            sub: hipaaSub,
+            href: "/my-info",
+          },
+        ];
 
-  // --- Quick actions (real links, access-filtered, capped at 4) ---
-  const hipaaShort =
-    status === "COMPLIANT" ? "current" : status === "UNKNOWN_DATE" ? "pending review" : "action needed";
-  const quickAll: Array<{ id: string; show: boolean; href: string; Icon: LucideIcon; label: string; sub: string }> = [
-    {
-      id: "schedule",
-      show: accessible.has("schedule"),
-      href: "/schedule",
-      Icon: CalendarDays,
-      label: "My schedule",
-      sub: upcoming.length ? `${upcoming.length} upcoming` : "View shifts",
-    },
-    {
-      id: "my-info",
-      show: accessible.has("my-info"),
-      href: "/my-info",
-      Icon: UserRoundPen,
-      label: "My Info",
-      sub: `HIPAA ${hipaaShort}`,
-    },
-    {
-      id: "volunteers",
-      show: accessible.has("volunteers"),
-      href: "/volunteers",
-      Icon: Users,
-      label: "Volunteers",
-      sub: "Rosters & compliance",
-    },
-    {
-      id: "recruitment",
-      show: accessible.has("recruitment"),
-      href: "/recruitment",
-      Icon: ClipboardList,
-      label: "Recruitment",
-      sub: "Cycles & review",
-    },
-    {
-      // Panelists are often directors with no recruitment.access, so they get no
-      // Recruitment tile or nav; this is their only home-screen path to the
-      // interview assignments page. Shown only when they actually have one.
-      id: "my-interviews",
-      show: isPanelist,
-      href: "/recruitment/interviews",
-      Icon: ClipboardList,
-      label: "My interviews",
-      sub: "Panel assignments",
-    },
-    {
-      id: "admin",
-      show: accessible.has("admin"),
-      href: "/admin",
-      Icon: Settings,
-      label: "Admin",
-      sub: "People & terms",
-    },
-  ];
-  const quick = quickAll.filter((q) => q.show).slice(0, 4);
+  // --- Smart action feed: personal + role actions ranked by urgency, module
+  // shortcuts backfilling any remaining slots (see action-cards.ts). ---
+  const trainingTasks = onboarding.tasks.filter(
+    (t) =>
+      (t.key === "training" || t.key === "directorTraining" || t.key === "learning") &&
+      t.state !== "COMPLETE" &&
+      t.state !== "NOT_REQUIRED",
+  );
+  const profileTask = onboarding.tasks.find((t) => t.key === "profile");
+
+  // Navigational shortcuts, only shown when there aren't enough real actions.
+  const backfill: ActionCard[] = [];
+  for (const id of ["volunteers", "recruitment"] as const) {
+    const m = activeModules.find((mm) => mm.id === id);
+    if (m) {
+      backfill.push({ key: m.id, href: `/${m.id}`, icon: m.icon, hue: HUE_BY_MODULE[m.id] ?? "schedule", label: m.title, sub: m.description, priority: 0 });
+    }
+  }
+  if (isPanelist) {
+    backfill.push({ key: "my-interviews", href: "/recruitment/interviews", icon: ClipboardList, hue: "recruit", label: "My interviews", sub: "Panel assignments", priority: 0 });
+  }
+  const adminModule = activeModules.find((mm) => mm.id === "admin");
+  if (adminModule) {
+    backfill.push({ key: "admin", href: "/admin", icon: adminModule.icon, hue: HUE_BY_MODULE.admin, label: adminModule.title, sub: adminModule.description, priority: 0 });
+  }
+
+  const cards = buildActionCards({
+    hasScheduleAccess: accessible.has("schedule"),
+    hasMyInfoAccess: accessible.has("my-info"),
+    upcomingCount: upcoming.length,
+    nextShiftDaysAway: next ? daysAway : null,
+    pendingSwapCount: schedule.pendingRequests.size,
+    pendingApprovals,
+    compliance: status,
+    trainingIncomplete: trainingTasks.length,
+    trainingHref: trainingTasks[0]?.key === "learning" ? "/learning" : "/training",
+    profileIncomplete: profileTask?.state === "INCOMPLETE",
+    backfill,
+  });
 
   return (
     <>
@@ -329,15 +349,9 @@ export default async function HubPage() {
               <div className="mt-5 flex flex-wrap gap-2.5">
                 <Link
                   href="/schedule"
-                  className="inline-flex items-center gap-2 rounded-lg bg-white px-4 py-2.5 text-sm font-semibold text-brand transition hover:bg-brand-faint"
+                  className="inline-flex items-center gap-2 rounded-lg bg-white px-4 py-2.5 text-sm font-semibold text-brand transition hover:bg-white/90"
                 >
                   View my schedule <ArrowRight aria-hidden className="h-4 w-4" />
-                </Link>
-                <Link
-                  href="/schedule"
-                  className="inline-flex items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-white/20"
-                >
-                  <Repeat aria-hidden className="h-4 w-4" /> Request a change
                 </Link>
               </div>
             </div>
@@ -365,16 +379,16 @@ export default async function HubPage() {
             </Card>
           )}
 
-          {/* Quick actions */}
-          {quick.length > 0 && (
+          {/* Action feed */}
+          {cards.length > 0 && (
             <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-              {quick.map((q) => {
-                const Icon = q.Icon;
+              {cards.map((card) => {
+                const Icon = card.icon;
                 return (
                   <Link
-                    key={q.id}
-                    href={q.href}
-                    style={hueStyle(q.id)}
+                    key={card.key}
+                    href={card.href}
+                    style={hueVars(card.hue)}
                     className={cardClasses({ size: "compact", interactive: true, pad: false }) + " flex items-center gap-3 p-3.5"}
                   >
                     <span
@@ -384,8 +398,8 @@ export default async function HubPage() {
                       <Icon aria-hidden className="h-[18px] w-[18px]" />
                     </span>
                     <span className="min-w-0">
-                      <span className="block truncate text-sm font-semibold text-foreground">{q.label}</span>
-                      <span className="block truncate text-xs text-muted-foreground">{q.sub}</span>
+                      <span className="block truncate text-sm font-semibold text-foreground">{card.label}</span>
+                      <span className="block truncate text-xs text-muted-foreground">{card.sub}</span>
                     </span>
                   </Link>
                 );
@@ -413,7 +427,22 @@ export default async function HubPage() {
           </Suspense>
 
           <Card>
-            <h3 className="text-xs font-bold uppercase tracking-wider text-subtle-foreground">Your status</h3>
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-subtle-foreground">Your status</h3>
+              {clearanceTasks.length > 0 && (
+                <span
+                  className={`inline-flex items-center gap-1.5 text-xs font-semibold ${
+                    onboarding.cleared ? "text-success-foreground" : "text-warning-foreground"
+                  }`}
+                >
+                  <span
+                    aria-hidden
+                    className={`h-1.5 w-1.5 rounded-full ${onboarding.cleared ? "bg-success" : "bg-warning"}`}
+                  />
+                  {onboarding.cleared ? "Cleared" : "Not yet cleared"}
+                </span>
+              )}
+            </div>
             <div className="mt-2">
               {statusLines.map((line) => (
                 <Link

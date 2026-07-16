@@ -133,7 +133,7 @@ describe("compliance-escalation EHS-only (COMPLIANT) copy (pure, no DB)", () => 
     });
     const output = renderTemplate(escalationDescriptor.defaultBody, ctx);
     expect(output).not.toContain("not HIPAA compliant");
-    expect(output).toContain("has outstanding required EHS training");
+    expect(output).toContain("has outstanding clearance requirements");
     expect(output).toContain("BBP Clinical");
   });
 

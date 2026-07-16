@@ -122,6 +122,11 @@ export async function RolesPanel({ roles, pageHref }: RolesPanelProps): Promise<
           `${pageHref}?rbacError=${encodeURIComponent(err.message)}`
         );
       }
+      if (err instanceof LastAdminError) {
+        redirect(
+          `${pageHref}?rbacError=${encodeURIComponent(err.message)}`
+        );
+      }
       throw err;
     }
     redirect(`${pageHref}?saved=1`);
@@ -135,7 +140,7 @@ export async function RolesPanel({ roles, pageHref }: RolesPanelProps): Promise<
       <Card>
         <h3 className="mb-4 text-sm font-semibold text-foreground-soft">Create new role</h3>
         <form action={createRoleAction} className="flex flex-wrap items-end gap-3">
-          <Field label="Name">
+          <Field label="Name" required>
             <Input
               type="text"
               name="roleName"
@@ -200,7 +205,7 @@ export async function RolesPanel({ roles, pageHref }: RolesPanelProps): Promise<
               {/* Module permission groups */}
               {MODULES.filter((m) => m.permissions.length > 0).map((mod) => (
                 <div key={mod.id} className="space-y-2">
-                  <SectionHeader>{mod.title}</SectionHeader>
+                  <SectionHeader as="h4">{mod.title}</SectionHeader>
                   <div className="flex flex-wrap gap-x-6 gap-y-1.5">
                     {mod.permissions.map((perm) => (
                       <label
@@ -221,7 +226,7 @@ export async function RolesPanel({ roles, pageHref }: RolesPanelProps): Promise<
 
               {/* Platform group: wildcard */}
               <div className="space-y-2">
-                <SectionHeader>Platform</SectionHeader>
+                <SectionHeader as="h4">Platform</SectionHeader>
                 <div className="flex flex-wrap gap-x-6 gap-y-1.5">
                   <label className="flex items-center gap-2 text-sm text-foreground-soft">
                     <Checkbox

@@ -46,6 +46,7 @@ export default async function AdminOverviewPage() {
     { label: "Terms", href: "/admin/terms" },
     { label: "Roles", href: "/admin/roles" },
     { label: "Subcommittees", href: "/admin/subcommittees" },
+    { label: "Onboarding contract", href: "/admin/contract" },
     { label: "Audit", href: "/admin/audit" },
   ];
 
@@ -83,7 +84,7 @@ export default async function AdminOverviewPage() {
         <StatCard
           label="Active Departments"
           value={activeDeptCount}
-          href="/admin/people"
+          href="/admin/departments"
         />
         <StatCard
           label="Roles"

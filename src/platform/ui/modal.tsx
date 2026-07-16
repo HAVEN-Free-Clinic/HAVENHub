@@ -3,11 +3,17 @@
 import { useEffect, useId, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
+import { cx } from "@/platform/ui/cx";
+import { modalSizeClass, type ModalSize } from "@/platform/ui/modal-size";
 
 type ModalProps = {
   open: boolean;
   onClose: () => void;
   title?: ReactNode;
+  /** Accessible name for the dialog when `title` is omitted (role="dialog" must always be named). */
+  ariaLabel?: string;
+  /** Panel width. `large` (max-w-6xl) suits dense reviewer content. Default `default` (max-w-4xl). */
+  size?: ModalSize;
   children: ReactNode;
   footer?: ReactNode;
 };
@@ -17,7 +23,7 @@ type ModalProps = {
  * closes on Escape and backdrop click, locks body scroll while open, and restores
  * focus to the previously focused element on close. Renders nothing when closed.
  */
-export function Modal({ open, onClose, title, children, footer }: ModalProps) {
+export function Modal({ open, onClose, title, ariaLabel, size = "default", children, footer }: ModalProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const previouslyFocused = useRef<HTMLElement | null>(null);
   const titleId = useId();
@@ -84,8 +90,12 @@ export function Modal({ open, onClose, title, children, footer }: ModalProps) {
         role="dialog"
         aria-modal="true"
         aria-labelledby={title ? titleId : undefined}
+        aria-label={!title ? ariaLabel : undefined}
         tabIndex={-1}
-        className="flex max-h-[90vh] w-full max-w-4xl flex-col rounded-2xl glass-panel outline-none"
+        className={cx(
+          "flex max-h-[90vh] w-full flex-col rounded-2xl glass-panel outline-none",
+          modalSizeClass(size),
+        )}
       >
         <div className="flex items-center justify-between border-b border-border px-5 py-3">
           <h2 id={titleId} className="min-w-0 truncate text-sm font-semibold text-foreground-soft">{title}</h2>

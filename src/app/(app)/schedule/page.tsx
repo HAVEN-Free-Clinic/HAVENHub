@@ -18,13 +18,17 @@ import {
   createRequest,
   cancelRequest,
   eligibleSwapPartners,
+  remindDirectors,
   RequestValidationError,
   RequestForbiddenError,
   RequestNotFoundError,
 } from "@/modules/schedule/services/requests";
+import { captureEvent } from "@/platform/posthog/capture";
+import { activeTermGroup } from "@/platform/posthog/groups";
 import { isoDateKey } from "@/modules/schedule/engine/map";
 import { displayDate } from "@/modules/schedule/engine/display";
-import { fmtDate } from "@/platform/dates";
+import { CalendarDate } from "@/platform/dates/display";
+import { formatCalendarDate } from "@/platform/dates";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Clock } from "lucide-react";
 
@@ -34,6 +38,10 @@ type PageProps = {
 
 export default async function MySchedulePage({ searchParams }: PageProps) {
   const session = await requireModuleAccess("schedule");
+  // Evaluated per request (not at module load) so the "pending N days" gate
+  // below stays accurate across warm server instances. `new Date()` (not
+  // Date.now()) to match the codebase convention and satisfy react-hooks/purity.
+  const now = new Date();
   const sp = await searchParams;
 
   const errorCode = sp.error ?? null;
@@ -50,15 +58,22 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
     await mySchedule(session.personId);
 
   type SwapPartner = { personId: string; name: string; dateKey: string };
-  const swapPartnersByKey = new Map<string, SwapPartner[]>();
-  for (const shift of shifts) {
-    const dateKey = isoDateKey(shift.clinicDate);
-    const cardKey = `${dateKey}|${shift.department.id}`;
-    if (!pendingRequests.has(cardKey)) {
-      const partners = await eligibleSwapPartners(session.personId, dateKey, shift.department.id);
-      swapPartnersByKey.set(cardKey, partners);
-    }
-  }
+  // Look up eligible swap partners for every non-pending shift card concurrently
+  // rather than awaiting each in series, so the page's swap data is one round of
+  // parallel queries instead of an N-deep await waterfall.
+  const swapPartnerEntries = await Promise.all(
+    shifts
+      .map((shift) => {
+        const dateKey = isoDateKey(shift.clinicDate);
+        return { dateKey, cardKey: `${dateKey}|${shift.department.id}`, departmentId: shift.department.id };
+      })
+      .filter(({ cardKey }) => !pendingRequests.has(cardKey))
+      .map(async ({ dateKey, cardKey, departmentId }) => {
+        const partners = await eligibleSwapPartners(session.personId, dateKey, departmentId);
+        return [cardKey, partners] as const;
+      }),
+  );
+  const swapPartnersByKey = new Map<string, SwapPartner[]>(swapPartnerEntries);
 
   async function saveAvailabilityAction(formData: FormData) {
     "use server";
@@ -104,6 +119,12 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
       }
       throw err;
     }
+    await captureEvent({
+      event: "shift_change_requested",
+      distinctId: actor.personId,
+      properties: { department_id: departmentId, request_kind: kind || (targetId ? "swap" : "drop"), date_key: dateKey },
+      groups: await activeTermGroup(),
+    });
     revalidatePath("/schedule");
     redirect("/schedule?requested=1");
   }
@@ -129,6 +150,22 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
     VOLUNTEER: "default",
     SHADOW: "warning",
   };
+
+  async function remindDirectorsAction(formData: FormData) {
+    "use server";
+    const actor = await requireModuleAccess("schedule");
+    const requestId = (formData.get("requestId") as string | null) ?? "";
+    try {
+      await remindDirectors(actor.personId, requestId);
+    } catch (err) {
+      if (err instanceof RequestValidationError || err instanceof RequestForbiddenError || err instanceof RequestNotFoundError) {
+        redirect(`/schedule?error=validation&message=${encodeURIComponent((err as Error).message)}`);
+      }
+      throw err;
+    }
+    revalidatePath("/schedule");
+    redirect("/schedule?message=reminded");
+  }
 
   return (
     <div>
@@ -161,6 +198,11 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
           Change request submitted. Your director will review it.
         </Alert>
       )}
+      {sp.message === "reminded" && (
+        <Alert tone="success" className="mb-6 font-medium">
+          Reminder sent to your department directors.
+        </Alert>
+      )}
 
       {!term ? (
         <p className="text-sm text-subtle-foreground">No active term.</p>
@@ -191,7 +233,7 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                     return (
                       <Card key={cardKey} pad={false} className="px-5 py-4">
                         <div className="flex flex-wrap items-center gap-2 mb-2">
-                          <span className="text-base font-bold text-foreground tabular-nums">{fmtDate(shift.clinicDate)}</span>
+                          <span className="text-base font-bold text-foreground tabular-nums"><CalendarDate value={shift.clinicDate} /></span>
                           <span className="text-xs font-bold uppercase tracking-widest text-subtle-foreground">{shift.department.code}</span>
                           <Badge tone={roleBadgeTone[shift.role] ?? "default"}>
                             {shift.role === "DIRECTOR" ? "Director" : shift.role === "VOLUNTEER" ? "Volunteer" : "Shadow"}
@@ -213,10 +255,21 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                                   : "drop"}{" "}
                                 , pending director review
                               </p>
-                              <form action={cancelRequestAction}>
-                                <input type="hidden" name="requestId" value={pendingReq.id} />
-                                <ConfirmButton label="Cancel request" confirmLabel="Cancel this request?" />
-                              </form>
+                              <div className="flex items-center gap-2">
+                                {Math.floor((now.getTime() - new Date(pendingReq.createdAt).getTime()) / (1000 * 60 * 60 * 24)) >= 5 && (
+                                  <form action={remindDirectorsAction}>
+                                    <input type="hidden" name="requestId" value={pendingReq.id} />
+                                    <ConfirmButton
+                                      label="Remind directors"
+                                      confirmLabel="Send a reminder to your directors?"
+                                    />
+                                  </form>
+                                )}
+                                <form action={cancelRequestAction}>
+                                  <input type="hidden" name="requestId" value={pendingReq.id} />
+                                  <ConfirmButton label="Cancel request" confirmLabel="Cancel this request?" />
+                                </form>
+                              </div>
                             </div>
                           ) : (
                             <details className="group">
@@ -300,7 +353,7 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                     <div className="flex flex-col gap-6">
                       {Object.entries(
                         clinicDates.reduce((acc, d) => {
-                          const month = d.toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
+                          const month = formatCalendarDate(d, { month: "long", year: "numeric" });
                           if (!acc[month]) acc[month] = [];
                           acc[month].push(d);
                           return acc;
@@ -313,7 +366,7 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                               const key = isoDateKey(d);
                               const checked = availability.dates.some((ad) => isoDateKey(ad) === key);
                               return (
-                                <label key={key} className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs cursor-pointer transition-colors whitespace-nowrap ${checked ? "border-brand bg-brand/5 text-brand-fg font-semibold" : "border-border bg-brand/5 text-brand-fg hover:border-brand/40"}`}>
+                                <label key={key} className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs cursor-pointer transition-colors whitespace-nowrap min-h-11 ${checked ? "border-brand bg-brand/5 text-brand-fg font-semibold" : "border-border text-muted-foreground hover:border-brand/40"}`}>
                                   <Checkbox
                                     name="dates"
                                     value={key}

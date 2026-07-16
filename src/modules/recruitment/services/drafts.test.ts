@@ -22,7 +22,7 @@ async function openCycle(slug = "draft-cyc") {
   const term = await prisma.term.create({ data: { code: "FA26", name: "Fall 2026", startDate: new Date(), endDate: new Date() } });
   return prisma.recruitmentCycle.create({ data: { track: "VOLUNTEER", termId: term.id, title: "V", publicSlug: slug, departments: ["SRHD"], createdById: lead.id, status: "OPEN" } });
 }
-const ID = { email: "reed@yale.edu", personId: null };
+const ID = { email: "reed@yale.edu", personId: null, firstName: null };
 
 /** A cycle with one FILE field "resume" carrying the given validation rules
  *  (maxFileMB / acceptedTypes), plus a draft to upload into. */
@@ -95,7 +95,7 @@ it("rejects saving when the cycle is not open", async () => {
 it("scopes a draft to the identity (other identity sees nothing)", async () => {
   await openCycle("iso-cyc");
   await saveDraft("iso-cyc", ID, { answers: { a: 1 } });
-  expect(await getDraft("iso-cyc", { email: "other@yale.edu", personId: null })).toBeNull();
+  expect(await getDraft("iso-cyc", { email: "other@yale.edu", personId: null, firstName: null })).toBeNull();
 });
 
 it("uploads a draft file and records the ref in answers", async () => {

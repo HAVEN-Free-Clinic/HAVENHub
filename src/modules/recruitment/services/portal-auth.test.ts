@@ -3,10 +3,10 @@ import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 
 // Mock Next.js server-only modules so the pure-crypto cookie tests run in Vitest.
-vi.mock("next/headers", () => ({ cookies: vi.fn(async () => ({ get: vi.fn(), set: vi.fn() })) }));
+vi.mock("next/headers", () => ({ cookies: vi.fn(async () => ({ get: vi.fn(), set: vi.fn() })), headers: vi.fn(async () => ({ get: vi.fn(() => null) })) }));
 vi.mock("@/platform/auth/auth", () => ({ auth: vi.fn(async () => null) }));
 
-import { issueMagicToken, verifyMagicToken, requestMagicLink } from "./portal-auth";
+import { issueMagicToken, verifyMagicToken, peekMagicToken, requestMagicLink } from "./portal-auth";
 import { signApplicantCookie, readApplicantCookie, getApplicantIdentity, APPLICANT_COOKIE } from "./portal-auth";
 import { auth } from "@/platform/auth/auth";
 import { cookies } from "next/headers";
@@ -32,6 +32,18 @@ it("issues a token that verifies once and returns the email", async () => {
   expect(typeof raw).toBe("string");
   expect(await verifyMagicToken(raw)).toBe("reed@yale.edu"); // normalized
   expect(await verifyMagicToken(raw)).toBeNull(); // single-use
+});
+
+it("peekMagicToken validates without consuming; verify claims it only on confirm (audit #18)", async () => {
+  const raw = await issueMagicToken("Peek@Yale.edu");
+  // Peeking (rendering the confirmation) does not consume the token.
+  expect(await peekMagicToken(raw)).toBe("peek@yale.edu");
+  expect(await peekMagicToken(raw)).toBe("peek@yale.edu");
+  // The token is claimed only when the applicant confirms.
+  expect(await verifyMagicToken(raw)).toBe("peek@yale.edu");
+  // After that it is spent for both peek and verify.
+  expect(await peekMagicToken(raw)).toBeNull();
+  expect(await verifyMagicToken(raw)).toBeNull();
 });
 
 it("rejects an expired token", async () => {
@@ -124,7 +136,51 @@ it("omits next entirely when no deep-link target is given", async () => {
 it("getApplicantIdentity returns the SSO session identity when a Person session exists", async () => {
   vi.mocked(auth).mockResolvedValueOnce({ personId: "p1", user: { email: "Member@Yale.edu" } } as never);
   // cookies() is not called on the SSO path (early return); no need to queue a value.
-  expect(await getApplicantIdentity()).toEqual({ email: "member@yale.edu", personId: "p1" });
+  expect(await getApplicantIdentity()).toEqual({ email: "member@yale.edu", personId: "p1", firstName: null });
+});
+
+it("getApplicantIdentity returns an applicant identity for a Yale session with no Person", async () => {
+  // Brand-new Yale account: signed in via Entra, no Person match. The jwt callback
+  // stamped applicantEmail; personId is null. They can still start an application.
+  vi.mocked(auth).mockResolvedValueOnce({
+    personId: null,
+    applicantEmail: "newbie@yale.edu",
+    user: {},
+  } as never);
+  expect(await getApplicantIdentity()).toEqual({ email: "newbie@yale.edu", personId: null, firstName: null });
+});
+
+it("getApplicantIdentity carries the Entra first name for a brand-new Yale applicant", async () => {
+  // The jwt callback stamps applicantFirstName from the sign-in so the portal can
+  // greet the applicant by name rather than their email local part.
+  vi.mocked(auth).mockResolvedValueOnce({
+    personId: null,
+    applicantEmail: "newbie@yale.edu",
+    applicantFirstName: "Jordan",
+    user: {},
+  } as never);
+  expect(await getApplicantIdentity()).toEqual({ email: "newbie@yale.edu", personId: null, firstName: "Jordan" });
+});
+
+it("getApplicantIdentity prefers the Person session over applicantEmail when both are present", async () => {
+  // A recognized member also carries applicantEmail, but the Person path wins.
+  vi.mocked(auth).mockResolvedValueOnce({
+    personId: "p9",
+    applicantEmail: "member@yale.edu",
+    user: { email: "Member@Yale.edu" },
+  } as never);
+  expect(await getApplicantIdentity()).toEqual({ email: "member@yale.edu", personId: "p9", firstName: null });
+});
+
+it("getApplicantIdentity preserves personId when a member session lacks a user.email claim", async () => {
+  // Defensive branch: a recognized member (personId set) whose Entra token omits
+  // the email claim is resolved via applicantEmail but must NOT be downgraded.
+  vi.mocked(auth).mockResolvedValueOnce({
+    personId: "p9",
+    applicantEmail: "member@yale.edu",
+    user: {},
+  } as never);
+  expect(await getApplicantIdentity()).toEqual({ email: "member@yale.edu", personId: "p9", firstName: null });
 });
 
 it("getApplicantIdentity falls back to the signed cookie when there is no SSO session", async () => {
@@ -132,7 +188,7 @@ it("getApplicantIdentity falls back to the signed cookie when there is no SSO se
   vi.mocked(cookies).mockResolvedValueOnce({
     get: (n: string) => (n === APPLICANT_COOKIE ? { value: signApplicantCookie("guest@yale.edu") } : undefined),
   } as never);
-  expect(await getApplicantIdentity()).toEqual({ email: "guest@yale.edu", personId: null });
+  expect(await getApplicantIdentity()).toEqual({ email: "guest@yale.edu", personId: null, firstName: null });
 });
 
 it("getApplicantIdentity returns null when there is neither a session nor a valid cookie", async () => {

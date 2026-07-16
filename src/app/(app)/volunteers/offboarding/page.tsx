@@ -1,5 +1,8 @@
 import { requirePermission } from "@/platform/auth/session";
+import { captureEvent } from "@/platform/posthog/capture";
+import { activeTermGroup } from "@/platform/posthog/groups";
 import { PageHeader } from "@/platform/ui/page-header";
+import { SectionHeader } from "@/platform/ui/section-header";
 import { Badge } from "@/platform/ui/badge";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
@@ -14,7 +17,7 @@ import {
   OffboardNotFoundError,
 } from "@/modules/volunteers/services/offboarding";
 import { revalidatePath } from "next/cache";
-import { fmtDate } from "@/platform/dates";
+import { DateOnly } from "@/platform/dates/display";
 import { redirect } from "next/navigation";
 
 // The volunteers layout gates module access. Here we additionally require
@@ -80,6 +83,12 @@ export default async function OffboardingPage({ searchParams }: PageProps) {
     if (!personId) return;
     try {
       await executeOffboard(actor.personId, personId);
+      await captureEvent({
+        distinctId: actor.personId,
+        event: "volunteer_offboarded",
+        properties: { offboarded_person_id: personId },
+        groups: await activeTermGroup(),
+      });
     } catch (err) {
       if (err instanceof OffboardForbiddenError) {
         redirect(`/volunteers/offboarding?error=${encodeURIComponent(err.message)}`);
@@ -115,9 +124,9 @@ export default async function OffboardingPage({ searchParams }: PageProps) {
         <div className="mt-8 flex flex-col gap-10">
           {departments.map(({ department, members }) => (
             <section key={department.id}>
-              <h2 className="mb-3 text-base font-semibold">
+              <SectionHeader level="title" className="mb-3">
                 {department.code} · {department.name}
-              </h2>
+              </SectionHeader>
 
               <Table>
                 <THead>
@@ -183,7 +192,7 @@ export default async function OffboardingPage({ searchParams }: PageProps) {
       {/* Executor section: only shown when viewer has manage_offboarding */}
       {flagged !== null && (
         <section className="mt-12">
-          <h2 className="mb-3 text-base font-semibold">Flagged for offboarding</h2>
+          <SectionHeader level="title" className="mb-3">Flagged for offboarding</SectionHeader>
 
           <Table>
             <THead>
@@ -212,7 +221,7 @@ export default async function OffboardingPage({ searchParams }: PageProps) {
                     </TD>
                     <TD className="text-foreground-soft text-sm">{flaggedByName ?? "-"}</TD>
                     <TD className="text-foreground-soft tabular-nums text-sm">
-                      {fmtDate(flag.createdAt)}
+                      <DateOnly value={flag.createdAt} />
                     </TD>
                     <TD className="text-muted-foreground text-sm">{flag.note ?? "-"}</TD>
                     <TD>

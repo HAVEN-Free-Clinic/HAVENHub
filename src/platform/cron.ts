@@ -8,12 +8,10 @@
  * never the work. These routes are the single drain implementation; there is no
  * background worker to keep in sync.
  *
- * Two triggers are in play, and most jobs use the external one (Vercel only
- * fires vercel.json crons on a sufficiently-provisioned paid plan, see commit
- * 7be5efd):
- *   - external scheduler (cron-job.org): email (per-minute), reminders (daily).
- *     These are intentionally NOT in vercel.json.
- *   - Vercel Cron (vercel.json): recruitment-drafts (daily) only.
+ * Every job is triggered by one external scheduler (cron-job.org): email
+ * (per-minute), reminders (daily), recruitment-drafts (daily). Vercel only fires
+ * vercel.json crons on a sufficiently-provisioned paid plan (see commit 7be5efd),
+ * so nothing is scheduled there -- vercel.json declares no `crons`.
  * docs/cron-jobs.md is the manifest -- paths, cadences, what each job does, and
  * how to re-provision the external schedules.
  */
@@ -21,12 +19,11 @@
 import { timingSafeEqual } from "node:crypto";
 
 /**
- * Authorize a cron invocation. Both triggers send `Authorization: Bearer
- * $CRON_SECRET`: Vercel attaches it to vercel.json crons when CRON_SECRET is set
- * on the project, and the external scheduler (cron-job.org) is configured to
- * send the same header. We fail closed: no secret configured -> every request is
- * rejected. The token is compared in constant time so a forged header cannot
- * recover the secret byte-by-byte through response-timing differences.
+ * Authorize a cron invocation. The external scheduler (cron-job.org) is
+ * configured to send `Authorization: Bearer $CRON_SECRET` on every job. We fail
+ * closed: no secret configured -> every request is rejected. The token is
+ * compared in constant time so a forged header cannot recover the secret
+ * byte-by-byte through response-timing differences.
  */
 export function authorizeCron(req: Request): boolean {
   const secret = process.env.CRON_SECRET;

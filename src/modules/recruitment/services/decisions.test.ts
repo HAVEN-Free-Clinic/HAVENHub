@@ -1,8 +1,12 @@
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
-import { acceptApplicant, RecruitmentAuthError } from "./review";
-import { listConflicts, releaseSummary, releaseDecisions } from "./decisions";
+import { RecruitmentAuthError } from "./review";
+import { listConflicts, releaseSummary, releaseDecisions, sendAcceptanceEmail } from "./decisions";
+
+function accept(applicationId: string, departmentCode: string, approvedById: string) {
+  return prisma.acceptance.create({ data: { applicationId, departmentCode, approvedById } });
+}
 
 async function seed() {
   const term = await prisma.term.create({ data: { code: "FA26", name: "Fall 2026", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
@@ -27,9 +31,9 @@ afterEach(async () => { await resetDb(); });
 
 it("lists conflicts (applications accepted by >1 department)", async () => {
   const { srr, cycle, clean, conflicted } = await seed();
-  await acceptApplicant(clean.id, "SRHD", srr.id, null);
-  await acceptApplicant(conflicted.id, "SRHD", srr.id, null);
-  await acceptApplicant(conflicted.id, "MDIC", srr.id, null);
+  await accept(clean.id, "SRHD", srr.id);
+  await accept(conflicted.id, "SRHD", srr.id);
+  await accept(conflicted.id, "MDIC", srr.id);
   const conflicts = await listConflicts(cycle.id);
   expect(conflicts.map((c) => c.applicationId)).toEqual([conflicted.id]);
   expect(conflicts[0].departments.sort()).toEqual(["MDIC", "SRHD"]);
@@ -37,9 +41,9 @@ it("lists conflicts (applications accepted by >1 department)", async () => {
 
 it("release sends one email per accepted, non-conflicted, un-emailed acceptance and stamps emailedAt; idempotent", async () => {
   const { srr, cycle, clean, conflicted } = await seed();
-  await acceptApplicant(clean.id, "SRHD", srr.id, null);
-  await acceptApplicant(conflicted.id, "SRHD", srr.id, null);
-  await acceptApplicant(conflicted.id, "MDIC", srr.id, null);
+  await accept(clean.id, "SRHD", srr.id);
+  await accept(conflicted.id, "SRHD", srr.id);
+  await accept(conflicted.id, "MDIC", srr.id);
 
   const res = await releaseDecisions(cycle.id, srr.id);
   expect(res.sent).toBe(1);
@@ -63,9 +67,21 @@ it("requires review_all", async () => {
   await expect(releaseDecisions(cycle.id, plain.id)).rejects.toBeInstanceOf(RecruitmentAuthError);
 });
 
+it("two concurrent releases send the acceptance email only once (audit3 L15)", async () => {
+  const { srr, cycle, clean } = await seed();
+  await accept(clean.id, "SRHD", srr.id);
+  // Fire two releases at once. The atomic emailedAt: null claim means only one
+  // stamps and queues the email; the loser neither re-sends nor re-stamps.
+  const [a, b] = await Promise.all([releaseDecisions(cycle.id, srr.id), releaseDecisions(cycle.id, srr.id)]);
+  expect(a.sent + b.sent).toBe(1);
+  expect(await prisma.emailLog.count({ where: { template: "recruitment.acceptance" } })).toBe(1);
+  const acc = await prisma.acceptance.findFirstOrThrow({ where: { applicationId: clean.id } });
+  expect(acc.emailedAt).not.toBeNull();
+});
+
 it("stamps decisionsReleasedAt on the cycle when decisions are released", async () => {
   const { srr, cycle, clean } = await seed();
-  await acceptApplicant(clean.id, "SRHD", srr.id, null);
+  await accept(clean.id, "SRHD", srr.id);
   expect((await prisma.recruitmentCycle.findUniqueOrThrow({ where: { id: cycle.id } })).decisionsReleasedAt).toBeNull();
   await releaseDecisions(cycle.id, srr.id);
   expect((await prisma.recruitmentCycle.findUniqueOrThrow({ where: { id: cycle.id } })).decisionsReleasedAt).not.toBeNull();
@@ -80,9 +96,9 @@ it("stamps decisionsReleasedAt even when there are no acceptances (all not-selec
 
 it("releaseSummary reports the counts", async () => {
   const { srr, cycle, clean, conflicted } = await seed();
-  await acceptApplicant(clean.id, "SRHD", srr.id, null);
-  await acceptApplicant(conflicted.id, "SRHD", srr.id, null);
-  await acceptApplicant(conflicted.id, "MDIC", srr.id, null);
+  await accept(clean.id, "SRHD", srr.id);
+  await accept(conflicted.id, "SRHD", srr.id);
+  await accept(conflicted.id, "MDIC", srr.id);
   const s = await releaseSummary(cycle.id);
   expect(s.acceptedApplications).toBe(2);
   expect(s.conflictedApplications).toBe(1);
@@ -90,9 +106,49 @@ it("releaseSummary reports the counts", async () => {
   expect(s.emailed).toBe(0);
 });
 
+it("sendAcceptanceEmail sends the acceptance email for one acceptance and stamps emailedAt", async () => {
+  const { srr, clean } = await seed();
+  await accept(clean.id, "SRHD", srr.id);
+  const res = await sendAcceptanceEmail(clean.id, "SRHD");
+  expect(res).toEqual({ sent: true });
+  const emails = await prisma.emailLog.findMany();
+  expect(emails).toHaveLength(1);
+  expect(emails[0].toEmail).toBe("clean@yale.edu");
+  expect(emails[0].template).toBe("recruitment.acceptance");
+  const acc = await prisma.acceptance.findFirstOrThrow({ where: { applicationId: clean.id } });
+  expect(acc.emailedAt).not.toBeNull();
+});
+
+it("sendAcceptanceEmail is idempotent: an already-emailed acceptance is not re-sent (nor double-sent with a later release)", async () => {
+  const { srr, cycle, clean } = await seed();
+  await accept(clean.id, "SRHD", srr.id);
+  expect(await sendAcceptanceEmail(clean.id, "SRHD")).toEqual({ sent: true });
+  expect(await sendAcceptanceEmail(clean.id, "SRHD")).toEqual({ sent: false, reason: "already_emailed" });
+  // A later release must not re-send the same acceptance.
+  const rel = await releaseDecisions(cycle.id, srr.id);
+  expect(rel.sent).toBe(0);
+  expect(await prisma.emailLog.count()).toBe(1);
+});
+
+it("sendAcceptanceEmail does not email a conflicted applicant (accepted by >1 department)", async () => {
+  const { srr, conflicted } = await seed();
+  await accept(conflicted.id, "SRHD", srr.id);
+  await accept(conflicted.id, "MDIC", srr.id);
+  const res = await sendAcceptanceEmail(conflicted.id, "SRHD");
+  expect(res).toEqual({ sent: false, reason: "conflicted" });
+  expect(await prisma.emailLog.count()).toBe(0);
+  const accs = await prisma.acceptance.findMany({ where: { applicationId: conflicted.id } });
+  expect(accs.every((a) => a.emailedAt === null)).toBe(true);
+});
+
+it("sendAcceptanceEmail returns not_found when there is no such acceptance", async () => {
+  const { clean } = await seed();
+  expect(await sendAcceptanceEmail(clean.id, "SRHD")).toEqual({ sent: false, reason: "not_found" });
+});
+
 it("uses the cycle's acceptance email override when present", async () => {
   const { srr, cycle, clean } = await seed();
-  await acceptApplicant(clean.id, "SRHD", srr.id, null);
+  await accept(clean.id, "SRHD", srr.id);
   const cycleId = cycle.id;
   const actorId = srr.id;
   await prisma.recruitmentCycleEmail.create({

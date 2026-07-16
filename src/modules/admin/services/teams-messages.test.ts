@@ -42,32 +42,38 @@ describe("listTeamsMessages", () => {
 describe("retryTeamsMessage", () => {
   beforeEach(async () => await resetDb());
 
-  it("resets a FAILED row to QUEUED with zero attempts", async () => {
+  it("resets a FAILED row to QUEUED with zero attempts and records an audit entry", async () => {
+    const actor = await prisma.person.create({ data: { name: "Admin" } });
     const row = await seed("FAILED");
     await prisma.teamsMessage.update({ where: { id: row.id }, data: { attempts: 8 } });
-    await retryTeamsMessage(row.id);
+    await retryTeamsMessage(actor.id, row.id);
     const after = await prisma.teamsMessage.findUnique({ where: { id: row.id } });
     expect(after?.status).toBe("QUEUED");
     expect(after?.attempts).toBe(0);
+    // Audit trail: a Teams retry is a privileged mutation, like every email retry (audit #30).
+    const audit = await prisma.auditLog.findFirst({ where: { action: "teamsMessage.retry", entityId: row.id } });
+    expect(audit?.actorPersonId).toBe(actor.id);
   });
 
   it("rejects retrying a SENT row", async () => {
     const row = await seed("SENT");
-    await expect(retryTeamsMessage(row.id)).rejects.toBeInstanceOf(TeamsMessageStateError);
+    await expect(retryTeamsMessage("admin", row.id)).rejects.toBeInstanceOf(TeamsMessageStateError);
   });
 
   it("resets a FALLBACK row to QUEUED with zero attempts", async () => {
+    const actor = await prisma.person.create({ data: { name: "Admin" } });
     const row = await seed("FALLBACK");
     await prisma.teamsMessage.update({ where: { id: row.id }, data: { attempts: 3 } });
-    await retryTeamsMessage(row.id);
+    await retryTeamsMessage(actor.id, row.id);
     const after = await prisma.teamsMessage.findUnique({ where: { id: row.id } });
     expect(after?.status).toBe("QUEUED");
     expect(after?.attempts).toBe(0);
   });
 
   it("resets a LOGGED row to QUEUED with zero attempts", async () => {
+    const actor = await prisma.person.create({ data: { name: "Admin" } });
     const row = await seed("LOGGED");
-    await retryTeamsMessage(row.id);
+    await retryTeamsMessage(actor.id, row.id);
     const after = await prisma.teamsMessage.findUnique({ where: { id: row.id } });
     expect(after?.status).toBe("QUEUED");
     expect(after?.attempts).toBe(0);
@@ -75,11 +81,11 @@ describe("retryTeamsMessage", () => {
 
   it("rejects retrying a QUEUED row with TeamsMessageStateError", async () => {
     const row = await seed("QUEUED");
-    await expect(retryTeamsMessage(row.id)).rejects.toBeInstanceOf(TeamsMessageStateError);
+    await expect(retryTeamsMessage("admin", row.id)).rejects.toBeInstanceOf(TeamsMessageStateError);
   });
 
   it("throws TeamsMessageNotFoundError for a missing id", async () => {
-    await expect(retryTeamsMessage("non-existent-id")).rejects.toBeInstanceOf(
+    await expect(retryTeamsMessage("admin", "non-existent-id")).rejects.toBeInstanceOf(
       TeamsMessageNotFoundError,
     );
   });

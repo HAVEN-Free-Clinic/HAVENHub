@@ -19,15 +19,21 @@ import { PERSON_VARIABLES } from "@/platform/email/audience/variables";
 import { isAudience } from "@/platform/email/audience/types";
 import type { Audience } from "@/platform/email/audience/types";
 import { prisma } from "@/platform/db";
+import { DateTime } from "@/platform/dates/display";
+import { parseZonedInput } from "@/platform/dates";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
+import { zoneLabel } from "@/platform/dates/zone";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Button } from "@/platform/ui/button";
 import { Input, Field } from "@/platform/ui/input";
 import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
+import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { TemplateEditor } from "../../templates/[key]/preview";
 import { AudienceBuilder } from "./audience-builder";
 import { CronPresets } from "./cron-presets";
 import { SubmitButton } from "./submit-button";
+import { ReviewActions } from "./review-actions";
 
 type Props = {
   params: Promise<{ id: string }>;
@@ -76,6 +82,8 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
   const parsedAudience: Audience = isAudience(campaign.audienceJson)
     ? campaign.audienceJson
     : EMPTY_AUDIENCE;
+
+  const zone = await getDisplayTimeZone();
 
   // ---------------------------------------------------------------------------
   // Server actions
@@ -188,13 +196,18 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
     const actor = await requirePermission("admin.send_email_campaign");
     const raw = (formData.get("scheduledAt") as string | null) ?? "";
     if (!raw) redirect(`/admin/email/campaigns/${id}?error=${encodeURIComponent("Pick a date and time")}`);
-    const scheduledAt = new Date(raw);
-    if (Number.isNaN(scheduledAt.getTime())) {
+    const scheduledAt = parseZonedInput(raw, await getDisplayTimeZone());
+    if (!scheduledAt) {
       redirect(`/admin/email/campaigns/${id}?error=${encodeURIComponent("Pick a valid date and time")}`);
     }
+    const rawCount = formData.get("confirmCount");
+    const confirmCount = rawCount !== null && rawCount !== "" ? Number(rawCount) : undefined;
     try {
-      await scheduleCampaign(actor.personId, id, { scheduleType: "SCHEDULED", scheduledAt });
+      await scheduleCampaign(actor.personId, id, { scheduleType: "SCHEDULED", scheduledAt }, undefined, { confirmCount });
     } catch (err) {
+      if (err instanceof CampaignConfirmationError) {
+        redirect(`/admin/email/campaigns/${id}?error=${encodeURIComponent(`This campaign targets ${err.expected} recipients. Type ${err.expected} in the confirmation field and schedule again.`)}`);
+      }
       if (err instanceof CampaignValidationError) {
         redirect(`/admin/email/campaigns/${id}?error=${encodeURIComponent(err.problems.join("; "))}`);
       }
@@ -208,9 +221,14 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
     "use server";
     const actor = await requirePermission("admin.send_email_campaign");
     const cronExpr = ((formData.get("cronExpr") as string | null) ?? "").trim();
+    const rawCount = formData.get("confirmCount");
+    const confirmCount = rawCount !== null && rawCount !== "" ? Number(rawCount) : undefined;
     try {
-      await scheduleCampaign(actor.personId, id, { scheduleType: "RECURRING", cronExpr });
+      await scheduleCampaign(actor.personId, id, { scheduleType: "RECURRING", cronExpr }, undefined, { confirmCount });
     } catch (err) {
+      if (err instanceof CampaignConfirmationError) {
+        redirect(`/admin/email/campaigns/${id}?error=${encodeURIComponent(`This campaign targets ${err.expected} recipients. Type ${err.expected} in the confirmation field and start recurring again.`)}`);
+      }
       if (err instanceof CampaignValidationError) {
         redirect(`/admin/email/campaigns/${id}?error=${encodeURIComponent(err.problems.join("; "))}`);
       }
@@ -266,7 +284,7 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
 
       {/* Main save form: editable only while a draft */}
       {isDraft && (
-        <form action={saveAction} className="space-y-8">
+        <form id="campaign-compose" action={saveAction} className="space-y-8">
           {/* Section 1: Compose */}
           <div className="space-y-6">
             <h2 className="text-base font-semibold text-foreground">1. Compose</h2>
@@ -326,37 +344,14 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
         <div id="review" className="space-y-4 border-t border-border pt-6">
           <h2 className="text-base font-semibold text-foreground">3. Review &amp; send</h2>
 
-          <div className="flex flex-wrap gap-3">
-            {/* Preview audience */}
-            <form action={previewAction}>
-              <SubmitButton variant="outline" pendingLabel="Previewing...">
-                Preview audience
-              </SubmitButton>
-            </form>
-
-            {/* Test send */}
-            <form action={testAction}>
-              <SubmitButton variant="outline" pendingLabel="Sending test...">
-                Send test to me
-              </SubmitButton>
-            </form>
-
-            {/* Live send */}
-            <form action={sendAction} className="flex items-end gap-2">
-              <Field label="Confirm count (required for >25 recipients)">
-                <Input
-                  name="confirmCount"
-                  type="number"
-                  min={1}
-                  placeholder="e.g. 42"
-                  className="w-24"
-                />
-              </Field>
-              <SubmitButton variant="danger" pendingLabel="Sending...">
-                Send now
-              </SubmitButton>
-            </form>
-          </div>
+          {/* Preview / Test / Send. These operate on the last-saved campaign, so
+              ReviewActions disables them while the compose form has unsaved edits. */}
+          <ReviewActions
+            formId="campaign-compose"
+            previewAction={previewAction}
+            testAction={testAction}
+            sendAction={sendAction}
+          />
 
           {/* Inline audience preview result */}
           {sp.preview === "1" && !errorMessage && (
@@ -383,14 +378,14 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
           {isScheduled && campaign.scheduledAt && (
             <p className="text-sm text-brand-fg">
               <strong>Scheduled to send on</strong>{" "}
-              {campaign.scheduledAt.toLocaleString()}
+              <DateTime value={campaign.scheduledAt} />
             </p>
           )}
           {isActive && (
             <p className="text-sm text-brand-fg">
               <strong>Recurring:</strong> {campaign.cronExpr}
               {campaign.nextRunAt && (
-                <> &mdash; next run {campaign.nextRunAt.toLocaleString()}</>
+                <> (next run <DateTime value={campaign.nextRunAt} />)</>
               )}
             </p>
           )}
@@ -411,7 +406,7 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
           <div className="space-y-2">
             <p className="text-sm font-medium text-foreground-soft">Schedule for later</p>
             <form action={scheduleLaterAction} className="flex flex-wrap items-end gap-3">
-              <Field label="Send at">
+              <Field label={`Send at (${zoneLabel(zone)})`}>
                 <Input
                   name="scheduledAt"
                   type="datetime-local"
@@ -419,8 +414,14 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
                   className="w-auto"
                 />
               </Field>
+              <Field label="Confirm count (required for >25 recipients)">
+                <Input name="confirmCount" type="number" min={1} placeholder="e.g. 42" className="w-24" />
+              </Field>
               <Button type="submit">Schedule</Button>
             </form>
+            <p className="text-xs text-muted-foreground">
+              The send time is interpreted in {zoneLabel(zone)}.
+            </p>
           </div>
 
           {/* Recurring */}
@@ -430,11 +431,15 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
               <Field label="Cron expression">
                 <CronPresets />
               </Field>
+              <Field label="Confirm count (required for >25 recipients)">
+                <Input name="confirmCount" type="number" min={1} placeholder="e.g. 42" className="w-24" />
+              </Field>
               <Button type="submit">Start recurring</Button>
             </form>
             <p className="text-xs text-muted-foreground">
-              Cron format: minute hour day month weekday, in UTC. Example:{" "}
-              <code className="font-mono">0 13 * * 1</code> = Mondays at 13:00 UTC.
+              Cron format: minute hour day month weekday, evaluated in UTC (recurring
+              schedules run on UTC, independent of the display zone). Example:{" "}
+              <code className="font-mono">0 13 * * 1</code> = Mondays 13:00 UTC (9:00 AM ET in summer).
             </p>
           </div>
         </div>
@@ -444,22 +449,22 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
       {campaign.runs.length > 0 && (
         <div className="space-y-3 border-t border-border pt-6">
           <h2 className="text-base font-semibold text-foreground">Sent runs</h2>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs font-medium text-muted-foreground border-b border-border">
-                <th className="pb-2 pr-6">Sent at</th>
-                <th className="pb-2">Recipients</th>
-              </tr>
-            </thead>
+          <Table>
+            <THead>
+              <TR>
+                <TH>Sent at</TH>
+                <TH>Recipients</TH>
+              </TR>
+            </THead>
             <tbody>
               {campaign.runs.map((run) => (
-                <tr key={run.id} className="border-b border-border-subtle last:border-0">
-                  <td className="py-2 pr-6 text-foreground-soft">{run.runAt.toLocaleString()}</td>
-                  <td className="py-2 text-foreground-soft">{run.recipientCount}</td>
-                </tr>
+                <TR key={run.id}>
+                  <TD className="text-foreground-soft"><DateTime value={run.runAt} /></TD>
+                  <TD className="text-foreground-soft">{run.recipientCount}</TD>
+                </TR>
               ))}
             </tbody>
-          </table>
+          </Table>
         </div>
       )}
     </div>

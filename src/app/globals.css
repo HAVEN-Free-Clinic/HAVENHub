@@ -10,7 +10,18 @@
   --color-success: #16a34a;
   --color-warning: #d97706;
   --color-critical: #dc2626;
+  --color-critical-faint: #fef2f2; /* red-50; faint danger tint, dark variant below */
   --color-info: #2563eb;
+
+  /* Status-as-text tokens. The vivid success/warning above are tuned for icons and
+     fills (3:1 non-text); as small text on a light surface they fall to ~3.2:1 and
+     fail WCAG AA. These *-foreground variants are darkened to clear 4.5:1 on white
+     (5.0:1) for status labels; dark-mode overrides below lift them back for dark. */
+  --color-success-foreground: #15803d; /* green-700 */
+  --color-warning-foreground: #b45309; /* amber-700 */
+  /* Darker critical for the danger button hover, so it tracks the red family via a
+     token instead of a hard-coded Tailwind shade (mirrors brand-hover). */
+  --color-critical-hover: #b91c1c;     /* red-700 */
 
   /* Calm cool-neutral canvas the hub shell sits on (vs. flat white). */
   --color-canvas: #eef1f5;
@@ -61,6 +72,29 @@ body {
   --mod-admin-bg: oklch(0.96 0.03 70);
   --mod-recruit:    oklch(0.50 0.08 300);
   --mod-recruit-bg: oklch(0.96 0.024 300);
+  --mod-swap:    oklch(0.55 0.11 55);
+  --mod-swap-bg: oklch(0.96 0.035 60);
+}
+
+/*
+ * Dark variants for the module accent hues. The light `-bg` values are near-white
+ * (L~0.96) tints; on the dark card surface they would render as bright islands,
+ * so in dark mode the chip background darkens (L~0.30 tint) and the icon hue lifts
+ * (L~0.80) to keep the same quiet category coding without breaking the theme.
+ */
+html.dark {
+  --mod-schedule:    oklch(0.80 0.09 250);
+  --mod-schedule-bg: oklch(0.30 0.045 250);
+  --mod-info:        oklch(0.80 0.08 210);
+  --mod-info-bg:     oklch(0.30 0.045 210);
+  --mod-volunteers:    oklch(0.80 0.09 160);
+  --mod-volunteers-bg: oklch(0.30 0.05 160);
+  --mod-admin:    oklch(0.82 0.10 70);
+  --mod-admin-bg: oklch(0.30 0.05 70);
+  --mod-recruit:    oklch(0.80 0.09 300);
+  --mod-recruit-bg: oklch(0.30 0.045 300);
+  --mod-swap:    oklch(0.82 0.10 60);
+  --mod-swap-bg: oklch(0.30 0.05 60);
 }
 
 /*
@@ -81,11 +115,18 @@ html.dark {
   --color-border-strong: #475569;     /* slate-600 */
   --color-border-subtle: #1e293b;     /* slate-800 */
 
+  /* Status text lifted for AA on dark surfaces (the vivid success/warning already
+     read on dark; these are the text-only variants used for status labels). */
+  --color-success-foreground: #4ade80; /* green-400; AA text on dark surfaces */
+  --color-warning-foreground: #fbbf24; /* amber-300; AA text on dark surfaces */
+
   /* Brand tints become dark-tinted surfaces; brand text is lifted to read on dark.
      color-mix keeps these tracking the admin-chosen brand hue. */
   --color-brand-fg: color-mix(in srgb, var(--color-brand) 55%, white);
   --color-brand-faint: color-mix(in srgb, var(--color-brand) 22%, #0b1220);
   --color-brand-light: color-mix(in srgb, var(--color-brand) 30%, #0b1220);
+  /* Faint danger tint tracks the critical hue on a dark base (mirrors brand-faint). */
+  --color-critical-faint: color-mix(in srgb, var(--color-critical) 22%, #0b1220);
 }
 
 /* Tell the UA which native scheme to use (form controls, scrollbars). */

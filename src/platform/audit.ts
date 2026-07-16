@@ -1,9 +1,10 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
+import { log, errorAttrs } from "@/platform/logging";
 
 export type AuditEntry = {
   actorPersonId?: string | null;
-  action: string; // "entity.verb", e.g. "person.update", "auth.login_unmatched"
+  action: string; // "entity.verb", e.g. "person.update", "auth.applicant_login"
   entityType: string;
   entityId?: string | null;
   before?: Prisma.InputJsonValue;
@@ -26,6 +27,6 @@ export async function recordAudit(entry: AuditEntry): Promise<void> {
       },
     });
   } catch (error) {
-    console.error("[audit] failed to record entry", entry.action, error);
+    log.error("[audit] failed to record entry", errorAttrs(error, { action: entry.action }));
   }
 }

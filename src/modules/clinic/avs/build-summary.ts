@@ -20,12 +20,12 @@ function formatDate(iso: string, lang: Lang): string {
   if (!iso) return "";
   const [y, m, d] = iso.split("-").map(Number);
   if (!y || !m || !d) return iso;
-  const date = new Date(y, m - 1, d);
   return new Intl.DateTimeFormat(lang === "es" ? "es" : "en-US", {
+    timeZone: "UTC",
     year: "numeric",
     month: "long",
     day: "numeric",
-  }).format(date);
+  }).format(new Date(Date.UTC(y, m - 1, d)));
 }
 
 function textItem(label: string, value: string): SummaryItem | null {
@@ -67,7 +67,9 @@ export function buildSummary(data: AvsData, lang: Lang): LocalizedSummary {
 
   const validMeds = data.medications.filter((m) => m.name.trim());
   const meds = validMeds.length
-    ? block(t.sectionMeds, [{ kind: "meds", label: t.sectionMeds, meds: validMeds }])
+    ? block(t.sectionMeds, [
+        { kind: "meds", label: t.sectionMeds, doseLabel: t.labelDose, costSourceLabel: t.labelCostSource, meds: validMeds },
+      ])
     : null;
 
   const followUpValue = [

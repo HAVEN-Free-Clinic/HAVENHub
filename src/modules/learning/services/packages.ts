@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { unzipSync } from "fflate";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
@@ -80,12 +81,39 @@ export async function ingestScormPackage(
   const course = await prisma.course.findUnique({ where: { id: courseId } });
   if (!course) throw new LearningValidationError("Course not found.");
 
+  // Bound decompression AS entries are read, not after: a decompression bomb
+  // inflates to gigabytes, so reject on each entry's declared uncompressed size
+  // (from the zip directory) BEFORE fflate materializes it, keeping peak memory at
+  // ~MAX_TOTAL_BYTES instead of loading the whole inflated archive first. The
+  // post-unzip byteLength checks below stay as defense in depth (a directory that
+  // understates a size is still caught, just after that one entry inflates).
   let entries: Record<string, Uint8Array>;
+  let declaredBytes = 0;
+  let acceptedFiles = 0;
+  let tooManyFiles = false;
+  let tooLarge = false;
   try {
-    entries = unzipSync(new Uint8Array(zipBytes));
+    entries = unzipSync(new Uint8Array(zipBytes), {
+      filter: (file) => {
+        if (file.name.endsWith("/")) return false; // directory entry: never inflate
+        if (acceptedFiles + 1 > MAX_FILES) {
+          tooManyFiles = true;
+          return false;
+        }
+        if (file.originalSize > MAX_TOTAL_BYTES || declaredBytes + file.originalSize > MAX_TOTAL_BYTES) {
+          tooLarge = true;
+          return false;
+        }
+        declaredBytes += file.originalSize;
+        acceptedFiles += 1;
+        return true;
+      },
+    });
   } catch {
     throw new LearningValidationError("Could not read the uploaded file as a .zip.");
   }
+  if (tooManyFiles) throw new LearningValidationError("The package has too many files.");
+  if (tooLarge) throw new LearningValidationError("The package is too large.");
 
   // Drop directory entries (zero-length, trailing slash).
   const files = Object.entries(entries).filter(([name]) => !name.endsWith("/"));
@@ -106,12 +134,16 @@ export async function ingestScormPackage(
     throw err;
   }
 
-  // Replace: clear any previous package for this course first.
-  await deletePrefix(`scorm/${courseId}/`);
+  // Stage the new package under a fresh, versioned prefix and make the DB manifest
+  // update the single source of truth. The previous package stays intact until the
+  // DB write commits, so a failed write never leaves the course pointing at deleted
+  // files (audit F17). scormEntryHref/scormScos stay relative (no key baked in).
+  const oldKey = course.scormBlobKey;
+  const blobKey = randomUUID();
 
   for (const [name, bytes] of files) {
     const rel = safeRelPath(name);
-    await putObject(`scorm/${courseId}/${rel}`, Buffer.from(bytes), contentTypeFor(rel));
+    await putObject(`scorm/${courseId}/${blobKey}/${rel}`, Buffer.from(bytes), contentTypeFor(rel));
   }
 
   const updateCourse = prisma.course.update({
@@ -121,9 +153,12 @@ export async function ingestScormPackage(
       scormVersion: parsed.version,
       scormScos: parsed.scos as unknown as Prisma.InputJsonValue,
       scormUploadedAt: new Date(),
+      scormBlobKey: blobKey,
     },
   });
 
+  // Commit the manifest (and optional progress reset) BEFORE deleting the old
+  // package, so a DB failure leaves the previous package fully intact and served.
   // Wipe progress in the same transaction as the manifest update so we never end
   // up with new content but stale completion (or vice versa) if a write fails.
   let resetLearners = 0;
@@ -136,6 +171,15 @@ export async function ingestScormPackage(
     resetLearners = cleared.count;
   } else {
     await updateCourse;
+  }
+
+  // Manifest now points at the new prefix; clean up the old package. A failure here
+  // only orphans blobs (harmless), not a broken course. When oldKey is null the
+  // previous package (if any) lived at the flat prefix scorm/<courseId>/, which we
+  // deliberately do NOT prefix-delete here because it also matches the new
+  // versioned files; those legacy flat files become harmless orphans.
+  if (oldKey) {
+    await deletePrefix(`scorm/${courseId}/${oldKey}/`);
   }
 
   await recordAudit({

@@ -3,16 +3,22 @@ import { useEffect, useRef, useState } from "react";
 import { Plus } from "lucide-react";
 import type { FieldType } from "@prisma/client";
 import { Button } from "@/platform/ui/button";
-import { fieldTypesByGroup, FIELD_TYPE_META } from "@/modules/recruitment/engine/field-types";
+import { fieldTypesByGroup, FIELD_TYPE_META, FIELD_GROUP_LABELS } from "@/modules/recruitment/engine/field-types";
 
-const GROUP_LABELS: Record<string, string> = {
-  Text: "Text", Choice: "Choice", Contact: "Contact",
-  DateNumber: "Date & number", File: "File", Department: "Department",
-};
+function renderMenuItem(t: FieldType, onPick: (type: FieldType) => void, setOpen: (v: boolean) => void) {
+  const meta = FIELD_TYPE_META[t];
+  const Icon = meta.icon;
+  return (
+    // eslint-disable-next-line no-restricted-syntax -- styled full-width option button inside the add-field popover
+    <button key={t} type="button" onClick={() => { onPick(t); setOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-foreground hover:bg-muted">
+      <Icon className="h-4 w-4 text-subtle-foreground" aria-hidden /> {meta.label}
+    </button>
+  );
+}
 
 export function TypePicker({
-  onPick, disabled = false, label = "Add field",
-}: { onPick: (type: FieldType) => void; disabled?: boolean; label?: string }) {
+  onPick, disabled = false, label = "Add field", types,
+}: { onPick: (type: FieldType) => void; disabled?: boolean; label?: string; types?: FieldType[] }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -30,27 +36,22 @@ export function TypePicker({
   return (
     <div ref={ref} className="relative">
       <Button type="button" variant="outline" size="sm" disabled={disabled}
-        onClick={() => setOpen((v) => !v)} aria-haspopup="menu" aria-expanded={open}>
+        onClick={() => setOpen((v) => !v)} aria-expanded={open}>
         <Plus className="h-4 w-4" aria-hidden /> {label}
       </Button>
       {open && (
-        <div role="menu"
-          className="absolute left-0 z-20 mt-1 max-h-80 w-64 overflow-auto rounded-xl border border-border bg-surface p-2 shadow-lg">
-          {fieldTypesByGroup().map(({ group, types }) => (
-            <div key={group} className="mb-1">
-              <p className="px-2 pb-1 pt-2 text-xs font-semibold uppercase tracking-wider text-subtle-foreground">{GROUP_LABELS[group]}</p>
-              {types.map((t) => {
-                const meta = FIELD_TYPE_META[t];
-                const Icon = meta.icon;
-                return (
-                  // eslint-disable-next-line no-restricted-syntax -- popover dropdown menu item with role="menuitem"
-                  <button key={t} type="button" role="menuitem" onClick={() => { onPick(t); setOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-foreground hover:bg-muted">
-                    <Icon className="h-4 w-4 text-subtle-foreground" aria-hidden /> {meta.label}
-                  </button>
-                );
-              })}
-            </div>
-          ))}
+        <div
+          className="absolute left-0 z-20 mt-1 max-h-80 w-64 overflow-auto rounded-xl glass-panel p-2">
+          {types ? (
+            types.map((t) => renderMenuItem(t, onPick, setOpen))
+          ) : (
+            fieldTypesByGroup().map(({ group, types: groupTypes }) => (
+              <div key={group} className="mb-1">
+                <p className="px-2 pb-1 pt-2 text-xs font-semibold uppercase tracking-wider text-subtle-foreground">{FIELD_GROUP_LABELS[group]}</p>
+                {groupTypes.map((t) => renderMenuItem(t, onPick, setOpen))}
+              </div>
+            ))
+          )}
         </div>
       )}
     </div>

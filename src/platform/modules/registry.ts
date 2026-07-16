@@ -2,10 +2,9 @@ import {
   CalendarDays,
   ClipboardList,
   GraduationCap,
-  HeartHandshake,
-  MessagesSquare,
-  Send,
+  LifeBuoy,
   Settings,
+  ShieldAlert,
   Stethoscope,
   UserRoundPen,
   Users,
@@ -31,6 +30,7 @@ export const MODULES: ModuleManifest[] = [
       { label: "My schedule", href: "/schedule" },
       { label: "Full schedule", href: "/schedule/full" },
       { label: "Builder", href: "/schedule/builder" },
+      { label: "Approvals", href: "/schedule/requests", permission: "schedule.manage_requests" },
       { label: "Attendings", href: "/schedule/attendings" },
     ],
   },
@@ -48,27 +48,41 @@ export const MODULES: ModuleManifest[] = [
   {
     id: "volunteers",
     title: "Volunteer Management",
-    description: "Compliance, rosters, offboarding, Epic requests, disciplinary",
+    description: "Compliance, rosters, offboarding",
     icon: Users,
     accessPermission: "volunteers.view",
+    // A Spanish-review reviewer is granted only volunteers.verify_spanish; it is
+    // their sole page, so it also grants module access (the tile, the layout, and
+    // the nav). Every other page still enforces its own permission.
+    additionalAccessPermissions: ["volunteers.verify_spanish"],
     permissions: [
       "volunteers.view",
       "volunteers.manage_compliance",
       "volunteers.manage_offboarding",
-      "volunteers.manage_epic",
-      "volunteers.issue_disciplinary",
       "volunteers.verify_spanish",
     ],
     status: "active",
     nav: [
-      // Compliance / Offboarding / Disciplinary gate on volunteers.view (= module access).
       { label: "Compliance", href: "/volunteers" },
       { label: "Master view", href: "/volunteers/master", permission: "volunteers.manage_compliance" },
       { label: "EHS training", href: "/volunteers/ehs", permission: "volunteers.manage_compliance" },
       { label: "Spanish review", href: "/volunteers/spanish-review", permission: "volunteers.verify_spanish" },
       { label: "Offboarding", href: "/volunteers/offboarding" },
-      { label: "Epic requests", href: "/volunteers/epic", permission: "volunteers.manage_epic" },
-      { label: "Disciplinary", href: "/volunteers/disciplinary" },
+    ],
+  },
+  {
+    id: "incidents",
+    title: "Incident Reports",
+    description: "Report a professional-standards concern; review reports and manage strikes",
+    icon: ShieldAlert,
+    // No accessPermission: open to any signed-in matched person so anyone can file a report.
+    permissions: ["incidents.manage", "incidents.view_strikes"],
+    status: "active",
+    nav: [
+      { label: "Report a concern", href: "/incidents" },
+      { label: "My reports", href: "/incidents/mine" },
+      { label: "Review", href: "/incidents/review", permission: "incidents.manage" },
+      { label: "Strikes", href: "/incidents/strikes", permission: "incidents.view_strikes" },
     ],
   },
   {
@@ -76,9 +90,12 @@ export const MODULES: ModuleManifest[] = [
     title: "Clinic Tools",
     description: "Point-of-care tools for clinical volunteers",
     icon: Stethoscope,
-    // No accessPermission: the After Visit Summary tool is open to any
-    // onboarded signed-in volunteer for use during a visit (spec decision).
-    permissions: [],
+    // Gated on a grantable clinic.access permission: point-of-care tools like
+    // the After Visit Summary are admin-assigned, not open to every signed-in
+    // person. No baseline system role carries it, so admins grant it per role
+    // or per person. Platform Admin reaches it via the "*" wildcard.
+    accessPermission: "clinic.access",
+    permissions: ["clinic.access"],
     status: "active",
     nav: [{ label: "After Visit Summary", href: "/clinic/avs" }],
   },
@@ -104,7 +121,7 @@ export const MODULES: ModuleManifest[] = [
     ],
     status: "active",
     nav: [
-      // Overview and ITCM gate on admin.access (= module access); the rest each
+      // Overview gates on admin.access (= module access); the rest each
       // require a distinct sub-permission, mirrored here from the page gates.
       // Email and Notifications enforce admin.manage_sync (not the email perms).
       { label: "Overview", href: "/admin" },
@@ -117,7 +134,6 @@ export const MODULES: ModuleManifest[] = [
       { label: "Email", href: "/admin/email", permission: "admin.manage_sync" },
       { label: "Notifications", href: "/admin/notifications", permission: "admin.manage_sync" },
       { label: "Settings", href: "/admin/settings", permission: "admin.manage_settings" },
-      { label: "ITCM", href: "/admin/itcm" },
     ],
   },
   {
@@ -126,7 +142,11 @@ export const MODULES: ModuleManifest[] = [
     description: "Run recruitment cycles, build applications, review submissions",
     icon: ClipboardList,
     accessPermission: "recruitment.access",
-    permissions: ["recruitment.access", "recruitment.manage_cycles", "recruitment.review_all"],
+    // Committee scorers hold recruitment.score but not recruitment.access; this
+    // surfaces the tile + nav tab for them without granting anything new (each
+    // page still enforces its own permission).
+    additionalAccessPermissions: ["recruitment.score"],
+    permissions: ["recruitment.access", "recruitment.manage_cycles", "recruitment.review_all", "recruitment.score"],
     status: "active",
     nav: [{ label: "Cycles", href: "/recruitment" }],
   },
@@ -146,34 +166,20 @@ export const MODULES: ModuleManifest[] = [
     ],
   },
   {
-    id: "triage",
-    title: "Triage",
-    description: "Patient case coordination across departments",
-    icon: MessagesSquare,
-    accessPermission: "triage.access",
-    permissions: ["triage.access"],
-    status: "coming-soon",
-    nav: [],
-  },
-  {
-    id: "referrals",
-    title: "Referrals",
-    description: "Track outgoing patient referrals",
-    icon: Send,
-    accessPermission: "referrals.access",
-    permissions: ["referrals.access"],
-    status: "coming-soon",
-    nav: [],
-  },
-  {
-    id: "patient-trackers",
-    title: "Patient Trackers",
-    description: "Department patient tracking workflows",
-    icon: HeartHandshake,
-    accessPermission: "patient-trackers.access",
-    permissions: ["patient-trackers.access"],
-    status: "coming-soon",
-    nav: [],
+    id: "support",
+    title: "IT Support",
+    description: "Submit and track IT and Epic access requests",
+    icon: LifeBuoy,
+    // No accessPermission: open to any signed-in matched person (like my-info),
+    // so anyone can submit. Manager tabs gate on support.manage_requests.
+    permissions: ["support.manage_requests"],
+    status: "active",
+    nav: [
+      { label: "My requests", href: "/support" },
+      { label: "Submit a request", href: "/support/new" },
+      { label: "All requests", href: "/support/all", permission: "support.manage_requests" },
+      { label: "Epic / YNHH tools", href: "/support/epic", permission: "support.manage_requests" },
+    ],
   },
 ];
 

@@ -198,3 +198,60 @@ export async function loadEhsMissingMap(
   }
   return out;
 }
+
+/**
+ * Batched sibling of loadEhsMissingMap: per active-term member, the EHS trainings
+ * required of them, each flagged complete. Returns [] for members with no required
+ * trainings. Used by the clearance engine to derive the EHS onboarding task in bulk.
+ */
+export async function loadEhsItemsMap(
+  activeTermId: string
+): Promise<Map<string, { id: string; name: string; complete: boolean }[]>> {
+  const catalog = await loadCatalog();
+
+  const memberships = (await prisma.termMembership.findMany({
+    where: { termId: activeTermId, status: "ACTIVE" },
+    select: {
+      personId: true,
+      departmentId: true,
+      person: {
+        select: {
+          yaleAffiliation: true,
+          ehsCompletions: { select: { trainingId: true } },
+        },
+      },
+    },
+  })) as Array<{
+    personId: string;
+    departmentId: string;
+    person: { yaleAffiliation: string | null; ehsCompletions: { trainingId: string }[] };
+  }>;
+
+  const deptsByPerson = new Map<string, Set<string>>();
+  const completedByPerson = new Map<string, Set<string>>();
+  const affiliationByPerson = new Map<string, string | null>();
+  for (const m of memberships) {
+    if (!deptsByPerson.has(m.personId)) deptsByPerson.set(m.personId, new Set());
+    deptsByPerson.get(m.personId)!.add(m.departmentId);
+    if (!completedByPerson.has(m.personId)) {
+      completedByPerson.set(m.personId, new Set(m.person.ehsCompletions.map((c) => c.trainingId)));
+      affiliationByPerson.set(m.personId, m.person.yaleAffiliation);
+    }
+  }
+
+  const out = new Map<string, { id: string; name: string; complete: boolean }[]>();
+  for (const [personId, deptSet] of deptsByPerson) {
+    const isStudent = isStudentAffiliation(affiliationByPerson.get(personId));
+    const required = requiredTrainingsForMember({
+      trainings: catalog,
+      memberDepartmentIds: [...deptSet],
+      isStudent,
+    });
+    const completed = completedByPerson.get(personId) ?? new Set<string>();
+    out.set(
+      personId,
+      required.map((t) => ({ id: t.id, name: t.name, complete: completed.has(t.id) }))
+    );
+  }
+  return out;
+}

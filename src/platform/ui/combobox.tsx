@@ -92,6 +92,7 @@ export function Combobox({
         aria-expanded={open}
         aria-controls={listId}
         aria-autocomplete="list"
+        aria-activedescendant={open && filtered.length > 0 ? `${listId}-opt-${active}` : undefined}
         aria-label={ariaLabel}
         autoComplete="off"
         className={controlBase}
@@ -118,6 +119,7 @@ export function Combobox({
           {filtered.map((o, i) => (
             <li
               key={o.value}
+              id={`${listId}-opt-${i}`}
               role="option"
               aria-selected={o.value === value}
               className={cx(

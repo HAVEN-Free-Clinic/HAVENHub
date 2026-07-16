@@ -2,7 +2,7 @@ import type { ComponentProps } from "react";
 import { cx } from "./cx";
 
 type Variant = "primary" | "outline" | "danger" | "ghost";
-type Size = "sm" | "md";
+type Size = "sm" | "md" | "lg";
 
 const variantClasses: Record<Variant, string> = {
   primary:
@@ -10,7 +10,7 @@ const variantClasses: Record<Variant, string> = {
   outline:
     "border border-border-strong text-foreground-soft hover:bg-muted",
   danger:
-    "bg-critical text-white hover:bg-red-700",
+    "bg-critical text-white hover:bg-critical-hover",
   ghost:
     "text-muted-foreground hover:text-foreground",
 };
@@ -18,6 +18,8 @@ const variantClasses: Record<Variant, string> = {
 const sizeClasses: Record<Size, string> = {
   md: "px-4 py-2",
   sm: "px-3 py-1.5",
+  // Comfortable 44px tap target for primary calls to action on public/mobile pages.
+  lg: "min-h-[44px] px-5 py-2.5",
 };
 
 export function buttonClasses(

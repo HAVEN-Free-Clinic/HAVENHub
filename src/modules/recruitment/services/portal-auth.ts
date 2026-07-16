@@ -18,6 +18,19 @@ export async function issueMagicToken(email: string): Promise<string> {
   return raw;
 }
 
+/** Validate a raw token WITHOUT consuming it: returns emailLower for a known,
+ *  unused, unexpired token, else null. The verify page peeks first to render the
+ *  "sign in as <email>?" confirmation, and only verifyMagicToken (below) claims
+ *  the token once the applicant confirms -- so a link forwarded to a victim cannot
+ *  silently sign them into the requester's account without an explicit confirm. */
+export async function peekMagicToken(rawToken: string): Promise<string | null> {
+  const token = await prisma.applicantPortalToken.findFirst({
+    where: { tokenHash: hashToken(rawToken), usedAt: null, expiresAt: { gt: new Date() } },
+    select: { emailLower: true },
+  });
+  return token?.emailLower ?? null;
+}
+
 /** Validate a raw token: returns the emailLower and marks it used, or null if
  *  it is unknown, already used, or expired. */
 export async function verifyMagicToken(rawToken: string): Promise<string | null> {
@@ -43,7 +56,7 @@ export async function verifyMagicToken(rawToken: string): Promise<string | null>
 // ---------------------------------------------------------------------------
 
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { auth } from "@/platform/auth/auth";
 import { config } from "@/platform/config";
 
@@ -90,18 +103,27 @@ export function readApplicantCookie(value: string | undefined): string | null {
   }
 }
 
-export type ApplicantIdentity = { email: string; personId: string | null };
+export type ApplicantIdentity = { email: string; personId: string | null; firstName: string | null };
 
 /** The current applicant: from the NextAuth Person session if signed in,
- *  otherwise from the signed applicant cookie, otherwise null. */
+ *  otherwise from the signed applicant cookie, otherwise null.
+ *  `firstName` is the name from the Entra sign-in (null on the magic-link cookie
+ *  path, which carries only a verified email). */
 export async function getApplicantIdentity(): Promise<ApplicantIdentity | null> {
   const session = await auth();
   if (session?.personId && session.user?.email) {
-    return { email: session.user.email.toLowerCase(), personId: session.personId };
+    return { email: session.user.email.toLowerCase(), personId: session.personId, firstName: session.applicantFirstName ?? null };
+  }
+  // A tenant-valid Yale login that matched no Person still carries a verified email
+  // (stamped in the jwt callback). Treat it as a prospective applicant, exactly like
+  // the magic-link cookie path. personId is preserved if present so a recognized
+  // member who happens to lack a user.email claim is never downgraded.
+  if (session?.applicantEmail) {
+    return { email: session.applicantEmail, personId: session.personId ?? null, firstName: session.applicantFirstName ?? null };
   }
   const store = await cookies();
   const email = readApplicantCookie(store.get(APPLICANT_COOKIE)?.value);
-  return email ? { email, personId: null } : null;
+  return email ? { email, personId: null, firstName: null } : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -112,6 +134,7 @@ import { queueEmail } from "@/platform/email/send";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
 import { getSetting } from "@/platform/settings/service";
 import { safeNextPath, PORTAL_HOME } from "./portal-next";
+import { pickPortalEmailBase } from "./portal-routing";
 
 const RATE_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 const RATE_MAX = 3;
@@ -129,11 +152,14 @@ export async function requestMagicLink(email: string, next?: string | null): Pro
   if (recent >= RATE_MAX) return;
 
   const raw = await issueMagicToken(emailLower);
-  // Resolve the public base URL through the admin-configurable setting (a trusted
-  // deploy/admin value, never the request Host header), matching every other
-  // outbound-email link. Using config.APP_BASE_URL directly here meant the magic
-  // link alone ignored a configured custom domain and emitted the raw env value.
-  const baseUrl = await getSetting<string>("app.baseUrl");
+  // Pick the base URL for the emailed link between two trusted, configured values:
+  // the portal subdomain when the applicant is verifiably ON it, else the hub base.
+  // The request Host is only compared for equality against the known portal host,
+  // never interpolated, so a spoofed Host cannot point the link elsewhere. This
+  // keeps the applicant's cookie (set by /apply/verify) on the host they are using.
+  const appBase = await getSetting<string>("app.baseUrl");
+  const requestHost = (await headers()).get("host");
+  const baseUrl = pickPortalEmailBase(requestHost, config.PORTAL_BASE_URL, appBase);
   // Only append next when it resolves to a real deep link (not the home default),
   // keeping the common "sign in from the portal home" link clean. The verify
   // route re-validates before redirecting, so this is defence in depth.

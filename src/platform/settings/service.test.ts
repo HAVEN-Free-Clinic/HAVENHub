@@ -59,6 +59,11 @@ describe("getCategory", () => {
     const rhdEntry = after.find((e) => e.key === "rhd.maxProcedures");
     expect(rhdEntry).toMatchObject({ value: 7, isOverridden: true });
   });
+
+  it("getCategory excludes hidden settings", async () => {
+    const rows = await getCategory("Onboarding");
+    expect(rows).toEqual([]);
+  });
 });
 
 describe("setSetting", () => {
@@ -167,6 +172,13 @@ describe("phase 2a branding settings", () => {
     await prisma.setting.create({ data: { key: "branding.appName", value: "Clinic Hub" } });
     _resetSettingsCache();
     expect(await getSetting<string>("branding.appName")).toBe("Clinic Hub");
+  });
+
+  it("resolves branding.applyPortalTitle default then DB override", async () => {
+    expect(await getSetting<string>("branding.applyPortalTitle")).toBe("HAVEN Application Portal");
+    await prisma.setting.create({ data: { key: "branding.applyPortalTitle", value: "Clinic Application Portal" } });
+    _resetSettingsCache();
+    expect(await getSetting<string>("branding.applyPortalTitle")).toBe("Clinic Application Portal");
   });
 
   it("resolves branding.orgName default then DB override", async () => {

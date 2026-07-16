@@ -27,6 +27,8 @@ export type ModuleManifest = {
    * permission required). My Info uses this so non-current members keep access.
    */
   accessPermission?: string;
+  /** Extra permissions that also grant module access, beyond accessPermission. */
+  additionalAccessPermissions?: string[];
   /** Every permission string this module declares; feeds the RBAC editor. */
   permissions: string[];
   status: ModuleStatus;

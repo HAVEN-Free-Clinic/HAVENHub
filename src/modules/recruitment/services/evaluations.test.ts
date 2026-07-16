@@ -25,15 +25,25 @@ afterEach(async () => { await resetDb(); });
 
 it("lets a panelist submit and update their evaluation (upsert)", async () => {
   const { iv, panelist } = await seedInterview();
-  await submitEvaluation(iv.id, panelist.id, "YES", "solid");
-  await submitEvaluation(iv.id, panelist.id, "STRONG_YES", "even better");
+  await submitEvaluation(iv.id, panelist.id, 4, "solid");
+  await submitEvaluation(iv.id, panelist.id, 5, "even better");
   const evals = await prisma.evaluation.findMany({ where: { interviewId: iv.id } });
   expect(evals).toHaveLength(1);
-  expect(evals[0].recommendation).toBe("STRONG_YES");
+  expect(evals[0].score).toBe(5);
   expect(evals[0].comments).toBe("even better");
 });
 
 it("rejects an evaluation from a non-panelist", async () => {
   const { iv, outsider } = await seedInterview();
-  await expect(submitEvaluation(iv.id, outsider.id, "YES", null)).rejects.toBeInstanceOf(RecruitmentAuthError);
+  await expect(submitEvaluation(iv.id, outsider.id, 4, null)).rejects.toBeInstanceOf(RecruitmentAuthError);
+});
+
+it("rejects an applicant scoring their own interview even when they are on the panel", async () => {
+  const { iv } = await seedInterview();
+  const app = await prisma.application.findFirstOrThrow();
+  // The applicant is a signed-in person who somehow also sits on the panel.
+  const self = await prisma.person.create({ data: { name: "Self Scorer", status: "ACTIVE" } });
+  await prisma.applicant.update({ where: { id: app.applicantId }, data: { applicantPersonId: self.id } });
+  await prisma.interviewPanelist.create({ data: { interviewId: iv.id, personId: self.id } });
+  await expect(submitEvaluation(iv.id, self.id, 5, "I'm great")).rejects.toBeInstanceOf(RecruitmentAuthError);
 });

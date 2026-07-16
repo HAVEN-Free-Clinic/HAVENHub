@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { requirePermission } from "@/platform/auth/session";
 import { prisma } from "@/platform/db";
 import { PageHeader } from "@/platform/ui/page-header";
+import { SectionHeader } from "@/platform/ui/section-header";
 import { Card } from "@/platform/ui/card";
 import { Input, Textarea, Field } from "@/platform/ui/input";
 import { Checkbox } from "@/platform/ui/checkbox";
@@ -10,6 +11,8 @@ import { Alert } from "@/platform/ui/alert";
 import { FormActions } from "@/platform/ui/form";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { getCourseForEdit } from "@/modules/learning/services/courses";
+import { formatDateOnly } from "@/platform/dates";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { usingBlobStorage } from "@/platform/storage";
 import { updateCourseAction, setAssignmentAction } from "../actions";
 import { UploadPackageForm } from "./UploadPackageForm";
@@ -19,6 +22,7 @@ export default async function EditCoursePage({ params }: { params: Promise<{ cou
   const { courseId } = await params;
   const course = await getCourseForEdit(courseId);
   if (!course) notFound();
+  const zone = await getDisplayTimeZone();
   const departments = await prisma.department.findMany({ where: { isActive: true }, orderBy: { name: "asc" } });
   const assignedDeptIds = new Set(course.departments.map((d) => d.departmentId));
   const isAssigned = course.assignToAll || course.departments.length > 0;
@@ -55,7 +59,7 @@ export default async function EditCoursePage({ params }: { params: Promise<{ cou
         </Card>
 
         <Card className="space-y-4">
-          <h2 className="font-medium">Assignment</h2>
+          <SectionHeader level="title">Assignment</SectionHeader>
           <form action={setAssignmentAction}>
             <input type="hidden" name="courseId" value={course.id} />
             <div className="space-y-4">
@@ -69,7 +73,7 @@ export default async function EditCoursePage({ params }: { params: Promise<{ cou
                   <option value="VOLUNTEERS">Volunteers only</option>
                 </Select>
               </Field>
-              <div className="grid grid-cols-2 gap-1 text-sm">
+              <div className="grid grid-cols-1 gap-1 text-sm sm:grid-cols-2">
                 {departments.map((d) => (
                   <label key={d.id} className="flex items-center gap-2">
                     <Checkbox name="departmentIds" value={d.id} defaultChecked={assignedDeptIds.has(d.id)} /> {d.name}
@@ -84,10 +88,10 @@ export default async function EditCoursePage({ params }: { params: Promise<{ cou
         </Card>
 
         <div className="space-y-2">
-          <h2 className="font-medium">SCORM package</h2>
+          <SectionHeader level="title">SCORM package</SectionHeader>
           <p className="text-sm text-muted-foreground">
             {course.scormEntryHref
-              ? `Uploaded${course.scormUploadedAt ? ` ${course.scormUploadedAt.toLocaleDateString()}` : ""} · launch: ${course.scormEntryHref} · SCORM ${course.scormVersion ?? "1.2"}`
+              ? `Uploaded${course.scormUploadedAt ? ` ${formatDateOnly(course.scormUploadedAt, zone)}` : ""} · launch: ${course.scormEntryHref} · SCORM ${course.scormVersion ?? "1.2"}`
               : "No package uploaded yet."}
           </p>
           <UploadPackageForm courseId={course.id} hasPackage={course.scormEntryHref != null} usingBlob={usingBlobStorage} />

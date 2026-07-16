@@ -5,6 +5,7 @@ import {
   RENEWAL_WARNING_DAYS,
   certExpiresAt,
   complianceStatus,
+  effectiveComplianceStatus,
   overallClearance,
 } from "./rules";
 
@@ -222,5 +223,35 @@ describe("complianceStatus - verification gate", () => {
 describe("overallClearance - PENDING is not cleared", () => {
   it("PENDING_VERIFICATION never clears", () => {
     expect(overallClearance("PENDING_VERIFICATION", true)).toBe("NOT_CLEARED");
+  });
+});
+
+describe("effectiveComplianceStatus - early-renewal fallback (audit #17)", () => {
+  const now = noon(2026, 7, 15);
+
+  it("stays compliant when an unverified renewal is uploaded over a still-valid verified cert", () => {
+    const certs = [
+      { completionDate: noon(2026, 7, 10), verifiedAt: null }, // newest: early renewal, unverified
+      { completionDate: noon(2026, 6, 1), verifiedAt: noon(2026, 6, 2) }, // still-valid verified cert
+    ];
+    expect(effectiveComplianceStatus(certs, null, now)).toBe("COMPLIANT");
+  });
+
+  it("is PENDING_VERIFICATION when the only cert is unverified", () => {
+    const certs = [{ completionDate: noon(2026, 7, 10), verifiedAt: null }];
+    expect(effectiveComplianceStatus(certs, null, now)).toBe("PENDING_VERIFICATION");
+  });
+
+  it("does not fall back to an expired verified cert", () => {
+    const certs = [
+      { completionDate: noon(2026, 7, 10), verifiedAt: null }, // unverified renewal
+      { completionDate: noon(2024, 1, 1), verifiedAt: noon(2024, 1, 2) }, // verified but expired (>365d old)
+    ];
+    expect(effectiveComplianceStatus(certs, null, now)).toBe("PENDING_VERIFICATION");
+  });
+
+  it("uses the newest cert directly when it is verified", () => {
+    const certs = [{ completionDate: noon(2026, 7, 10), verifiedAt: noon(2026, 7, 11) }];
+    expect(effectiveComplianceStatus(certs, null, now)).toBe("COMPLIANT");
   });
 });

@@ -315,19 +315,28 @@ export async function submitContract(
   ]);
   for (const id of requiredIds) {
     const sig = input.signatures[id];
-    let bytes: Buffer;
     try {
-      bytes = decodeSignaturePng(sig.dataUrl);
+      const bytes = decodeSignaturePng(sig.dataUrl);
+      const imageKey = `onboarding/${contract.id}/sig-${id.replace(/[^a-z0-9_]/gi, "_")}-${randomUUID()}.png`;
+      await putObject(imageKey, bytes, "image/png");
+      signatureKeys.push(imageKey);
+      const method = sig.method === "type" ? "type" : "draw";
+      // A typed signature carries its own name; a drawn one's companion name is a
+      // best-effort client hint that can be stale (the prefilled name, not the name
+      // the applicant actually entered on this form), so prefer the submitted
+      // identity name for drawn signatures.
+      const signerName = method === "type" ? sig.name.trim() : (`${input.firstName} ${input.lastName}`.trim() || sig.name.trim());
+      signatureJson[id] = { method, name: signerName, imageKey, signedAt: new Date().toISOString() };
     } catch (err) {
+      // Any failure here -- decode OR a putObject storage error -- must roll back
+      // the HIPAA blob and every signature blob written so far, or they orphan in
+      // storage while the submit fails. (Previously only decode was guarded, so a
+      // putObject throw escaped and leaked them.)
       await cleanupSignatures();
       if (writtenKey) await deleteObject(writtenKey);
       if (err instanceof SignatureError) throw new ContractValidationError("Please provide a valid signature.", { [`sig__${id}`]: "invalid signature" });
       throw err;
     }
-    const imageKey = `onboarding/${contract.id}/sig-${id.replace(/[^a-z0-9_]/gi, "_")}-${randomUUID()}.png`;
-    await putObject(imageKey, bytes, "image/png");
-    signatureKeys.push(imageKey);
-    signatureJson[id] = { method: sig.method === "type" ? "type" : "draw", name: sig.name.trim(), imageKey, signedAt: new Date().toISOString() };
   }
   const initialsName = input.signatures.initials?.name?.trim() ?? null;
 

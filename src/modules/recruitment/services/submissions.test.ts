@@ -130,6 +130,35 @@ it("rejects a renewal into an in-cycle department the person does not belong to"
   ).rejects.toBeInstanceOf(SubmissionValidationError);
 });
 
+it("preserves a RENEWAL answer for a field conditioned on the department (server mirrors the client department merge) [audit #1]", async () => {
+  const lead = await prisma.person.create({ data: { name: "Lead", status: "ACTIVE" } });
+  const term = await prisma.term.create({ data: { code: "FA26", name: "Fall 2026", startDate: new Date(), endDate: new Date() } });
+  const cycle = await createCycle({ track: "VOLUNTEER", termId: term.id, title: "V", publicSlug: "apply-rv", departments: ["SRHD", "MDIC"], acceptsRenewals: true, createdById: lead.id });
+  const idSection = await prisma.formSection.findFirstOrThrow({ where: { cycleId: cycle.id }, orderBy: { order: "asc" } });
+  const deptField = await addField(idSection.id, { label: "1st choice department", type: "DEPARTMENT_CHOICE", required: true });
+  const renew = await addSection(cycle.id, { title: "Renewal", appliesTo: "RENEWAL", departmentCode: null });
+  await addField(renew.id, { label: "Continue reason", type: "LONG_TEXT", required: true });
+  // A renewal-section field shown only when the (renewal) department is SRHD.
+  const srhdOnly = await addField(renew.id, { label: "SRHD renewal note", type: "LONG_TEXT", required: false });
+  await prisma.formField.update({ where: { id: srhdOnly.id }, data: { visibleWhen: { field: deptField.key, op: "is", value: "SRHD" } } });
+  await publishCycle(cycle.id, lead.id);
+
+  const person = await makeVolunteer("SRHD");
+  const app = await submitApplication("apply-rv", {
+    applicantType: "RENEWAL",
+    renewalDepartment: "SRHD",
+    // The renewal never renders/submits the DEPARTMENT_CHOICE field, so the
+    // server must merge renewalDepartment before evaluating field visibility.
+    // Without that merge the condition is checked against an empty department and
+    // this answer -- shown to and provided by the applicant -- is silently dropped.
+    answers: { first_name: "Re", last_name: "New", email: "srhd@yale.edu", continue_reason: "yes", srhd_renewal_note: "kept" },
+    files: {},
+    sessionPersonId: person.id,
+    sessionEmail: "srhd@yale.edu",
+  });
+  expect((app.answers as Record<string, unknown>).srhd_renewal_note).toBe("kept");
+});
+
 it("rejects a missing required answer", async () => {
   await openVolunteerCycle();
   await expect(

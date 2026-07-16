@@ -12,7 +12,7 @@ import {
   type SectionDef, type FieldDef,
 } from "../engine/schema-builder";
 import { visibleSections, type ApplicantType } from "../engine/visibility";
-import { isFieldVisible } from "../engine/field-visibility";
+import { isFieldVisible, mergeDepartmentAnswer } from "../engine/field-visibility";
 import { getRenewalContext } from "./renewal";
 import { renderCycleEmail } from "../email/render";
 import { decodeSignaturePng, SignatureError } from "./signature";
@@ -180,7 +180,20 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
   // an answer that is not a plain string/string[] (e.g. a file ref, a checkbox
   // boolean) is simply not string-comparable, so a condition targeting it
   // resolves the same way it would for any other unmatched value.
-  const answersForVisibility = input.answers as unknown as Record<string, string | string[] | undefined>;
+  //
+  // Merge the authoritative department under the DEPARTMENT_CHOICE field key so a
+  // field-level visibleWhen condition keyed on that field is evaluated exactly as
+  // the client rendered it (apply-wizard uses the same mergeDepartmentAnswer). A
+  // RENEWAL declares its department via renewalDepartment and never submits the
+  // department-choice field, so without this merge every such condition would be
+  // evaluated against an empty value here, silently dropping (or hard-blocking) an
+  // answer the applicant actually saw and gave.
+  const deptChoiceKey = cycle.sections.flatMap((s) => s.fields).find((f) => f.type === DEPT_CHOICE_KEY_TYPE)?.key;
+  const answersForVisibility = mergeDepartmentAnswer(
+    input.answers as Record<string, string | string[]>,
+    deptChoiceKey,
+    selectedDepartmentCodes,
+  ) as Record<string, string | string[] | undefined>;
   const ctx = { applicantType: input.applicantType, selectedDepartmentCodes, answers: answersForVisibility };
 
   const schema = buildApplicationSchema(sectionDefs, ctx);
@@ -331,13 +344,20 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
       signatureStorageKeys.push(storageKey);
       const rawMethod = input.answers[`${field.key}__method`];
       const rawName = input.answers[`${field.key}__name`];
+      const method: "type" | "draw" = rawMethod === "type" ? "type" : "draw";
+      const typedName = typeof rawName === "string" ? rawName.trim() : "";
+      // Printed name for the audit trail. A typed signature carries its own name;
+      // a drawn signature's companion field is only a best-effort client hint
+      // (blank for a new applicant, since the pad has no live name), so fall back
+      // to the authoritative identity name resolved above.
+      const signerName = method === "type" ? typedName : (`${firstName} ${lastName}`.trim() || typedName);
       (answersWithFiles as Record<string, unknown>)[field.key] = {
         storedName,
         fileName: "signature.png",
         mimeType: "image/png",
         size: bytes.length,
-        method: rawMethod === "type" ? "type" : "draw",
-        name: typeof rawName === "string" ? rawName.trim() : "",
+        method,
+        name: signerName,
         signedAt: new Date().toISOString(),
       };
     }

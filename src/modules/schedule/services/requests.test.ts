@@ -488,6 +488,8 @@ describe("listDepartmentRequests", () => {
     const target = await createPerson("Target Tom");
 
     await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(requester.id, term.id, dept.id, "VOLUNTEER");
+    await createMembership(target.id, term.id, dept.id, "VOLUNTEER");
     await createShift(term.id, dept.id, requester.id, dates[0], "VOLUNTEER");
     await createShift(term.id, dept.id, target.id, dates[1], "VOLUNTEER");
 
@@ -620,6 +622,8 @@ describe("approveRequest", () => {
     const vol2 = await createPerson("Vol2");
 
     await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(vol1.id, term.id, dept.id, "VOLUNTEER");
+    await createMembership(vol2.id, term.id, dept.id, "VOLUNTEER");
     await createShift(term.id, dept.id, vol1.id, dates[0], "VOLUNTEER");
     await createShift(term.id, dept.id, vol2.id, dates[1], "VOLUNTEER");
 
@@ -645,6 +649,39 @@ describe("approveRequest", () => {
 
     expect(vol2Shifts).toHaveLength(1);
     expect(isoDateKey(vol2Shifts[0].clinicDate)).toBe(isoDateKey(dates[0]));
+  });
+
+  it("rejects a swap onto a person no longer an active member of the department (audit #8/#25)", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("AABB");
+    const director = await createPerson("Director");
+    const vol1 = await createPerson("Vol1");
+    const removed = await createPerson("Removed");
+
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(vol1.id, term.id, dept.id, "VOLUNTEER");
+    await createMembership(removed.id, term.id, dept.id, "VOLUNTEER"); // active when the request is made
+    await createShift(term.id, dept.id, vol1.id, dates[0], "VOLUNTEER");
+    await createShift(term.id, dept.id, removed.id, dates[1], "VOLUNTEER");
+
+    const req = await createRequest(vol1.id, {
+      requesterDateKey: isoDateKey(dates[0]),
+      departmentId: dept.id,
+      targetId: removed.id,
+      targetDateKey: isoDateKey(dates[1]),
+    });
+
+    // Then removed is taken off this department (single-dept offboard): membership
+    // REMOVED, Person.status stays ACTIVE, and the future shift is left behind.
+    await prisma.termMembership.updateMany({
+      where: { personId: removed.id, termId: term.id, departmentId: dept.id },
+      data: { status: "REMOVED" },
+    });
+
+    await expect(approveRequest(director.id, req.id)).rejects.toBeInstanceOf(RequestValidationError);
+    const still = await prisma.shiftRequest.findUniqueOrThrow({ where: { id: req.id } });
+    expect(still.status).toBe("PENDING");
   });
 
   it("stale swap (target's assignment deleted before approval): RequestValidationError, request still PENDING", async () => {
@@ -905,6 +942,8 @@ describe("eligibleSwapPartners", () => {
     const partner1 = await createPerson("Zara");
     const partner2 = await createPerson("Aaron");
 
+    await createMembership(partner1.id, term.id, dept.id, "VOLUNTEER");
+    await createMembership(partner2.id, term.id, dept.id, "VOLUNTEER");
     await createShift(term.id, dept.id, actor.id, dates[0], "VOLUNTEER");
     await createShift(term.id, dept.id, partner1.id, dates[1], "VOLUNTEER");
     await createShift(term.id, dept.id, partner2.id, dates[2], "VOLUNTEER");
@@ -1018,6 +1057,24 @@ describe("eligibleSwapPartners", () => {
     expect(partners.map((p) => p.personId)).not.toContain(offboarded.id);
   });
 
+  it("excludes a person removed from the department (REMOVED membership) though Person.status stays ACTIVE (audit #8/#25)", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("AABB");
+    const actor = await createPerson("Actor");
+    const removed = await createPerson("Removed");
+
+    // A single-department removal sets TermMembership.status = REMOVED but leaves
+    // Person.status ACTIVE and does not delete the leftover future shift.
+    await createMembership(actor.id, term.id, dept.id, "VOLUNTEER");
+    await createMembership(removed.id, term.id, dept.id, "VOLUNTEER", "REMOVED");
+    await createShift(term.id, dept.id, actor.id, dates[0], "VOLUNTEER");
+    await createShift(term.id, dept.id, removed.id, dates[1], "VOLUNTEER");
+
+    const partners = await eligibleSwapPartners(actor.id, isoDateKey(dates[0]), dept.id);
+    expect(partners.map((p) => p.personId)).not.toContain(removed.id);
+  });
+
   // The dropdown must only offer swaps that createRequest/assertNoSwapCollision
   // will accept. The two cases below mirror that guard's two collision checks so
   // volunteers never pick a partner that always fails with "Partner is not eligible".
@@ -1030,6 +1087,8 @@ describe("eligibleSwapPartners", () => {
     const collidingPartner = await createPerson("Colliding");
     const cleanPartner = await createPerson("Clean");
 
+    await createMembership(collidingPartner.id, term.id, dept.id, "VOLUNTEER");
+    await createMembership(cleanPartner.id, term.id, dept.id, "VOLUNTEER");
     // Actor works dates[0] (the shift being requested) AND dates[1].
     await createShift(term.id, dept.id, actor.id, dates[0], "VOLUNTEER");
     await createShift(term.id, dept.id, actor.id, dates[1], "VOLUNTEER");
@@ -1054,6 +1113,8 @@ describe("eligibleSwapPartners", () => {
     const collidingPartner = await createPerson("Colliding");
     const cleanPartner = await createPerson("Clean");
 
+    await createMembership(collidingPartner.id, term.id, dept.id, "VOLUNTEER");
+    await createMembership(cleanPartner.id, term.id, dept.id, "VOLUNTEER");
     await createShift(term.id, dept.id, actor.id, dates[0], "VOLUNTEER");
     // collidingPartner offers dates[1] but ALSO holds a SHADOW row on dates[0],
     // the actor's requester date; assertNoSwapCollision rejects this

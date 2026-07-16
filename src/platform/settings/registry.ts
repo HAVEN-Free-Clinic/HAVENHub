@@ -125,6 +125,16 @@ export const SETTINGS: SettingDef<unknown>[] = [
     envDefault: () => config.APP_BASE_URL,
     secret: false,
   }),
+  define<boolean>({
+    key: "auth.memberMagicLinkEnabled",
+    category: "Operations",
+    label: "Member email sign-in links",
+    help: "Allow active members whose contact email is not a Yale address to sign in with a one-time link emailed to them. Yale members always use Sign in with Yale.",
+    input: { type: "boolean" },
+    schema: z.boolean(),
+    envDefault: () => true,
+    secret: false,
+  }),
   define<string>({
     key: "teams.clinicGroupId",
     category: "Integrations",

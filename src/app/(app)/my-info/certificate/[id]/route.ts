@@ -86,6 +86,9 @@ export async function GET(
     status: 200,
     headers: {
       "Content-Type": cert.mimeType,
+      // Protected health document: never cache to disk/bfcache or intermediaries.
+      "Cache-Control": "private, no-store, max-age=0",
+      "Pragma": "no-cache",
       "Content-Disposition": certificateContentDisposition(cert.fileName, renderInline),
       "Content-Length": String(fileByteLength),
       // Defense-in-depth: never sniff a different type than declared, and deny the

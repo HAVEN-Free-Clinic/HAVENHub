@@ -111,19 +111,17 @@ export async function runScheduleConfigImport(
     const desiredHc = numberOrNull(f, ROSTER_FIELD.idealHeadcount);
     const desiredCap = numberOrNull(f, ROSTER_FIELD.patientCapacity);
 
-    const hcDiff = dept.idealHeadcount !== desiredHc;
-    const capDiff = dept.patientCapacityPerProvider !== desiredCap;
+    // Only overwrite when Airtable actually provides a value. A blank cell must not
+    // clobber an admin-set capacity to null -- both fields are editable in the app,
+    // and the sibling field changing must not drag the other to null too.
+    const data: { idealHeadcount?: number; patientCapacityPerProvider?: number } = {};
+    if (desiredHc !== null && desiredHc !== dept.idealHeadcount) data.idealHeadcount = desiredHc;
+    if (desiredCap !== null && desiredCap !== dept.patientCapacityPerProvider) data.patientCapacityPerProvider = desiredCap;
 
-    if (hcDiff || capDiff) {
+    if (Object.keys(data).length > 0) {
       report.deptConfigChanged++;
       if (!options.dryRun) {
-        await prisma.department.update({
-          where: { id: dept.id },
-          data: {
-            idealHeadcount: desiredHc,
-            patientCapacityPerProvider: desiredCap,
-          },
-        });
+        await prisma.department.update({ where: { id: dept.id }, data });
       }
     }
   }

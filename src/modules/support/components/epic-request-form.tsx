@@ -283,7 +283,7 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
             </Select>
           </Field>
 
-          <Field label="Access end date">
+          <Field label="Access start date">
             <Input
               type="date"
               required

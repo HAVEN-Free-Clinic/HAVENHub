@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { devLogin } from "./auth";
 import { prisma } from "./fixtures";
+import { selectDepartments } from "./recruitment-helpers";
 
 test.setTimeout(120_000);
 
@@ -22,7 +23,7 @@ test("training: author quiz, designate training cycle, roster renders", async ({
   await page.fill('input[name="publicSlug"]', slug);
   // Switch to Director track so this designation doesn't affect volunteer onboarding.
   await page.selectOption('select[name="track"]', "DIRECTOR");
-  await page.fill('input[name="departments"]', "ITCM");
+  await selectDepartments(page, ["ITCM"]);
   await page.click('button:has-text("Create")');
   await page.waitForURL((url) => url.pathname.includes("/builder"));
   const cycleId = page.url().split("/cycles/")[1].split("/")[0];

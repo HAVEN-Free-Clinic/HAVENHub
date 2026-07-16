@@ -23,7 +23,9 @@ export async function createCycleAction(formData: FormData) {
   const title = String(formData.get("title") ?? "").trim();
   const track = String(formData.get("track") ?? "VOLUNTEER") as "VOLUNTEER" | "DIRECTOR";
   const termId = String(formData.get("termId") ?? "");
-  const departments = String(formData.get("departments") ?? "").split(",").map((d) => d.trim()).filter(Boolean);
+  // The Departments field is a multi-select that submits one value per chosen
+  // department (mirrors setCycleDepartmentsAction); read them all back.
+  const departments = formData.getAll("departments").map(String).map((d) => d.trim()).filter(Boolean);
   const slug = slugify(String(formData.get("publicSlug") || title));
   // Default on (the New-cycle form ships the checkbox checked); unchecked seeds the
   // minimal name+email form so an admin can build from scratch.

@@ -36,7 +36,12 @@ export default async function SignedContractPage({ params }: { params: Promise<{
   const { contract } = found;
 
   const layout = safeLayout(contract.templateSnapshot);
-  const rows = buildContractSignatureView(layout, contract.signatures);
+  const rows = buildContractSignatureView(layout, contract.signatures, {
+    agreementSignature: contract.agreementSignature,
+    professionalismSignature: contract.professionalismSignature,
+    trainingSignature: contract.trainingSignature,
+    initials: contract.initials,
+  });
   const images = await Promise.all(
     rows.map((r) => (r.imageKey ? inlineSignature(r.imageKey) : Promise.resolve(null))),
   );
@@ -72,7 +77,7 @@ export default async function SignedContractPage({ params }: { params: Promise<{
                 <dd className="mt-1 text-sm text-foreground">
                   {images[i] ? (
                     // eslint-disable-next-line @next/next/no-img-element -- inline signature data URI, not a remote asset
-                    <img src={images[i]!} alt={`${r.title} signature`} className="h-20 rounded border border-border-subtle bg-surface" />
+                    <img src={images[i]!} alt={`${r.title} signature`} className="h-20 rounded border border-border-subtle bg-white" />
                   ) : r.legacyText ? (
                     <span className="font-medium">{r.legacyText}</span>
                   ) : (

@@ -52,7 +52,7 @@ test("apply: draw a signature field and submit; it persists as a png blob", asyn
   }
 
   // Draw on the signature canvas with real pointer movement.
-  const canvas = apply.locator('canvas[aria-label="Signature signature pad"]');
+  const canvas = apply.locator('canvas[aria-label^="Signature signature pad"]');
   await expect(canvas).toBeVisible();
   const box = (await canvas.boundingBox())!;
   await apply.mouse.move(box.x + box.width * 0.3, box.y + box.height * 0.4);
@@ -128,10 +128,10 @@ test("apply: type a signature via the fallback input and submit; it persists as 
   }
 
   // Switch the pad to the typed-name fallback and fill it in.
-  const canvas = apply.locator('canvas[aria-label="Signature signature pad"]');
+  const canvas = apply.locator('canvas[aria-label^="Signature signature pad"]');
   await expect(canvas).toBeVisible();
   await apply.click('button:has-text("Type instead")');
-  const typedInput = apply.locator('input[aria-label="Signature typed signature"]');
+  const typedInput = apply.locator('input[aria-label^="Signature typed signature"]');
   await typedInput.fill("Sig Typer");
   await expect(apply.getByText("Signed")).toBeVisible();
 

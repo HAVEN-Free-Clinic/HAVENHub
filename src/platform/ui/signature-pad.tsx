@@ -33,6 +33,8 @@ export function SignaturePad({
   helpText,
   personName = "",
   defaultValue = "",
+  defaultMethod = "draw",
+  defaultName = "",
   error,
   onChange,
 }: {
@@ -42,13 +44,18 @@ export function SignaturePad({
   helpText?: string | null;
   personName?: string;
   defaultValue?: string;
+  // A resumed draft carries the method/printed-name it was captured with (the
+  // companion __method / __name inputs). Seeding from them keeps a typed
+  // signature typed (not silently relabelled "draw") and restores the typed name.
+  defaultMethod?: "draw" | "type";
+  defaultName?: string;
   error?: string;
   onChange?: () => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const padRef = useRef<SignaturePadLib | null>(null);
-  const [mode, setMode] = useState<"draw" | "type">("draw");
-  const [typed, setTyped] = useState("");
+  const [mode, setMode] = useState<"draw" | "type">(defaultMethod === "type" ? "type" : "draw");
+  const [typed, setTyped] = useState(defaultMethod === "type" ? defaultName : "");
   // The captured PNG data URL. Drives the controlled hidden input below.
   const [value, setValue] = useState(defaultValue);
 
@@ -69,10 +76,14 @@ export function SignaturePad({
   }
 
   // Refit the canvas backing store to its CSS box, preserving the current image.
-  // Drawn strokes are re-rendered from vector data; a seeded/typed raster (no
-  // stroke data) is re-rendered from the last committed PNG. A canvas inside a
-  // display:none wizard step has zero size, so this early-returns and reruns via
-  // ResizeObserver once the pad becomes visible.
+  // Every non-empty signature -- freshly drawn strokes, a typed rasterization, or
+  // a resumed draft -- lives in the last committed PNG (endStroke/renderTyped both
+  // commit the full canvas), so we always re-render from that raster. Re-rendering
+  // drawn strokes from vector data instead would drop any seeded/typed raster the
+  // strokes were layered onto (a resumed drawn draft loses its original ink the
+  // moment a new stroke coexists with it). A canvas inside a display:none wizard
+  // step has zero size, so this early-returns and reruns via ResizeObserver once
+  // the pad becomes visible.
   function resize() {
     const canvas = canvasRef.current;
     const pad = padRef.current;
@@ -80,16 +91,13 @@ export function SignaturePad({
     const { width, height } = canvas.getBoundingClientRect();
     if (width === 0 || height === 0) return;
     const ratio = Math.max(window.devicePixelRatio || 1, 1);
-    const strokes = pad.toData();
     const current = valueRef.current;
     canvas.width = width * ratio;
     canvas.height = height * ratio;
     const ctx = canvas.getContext("2d");
     ctx?.scale(ratio, ratio);
     pad.clear();
-    if (strokes.length) {
-      pad.fromData(strokes);
-    } else if (ctx && current.startsWith("data:image/png")) {
+    if (ctx && current.startsWith("data:image/png")) {
       const img = new Image();
       img.onload = () => ctx.drawImage(img, 0, 0, width, height);
       img.src = current;
@@ -100,7 +108,12 @@ export function SignaturePad({
     const canvas = canvasRef.current;
     // SSR / no-2d-context guard (also the unit-test env): cannot draw, render inert.
     if (!canvas || !canvas.getContext("2d")) return;
-    const pad = new SignaturePadLib(canvas, { penColor: "#0f172a", backgroundColor: "rgba(0,0,0,0)" });
+    // Dark ink on a white "paper" background baked into the PNG. A transparent
+    // background left the near-black ink invisible wherever the signature sits on
+    // a dark surface -- while signing on the app's dark theme, and in the stored
+    // image shown in the reviewer views. A self-contained white background makes
+    // the signature legible on any surface, capture-side and at every display site.
+    const pad = new SignaturePadLib(canvas, { penColor: "#0f172a", backgroundColor: "#ffffff" });
     padRef.current = pad;
     const onEnd = () => commit(pad.toDataURL("image/png"));
     pad.addEventListener("endStroke", onEnd);
@@ -152,6 +165,8 @@ export function SignaturePad({
   }
 
   const empty = !value;
+  const errorId = `${name.replace(/[^\w-]/g, "_")}-error`;
+  const describedBy = error ? errorId : undefined;
 
   return (
     <div className="block">
@@ -171,7 +186,8 @@ export function SignaturePad({
       <div className={cx("mt-1.5 rounded-lg border bg-surface", error ? "border-critical" : "border-border-strong")}>
         <canvas
           ref={canvasRef}
-          aria-label={`${label} signature pad`}
+          aria-label={`${label} signature pad${required ? ", required" : ""}`}
+          aria-describedby={describedBy}
           className={cx("h-40 w-full rounded-lg", mode === "draw" ? "touch-none" : "pointer-events-none")}
         />
       </div>
@@ -182,7 +198,9 @@ export function SignaturePad({
           value={typed}
           onChange={(e) => renderTyped(e.target.value)}
           placeholder="Type your full name"
-          aria-label={`${label} typed signature`}
+          aria-label={`${label} typed signature${required ? ", required" : ""}`}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={describedBy}
           className={cx("mt-1.5 w-full rounded-lg border bg-surface px-3 py-2 text-2xl", error ? "border-critical" : "border-border-strong")}
           style={{ fontFamily: TYPED_FONT }}
         />
@@ -193,10 +211,14 @@ export function SignaturePad({
         <Button type="button" variant="outline" size="sm" onClick={() => switchMode(mode === "draw" ? "type" : "draw")}>
           {mode === "draw" ? "Type instead" : "Draw instead"}
         </Button>
-        {!empty && <span className="text-xs text-success">Signed</span>}
+        {/* role="status" (implicit aria-live="polite") announces capture to AT,
+            which cannot perceive the ink on the canvas. */}
+        <span role="status" className={cx("text-xs text-success", empty && "sr-only")}>
+          {empty ? "No signature yet" : "Signed"}
+        </span>
       </div>
 
-      {error && <span className="mt-1 block text-xs text-critical">{error}</span>}
+      {error && <span id={errorId} role="alert" className="mt-1 block text-xs text-critical">{error}</span>}
     </div>
   );
 }

@@ -102,6 +102,15 @@ export async function loadReviewApplication(
         continue;
       }
 
+      if (f.type === "SIGNATURE") {
+        // A SIGNATURE answer is a stored-blob ref object; without this it fell
+        // through to String(val) and rendered as the literal "[object Object]".
+        const raw = answers[f.key];
+        if (!(raw && typeof raw === "object" && "storedName" in (raw as object))) continue;
+        fields.push({ key: f.key, label: f.label, kind: "scalar", displayValue: "Signed", file: null });
+        continue;
+      }
+
       let displayValue = "";
       if (f.type === "SUBCOMMITTEE_RANK") {
         displayValue = app.subcommitteeRanking.map((id, i) => `${i + 1}. ${subNames.get(id) ?? "(removed)"}`).join("  ·  ");

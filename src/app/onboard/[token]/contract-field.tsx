@@ -7,7 +7,10 @@ import { FieldPreview } from "@/modules/recruitment/components/field-preview";
 import { SYSTEM_FIELDS } from "@/modules/recruitment/contract/system-fields";
 import type { ContractBlock } from "@/modules/recruitment/contract/layout";
 
-type Ctx = { firstName: string; orgName: string };
+// todayIso is stamped once on the server (YYYY-MM-DD) and passed down, so the
+// HIPAA date bounds are identical between the server render and client hydration
+// (a render-body new Date() would differ across the request/hydration boundary).
+type Ctx = { firstName: string; orgName: string; todayIso: string };
 type Prefill = { firstName: string; lastName: string; email: string; netId: string; phone: string; yaleAffiliation: string; gradYear: string; spanish: boolean };
 
 function renderVars(text: string, ctx: Ctx): string {
@@ -23,8 +26,6 @@ export function ContractField({
   block, prefill, ctx, err,
 }: { block: ContractBlock; prefill: Prefill; ctx: Ctx; err: (k: string) => string | undefined }) {
   const [hasEpic, setHasEpic] = useState(false);
-  const iso = (d: Date) => d.toISOString().slice(0, 10);
-  const today = new Date();
 
   // Tie each field's error message to its control so screen readers announce it
   // on focus and mark the input invalid. errorId derives a stable id per field
@@ -86,8 +87,12 @@ export function ContractField({
         </div>
       );
     case "hipaaBlock": {
-      const maxHipaa = iso(today);
-      const minHipaa = iso(new Date(today.getFullYear() - 5, today.getMonth(), today.getDate()));
+      // Deterministic string math off the server-stamped date -- no new Date() in
+      // render, so the bounds hydrate identically. Certificates older than 5 years
+      // are not accepted, and completion cannot be in the future.
+      const maxHipaa = ctx.todayIso;
+      const [ty, tm, td] = ctx.todayIso.split("-");
+      const minHipaa = `${Number(ty) - 5}-${tm}-${td}`;
       return (
         <div className="space-y-2">
           <p className="text-sm font-medium text-foreground">{label}</p>

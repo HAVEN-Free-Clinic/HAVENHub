@@ -301,8 +301,42 @@ it("stores agreement signatures and required custom answers from the snapshot la
     customAnswers: { tshirt: "M" },
   });
   expect(ok.status).toBe("SUBMITTED");
-  expect(ok.signatures).toMatchObject({ agreement: { name: "Jane Doe", method: "draw" } });
+  // A drawn signature's byline is the submitted identity name (firstName +
+  // lastName), not the pad's companion __name -- which is only a best-effort
+  // client hint and can be a stale prefilled value. Here the companion said
+  // "Jane Doe" but the submitted name fields say Ada Lovelace, so the record uses
+  // the authoritative name.
+  expect(ok.signatures).toMatchObject({ agreement: { name: "Ada Lovelace", method: "draw" } });
   expect(ok.customAnswers).toMatchObject({ tshirt: "M" });
+});
+
+it("keeps a typed signature's own name and method (not the identity name)", async () => {
+  const { srr, acceptance } = await seed();
+  const c = await createOrResendContract(acceptance.id, srr.id, "http://test");
+  await prisma.onboardingContract.update({
+    where: { id: c.id },
+    data: {
+      templateSnapshot: {
+        blocks: [
+          { kind: "system_field", systemKey: "name" },
+          { kind: "system_field", systemKey: "email" },
+          { kind: "system_field", systemKey: "hipaa" },
+          { kind: "agreement", id: "agreement", title: "Volunteer agreement", body: "", signatureLabel: "sign" },
+        ],
+      },
+    },
+  });
+  const ok = await submitContract(c.token, {
+    firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu",
+    // A typed signature carries the name the applicant typed into the pad, which
+    // is the legal record for that method -- it must NOT be overwritten by the
+    // identity name the way a drawn signature's blank hint is.
+    signatures: { agreement: { dataUrl: SIG_PNG, method: "type", name: "Ada B. Lovelace" } },
+    epicNeeded: false, hasEpic: false, worksWithYnhh: false,
+    hipaaCompletedAt: "2026-01-01",
+    hipaaFile: { fileName: "c.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") },
+  });
+  expect(ok.signatures).toMatchObject({ agreement: { name: "Ada B. Lovelace", method: "type" } });
 });
 
 it("stores each contract signature as a blob-backed structured record", async () => {

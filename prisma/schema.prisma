@@ -1682,3 +1682,20 @@ model ApplicantPortalToken {
 
   @@index([emailLower])
 }
+
+/// Single-use, hashed, expiring magic-link token for MEMBER hub login
+/// (active members whose contactEmail is not a Yale address). Only the SHA-256
+/// hash is stored; the raw token lives only in the emailed link. Bound to the
+/// Person resolved at issue time; verify re-checks the member is still active.
+model MemberLoginToken {
+  id         String    @id @default(cuid())
+  emailLower String
+  personId   String
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  usedAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([emailLower])
+  @@index([personId])
+}

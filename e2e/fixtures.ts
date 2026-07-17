@@ -177,6 +177,27 @@ export async function seedUnclearedVolunteer() {
   return { person, cleanup: () => cleanupPerson(person.id) };
 }
 
+/**
+ * Seed an ACTIVE Person with a non-Yale contactEmail, for the member
+ * magic-link sign-in e2e. requestMemberLoginLink resolves member accounts by
+ * an ACTIVE Person's contactEmail (and refuses a @yale.edu address before
+ * ever looking one up), so this needs no TermMembership: without an
+ * active-term membership the onboarding gate's hasActiveTerm check is false
+ * and a freshly signed-in member lands straight on the hub instead of
+ * /get-started, which keeps this fixture focused on the sign-in flow alone.
+ */
+export async function seedActiveMember(opts: { name?: string } = {}) {
+  const t = tag();
+  const person = await prisma.person.create({
+    data: {
+      name: opts.name ?? `E2E Member ${t}`,
+      contactEmail: `e2e-member-${t}@example.org`,
+      status: "ACTIVE",
+    },
+  });
+  return { person, cleanup: () => cleanupPerson(person.id) };
+}
+
 export async function seedCapacityConfig(
   deptCode: string,
   quota: { idealHeadcount?: number | null; patientCapacityPerProvider?: number | null }

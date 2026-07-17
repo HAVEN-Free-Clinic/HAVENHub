@@ -35,6 +35,7 @@ export const SENDER_CATEGORIES: { group: TemplateGroup; label: string }[] = [
   { group: "support", label: "IT Support" },
   { group: "incidents", label: "Incident Reports" },
   { group: "campaign", label: "Campaigns" },
+  { group: "auth", label: "Authentication" },
 ];
 
 export class SenderRuleValidationError extends Error {

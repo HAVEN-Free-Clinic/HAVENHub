@@ -7,6 +7,7 @@ import { supportDescriptors } from "./support";
 import { shiftDescriptors } from "./shift";
 import { scheduleDescriptors } from "./schedule";
 import { incidentsDescriptors } from "./incidents";
+import { authDescriptors } from "./auth";
 
 export const LAYOUT_KEY = "layout";
 
@@ -19,6 +20,7 @@ const ALL: TemplateDescriptor[] = [
   ...shiftDescriptors,
   ...scheduleDescriptors,
   ...incidentsDescriptors,
+  ...authDescriptors,
 ];
 
 const BY_KEY = new Map(ALL.map((d) => [d.key, d]));

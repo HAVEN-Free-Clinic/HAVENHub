@@ -39,7 +39,14 @@ export function MemberSignInForm({ callbackUrl }: { callbackUrl: string }) {
       )}
       {state === "error" && <Alert tone="error">Something went wrong. Please try again.</Alert>}
       <Field label="Email">
-        <Input id="member-email" name="email" type="email" required placeholder="you@example.com" />
+        <Input
+          id="member-email"
+          name="memberEmail"
+          type="email"
+          autoComplete="email"
+          required
+          placeholder="you@example.com"
+        />
       </Field>
       <Button type="submit" disabled={pending} className="w-full">
         {pending ? "Sending…" : "Email me a sign-in link"}

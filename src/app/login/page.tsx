@@ -129,7 +129,7 @@ export default async function LoginPage({
 
         {memberLinkEnabled && (
           <div className="mt-6 border-t border-border-subtle pt-6">
-            <p className="text-center text-sm text-muted-foreground">
+            <p className="text-center text-xs text-muted-foreground">
               No yale.edu email? Get a one-time sign-in link by email.
             </p>
             <div className="mt-3">

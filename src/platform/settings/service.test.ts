@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import {
@@ -41,6 +42,45 @@ describe("getSetting", () => {
     const spy = vi.spyOn(prisma.setting, "findUnique");
     await getSetting("rhd.maxProcedures");
     expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it("falls back to the env default when the database is unreachable", async () => {
+    // Simulate a brief Neon outage: the query fails to reach the server. A
+    // momentary blip must degrade to the default, not throw a 500 up through
+    // generateMetadata on every render.
+    const spy = vi
+      .spyOn(prisma.setting, "findUnique")
+      .mockRejectedValueOnce(
+        new Prisma.PrismaClientInitializationError(
+          "Can't reach database server at ep-flat-block.neon.tech:5432",
+          "5.0.0"
+        )
+      );
+    expect(await getSetting<number>("rhd.maxProcedures")).toBe(3);
+    spy.mockRestore();
+  });
+
+  it("does not cache the unreachable-DB fallback (recovers on next read)", async () => {
+    const spy = vi
+      .spyOn(prisma.setting, "findUnique")
+      .mockRejectedValueOnce(
+        new Prisma.PrismaClientInitializationError("Can't reach database server", "5.0.0")
+      );
+    expect(await getSetting<number>("rhd.maxProcedures")).toBe(3); // fallback
+    spy.mockRestore();
+
+    // DB recovered: a stored override is now readable, proving the fallback was
+    // never cached.
+    await prisma.setting.create({ data: { key: "rhd.maxProcedures", value: 8 } });
+    expect(await getSetting<number>("rhd.maxProcedures")).toBe(8);
+  });
+
+  it("still rethrows non-connectivity DB errors", async () => {
+    const spy = vi
+      .spyOn(prisma.setting, "findUnique")
+      .mockRejectedValueOnce(new Error("boom"));
+    await expect(getSetting("rhd.maxProcedures")).rejects.toThrow(/boom/);
     spy.mockRestore();
   });
 });

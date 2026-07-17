@@ -6,6 +6,22 @@ export const prisma = globalForPrisma.prisma ?? new PrismaClient();
 
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
 
+/**
+ * True when `err` indicates the database server could not be reached — the client
+ * failed to establish a connection (e.g. Neon briefly unreachable) or a query
+ * timed out at the connection layer. Callers that hold a safe fallback can then
+ * degrade gracefully instead of surfacing a 500.
+ */
+export function isDbUnreachableError(err: unknown): boolean {
+  if (err instanceof Prisma.PrismaClientInitializationError) return true;
+  // P1001 can't reach server, P1002 timed out reaching it, P1008 operation
+  // timed out, P1017 server closed the connection.
+  return (
+    err instanceof Prisma.PrismaClientKnownRequestError &&
+    ["P1001", "P1002", "P1008", "P1017"].includes(err.code)
+  );
+}
+
 /** True when `err` is a Prisma unique-constraint (P2002) violation. */
 export function isUniqueConstraintError(err: unknown): err is Prisma.PrismaClientKnownRequestError {
   return err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002";

@@ -1,8 +1,8 @@
 import type { Prisma } from "@prisma/client";
-import { prisma } from "@/platform/db";
+import { prisma, isDbUnreachableError } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { config } from "@/platform/config";
-import { log } from "@/platform/logging";
+import { log, errorAttrs } from "@/platform/logging";
 import { SETTINGS, getSettingDef, type SettingDef, type SettingInput } from "./registry";
 
 const TTL_MS = 30_000;
@@ -39,7 +39,10 @@ export class SettingValidationError extends Error {
 /**
  * Resolve a setting: validated DB override -> env default. An invalid stored
  * value logs a warning and falls back to the default; it never throws to the
- * caller. An unregistered key throws (programmer error).
+ * caller. A brief DB outage (server unreachable) likewise degrades to the env
+ * default rather than throwing -- getSetting runs on every page render via
+ * generateMetadata, so a momentary Neon blip must not become a site-wide 500.
+ * An unregistered key throws (programmer error).
  */
 export async function getSetting<T = unknown>(key: string): Promise<T> {
   const def = getSettingDef(key);
@@ -47,7 +50,18 @@ export async function getSetting<T = unknown>(key: string): Promise<T> {
   const cached = cache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.value as T;
 
-  const row = await prisma.setting.findUnique({ where: { key } });
+  let row: Awaited<ReturnType<typeof prisma.setting.findUnique>>;
+  try {
+    row = await prisma.setting.findUnique({ where: { key } });
+  } catch (err) {
+    if (isDbUnreachableError(err)) {
+      // The safe answer is the env default. Return it without caching so the
+      // next read picks up the real stored value as soon as the DB recovers.
+      log.warn(`[settings] database unreachable resolving "${key}"; using default`, errorAttrs(err));
+      return def.envDefault() as T;
+    }
+    throw err;
+  }
   const value = row ? resolveStored(def, row.value).value : def.envDefault();
 
   cache.set(key, { value, expiresAt: Date.now() + TTL_MS });

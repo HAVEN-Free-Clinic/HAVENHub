@@ -48,20 +48,27 @@ jobs:
           cache: npm
 
       - name: Install Vercel CLI
-        run: npm install -g vercel@latest
+        # Pinned deliberately. An unpinned `@latest` silently jumped 56.2.1 ->
+        # 56.3.1 and broke every preview build: 56.3.0 changed `vercel pull` to
+        # write "[SENSITIVE]" (instead of "") for unreadable Sensitive env vars,
+        # which the scrub below now strips. Bump this only after confirming that
+        # scrub still removes whatever placeholder the newer CLI emits.
+        run: npm install -g vercel@56.3.1
 
       - name: Pull Vercel preview env
         run: vercel pull --yes --environment=preview --token=${{ secrets.VERCEL_TOKEN }}
 
       # Prepare the env file `vercel build` reads. Two problems to fix:
       #  1. `vercel pull` writes the prod DATABASE_URL -> repoint at the branch.
-      #  2. Vercel "Sensitive" env vars come back blank ("") from `vercel pull`.
-      #     Blank is not `undefined`, so it defeats the zod `.default()`s in
-      #     src/platform/config.ts and fails enum/number validation at build
-      #     (e.g. EMAIL_TRANSPORT). Drop the blank lines so defaults apply, then
-      #     supply the two genuinely-required-with-no-default values. AUTH_SECRET
-      #     is a BUILD-ONLY placeholder; the deployed (prebuilt) functions read
-      #     the real AUTH_SECRET from the project's Preview env at runtime.
+      #  2. Vercel "Sensitive" env vars can't be read back, so `vercel pull`
+      #     emits a placeholder for them: "" through CLI 56.2.x, and "[SENSITIVE]"
+      #     from 56.3.0 on. Neither is `undefined`, so both defeat the zod
+      #     `.default()`s in src/platform/config.ts and fail enum/number
+      #     validation at build (e.g. EMAIL_TRANSPORT rejects "[SENSITIVE]").
+      #     Drop those placeholder lines so defaults apply, then supply the two
+      #     genuinely-required-with-no-default values. AUTH_SECRET is a
+      #     BUILD-ONLY placeholder; the deployed (prebuilt) functions read the
+      #     real AUTH_SECRET from the project's Preview env at runtime.
       - name: Point the build at the Neon branch
         env:
           POOLED: ${{ steps.neon.outputs.db_url_pooled }}
@@ -69,7 +76,7 @@ jobs:
         run: |
           ENVFILE=.vercel/.env.preview.local
           {
-            grep -vE '^[A-Za-z_][A-Za-z0-9_]*=("")?$' "$ENVFILE" \
+            grep -vE '^[A-Za-z_][A-Za-z0-9_]*=("?\[SENSITIVE\]"?|"")?$' "$ENVFILE" \
               | grep -vE '^(DATABASE_URL|DATABASE_URL_UNPOOLED|AUTH_SECRET)=' \
               || true
             echo "DATABASE_URL=\"$POOLED\""

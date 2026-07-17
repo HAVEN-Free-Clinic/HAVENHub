@@ -7,7 +7,7 @@ export const prisma = globalForPrisma.prisma ?? new PrismaClient();
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
 
 /**
- * True when `err` indicates the database server could not be reached — the client
+ * True when `err` indicates the database server could not be reached: the client
  * failed to establish a connection (e.g. Neon briefly unreachable) or a query
  * timed out at the connection layer. Callers that hold a safe fallback can then
  * degrade gracefully instead of surfacing a 500.

@@ -78,12 +78,33 @@ export type ResolvedSetting = {
   isOverridden: boolean;
 };
 
-/** Resolve every setting in a category for rendering a form group. */
+/**
+ * Resolve every setting in a category for rendering a form group. Like
+ * getSetting, a brief DB outage (server unreachable) degrades to the env
+ * defaults -- an admin viewing /admin/settings during a momentary Neon blip
+ * sees the default-valued form rather than a 500. The overrides simply read as
+ * empty, so every setting shows its default with isOverridden=false until the
+ * DB recovers; the result is not cached, so the next render reflects reality.
+ */
 export async function getCategory(category: string): Promise<ResolvedSetting[]> {
   const defs = SETTINGS.filter((d) => d.category === category && !d.hidden);
-  const rows = await prisma.setting.findMany({
-    where: { key: { in: defs.map((d) => d.key) } },
-  });
+
+  let rows: Awaited<ReturnType<typeof prisma.setting.findMany>>;
+  try {
+    rows = await prisma.setting.findMany({
+      where: { key: { in: defs.map((d) => d.key) } },
+    });
+  } catch (err) {
+    if (isDbUnreachableError(err)) {
+      log.warn(
+        `[settings] database unreachable resolving category "${category}"; using defaults`,
+        errorAttrs(err)
+      );
+      rows = [];
+    } else {
+      throw err;
+    }
+  }
   const overrides = new Map(rows.map((r) => [r.key, r.value]));
 
   return defs.map((def) => {
@@ -149,7 +170,14 @@ export async function setSetting(
   });
 }
 
-/** Remove an override so the value falls back to the env default; audit it. */
+/**
+ * Remove an override so the value falls back to the env default; audit it.
+ *
+ * Unlike the read paths (getSetting / getCategory), this is a write triggered by
+ * an explicit admin action, so a DB-unreachable error is left to propagate: the
+ * reset genuinely did not happen and the admin must see the failure and retry.
+ * Swallowing it here would redirect to "Saved." while the override still exists.
+ */
 export async function resetSetting(
   key: string,
   actorPersonId: string | null

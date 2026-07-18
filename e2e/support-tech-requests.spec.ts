@@ -118,7 +118,7 @@ test("support: volunteer submits a General IT request; a manager replies publicl
   await page.waitForURL((url) => url.pathname === `/support/${id}`);
   await page.waitForLoadState("networkidle");
 
-  await page.getByLabel("Status").selectOption({ label: "Awaiting you" });
+  await page.getByLabel("Status").selectOption({ label: "Awaiting requester" });
   await page.getByRole("button", { name: "Update status" }).click();
   await page.waitForURL((url) => url.pathname === `/support/${id}`);
   await page.waitForLoadState("networkidle");

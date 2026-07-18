@@ -51,7 +51,7 @@ export async function routeAction(cycleId: string, applicationId: string, formDa
       groups: await termGroupForCycle(cycleId, { [GROUP_DEPARTMENT]: departmentCode }),
     });
   } catch (err) {
-    if (err instanceof RecruitmentAuthError || err instanceof RoutingError) redirect(bounce(cycleId, applicationId, { error: err.message }));
+    if (err instanceof RecruitmentAuthError || err instanceof RoutingError || err instanceof AcceptanceError) redirect(bounce(cycleId, applicationId, { error: err.message }));
     throw err;
   }
   revalidatePath(bounce(cycleId, applicationId));

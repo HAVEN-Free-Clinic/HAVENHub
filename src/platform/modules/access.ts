@@ -31,18 +31,30 @@ export function filterNavItems(
   return items.filter((item) => !item.permission || hasPermission(perms, item.permission));
 }
 
-/** Active modules the user can access, as nav items. Excludes coming-soon. */
+/**
+ * Active modules the user can access, as nav items. Excludes coming-soon.
+ *
+ * `extraIds` admits modules whose access can't be expressed as a permission the
+ * engine holds -- notably recruitment, which a department director reaches by
+ * *review scope* (a derived directorship, not a permission). The caller resolves
+ * those ids (see the (app) layout) so this platform helper stays free of any
+ * module-service import, and the top nav then matches the dashboard tile.
+ */
 export function filterAccessibleModules(
   modules: ModuleManifest[],
   perms: Set<string>,
+  extraIds: ReadonlySet<string> = new Set(),
 ): NavModule[] {
   return modules
-    .filter((m) => m.status === "active" && canAccessModule(m, perms))
+    .filter((m) => m.status === "active" && (canAccessModule(m, perms) || extraIds.has(m.id)))
     .map((m) => ({ id: m.id, title: m.title, href: `/${m.id}` }));
 }
 
 /** Server entry point: resolve the signed-in user's accessible modules. */
-export async function getAccessibleModules(personId: string): Promise<NavModule[]> {
+export async function getAccessibleModules(
+  personId: string,
+  extraIds: ReadonlySet<string> = new Set(),
+): Promise<NavModule[]> {
   const perms = await getEffectivePermissions(personId);
-  return filterAccessibleModules(MODULES, perms);
+  return filterAccessibleModules(MODULES, perms, extraIds);
 }

@@ -1,4 +1,5 @@
-import { requirePermission } from "@/platform/auth/session";
+import { redirect } from "next/navigation";
+import { requirePermission, requirePersonSession } from "@/platform/auth/session";
 import { can } from "@/platform/rbac/engine";
 import { PageHeader } from "@/platform/ui/page-header";
 import { SectionHeader } from "@/platform/ui/section-header";
@@ -92,6 +93,20 @@ function CountChip({ label, count, tone }: CountChipProps) {
 // ---------------------------------------------------------------------------
 
 export default async function VolunteersPage({ searchParams }: PageProps) {
+  // The volunteers layout admits Spanish-review reviewers via the module's
+  // additionalAccessPermissions (volunteers.verify_spanish), so the nav tile
+  // routes them to /volunteers -- this compliance page. But it requires
+  // volunteers.view, which a review-only reviewer does not hold. Send them to
+  // their one page instead of bouncing to /no-access, so the module tile leads
+  // somewhere. Everyone else still hits the volunteers.view gate below.
+  const session = await requirePersonSession();
+  if (
+    !(await can(session.personId, "volunteers.view")) &&
+    (await can(session.personId, "volunteers.verify_spanish"))
+  ) {
+    redirect("/volunteers/spanish-review");
+  }
+
   const viewer = await requirePermission("volunteers.view");
   const sp = await searchParams;
   const errorMessage = sp.error ? decodeURIComponent(sp.error) : null;

@@ -11,6 +11,7 @@
  */
 import { authorizeCron } from "@/platform/cron";
 import { recordCronHeartbeat } from "@/platform/cron-heartbeat";
+import { log, flushLogs } from "@/platform/logging";
 import { runShiftReminders } from "@/platform/email/shift-reminders";
 
 export const runtime = "nodejs";
@@ -22,6 +23,8 @@ export async function GET(req: Request): Promise<Response> {
 
   const r = await runShiftReminders();
 
+  log.info("[cron/shift-reminders] complete", { ...r });
   await recordCronHeartbeat("shift-reminders");
+  await flushLogs();
   return Response.json({ ok: true, ...r });
 }

@@ -69,7 +69,29 @@ export async function createDraft(
 }
 
 export async function getCampaign(id: string) {
-  return prisma.emailCampaign.findUnique({ where: { id }, include: { runs: { orderBy: { runAt: "desc" } } } });
+  const campaign = await prisma.emailCampaign.findUnique({
+    where: { id },
+    include: { runs: { orderBy: { runAt: "desc" } } },
+  });
+  if (!campaign) return null;
+  // Attach the ACTUAL EmailLog count per run. recipientCount is recorded when a run is
+  // claimed (marked SENT / nextRunAt advanced), but the recipient rows are enqueued
+  // AFTER that transaction commits -- a crash in that window leaves a run recorded as
+  // sent with fewer (or zero) EmailLog rows and nothing to detect it. Surfacing the
+  // real count lets an admin spot an orphaned claim and resend.
+  const runIds = campaign.runs.map((r) => r.id);
+  const counts = runIds.length
+    ? await prisma.emailLog.groupBy({
+        by: ["campaignRunId"],
+        where: { campaignRunId: { in: runIds } },
+        _count: { _all: true },
+      })
+    : [];
+  const byRun = new Map(counts.map((c) => [c.campaignRunId, c._count._all]));
+  return {
+    ...campaign,
+    runs: campaign.runs.map((r) => ({ ...r, enqueuedCount: byRun.get(r.id) ?? 0 })),
+  };
 }
 
 export async function listCampaigns() {

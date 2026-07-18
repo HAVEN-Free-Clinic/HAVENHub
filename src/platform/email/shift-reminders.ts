@@ -8,7 +8,7 @@ import { formatCalendarDate, isoDateKey } from "@/platform/dates";
 import { selectCurrentClinicDate, getCurrentClinicChannelLink } from "@/platform/teams/channel-link";
 import { notify } from "@/platform/notifications/notify";
 import { renderEmail } from "./templates/renderEmail";
-import { claimReminderDispatch } from "./reminder-dispatch";
+import { claimReminderDispatch, releaseReminderDispatch } from "./reminder-dispatch";
 import { log, errorAttrs } from "@/platform/logging";
 import { captureEvent, flushEvents, GROUP_TERM } from "@/platform/posthog/capture";
 
@@ -282,8 +282,10 @@ export async function runShiftReminders(now: Date = new Date()): Promise<ShiftRe
       });
     } catch (err) {
       // Per-recipient isolation: a single failed render/notify must not abort the
-      // rest of the weekly batch. Log and continue; the 6-day idempotency guard
-      // means this person is retried on the next Monday cron tick.
+      // rest of the weekly batch. Release the claim (taken before the enqueue) so a
+      // re-run can retry this person instead of the claim silently suppressing them,
+      // then log and continue.
+      await releaseReminderDispatch("shift-reminder", item.person.id, targetKey);
       log.error(
         `[shift-reminders] Failed to remind person ${item.person.id}`,
         errorAttrs(err, { personId: item.person.id }),

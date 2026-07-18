@@ -63,11 +63,14 @@ export const MODULES: ModuleManifest[] = [
     ],
     status: "active",
     nav: [
-      { label: "Compliance", href: "/volunteers" },
+      // Compliance (/volunteers) and Offboarding both enforce requirePermission("volunteers.view"),
+      // so gate their nav items on the same permission -- otherwise a Spanish-review-only
+      // reviewer (admitted via additionalAccessPermissions) sees tabs that bounce to /no-access.
+      { label: "Compliance", href: "/volunteers", permission: "volunteers.view" },
       { label: "Master view", href: "/volunteers/master", permission: "volunteers.manage_compliance" },
       { label: "EHS training", href: "/volunteers/ehs", permission: "volunteers.manage_compliance" },
       { label: "Spanish review", href: "/volunteers/spanish-review", permission: "volunteers.verify_spanish" },
-      { label: "Offboarding", href: "/volunteers/offboarding" },
+      { label: "Offboarding", href: "/volunteers/offboarding", permission: "volunteers.view" },
     ],
   },
   {

@@ -131,15 +131,6 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
     });
   }
 
-  // Build a today string in MMDDYYYY format for filenames/subjects.
-  function todayMMDDYYYY(): string {
-    const d = new Date();
-    const mm = String(d.getMonth() + 1).padStart(2, "0");
-    const dd = String(d.getDate()).padStart(2, "0");
-    const yyyy = d.getFullYear();
-    return `${mm}${dd}${yyyy}`;
-  }
-
   async function handleGenerate() {
     if (!selectedAuthorizer) {
       setError("No ITCM director is available to authorize this request.");
@@ -196,9 +187,11 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
         triggerDownload(xlBlob, data.xlsxFilename);
       }
 
-      // Build email draft from returned data. The subject carries the
-      // authorizer's initials, derived from their name on the server.
-      const subject = EMAIL_SUBJECTS[requestType](selectedAuthorizer.initials, todayMMDDYYYY());
+      // Build email draft from returned data. The subject carries the authorizer's
+      // initials (derived server-side) and the server's ET-formatted date, so the
+      // subject matches the PDF filename/dates instead of the browser's local clock
+      // (which can be a day ahead late-evening Eastern).
+      const subject = EMAIL_SUBJECTS[requestType](selectedAuthorizer.initials, data.date);
       setEmailDraft({ subject, body: data.emailBody });
     } catch (e) {
       setError((e as Error).message);

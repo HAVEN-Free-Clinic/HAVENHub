@@ -11,6 +11,7 @@
  */
 import { authorizeCron } from "@/platform/cron";
 import { recordCronHeartbeat } from "@/platform/cron-heartbeat";
+import { log, flushLogs } from "@/platform/logging";
 import { runRecruitmentReviewDigest } from "@/modules/recruitment/services/review-digest";
 
 export const runtime = "nodejs";
@@ -22,6 +23,8 @@ export async function GET(req: Request): Promise<Response> {
 
   const r = await runRecruitmentReviewDigest();
 
+  log.info("[cron/recruitment-review-digest] complete", { ...r });
   await recordCronHeartbeat("recruitment-review-digest");
+  await flushLogs();
   return Response.json({ ok: true, ...r });
 }

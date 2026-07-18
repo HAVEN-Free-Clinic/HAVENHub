@@ -64,7 +64,32 @@ async function assignGlobalToDepartments(roleName: string, codes: string[]) {
   }
 }
 
+/**
+ * Refuse to seed a non-local database unless explicitly allowed. The repo `.env`
+ * points DATABASE_URL at the shared prod Neon instance, and this seed creates dev
+ * fixtures (Dev Director/Volunteer people, verified HIPAA certs, ACTIVE memberships)
+ * and force-activates a term -- running it against prod would corrupt real data.
+ * Import/backfill scripts already gate on --apply; mirror that discipline here.
+ */
+function assertSafeToSeed(): void {
+  let host = "";
+  try {
+    host = new URL(process.env.DATABASE_URL ?? "").hostname;
+  } catch {
+    host = "";
+  }
+  const isLocal = host === "localhost" || host === "127.0.0.1" || host === "::1";
+  if (!isLocal && process.env.ALLOW_PROD_SEED !== "1") {
+    throw new Error(
+      `Refusing to seed a non-local database (host: ${host || "unknown"}). ` +
+        `prisma/seed.ts writes dev fixtures and force-activates a term. ` +
+        `Set ALLOW_PROD_SEED=1 to override.`,
+    );
+  }
+}
+
 async function main() {
+  assertSafeToSeed();
   for (const dept of DEPARTMENTS) {
     await prisma.department.upsert({
       where: { code: dept.code },

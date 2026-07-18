@@ -449,6 +449,9 @@ export async function POST(req: Request) {
     xlsxBase64,
     xlsxFilename,
     emailBody,
+    // The ET-formatted MMDDYYYY date (same one used for the filename/PDF), so the
+    // client builds the email subject from it instead of the browser's local clock.
+    date: dateStr,
   });
 }
 

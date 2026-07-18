@@ -78,6 +78,7 @@ export type ReminderRunResult = {
 export async function runComplianceReminders(
   now: Date = new Date()
 ): Promise<ReminderRunResult> {
+  const startedAt = Date.now();
   const result: ReminderRunResult = {
     remindersSent: 0,
     escalationsSent: 0,
@@ -301,6 +302,13 @@ export async function runComplianceReminders(
     result.remindersSent++;
   }
 
+  // Surface the run size + duration so the write phase (O(active members) serial
+  // round-trips) can be watched trending toward the 300s budget before it truncates.
+  log.info("[reminders] run complete", {
+    candidates: persons.length,
+    elapsedMs: Date.now() - startedAt,
+    ...result,
+  });
   return result;
 }
 

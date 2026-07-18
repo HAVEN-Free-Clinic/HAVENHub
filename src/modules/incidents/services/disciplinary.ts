@@ -222,7 +222,20 @@ export async function deleteAction(actorPersonId: string, id: string): Promise<v
   const row = await prisma.disciplinaryAction.findUnique({ where: { id } });
   if (!row) throw new DisciplinaryNotFoundError();
 
-  await prisma.disciplinaryAction.delete({ where: { id } });
+  await prisma.$transaction(async (tx) => {
+    await tx.disciplinaryAction.delete({ where: { id } });
+    // If this strike was issued by approving an incident-report request, revert the
+    // source subject to PENDING in the same transaction. Otherwise the report keeps
+    // showing "Strike issued" with no matching ledger row, and it can never be
+    // re-approved (decideStrike requires PENDING, not APPROVED). onDelete:SetNull only
+    // nulls action.reportId when the *report* is deleted -- it does not touch the subject.
+    if (row.reportId) {
+      await tx.incidentReportSubject.updateMany({
+        where: { reportId: row.reportId, personId: row.personId },
+        data: { strikeDecision: "PENDING", strikeDecidedById: null, strikeDecidedAt: null },
+      });
+    }
+  });
 
   await recordAudit({
     actorPersonId,

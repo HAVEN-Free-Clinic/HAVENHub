@@ -20,7 +20,15 @@ import {
 } from "./strings";
 import { validateAvs } from "./validate";
 
-export function AvsTool({ brandColor }: { brandColor: string }) {
+export function AvsTool({
+  brandColor,
+  orgName,
+  supportContact,
+}: {
+  brandColor: string;
+  orgName?: string;
+  supportContact?: string;
+}) {
   const [data, dispatch] = useReducer(avsReducer, initialAvsData);
   const [errors, setErrors] = useState<string[]>([]);
   const [invalidFields, setInvalidFields] = useState<StringFieldKey[]>([]);
@@ -75,7 +83,9 @@ export function AvsTool({ brandColor }: { brandColor: string }) {
       const { pdf } = await import("@react-pdf/renderer");
       const { AvsDocument } = await import("./avs-pdf");
       const summary = buildSummary(data, data.preferredLang);
-      const blob = await pdf(<AvsDocument summary={summary} brandColor={brandColor} />).toBlob();
+      const blob = await pdf(
+        <AvsDocument summary={summary} brandColor={brandColor} orgName={orgName} supportContact={supportContact} />,
+      ).toBlob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;

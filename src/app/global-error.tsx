@@ -38,7 +38,7 @@ export default function GlobalError({
           </h1>
           <p style={{ marginTop: "0.5rem", color: "#555" }}>
             We hit an unexpected error. Please try again. If the problem
-            persists, contact the HAVEN IT team.
+            persists, contact support.
           </p>
           <button
             onClick={() => reset()}

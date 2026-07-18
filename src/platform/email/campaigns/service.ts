@@ -314,6 +314,13 @@ export async function sendCampaignNow(
     return true;
   });
 
+  // A send to nobody would flip the campaign to terminal SENT with zero recipients
+  // -- unrecoverable and almost always a forgotten condition. Block it up front.
+  if (deduped.length === 0) {
+    throw new CampaignValidationError([
+      "This audience matches nobody. Add or adjust a condition before sending.",
+    ]);
+  }
   if (deduped.length > CAMPAIGN_CONFIRM_THRESHOLD && opts.confirmCount !== deduped.length) {
     throw new CampaignConfirmationError(deduped.length);
   }
@@ -356,6 +363,15 @@ export async function scheduleCampaign(
   });
   if (deduped.length > CAMPAIGN_CONFIRM_THRESHOLD && opts.confirmCount !== deduped.length) {
     throw new CampaignConfirmationError(deduped.length);
+  }
+  // A one-off SCHEDULED send to nobody is the same unrecoverable mistake as an
+  // immediate send-to-nobody. A RECURRING campaign is exempt: its audience is
+  // resolved live at each run, so zero-as-of-now is legitimate (e.g. "certs
+  // expiring this week").
+  if (input.scheduleType === "SCHEDULED" && deduped.length === 0) {
+    throw new CampaignValidationError([
+      "This audience matches nobody. Add or adjust a condition before scheduling a send.",
+    ]);
   }
 
   if (input.scheduleType === "SCHEDULED") {

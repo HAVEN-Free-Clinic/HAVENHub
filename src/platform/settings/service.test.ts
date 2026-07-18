@@ -104,6 +104,42 @@ describe("getCategory", () => {
     const rows = await getCategory("Onboarding");
     expect(rows).toEqual([]);
   });
+
+  it("falls back to env defaults when the database is unreachable", async () => {
+    // A stored override exists, but the DB blips while rendering the settings
+    // form. Rather than 500 the admin page, getCategory degrades to defaults:
+    // every setting reads as its default with isOverridden=false.
+    await setSetting("rhd.maxProcedures", 9, null);
+    _resetSettingsCache();
+    const spy = vi
+      .spyOn(prisma.setting, "findMany")
+      .mockRejectedValueOnce(
+        new Prisma.PrismaClientInitializationError(
+          "Can't reach database server at ep-flat-block.neon.tech:5432",
+          "5.0.0"
+        )
+      );
+
+    const rows = await getCategory("Operations");
+    const rhdEntry = rows.find((e) => e.key === "rhd.maxProcedures");
+    expect(rhdEntry).toMatchObject({ value: 3, isOverridden: false });
+    spy.mockRestore();
+
+    // The fallback is not cached: once the DB recovers the real override reads.
+    const recovered = await getCategory("Operations");
+    expect(recovered.find((e) => e.key === "rhd.maxProcedures")).toMatchObject({
+      value: 9,
+      isOverridden: true,
+    });
+  });
+
+  it("still rethrows non-connectivity DB errors", async () => {
+    const spy = vi
+      .spyOn(prisma.setting, "findMany")
+      .mockRejectedValueOnce(new Error("boom"));
+    await expect(getCategory("Operations")).rejects.toThrow(/boom/);
+    spy.mockRestore();
+  });
 });
 
 describe("setSetting", () => {

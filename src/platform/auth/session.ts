@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { auth } from "./auth";
 import { getActivePerson } from "./match-person";
 import { can } from "@/platform/rbac/engine";
+import { getActiveTerm } from "@/platform/terms/active-term";
 import { getModule } from "@/platform/modules/registry";
 import { isAllowlistedPath } from "./onboarding-allowlist";
 import { isGateClearedCached, markGateCleared } from "./onboarding-gate-cache";
@@ -32,21 +33,32 @@ async function enforceOnboarding(personId: string): Promise<void> {
   const path = (await headers()).get("x-pathname");
   if (!path || isAllowlistedPath(path)) return;
 
+  // Resolve the active term up front (React-cache memoized, so near-free -- the page
+  // and nav already resolve it). No active term means no onboarding requirement, and
+  // nothing to key the cache on.
+  const activeTerm = await getActiveTerm();
+  if (!activeTerm) return;
+
+  // Term-scoped cache key: activating a new term implicitly invalidates a person's
+  // old-term "cleared" entry, so clearance is re-evaluated for the new term instead
+  // of coasting on a stale personId-only entry for up to the cache TTL.
+  const cacheKey = `${activeTerm.id}:${personId}`;
+
   // Fast path: a recently-cleared person skips the ~9-query onboarding status.
-  if (isGateClearedCached(personId)) return;
+  if (isGateClearedCached(cacheKey)) return;
 
   // Exempt users (IT / super-admin) bypass the gate. Check this first: it reads
   // the per-request-cached permission set (already needed by the page and nav),
   // so it is near-free and lets exempt users skip getOnboardingStatus entirely
   // -- which otherwise fetches training, courses, and certificates regardless.
   if (await can(personId, EXEMPT_PERMISSION)) {
-    markGateCleared(personId);
+    markGateCleared(cacheKey);
     return;
   }
 
   const status = await getOnboardingStatus(personId);
   if (!status.hasActiveTerm || status.onboarded) {
-    markGateCleared(personId); // cache only the cleared decision
+    markGateCleared(cacheKey); // cache only the cleared decision
     return;
   }
 

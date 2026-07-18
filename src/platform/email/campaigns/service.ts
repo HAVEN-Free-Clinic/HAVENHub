@@ -7,6 +7,7 @@ import { PERSON_VARIABLES } from "@/platform/email/audience/variables";
 import { resolveAudience } from "@/platform/email/audience/resolve";
 import type { Recipient } from "@/platform/email/audience/resolve";
 import { renderInlineEmail, loadLayoutSource } from "@/platform/email/templates/renderEmail";
+import { getSetting } from "@/platform/settings/service";
 import { queueEmail, queueEmails } from "@/platform/email/send";
 import type { Prisma } from "@prisma/client";
 import { isValidCron, nextCronAfter, cronMinIntervalMinutes, CAMPAIGN_DISPATCH_CADENCE_MINUTES } from "./cron";
@@ -205,16 +206,23 @@ export async function executeRun(
     });
   }
   const layoutSource = await loadLayoutSource();
+  // Resolve the brand color ONCE up front. renderInlineEmail otherwise reads
+  // branding.brandColor per recipient; a large audience rendered via Promise.all
+  // would then fire N concurrent setting.findUnique behind a small pool and time out
+  // (P2024), throwing before the claim so nothing sends. Hoisting it (like
+  // layoutSource) keeps the per-recipient render at zero DB round-trips.
+  const brandColor = await getSetting<string>("branding.brandColor");
 
-  // Render every recipient BEFORE opening the claim transaction. renderInlineEmail
-  // is pure CPU (no DB round-trips), so doing it up front keeps the transaction
-  // short and independent of recipient count.
+  // Render every recipient BEFORE opening the claim transaction. With layoutSource
+  // and brandColor hoisted, renderInlineEmail is pure CPU (no DB round-trips), so
+  // doing it up front keeps the transaction short and independent of recipient count.
   const rendered = await Promise.all(
     deduped.map(async (recipient) => {
       const { subject, html } = await renderInlineEmail(
         { subject: campaign.subject, body: campaign.body },
         recipient.variables,
         layoutSource,
+        brandColor,
       );
       return { to: recipient.email, subject, html, personId: recipient.recordId };
     }),

@@ -61,6 +61,7 @@ export async function renderInlineEmail(
   input: { subject: string; body: string },
   context: Record<string, unknown>,
   layoutSource?: string,
+  brandColor?: string,
 ): Promise<RenderedEmail> {
   // Plain-text subject header: render without HTML-escaping so per-recipient merge
   // vars (firstName, ...) with "&" or "'" are not garbled. The layout re-escapes
@@ -68,7 +69,11 @@ export async function renderInlineEmail(
   const subject = renderTemplate(input.subject, context, { escape: false });
   const renderedBody = renderTemplate(input.body, context);
   const src = layoutSource ?? (await loadLayoutSource());
-  const brandColor = await getSetting<string>("branding.brandColor");
-  const html = renderTemplate(src, { brandColor, ...context, body: renderedBody, subject });
+  // A campaign send resolves brandColor once and passes it in so the per-recipient
+  // loop issues zero DB round-trips (a large audience would otherwise fire one
+  // setting.findUnique per recipient concurrently and exhaust the pool). Falls back
+  // to a lookup for single-render callers that don't hoist it.
+  const resolvedBrandColor = brandColor ?? (await getSetting<string>("branding.brandColor"));
+  const html = renderTemplate(src, { brandColor: resolvedBrandColor, ...context, body: renderedBody, subject });
   return { subject, html };
 }

@@ -3,9 +3,9 @@ import {
   canAccessModule,
   filterAccessibleModules,
   filterNavItems,
-  isModuleActive,
   type NavModule,
 } from "./access";
+import { isModuleActive } from "./nav";
 import { MODULES } from "./registry";
 import type { ModuleManifest, ModuleNavItem } from "./types";
 

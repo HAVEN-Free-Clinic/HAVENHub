@@ -10,7 +10,7 @@ import {
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronDown, Menu, X } from "lucide-react";
-import { isModuleActive, type NavModule } from "@/platform/modules/access";
+import { isModuleActive, type NavModule } from "@/platform/modules/nav";
 
 /** useLayoutEffect on the client, useEffect on the server (SSR-safe). */
 const useIsomorphicLayoutEffect =

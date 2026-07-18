@@ -44,11 +44,13 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
   const now = new Date();
   const sp = await searchParams;
 
+  // searchParams arrive already URL-decoded in the App Router; do not decode again
+  // (a second decode of a message containing a literal "%" throws URIError -> 500).
   const errorCode = sp.error ?? null;
   const errorMessage = errorCode
     ? errorCode === "validation" && sp.message
-      ? decodeURIComponent(sp.message)
-      : decodeURIComponent(errorCode)
+      ? sp.message
+      : errorCode
     : null;
 
   const saved = sp.saved === "1";

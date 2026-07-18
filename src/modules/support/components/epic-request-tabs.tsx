@@ -32,6 +32,8 @@ import { Input, Textarea, Field } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
+import { EPIC_KIND_LABELS, EPIC_STATUS_LABELS, EPIC_STATUS_TONE } from "@/modules/support/labels";
+import type { EpicRequestStatus } from "@prisma/client";
 import { Alert } from "@/platform/ui/alert";
 import { FormActions } from "@/platform/ui/form";
 import { SectionHeader } from "@/platform/ui/section-header";
@@ -323,12 +325,12 @@ function TrackerTable({
               <div className="space-y-2">
                 {requests.map((r) => (
                   <div key={r.id} className="flex flex-wrap items-center gap-2 text-xs text-foreground-soft">
-                    <Badge>{r.kind}</Badge>
+                    <Badge>{EPIC_KIND_LABELS[r.kind]}</Badge>
                     <span>{r.person.name}</span>
                     {r.person.epicId && (
                       <span className="text-subtle-foreground">{r.person.epicId}</span>
                     )}
-                    <Badge>{r.status}</Badge>
+                    <Badge tone={EPIC_STATUS_TONE[r.status as EpicRequestStatus]}>{EPIC_STATUS_LABELS[r.status as EpicRequestStatus]}</Badge>
 
                     {(r.status === "PENDING" || r.status === "SUBMITTED") && (
                       <form action={completeEpicRequestAction} className="flex items-center gap-1">
@@ -461,7 +463,7 @@ function HistoryTable({ history }: { history: EpicRequestHistoryRow[] }) {
                     <div className="space-y-1">
                       {requests.map((r) => (
                         <div key={r.id} className="flex items-center gap-2 text-xs text-foreground-soft">
-                          <Badge>{r.kind}</Badge>
+                          <Badge>{EPIC_KIND_LABELS[r.kind]}</Badge>
                           <span>{r.person.name}</span>
                           {r.person.epicId && <span className="text-subtle-foreground">{r.person.epicId}</span>}
                         </div>
@@ -512,7 +514,7 @@ function PendingTab({
           {pending.map((r) => (
             <li key={r.id} className="flex flex-wrap items-center gap-2 text-sm">
               <Checkbox name="requestIds" value={r.id} />
-              <Badge>{r.kind}</Badge>
+              <Badge>{EPIC_KIND_LABELS[r.kind]}</Badge>
               <span className="font-medium">{r.person.name}</span>
               {r.techRequest ? (
                 <Link href={`/support/${r.techRequest.id}`} className="text-xs text-brand-fg underline underline-offset-2">

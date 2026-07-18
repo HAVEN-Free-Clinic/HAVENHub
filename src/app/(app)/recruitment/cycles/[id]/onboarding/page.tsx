@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { requirePermission } from "@/platform/auth/session";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { listOnboarding } from "@/modules/recruitment/services/onboarding";
+import { parseContractLayout } from "@/modules/recruitment/contract/layout";
 import { sendLinksAction, promoteAction } from "./actions";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
@@ -72,15 +73,29 @@ export default async function OnboardingPage({ params, searchParams }: { params:
                       // readable here instead of being collected and never seen.
                       const ca = (r.contract?.customAnswers ?? {}) as Record<string, unknown>;
                       const entries = Object.entries(ca).filter(([, v]) => v != null && v !== "");
-                      return entries.length > 0 ? (
+                      if (entries.length === 0) return null;
+                      // Resolve each answer's field key to its human question label from
+                      // the contract snapshot (fall back to the raw key), so reviewers see
+                      // "T-shirt size", not "tshirt_size".
+                      const labels: Record<string, string> = {};
+                      try {
+                        if (r.contract?.templateSnapshot) {
+                          for (const b of parseContractLayout(r.contract.templateSnapshot).blocks) {
+                            if (b.kind === "custom_question") labels[b.key] = b.label;
+                          }
+                        }
+                      } catch {
+                        /* invalid snapshot -> fall back to raw keys */
+                      }
+                      return (
                         <dl className="mt-1 space-y-0.5 text-xs font-normal text-subtle-foreground">
                           {entries.map(([k, v]) => (
                             <div key={k}>
-                              <span className="font-medium">{k}:</span> {Array.isArray(v) ? v.join(", ") : String(v)}
+                              <span className="font-medium">{labels[k] ?? k}:</span> {Array.isArray(v) ? v.join(", ") : String(v)}
                             </div>
                           ))}
                         </dl>
-                      ) : null;
+                      );
                     })()}
                   </TD>
                   <TD className="text-foreground-soft">{r.departmentCode}</TD>

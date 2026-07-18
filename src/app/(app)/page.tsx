@@ -27,7 +27,8 @@ import { isInterviewPanelist } from "@/modules/recruitment/services/interviews";
 import { reviewScope } from "@/modules/recruitment/services/review";
 import { complianceStatus, certExpiresAt } from "@/platform/compliance/rules";
 import { getSetting } from "@/platform/settings/service";
-import { isoDateKey, formatCalendarDate } from "@/platform/dates";
+import { isoDateKey, formatCalendarDate, formatForDateInput } from "@/platform/dates";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { buildPageMetadata } from "@/platform/branding/metadata";
 
 // ---------------------------------------------------------------------------
@@ -178,7 +179,7 @@ export default async function HubPage() {
   // One permission fetch per render; tiles filter in memory (never can() in a loop).
   const permissions = await getEffectivePermissions(person.personId);
 
-  const [schedule, certificates, isPanelist, orgName, onboarding, pendingApprovals, recruitmentScope] = await Promise.all([
+  const [schedule, certificates, isPanelist, orgName, onboarding, pendingApprovals, recruitmentScope, displayZone] = await Promise.all([
     mySchedule(person.personId),
     listMyCertificates(person.personId),
     isInterviewPanelist(person.personId),
@@ -186,6 +187,7 @@ export default async function HubPage() {
     getOnboardingStatus(person.personId),
     countPendingApprovals(person.personId),
     reviewScope(person.personId),
+    getDisplayTimeZone(),
   ]);
   const { term, shifts } = schedule;
 
@@ -202,7 +204,11 @@ export default async function HubPage() {
   const accessible = new Set(activeModules.map((m) => m.id));
 
   // --- Next shift ---
-  const todayKey = isoDateKey(new Date());
+  // "Today" must be the display-zone (ET) calendar day, not UTC: clinic dates are
+  // stored at noon UTC (so isoDateKey gives their intended calendar day), but a raw
+  // isoDateKey(new Date()) rolls over at UTC midnight (~8pm ET), which would label
+  // tomorrow's shift "Today" and drop a same-day shift every evening.
+  const todayKey = formatForDateInput(new Date(), displayZone);
   const upcoming = shifts.filter((s) => isoDateKey(s.clinicDate) >= todayKey);
   const next = upcoming[0] ?? null;
   const daysAway = next ? daysBetweenKeys(todayKey, isoDateKey(next.clinicDate)) : 0;

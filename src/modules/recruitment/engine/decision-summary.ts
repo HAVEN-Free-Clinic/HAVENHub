@@ -29,6 +29,6 @@ export function rosterDecision(input: {
   }
   const decisions = [input.applicationDecision, ...input.interviews.map((i) => i.decision)];
   if (decisions.includes("WAITLIST")) return { status: "WAITLIST", label: "Waitlisted", tone: "warning", departments: [] };
-  if (decisions.includes("REJECT")) return { status: "REJECTED", label: "Rejected", tone: "default", departments: [] };
+  if (decisions.includes("REJECT")) return { status: "REJECTED", label: "Rejected", tone: "critical", departments: [] };
   return { status: "NONE", label: "None", tone: "default", departments: [] };
 }

@@ -39,12 +39,12 @@ import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
 import { formatDateOnly } from "@/platform/dates";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
-import type { TechRequestStatus, TechRequestPriority, EpicRequestKind, EpicRequestStatus } from "@prisma/client";
+import type { TechRequestStatus, TechRequestPriority, EpicRequestKind } from "@prisma/client";
 import { SupportStatusBadge, STATUS_LABELS } from "./status-badge";
 import { CommentThread } from "./comment-thread";
 import { AttachmentList } from "./attachment-list";
 import { EpicPersonPicker } from "./epic-person-picker";
-import { CATEGORY_LABELS, PRIORITY_LABELS } from "@/modules/support/labels";
+import { CATEGORY_LABELS, PRIORITY_LABELS, EPIC_KIND_LABELS, EPIC_STATUS_LABELS, EPIC_STATUS_TONE } from "@/modules/support/labels";
 import type { TechRequestDetail } from "../services/tech-request";
 import type { DepartmentWithMembers } from "../services/itcm";
 import { TERMINAL_STATUSES } from "../services/manage";
@@ -52,31 +52,8 @@ import type { CommentRow } from "../services/comments";
 
 const ALL_PRIORITIES = Object.keys(PRIORITY_LABELS) as TechRequestPriority[];
 
-const EPIC_KIND_LABELS: Record<EpicRequestKind, string> = {
-  NEW: "New account",
-  MODIFY: "Modification",
-  RENEW: "Renewal",
-  DEACTIVATE: "Deactivation",
-};
-
 /** Kinds a manager may choose when promoting a ticket. DEACTIVATE is a separate offboarding flow, not offered here. */
 const PROMOTABLE_EPIC_KINDS: EpicRequestKind[] = ["NEW", "MODIFY", "RENEW"];
-
-const EPIC_STATUS_LABELS: Record<EpicRequestStatus, string> = {
-  PENDING: "Pending",
-  SUBMITTED: "Submitted",
-  COMPLETED: "Completed",
-  CANCELLED: "Cancelled",
-};
-
-type Tone = "default" | "brand" | "success" | "warning" | "critical";
-
-const EPIC_STATUS_TONE: Record<EpicRequestStatus, Tone> = {
-  PENDING: "default",
-  SUBMITTED: "warning",
-  COMPLETED: "success",
-  CANCELLED: "critical",
-};
 
 /**
  * Statuses a manager can set directly through the status select. RESOLVED,

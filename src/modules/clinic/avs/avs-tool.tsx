@@ -140,7 +140,7 @@ export function AvsTool({
       )}
 
       <Card className="space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-brand-fg">Patient information</h2>
           <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
             Summary language

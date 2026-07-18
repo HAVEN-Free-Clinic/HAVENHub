@@ -109,7 +109,9 @@ export default async function VolunteersPage({ searchParams }: PageProps) {
 
   const viewer = await requirePermission("volunteers.view");
   const sp = await searchParams;
-  const errorMessage = sp.error ? decodeURIComponent(sp.error) : null;
+  // searchParams arrive already URL-decoded in the App Router; do not decode again
+  // (a second decode of a "%"-containing message throws URIError). Matches master.
+  const errorMessage = sp.error || null;
 
   const departments = await departmentCompliance(viewer.personId);
 

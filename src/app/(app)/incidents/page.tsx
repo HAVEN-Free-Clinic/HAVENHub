@@ -24,7 +24,7 @@ import { Checkbox } from "@/platform/ui/checkbox";
 import { Radio, RadioGroup } from "@/platform/ui/radio";
 import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
-import { Button } from "@/platform/ui/button";
+import { SubmitButton } from "@/platform/ui/submit-button";
 import { FormActions } from "@/platform/ui/form";
 import { CONCERN_TYPES, listSubjectOptions } from "@/modules/incidents/services/report";
 import { SubjectPicker } from "./subject-picker";
@@ -192,7 +192,7 @@ export default async function ReportConcernPage({ searchParams }: PageProps) {
           </div>
 
           <FormActions>
-            <Button type="submit">Submit report</Button>
+            <SubmitButton pendingLabel="Submitting…">Submit report</SubmitButton>
           </FormActions>
         </Card>
       </form>

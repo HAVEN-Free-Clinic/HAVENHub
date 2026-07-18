@@ -31,6 +31,7 @@ import { Card } from "@/platform/ui/card";
 import { Input, Textarea, Field } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { SubmitButton } from "@/platform/ui/submit-button";
+import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Alert } from "@/platform/ui/alert";
 import { FormActions } from "@/platform/ui/form";
 import { SectionHeader } from "@/platform/ui/section-header";
@@ -352,15 +353,21 @@ function TrackerTable({
                         {/* Onboarding / activation / password-reset templates model NEW/MODIFY/RENEW
                             access requests, not a DEACTIVATE, whose email would send an
                             access-instructions message to a person being offboarded. */}
-                        {(["epic-onboarding", "epic-activation", "epic-password-reset"] as const).map((tpl) => (
-                          <form key={tpl} action={sendEpicEmailFromTrackerAction}>
-                            <input type="hidden" name="requestId" value={r.id} />
-                            <input type="hidden" name="template" value={tpl} />
-                            <SubmitButton size="sm" variant="ghost" pendingLabel="Sending…">
-                              {tpl === "epic-onboarding" ? "Onboarding" : tpl === "epic-activation" ? "Activation" : "Password reset"}
-                            </SubmitButton>
-                          </form>
-                        ))}
+                        {(["epic-onboarding", "epic-activation", "epic-password-reset"] as const).map((tpl) => {
+                          // Three look-alike buttons that each send a real email to the
+                          // volunteer on one click. Arm-then-confirm so a misclick can't
+                          // fire the wrong template at a real person, and the confirm
+                          // names which email is about to go out.
+                          const emailLabel =
+                            tpl === "epic-onboarding" ? "Onboarding" : tpl === "epic-activation" ? "Activation" : "Password reset";
+                          return (
+                            <form key={tpl} action={sendEpicEmailFromTrackerAction}>
+                              <input type="hidden" name="requestId" value={r.id} />
+                              <input type="hidden" name="template" value={tpl} />
+                              <ConfirmButton size="sm" label={emailLabel} confirmLabel={`Send ${emailLabel} email?`} />
+                            </form>
+                          );
+                        })}
                       </div>
                     )}
 

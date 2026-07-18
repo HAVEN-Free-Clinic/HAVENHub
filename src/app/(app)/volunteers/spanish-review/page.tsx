@@ -4,7 +4,7 @@ import { listSpanishReviewQueue, recordSpanishAssessment } from "@/platform/span
 import { PageHeader } from "@/platform/ui/page-header";
 import { Card } from "@/platform/ui/card";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
-import { Button } from "@/platform/ui/button";
+import { SubmitButton } from "@/platform/ui/submit-button";
 
 export default async function SpanishReviewPage() {
   await requirePermission("volunteers.verify_spanish");
@@ -54,12 +54,12 @@ export default async function SpanishReviewPage() {
                     <form action={assessAction}>
                       <input type="hidden" name="personId" value={p.id} />
                       <input type="hidden" name="verified" value="true" />
-                      <Button type="submit" variant="primary" size="sm">Verify</Button>
+                      <SubmitButton variant="primary" size="sm" pendingLabel="Saving…">Verify</SubmitButton>
                     </form>
                     <form action={assessAction}>
                       <input type="hidden" name="personId" value={p.id} />
                       <input type="hidden" name="verified" value="false" />
-                      <Button type="submit" variant="outline" size="sm">Not verified</Button>
+                      <SubmitButton variant="outline" size="sm" pendingLabel="Saving…">Not verified</SubmitButton>
                     </form>
                   </div>
                 </TD>

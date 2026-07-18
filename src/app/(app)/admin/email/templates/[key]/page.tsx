@@ -12,7 +12,7 @@ import { saveSenderRule, clearSenderRule, SenderRuleValidationError } from "@/pl
 import { sendSenderTest } from "@/modules/admin/services/email";
 import { prisma } from "@/platform/db";
 import { PageHeader } from "@/platform/ui/page-header";
-import { Button } from "@/platform/ui/button";
+import { SubmitButton } from "@/platform/ui/submit-button";
 import { Alert } from "@/platform/ui/alert";
 import { Card, cardClasses } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
@@ -136,16 +136,16 @@ export default async function EditTemplatePage({ params, searchParams }: Props) 
             brandColor={t.brandColor}
           />
           <FormActions>
-            <Button type="submit">Save</Button>
+            <SubmitButton pendingLabel="Saving…">Save</SubmitButton>
           </FormActions>
         </Card>
       </form>
 
       {t.hasOverride ? (
         <form action={resetAction}>
-          <Button type="submit" variant="outline">
+          <SubmitButton variant="outline" pendingLabel="Resetting…">
             Reset to default
-          </Button>
+          </SubmitButton>
         </form>
       ) : null}
 
@@ -175,8 +175,8 @@ export default async function EditTemplatePage({ params, searchParams }: Props) 
               aria-label="From display name"
             />
           </div>
-          <Button type="submit" variant="outline">Save sender</Button>
-          <Button type="submit" formAction={testSenderAction} variant="ghost">Send test</Button>
+          <SubmitButton variant="outline" pendingLabel="Saving…">Save sender</SubmitButton>
+          <SubmitButton formAction={testSenderAction} variant="ghost" pendingLabel="Sending…">Send test</SubmitButton>
         </div>
       </form>
     </div>

@@ -33,6 +33,7 @@ import { Card } from "@/platform/ui/card";
 import { Input, Field } from "@/platform/ui/input";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
+import { SubmitButton } from "@/platform/ui/submit-button";
 import { FormActions } from "@/platform/ui/form";
 import { SectionHeader } from "@/platform/ui/section-header";
 
@@ -240,10 +241,23 @@ export async function RolesPanel({ roles, pageHref }: RolesPanelProps): Promise<
                 </div>
               </div>
 
+              {role.isSystem && (
+                <p className="text-xs text-warning-foreground">
+                  Baseline role: changes apply to everyone assigned this role.
+                </p>
+              )}
               <FormActions>
-                <Button type="submit" variant="outline" size="sm">
-                  Save grants
-                </Button>
+                {role.isSystem ? (
+                  // Editing a baseline (Volunteer/Director) role strips or grants
+                  // access for an entire cohort at once, so require a deliberate
+                  // second click -- matching the destructive-action pattern used
+                  // everywhere else in admin.
+                  <ConfirmButton label="Save grants" confirmLabel="Change baseline role? Confirm?" size="sm" />
+                ) : (
+                  <SubmitButton variant="outline" size="sm" pendingLabel="Saving…">
+                    Save grants
+                  </SubmitButton>
+                )}
               </FormActions>
             </form>
           </Card>

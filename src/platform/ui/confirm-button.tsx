@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ComponentProps } from "react";
 import { Button } from "./button";
+import { SubmitButton } from "./submit-button";
 
 type ConfirmButtonProps = Omit<ComponentProps<typeof Button>, "type" | "variant"> & {
   /** Label shown in the idle state (e.g. "Remove"). */
@@ -19,6 +20,11 @@ type ConfirmButtonProps = Omit<ComponentProps<typeof Button>, "type" | "variant"
  * First click: arms the button (switches to danger styling, "Confirm?" label).
  * Second click (within timeout): submits the surrounding form (type="submit").
  * If the timeout elapses without a second click the button resets silently.
+ *
+ * The armed state is a SubmitButton, so once the confirm click fires it disables
+ * and shows a spinner while the server action is in flight -- a rapid second click
+ * cannot double-fire the destructive action (a plain submit button stays live
+ * during the pending transition because the form remains mounted).
  *
  * Does NOT use window.confirm so it is automation-friendly.
  */
@@ -53,14 +59,14 @@ export function ConfirmButton({
 
   if (armed) {
     return (
-      <Button
+      <SubmitButton
         {...rest}
-        type="submit"
         variant="danger"
         className={className}
+        pendingLabel={confirmLabel}
       >
         {confirmLabel}
-      </Button>
+      </SubmitButton>
     );
   }
 

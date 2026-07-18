@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useReducer, useState } from "react";
+import { Fragment, useReducer, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { Alert } from "@/platform/ui/alert";
 import { Button } from "@/platform/ui/button";
@@ -25,11 +25,35 @@ export function AvsTool({ brandColor }: { brandColor: string }) {
   const [errors, setErrors] = useState<string[]>([]);
   const [invalidFields, setInvalidFields] = useState<StringFieldKey[]>([]);
   const [busy, setBusy] = useState(false);
+  // "Clear / New summary" arms on the first click and only wipes on the second,
+  // so an accidental click can't destroy a half-finished handout. Auto-disarms.
+  const [resetArmed, setResetArmed] = useState(false);
+  const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const setField = (key: StringFieldKey) => (e: { target: { value: string } }) => {
     dispatch({ type: "setField", key, value: e.target.value });
-    setInvalidFields((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : prev));
+    if (invalidFields.includes(key)) {
+      setInvalidFields((prev) => prev.filter((k) => k !== key));
+      // The error summary referenced this field; once the user starts correcting it
+      // the banner is stale, so clear it (a fresh summary is built on next Generate).
+      setErrors([]);
+    }
   };
+
+  function handleReset() {
+    if (!resetArmed) {
+      setResetArmed(true);
+      if (resetTimer.current) clearTimeout(resetTimer.current);
+      resetTimer.current = setTimeout(() => setResetArmed(false), 3000);
+      return;
+    }
+    if (resetTimer.current) clearTimeout(resetTimer.current);
+    dispatch({ type: "reset" });
+    setErrors([]);
+    setInvalidFields([]);
+    setResetArmed(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
 
   async function handleGenerate() {
     const { messages, fields } = validateAvs(data);
@@ -65,6 +89,9 @@ export function AvsTool({ brandColor }: { brandColor: string }) {
       setTimeout(() => URL.revokeObjectURL(url), 0);
     } catch {
       setErrors(["Could not generate the PDF. Please try again."]);
+      // The error banner sits at the top of the page; if Generate was clicked from
+      // the footer button, scroll it into view so the failure is never off-screen.
+      window.scrollTo({ top: 0, behavior: "smooth" });
     } finally {
       setBusy(false);
     }
@@ -76,9 +103,19 @@ export function AvsTool({ brandColor }: { brandColor: string }) {
         title="After Visit Summary"
         description="Fill in the visit details and download a patient handout. Nothing is saved."
         action={
-          <Button type="button" onClick={handleGenerate} disabled={busy}>
-            {busy ? "Generating..." : "Generate PDF"}
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant={resetArmed ? "danger" : "outline"}
+              onClick={handleReset}
+              disabled={busy}
+            >
+              {resetArmed ? "Clear everything?" : "Clear / New summary"}
+            </Button>
+            <Button type="button" onClick={handleGenerate} disabled={busy}>
+              {busy ? "Generating..." : "Generate PDF"}
+            </Button>
+          </div>
         }
       />
 

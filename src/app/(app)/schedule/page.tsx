@@ -366,11 +366,12 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                               const key = isoDateKey(d);
                               const checked = availability.dates.some((ad) => isoDateKey(ad) === key);
                               return (
-                                <label key={key} className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs cursor-pointer transition-colors whitespace-nowrap min-h-11 ${checked ? "border-brand bg-brand/5 text-brand-fg font-semibold" : "border-border text-muted-foreground hover:border-brand/40"}`}>
+                                <label key={key} className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition-colors whitespace-nowrap min-h-11 ${availability.tier === "DIRECTOR" ? "cursor-default" : "cursor-pointer"} ${checked ? "border-brand bg-brand/5 text-brand-fg font-semibold" : "border-border text-muted-foreground hover:border-brand/40"}`}>
                                   <Checkbox
                                     name="dates"
                                     value={key}
                                     defaultChecked={checked}
+                                    disabled={availability.tier === "DIRECTOR"}
                                   />
                                   {displayDate(key)}
                                 </label>
@@ -380,11 +381,16 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                         </div>
                       ))}
                     </div>
-                    <FormActions className="mt-4">
-                      <Button type="submit">
-                        Save availability
-                      </Button>
-                    </FormActions>
+                    {/* A director override wins in resolveAvailability, so a self-save
+                        would be silently shadowed. Show the dates read-only (checkboxes
+                        disabled above) and hide Save so we never report a no-op "saved". */}
+                    {availability.tier !== "DIRECTOR" && (
+                      <FormActions className="mt-4">
+                        <Button type="submit">
+                          Save availability
+                        </Button>
+                      </FormActions>
+                    )}
                   </form>
                 </>
               )}

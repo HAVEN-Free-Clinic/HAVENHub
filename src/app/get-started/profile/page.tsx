@@ -50,7 +50,7 @@ export default async function OnboardingProfilePage({
       completedCount={status.completedCount}
       totalCount={status.totalCount}
     >
-      <MyInfoForm action={action} person={me} error={sp.error} />
+      <MyInfoForm action={action} person={me} error={sp.error} requireContact />
     </OnboardingStepShell>
   );
 }

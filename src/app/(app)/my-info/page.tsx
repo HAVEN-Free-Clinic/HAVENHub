@@ -171,6 +171,10 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
             requirements={requirements}
             cleared={onboarding.cleared}
             termName={activeTerm?.name ?? null}
+            // Only offer the /get-started CTA if going there would do something. An
+            // already-onboarded member (the usual case here) has only non-blocking,
+            // coordinator-recorded items left, and /get-started just redirects home.
+            finishHref={onboarding.onboarded ? undefined : "/get-started"}
           />
         </section>
       </div>

@@ -80,10 +80,16 @@ export function ClearanceCard({
   requirements,
   cleared,
   termName,
+  finishHref,
 }: {
   requirements: Requirement[];
   cleared: boolean;
   termName?: string | null;
+  /** Where the "Finish onboarding" CTA should link, or null/undefined to hide it.
+   *  Callers pass this only when there is a page the viewer can act on: an already
+   *  onboarded member (only coordinator-recorded items left) or a director viewing
+   *  someone else's clearance both get no CTA, since /get-started would dead-end. */
+  finishHref?: string | null;
 }) {
   const forTerm = termName ? ` for ${termName}` : "";
 
@@ -133,11 +139,13 @@ export function ClearanceCard({
         ))}
       </ul>
 
-      {/* Next-step CTA */}
-      {!cleared && (
+      {/* Next-step CTA. Only shown when the caller supplies a href the viewer can
+          actually act on (see finishHref) -- never a link that redirects straight
+          back to the dashboard. */}
+      {!cleared && finishHref && (
         <div className="border-t border-border-subtle px-5 py-3.5">
           <Link
-            href="/get-started"
+            href={finishHref}
             className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand-fg hover:text-brand-hover"
           >
             Finish onboarding

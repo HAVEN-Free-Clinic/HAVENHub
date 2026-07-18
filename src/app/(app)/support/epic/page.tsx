@@ -67,15 +67,26 @@ async function logIncidentAction(formData: FormData) {
   const serviceRequestNumber = ((formData.get("serviceRequestNumber") as string) ?? "").trim();
   const personId = ((formData.get("personId") as string) ?? "").trim();
 
+  let ticket;
   try {
-    const ticket = await logYnhhIncident(session.personId, {
+    ticket = await logYnhhIncident(session.personId, {
       subject,
       description: description || null,
       serviceRequestNumber: serviceRequestNumber || null,
       personId: personId || null,
     });
+  } catch (err) {
+    if (err instanceof SupportStateError || err instanceof SupportForbiddenError) {
+      redirect(`/support/epic?tab=tracker&error=${encodeURIComponent(err.message)}`);
+    }
+    throw err;
+  }
 
-    const files = formData.getAll("attachments").filter((f): f is File => f instanceof File && f.size > 0);
+  // The incident is now committed. A failure while saving an attachment must NOT
+  // read as "not logged" -- otherwise the manager re-enters and duplicates it, and
+  // the first incident is already in the Tracker. Say the incident was logged.
+  const files = formData.getAll("attachments").filter((f): f is File => f instanceof File && f.size > 0);
+  try {
     for (const file of files) {
       await persistAttachment(session.personId, { ynhhTicketId: ticket.id }, {
         fileName: file.name,
@@ -85,7 +96,10 @@ async function logIncidentAction(formData: FormData) {
     }
   } catch (err) {
     if (err instanceof SupportStateError || err instanceof SupportForbiddenError) {
-      redirect(`/support/epic?tab=tracker&error=${encodeURIComponent(err.message)}`);
+      revalidatePath("/support/epic");
+      redirect(
+        `/support/epic?tab=tracker&error=${encodeURIComponent(`The incident was logged, but an attachment could not be saved: ${err.message}`)}`,
+      );
     }
     throw err;
   }

@@ -148,7 +148,7 @@ export function ApplyWizard({
   const formRef = useRef<HTMLFormElement | null>(null);
   const headingRef = useRef<HTMLHeadingElement | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
   const [fileStatus, setFileStatus] = useState<Record<string, string>>(() => {
     const out: Record<string, string> = {};
@@ -254,7 +254,10 @@ export function ApplyWizard({
         applicantType,
         renewalDepartment: applicantType === "RENEWAL" ? renewalDept : null,
       });
-      setSaveState(res.ok ? "saved" : "idle");
+      // A failed draft save must not silently collapse to "idle" (visually identical
+      // to never-having-saved) -- surface it so the applicant knows their answers may
+      // not be persisted before they close the tab.
+      setSaveState(res.ok ? "saved" : "error");
     }, 800);
   }
 
@@ -415,7 +418,7 @@ export function ApplyWizard({
 
         {result && !result.ok && <Alert tone="error">{result.message}</Alert>}
         {saveState !== "idle" && (
-          <p className="text-xs text-muted-foreground" aria-live="polite">{saveState === "saving" ? "Saving…" : "Saved"}</p>
+          <p className={`text-xs ${saveState === "error" ? "text-critical" : "text-muted-foreground"}`} aria-live="polite">{saveState === "saving" ? "Saving…" : saveState === "error" ? "Couldn't save your draft, check your connection" : "Saved"}</p>
         )}
 
         {current.kind === "intro" && (

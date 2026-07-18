@@ -95,6 +95,7 @@ describe("dispatchDueCampaigns", () => {
   });
 
   it("skips CANCELLED campaigns", async () => {
+    await prisma.person.create({ data: { name: "Sam Rivera", contactEmail: "cancel@example.com", status: "ACTIVE" } });
     const c = await readyCampaign("Stopped");
     await scheduleCampaign(null, c.id, { scheduleType: "SCHEDULED", scheduledAt: new Date("2026-06-10T12:00:00Z") });
     await prisma.emailCampaign.update({ where: { id: c.id }, data: { status: "CANCELLED" } });

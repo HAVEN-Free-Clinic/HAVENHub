@@ -25,3 +25,17 @@ export async function claimReminderDispatch(
     throw err;
   }
 }
+
+/**
+ * Release a claim taken by claimReminderDispatch. Call this when the enqueue that
+ * followed a successful claim throws, so the (kind, personId, periodKey) reminder is
+ * retried on a later tick instead of being permanently suppressed by a marker that
+ * was committed before delivery was attempted. Best-effort; safe if the row is gone.
+ */
+export async function releaseReminderDispatch(
+  kind: string,
+  personId: string,
+  periodKey: string,
+): Promise<void> {
+  await prisma.reminderDispatch.deleteMany({ where: { kind, personId, periodKey } });
+}

@@ -51,7 +51,14 @@ export async function routeAction(cycleId: string, applicationId: string, formDa
       groups: await termGroupForCycle(cycleId, { [GROUP_DEPARTMENT]: departmentCode }),
     });
   } catch (err) {
-    if (err instanceof RecruitmentAuthError || err instanceof RoutingError) redirect(bounce(cycleId, applicationId, { error: err.message }));
+    // AcceptanceError is expected here: re-routing away from a department whose
+    // acceptance was already emailed (or has an onboarding contract) is blocked by
+    // routeApplication. Surface it as an inline error like its sibling guards
+    // instead of letting it escape as an uncaught server-action error, which
+    // Next renders as a blank "Server Components render" crash.
+    if (err instanceof RecruitmentAuthError || err instanceof RoutingError || err instanceof AcceptanceError) {
+      redirect(bounce(cycleId, applicationId, { error: err.message }));
+    }
     throw err;
   }
   revalidatePath(bounce(cycleId, applicationId));

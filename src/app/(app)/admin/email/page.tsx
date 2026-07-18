@@ -335,6 +335,12 @@ export default async function EmailPage({ searchParams }: PageProps) {
           </Button>
         </form>
       </Card>
+      {mailConn.connected && !mailConn.healthy && (
+        <Alert tone="error">
+          The mailbox is connected but its Microsoft sign-in token is failing to refresh. All email
+          and Teams delivery will fail until this is fixed &mdash; click Reconnect above to sign in again.
+        </Alert>
+      )}
       {needsTeamsReconnect && (
         <Alert tone="warning">
           Teams direct messages need an additional permission. Reconnect the mailbox to grant it.

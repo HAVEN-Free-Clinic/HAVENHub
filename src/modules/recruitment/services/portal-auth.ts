@@ -131,13 +131,41 @@ export async function getApplicantIdentity(): Promise<ApplicantIdentity | null> 
 // ---------------------------------------------------------------------------
 
 import { queueEmail } from "@/platform/email/send";
+import { log } from "@/platform/logging";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
 import { getSetting } from "@/platform/settings/service";
 import { safeNextPath, PORTAL_HOME } from "./portal-next";
 import { pickPortalEmailBase } from "./portal-routing";
 
 const RATE_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
-const RATE_MAX = 3;
+const RATE_MAX = 3; // per identical email address
+
+// Coarse abuse backstops for this PUBLIC, unauthenticated send endpoint. The
+// per-email limit alone does nothing against a script iterating distinct victim
+// addresses, so add: (1) a best-effort per-IP sliding window (in-memory, per
+// serverless instance) to blunt a single-source flood, and (2) a HARD global daily
+// ceiling so a distributed flood can never exhaust the shared mailbox's Exchange
+// send limits and silently break ALL app email. A Vercel WAF rate rule on POST
+// /apply + /login is the recommended additional edge layer (see the audit).
+const IP_RATE_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+const IP_RATE_MAX = 5; // per client IP per window
+const GLOBAL_DAILY_MAX = 800; // portal links issued / 24h across all requesters
+const ipHits = new Map<string, number[]>();
+
+function ipRateLimited(ip: string | null): boolean {
+  if (!ip) return false; // no forwarded IP -> rely on per-email + global caps
+  const now = Date.now();
+  // Bound the map so a churn of IPs can't grow it without limit on a warm instance.
+  if (ipHits.size > 5000) ipHits.clear();
+  const recent = (ipHits.get(ip) ?? []).filter((t) => t > now - IP_RATE_WINDOW_MS);
+  if (recent.length >= IP_RATE_MAX) {
+    ipHits.set(ip, recent);
+    return true;
+  }
+  recent.push(now);
+  ipHits.set(ip, recent);
+  return false;
+}
 
 /** Issue a magic-link token and email it, unless the email has already been
  *  sent RATE_MAX links in the last window (silently skip to avoid spam).
@@ -146,10 +174,29 @@ const RATE_MAX = 3;
  *  post-sign-in redirect lands on that form rather than the portal home. */
 export async function requestMagicLink(email: string, next?: string | null): Promise<void> {
   const emailLower = email.trim().toLowerCase();
+  const hdrs = await headers();
+
+  // Per-IP backstop (best-effort, per-instance). x-forwarded-for is a comma list;
+  // the first hop is the client. Silently skip when limited -- no oracle to callers.
+  const forwardedFor = hdrs.get("x-forwarded-for");
+  const clientIp = forwardedFor ? forwardedFor.split(",")[0]!.trim() : null;
+  if (ipRateLimited(clientIp)) return;
+
   const recent = await prisma.applicantPortalToken.count({
     where: { emailLower, createdAt: { gt: new Date(Date.now() - RATE_WINDOW_MS) } },
   });
   if (recent >= RATE_MAX) return;
+
+  // Hard global daily ceiling: bounds total outbound so a distributed flood can't
+  // exhaust the shared mailbox and silently break ALL app email (member logins,
+  // reminders, notifications). Legit clinic volume is far below this.
+  const globalRecent = await prisma.applicantPortalToken.count({
+    where: { createdAt: { gt: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
+  });
+  if (globalRecent >= GLOBAL_DAILY_MAX) {
+    log.warn("[portal-auth] Global daily magic-link ceiling reached; skipping send.", { globalRecent });
+    return;
+  }
 
   const raw = await issueMagicToken(emailLower);
   // Pick the base URL for the emailed link between two trusted, configured values:
@@ -158,7 +205,7 @@ export async function requestMagicLink(email: string, next?: string | null): Pro
   // never interpolated, so a spoofed Host cannot point the link elsewhere. This
   // keeps the applicant's cookie (set by /apply/verify) on the host they are using.
   const appBase = await getSetting<string>("app.baseUrl");
-  const requestHost = (await headers()).get("host");
+  const requestHost = hdrs.get("host");
   const baseUrl = pickPortalEmailBase(requestHost, config.PORTAL_BASE_URL, appBase);
   // Only append next when it resolves to a real deep link (not the home default),
   // keeping the common "sign in from the portal home" link clean. The verify

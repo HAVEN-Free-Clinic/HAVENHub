@@ -85,6 +85,8 @@ export class GraphTeamsTransport implements TeamsTransport {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify({ body: { contentType: "html", content: message.bodyHtml } }),
+      // Bound the Graph request so one hung send can't consume the whole drain budget.
+      signal: AbortSignal.timeout(8000),
     });
     if (!res.ok) {
       const text = await res.text().catch(() => "");
@@ -107,6 +109,7 @@ export class GraphTeamsTransport implements TeamsTransport {
         chatType: "oneOnOne",
         members: [member(this.senderUpn), member(recipientUserId)],
       }),
+      signal: AbortSignal.timeout(8000),
     });
     if (!res.ok) {
       const text = await res.text().catch(() => "");

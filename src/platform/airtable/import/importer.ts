@@ -189,7 +189,12 @@ export async function runImport(reader: AirtableReader, options: ImportOptions):
           kind: membership.kind,
         },
       },
-      update: { status: "ACTIVE" },
+      // No-op on re-import: never touch an existing membership's status. Offboarding
+      // (setPersonStatusField) flips ACTIVE memberships to REMOVED and its invariant is
+      // that reactivation is status-only and never restores memberships. An `update:
+      // { status: "ACTIVE" }` here would resurrect an offboarded member still listed in
+      // the Airtable roster back onto the active roster on the next import.
+      update: {},
       create: { personId, termId: term.id, departmentId: department.id, kind: membership.kind },
     });
     membershipCount++;

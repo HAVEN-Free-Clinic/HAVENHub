@@ -10,6 +10,7 @@
  * concurrently with that route and double-send.
  */
 import { authorizeCron } from "@/platform/cron";
+import { recordCronHeartbeat } from "@/platform/cron-heartbeat";
 import { runShiftReminders } from "@/platform/email/shift-reminders";
 
 export const runtime = "nodejs";
@@ -21,5 +22,6 @@ export async function GET(req: Request): Promise<Response> {
 
   const r = await runShiftReminders();
 
+  await recordCronHeartbeat("shift-reminders");
   return Response.json({ ok: true, ...r });
 }

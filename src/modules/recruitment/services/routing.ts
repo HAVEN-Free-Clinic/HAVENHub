@@ -30,6 +30,16 @@ export async function routeApplication(
 
   const previous = app.routedDepartmentCode;
   const isReroute = previous != null && previous !== departmentCode;
+  // Reset the decision when routing changes which department owns it:
+  //  - a re-route to a DIFFERENT department (isReroute), the existing behavior; or
+  //  - the FIRST routing of an application that already carries a decision made with
+  //    no department (previous == null), i.e. a bottom-tier speed reject that set
+  //    decision=REJECT with routedDepartmentCode still null -- the new department must
+  //    decide fresh rather than inherit a stale REJECT. Such an app has no live
+  //    acceptance (rejectApplication tears them down), so no teardown is needed here.
+  // A re-route to the SAME department (previous == departmentCode) is a no-op that
+  // must PRESERVE the existing decision + acceptance, so it is deliberately excluded.
+  const clearDecision = isReroute || (previous == null && app.decision !== "PENDING");
 
   // Re-routing to a DIFFERENT department invalidates any decision already recorded
   // for the previous department. Without this cleanup the old Acceptance survives,
@@ -51,7 +61,17 @@ export async function routeApplication(
           `This applicant was already emailed their acceptance for ${previous} or has started onboarding. Rescind it before re-routing.`,
         );
       }
-      if (stale) await tx.acceptance.delete({ where: { id: stale.id } });
+      // Atomic teardown of the stale acceptance: delete only while still not-emailed.
+      // A concurrent releaseDecisions that stamped emailedAt after the read above makes
+      // this remove nothing -- abort rather than orphan an emailed acceptance.
+      if (stale) {
+        const del = await tx.acceptance.deleteMany({ where: { id: stale.id, emailedAt: null } });
+        if (del.count === 0) {
+          throw new AcceptanceError(
+            `This applicant was already emailed their acceptance for ${previous} or has started onboarding. Rescind it before re-routing.`,
+          );
+        }
+      }
     }
     return tx.application.update({
       where: { id: applicationId },
@@ -59,7 +79,7 @@ export async function routeApplication(
         routedDepartmentCode: departmentCode,
         routedById: actorId,
         routedAt: new Date(),
-        ...(isReroute ? { decision: "PENDING", decidedById: null, decidedAt: null, decisionNotes: null } : {}),
+        ...(clearDecision ? { decision: "PENDING", decidedById: null, decidedAt: null, decisionNotes: null } : {}),
       },
     });
   });
@@ -113,7 +133,14 @@ export async function decideRoutedApplication(
       if (existing?.emailedAt || existing?.contract) {
         throw new AcceptanceError("This applicant has already been emailed their acceptance or started onboarding. Rescind the acceptance before changing this decision.");
       }
-      if (existing) await tx.acceptance.delete({ where: { id: existing.id } });
+      // Atomic teardown (see decideInterview): delete only while not-emailed so a
+      // concurrent release can't leave an emailed-but-rejected applicant.
+      if (existing) {
+        const del = await tx.acceptance.deleteMany({ where: { id: existing.id, emailedAt: null } });
+        if (del.count === 0) {
+          throw new AcceptanceError("This applicant has already been emailed their acceptance or started onboarding. Rescind the acceptance before changing this decision.");
+        }
+      }
     }
     return tx.application.update({
       where: { id: applicationId },
@@ -159,9 +186,15 @@ export async function rejectApplication(
     throw new AcceptanceError("This applicant has an emailed acceptance or onboarding contract. Resolve that before rejecting.");
   }
   const updated = await prisma.$transaction(async (tx) => {
-    // Remaining acceptances are not-emailed and contract-free (guarded above); drop
-    // them so a stale ACCEPT can't survive a REJECT.
+    // Drop not-emailed acceptances so a stale ACCEPT can't survive a REJECT. The guard
+    // above read acceptances OUTSIDE this tx, so a concurrent releaseDecisions could
+    // have stamped emailedAt in the gap -- which the deleteMany (emailedAt: null) won't
+    // remove. Re-check inside the tx: any surviving acceptance is a live emailed one,
+    // so abort instead of flipping decision to REJECT under an emailed acceptance.
     await tx.acceptance.deleteMany({ where: { applicationId, emailedAt: null } });
+    if ((await tx.acceptance.count({ where: { applicationId } })) > 0) {
+      throw new AcceptanceError("This applicant has an emailed acceptance or onboarding contract. Resolve that before rejecting.");
+    }
     return tx.application.update({
       where: { id: applicationId },
       data: { decision: "REJECT", decidedById: actorId, decidedAt: new Date(), decisionNotes: notes },
@@ -198,9 +231,13 @@ export async function reopenDecision(applicationId: string, actorId: string): Pr
   }
   const updated = await prisma.$transaction(async (tx) => {
     // A reversible reopen must not leave a live acceptance behind, or releaseDecisions
-    // would later email it. Emailed/contract acceptances are blocked above, so this
-    // only drops the not-emailed, contract-free ones.
+    // would later email it. The guard above read acceptances outside this tx; re-check
+    // inside after dropping the not-emailed ones so a concurrently-emailed acceptance
+    // aborts the reopen instead of coexisting with a PENDING decision.
     await tx.acceptance.deleteMany({ where: { applicationId, emailedAt: null } });
+    if ((await tx.acceptance.count({ where: { applicationId } })) > 0) {
+      throw new AcceptanceError("This applicant has an emailed acceptance or onboarding contract. Resolve that before reopening.");
+    }
     return tx.application.update({
       where: { id: applicationId },
       data: { decision: "PENDING", decidedById: null, decidedAt: null, decisionNotes: null },

@@ -29,8 +29,11 @@ type StoredFile = { storedName?: string; fileName?: string; mimeType?: string };
  *     that ranked their department. (Previously this route omitted the scorer
  *     and routed-director branches, 404-ing committee scorers on every file.)
  *   - The stored object key is built from the application's own cycleId and the
- *     answer's storedName (both from the DB), never from user input, so no path
- *     traversal is possible via the URL `key`.
+ *     answer's storedName. storedName is server-generated (persistFiles /
+ *     uploadDraftFile); saveDraft strips client-supplied file answers so an
+ *     applicant cannot inject one, and this route additionally validates storedName
+ *     against the server format below -- so no path traversal is possible via the
+ *     URL `key` or a persisted answer.
  *   - Both "missing" and "not allowed" return 404, so an unauthorized viewer
  *     cannot tell a file exists from one that doesn't.
  */
@@ -66,6 +69,13 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
   const val = answers[key];
   const file: StoredFile | null = val && typeof val === "object" ? (val as StoredFile) : null;
   if (!file?.storedName || !file.mimeType) {
+    return Response.json({ error: "Not found" }, { status: 404 });
+  }
+
+  // Defense in depth: persistFiles generates storedName as `<fieldKey>-<uuid>[.ext]`.
+  // Reject anything that doesn't match so a malformed/injected value can never escape
+  // the cycle prefix (path traversal) or reference an arbitrary object.
+  if (!/^[A-Za-z0-9_]+-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(\.[A-Za-z0-9]{1,8})?$/.test(file.storedName)) {
     return Response.json({ error: "Not found" }, { status: 404 });
   }
 

@@ -42,6 +42,9 @@ function validateOrThrow(key: CycleEmailKey, subject: string, body: string): voi
   const s = validateTemplate(subject, allowed);
   const b = validateTemplate(body, allowed);
   const problems = [
+    // A blank override subject would send verbatim (empty Subject header) -- guard it
+    // exactly like the admin-template and campaign save paths.
+    ...(subject.trim() === "" ? ["Subject cannot be empty."] : []),
     ...s.errors,
     ...b.errors,
     ...s.unknownVariables.map((v) => `Unknown variable in subject: ${v}`),

@@ -15,6 +15,7 @@
  * 13:00 UTC (9:00 AM ET in summer) and double-send.
  */
 import { authorizeCron } from "@/platform/cron";
+import { recordCronHeartbeat } from "@/platform/cron-heartbeat";
 import { runComplianceReminders } from "@/platform/email/reminders";
 
 export const runtime = "nodejs";
@@ -26,5 +27,6 @@ export async function GET(req: Request): Promise<Response> {
 
   const r = await runComplianceReminders();
 
+  await recordCronHeartbeat("reminders");
   return Response.json({ ok: true, ...r });
 }

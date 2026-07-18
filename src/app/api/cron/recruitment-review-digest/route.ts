@@ -10,6 +10,7 @@
  * by the per-tick /api/cron/email drainer (and the post-enqueue flush).
  */
 import { authorizeCron } from "@/platform/cron";
+import { recordCronHeartbeat } from "@/platform/cron-heartbeat";
 import { runRecruitmentReviewDigest } from "@/modules/recruitment/services/review-digest";
 
 export const runtime = "nodejs";
@@ -21,5 +22,6 @@ export async function GET(req: Request): Promise<Response> {
 
   const r = await runRecruitmentReviewDigest();
 
+  await recordCronHeartbeat("recruitment-review-digest");
   return Response.json({ ok: true, ...r });
 }

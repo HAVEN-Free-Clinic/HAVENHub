@@ -6,6 +6,8 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { buttonClasses } from "@/platform/ui/button";
 import { StatCard } from "@/platform/ui/stat-card";
 import { emailHealthCounts } from "@/modules/admin/services/email";
+import { getCronHealth } from "@/platform/cron-heartbeat";
+import { Alert } from "@/platform/ui/alert";
 
 // requirePermission already ran in the admin layout; this page is reachable only
 // by users with admin.access. No second permission check needed here.
@@ -41,6 +43,11 @@ export default async function AdminOverviewPage() {
     emailHealthCounts(),
   ]);
 
+  // Flag any externally-scheduled cron job whose last success is stale (schedule
+  // dropped / secret rotated). Dead enqueue-only jobs otherwise leave no signal.
+  const cronHealth = await getCronHealth();
+  const staleCrons = cronHealth.filter((c) => c.stale);
+
   const quickLinks = [
     { label: "People", href: "/admin/people" },
     { label: "Terms", href: "/admin/terms" },
@@ -69,6 +76,15 @@ export default async function AdminOverviewPage() {
           </div>
         }
       />
+
+      {staleCrons.length > 0 && (
+        <div className="mt-6">
+          <Alert tone="error">
+            Scheduled jobs may have stopped running: {staleCrons.map((c) => c.label).join(", ")}. These run
+            on an external scheduler; confirm it is still calling the cron endpoints (see docs/DEPLOY.md).
+          </Alert>
+        </div>
+      )}
 
       <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <StatCard

@@ -25,6 +25,7 @@
  * /api/cron/email route.
  */
 import { authorizeCron } from "@/platform/cron";
+import { recordCronHeartbeat } from "@/platform/cron-heartbeat";
 import { prisma } from "@/platform/db";
 import { queueEmail } from "@/platform/email/send";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
@@ -151,5 +152,6 @@ export async function GET(req: Request): Promise<Response> {
     }
   }
 
+  await recordCronHeartbeat("schedule-reminders");
   return Response.json({ ok: true, reminded, skipped });
 }

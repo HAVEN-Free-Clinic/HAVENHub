@@ -44,7 +44,7 @@ export default async function OnboardPage({ params }: { params: Promise<{ token:
   const todayIso = new Date().toISOString().slice(0, 10);
   return (
     <main className="mx-auto max-w-2xl px-6 py-10">
-      <h1 className="text-2xl font-bold tracking-tight">HAVEN onboarding</h1>
+      <h1 className="text-2xl font-bold tracking-tight">{orgName} onboarding</h1>
       <OnboardForm token={contract.token} prefill={prefill} layout={layout} ctx={{ firstName: contract.firstName, orgName, todayIso }} />
     </main>
   );

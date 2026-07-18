@@ -42,6 +42,8 @@ import { SectionHeader } from "@/platform/ui/section-header";
 import { Field, Textarea } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Button } from "@/platform/ui/button";
+import { SubmitButton } from "@/platform/ui/submit-button";
+import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { FormActions } from "@/platform/ui/form";
 import { Alert } from "@/platform/ui/alert";
 import { CalendarDate, DateOnly } from "@/platform/dates/display";
@@ -367,9 +369,7 @@ export default async function IncidentReportDetailPage({ params, searchParams }:
                           <Textarea name="notes" rows={2} placeholder="Optional notes on this decision..." />
                         </Field>
                         <FormActions>
-                          <Button type="submit" variant="primary" size="sm">
-                            Approve strike
-                          </Button>
+                          <ConfirmButton label="Approve strike" confirmLabel="Confirm strike?" size="sm" />
                         </FormActions>
                       </form>
 
@@ -381,9 +381,9 @@ export default async function IncidentReportDetailPage({ params, searchParams }:
                           <Textarea name="notes" rows={2} placeholder="Optional reason for declining..." />
                         </Field>
                         <FormActions>
-                          <Button type="submit" variant="outline" size="sm">
+                          <SubmitButton variant="outline" size="sm" pendingLabel="Declining…">
                             Decline strike
-                          </Button>
+                          </SubmitButton>
                         </FormActions>
                       </form>
                     </div>

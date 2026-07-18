@@ -49,7 +49,9 @@ it("is REJECTED when the application decision is REJECT and nothing stronger app
   const d = rosterDecision({ ...none, applicationDecision: "REJECT" });
   expect(d.status).toBe("REJECTED");
   expect(d.label).toBe("Rejected");
-  expect(d.tone).toBe("default");
+  // Rejections read critical (red) on the roster, matching every other recruitment
+  // surface, so a rejected badge is not confused with an undecided (NONE) one.
+  expect(d.tone).toBe("critical");
 });
 
 it("is REJECTED when any interview decision is REJECT", () => {

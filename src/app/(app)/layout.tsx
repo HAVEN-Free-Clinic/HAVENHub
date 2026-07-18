@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { requirePersonSession } from "@/platform/auth/session";
 import { getActiveTerm } from "@/platform/terms/active-term";
+import { reviewScope } from "@/modules/recruitment/services/review";
 import { AppShell } from "@/platform/ui/app-shell";
 import { PostHogIdentify } from "@/platform/posthog/posthog-identify";
 
@@ -13,7 +14,16 @@ import { PostHogIdentify } from "@/platform/posthog/posthog-identify";
  */
 export default async function AppGroupLayout({ children }: { children: ReactNode }) {
   const person = await requirePersonSession();
-  const activeTerm = await getActiveTerm();
+  const [activeTerm, scope] = await Promise.all([
+    getActiveTerm(),
+    reviewScope(person.personId),
+  ]);
+  // A department director reviews recruitment by scope (a derived directorship,
+  // not a recruitment permission), so surface the Recruitment tab in the top nav
+  // for them too -- matching the dashboard tile and the recruitment layout, which
+  // both admit reviewers by scope. Keeps nav and dashboard visibility in sync.
+  const isRecruitmentReviewer = scope.all || scope.departmentCodes.length > 0;
+  const extraModuleIds = isRecruitmentReviewer ? ["recruitment"] : [];
   return (
     <>
       <PostHogIdentify
@@ -28,6 +38,7 @@ export default async function AppGroupLayout({ children }: { children: ReactNode
         termLabel={activeTerm?.name ?? null}
         personId={person.personId}
         personThemePreference={person.themePreference}
+        extraModuleIds={extraModuleIds}
       >
         {children}
       </AppShell>

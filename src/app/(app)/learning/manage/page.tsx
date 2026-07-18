@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requirePermission } from "@/platform/auth/session";
 import { PageHeader } from "@/platform/ui/page-header";
-import { Button } from "@/platform/ui/button";
+import { SubmitButton } from "@/platform/ui/submit-button";
 import { Input } from "@/platform/ui/input";
 import { Card } from "@/platform/ui/card";
 import { listCourses } from "@/modules/learning/services/courses";
@@ -18,7 +18,7 @@ export default async function ManageCoursesPage() {
         <Card>
           <form action={createCourseAction} className="flex gap-2">
             <Input name="title" placeholder="New course title" required className="flex-1" />
-            <Button type="submit">Create</Button>
+            <SubmitButton pendingLabel="Creating…">Create</SubmitButton>
           </form>
         </Card>
         {courses.length === 0 ? (

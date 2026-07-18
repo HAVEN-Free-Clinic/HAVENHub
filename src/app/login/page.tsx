@@ -177,7 +177,7 @@ export default async function LoginPage({
                 name="email"
                 type="email"
                 required
-                placeholder="j.carney@yale.edu"
+                placeholder="netid@yale.edu"
                 className="mt-1"
               />
             </Field>

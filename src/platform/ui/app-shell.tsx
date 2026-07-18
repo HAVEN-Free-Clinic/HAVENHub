@@ -35,6 +35,7 @@ export async function AppShell({
   termLabel,
   personId,
   personThemePreference,
+  extraModuleIds,
   children,
 }: {
   userName: string | null;
@@ -42,10 +43,13 @@ export async function AppShell({
   personId: string;
   /** Raw person preference from the session (string | null). AppShell resolves this against the admin default. */
   personThemePreference: string | null;
+  /** Module ids the user reaches by derived access (e.g. recruitment review scope)
+   *  rather than a held permission, so the top nav matches the dashboard tiles. */
+  extraModuleIds?: string[];
   children: ReactNode;
 }) {
   const [navModules, themeDefault, org, displayZone] = await Promise.all([
-    getAccessibleModules(personId),
+    getAccessibleModules(personId, new Set(extraModuleIds ?? [])),
     getSetting<string>("ui.defaultTheme"),
     getOrgIdentity(),
     getDisplayTimeZone(),

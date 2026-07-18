@@ -31,6 +31,7 @@ export function NotificationBell() {
   const [count, setCount] = useState(0);
   const [items, setItems] = useState<Item[]>([]);
   const ref = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -62,7 +63,11 @@ export function NotificationBell() {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     }
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") {
+        setOpen(false);
+        // Return focus to the trigger so keyboard users keep their place.
+        buttonRef.current?.focus();
+      }
     }
     document.addEventListener("mousedown", onClick);
     document.addEventListener("keydown", onKey);
@@ -89,6 +94,7 @@ export function NotificationBell() {
   return (
     <div ref={ref} className="relative">
       <button
+        ref={buttonRef}
         type="button"
         onClick={() => {
           const next = !open;

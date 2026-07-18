@@ -49,10 +49,16 @@ export type AvsAction =
   | { type: "removeMed"; index: number }
   | { type: "addActionItem" }
   | { type: "updateActionItem"; index: number; value: string }
-  | { type: "removeActionItem"; index: number };
+  | { type: "removeActionItem"; index: number }
+  | { type: "reset" };
 
 export function avsReducer(state: AvsData, action: AvsAction): AvsData {
   switch (action.type) {
+    // Wipe the whole form back to empty. The AVS tool is reused for back-to-back
+    // patients, so "Clear / New summary" must reset every field (no patient's data
+    // may carry into the next handout).
+    case "reset":
+      return initialAvsData;
     case "setField":
       return { ...state, [action.key]: action.value };
     case "setLang":

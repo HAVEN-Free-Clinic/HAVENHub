@@ -23,7 +23,7 @@ export default function AppError({ error, reset }: { error: Error & { digest?: s
         <h1 className="mt-4 text-lg font-bold tracking-tight text-foreground">Something went wrong</h1>
         <p className="mt-2 text-sm text-muted-foreground">
           We hit an unexpected error loading this page. Please try again. If the problem persists,
-          contact the HAVEN IT team.
+          contact support.
         </p>
         <div className="mt-6 flex flex-wrap items-center justify-center gap-2.5">
           <Button onClick={() => reset()}>Try again</Button>

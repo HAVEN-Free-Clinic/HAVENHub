@@ -989,6 +989,32 @@ describe("reviewReport", () => {
     expect(reporterNotes[0].body).toContain("dismissed");
   });
 
+  it("does not re-notify or reset the resolution date when re-saving an already-terminal report", async () => {
+    const reporter = await createPerson("Reporter", "rr009");
+    const manager = await createPerson("Manager", "rr-mgr009");
+    await grantPermission(manager.id, "incidents.manage");
+    const report = await submitReport(reporter.id, { concernTypes: ["OTHER"], description: "x" });
+
+    const resolved = await reviewReport(manager.id, report.id, { status: "RESOLVED" });
+    const firstResolvedAt = (resolved.resolvedAt as Date).getTime();
+
+    // A reviewer re-opens the closed report only to edit reviewNotes; the Status
+    // select still reads RESOLVED, so the status does not actually change.
+    const reSaved = await reviewReport(manager.id, report.id, {
+      status: "RESOLVED",
+      reviewNotes: "added context",
+    });
+
+    // The reporter is notified exactly once (from the original resolution).
+    expect(
+      await prisma.notification.count({ where: { personId: reporter.id, type: "incidents.report_resolved" } })
+    ).toBe(1);
+    // The original resolution timestamp is preserved, not bumped to now.
+    expect((reSaved.resolvedAt as Date).getTime()).toBe(firstResolvedAt);
+    expect(reSaved.resolvedById).toBe(manager.id);
+    expect(reSaved.reviewNotes).toBe("added context");
+  });
+
   it("forbids a subject who holds incidents.manage from adjudicating a report about themselves", async () => {
     const reporter = await createPerson("Reporter", "m5-rr-rep001");
     const subject = await createPerson("Subject", "m5-rr-sub001");

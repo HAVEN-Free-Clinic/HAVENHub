@@ -37,6 +37,10 @@ export function ScormPlayer({ courseId, scos }: Props) {
   const [live, setLive] = useState<Record<string, ScoLive>>(() =>
     Object.fromEntries(scos.map((s) => [s.id, { lessonStatus: s.cmi.lessonStatus, scoreRaw: s.cmi.scoreRaw }]))
   );
+  // The checkmarks/completion banner render from optimistic `live` state. If a
+  // persist actually fails, that success is a lie (progress is lost on reload and
+  // the learner stays un-cleared), so track the last save's outcome and warn.
+  const [saveFailed, setSaveFailed] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const apiRef = useRef<InstanceType<typeof Scorm12API> | null>(null);
   const pendingSaveRef = useRef<Promise<void>>(Promise.resolve());
@@ -66,7 +70,9 @@ export function ScormPlayer({ courseId, scos }: Props) {
       }));
     const save = () => {
       sync();
-      const p = persistCmiAction(courseId, sco.id, snapshot()).catch(() => {});
+      const p = persistCmiAction(courseId, sco.id, snapshot())
+        .then(() => setSaveFailed(false))
+        .catch(() => setSaveFailed(true));
       pendingSaveRef.current = p;
       return p;
     };
@@ -118,6 +124,12 @@ export function ScormPlayer({ courseId, scos }: Props) {
 
   return (
     <div className="space-y-4">
+      {saveFailed && (
+        <Alert tone="warning">
+          Your progress could not be saved. Check your connection, your latest changes may not be
+          recorded.
+        </Alert>
+      )}
       {allComplete && <Alert tone="success">You have completed this course.</Alert>}
       <div className="flex flex-col gap-4 md:flex-row">
         {!single && (

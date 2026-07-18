@@ -3,6 +3,7 @@ import { requireModuleAccess } from "@/platform/auth/session";
 import { getModule } from "@/platform/modules/registry";
 import { canManageAnyScheduleDept } from "@/modules/schedule/services/builder";
 import { canManageAnyRhdDept } from "@/modules/schedule/services/attendings";
+import { manageableRequestDepartmentIds } from "@/modules/schedule/services/requests";
 import { ModuleNav } from "@/platform/ui/module-nav";
 import { moduleMetadata } from "@/platform/branding/metadata";
 
@@ -16,20 +17,31 @@ export function generateMetadata() {
 // RHD-family department (Attendings) -- so it can't be a registry permission
 // string. We resolve it here and drop the tab for non-managers, matching the
 // page gates in builder/page.tsx and attendings/page.tsx.
+//
+// Approvals is the same shape: /schedule/requests admits only viewers whose
+// manageableRequestDepartmentIds set is non-empty (its registry `permission`
+// string schedule.manage_requests is necessary but not sufficient -- a holder
+// who manages no department is still bounced to /no-access). ModuleNav does not
+// enforce per-item permissions, so resolve the page's exact gate here and drop
+// the tab when the viewer can approve nothing.
 const BUILDER_HREF = "/schedule/builder";
 const ATTENDINGS_HREF = "/schedule/attendings";
+const APPROVALS_HREF = "/schedule/requests";
 
 export default async function ScheduleLayout({ children }: { children: ReactNode }) {
   const { personId } = await requireModuleAccess("schedule");
   const mod = getModule("schedule")!;
-  const [canBuild, canManageAttendings] = await Promise.all([
+  const [canBuild, canManageAttendings, requestDeptIds] = await Promise.all([
     canManageAnyScheduleDept(personId),
     canManageAnyRhdDept(personId),
+    manageableRequestDepartmentIds(personId),
   ]);
+  const canApprove = requestDeptIds.length > 0;
   const items = mod.nav.filter(
     (item) =>
       (item.href !== BUILDER_HREF || canBuild) &&
-      (item.href !== ATTENDINGS_HREF || canManageAttendings),
+      (item.href !== ATTENDINGS_HREF || canManageAttendings) &&
+      (item.href !== APPROVALS_HREF || canApprove),
   );
   return (
     <>

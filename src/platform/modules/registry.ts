@@ -159,6 +159,12 @@ export const MODULES: ModuleManifest[] = [
     description: "Self-paced training courses assigned by department",
     icon: GraduationCap,
     accessPermission: "learning.access",
+    // A Learning Coordinator / Compliance role may hold only manage_courses or
+    // view_progress. Admit them to the module (the tile, the layout, the nav) so
+    // the granted permission isn't dead; each page still enforces its own gate,
+    // and the "My courses" landing page gates on module access (requireModuleAccess),
+    // so it stays reachable for them. Mirrors recruitment.score above.
+    additionalAccessPermissions: ["learning.manage_courses", "learning.view_progress"],
     permissions: ["learning.access", "learning.manage_courses", "learning.view_progress"],
     status: "active",
     nav: [

@@ -31,9 +31,9 @@ import { Card } from "@/platform/ui/card";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { TemplateEditor } from "../../templates/[key]/preview";
 import { AudienceBuilder } from "./audience-builder";
-import { CronPresets } from "./cron-presets";
 import { SubmitButton } from "./submit-button";
 import { ReviewActions } from "./review-actions";
+import { TimingActions } from "./timing-actions";
 
 type Props = {
   params: Promise<{ id: string }>;
@@ -397,51 +397,19 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
         </div>
       )}
 
-      {/* Timing section: DRAFT only */}
+      {/* Timing section: DRAFT only. Scheduling reads the last-saved campaign, so
+          TimingActions gates the submits behind the same compose-form dirty guard
+          ReviewActions uses -- otherwise unsaved edits would be silently scheduled
+          (and then locked, since a scheduled campaign can no longer be edited). */}
       {isDraft && (
         <div className="space-y-5 border-t border-border pt-6">
           <h2 className="text-base font-semibold text-foreground">Timing</h2>
-
-          {/* Schedule for later */}
-          <div className="space-y-2">
-            <p className="text-sm font-medium text-foreground-soft">Schedule for later</p>
-            <form action={scheduleLaterAction} className="flex flex-wrap items-end gap-3">
-              <Field label={`Send at (${zoneLabel(zone)})`}>
-                <Input
-                  name="scheduledAt"
-                  type="datetime-local"
-                  required
-                  className="w-auto"
-                />
-              </Field>
-              <Field label="Confirm count (required for >25 recipients)">
-                <Input name="confirmCount" type="number" min={1} placeholder="e.g. 42" className="w-24" />
-              </Field>
-              <Button type="submit">Schedule</Button>
-            </form>
-            <p className="text-xs text-muted-foreground">
-              The send time is interpreted in {zoneLabel(zone)}.
-            </p>
-          </div>
-
-          {/* Recurring */}
-          <div className="space-y-2">
-            <p className="text-sm font-medium text-foreground-soft">Recurring</p>
-            <form action={scheduleRecurringAction} className="flex flex-wrap items-end gap-3">
-              <Field label="Cron expression">
-                <CronPresets />
-              </Field>
-              <Field label="Confirm count (required for >25 recipients)">
-                <Input name="confirmCount" type="number" min={1} placeholder="e.g. 42" className="w-24" />
-              </Field>
-              <Button type="submit">Start recurring</Button>
-            </form>
-            <p className="text-xs text-muted-foreground">
-              Cron format: minute hour day month weekday, evaluated in UTC (recurring
-              schedules run on UTC, independent of the display zone). Example:{" "}
-              <code className="font-mono">0 13 * * 1</code> = Mondays 13:00 UTC (9:00 AM ET in summer).
-            </p>
-          </div>
+          <TimingActions
+            formId="campaign-compose"
+            scheduleLaterAction={scheduleLaterAction}
+            scheduleRecurringAction={scheduleRecurringAction}
+            zoneLabel={zoneLabel(zone)}
+          />
         </div>
       )}
 

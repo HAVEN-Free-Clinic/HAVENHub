@@ -8,6 +8,7 @@ import {
   NOTIFICATIONS_PAGE_SIZE,
 } from "@/platform/notifications/inbox";
 import { markAllReadAction } from "@/platform/notifications/inbox-actions";
+import { getSetting } from "@/platform/settings/service";
 import { DateTime } from "@/platform/dates/display";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Pagination } from "@/platform/ui/pagination";
@@ -18,6 +19,7 @@ type PageProps = { searchParams: Promise<{ page?: string }> };
 export default async function NotificationsPage({ searchParams }: PageProps) {
   const { personId } = await requirePersonSession();
   const sp = await searchParams;
+  const appName = await getSetting<string>("branding.appName");
   const page = Math.max(1, Number(sp.page ?? "1") || 1);
   const { rows, total } = await listNotifications(personId, { page });
   const pageCount = Math.max(1, Math.ceil(total / NOTIFICATIONS_PAGE_SIZE));
@@ -49,7 +51,7 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Notifications" description="Everything addressed to you in HAVEN Hub." />
+      <PageHeader title="Notifications" description={`Everything addressed to you in ${appName}.`} />
 
       <form action={markAllAction}>
         <Button type="submit" variant="outline">Mark all as read</Button>

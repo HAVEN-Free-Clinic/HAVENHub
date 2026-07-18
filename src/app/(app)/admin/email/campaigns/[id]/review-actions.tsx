@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Input, Field } from "@/platform/ui/input";
 import { Alert } from "@/platform/ui/alert";
 import { Button } from "@/platform/ui/button";
 import { SubmitButton } from "./submit-button";
+import { useFormDirty } from "./use-form-dirty";
 
 type FormAction = (formData: FormData) => void | Promise<void>;
 
@@ -29,34 +30,11 @@ export function ReviewActions({
   testAction: FormAction;
   sendAction: FormAction;
 }) {
-  const [dirty, setDirty] = useState(false);
+  const dirty = useFormDirty(formId);
   // "Send now" arms on the first click and only sends on the second, so even a
   // small audience (25 or fewer, where no typed count is required) gets an
   // explicit confirmation before real email is dispatched.
   const [armed, setArmed] = useState(false);
-
-  useEffect(() => {
-    const form = document.getElementById(formId);
-    if (!form) return;
-
-    const markDirty = () => setDirty(true);
-    const onClick = (event: Event) => {
-      // Structural edits (add/remove audience condition, match toggle, rich-text
-      // toolbar, variable-insert chips) happen via type="button" controls and
-      // fire no input/change event, so catch them here.
-      const target = event.target as HTMLElement | null;
-      if (target?.closest('button[type="button"]')) setDirty(true);
-    };
-
-    form.addEventListener("input", markDirty);
-    form.addEventListener("change", markDirty);
-    form.addEventListener("click", onClick);
-    return () => {
-      form.removeEventListener("input", markDirty);
-      form.removeEventListener("change", markDirty);
-      form.removeEventListener("click", onClick);
-    };
-  }, [formId]);
 
   return (
     <div className="space-y-3">

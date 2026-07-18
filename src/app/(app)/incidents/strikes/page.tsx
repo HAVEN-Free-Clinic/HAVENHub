@@ -28,6 +28,7 @@ import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Field, Input, Textarea } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Button, buttonClasses } from "@/platform/ui/button";
+import { SubmitButton } from "@/platform/ui/submit-button";
 import { NavForm } from "@/platform/ui/nav-form";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Alert } from "@/platform/ui/alert";
@@ -375,9 +376,9 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
             </div>
 
             <FormActions>
-              <Button type="submit" variant="primary" size="sm">
+              <SubmitButton variant="primary" size="sm" pendingLabel="Recording…">
                 Record action
-              </Button>
+              </SubmitButton>
             </FormActions>
           </Card>
         </form>

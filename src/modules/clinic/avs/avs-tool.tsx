@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useReducer, useState } from "react";
+import { Fragment, useReducer, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { Alert } from "@/platform/ui/alert";
 import { Button } from "@/platform/ui/button";
@@ -20,16 +20,48 @@ import {
 } from "./strings";
 import { validateAvs } from "./validate";
 
-export function AvsTool({ brandColor }: { brandColor: string }) {
+export function AvsTool({
+  brandColor,
+  orgName,
+  supportContact,
+}: {
+  brandColor: string;
+  orgName?: string;
+  supportContact?: string;
+}) {
   const [data, dispatch] = useReducer(avsReducer, initialAvsData);
   const [errors, setErrors] = useState<string[]>([]);
   const [invalidFields, setInvalidFields] = useState<StringFieldKey[]>([]);
   const [busy, setBusy] = useState(false);
+  // "Clear / New summary" arms on the first click and only wipes on the second,
+  // so an accidental click can't destroy a half-finished handout. Auto-disarms.
+  const [resetArmed, setResetArmed] = useState(false);
+  const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const setField = (key: StringFieldKey) => (e: { target: { value: string } }) => {
     dispatch({ type: "setField", key, value: e.target.value });
-    setInvalidFields((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : prev));
+    if (invalidFields.includes(key)) {
+      setInvalidFields((prev) => prev.filter((k) => k !== key));
+      // The error summary referenced this field; once the user starts correcting it
+      // the banner is stale, so clear it (a fresh summary is built on next Generate).
+      setErrors([]);
+    }
   };
+
+  function handleReset() {
+    if (!resetArmed) {
+      setResetArmed(true);
+      if (resetTimer.current) clearTimeout(resetTimer.current);
+      resetTimer.current = setTimeout(() => setResetArmed(false), 3000);
+      return;
+    }
+    if (resetTimer.current) clearTimeout(resetTimer.current);
+    dispatch({ type: "reset" });
+    setErrors([]);
+    setInvalidFields([]);
+    setResetArmed(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
 
   async function handleGenerate() {
     const { messages, fields } = validateAvs(data);
@@ -51,7 +83,9 @@ export function AvsTool({ brandColor }: { brandColor: string }) {
       const { pdf } = await import("@react-pdf/renderer");
       const { AvsDocument } = await import("./avs-pdf");
       const summary = buildSummary(data, data.preferredLang);
-      const blob = await pdf(<AvsDocument summary={summary} brandColor={brandColor} />).toBlob();
+      const blob = await pdf(
+        <AvsDocument summary={summary} brandColor={brandColor} orgName={orgName} supportContact={supportContact} />,
+      ).toBlob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -65,6 +99,9 @@ export function AvsTool({ brandColor }: { brandColor: string }) {
       setTimeout(() => URL.revokeObjectURL(url), 0);
     } catch {
       setErrors(["Could not generate the PDF. Please try again."]);
+      // The error banner sits at the top of the page; if Generate was clicked from
+      // the footer button, scroll it into view so the failure is never off-screen.
+      window.scrollTo({ top: 0, behavior: "smooth" });
     } finally {
       setBusy(false);
     }
@@ -76,9 +113,19 @@ export function AvsTool({ brandColor }: { brandColor: string }) {
         title="After Visit Summary"
         description="Fill in the visit details and download a patient handout. Nothing is saved."
         action={
-          <Button type="button" onClick={handleGenerate} disabled={busy}>
-            {busy ? "Generating..." : "Generate PDF"}
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant={resetArmed ? "danger" : "outline"}
+              onClick={handleReset}
+              disabled={busy}
+            >
+              {resetArmed ? "Clear everything?" : "Clear / New summary"}
+            </Button>
+            <Button type="button" onClick={handleGenerate} disabled={busy}>
+              {busy ? "Generating..." : "Generate PDF"}
+            </Button>
+          </div>
         }
       />
 
@@ -93,7 +140,7 @@ export function AvsTool({ brandColor }: { brandColor: string }) {
       )}
 
       <Card className="space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-brand-fg">Patient information</h2>
           <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
             Summary language
@@ -175,18 +222,21 @@ export function AvsTool({ brandColor }: { brandColor: string }) {
           <div key={i} className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end">
             <Field label="Medication">
               <Input
+                aria-label={`Medication ${i + 1} name`}
                 value={m.name}
                 onChange={(e) => dispatch({ type: "updateMed", index: i, key: "name", value: e.target.value })}
               />
             </Field>
             <Field label="Dose & instructions">
               <Input
+                aria-label={`Medication ${i + 1} dose and instructions`}
                 value={m.dose}
                 onChange={(e) => dispatch({ type: "updateMed", index: i, key: "dose", value: e.target.value })}
               />
             </Field>
             <Field label="Lowest-cost source">
               <Input
+                aria-label={`Medication ${i + 1} lowest-cost source`}
                 value={m.costSource}
                 onChange={(e) => dispatch({ type: "updateMed", index: i, key: "costSource", value: e.target.value })}
               />

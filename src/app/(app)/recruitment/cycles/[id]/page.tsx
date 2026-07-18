@@ -102,7 +102,7 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
         {canReviewAll && (
           <Link href={`/recruitment/cycles/${id}/decisions`} className={navLink}>Decisions</Link>
         )}
-        {cycle.track === "VOLUNTEER" && (
+        {cycle.track === "VOLUNTEER" && (canReviewAll || canManage) && (
           <Link href={`/recruitment/cycles/${id}/subcommittees`} className={navLink}>Subcommittees</Link>
         )}
         {cycle.track === "DIRECTOR" && (

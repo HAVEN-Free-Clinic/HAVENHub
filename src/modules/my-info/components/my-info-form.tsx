@@ -43,9 +43,13 @@ type MyInfoFormProps = {
   >;
   error?: string;
   saved?: string;
+  /** Onboarding uses this shared form for the "profile" step, which only clears
+   *  once BOTH phone and contactEmail are present. When true, require them so the
+   *  step can't be submitted blank and silently re-loop on the checklist. */
+  requireContact?: boolean;
 };
 
-export function MyInfoForm({ action, person, error, saved }: MyInfoFormProps) {
+export function MyInfoForm({ action, person, error, saved, requireContact }: MyInfoFormProps) {
   const currentAffiliation = person.yaleAffiliation ?? "";
   const isKnownAffiliation = YALE_AFFILIATIONS.includes(
     currentAffiliation as (typeof YALE_AFFILIATIONS)[number]
@@ -79,19 +83,21 @@ export function MyInfoForm({ action, person, error, saved }: MyInfoFormProps) {
 
         {/* Editable fields */}
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Phone">
+          <Field label="Phone" required={requireContact}>
             <Input
               name="phone"
               type="tel"
+              required={requireContact}
               defaultValue={person.phone ?? ""}
               placeholder="203-555-0100"
             />
           </Field>
 
-          <Field label="Email">
+          <Field label="Email" required={requireContact}>
             <Input
               name="contactEmail"
               type="email"
+              required={requireContact}
               defaultValue={person.contactEmail ?? ""}
               placeholder="you@example.com"
             />

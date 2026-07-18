@@ -39,7 +39,7 @@ function ClearanceHero({ my, zone }: { my: MyTraining; zone: string }) {
 
   if (my.state === "COMPLETE") {
     return (
-      <Card pad={false} className="mb-6 flex items-center gap-4 px-5 py-5">
+      <Card pad={false} className="mb-6 flex flex-wrap items-center gap-4 px-5 py-5">
         <span className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-success text-white">
           <Award aria-hidden className="h-6 w-6" />
         </span>
@@ -52,7 +52,7 @@ function ClearanceHero({ my, zone }: { my: MyTraining; zone: string }) {
           </p>
         </div>
         {my.completedAt && (
-          <span className="shrink-0 whitespace-nowrap rounded-full border border-border bg-muted px-3 py-1.5 text-xs font-semibold text-foreground-soft">
+          <span className="shrink-0 basis-full sm:basis-auto whitespace-nowrap rounded-full border border-border bg-muted px-3 py-1.5 text-xs font-semibold text-foreground-soft">
             Completed {formatDateOnly(my.completedAt, zone)}
           </span>
         )}
@@ -62,7 +62,7 @@ function ClearanceHero({ my, zone }: { my: MyTraining; zone: string }) {
 
   if (my.locked) {
     return (
-      <Card pad={false} className="mb-6 flex items-center gap-4 px-5 py-5">
+      <Card pad={false} className="mb-6 flex flex-wrap items-center gap-4 px-5 py-5">
         <span className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-critical text-white">
           <Lock aria-hidden className="h-6 w-6" />
         </span>
@@ -76,7 +76,7 @@ function ClearanceHero({ my, zone }: { my: MyTraining; zone: string }) {
             complete training.
           </p>
         </div>
-        <span className="shrink-0 whitespace-nowrap rounded-full border border-border bg-muted px-3 py-1.5 text-xs font-semibold text-foreground-soft">
+        <span className="shrink-0 basis-full sm:basis-auto whitespace-nowrap rounded-full border border-border bg-muted px-3 py-1.5 text-xs font-semibold text-foreground-soft">
           Action needed
         </span>
       </Card>
@@ -85,7 +85,7 @@ function ClearanceHero({ my, zone }: { my: MyTraining; zone: string }) {
 
   if (!my.cycle) {
     return (
-      <Card pad={false} className="mb-6 flex items-center gap-4 px-5 py-5">
+      <Card pad={false} className="mb-6 flex flex-wrap items-center gap-4 px-5 py-5">
         <span className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-muted-strong text-muted-foreground">
           <Clock aria-hidden className="h-6 w-6" />
         </span>
@@ -102,7 +102,7 @@ function ClearanceHero({ my, zone }: { my: MyTraining; zone: string }) {
   }
 
   return (
-    <Card pad={false} className="mb-6 flex items-center gap-4 px-5 py-5">
+    <Card pad={false} className="mb-6 flex flex-wrap items-center gap-4 px-5 py-5">
       <span className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-warning text-white">
         <AlertTriangle aria-hidden className="h-6 w-6" />
       </span>
@@ -116,7 +116,7 @@ function ClearanceHero({ my, zone }: { my: MyTraining; zone: string }) {
           miss it.
         </p>
       </div>
-      <span className="shrink-0 whitespace-nowrap rounded-full border border-border bg-muted px-3 py-1.5 text-xs font-semibold text-foreground-soft">
+      <span className="shrink-0 basis-full sm:basis-auto whitespace-nowrap rounded-full border border-border bg-muted px-3 py-1.5 text-xs font-semibold text-foreground-soft">
         Due before your first shift
       </span>
     </Card>

@@ -17,7 +17,14 @@ vi.mock("@/platform/cron", () => ({ authorizeCron: vi.fn(() => true) }));
 vi.mock("@/platform/email/campaigns/dispatch", () => ({
   dispatchDueCampaigns: vi.fn(async () => ({ executed: 0, errors: [] })),
 }));
-vi.mock("@/platform/email/transport", () => ({ resolveEmailTransport: vi.fn() }));
+vi.mock("@/platform/email/transport", () => ({
+  resolveEmailTransport: vi.fn(),
+  // drainEmailQueue does `error instanceof TransientEmailError` to skip counting a
+  // Graph throttle toward the attempt budget; the mock must export the class or that
+  // check throws. The stub is never matched here (the fake transport throws a plain
+  // Error), so a generic outage still increments attempts exactly once per tick.
+  TransientEmailError: class TransientEmailError extends Error {},
+}));
 vi.mock("@/platform/notifications/teams-transport", () => ({
   resolveTeamsTransport: vi.fn(),
 }));

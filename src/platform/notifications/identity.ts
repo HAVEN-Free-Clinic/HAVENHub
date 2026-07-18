@@ -41,7 +41,12 @@ export async function resolveTeamsUser(
     const url = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(
       person.contactEmail
     )}?$select=id`;
-    const res = await fetchImpl(url, { headers: { Authorization: `Bearer ${token}` } });
+    const res = await fetchImpl(url, {
+      headers: { Authorization: `Bearer ${token}` },
+      // Bound the Graph lookup so a hang converts to the graceful null path (notify()
+      // awaits this inline in user actions) instead of blocking to the function limit.
+      signal: AbortSignal.timeout(8000),
+    });
     if (!res.ok) return null;
     const json = (await res.json()) as { id?: string };
     if (!json.id) return null;

@@ -153,6 +153,9 @@ export async function exchangeCode(
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: body.toString(),
+    // Bound the Entra token request so a hung endpoint can't block the caller/drain
+    // up to the function limit.
+    signal: AbortSignal.timeout(8000),
   });
 
   if (!res.ok) {
@@ -228,6 +231,9 @@ export async function getAccessToken(
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: body.toString(),
+    // Bound the Entra token request so a hung endpoint can't block the caller/drain
+    // up to the function limit.
+    signal: AbortSignal.timeout(8000),
   });
 
   if (!res.ok) {
@@ -243,10 +249,14 @@ export async function getAccessToken(
     refresh_token?: string;
   };
 
-  // Persist the rotated refresh token when Entra returns one.
+  // Persist the rotated refresh token when Entra returns one -- but only while the
+  // token we redeemed is still the stored one (optimistic concurrency). A concurrent
+  // refresh may have already rotated it; unconditionally overwriting could persist a
+  // superseded token over a newer one and brick the mailer. If our redeemed token is
+  // stale, another refresh won the race, so leave its newer token in place.
   if (json.refresh_token) {
-    await prisma.mailCredential.update({
-      where: { id: "mailer" },
+    await prisma.mailCredential.updateMany({
+      where: { id: "mailer", refreshToken: row.refreshToken },
       data: { refreshToken: json.refresh_token },
     });
   }
@@ -266,15 +276,25 @@ export async function getAccessToken(
  */
 export async function mailConnectionStatus(): Promise<{
   connected: boolean;
+  healthy: boolean;
   account: string | null;
   connectedAt: Date | null;
 }> {
   const row = await prisma.mailCredential.findUnique({ where: { id: "mailer" } });
-  return {
-    connected: row != null,
-    account: row?.account ?? null,
-    connectedAt: row?.connectedAt ?? null,
-  };
+  if (!row) return { connected: false, healthy: false, account: null, connectedAt: null };
+  // A stored credential is NOT proof the token still works: consent revocation, a
+  // password reset, or ~90-day inactivity all silently break a delegated refresh
+  // token. Probe it -- a cache hit is free, and a real refresh only fires when the
+  // cached token is near expiry, which is exactly when a broken token surfaces. Report
+  // healthy:false so the admin UI can prompt a reconnect instead of showing a green
+  // "Connected" over a dead mailer that is failing every send.
+  let healthy = true;
+  try {
+    await getAccessToken();
+  } catch {
+    healthy = false;
+  }
+  return { connected: true, healthy, account: row.account, connectedAt: row.connectedAt };
 }
 
 /**

@@ -1,6 +1,7 @@
 import { auth } from "@/platform/auth/auth";
 import { getActivePerson } from "@/platform/auth/match-person";
 import { getObject } from "@/platform/storage";
+import { contentDisposition } from "@/platform/content-disposition";
 import { log } from "@/platform/logging";
 import { getApplication } from "@/modules/recruitment/services/submissions";
 import { reviewScope, canViewApplication } from "@/modules/recruitment/services/review";
@@ -99,14 +100,12 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
   const inline = new URL(request.url).searchParams.get("inline") === "1";
   const renderInline = inline && INLINE_SAFE_MIME_TYPES.has(file.mimeType);
   const rawName = file.fileName ?? "file";
-  const safeFileName = rawName.replace(/[\x00-\x1f\x7f"]/g, "").trim() || "file";
-  const encodedFileName = encodeURIComponent(rawName);
 
   return new Response(fileBytes, {
     status: 200,
     headers: {
       "Content-Type": file.mimeType,
-      "Content-Disposition": `${renderInline ? "inline" : "attachment"}; filename="${safeFileName}"; filename*=UTF-8''${encodedFileName}`,
+      "Content-Disposition": contentDisposition(rawName, { inline: renderInline }),
       "Content-Length": String(fileByteLength),
       // Defense-in-depth: never sniff a different type than declared, and deny the
       // served document any ability to load or execute sub-resources.

@@ -2,6 +2,7 @@ import { auth } from "@/platform/auth/auth";
 import { getActivePerson } from "@/platform/auth/match-person";
 import { prisma } from "@/platform/db";
 import { getObject } from "@/platform/storage";
+import { contentDisposition } from "@/platform/content-disposition";
 import { log } from "@/platform/logging";
 import { can } from "@/platform/rbac/engine";
 
@@ -96,14 +97,15 @@ export async function GET(
   // maliciously-typed stored file can never execute script in our origin.
   const inline = new URL(request.url).searchParams.get("inline") === "1";
   const renderInline = inline && INLINE_SAFE_MIME_TYPES.has(attachment.mimeType);
-  const safeFileName = attachment.fileName.replace(/[\x00-\x1f\x7f"]/g, "").trim() || "attachment";
-  const encodedFileName = encodeURIComponent(attachment.fileName);
 
   return new Response(fileBytes, {
     status: 200,
     headers: {
       "Content-Type": attachment.mimeType,
-      "Content-Disposition": `${renderInline ? "inline" : "attachment"}; filename="${safeFileName}"; filename*=UTF-8''${encodedFileName}`,
+      "Content-Disposition": contentDisposition(attachment.fileName, {
+        inline: renderInline,
+        fallbackName: "attachment",
+      }),
       "Content-Length": String(fileByteLength),
       // Defense-in-depth: never sniff a different type than declared, and deny the
       // served document any ability to load or execute sub-resources.

@@ -2,6 +2,7 @@ import { auth } from "@/platform/auth/auth";
 import { getActivePerson } from "@/platform/auth/match-person";
 import { getAttachmentForDownload } from "@/modules/support/services/attachments";
 import { SupportNotFoundError } from "@/modules/support/services/tech-request";
+import { contentDisposition } from "@/platform/content-disposition";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -44,22 +45,11 @@ export async function GET(_request: Request, context: RouteContext): Promise<Res
     status: 200,
     headers: {
       "Content-Type": file.mimeType,
-      "Content-Disposition": contentDisposition(file.filename),
+      // Always "attachment" (never inline, see the GET doc comment above).
+      "Content-Disposition": contentDisposition(file.filename, { fallbackName: "attachment" }),
       "Content-Length": String(file.bytes.byteLength),
       // Defense-in-depth: never sniff a different type than declared.
       "X-Content-Type-Options": "nosniff",
     },
   });
-}
-
-/**
- * Always "attachment" (never inline, see the GET doc comment above). The
- * ASCII `filename` parameter is sanitized (control chars and double-quotes
- * removed, per RFC 6266) and falls back to "attachment" if it sanitizes to
- * empty; the RFC 5987 `filename*` parameter carries the full original name.
- */
-function contentDisposition(fileName: string): string {
-  const safeFileName = fileName.replace(/[\x00-\x1f\x7f"]/g, "").trim() || "attachment";
-  const encodedFileName = encodeURIComponent(fileName);
-  return `attachment; filename="${safeFileName}"; filename*=UTF-8''${encodedFileName}`;
 }

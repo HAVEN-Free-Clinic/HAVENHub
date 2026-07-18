@@ -1,4 +1,4 @@
-import type { ComponentProps, ReactNode } from "react";
+import { cloneElement, isValidElement, type ComponentProps, type ReactElement, type ReactNode } from "react";
 import { cx } from "./cx";
 
 const controlBase =
@@ -26,6 +26,10 @@ export function Textarea({
  * The label *wraps* the control (implicit association) so screen readers and
  * label-click focus work without threading an `id`/`htmlFor` pair through every
  * caller; this keeps Field usable from both server and client components.
+ *
+ * The hint is associated to the control via aria-describedby (id derived from the
+ * label, so no hook is needed and server usage still works), and `required`
+ * conveys aria-required so the requirement isn't communicated by the `*` alone.
  */
 export function Field({
   label,
@@ -38,6 +42,20 @@ export function Field({
   required?: boolean;
   children: ReactNode;
 }) {
+  const hintId = hint
+    ? `field-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "")}-hint`
+    : undefined;
+
+  let control = children;
+  if (isValidElement(children) && (hintId || required)) {
+    const props = children.props as { "aria-describedby"?: string };
+    const describedBy = [hintId, props["aria-describedby"]].filter(Boolean).join(" ") || undefined;
+    control = cloneElement(children as ReactElement<Record<string, unknown>>, {
+      ...(describedBy ? { "aria-describedby": describedBy } : {}),
+      ...(required ? { "aria-required": true } : {}),
+    });
+  }
+
   return (
     <div className="flex flex-col gap-1">
       <label className="flex flex-col gap-1">
@@ -45,9 +63,13 @@ export function Field({
           {label}
           {required && <span className="text-critical" aria-hidden="true"> *</span>}
         </span>
-        {children}
+        {control}
       </label>
-      {hint && <p className="text-xs text-subtle-foreground">{hint}</p>}
+      {hint && (
+        <p id={hintId} className="text-xs text-subtle-foreground">
+          {hint}
+        </p>
+      )}
     </div>
   );
 }

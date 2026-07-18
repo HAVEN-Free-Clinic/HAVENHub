@@ -212,18 +212,21 @@ export function AvsTool({ brandColor }: { brandColor: string }) {
           <div key={i} className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end">
             <Field label="Medication">
               <Input
+                aria-label={`Medication ${i + 1} name`}
                 value={m.name}
                 onChange={(e) => dispatch({ type: "updateMed", index: i, key: "name", value: e.target.value })}
               />
             </Field>
             <Field label="Dose & instructions">
               <Input
+                aria-label={`Medication ${i + 1} dose and instructions`}
                 value={m.dose}
                 onChange={(e) => dispatch({ type: "updateMed", index: i, key: "dose", value: e.target.value })}
               />
             </Field>
             <Field label="Lowest-cost source">
               <Input
+                aria-label={`Medication ${i + 1} lowest-cost source`}
                 value={m.costSource}
                 onChange={(e) => dispatch({ type: "updateMed", index: i, key: "costSource", value: e.target.value })}
               />

@@ -67,6 +67,14 @@ export function Combobox({
     return () => document.removeEventListener("pointerdown", onDocPointer);
   }, []);
 
+  // Keep the keyboard-highlighted option visible: the listbox is capped at
+  // max-h-56, so for long lists (departments, people, terms) the active row would
+  // otherwise scroll out of view and the user would select blind.
+  useEffect(() => {
+    if (!open) return;
+    document.getElementById(`${listId}-opt-${active}`)?.scrollIntoView({ block: "nearest" });
+  }, [active, open, listId]);
+
   function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {
     if (e.key === "ArrowDown") {
       e.preventDefault();
@@ -105,6 +113,11 @@ export function Combobox({
           setActive(0);
         }}
         onFocus={() => setOpen(true)}
+        // Close when focus leaves the whole combobox (e.g. Tab away). Option clicks
+        // use onMouseDown+preventDefault, so they never blur the input first.
+        onBlur={(e) => {
+          if (!rootRef.current?.contains(e.relatedTarget as Node | null)) setOpen(false);
+        }}
         onKeyDown={onKeyDown}
       />
       {open && (

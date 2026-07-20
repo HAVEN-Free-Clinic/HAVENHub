@@ -37,3 +37,18 @@ it("returns only the next term for a next-term-only recruit", async () => {
   const terms = await getPersonTerms(person.id);
   expect(terms.map((t) => t.code)).toEqual(["FA26"]);
 });
+
+it("deduplicates same-term memberships across multiple departments", async () => {
+  const { live, dept, person } = await seed();
+  const dept2 = await prisma.department.create({ data: { code: "PCAR", name: "PCAR" } });
+  // Create TWO ACTIVE memberships for the same person in the same term via different departments
+  await prisma.termMembership.create({ data: { personId: person.id, termId: live.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" } });
+  await prisma.termMembership.create({ data: { personId: person.id, termId: live.id, departmentId: dept2.id, kind: "VOLUNTEER", status: "ACTIVE" } });
+
+  const terms = await getPersonTerms(person.id);
+
+  // Should return the live term EXACTLY ONCE despite two memberships in different departments
+  expect(terms).toHaveLength(1);
+  expect(terms[0].code).toBe("SU26");
+  expect(terms[0].id).toBe(live.id);
+});

@@ -279,7 +279,7 @@ export default async function TrainingPage() {
       <header className="mb-5">
         <PageHeader
           title="Training"
-          description={`Complete your training to be cleared${trainings[0] ? ` for ${trainings[0].term.name}` : ""}.`}
+          description="Complete your training to be cleared for each term you're part of."
         />
       </header>
 
@@ -291,14 +291,15 @@ export default async function TrainingPage() {
         trainings.map((my) => {
           const pending = my.cycle && my.state !== "COMPLETE" && !my.locked;
           return (
-            <section key={my.track} className="mb-9">
-              <SectionHeader level="title" className="mb-3">{my.trackLabel}</SectionHeader>
+            <section key={`${my.term.id}-${my.track}`} className="mb-9">
+              <SectionHeader level="title" className="mb-3">{my.term.name} · {my.trackLabel}</SectionHeader>
               <ClearanceHero my={my} zone={zone} />
               {pending && (
                 <>
                   <PathCards my={my} />
                   <SectionHeader level="title" className="mb-3.5 mt-7">Makeup quiz</SectionHeader>
                   <TrainingQuiz
+                    termId={my.term.id}
                     track={my.track}
                     questions={my.questions}
                     passPercent={my.passPercent}

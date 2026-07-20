@@ -20,6 +20,7 @@ type Graded = Extract<QuizActionResult, { status: "graded" }>;
  *  grading with correct/wrong review, and retry. Passing or hitting the attempt
  *  cap refreshes the page so the server re-renders the clearance state. */
 export function TrainingQuiz({
+  termId,
   track,
   questions,
   passPercent,
@@ -27,6 +28,7 @@ export function TrainingQuiz({
   attemptsUsed: initialAttemptsUsed,
   intake,
 }: {
+  termId: string;
   track: Track;
   questions: Question[];
   passPercent: number;
@@ -89,7 +91,7 @@ export function TrainingQuiz({
       feedback: (fd.get("feedback") as string) || null,
     };
     startTransition(async () => {
-      const res = await gradeQuizAction({ track, answers, intake: intakePayload });
+      const res = await gradeQuizAction({ termId, track, answers, intake: intakePayload });
       if (res.status === "error") {
         setError(res.message);
         return;

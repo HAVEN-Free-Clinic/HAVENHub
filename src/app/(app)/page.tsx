@@ -22,7 +22,8 @@ import { mySchedule } from "@/modules/schedule/services/schedule";
 import { countPendingApprovals } from "@/modules/schedule/services/requests";
 import { buildActionCards, type ActionCard } from "./action-cards";
 import { listMyCertificates } from "@/modules/my-info/services/my-info";
-import { getOnboardingStatus, type OnboardingTask } from "@/modules/onboarding/services/onboarding";
+import { getOnboardingStatus, getMyOnboarding, type OnboardingTask } from "@/modules/onboarding/services/onboarding";
+import { getMyTraining } from "@/modules/recruitment/services/training";
 import { isInterviewPanelist } from "@/modules/recruitment/services/interviews";
 import { reviewScope } from "@/modules/recruitment/services/review";
 import { complianceStatus, certExpiresAt } from "@/platform/compliance/rules";
@@ -179,12 +180,14 @@ export default async function HubPage() {
   // One permission fetch per render; tiles filter in memory (never can() in a loop).
   const permissions = await getEffectivePermissions(person.personId);
 
-  const [schedule, certificates, isPanelist, orgName, onboarding, pendingApprovals, recruitmentScope, displayZone] = await Promise.all([
+  const [schedule, certificates, isPanelist, orgName, onboarding, myOnboarding, myTraining, pendingApprovals, recruitmentScope, displayZone] = await Promise.all([
     mySchedule(person.personId),
     listMyCertificates(person.personId),
     isInterviewPanelist(person.personId),
     getSetting<string>("branding.orgName"),
     getOnboardingStatus(person.personId),
+    getMyOnboarding(person.personId),
+    getMyTraining(person.personId),
     countPendingApprovals(person.personId),
     reviewScope(person.personId),
     getDisplayTimeZone(),
@@ -239,31 +242,31 @@ export default async function HubPage() {
               ? "Awaiting verification"
               : "Required for clinic clearance"; // NO_CERTIFICATE
 
-  // Full semester clearance checklist: same source and items as My Info's Clearance
-  // card. Non-applicable tasks (NOT_REQUIRED) are hidden, matching My Info.
-  const clearanceTasks = onboarding.tasks.filter((t) => t.state !== "NOT_REQUIRED");
-  const statusLines: Array<{ ok: boolean; title: string; sub: string; href: string }> =
-    clearanceTasks.length > 0
-      ? clearanceTasks.map((t) => clearanceRow(t, hipaaSub))
-      : [
-          // No active term: onboarding has no tasks. Fall back to the term-independent
-          // HIPAA line so the card is never empty.
-          {
-            ok: status === "COMPLIANT" || status === "EXPIRING_SOON",
-            title: "HIPAA certificate",
-            sub: hipaaSub,
-            href: "/my-info",
-          },
-        ];
+  // One clearance group per term the member belongs to. Falls back to a single
+  // term-independent HIPAA line when there is no term at all.
+  const statusGroups = myOnboarding.length > 0
+    ? myOnboarding.map((entry) => ({
+        termId: entry.term.id,
+        termName: entry.term.name,
+        cleared: entry.status.cleared,
+        lines: entry.status.tasks.filter((t) => t.state !== "NOT_REQUIRED").map((t) => clearanceRow(t, hipaaSub)),
+      }))
+    : [{
+        termId: "none",
+        termName: "",
+        cleared: status === "COMPLIANT" || status === "EXPIRING_SOON",
+        lines: [{ ok: status === "COMPLIANT" || status === "EXPIRING_SOON", title: "HIPAA certificate", sub: hipaaSub, href: "/my-info" }],
+      }];
 
   // --- Smart action feed: personal + role actions ranked by urgency, module
   // shortcuts backfilling any remaining slots (see action-cards.ts). ---
-  const trainingTasks = onboarding.tasks.filter(
-    (t) =>
-      (t.key === "training" || t.key === "directorTraining" || t.key === "learning") &&
-      t.state !== "COMPLETE" &&
-      t.state !== "NOT_REQUIRED",
+  // Open trainings across every term the member belongs to (each needs a designated cycle).
+  const openTrainings = myTraining.filter((m) => m.cycle && m.state !== "COMPLETE");
+  const learningTask = onboarding.tasks.find(
+    (t) => t.key === "learning" && t.state !== "COMPLETE" && t.state !== "NOT_REQUIRED",
   );
+  const trainingIncomplete = openTrainings.length + (learningTask ? 1 : 0);
+  const trainingHref = openTrainings.length > 0 ? "/training" : learningTask ? "/learning" : "/training";
   const profileTask = onboarding.tasks.find((t) => t.key === "profile");
 
   // Navigational shortcuts, only shown when there aren't enough real actions.
@@ -290,8 +293,8 @@ export default async function HubPage() {
     pendingSwapCount: schedule.pendingRequests.size,
     pendingApprovals,
     compliance: status,
-    trainingIncomplete: trainingTasks.length,
-    trainingHref: trainingTasks[0]?.key === "learning" ? "/learning" : "/training",
+    trainingIncomplete,
+    trainingHref,
     profileIncomplete: profileTask?.state === "INCOMPLETE",
     backfill,
   });
@@ -437,44 +440,53 @@ export default async function HubPage() {
           <Card>
             <div className="flex items-center justify-between gap-2">
               <h3 className="text-xs font-bold uppercase tracking-wider text-subtle-foreground">Your status</h3>
-              {clearanceTasks.length > 0 && (
+              {statusGroups.length === 1 && statusGroups[0].lines.length > 0 && (
                 <span
                   className={`inline-flex items-center gap-1.5 text-xs font-semibold ${
-                    onboarding.cleared ? "text-success-foreground" : "text-warning-foreground"
+                    statusGroups[0].cleared ? "text-success-foreground" : "text-warning-foreground"
                   }`}
                 >
                   <span
                     aria-hidden
-                    className={`h-1.5 w-1.5 rounded-full ${onboarding.cleared ? "bg-success" : "bg-warning"}`}
+                    className={`h-1.5 w-1.5 rounded-full ${statusGroups[0].cleared ? "bg-success" : "bg-warning"}`}
                   />
-                  {onboarding.cleared ? "Cleared" : "Not yet cleared"}
+                  {statusGroups[0].cleared ? "Cleared" : "Not yet cleared"}
                 </span>
               )}
             </div>
-            <div className="mt-2">
-              {statusLines.map((line) => (
-                <Link
-                  key={line.title}
-                  href={line.href}
-                  className="flex items-center gap-3 border-t border-border-subtle py-2.5 first:border-t-0 first:pt-1"
-                >
-                  <span
-                    className={`grid h-7 w-7 shrink-0 place-items-center rounded-lg ${
-                      line.ok ? "bg-success text-white" : "bg-warning text-white"
-                    }`}
-                  >
-                    {line.ok ? (
-                      <Check aria-hidden className="h-4 w-4" />
-                    ) : (
-                      <Clock aria-hidden className="h-4 w-4" />
-                    )}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-semibold text-foreground">{line.title}</span>
-                    <span className="block text-xs text-muted-foreground">{line.sub}</span>
-                  </span>
-                  <ChevronRight aria-hidden className="h-4 w-4 shrink-0 text-subtle-foreground" />
-                </Link>
+            <div className="mt-2 flex flex-col gap-4">
+              {statusGroups.map((group) => (
+                <div key={group.termId}>
+                  {statusGroups.length > 1 && group.termName && (
+                    <div className="mb-1 flex items-center justify-between gap-2">
+                      <span className="text-xs font-semibold text-foreground-soft">{group.termName}</span>
+                      <span
+                        className={`inline-flex items-center gap-1.5 text-xs font-semibold ${
+                          group.cleared ? "text-success-foreground" : "text-warning-foreground"
+                        }`}
+                      >
+                        <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${group.cleared ? "bg-success" : "bg-warning"}`} />
+                        {group.cleared ? "Cleared" : "Not yet cleared"}
+                      </span>
+                    </div>
+                  )}
+                  {group.lines.map((line) => (
+                    <Link
+                      key={`${group.termId}-${line.title}`}
+                      href={line.href}
+                      className="flex items-center gap-3 border-t border-border-subtle py-2.5 first:border-t-0 first:pt-1"
+                    >
+                      <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-lg ${line.ok ? "bg-success text-white" : "bg-warning text-white"}`}>
+                        {line.ok ? <Check aria-hidden className="h-4 w-4" /> : <Clock aria-hidden className="h-4 w-4" />}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-semibold text-foreground">{line.title}</span>
+                        <span className="block text-xs text-muted-foreground">{line.sub}</span>
+                      </span>
+                      <ChevronRight aria-hidden className="h-4 w-4 shrink-0 text-subtle-foreground" />
+                    </Link>
+                  ))}
+                </div>
               ))}
             </div>
           </Card>

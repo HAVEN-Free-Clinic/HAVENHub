@@ -17,7 +17,7 @@ export type TermOption = { value: string; label: string };
  * create assignments that look valid in the table but grant nothing.
  *
  * Pass `{ includeArchived: true }` to append archived terms anyway, labeled
- * "{code} (archived)" — used by read-only pickers (e.g. the schedule builder's
+ * "{code} (archived)", used by read-only pickers (e.g. the schedule builder's
  * TermSwitcher) where viewing a past term's data is legitimate even though no
  * RBAC assignment can be scoped to it. The default (no opts) is unchanged, so
  * existing callers like the RBAC role-assignment picker are unaffected.

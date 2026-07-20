@@ -570,16 +570,19 @@ describe("setAssignment", () => {
     const dept = await createDepartment("SRHD");
     const director = await createPerson("Dir");
     const vol = await createPerson("Vol");
-    // scopeCheck (manageableScheduleDepartmentIds) and the target-member membership
-    // lookup both read ACTIVE-term rows, so both the director and vol get a live
-    // ACTIVE-term membership in this department -- isolating the archived guard as
-    // the only reason this call can fail. Without the guard, this input would
-    // otherwise succeed (scope ok, clinic date ok, membership ok), so a
-    // not-yet-implemented loadEditableTerm would let it through instead of
-    // rejecting it.
+    // scopeCheck (manageableScheduleDepartmentIds -> manageableDepartmentIds) reads
+    // the ACTIVE term, so the director's scope comes from an ACTIVE-term membership.
+    // The target-member membership lookup inside setAssignment, by contrast, reads
+    // the RESOLVED term's rows (i.e. whatever termId was passed in) -- here, the
+    // archived term. Giving vol an ACTIVE-status membership ON the archived term
+    // means that check would PASS too, so the archived guard (loadEditableTerm) is
+    // the sole reason this call can fail. Without it: scope ok (director's ACTIVE
+    // term membership), clinic date ok (dates[0] is a real clinic date of the
+    // archived term), membership ok (vol's ACTIVE row on the archived term) -- the
+    // write would succeed.
     const activeTerm = await createTerm(dates);
     await createMembership(director.id, activeTerm.id, dept.id, "DIRECTOR");
-    await createMembership(vol.id, activeTerm.id, dept.id, "VOLUNTEER");
+    await createMembership(vol.id, archived.id, dept.id, "VOLUNTEER");
 
     await expect(
       setAssignment(director.id, { termId: archived.id, departmentId: dept.id, dateKey: isoDateKey(dates[0]), personId: vol.id, role: "VOLUNTEER" }),
@@ -804,6 +807,34 @@ describe("setAvailabilityOverride", () => {
     await expect(
       setAvailabilityOverride(director.id, { membershipId: membership.id, dateKeys: [isoDateKey(dates[0])] })
     ).rejects.toBeInstanceOf(BuilderForbiddenError);
+  });
+
+  it("rejects a write to a membership on an ARCHIVED term (read-only)", async () => {
+    const dates = sixSaturdays();
+    const archived = await prisma.term.create({
+      data: { code: `AR-${Date.now()}`, name: "Archived", startDate: utcNoon(2026, 1, 1), endDate: utcNoon(2026, 5, 1), status: "ARCHIVED", clinicDates: dates },
+    });
+    const dept = await createDepartment("SRHD3");
+    const director = await createPerson("Dir3");
+    const volunteer = await createPerson("Vol3");
+
+    // scopeCheck reads the ACTIVE term for the director's scope, while the target
+    // membership (and its included term) lives on the archived term itself -- the
+    // same isolation pattern as the setAssignment archived-guard test above. The
+    // dateKeys below are real clinic dates of the archived term, so absent the
+    // archived guard (membership.term.status === "ARCHIVED") the write would pass
+    // scope, pass dateKey validation, and succeed.
+    const activeTerm = await createTerm(dates);
+    await createMembership(director.id, activeTerm.id, dept.id, "DIRECTOR");
+    const membership = await createMembership(volunteer.id, archived.id, dept.id, "VOLUNTEER");
+
+    const dateKeys = [isoDateKey(dates[0]), isoDateKey(dates[1])];
+    await expect(
+      setAvailabilityOverride(director.id, { membershipId: membership.id, dateKeys })
+    ).rejects.toBeInstanceOf(BuilderValidationError);
+
+    const updated = await prisma.termMembership.findUniqueOrThrow({ where: { id: membership.id } });
+    expect(updated.directorAvailabilityDates).toHaveLength(0);
   });
 });
 

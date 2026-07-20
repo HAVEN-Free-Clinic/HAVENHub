@@ -51,6 +51,11 @@ function sixSaturdays(): Date[] {
   return Array.from({ length: 6 }, (_, i) => new Date(base.getTime() + i * 7 * 86_400_000));
 }
 
+/** Six Saturdays at noon UTC starting from a given base date. */
+function sixSaturdaysFrom(base: Date): Date[] {
+  return Array.from({ length: 6 }, (_, i) => new Date(base.getTime() + i * 7 * 86_400_000));
+}
+
 // ---------------------------------------------------------------------------
 // Fixture helpers
 // ---------------------------------------------------------------------------
@@ -1470,14 +1475,15 @@ describe("builderView", () => {
   });
 
   it("builderView loads the working (next) term's roster and dates", async () => {
-    const dates = sixSaturdays();
+    const liveDates = sixSaturdays();
+    const nextDates = sixSaturdaysFrom(utcNoon(2026, 9, 5));
     // manageableScheduleDepartmentIds stays active-term-derived per the cross-term
     // spec ("continuing directors ... build ahead"), so the director must already
     // direct this department in the live term to manage it at all; the live term
     // itself is not the one under test -- builderView is asked for `next` via
     // opts.termId and must load THAT term's roster/dates, not the live term's.
-    const live = await createTerm(dates, "ACTIVE");
-    const next = await createTerm(dates, "PLANNING");
+    const live = await createTerm(liveDates, "ACTIVE");
+    const next = await createTerm(nextDates, "PLANNING");
     const dept = await createDepartment("SRHD");
     const director = await createPerson("Dir");
     await createMembership(director.id, live.id, dept.id, "DIRECTOR");
@@ -1485,8 +1491,8 @@ describe("builderView", () => {
     const vol = await createPerson("Vol");
     await createMembership(vol.id, next.id, dept.id, "VOLUNTEER");
 
-    const view = await builderView(director.id, { departmentId: dept.id, termId: next.id, now: dates[0] });
-    expect(view.clinicDates.length).toBe(6);
+    const view = await builderView(director.id, { departmentId: dept.id, termId: next.id, now: nextDates[0] });
+    expect(view.clinicDates.map((d) => isoDateKey(d))).toEqual(nextDates.map((d) => isoDateKey(d)));
     expect(view.members.map((m) => m.person.id)).toContain(vol.id);
   });
 });

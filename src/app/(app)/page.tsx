@@ -252,7 +252,7 @@ export default async function HubPage() {
         termId: entry.term.id,
         termName: entry.term.name,
         cleared: entry.status.cleared,
-        hasTasks: true,
+        hasTasks: entry.status.tasks.filter((t) => t.state !== "NOT_REQUIRED").length > 0,
         lines: entry.status.tasks.filter((t) => t.state !== "NOT_REQUIRED").map((t) => clearanceRow(t, hipaaSub)),
       }))
     : onboarding.hasActiveTerm

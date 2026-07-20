@@ -1,11 +1,11 @@
 import Link from "next/link";
-import type { TermOption } from "@/modules/admin/components/term-options";
+import type { TermOption } from "@/platform/terms/term-options";
 
 /**
  * Term switcher for the schedule builder. Renders the working-term options as
  * links; the caller supplies hrefForTerm so the builder page owns URL params
  * (dept/view/etc.). The "" (Global) option from buildTermOptions is dropped
- * here — the builder always works on a concrete term (the live one by default).
+ * here: the builder always works on a concrete term (the live one by default).
  */
 export function TermSwitcher({
   options,

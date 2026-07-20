@@ -35,7 +35,7 @@ import { Select } from "@/platform/ui/select";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { SectionHeader } from "@/platform/ui/section-header";
-import { buildTermOptions } from "./term-options";
+import { buildTermOptions } from "@/platform/terms/term-options";
 
 // ---------------------------------------------------------------------------
 // Types

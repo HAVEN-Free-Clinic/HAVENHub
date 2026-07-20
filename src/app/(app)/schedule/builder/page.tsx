@@ -51,7 +51,7 @@ import { captureEvent } from "@/platform/posthog/capture";
 import { activeTermGroup } from "@/platform/posthog/groups";
 import { getWorkingTerm } from "@/platform/terms/working-term";
 import { getActiveTerm } from "@/platform/terms/active-term";
-import { buildTermOptions } from "@/modules/admin/components/term-options";
+import { buildTermOptions } from "@/platform/terms/term-options";
 import { TermSwitcher } from "@/modules/schedule/components/term-switcher";
 import { prisma } from "@/platform/db";
 import { BuilderCell } from "@/modules/schedule/components/builder-cell";

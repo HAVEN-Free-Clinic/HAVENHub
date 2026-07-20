@@ -242,21 +242,34 @@ export default async function HubPage() {
               ? "Awaiting verification"
               : "Required for clinic clearance"; // NO_CERTIFICATE
 
-  // One clearance group per term the member belongs to. Falls back to a single
-  // term-independent HIPAA line when there is no term at all.
+  // One clearance group per term the member belongs to (ACTIVE TermMembership).
+  // Two fallbacks for viewers with no such membership: if a live term exists,
+  // mirror the old single-group live-term checklist (getOnboardingStatus already
+  // computes profile/HIPAA/learning/EHS off the live term regardless of
+  // membership); otherwise fall back to a bare HIPAA line with no pill.
   const statusGroups = myOnboarding.length > 0
     ? myOnboarding.map((entry) => ({
         termId: entry.term.id,
         termName: entry.term.name,
         cleared: entry.status.cleared,
+        hasTasks: true,
         lines: entry.status.tasks.filter((t) => t.state !== "NOT_REQUIRED").map((t) => clearanceRow(t, hipaaSub)),
       }))
-    : [{
-        termId: "none",
-        termName: "",
-        cleared: status === "COMPLIANT" || status === "EXPIRING_SOON",
-        lines: [{ ok: status === "COMPLIANT" || status === "EXPIRING_SOON", title: "HIPAA certificate", sub: hipaaSub, href: "/my-info" }],
-      }];
+    : onboarding.hasActiveTerm
+      ? [{
+          termId: "live",
+          termName: "",
+          cleared: onboarding.cleared,
+          hasTasks: onboarding.tasks.filter((t) => t.state !== "NOT_REQUIRED").length > 0,
+          lines: onboarding.tasks.filter((t) => t.state !== "NOT_REQUIRED").map((t) => clearanceRow(t, hipaaSub)),
+        }]
+      : [{
+          termId: "none",
+          termName: "",
+          cleared: status === "COMPLIANT" || status === "EXPIRING_SOON",
+          hasTasks: false,
+          lines: [{ ok: status === "COMPLIANT" || status === "EXPIRING_SOON", title: "HIPAA certificate", sub: hipaaSub, href: "/my-info" }],
+        }];
 
   // --- Smart action feed: personal + role actions ranked by urgency, module
   // shortcuts backfilling any remaining slots (see action-cards.ts). ---
@@ -440,7 +453,7 @@ export default async function HubPage() {
           <Card>
             <div className="flex items-center justify-between gap-2">
               <h3 className="text-xs font-bold uppercase tracking-wider text-subtle-foreground">Your status</h3>
-              {statusGroups.length === 1 && statusGroups[0].lines.length > 0 && (
+              {statusGroups.length === 1 && statusGroups[0].hasTasks && (
                 <span
                   className={`inline-flex items-center gap-1.5 text-xs font-semibold ${
                     statusGroups[0].cleared ? "text-success-foreground" : "text-warning-foreground"
@@ -470,9 +483,9 @@ export default async function HubPage() {
                       </span>
                     </div>
                   )}
-                  {group.lines.map((line) => (
+                  {group.lines.map((line, i) => (
                     <Link
-                      key={`${group.termId}-${line.title}`}
+                      key={`${group.termId}-${i}`}
                       href={line.href}
                       className="flex items-center gap-3 border-t border-border-subtle py-2.5 first:border-t-0 first:pt-1"
                     >

@@ -27,7 +27,6 @@ import type { DeptBanner } from "../engine/banner";
 import { computeClinicReadiness } from "../engine/rhd";
 import type { ClinicReadiness, RhdPersonLite, Attending } from "../engine/rhd";
 import { getSetting } from "@/platform/settings/service";
-import { getActiveTerm } from "@/platform/terms/active-term";
 
 // ---------------------------------------------------------------------------
 // Typed errors
@@ -649,7 +648,7 @@ export type BuilderView = {
  */
 export async function builderView(
   viewerPersonId: string,
-  opts: { departmentId?: string; dateKey?: string; now?: Date }
+  opts: { departmentId?: string; dateKey?: string; now?: Date; termId: string }
 ): Promise<BuilderView> {
   const now = opts.now ?? new Date();
 
@@ -694,8 +693,9 @@ export async function builderView(
 
   const deptLites = departments.map((d) => ({ id: d.id, code: d.code, name: d.name }));
 
-  // Load active term.
-  const term = await getActiveTerm();
+  // Load the working term by id (no archived guard -- viewing an archived term
+  // read-only is allowed).
+  const term = await prisma.term.findUnique({ where: { id: opts.termId } });
   if (!term) {
     return {
       departments: deptLites,

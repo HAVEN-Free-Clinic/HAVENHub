@@ -966,10 +966,10 @@ describe("upsertRhdClinic", () => {
 describe("builderView", () => {
   it("returns empty shape when viewer has no manageable departments", async () => {
     const dates = sixSaturdays();
-    await createTerm(dates);
+    const term = await createTerm(dates);
     const person = await createPerson("Nobody");
 
-    const view = await builderView(person.id, {});
+    const view = await builderView(person.id, { termId: term.id });
     expect(view.departments).toHaveLength(0);
     expect(view.selectedDepartment).toBeNull();
   });
@@ -983,7 +983,7 @@ describe("builderView", () => {
     await createMembership(director.id, term.id, zeta.id, "DIRECTOR");
     await createMembership(director.id, term.id, alpha.id, "DIRECTOR");
 
-    const view = await builderView(director.id, {});
+    const view = await builderView(director.id, { termId: term.id });
     const codes = view.departments.map((d) => d.code);
     expect(codes).toEqual([...codes].sort());
   });
@@ -995,7 +995,7 @@ describe("builderView", () => {
     const director = await createPerson("Director");
     await createMembership(director.id, term.id, dept.id, "DIRECTOR");
 
-    const view = await builderView(director.id, { departmentId: dept.id });
+    const view = await builderView(director.id, { departmentId: dept.id, termId: term.id });
     expect(view.selectedDepartment?.id).toBe(dept.id);
   });
 
@@ -1008,7 +1008,7 @@ describe("builderView", () => {
     await createMembership(director.id, term.id, alpha.id, "DIRECTOR");
     await createMembership(director.id, term.id, zeta.id, "DIRECTOR");
 
-    const view = await builderView(director.id, {});
+    const view = await builderView(director.id, { termId: term.id });
     expect(view.selectedDepartment?.code).toBe("ALPHA");
   });
 
@@ -1021,7 +1021,7 @@ describe("builderView", () => {
 
     // now falls between dates[1] and dates[2] (next day after dates[1]); should pick dates[2]
     const now = new Date(dates[1].getTime() + 24 * 60 * 60 * 1000);
-    const view = await builderView(director.id, { now });
+    const view = await builderView(director.id, { now, termId: term.id });
     expect(view.selectedDateKey).toBe(isoDateKey(dates[2]));
   });
 
@@ -1040,6 +1040,7 @@ describe("builderView", () => {
     const view = await builderView(director.id, {
       dateKey: isoDateKey(dates[4]),
       now,
+      termId: term.id,
     });
     expect(view.selectedDateKey).toBe(isoDateKey(dates[4]));
     expect(view.currentClinicDateKey).toBe(isoDateKey(dates[2]));
@@ -1053,7 +1054,7 @@ describe("builderView", () => {
     await createMembership(director.id, term.id, dept.id, "DIRECTOR");
 
     const now = new Date(dates[dates.length - 1].getTime() + 86_400_000);
-    const view = await builderView(director.id, { now });
+    const view = await builderView(director.id, { now, termId: term.id });
     expect(view.selectedDateKey).toBe(isoDateKey(dates[dates.length - 1]));
   });
 
@@ -1069,7 +1070,7 @@ describe("builderView", () => {
       selfAvailabilityDates: [dates[0], dates[1]],
     });
 
-    const view = await builderView(director.id, { departmentId: dept.id });
+    const view = await builderView(director.id, { departmentId: dept.id, termId: term.id });
     const member = view.members.find((m) => m.person.id === volunteer.id);
     expect(member).toBeDefined();
     expect(member!.acknowledgePending).toBe(true);
@@ -1093,7 +1094,7 @@ describe("builderView", () => {
       feedback: "Prefer triage",
     });
 
-    const view = await builderView(director.id, { departmentId: dept.id });
+    const view = await builderView(director.id, { departmentId: dept.id, termId: term.id });
 
     const member = view.members.find((m) => m.person.id === volunteer.id);
     expect(member!.intake).toEqual({
@@ -1124,7 +1125,7 @@ describe("builderView", () => {
     const cycle = await createCycle(term.id, "DIRECTOR", director.id);
     await createTraining(volunteer.id, term.id, cycle.id, "DIRECTOR", { minShiftsWanted: "8" });
 
-    const view = await builderView(director.id, { departmentId: dept.id });
+    const view = await builderView(director.id, { departmentId: dept.id, termId: term.id });
     const member = view.members.find((m) => m.person.id === volunteer.id);
     expect(member!.intake.minShiftsWanted).toBeNull();
   });
@@ -1140,7 +1141,7 @@ describe("builderView", () => {
       directorAvailabilitySetAt: new Date(),
     });
 
-    const view = await builderView(director.id, { departmentId: dept.id });
+    const view = await builderView(director.id, { departmentId: dept.id, termId: term.id });
     const member = view.members.find((m) => m.person.id === volunteer.id);
     expect(member!.overrideActive).toBe(true);
   });
@@ -1158,7 +1159,7 @@ describe("builderView", () => {
     await createShift(term.id, dept.id, volunteer.id, dates[0], "VOLUNTEER");
     await createShift(term.id, dept.id, volunteer.id, dates[3], "VOLUNTEER");
 
-    const view = await builderView(director.id, { departmentId: dept.id });
+    const view = await builderView(director.id, { departmentId: dept.id, termId: term.id });
     const byDate = view.assignmentsByDate;
 
     const key0 = isoDateKey(dates[0]);
@@ -1188,6 +1189,7 @@ describe("builderView", () => {
     const view = await builderView(director.id, {
       departmentId: dept.id,
       dateKey: isoDateKey(dates[0]),
+      termId: term.id,
     });
 
     // Not an ACTIVE member -> absent from the members list (the old cuid source).
@@ -1214,7 +1216,7 @@ describe("builderView", () => {
     await createShift(term.id, dept.id, spanishVol.id, dates[0], "VOLUNTEER");
     await createShift(term.id, dept.id, regularVol.id, dates[0], "VOLUNTEER");
 
-    const view = await builderView(director.id, { departmentId: dept.id, dateKey: isoDateKey(dates[0]) });
+    const view = await builderView(director.id, { departmentId: dept.id, dateKey: isoDateKey(dates[0]), termId: term.id });
     expect(view.capacity.spanishCount).toBe(1);
     expect(view.capacity.headcount).toBe(2);
   });
@@ -1233,7 +1235,7 @@ describe("builderView", () => {
     await createShift(term.id, dept.id, ccVol.id, dates[0], "VOLUNTEER", { cc: true });
     await createShift(term.id, dept.id, regularVol.id, dates[0], "VOLUNTEER");
 
-    const view = await builderView(director.id, { departmentId: dept.id, dateKey: isoDateKey(dates[0]) });
+    const view = await builderView(director.id, { departmentId: dept.id, dateKey: isoDateKey(dates[0]), termId: term.id });
     expect(view.capacity.ccStatus).toBe("ok");
   });
 
@@ -1248,7 +1250,7 @@ describe("builderView", () => {
 
     await createShift(term.id, dept.id, regularVol.id, dates[0], "VOLUNTEER");
 
-    const view = await builderView(director.id, { departmentId: dept.id, dateKey: isoDateKey(dates[0]) });
+    const view = await builderView(director.id, { departmentId: dept.id, dateKey: isoDateKey(dates[0]), termId: term.id });
     expect(view.capacity.ccStatus).toBe("missing");
   });
 
@@ -1263,7 +1265,7 @@ describe("builderView", () => {
 
     await createShift(term.id, dept.id, selfReportedVol.id, dates[0], "VOLUNTEER");
 
-    const view = await builderView(director.id, { departmentId: dept.id, dateKey: isoDateKey(dates[0]) });
+    const view = await builderView(director.id, { departmentId: dept.id, dateKey: isoDateKey(dates[0]), termId: term.id });
     expect(view.capacity.spanishCount).toBe(0);
   });
 
@@ -1297,7 +1299,7 @@ describe("builderView", () => {
       },
     });
 
-    const view = await builderView(director.id, { departmentId: dept.id, dateKey: isoDateKey(dates[0]) });
+    const view = await builderView(director.id, { departmentId: dept.id, dateKey: isoDateKey(dates[0]), termId: term.id });
     // Banner should list noCertVol but not the fully-cleared compliantVol.
     expect(view.banner).toHaveLength(1);
     const notClearedIds = view.banner[0].notCleared.map((v) => v.id);
@@ -1320,7 +1322,7 @@ describe("builderView", () => {
     await createShift(term.id, pcar.id, conflicted.id, dates[0], "VOLUNTEER");
     await createShift(term.id, sctp.id, conflicted.id, dates[0], "VOLUNTEER");
 
-    const view = await builderView(director.id, { departmentId: pcar.id, dateKey: isoDateKey(dates[0]) });
+    const view = await builderView(director.id, { departmentId: pcar.id, dateKey: isoDateKey(dates[0]), termId: term.id });
     expect(view.conflicts[conflicted.id]).toBeDefined();
     expect(view.conflicts[conflicted.id]).toContain("SCTP Dept");
   });
@@ -1345,7 +1347,7 @@ describe("builderView", () => {
       },
     });
 
-    const view = await builderView(director.id, { departmentId: dept.id });
+    const view = await builderView(director.id, { departmentId: dept.id, termId: term.id });
     expect(view.pendingRequestCount).toBe(1);
   });
 
@@ -1381,7 +1383,7 @@ describe("builderView", () => {
       },
     });
 
-    const view = await builderView(director.id, { departmentId: scts.id, dateKey: isoDateKey(dates[0]) });
+    const view = await builderView(director.id, { departmentId: scts.id, dateKey: isoDateKey(dates[0]), termId: term.id });
     expect(view.rhd).not.toBeNull();
     expect(view.rhd!.clinic).not.toBeNull();
     expect(view.rhd!.clinic!.attendingId).toBe(attending.id);
@@ -1423,6 +1425,7 @@ describe("builderView", () => {
       departmentId: dept.id,
       dateKey: isoDateKey(dates[0]),
       now: today,
+      termId: term.id,
     });
     const notClearedIdsToday = viewToday.banner.flatMap((b) => b.notCleared.map((v) => v.id));
     expect(notClearedIdsToday).not.toContain(certVol.id);
@@ -1433,6 +1436,7 @@ describe("builderView", () => {
       departmentId: dept.id,
       dateKey: isoDateKey(dates[0]),
       now: farFuture,
+      termId: term.id,
     });
     const notClearedIdsFuture = viewFuture.banner.flatMap((b) => b.notCleared.map((v) => v.id));
     expect(notClearedIdsFuture).toContain(certVol.id);
@@ -1445,7 +1449,7 @@ describe("builderView", () => {
     const director = await createPerson("Director");
     await createMembership(director.id, term.id, pcar.id, "DIRECTOR");
 
-    const view = await builderView(director.id, { departmentId: pcar.id });
+    const view = await builderView(director.id, { departmentId: pcar.id, termId: term.id });
     expect(view.rhd).toBeNull();
   });
 
@@ -1460,8 +1464,29 @@ describe("builderView", () => {
     await createMembership(zzVol.id, term.id, dept.id, "VOLUNTEER");
     await createMembership(aaVol.id, term.id, dept.id, "VOLUNTEER");
 
-    const view = await builderView(director.id, { departmentId: dept.id });
+    const view = await builderView(director.id, { departmentId: dept.id, termId: term.id });
     const names = view.members.map((m) => m.person.name);
     expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b)));
+  });
+
+  it("builderView loads the working (next) term's roster and dates", async () => {
+    const dates = sixSaturdays();
+    // manageableScheduleDepartmentIds stays active-term-derived per the cross-term
+    // spec ("continuing directors ... build ahead"), so the director must already
+    // direct this department in the live term to manage it at all; the live term
+    // itself is not the one under test -- builderView is asked for `next` via
+    // opts.termId and must load THAT term's roster/dates, not the live term's.
+    const live = await createTerm(dates, "ACTIVE");
+    const next = await createTerm(dates, "PLANNING");
+    const dept = await createDepartment("SRHD");
+    const director = await createPerson("Dir");
+    await createMembership(director.id, live.id, dept.id, "DIRECTOR");
+    await createMembership(director.id, next.id, dept.id, "DIRECTOR");
+    const vol = await createPerson("Vol");
+    await createMembership(vol.id, next.id, dept.id, "VOLUNTEER");
+
+    const view = await builderView(director.id, { departmentId: dept.id, termId: next.id, now: dates[0] });
+    expect(view.clinicDates.length).toBe(6);
+    expect(view.members.map((m) => m.person.id)).toContain(vol.id);
   });
 });

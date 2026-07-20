@@ -9,7 +9,7 @@
  * Typed errors: BuilderForbiddenError, BuilderValidationError.
  */
 
-import type { RhdClinic } from "@prisma/client";
+import type { RhdClinic, Term } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { isoDateKey } from "@/platform/dates";
@@ -47,6 +47,19 @@ export class BuilderValidationError extends Error {
     super(message);
     this.name = "BuilderValidationError";
   }
+}
+
+/**
+ * Load the term a builder write targets, rejecting a missing term or an
+ * ARCHIVED (read-only) term. This is the server-side enforcement of the
+ * archived-is-read-only rule: even a stale tab or crafted request cannot mutate
+ * a closed term's schedule.
+ */
+async function loadEditableTerm(termId: string): Promise<Term> {
+  const term = await prisma.term.findUnique({ where: { id: termId } });
+  if (!term) throw new BuilderValidationError("Unknown term.");
+  if (term.status === "ARCHIVED") throw new BuilderValidationError("This term is archived and read-only.");
+  return term;
 }
 
 // ---------------------------------------------------------------------------
@@ -149,6 +162,7 @@ export async function canManageAnyScheduleDept(personId: string): Promise<boolea
 export async function setAssignment(
   actor: string,
   opts: {
+    termId: string;
     departmentId: string;
     dateKey: string;
     personId: string;
@@ -164,8 +178,7 @@ export async function setAssignment(
     throw new BuilderValidationError("Invalid role.");
   }
 
-  const term = await getActiveTerm();
-  if (!term) throw new BuilderValidationError("No active term.");
+  const term = await loadEditableTerm(opts.termId);
 
   // Validate clinic date.
   const clinicDate = term.clinicDates.find((d) => isoDateKey(d) === opts.dateKey);
@@ -270,6 +283,7 @@ export async function setAssignment(
 export async function toggleTag(
   actor: string,
   opts: {
+    termId: string;
     departmentId: string;
     dateKey: string;
     personId: string;
@@ -283,8 +297,7 @@ export async function toggleTag(
     throw new BuilderValidationError("Invalid tag.");
   }
 
-  const term = await getActiveTerm();
-  if (!term) throw new BuilderValidationError("No active term.");
+  const term = await loadEditableTerm(opts.termId);
 
   const clinicDate = term.clinicDates.find((d) => isoDateKey(d) === opts.dateKey);
   if (!clinicDate) {
@@ -325,12 +338,11 @@ export async function toggleTag(
  */
 export async function setPatientsBooked(
   actor: string,
-  opts: { departmentId: string; dateKey: string; patientsBooked: number | null }
+  opts: { termId: string; departmentId: string; dateKey: string; patientsBooked: number | null }
 ): Promise<void> {
   await scopeCheck(actor, opts.departmentId);
 
-  const term = await getActiveTerm();
-  if (!term) throw new BuilderValidationError("No active term.");
+  const term = await loadEditableTerm(opts.termId);
 
   const clinicDate = term.clinicDates.find((d) => isoDateKey(d) === opts.dateKey);
   if (!clinicDate) {
@@ -390,6 +402,10 @@ export async function setAvailabilityOverride(
   if (!membership) throw new BuilderValidationError("Membership not found.");
 
   await scopeCheck(actor, membership.departmentId);
+
+  if (membership.term.status === "ARCHIVED") {
+    throw new BuilderValidationError("This term is archived and read-only.");
+  }
 
   if (opts.dateKeys !== null) {
     const canonicalByKey = new Map<string, Date>();
@@ -471,6 +487,7 @@ export async function acknowledgeAvailability(
 export async function upsertRhdClinic(
   actor: string,
   opts: {
+    termId: string;
     dateKey: string;
     attendingId?: string | null;
     directorName?: string | null;
@@ -487,8 +504,7 @@ export async function upsertRhdClinic(
   const hasRhd = manageable.some((id) => rhdIds.has(id));
   if (!hasRhd) throw new BuilderForbiddenError("Actor does not manage any RHD-family department.");
 
-  const term = await getActiveTerm();
-  if (!term) throw new BuilderValidationError("No active term.");
+  const term = await loadEditableTerm(opts.termId);
 
   const clinicDate = term.clinicDates.find((d) => isoDateKey(d) === opts.dateKey);
   if (!clinicDate) {

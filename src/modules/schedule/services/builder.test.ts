@@ -345,7 +345,7 @@ describe("setAssignment", () => {
     await createMembership(volunteer.id, term.id, dept.id, "VOLUNTEER");
 
     const dateKey = isoDateKey(dates[0]);
-    await setAssignment(director.id, { departmentId: dept.id, dateKey, personId: volunteer.id, role: "VOLUNTEER" });
+    await setAssignment(director.id, { termId: term.id, departmentId: dept.id, dateKey, personId: volunteer.id, role: "VOLUNTEER" });
 
     const row = await prisma.shiftAssignment.findFirst({
       where: { termId: term.id, departmentId: dept.id, personId: volunteer.id },
@@ -367,7 +367,7 @@ describe("setAssignment", () => {
 
     const dateKey = isoDateKey(dates[0]);
     await expect(
-      setAssignment(director.id, { departmentId: dept.id, dateKey, personId: director.id, role: "DIRECTOR" })
+      setAssignment(director.id, { termId: term.id, departmentId: dept.id, dateKey, personId: director.id, role: "DIRECTOR" })
     ).resolves.toBeUndefined();
   });
 
@@ -381,7 +381,7 @@ describe("setAssignment", () => {
     await createMembership(volunteer.id, term.id, dept.id, "VOLUNTEER");
 
     await expect(
-      setAssignment(director.id, { departmentId: dept.id, dateKey: isoDateKey(dates[0]), personId: volunteer.id, role: "DIRECTOR" })
+      setAssignment(director.id, { termId: term.id, departmentId: dept.id, dateKey: isoDateKey(dates[0]), personId: volunteer.id, role: "DIRECTOR" })
     ).rejects.toBeInstanceOf(BuilderValidationError);
   });
 
@@ -394,7 +394,7 @@ describe("setAssignment", () => {
     await createMembership(director.id, term.id, dept.id, "DIRECTOR");
 
     await expect(
-      setAssignment(director.id, { departmentId: dept.id, dateKey: isoDateKey(dates[0]), personId: outsider.id, role: "VOLUNTEER" })
+      setAssignment(director.id, { termId: term.id, departmentId: dept.id, dateKey: isoDateKey(dates[0]), personId: outsider.id, role: "VOLUNTEER" })
     ).rejects.toBeInstanceOf(BuilderValidationError);
   });
 
@@ -408,7 +408,7 @@ describe("setAssignment", () => {
     await createMembership(volunteer.id, term.id, dept.id, "VOLUNTEER");
 
     await expect(
-      setAssignment(director.id, { departmentId: dept.id, dateKey: "2099-01-01", personId: volunteer.id, role: "VOLUNTEER" })
+      setAssignment(director.id, { termId: term.id, departmentId: dept.id, dateKey: "2099-01-01", personId: volunteer.id, role: "VOLUNTEER" })
     ).rejects.toBeInstanceOf(BuilderValidationError);
   });
 
@@ -434,7 +434,7 @@ describe("setAssignment", () => {
     });
 
     // Role change via setAssignment: tags preserved.
-    await setAssignment(director.id, { departmentId: dept.id, dateKey: isoDateKey(dates[0]), personId: volunteer.id, role: "VOLUNTEER" });
+    await setAssignment(director.id, { termId: term.id, departmentId: dept.id, dateKey: isoDateKey(dates[0]), personId: volunteer.id, role: "VOLUNTEER" });
 
     const row = await prisma.shiftAssignment.findFirst({
       where: { termId: term.id, departmentId: dept.id, personId: volunteer.id },
@@ -453,6 +453,7 @@ describe("setAssignment", () => {
     await createShift(term.id, dept.id, volunteer.id, dates[0], "VOLUNTEER");
 
     await setAssignment(director.id, {
+      termId: term.id,
       departmentId: dept.id,
       dateKey: isoDateKey(dates[0]),
       personId: volunteer.id,
@@ -479,7 +480,7 @@ describe("setAssignment", () => {
     await createMembership(director.id, term.id, dept.id, "DIRECTOR");
     await createMembership(volunteer.id, term.id, dept.id, "VOLUNTEER");
 
-    await setAssignment(director.id, { departmentId: dept.id, dateKey: isoDateKey(dates[0]), personId: volunteer.id, role: "VOLUNTEER" });
+    await setAssignment(director.id, { termId: term.id, departmentId: dept.id, dateKey: isoDateKey(dates[0]), personId: volunteer.id, role: "VOLUNTEER" });
 
     const audit = await prisma.auditLog.findFirst({ where: { action: "schedule.assign" } });
     expect(audit).not.toBeNull();
@@ -494,7 +495,7 @@ describe("setAssignment", () => {
     await createMembership(volunteer.id, term.id, dept.id, "VOLUNTEER");
 
     await expect(
-      setAssignment(outsider.id, { departmentId: dept.id, dateKey: isoDateKey(dates[0]), personId: volunteer.id, role: "VOLUNTEER" })
+      setAssignment(outsider.id, { termId: term.id, departmentId: dept.id, dateKey: isoDateKey(dates[0]), personId: volunteer.id, role: "VOLUNTEER" })
     ).rejects.toBeInstanceOf(BuilderForbiddenError);
   });
 
@@ -510,7 +511,7 @@ describe("setAssignment", () => {
     await createMembership(volunteer.id, term.id, sctp.id, "VOLUNTEER");
 
     await expect(
-      setAssignment(director.id, { departmentId: sctp.id, dateKey: isoDateKey(dates[0]), personId: volunteer.id, role: "VOLUNTEER" })
+      setAssignment(director.id, { termId: term.id, departmentId: sctp.id, dateKey: isoDateKey(dates[0]), personId: volunteer.id, role: "VOLUNTEER" })
     ).resolves.toBeUndefined();
   });
 
@@ -524,17 +525,17 @@ describe("setAssignment", () => {
     await createMembership(volunteer.id, term.id, dept.id, "VOLUNTEER");
 
     await expect(
-      setAssignment(admin.id, { departmentId: dept.id, dateKey: isoDateKey(dates[0]), personId: volunteer.id, role: "VOLUNTEER" })
+      setAssignment(admin.id, { termId: term.id, departmentId: dept.id, dateKey: isoDateKey(dates[0]), personId: volunteer.id, role: "VOLUNTEER" })
     ).resolves.toBeUndefined();
   });
 
-  it("throws BuilderValidationError when no active term", async () => {
+  it("throws BuilderValidationError when the term does not exist", async () => {
     const dept = await createDepartment("PCAR");
     const person = await createPerson("Director");
     await grantPermission(person.id, "schedule.edit_all");
 
     await expect(
-      setAssignment(person.id, { departmentId: dept.id, dateKey: "2026-06-06", personId: person.id, role: "VOLUNTEER" })
+      setAssignment(person.id, { termId: "nonexistent-term-id", departmentId: dept.id, dateKey: "2026-06-06", personId: person.id, role: "VOLUNTEER" })
     ).rejects.toBeInstanceOf(BuilderValidationError);
   });
 
@@ -552,12 +553,38 @@ describe("setAssignment", () => {
     // validation error so the action's friendly error path fires.
     await expect(
       setAssignment(director.id, {
+        termId: term.id,
         departmentId: dept.id,
         dateKey: isoDateKey(dates[0]),
         personId: volunteer.id,
         role: "ADMIN" as "VOLUNTEER",
       })
     ).rejects.toBeInstanceOf(BuilderValidationError);
+  });
+
+  it("setAssignment rejects a write to an ARCHIVED term (read-only)", async () => {
+    const dates = sixSaturdays();
+    const archived = await prisma.term.create({
+      data: { code: `AR-${Date.now()}`, name: "Archived", startDate: utcNoon(2026, 1, 1), endDate: utcNoon(2026, 5, 1), status: "ARCHIVED", clinicDates: dates },
+    });
+    const dept = await createDepartment("SRHD");
+    const director = await createPerson("Dir");
+    const vol = await createPerson("Vol");
+    // scopeCheck (manageableScheduleDepartmentIds) and the target-member membership
+    // lookup both read ACTIVE-term rows, so both the director and vol get a live
+    // ACTIVE-term membership in this department -- isolating the archived guard as
+    // the only reason this call can fail. Without the guard, this input would
+    // otherwise succeed (scope ok, clinic date ok, membership ok), so a
+    // not-yet-implemented loadEditableTerm would let it through instead of
+    // rejecting it.
+    const activeTerm = await createTerm(dates);
+    await createMembership(director.id, activeTerm.id, dept.id, "DIRECTOR");
+    await createMembership(vol.id, activeTerm.id, dept.id, "VOLUNTEER");
+
+    await expect(
+      setAssignment(director.id, { termId: archived.id, departmentId: dept.id, dateKey: isoDateKey(dates[0]), personId: vol.id, role: "VOLUNTEER" }),
+    ).rejects.toBeInstanceOf(BuilderValidationError);
+    expect(await prisma.shiftAssignment.count()).toBe(0);
   });
 });
 
@@ -572,7 +599,7 @@ describe("toggleTag", () => {
     await createMembership(volunteer.id, term.id, dept.id, "VOLUNTEER");
     await createShift(term.id, dept.id, volunteer.id, dates[0], "VOLUNTEER");
 
-    await toggleTag(director.id, { departmentId: dept.id, dateKey: isoDateKey(dates[0]), personId: volunteer.id, tag: "triage" });
+    await toggleTag(director.id, { termId: term.id, departmentId: dept.id, dateKey: isoDateKey(dates[0]), personId: volunteer.id, tag: "triage" });
 
     const row = await prisma.shiftAssignment.findFirst({
       where: { termId: term.id, departmentId: dept.id, personId: volunteer.id },
@@ -580,7 +607,7 @@ describe("toggleTag", () => {
     expect(row!.triage).toBe(true);
 
     // Flip again.
-    await toggleTag(director.id, { departmentId: dept.id, dateKey: isoDateKey(dates[0]), personId: volunteer.id, tag: "triage" });
+    await toggleTag(director.id, { termId: term.id, departmentId: dept.id, dateKey: isoDateKey(dates[0]), personId: volunteer.id, tag: "triage" });
     const row2 = await prisma.shiftAssignment.findFirst({
       where: { termId: term.id, departmentId: dept.id, personId: volunteer.id },
     });
@@ -596,7 +623,7 @@ describe("toggleTag", () => {
     await createMembership(director.id, term.id, dept.id, "DIRECTOR");
 
     await expect(
-      toggleTag(director.id, { departmentId: dept.id, dateKey: isoDateKey(dates[0]), personId: volunteer.id, tag: "walkin" })
+      toggleTag(director.id, { termId: term.id, departmentId: dept.id, dateKey: isoDateKey(dates[0]), personId: volunteer.id, tag: "walkin" })
     ).rejects.toBeInstanceOf(BuilderValidationError);
   });
 
@@ -610,7 +637,7 @@ describe("toggleTag", () => {
     await createShift(term.id, dept.id, volunteer.id, dates[0], "VOLUNTEER");
 
     await expect(
-      toggleTag(outsider.id, { departmentId: dept.id, dateKey: isoDateKey(dates[0]), personId: volunteer.id, tag: "triage" })
+      toggleTag(outsider.id, { termId: term.id, departmentId: dept.id, dateKey: isoDateKey(dates[0]), personId: volunteer.id, tag: "triage" })
     ).rejects.toBeInstanceOf(BuilderForbiddenError);
   });
 
@@ -629,6 +656,7 @@ describe("toggleTag", () => {
     // so a bad value never reaches the query (and the friendly path fires).
     await expect(
       toggleTag(director.id, {
+        termId: term.id,
         departmentId: dept.id,
         dateKey: isoDateKey(dates[0]),
         personId: volunteer.id,
@@ -647,7 +675,7 @@ describe("toggleTag", () => {
     await createMembership(volunteer.id, term.id, dept.id, "VOLUNTEER");
     await createShift(term.id, dept.id, volunteer.id, dates[0], "VOLUNTEER");
 
-    await toggleTag(director.id, { departmentId: dept.id, dateKey: isoDateKey(dates[0]), personId: volunteer.id, tag: "cc" });
+    await toggleTag(director.id, { termId: term.id, departmentId: dept.id, dateKey: isoDateKey(dates[0]), personId: volunteer.id, tag: "cc" });
 
     const audit = await prisma.auditLog.findFirst({ where: { action: "schedule.tag" } });
     expect(audit).not.toBeNull();
@@ -662,7 +690,7 @@ describe("setPatientsBooked", () => {
     const director = await createPerson("Director");
     await createMembership(director.id, term.id, dept.id, "DIRECTOR");
 
-    await setPatientsBooked(director.id, { departmentId: dept.id, dateKey: isoDateKey(dates[0]), patientsBooked: 8 });
+    await setPatientsBooked(director.id, { termId: term.id, departmentId: dept.id, dateKey: isoDateKey(dates[0]), patientsBooked: 8 });
 
     const row = await prisma.scheduleDay.findFirst({
       where: { termId: term.id, departmentId: dept.id },
@@ -678,8 +706,8 @@ describe("setPatientsBooked", () => {
     const director = await createPerson("Director");
     await createMembership(director.id, term.id, dept.id, "DIRECTOR");
 
-    await setPatientsBooked(director.id, { departmentId: dept.id, dateKey: isoDateKey(dates[0]), patientsBooked: 3 });
-    await setPatientsBooked(director.id, { departmentId: dept.id, dateKey: isoDateKey(dates[0]), patientsBooked: 5 });
+    await setPatientsBooked(director.id, { termId: term.id, departmentId: dept.id, dateKey: isoDateKey(dates[0]), patientsBooked: 3 });
+    await setPatientsBooked(director.id, { termId: term.id, departmentId: dept.id, dateKey: isoDateKey(dates[0]), patientsBooked: 5 });
 
     const rows = await prisma.scheduleDay.findMany({ where: { termId: term.id, departmentId: dept.id } });
     expect(rows).toHaveLength(1);
@@ -693,8 +721,8 @@ describe("setPatientsBooked", () => {
     const director = await createPerson("Director");
     await createMembership(director.id, term.id, dept.id, "DIRECTOR");
 
-    await setPatientsBooked(director.id, { departmentId: dept.id, dateKey: isoDateKey(dates[0]), patientsBooked: 4 });
-    await setPatientsBooked(director.id, { departmentId: dept.id, dateKey: isoDateKey(dates[0]), patientsBooked: null });
+    await setPatientsBooked(director.id, { termId: term.id, departmentId: dept.id, dateKey: isoDateKey(dates[0]), patientsBooked: 4 });
+    await setPatientsBooked(director.id, { termId: term.id, departmentId: dept.id, dateKey: isoDateKey(dates[0]), patientsBooked: null });
 
     const row = await prisma.scheduleDay.findFirst({ where: { termId: term.id, departmentId: dept.id } });
     expect(row!.patientsBooked).toBeNull();
@@ -702,13 +730,12 @@ describe("setPatientsBooked", () => {
 
   it("throws BuilderForbiddenError for outsider", async () => {
     const dates = sixSaturdays();
-    await createTerm(dates);
+    const term = await createTerm(dates);
     const dept = await createDepartment("PCAR");
-    await createTerm(dates);
     const outsider = await createPerson("Outsider");
 
     await expect(
-      setPatientsBooked(outsider.id, { departmentId: dept.id, dateKey: isoDateKey(dates[0]), patientsBooked: 5 })
+      setPatientsBooked(outsider.id, { termId: term.id, departmentId: dept.id, dateKey: isoDateKey(dates[0]), patientsBooked: 5 })
     ).rejects.toBeInstanceOf(BuilderForbiddenError);
   });
 });
@@ -823,7 +850,7 @@ describe("upsertRhdClinic", () => {
     await createMembership(director.id, term.id, scts.id, "DIRECTOR");
 
     await expect(
-      upsertRhdClinic(director.id, { dateKey: isoDateKey(dates[0]) })
+      upsertRhdClinic(director.id, { termId: term.id, dateKey: isoDateKey(dates[0]) })
     ).resolves.toBeUndefined();
 
     const clinic = await prisma.rhdClinic.findFirst({ where: { termId: term.id } });
@@ -841,8 +868,8 @@ describe("upsertRhdClinic", () => {
       data: { scheduleName: "Dr. Test", fullName: "Dr. Full Name" },
     });
 
-    await upsertRhdClinic(director.id, { dateKey: isoDateKey(dates[0]), attendingId: attending.id });
-    await upsertRhdClinic(director.id, { dateKey: isoDateKey(dates[0]), proceduresBooked: 2 });
+    await upsertRhdClinic(director.id, { termId: term.id, dateKey: isoDateKey(dates[0]), attendingId: attending.id });
+    await upsertRhdClinic(director.id, { termId: term.id, dateKey: isoDateKey(dates[0]), proceduresBooked: 2 });
 
     const clinics = await prisma.rhdClinic.findMany({ where: { termId: term.id } });
     expect(clinics).toHaveLength(1);
@@ -857,7 +884,7 @@ describe("upsertRhdClinic", () => {
     await createMembership(director.id, term.id, pcar.id, "DIRECTOR");
 
     await expect(
-      upsertRhdClinic(director.id, { dateKey: isoDateKey(dates[0]) })
+      upsertRhdClinic(director.id, { termId: term.id, dateKey: isoDateKey(dates[0]) })
     ).rejects.toBeInstanceOf(BuilderForbiddenError);
   });
 
@@ -869,7 +896,7 @@ describe("upsertRhdClinic", () => {
     await createMembership(director.id, term.id, scts.id, "DIRECTOR");
 
     await expect(
-      upsertRhdClinic(director.id, { dateKey: "2099-01-01" })
+      upsertRhdClinic(director.id, { termId: term.id, dateKey: "2099-01-01" })
     ).rejects.toBeInstanceOf(BuilderValidationError);
   });
 
@@ -885,19 +912,19 @@ describe("upsertRhdClinic", () => {
     });
 
     // Create with an attending.
-    await upsertRhdClinic(director.id, { dateKey: isoDateKey(dates[0]), attendingId: attending.id });
+    await upsertRhdClinic(director.id, { termId: term.id, dateKey: isoDateKey(dates[0]), attendingId: attending.id });
 
     const before = await prisma.rhdClinic.findFirstOrThrow({ where: { termId: term.id } });
     expect(before.attendingId).toBe(attending.id);
 
     // Clear attendingId by passing null explicitly.
-    await upsertRhdClinic(director.id, { dateKey: isoDateKey(dates[0]), attendingId: null });
+    await upsertRhdClinic(director.id, { termId: term.id, dateKey: isoDateKey(dates[0]), attendingId: null });
 
     const afterClear = await prisma.rhdClinic.findFirstOrThrow({ where: { termId: term.id } });
     expect(afterClear.attendingId).toBeNull();
 
     // Restore, then upsert without attendingId at all - it should remain null, not be touched.
-    await upsertRhdClinic(director.id, { dateKey: isoDateKey(dates[0]), directorName: "Someone" });
+    await upsertRhdClinic(director.id, { termId: term.id, dateKey: isoDateKey(dates[0]), directorName: "Someone" });
 
     const afterOmit = await prisma.rhdClinic.findFirstOrThrow({ where: { termId: term.id } });
     expect(afterOmit.attendingId).toBeNull();

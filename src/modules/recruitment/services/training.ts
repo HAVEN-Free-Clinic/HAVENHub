@@ -3,7 +3,6 @@ import { complianceStatus, overallClearance } from "@/platform/compliance/rules"
 import type { TrainingState, OverallClearance } from "@/platform/compliance/rules";
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
-import { getActiveTerm } from "@/platform/terms/active-term";
 import { getPersonTerms } from "@/platform/terms/person-terms";
 import { recordAudit } from "@/platform/audit";
 import { RecruitmentAuthError, reviewScope } from "./review";
@@ -161,13 +160,6 @@ export type TrainingIntake = {
   feedback?: string | null;
 };
 
-/** Active term used for self-serve training (mirrors compliance: newest ACTIVE term). */
-async function activeTermOrThrow() {
-  const term = await getActiveTerm();
-  if (!term) throw new TrainingStateError("No active term.");
-  return term;
-}
-
 /** The designated cycle's graded quiz questions, in form order. */
 async function quizQuestions(cycleId: string): Promise<GradedQuestion[]> {
   const fields = await prisma.formField.findMany({
@@ -252,13 +244,12 @@ export async function getMyTraining(personId: string): Promise<MyTraining[]> {
  *  attempt cap without a pass: locks. Prior attempts are never deleted. */
 export async function submitQuiz(
   personId: string,
-  input: { track: Track; answers: Record<string, unknown>; intake: TrainingIntake }
+  input: { termId: string; track: Track; answers: Record<string, unknown>; intake: TrainingIntake }
 ): Promise<QuizSubmission> {
-  const term = await activeTermOrThrow();
-  const cycle = await getTrainingCycleForTerm(term.id, input.track);
+  const cycle = await getTrainingCycleForTerm(input.termId, input.track);
   if (!cycle) throw new TrainingStateError("This term has no designated training cycle.");
 
-  const isMember = await prisma.termMembership.count({ where: { personId, termId: term.id, kind: input.track, status: "ACTIVE" } });
+  const isMember = await prisma.termMembership.count({ where: { personId, termId: input.termId, kind: input.track, status: "ACTIVE" } });
   if (isMember === 0) throw new TrainingStateError("Not an active member of this track this term.");
 
   const questions = await quizQuestions(cycle.id);
@@ -266,8 +257,8 @@ export async function submitQuiz(
 
   return prisma.$transaction(async (tx) => {
     const row = await tx.training.upsert({
-      where: { personId_termId_track: { personId, termId: term.id, track: input.track } },
-      create: { personId, termId: term.id, cycleId: cycle.id, track: input.track },
+      where: { personId_termId_track: { personId, termId: input.termId, track: input.track } },
+      create: { personId, termId: input.termId, cycleId: cycle.id, track: input.track },
       update: {},
     });
     if (row.status === "COMPLETE") throw new TrainingStateError("Training is already complete.");
@@ -289,7 +280,7 @@ export async function submitQuiz(
     const attemptsUsed = await tx.quizAttempt.count({ where: { trainingId: row.id, ...(row.lockResetAt ? { takenAt: { gte: row.lockResetAt } } : {}) } });
     let locked = false;
     if (result.passed) {
-      await completeTraining(tx, { personId, termId: term.id, cycleId: cycle.id, track: input.track, via: "QUIZ" });
+      await completeTraining(tx, { personId, termId: input.termId, cycleId: cycle.id, track: input.track, via: "QUIZ" });
     } else if (attemptsUsed >= cycle.quizMaxAttempts) {
       await tx.training.update({ where: { id: row.id }, data: { locked: true } });
       locked = true;

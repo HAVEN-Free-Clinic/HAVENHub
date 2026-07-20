@@ -2,6 +2,7 @@ import { cache } from "react";
 import type { Term } from "@prisma/client";
 import { getActiveTerm } from "./active-term";
 import { getNextTerm } from "./next-term";
+import { prisma } from "@/platform/db";
 
 /**
  * The term a staff member is working on for forward-looking tools. If selectedId
@@ -15,6 +16,11 @@ export const getWorkingTerm = cache(async (selectedId?: string): Promise<Term | 
   if (selectedId) {
     if (live?.id === selectedId) return live;
     if (next?.id === selectedId) return next;
+    // Any other real term (e.g. an archived term selected for read-only viewing in
+    // the schedule builder) resolves to itself; an unknown/stale id falls through
+    // to the live term below.
+    const other = await prisma.term.findUnique({ where: { id: selectedId } });
+    if (other) return other;
   }
   return live;
 });

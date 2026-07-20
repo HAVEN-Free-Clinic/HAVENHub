@@ -22,7 +22,7 @@ it("returns the next term when selected", async () => {
   expect((await getWorkingTerm(next.id))?.id).toBe(next.id);
 });
 
-it("falls back to the live term for an invalid or archived selection", async () => {
+it("falls back to the live term for an unknown selection", async () => {
   const { live } = await seed();
   expect((await getWorkingTerm("does-not-exist"))?.id).toBe(live.id);
 });

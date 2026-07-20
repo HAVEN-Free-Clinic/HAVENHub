@@ -48,6 +48,12 @@ export class BuilderValidationError extends Error {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const ARCHIVED_TERM_MESSAGE = "This term is archived and read-only.";
+
 /**
  * Load the term a builder write targets, rejecting a missing term or an
  * ARCHIVED (read-only) term. This is the server-side enforcement of the
@@ -57,7 +63,7 @@ export class BuilderValidationError extends Error {
 async function loadEditableTerm(termId: string): Promise<Term> {
   const term = await prisma.term.findUnique({ where: { id: termId } });
   if (!term) throw new BuilderValidationError("Unknown term.");
-  if (term.status === "ARCHIVED") throw new BuilderValidationError("This term is archived and read-only.");
+  if (term.status === "ARCHIVED") throw new BuilderValidationError(ARCHIVED_TERM_MESSAGE);
   return term;
 }
 
@@ -403,7 +409,7 @@ export async function setAvailabilityOverride(
   await scopeCheck(actor, membership.departmentId);
 
   if (membership.term.status === "ARCHIVED") {
-    throw new BuilderValidationError("This term is archived and read-only.");
+    throw new BuilderValidationError(ARCHIVED_TERM_MESSAGE);
   }
 
   if (opts.dateKeys !== null) {

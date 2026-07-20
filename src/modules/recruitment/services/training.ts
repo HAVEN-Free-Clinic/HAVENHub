@@ -4,6 +4,7 @@ import type { TrainingState, OverallClearance } from "@/platform/compliance/rule
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { getActiveTerm } from "@/platform/terms/active-term";
+import { getPersonTerms } from "@/platform/terms/person-terms";
 import { recordAudit } from "@/platform/audit";
 import { RecruitmentAuthError, reviewScope } from "./review";
 import { gradeQuiz, type GradedQuestion } from "@/platform/quiz/grading";
@@ -198,9 +199,8 @@ const TRACK_LABEL: Record<Track, string> = {
   DIRECTOR: "Director training",
 };
 
-/** The training(s) the signed-in member must complete this term, one per required track. */
-export async function getMyTraining(personId: string): Promise<MyTraining[]> {
-  const term = await activeTermOrThrow();
+/** The required training(s) for one specific term, one entry per required track. */
+export async function getMyTrainingForTerm(personId: string, term: { id: string; name: string }): Promise<MyTraining[]> {
   const tracks = await requiredTrainingTracks(personId, term.id);
   const out: MyTraining[] = [];
   for (const track of tracks) {
@@ -233,6 +233,16 @@ export async function getMyTraining(personId: string): Promise<MyTraining[]> {
         feedback: row?.feedback ?? null,
       },
     });
+  }
+  return out;
+}
+
+/** The training(s) the signed-in member must complete across every term they belong to. */
+export async function getMyTraining(personId: string): Promise<MyTraining[]> {
+  const terms = await getPersonTerms(personId);
+  const out: MyTraining[] = [];
+  for (const term of terms) {
+    out.push(...(await getMyTrainingForTerm(personId, term)));
   }
   return out;
 }

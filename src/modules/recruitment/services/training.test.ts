@@ -250,6 +250,19 @@ it("getMyTraining is empty for a director-only person with no director cycle", a
   expect(await getMyTraining(dir.id)).toEqual([]);
 });
 
+it("getMyTraining spans the person's live and next terms, live first", async () => {
+  const { srr, vol, dept } = await seedMember(); // live term SU26 with designated volunteer cycle c1; vol is an active volunteer
+  // Build a next (PLANNING) term with its own designated volunteer training cycle + membership for vol.
+  const next = await prisma.term.create({ data: { code: "FA26", name: "Fall", startDate: new Date("2026-09-01"), endDate: new Date("2027-01-01"), status: "PLANNING" } });
+  const nextCycle = await prisma.recruitmentCycle.create({ data: { track: "VOLUNTEER", termId: next.id, title: "FA vol", publicSlug: "fa-vol", departments: ["SRHD"], createdById: srr.id, status: "OPEN" } });
+  await setTrainingCycle(nextCycle.id, true, srr.id);
+  await prisma.termMembership.create({ data: { personId: vol.id, termId: next.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" } });
+
+  const trainings = await getMyTraining(vol.id);
+  expect(trainings.map((m) => m.term.name)).toEqual(["Summer", "Fall"]);
+  expect(trainings.every((m) => m.track === "VOLUNTEER")).toBe(true);
+});
+
 it("listTrainingRoster for a DIRECTOR cycle lists directors not volunteers", async () => {
   const { term, srr, vol, dir } = await seedMember();
   const dirCycle = await prisma.recruitmentCycle.create({

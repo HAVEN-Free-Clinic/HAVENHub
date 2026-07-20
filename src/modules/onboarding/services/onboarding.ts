@@ -1,7 +1,9 @@
 import { cache } from "react";
+import type { Term } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { getActiveTerm } from "@/platform/terms/active-term";
+import { getPersonTerms } from "@/platform/terms/person-terms";
 import { effectiveComplianceStatus } from "@/platform/compliance/rules";
 import { listMyCertificates } from "@/modules/my-info/services/my-info";
 import { requiredTrainingTracks, resolveTrainingProgress } from "@/modules/recruitment/services/training";
@@ -49,23 +51,13 @@ export type OnboardingStatus = {
 type Entry = { task: OnboardingTask; order: number };
 
 /**
- * Compute a person's onboarding clearance for the active term. Returns a dormant
- * (onboarded:true, cleared:true) status when there is no active term, so the gate never blocks.
+ * Compute a person's onboarding clearance for one specific term.
  *
  * The step list, labels, descriptions, blocking flags, and order come from the
  * term's effective onboarding-step config (built-in defaults merged with any
  * per-term overrides). A step whose config is disabled is dropped entirely.
  */
-export const getOnboardingStatus = cache(async function getOnboardingStatus(
-  personId: string
-): Promise<OnboardingStatus> {
-  const exempt = await can(personId, EXEMPT_PERMISSION);
-
-  const term = await getActiveTerm();
-  if (!term) {
-    return { hasActiveTerm: false, exempt, tasks: [], completedCount: 0, totalCount: 0, onboarded: true, cleared: true };
-  }
-
+export async function computeOnboardingForTerm(personId: string, term: Term, exempt: boolean): Promise<OnboardingStatus> {
   const [person, certs, courses, tracks, ehsItems, steps] = await Promise.all([
     prisma.person.findUniqueOrThrow({ where: { id: personId }, select: { contactEmail: true, phone: true } }),
     listMyCertificates(personId),
@@ -122,4 +114,37 @@ export const getOnboardingStatus = cache(async function getOnboardingStatus(
   const { completedCount, totalCount } = summarize(tasks.map((t) => t.state));
   const { onboarded, cleared } = computeGating(tasks);
   return { hasActiveTerm: true, exempt, tasks, completedCount, totalCount, onboarded, cleared };
+}
+
+/**
+ * The live-term onboarding gate. Returns a dormant (onboarded:true, cleared:true)
+ * status when there is no live term, so the gate never blocks. This drives
+ * enforceOnboarding and any hard clearance decision. Next-term work is
+ * intentionally excluded here; see getMyOnboarding for the merged, multi-term
+ * display.
+ */
+export const getOnboardingStatus = cache(async function getOnboardingStatus(
+  personId: string
+): Promise<OnboardingStatus> {
+  const exempt = await can(personId, EXEMPT_PERMISSION);
+
+  const term = await getActiveTerm();
+  if (!term) {
+    return { hasActiveTerm: false, exempt, tasks: [], completedCount: 0, totalCount: 0, onboarded: true, cleared: true };
+  }
+
+  return computeOnboardingForTerm(personId, term, exempt);
+});
+
+export type TermOnboarding = { term: { id: string; name: string }; status: OnboardingStatus };
+
+/** The merged onboarding checklist across every term the member belongs to (live first). */
+export const getMyOnboarding = cache(async function getMyOnboarding(personId: string): Promise<TermOnboarding[]> {
+  const exempt = await can(personId, EXEMPT_PERMISSION);
+  const terms = await getPersonTerms(personId);
+  const out: TermOnboarding[] = [];
+  for (const term of terms) {
+    out.push({ term: { id: term.id, name: term.name }, status: await computeOnboardingForTerm(personId, term, exempt) });
+  }
+  return out;
 });

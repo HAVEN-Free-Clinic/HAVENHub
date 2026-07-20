@@ -7,8 +7,8 @@ import { getPersonTerms } from "@/platform/terms/person-terms";
 import { effectiveComplianceStatus } from "@/platform/compliance/rules";
 import { listMyCertificates } from "@/modules/my-info/services/my-info";
 import { requiredTrainingTracks, resolveTrainingProgress } from "@/modules/recruitment/services/training";
-import { getMyCourses } from "@/modules/learning/services/enrollment";
-import { getMyEhsStatus } from "@/platform/ehs/services/my-ehs";
+import { getMyCourses, type MyCourseRow } from "@/modules/learning/services/enrollment";
+import { getMyEhsStatus, type MyEhsItem } from "@/platform/ehs/services/my-ehs";
 import {
   deriveProfileTaskState,
   deriveHipaaTaskState,
@@ -56,15 +56,28 @@ type Entry = { task: OnboardingTask; order: number };
  * The step list, labels, descriptions, blocking flags, and order come from the
  * term's effective onboarding-step config (built-in defaults merged with any
  * per-term overrides). A step whose config is disabled is dropped entirely.
+ *
+ * `isLiveTerm` must be true only for the globally-active term. `learning`
+ * (getMyCourses) and `ehs` (getMyEhsStatus) both resolve the active term
+ * INTERNALLY rather than accepting `term`, so they cannot yet be scoped to an
+ * arbitrary (e.g. next/PLANNING) term. Making them genuinely term-aware is a
+ * deferred follow-up; until then those two tasks are only computed and shown
+ * for the live-term entry, and omitted entirely elsewhere rather than risk
+ * silently showing the live term's data under a different term's heading.
  */
-export async function computeOnboardingForTerm(personId: string, term: Term, exempt: boolean): Promise<OnboardingStatus> {
-  const [person, certs, courses, tracks, ehsItems, steps] = await Promise.all([
+export async function computeOnboardingForTerm(
+  personId: string,
+  term: Term,
+  exempt: boolean,
+  isLiveTerm: boolean,
+): Promise<OnboardingStatus> {
+  const [person, certs, tracks, steps, courses, ehsItems] = await Promise.all([
     prisma.person.findUniqueOrThrow({ where: { id: personId }, select: { contactEmail: true, phone: true } }),
     listMyCertificates(personId),
-    getMyCourses(personId),
     requiredTrainingTracks(personId, term.id),
-    getMyEhsStatus(personId),
     loadEffectiveSteps(term.id),
+    isLiveTerm ? getMyCourses(personId) : Promise.resolve<MyCourseRow[]>([]),
+    isLiveTerm ? getMyEhsStatus(personId) : Promise.resolve<MyEhsItem[]>([]),
   ]);
 
   // Build one entry per applicable, enabled step, carrying its (possibly
@@ -104,8 +117,11 @@ export async function computeOnboardingForTerm(personId: string, term: Term, exe
     // agree. See effectiveComplianceStatus.
     buildTask("hipaa", deriveHipaaTaskState(effectiveComplianceStatus(certs, term.endDate))),
     ...trainingEntries,
-    buildTask("learning", deriveLearningTaskState(courses)),
-    buildTask("ehs", deriveEhsTaskState(ehsItems)),
+    // learning/ehs are active-term-scoped internally (see doc comment above); only
+    // include them for the live-term entry.
+    ...(isLiveTerm
+      ? [buildTask("learning", deriveLearningTaskState(courses)), buildTask("ehs", deriveEhsTaskState(ehsItems))]
+      : []),
   ].filter((e): e is Entry => e !== null);
 
   entries.sort((a, b) => a.order - b.order);
@@ -133,7 +149,7 @@ export const getOnboardingStatus = cache(async function getOnboardingStatus(
     return { hasActiveTerm: false, exempt, tasks: [], completedCount: 0, totalCount: 0, onboarded: true, cleared: true };
   }
 
-  return computeOnboardingForTerm(personId, term, exempt);
+  return computeOnboardingForTerm(personId, term, exempt, true);
 });
 
 export type TermOnboarding = { term: { id: string; name: string }; status: OnboardingStatus };
@@ -141,10 +157,11 @@ export type TermOnboarding = { term: { id: string; name: string }; status: Onboa
 /** The merged onboarding checklist across every term the member belongs to (live first). */
 export const getMyOnboarding = cache(async function getMyOnboarding(personId: string): Promise<TermOnboarding[]> {
   const exempt = await can(personId, EXEMPT_PERMISSION);
-  const terms = await getPersonTerms(personId);
+  const [live, terms] = await Promise.all([getActiveTerm(), getPersonTerms(personId)]);
   const out: TermOnboarding[] = [];
   for (const term of terms) {
-    out.push({ term: { id: term.id, name: term.name }, status: await computeOnboardingForTerm(personId, term, exempt) });
+    const status = await computeOnboardingForTerm(personId, term, exempt, term.id === live?.id);
+    out.push({ term: { id: term.id, name: term.name }, status });
   }
   return out;
 });

@@ -77,3 +77,19 @@ it("a next-term-only recruit is not gated (live gate empty) but sees next-term o
   expect(mine.map((m) => m.term.name)).toEqual(["Fall"]);
   expect(mine[0].status.onboarded).toBe(false); // their Fall training is still outstanding
 });
+
+it("getMyOnboarding shows learning/EHS tasks only on the live-term entry", async () => {
+  const { vol } = await seed();
+  const mine = await getMyOnboarding(vol.id);
+  const [liveEntry, nextEntry] = mine;
+  expect(liveEntry.term.name).toBe("Summer");
+  expect(nextEntry.term.name).toBe("Fall");
+
+  // getMyCourses/getMyEhsStatus resolve the globally-active term internally, so they
+  // can only be trusted for the live entry; the next (PLANNING) entry must omit them
+  // entirely rather than silently show the live term's data under the wrong heading.
+  expect(liveEntry.status.tasks.some((t) => t.key === "learning")).toBe(true);
+  expect(liveEntry.status.tasks.some((t) => t.key === "ehs")).toBe(true);
+  expect(nextEntry.status.tasks.some((t) => t.key === "learning")).toBe(false);
+  expect(nextEntry.status.tasks.some((t) => t.key === "ehs")).toBe(false);
+});

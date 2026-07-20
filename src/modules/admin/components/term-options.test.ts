@@ -38,4 +38,16 @@ describe("buildTermOptions", () => {
       { value: "c", label: "FA26 (not yet active)" },
     ]);
   });
+
+  it("omits archived terms by default (unchanged behavior)", () => {
+    const opts = buildTermOptions([term("1", "SU26", "ACTIVE"), term("2", "SP26", "ARCHIVED")]);
+    expect(opts.map((o) => o.value)).toEqual(["", "1"]); // Global + active only
+  });
+
+  it("includes archived terms, labeled, when asked", () => {
+    const opts = buildTermOptions([term("1", "SU26", "ACTIVE"), term("2", "SP26", "ARCHIVED")], {
+      includeArchived: true,
+    });
+    expect(opts.find((o) => o.value === "2")?.label).toBe("SP26 (archived)");
+  });
 });

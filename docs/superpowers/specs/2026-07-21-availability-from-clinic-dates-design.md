@@ -99,10 +99,22 @@ to its include and pipes sections through the resolver:
 
 | Site | Purpose |
 | --- | --- |
-| `src/app/apply/[slug]/page.tsx:18` | applicant render |
-| `src/modules/recruitment/services/drafts.ts:57` | draft restore |
-| `src/modules/recruitment/services/submissions.ts:95` | validate and submit |
+| `src/app/apply/[slug]/page.tsx:17` | applicant render |
+| `src/modules/recruitment/services/submissions.ts:94` (`submitApplication`) | validate and submit |
 | `src/modules/recruitment/services/cycles.ts:98` (`getCycle`) | form builder and ApplyPreview |
+| `src/modules/recruitment/services/submissions.ts:447` (`getApplication`) | reviewer display, via `loadReviewApplication` |
+
+Two notes on that inventory, both corrections to an earlier draft of this spec.
+`drafts.ts` is **not** a form loader: its `findRow` selects only
+`{ id, status, opensAt, closesAt }` and it never touches sections, fields, or
+options, so it needs no change.
+
+`getApplication` feeds the reviewer's view of a *submitted* application through
+`loadReviewApplication` (`services/speed-score.ts:41`). Resolving there is
+correct rather than merely harmless: `labelFor` falls back to the raw stored
+value when an option is missing (`speed-score.ts:35`), so a date the admin
+removed after submission degrades to "2026-06-13" instead of crashing, while
+every date still on the calendar renders its proper label.
 
 Resolution reads the cycle's own term via `cycle.termId`, never
 `getActiveTerm()`. Recruitment cycles routinely run against a `PLANNING` term

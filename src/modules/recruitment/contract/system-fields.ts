@@ -1,5 +1,7 @@
 import type { Track } from "@prisma/client";
 import type { ContractLayout } from "./layout";
+import type { TemplateOption } from "../templates/types";
+import { GRAD_YEAR, YALE_AFFILIATION } from "../templates/content/options";
 
 export const SYSTEM_FIELD_KEYS = [
   "name", "email", "netId", "phone", "dob", "dietary", "yaleAffiliation",
@@ -7,7 +9,7 @@ export const SYSTEM_FIELD_KEYS = [
 ] as const;
 
 export type SystemRenderKind =
-  | "text" | "email" | "tel" | "date" | "checkbox" | "epicBlock" | "hipaaBlock";
+  | "text" | "email" | "tel" | "date" | "select" | "checkbox" | "epicBlock" | "hipaaBlock";
 
 export type SystemFieldSpec = {
   key: (typeof SYSTEM_FIELD_KEYS)[number];
@@ -15,6 +17,8 @@ export type SystemFieldSpec = {
   defaultLabel: string;
   render: SystemRenderKind;
   columns: string[];
+  /** Choice list for `render: "select"`. Values are machine keys; labels are applicant-facing. */
+  options?: TemplateOption[];
 };
 
 export const SYSTEM_FIELDS: Record<(typeof SYSTEM_FIELD_KEYS)[number], SystemFieldSpec> = {
@@ -24,8 +28,8 @@ export const SYSTEM_FIELDS: Record<(typeof SYSTEM_FIELD_KEYS)[number], SystemFie
   phone:           { key: "phone", core: false, defaultLabel: "Phone", render: "tel", columns: ["phone"] },
   dob:             { key: "dob", core: false, defaultLabel: "Date of birth", render: "date", columns: ["dateOfBirth"] },
   dietary:         { key: "dietary", core: false, defaultLabel: "Dietary restrictions", render: "text", columns: ["dietaryRestrictions"] },
-  yaleAffiliation: { key: "yaleAffiliation", core: false, defaultLabel: "Yale affiliation", render: "text", columns: ["yaleAffiliation"] },
-  gradYear:        { key: "gradYear", core: false, defaultLabel: "Graduation year", render: "text", columns: ["gradYear"] },
+  yaleAffiliation: { key: "yaleAffiliation", core: false, defaultLabel: "Yale affiliation", render: "select", columns: ["yaleAffiliation"], options: YALE_AFFILIATION },
+  gradYear:        { key: "gradYear", core: false, defaultLabel: "Graduation year", render: "select", columns: ["gradYear"], options: GRAD_YEAR },
   epic:            { key: "epic", core: true, defaultLabel: "Epic access", render: "epicBlock", columns: ["epicNeeded", "hasEpic", "existingEpicId", "epicAccessType", "worksWithYnhh"] },
   spanish:         { key: "spanish", core: false, defaultLabel: "I can speak Spanish with patients", render: "checkbox", columns: ["spanishSelfReported"] },
   licensedRN:      { key: "licensedRN", core: false, defaultLabel: "I am a licensed RN", render: "checkbox", columns: ["licensedRN"] },
@@ -56,6 +60,24 @@ export const DEFAULT_CONTRACT_LAYOUT: ContractLayout = {
     { kind: "system_field", systemKey: "hipaa" },
   ],
 };
+
+/**
+ * Choice list to render for a system field, or `[]` if it isn't a choice list.
+ *
+ * `Person.yaleAffiliation` accumulated three vocabularies over time (recruitment
+ * machine keys, the human strings /my-info writes, and Airtable imports), so a
+ * stored value that isn't in the canonical list is prepended as its own option
+ * rather than dropped, since otherwise re-saving the contract would erase it.
+ */
+export function systemFieldOptions(
+  key: (typeof SYSTEM_FIELD_KEYS)[number],
+  currentValue: string | undefined,
+): TemplateOption[] {
+  const options = SYSTEM_FIELDS[key].options;
+  if (!options) return [];
+  if (!currentValue || options.some((o) => o.value === currentValue)) return options;
+  return [{ value: currentValue, label: currentValue }, ...options];
+}
 
 export function defaultContractLayout(track: Track): ContractLayout {
   if (track === "VOLUNTEER") return DEFAULT_CONTRACT_LAYOUT;

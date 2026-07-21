@@ -1,6 +1,41 @@
 import { describe, it, expect } from "vitest";
-import { SYSTEM_FIELDS, DEFAULT_CONTRACT_LAYOUT, defaultContractLayout } from "./system-fields";
+import { SYSTEM_FIELDS, DEFAULT_CONTRACT_LAYOUT, defaultContractLayout, systemFieldOptions } from "./system-fields";
 import { parseContractLayout, type AgreementBlock, type SystemFieldBlock } from "./layout";
+
+describe("systemFieldOptions", () => {
+  it("renders yaleAffiliation as a choice list, not free text", () => {
+    expect(SYSTEM_FIELDS.yaleAffiliation.render).toBe("select");
+    expect(SYSTEM_FIELDS.gradYear.render).toBe("select");
+  });
+
+  it("gives every affiliation key a human label", () => {
+    const opts = systemFieldOptions("yaleAffiliation", "other_yale");
+    expect(opts.find((o) => o.value === "other_yale")?.label).toBe("Other Yale Affiliation");
+    expect(opts.find((o) => o.value === "ysm_md")?.label).toBe("Yale School of Medicine (YSM), MD or MD/PhD");
+  });
+
+  it("leaves the canonical list untouched for a known value", () => {
+    expect(systemFieldOptions("yaleAffiliation", "staff")).toHaveLength(13);
+  });
+
+  it("leaves the canonical list untouched when there is no stored value", () => {
+    expect(systemFieldOptions("yaleAffiliation", "")).toHaveLength(13);
+    expect(systemFieldOptions("yaleAffiliation", undefined)).toHaveLength(13);
+  });
+
+  // Person.yaleAffiliation holds a mix of vocabularies (recruitment machine keys,
+  // /my-info human strings, Airtable imports). An unrecognised stored value must
+  // survive a round-trip through the form rather than being silently reset.
+  it("preserves a stored value that is not in the canonical list", () => {
+    const opts = systemFieldOptions("yaleAffiliation", "Yale School of Medicine");
+    expect(opts).toHaveLength(14);
+    expect(opts[0]).toEqual({ value: "Yale School of Medicine", label: "Yale School of Medicine" });
+  });
+
+  it("returns no options for a field that is not a choice list", () => {
+    expect(systemFieldOptions("netId", "abc123")).toEqual([]);
+  });
+});
 
 describe("system fields + default layout", () => {
   it("marks name, email, epic, hipaa as core", () => {

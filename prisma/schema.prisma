@@ -1,5 +1,5 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
   // "native" covers local dev + CI (Debian). "rhel-openssl-3.0.x" is the Vercel
   // Lambda runtime: required because preview deployments are built in GitHub
   // Actions (Debian) and shipped with `vercel deploy --prebuilt`, so the query
@@ -99,57 +99,57 @@ enum StrikeDecision {
 }
 
 model Person {
-  id                        String               @id @default(cuid())
-  netId                     String?              @unique
-  entraObjectId             String?              @unique
-  name                      String
-  contactEmail              String?              @unique
-  phone                     String?
-  epicId                    String?
-  yaleAffiliation           String?
+  id                             String                     @id @default(cuid())
+  netId                          String?                    @unique
+  entraObjectId                  String?                    @unique
+  name                           String
+  contactEmail                   String?                    @unique
+  phone                          String?
+  epicId                         String?
+  yaleAffiliation                String?
   /// Date of birth, carried from the onboarding contract at promotion (used for
   /// records + YNHH Epic identity). Date-only value; stored at UTC midnight.
-  dateOfBirth               DateTime?
+  dateOfBirth                    DateTime?
   /// Dietary restrictions/allergies for in-person events (orientation, training),
   /// carried from onboarding and member-editable via /my-info.
-  dietaryRestrictions       String?
+  dietaryRestrictions            String?
   /// UI appearance preference: null = use the app default (ui.defaultTheme).
   /// One of "light" | "dark" | "system". Stored as a string (not an enum) to
   /// match the settings registry's string select and avoid a Prisma enum migration.
-  themePreference           String?
-  gradYear                  String?
-  status                    PersonStatus         @default(ACTIVE)
+  themePreference                String?
+  gradYear                       String?
+  status                         PersonStatus               @default(ACTIVE)
   /// Airtable record id this person was imported from. Retained for the
   /// read-only Airtable import scripts (see scripts/import-*.ts); the outbound
   /// mirror that also used it has been removed.
-  airtableRecordId          String?              @unique
-  memberships               TermMembership[]
-  roleAssignments           RoleAssignment[]
-  hipaaCertificates         HipaaCertificate[]
+  airtableRecordId               String?                    @unique
+  memberships                    TermMembership[]
+  roleAssignments                RoleAssignment[]
+  hipaaCertificates              HipaaCertificate[]
   /// Offboard flags where this person is the subject.
-  offboardFlags             OffboardFlag[]       @relation("offboardFlagPerson")
+  offboardFlags                  OffboardFlag[]             @relation("offboardFlagPerson")
   /// Offboard flags this person issued (as the flagger).
-  offboardFlagsIssued       OffboardFlag[]       @relation("offboardFlagFlaggedBy")
+  offboardFlagsIssued            OffboardFlag[]             @relation("offboardFlagFlaggedBy")
   /// EPIC access requests where this person is the subject.
-  epicRequests              EpicRequest[]        @relation("epicRequestPerson")
+  epicRequests                   EpicRequest[]              @relation("epicRequestPerson")
   /// EPIC access requests this person submitted on behalf of another.
-  epicRequestsSubmitted     EpicRequest[]        @relation("epicRequestRequestedBy")
+  epicRequestsSubmitted          EpicRequest[]              @relation("epicRequestRequestedBy")
   /// YNHH tickets this person submitted.
-  ynhhTicketsSubmitted      YnhhTicket[]         @relation("ynhhTicketSubmittedBy")
+  ynhhTicketsSubmitted           YnhhTicket[]               @relation("ynhhTicketSubmittedBy")
   /// One-off YNHH incidents that concern this person.
-  ynhhTicketsAbout          YnhhTicket[]         @relation("ynhhTicketPerson")
+  ynhhTicketsAbout               YnhhTicket[]               @relation("ynhhTicketPerson")
   /// IT Support tickets this person submitted.
-  techRequests         TechRequest[]           @relation("techRequestRequester")
+  techRequests                   TechRequest[]              @relation("techRequestRequester")
   /// IT Support tickets assigned to this person to work.
-  assignedTechRequests TechRequest[]           @relation("techRequestAssignee")
+  assignedTechRequests           TechRequest[]              @relation("techRequestAssignee")
   /// Comments this person authored on IT Support tickets.
-  techRequestComments  TechRequestComment[]    @relation("techRequestCommentAuthor")
+  techRequestComments            TechRequestComment[]       @relation("techRequestCommentAuthor")
   /// Files this person uploaded to IT Support tickets or comments.
-  techRequestUploads   TechRequestAttachment[] @relation("techRequestUploader")
+  techRequestUploads             TechRequestAttachment[]    @relation("techRequestUploader")
   /// Disciplinary actions recorded against this person.
-  disciplinaryActions       DisciplinaryAction[] @relation("disciplinaryActionPerson")
+  disciplinaryActions            DisciplinaryAction[]       @relation("disciplinaryActionPerson")
   /// Disciplinary actions this person issued.
-  disciplinaryActionsIssued DisciplinaryAction[] @relation("disciplinaryActionIssuedBy")
+  disciplinaryActionsIssued      DisciplinaryAction[]       @relation("disciplinaryActionIssuedBy")
   /// Incident reports this person filed.
   incidentReportsFiled           IncidentReport[]           @relation("incidentReportReporter")
   /// Incident reports naming this person as a subject.
@@ -161,55 +161,56 @@ model Person {
   /// Incident-report attachments this person uploaded.
   incidentAttachmentsUploaded    IncidentReportAttachment[] @relation("incidentAttachmentUploadedBy")
   /// Email log rows addressed to or triggered by this person.
-  emailLogs                 EmailLog[]           @relation("emailLogPerson")
+  emailLogs                      EmailLog[]                 @relation("emailLogPerson")
   /// Email log rows this person triggered (may differ from the recipient).
-  emailLogsTriggered        EmailLog[]           @relation("emailLogTriggeredBy")
-  emailTemplatesUpdated                 EmailTemplate[]         @relation("emailTemplateUpdatedBy")
-  emailSenderRules                      EmailSenderRule[]       @relation("emailSenderRuleUpdatedBy")
-  recruitmentCycleEmailsUpdated         RecruitmentCycleEmail[] @relation("recruitmentCycleEmailUpdatedBy")
-  campaignsCreated          EmailCampaign[]      @relation("campaignCreatedBy")
-  complianceReminder        ComplianceReminder?
-  teamsMessages             TeamsMessage[]       @relation("teamsMessagePerson")
-  notifications             Notification[]       @relation("personNotifications")
-  shiftAssignments          ShiftAssignment[]
-  recruitmentCyclesCreated  RecruitmentCycle[]   @relation("RecruitmentCycleCreatedBy")
-  recruitmentAcceptances    Acceptance[]         @relation("recruitmentAcceptanceApprover")
-  applicantSubmissions      Applicant[]          @relation("ApplicantPerson")
-  contractsPromoted         OnboardingContract[] @relation("contractPromotedBy")
-  contractsPromotedTo       OnboardingContract[] @relation("contractPromotedPerson")
-  interviewsCreated         Interview[]          @relation("interviewCreatedBy")
-  interviewsDecided         Interview[]          @relation("interviewDecidedBy")
-  interviewPanels           InterviewPanelist[]  @relation("interviewPanelistPerson")
-  interviewEvaluations      Evaluation[]         @relation("interviewEvaluator")
-  committeeScores           CommitteeScore[]     @relation("committeeScoreScorer")
-  trainings                Training[]  @relation("trainingPerson")
-  trainingAttendanceMarked Training[]  @relation("trainingAttendanceRecorder")
-  subcommitteeAssignments  Application[] @relation("applicationSubcommitteeAssigner")
-  applicationsRouted       Application[] @relation("applicationRoutedBy")
-  applicationsDecided      Application[] @relation("applicationDecidedBy")
-  courseProgress            CourseProgress[]
-  scoProgress               ScoProgress[]
-  addedToEhs           Boolean         @default(false)
-  ehsCompletions       EhsCompletion[] @relation("ehsCompletionPerson")
-  ehsCompletionsMarked EhsCompletion[] @relation("ehsCompletionMarkedBy")
+  emailLogsTriggered             EmailLog[]                 @relation("emailLogTriggeredBy")
+  emailTemplatesUpdated          EmailTemplate[]            @relation("emailTemplateUpdatedBy")
+  emailSenderRules               EmailSenderRule[]          @relation("emailSenderRuleUpdatedBy")
+  recruitmentCycleEmailsUpdated  RecruitmentCycleEmail[]    @relation("recruitmentCycleEmailUpdatedBy")
+  campaignsCreated               EmailCampaign[]            @relation("campaignCreatedBy")
+  complianceReminder             ComplianceReminder?
+  teamsMessages                  TeamsMessage[]             @relation("teamsMessagePerson")
+  notifications                  Notification[]             @relation("personNotifications")
+  shiftAssignments               ShiftAssignment[]
+  schedulePublications           SchedulePublication[]      @relation("schedulePublishedBy")
+  recruitmentCyclesCreated       RecruitmentCycle[]         @relation("RecruitmentCycleCreatedBy")
+  recruitmentAcceptances         Acceptance[]               @relation("recruitmentAcceptanceApprover")
+  applicantSubmissions           Applicant[]                @relation("ApplicantPerson")
+  contractsPromoted              OnboardingContract[]       @relation("contractPromotedBy")
+  contractsPromotedTo            OnboardingContract[]       @relation("contractPromotedPerson")
+  interviewsCreated              Interview[]                @relation("interviewCreatedBy")
+  interviewsDecided              Interview[]                @relation("interviewDecidedBy")
+  interviewPanels                InterviewPanelist[]        @relation("interviewPanelistPerson")
+  interviewEvaluations           Evaluation[]               @relation("interviewEvaluator")
+  committeeScores                CommitteeScore[]           @relation("committeeScoreScorer")
+  trainings                      Training[]                 @relation("trainingPerson")
+  trainingAttendanceMarked       Training[]                 @relation("trainingAttendanceRecorder")
+  subcommitteeAssignments        Application[]              @relation("applicationSubcommitteeAssigner")
+  applicationsRouted             Application[]              @relation("applicationRoutedBy")
+  applicationsDecided            Application[]              @relation("applicationDecidedBy")
+  courseProgress                 CourseProgress[]
+  scoProgress                    ScoProgress[]
+  addedToEhs                     Boolean                    @default(false)
+  ehsCompletions                 EhsCompletion[]            @relation("ehsCompletionPerson")
+  ehsCompletionsMarked           EhsCompletion[]            @relation("ehsCompletionMarkedBy")
   /// Shift requests this person raised.
-  shiftRequests             ShiftRequest[]       @relation("shiftRequestRequester")
+  shiftRequests                  ShiftRequest[]             @relation("shiftRequestRequester")
   /// Shift requests targeting this person as the swap partner.
-  shiftRequestsTargeted     ShiftRequest[]       @relation("shiftRequestTarget")
+  shiftRequestsTargeted          ShiftRequest[]             @relation("shiftRequestTarget")
   /// Shift requests this person decided (approved or denied).
-  shiftRequestsDecided      ShiftRequest[]       @relation("shiftRequestDecidedBy")
+  shiftRequestsDecided           ShiftRequest[]             @relation("shiftRequestDecidedBy")
   /// Self-reported at onboarding (or set by an admin). Intake signal only; does NOT gate scheduling.
-  spanishSelfReported       Boolean              @default(false)
+  spanishSelfReported            Boolean                    @default(false)
   /// Interpreting-department-confirmed Spanish capability. Gates clinical scheduling.
-  spanishVerified           Boolean              @default(false)
+  spanishVerified                Boolean                    @default(false)
   /// When the interpreting department (or an admin override) recorded the verification. Null = never assessed.
-  spanishVerifiedAt         DateTime?
+  spanishVerifiedAt              DateTime?
   /// Verifier's Person id. Bare id (no FK), mirroring HipaaCertificate.verifiedById.
-  spanishVerifiedById       String?
+  spanishVerifiedById            String?
   /// Self-reported RN licensure. No verification workflow.
-  licensedRN                Boolean              @default(false)
-  createdAt                 DateTime             @default(now())
-  updatedAt                 DateTime             @updatedAt
+  licensedRN                     Boolean                    @default(false)
+  createdAt                      DateTime                   @default(now())
+  updatedAt                      DateTime                   @updatedAt
 }
 
 /// Uploaded HIPAA training certificates. One row per upload.
@@ -236,26 +237,27 @@ model HipaaCertificate {
 }
 
 model Term {
-  id                 String              @id @default(cuid())
-  code               String              @unique // "SU26", "FA26"
-  name               String // "Summer 2026"
-  startDate          DateTime
-  endDate            DateTime
-  status             TermStatus          @default(PLANNING)
-  clinicDates        DateTime[]
-  memberships        TermMembership[]
-  roleAssignments    RoleAssignment[]
+  id                   String                @id @default(cuid())
+  code                 String                @unique // "SU26", "FA26"
+  name                 String // "Summer 2026"
+  startDate            DateTime
+  endDate              DateTime
+  status               TermStatus            @default(PLANNING)
+  clinicDates          DateTime[]
+  memberships          TermMembership[]
+  roleAssignments      RoleAssignment[]
   /// Offboard flags raised for this term.
-  offboardFlags      OffboardFlag[]
-  shiftAssignments   ShiftAssignment[]
-  shiftRequests      ShiftRequest[]
-  scheduleDays       ScheduleDay[]
-  rhdClinics         RhdClinic[]
-  recruitmentCycles  RecruitmentCycle[]
-  trainings Training[]
-  onboardingSteps    TermOnboardingStep[]
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
+  offboardFlags        OffboardFlag[]
+  shiftAssignments     ShiftAssignment[]
+  shiftRequests        ShiftRequest[]
+  scheduleDays         ScheduleDay[]
+  rhdClinics           RhdClinic[]
+  schedulePublications SchedulePublication[]
+  recruitmentCycles    RecruitmentCycle[]
+  trainings            Training[]
+  onboardingSteps      TermOnboardingStep[]
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
 }
 
 /// Per-term override of the onboarding checklist. A missing row for a given kind
@@ -284,27 +286,28 @@ model TermOnboardingStep {
 }
 
 model Department {
-  id                         String                 @id @default(cuid())
-  code                       String                 @unique // "ITCM", "EXEC", "SRR", ...
+  id                         String                  @id @default(cuid())
+  code                       String                  @unique // "ITCM", "EXEC", "SRR", ...
   name                       String
-  isActive                   Boolean                @default(true)
+  isActive                   Boolean                 @default(true)
   memberships                TermMembership[]
   roleAssignments            RoleAssignment[]
   /// Delegations where this department is the MANAGER (it manages the listed departments).
-  managesDelegations         DepartmentDelegation[] @relation("delegationManager")
+  managesDelegations         DepartmentDelegation[]  @relation("delegationManager")
   /// Delegations where this department is MANAGED BY another department.
-  managedByDelegations       DepartmentDelegation[] @relation("delegationManaged")
+  managedByDelegations       DepartmentDelegation[]  @relation("delegationManaged")
   shiftAssignments           ShiftAssignment[]
   shiftRequests              ShiftRequest[]
   scheduleDays               ScheduleDay[]
+  schedulePublications       SchedulePublication[]
   courseDepartments          CourseDepartment[]
   ehsTrainingDepartments     EhsTrainingDepartment[]
   /// Capacity panel config: imported then admin-maintained.
   idealHeadcount             Int?
   /// Capacity panel config: imported then admin-maintained.
   patientCapacityPerProvider Int?
-  createdAt                  DateTime               @default(now())
-  updatedAt                  DateTime               @updatedAt
+  createdAt                  DateTime                @default(now())
+  updatedAt                  DateTime                @updatedAt
 }
 
 /// Admin-managed subcommittees applicants rank at application time and the
@@ -394,7 +397,7 @@ model RoleGrant {
 /// src/platform/rbac/schema-guards.test.ts. Never resolve a prisma migrate
 /// diff by accepting a DROP of objects you do not recognize.
 model RoleAssignment {
-  id           String          @id @default(cuid())
+  id           String      @id @default(cuid())
   roleId       String
   personId     String?
   departmentId String?
@@ -592,24 +595,24 @@ model EpicRequest {
 /// A service request ticket opened with YNHH IT, grouping one or more EPIC
 /// access requests. Rows are kept for audit purposes even after the ticket closes.
 model YnhhTicket {
-  id                   String           @id @default(cuid())
+  id                   String                  @id @default(cuid())
   serviceRequestNumber String?
   description          String?
   /// One-off incident subject. Set for standalone YNHH incidents logged directly (not Epic batches).
   subject              String?
   /// Resolution notes captured when a one-off incident is resolved.
   resolution           String?
-  status               YnhhTicketStatus @default(OPEN)
+  status               YnhhTicketStatus        @default(OPEN)
   submittedById        String
   personId             String?
-  submittedAt          DateTime         @default(now())
+  submittedAt          DateTime                @default(now())
   closedAt             DateTime?
   /// EPIC requests grouped under this ticket.
   requests             EpicRequest[]
   /// Person who submitted the ticket to YNHH IT. Restrict: any referencing row blocks deletion of this person.
-  submittedBy          Person           @relation("ynhhTicketSubmittedBy", fields: [submittedById], references: [id], onDelete: Restrict)
+  submittedBy          Person                  @relation("ynhhTicketSubmittedBy", fields: [submittedById], references: [id], onDelete: Restrict)
   /// Optional person a one-off YNHH incident concerns. SetNull: keep the log entry if the person is deleted.
-  person               Person?          @relation("ynhhTicketPerson", fields: [personId], references: [id], onDelete: SetNull)
+  person               Person?                 @relation("ynhhTicketPerson", fields: [personId], references: [id], onDelete: SetNull)
   /// Files attached to a one-off YNHH incident.
   attachments          TechRequestAttachment[]
 }
@@ -672,9 +675,9 @@ model TechRequest {
   updatedAt     DateTime            @updatedAt
 
   /// Subject of the request. Cascade: tickets belong to the requester.
-  requester   Person       @relation("techRequestRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  requester    Person        @relation("techRequestRequester", fields: [requesterId], references: [id], onDelete: Cascade)
   /// Manager assigned to work the ticket. Restrict: an assigned person cannot be deleted out from under open work.
-  assignedTo  Person?      @relation("techRequestAssignee", fields: [assignedToId], references: [id], onDelete: Restrict)
+  assignedTo   Person?       @relation("techRequestAssignee", fields: [assignedToId], references: [id], onDelete: Restrict)
   /// Epic access requests attached to this ticket (0..n). See EpicRequest.techRequestId.
   epicRequests EpicRequest[] @relation("techRequestEpic")
 
@@ -734,7 +737,7 @@ model TechRequestAttachment {
 /// Cascade-deleted with the person (the subject); issuer uses Restrict so a
 /// director cannot be deleted while they have issued actions.
 model DisciplinaryAction {
-  id              String   @id @default(cuid())
+  id              String          @id @default(cuid())
   personId        String
   issuedById      String
   occurredAt      DateTime
@@ -743,19 +746,19 @@ model DisciplinaryAction {
   followUpActions String?
   policyReference String?
   notes           String?
-  confidential    Boolean  @default(false)
-  patientInvolved Boolean  @default(false)
-  createdAt       DateTime @default(now())
+  confidential    Boolean         @default(false)
+  patientInvolved Boolean         @default(false)
+  createdAt       DateTime        @default(now())
   /// When this strike was issued by approving an incident report's strike request.
   reportId        String?
   report          IncidentReport? @relation("incidentReportStrikeAction", fields: [reportId], references: [id], onDelete: SetNull)
   /// Subject of the action. Cascade: records belong to the person.
-  person          Person   @relation("disciplinaryActionPerson", fields: [personId], references: [id], onDelete: Cascade)
+  person          Person          @relation("disciplinaryActionPerson", fields: [personId], references: [id], onDelete: Cascade)
   /// Person who issued the action. Restrict: the issuer should not be deleted while records exist.
-  issuedBy        Person   @relation("disciplinaryActionIssuedBy", fields: [issuedById], references: [id], onDelete: Restrict)
+  issuedBy        Person          @relation("disciplinaryActionIssuedBy", fields: [issuedById], references: [id], onDelete: Restrict)
 
-  @@index([personId])
   @@unique([reportId, personId])
+  @@index([personId])
 }
 
 /// A Professional Standards Incident Report. Any signed-in person may file one
@@ -763,31 +766,31 @@ model DisciplinaryAction {
 /// about a volunteer they manage may request a strike, which a reviewer approves
 /// (issuing a linked DisciplinaryAction) or declines.
 model IncidentReport {
-  id                    String               @id @default(cuid())
-  number                Int                  @unique @default(autoincrement())
+  id                    String                     @id @default(cuid())
+  number                Int                        @unique @default(autoincrement())
   reporterId            String
-  anonymous             Boolean              @default(false)
-  concernTypes          String[]             @default([])
-  description           String               @db.Text
+  anonymous             Boolean                    @default(false)
+  concernTypes          String[]                   @default([])
+  description           String                     @db.Text
   occurredAt            DateTime?
   setting               String?
   subjectDescription    String?
   patientImpact         PatientImpact?
   patientImpactDetail   String?
-  immediateRisk         Boolean              @default(false)
+  immediateRisk         Boolean                    @default(false)
   issueNature           IssueNature?
   priorOccurrence       PriorOccurrence?
   priorOccurrenceDetail String?
-  status                IncidentReportStatus @default(SUBMITTED)
-  reviewNotes           String?              @db.Text
+  status                IncidentReportStatus       @default(SUBMITTED)
+  reviewNotes           String?                    @db.Text
   resolvedById          String?
   resolvedAt            DateTime?
-  createdAt             DateTime             @default(now())
-  updatedAt             DateTime             @updatedAt
+  createdAt             DateTime                   @default(now())
+  updatedAt             DateTime                   @updatedAt
   /// The person who filed the report. Restrict: the reporter is load-bearing for the record.
-  reporter              Person               @relation("incidentReportReporter", fields: [reporterId], references: [id], onDelete: Restrict)
+  reporter              Person                     @relation("incidentReportReporter", fields: [reporterId], references: [id], onDelete: Restrict)
   /// The reviewer who resolved or dismissed the report.
-  resolvedBy            Person?              @relation("incidentReportResolvedBy", fields: [resolvedById], references: [id], onDelete: Restrict)
+  resolvedBy            Person?                    @relation("incidentReportResolvedBy", fields: [resolvedById], references: [id], onDelete: Restrict)
   attachments           IncidentReportAttachment[]
   subjects              IncidentReportSubject[]
   strikeActions         DisciplinaryAction[]       @relation("incidentReportStrikeAction")
@@ -1012,34 +1015,34 @@ model MailCredential {
 /// email cron alongside the email queue. Carries the email fallback payload so a
 /// permanently-failed Teams send degrades to email without re-involving the caller.
 model TeamsMessage {
-  id              String             @id @default(cuid())
+  id                 String             @id @default(cuid())
   /// Recipient person. Teams messages are always person-addressed.
-  personId        String
+  personId           String
   /// Notification type key from the notification registry (e.g. "compliance-reminder").
-  type            String
-  title           String
-  summary         String
-  link            String?
+  type               String
+  title              String
+  summary            String
+  link               String?
   /// Rendered HTML body posted to the Teams chat.
-  bodyHtml        String
+  bodyHtml           String
   /// Cached 1:1 chat id once resolved, so a retry does not re-create the chat.
-  chatId          String?
+  chatId             String?
   /// Email fallback payload, queued if Teams delivery fails permanently.
-  fallbackSubject String
-  fallbackHtml    String
+  fallbackSubject    String
+  fallbackHtml       String
   /// True when notify() already queued this email up front (channel "both"), so
   /// the permanent-failure fallback must skip it rather than double-send (#74).
-  emailAlreadyQueued Boolean    @default(false)
-  status          TeamsMessageStatus @default(QUEUED)
-  attempts        Int                @default(0)
-  lastError       String?
-  sentAt          DateTime?
+  emailAlreadyQueued Boolean            @default(false)
+  status             TeamsMessageStatus @default(QUEUED)
+  attempts           Int                @default(0)
+  lastError          String?
+  sentAt             DateTime?
   /// Per-row send claim: set when a drain worker takes the row, cleared on
   /// completion. Lets overlapping drains avoid double-sending (mirrors EmailLog).
-  lockedAt        DateTime?
-  createdAt       DateTime           @default(now())
+  lockedAt           DateTime?
+  createdAt          DateTime           @default(now())
   /// Cascade: Teams messages do not outlive the person they address.
-  person          Person             @relation("teamsMessagePerson", fields: [personId], references: [id], onDelete: Cascade)
+  person             Person             @relation("teamsMessagePerson", fields: [personId], references: [id], onDelete: Cascade)
 
   @@index([personId])
   @@index([status, createdAt])
@@ -1145,6 +1148,24 @@ model ScheduleDay {
   @@unique([termId, departmentId, clinicDate])
 }
 
+/// A department's schedule for a term, released to members. The row exists iff
+/// that (term, department) schedule is currently published. Publishing gates ONLY
+/// non-live terms: the live (ACTIVE) term is always visible to members with no row.
+model SchedulePublication {
+  id            String   @id @default(cuid())
+  termId        String
+  departmentId  String
+  publishedAt   DateTime @default(now())
+  publishedById String?
+
+  term        Term       @relation(fields: [termId], references: [id], onDelete: Cascade)
+  department  Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  publishedBy Person?    @relation("schedulePublishedBy", fields: [publishedById], references: [id], onDelete: SetNull)
+
+  @@unique([termId, departmentId])
+  @@index([termId])
+}
+
 /// RHD attending physicians and their procedure qualification matrix.
 /// Procedure values are "yes" | "no" | "unknown" strings (legacy semantics).
 model RhdAttending {
@@ -1179,28 +1200,28 @@ model RhdClinic {
 }
 
 model RecruitmentCycle {
-  id              String           @id @default(cuid())
-  track           Track
-  termId          String
-  title           String
-  status          CycleStatus      @default(DRAFT)
-  publicSlug      String           @unique
-  opensAt         DateTime?
-  closesAt        DateTime?
-  departments     String[]
-  acceptsRenewals     Boolean          @default(false)
+  id                  String      @id @default(cuid())
+  track               Track
+  termId              String
+  title               String
+  status              CycleStatus @default(DRAFT)
+  publicSlug          String      @unique
+  opensAt             DateTime?
+  closesAt            DateTime?
+  departments         String[]
+  acceptsRenewals     Boolean     @default(false)
   decisionsReleasedAt DateTime?
-  isTermTraining  Boolean          @default(false)
-  quizPassPercent Int              @default(80)
-  quizMaxAttempts Int              @default(3)
-  routeTopPercent    Int              @default(20)
-  routeBottomPercent Int              @default(30)
-  createdById     String
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
+  isTermTraining      Boolean     @default(false)
+  quizPassPercent     Int         @default(80)
+  quizMaxAttempts     Int         @default(3)
+  routeTopPercent     Int         @default(20)
+  routeBottomPercent  Int         @default(30)
+  createdById         String
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
 
-  term         Term                @relation(fields: [termId], references: [id], onDelete: Restrict)
-  createdBy    Person              @relation("RecruitmentCycleCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  term         Term                      @relation(fields: [termId], references: [id], onDelete: Restrict)
+  createdBy    Person                    @relation("RecruitmentCycleCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   sections     FormSection[]
   fields       FormField[]
   applicants   Applicant[]
@@ -1260,17 +1281,17 @@ model FormField {
 }
 
 model Applicant {
-  id         String   @id @default(cuid())
-  cycleId    String
+  id                String   @id @default(cuid())
+  cycleId           String
   applicantPersonId String?
-  firstName  String
-  lastName   String
-  email      String
+  firstName         String
+  lastName          String
+  email             String
   /// Must equal lower(email); set by the submission service. Backs the (cycleId, emailLower) dedup unique.
-  emailLower String
-  netId      String?
-  phone      String?
-  createdAt  DateTime @default(now())
+  emailLower        String
+  netId             String?
+  phone             String?
+  createdAt         DateTime @default(now())
 
   cycle           RecruitmentCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
   /// Set for signed-in renewals; null for anonymous new applicants. Links the
@@ -1284,46 +1305,46 @@ model Applicant {
 }
 
 model Application {
-  id                String            @id @default(cuid())
-  cycleId           String
-  applicantId       String
-  answers           Json
-  applicantType     ApplicantType     @default(NEW)
-  departmentChoices String[]
-  renewalDepartment String?
+  id                       String            @id @default(cuid())
+  cycleId                  String
+  applicantId              String
+  answers                  Json
+  applicantType            ApplicantType     @default(NEW)
+  departmentChoices        String[]
+  renewalDepartment        String?
   // For a TRANSFER applicant: a snapshot of the department codes they were an
   // active member of at submit time (where they are coming from). Empty for
   // NEW and RENEWAL.
-  transferFromDepartments String[] @default([])
+  transferFromDepartments  String[]          @default([])
   // ordered subcommittee IDs the applicant ranked (1st -> Nth); hoisted from the
   // SUBCOMMITTEE_RANK field answer at submit, like departmentChoices.
   subcommitteeRanking      String[]
   assignedSubcommitteeId   String?
   assignedSubcommitteeById String?
   assignedSubcommitteeAt   DateTime?
-  routedDepartmentCode String?
-  routedById           String?
-  routedAt             DateTime?
+  routedDepartmentCode     String?
+  routedById               String?
+  routedAt                 DateTime?
   // The routed department's decision on a VOLUNTEER application (no interview).
   // Director-track decisions live on Interview.decision instead.
-  decision             InterviewDecision @default(PENDING)
-  decidedById          String?
-  decidedAt            DateTime?
-  decisionNotes        String?
-  status            ApplicationStatus @default(SUBMITTED)
-  submittedAt       DateTime?
-  createdAt         DateTime          @default(now())
-  updatedAt         DateTime          @updatedAt
+  decision                 InterviewDecision @default(PENDING)
+  decidedById              String?
+  decidedAt                DateTime?
+  decisionNotes            String?
+  status                   ApplicationStatus @default(SUBMITTED)
+  submittedAt              DateTime?
+  createdAt                DateTime          @default(now())
+  updatedAt                DateTime          @updatedAt
 
-  cycle       RecruitmentCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
-  applicant   Applicant        @relation(fields: [applicantId], references: [id], onDelete: Cascade)
-  acceptances Acceptance[]
-  interviews  Interview[]
-  committeeScores CommitteeScore[]
-  assignedSubcommittee   Subcommittee? @relation("applicationAssignedSubcommittee", fields: [assignedSubcommitteeId], references: [id], onDelete: SetNull)
-  assignedSubcommitteeBy Person?       @relation("applicationSubcommitteeAssigner", fields: [assignedSubcommitteeById], references: [id], onDelete: SetNull)
-  routedBy    Person? @relation("applicationRoutedBy", fields: [routedById], references: [id], onDelete: SetNull)
-  decidedBy   Person? @relation("applicationDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
+  cycle                  RecruitmentCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  applicant              Applicant        @relation(fields: [applicantId], references: [id], onDelete: Cascade)
+  acceptances            Acceptance[]
+  interviews             Interview[]
+  committeeScores        CommitteeScore[]
+  assignedSubcommittee   Subcommittee?    @relation("applicationAssignedSubcommittee", fields: [assignedSubcommitteeId], references: [id], onDelete: SetNull)
+  assignedSubcommitteeBy Person?          @relation("applicationSubcommitteeAssigner", fields: [assignedSubcommitteeById], references: [id], onDelete: SetNull)
+  routedBy               Person?          @relation("applicationRoutedBy", fields: [routedById], references: [id], onDelete: SetNull)
+  decidedBy              Person?          @relation("applicationDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
 
   @@unique([cycleId, applicantId])
   @@index([cycleId, submittedAt])
@@ -1404,9 +1425,9 @@ model OnboardingContract {
   promotedPersonId         String?
   createdAt                DateTime       @default(now())
   updatedAt                DateTime       @updatedAt
-  templateSnapshot Json?
-  customAnswers    Json?
-  signatures       Json?
+  templateSnapshot         Json?
+  customAnswers            Json?
+  signatures               Json?
 
   acceptance     Acceptance @relation(fields: [acceptanceId], references: [id], onDelete: Cascade)
   promotedBy     Person?    @relation("contractPromotedBy", fields: [promotedById], references: [id], onDelete: SetNull)

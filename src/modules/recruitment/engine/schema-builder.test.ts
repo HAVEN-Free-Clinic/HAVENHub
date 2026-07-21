@@ -152,7 +152,33 @@ describe("NUMBER blank handling", () => {
 
   it("still parses a provided numeric string", () => {
     const r = build(false).safeParse({ years: "3" });
-    expect(r.success && r.data.years).toBe(3);
+    expect(r.success && r.data.years).toBe("3");
+  });
+
+  it("keeps the exact digits of a number too big for a float64", () => {
+    // Parsing to a float64 turned this into 7.555555555555555e+42, which is what
+    // the reviewer and speed-scorer views then rendered.
+    const huge = "7555555555555555555555555555555555555555555";
+    const r = build(false).safeParse({ years: huge });
+    expect(r.success && r.data.years).toBe(huge);
+  });
+
+  it("rejects a non-numeric entry", () => {
+    expect(build(false).safeParse({ years: "abc" }).success).toBe(false);
+  });
+
+  it("still enforces min/max on the numeric value", () => {
+    const secs: SectionDef[] = [
+      {
+        id: "s", appliesTo: "BOTH", departmentCode: null,
+        fields: [{ key: "year", type: "NUMBER", required: true, options: null, validation: { min: 2025, max: 2031 } }],
+      },
+    ];
+    const schema = buildApplicationSchema(secs, { applicantType: "NEW", selectedDepartmentCodes: [] });
+    expect(schema.safeParse({ year: "2024" }).success).toBe(false);
+    expect(schema.safeParse({ year: "2032" }).success).toBe(false);
+    const ok = schema.safeParse({ year: "2027" });
+    expect(ok.success && ok.data.year).toBe("2027");
   });
 });
 

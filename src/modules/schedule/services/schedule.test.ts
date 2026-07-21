@@ -568,7 +568,7 @@ describe("updateMyAvailability", () => {
       new Date(Date.UTC(2026, dates[2].getUTCMonth(), dates[2].getUTCDate(), 0, 0, 0)),
     ];
 
-    await updateMyAvailability(person.id, callerDates);
+    await updateMyAvailability(person.id, { termId: term.id, dates: callerDates });
 
     const updatedA = await prisma.termMembership.findUniqueOrThrow({ where: { id: memA.id } });
     const updatedB = await prisma.termMembership.findUniqueOrThrow({ where: { id: memB.id } });
@@ -624,24 +624,26 @@ describe("updateMyAvailability", () => {
     // A Wednesday that is not a clinic date.
     const badDate = new Date(Date.UTC(2026, 6, 1, 0, 0, 0)); // 2026-07-01
 
-    await expect(updateMyAvailability(person.id, [badDate])).rejects.toThrow("2026-07-01");
-    await expect(updateMyAvailability(person.id, [badDate])).rejects.toBeInstanceOf(
-      AvailabilityValidationError
-    );
+    await expect(
+      updateMyAvailability(person.id, { termId: term.id, dates: [badDate] }),
+    ).rejects.toThrow("2026-07-01");
+    await expect(
+      updateMyAvailability(person.id, { termId: term.id, dates: [badDate] }),
+    ).rejects.toBeInstanceOf(AvailabilityValidationError);
   });
 
   it("rejects with AvailabilityValidationError when person has no active membership in active term", async () => {
     const dates = saturdays("2026-05-30", 2);
-    await createTerm("ACTIVE", "SU26", dates);
+    const term = await createTerm("ACTIVE", "SU26", dates);
     const person = await createPerson("Carol");
     // No membership created.
 
-    await expect(updateMyAvailability(person.id, [dates[0]])).rejects.toBeInstanceOf(
-      AvailabilityValidationError
-    );
-    await expect(updateMyAvailability(person.id, [dates[0]])).rejects.toThrow(
-      "not on the active term roster"
-    );
+    await expect(
+      updateMyAvailability(person.id, { termId: term.id, dates: [dates[0]] }),
+    ).rejects.toBeInstanceOf(AvailabilityValidationError);
+    await expect(
+      updateMyAvailability(person.id, { termId: term.id, dates: [dates[0]] }),
+    ).rejects.toThrow("not on that term's roster");
   });
 
   it("deduplicates: same day passed twice is stored once", async () => {
@@ -655,7 +657,7 @@ describe("updateMyAvailability", () => {
     const midnight = new Date(Date.UTC(2026, dates[0].getUTCMonth(), dates[0].getUTCDate(), 0));
     const noon = new Date(Date.UTC(2026, dates[0].getUTCMonth(), dates[0].getUTCDate(), 12));
 
-    await updateMyAvailability(person.id, [midnight, noon]);
+    await updateMyAvailability(person.id, { termId: term.id, dates: [midnight, noon] });
 
     const updated = await prisma.termMembership.findUniqueOrThrow({ where: { id: mem.id } });
     expect(updated.selfAvailabilityDates).toHaveLength(1);
@@ -672,11 +674,37 @@ describe("updateMyAvailability", () => {
       availabilityAcknowledgedAt: utc(2026, 5, 2),
     });
 
-    await expect(updateMyAvailability(person.id, [])).resolves.toBeUndefined();
+    await expect(
+      updateMyAvailability(person.id, { termId: term.id, dates: [] }),
+    ).resolves.toBeUndefined();
 
     const updated = await prisma.termMembership.findUniqueOrThrow({ where: { id: mem.id } });
     expect(updated.selfAvailabilityDates).toHaveLength(0);
     expect(updated.availabilityUpdatedAt).not.toBeNull();
     expect(updated.availabilityAcknowledgedAt).toBeNull();
+  });
+
+  it("updateMyAvailability writes the passed (next) term while a different term is live", async () => {
+    // live term + next term, member active in BOTH; next term has clinic dates
+    const live = await prisma.term.create({ data: { code: "SU26", name: "Summer", startDate: new Date("2026-05-30"), endDate: new Date("2026-09-26"), status: "ACTIVE", clinicDates: [] } });
+    const nextDates = [new Date(Date.UTC(2026, 8, 5, 12))];
+    const next = await prisma.term.create({ data: { code: "FA26", name: "Fall", startDate: new Date("2026-09-01"), endDate: new Date("2027-01-01"), status: "PLANNING", clinicDates: nextDates } });
+    const dept = await prisma.department.create({ data: { code: "SRHD", name: "SRHD" } });
+    const vol = await prisma.person.create({ data: { name: "Vol", status: "ACTIVE" } });
+    await prisma.termMembership.create({ data: { personId: vol.id, termId: live.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" } });
+    const m = await prisma.termMembership.create({ data: { personId: vol.id, termId: next.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" } });
+
+    await updateMyAvailability(vol.id, { termId: next.id, dates: nextDates });
+    const updated = await prisma.termMembership.findUniqueOrThrow({ where: { id: m.id } });
+    expect(updated.selfAvailabilityDates.map((d) => d.getTime())).toEqual(nextDates.map((d) => d.getTime()));
+    // the live-term membership is untouched
+    const liveM = await prisma.termMembership.findFirstOrThrow({ where: { personId: vol.id, termId: live.id } });
+    expect(liveM.selfAvailabilityDates).toEqual([]);
+  });
+
+  it("updateMyAvailability rejects a term the member is not an active member of", async () => {
+    const other = await prisma.term.create({ data: { code: "XX26", name: "Other", startDate: new Date("2026-01-01"), endDate: new Date("2026-02-01"), status: "PLANNING", clinicDates: [] } });
+    const vol = await prisma.person.create({ data: { name: "Vol", status: "ACTIVE" } });
+    await expect(updateMyAvailability(vol.id, { termId: other.id, dates: [] })).rejects.toBeInstanceOf(AvailabilityValidationError);
   });
 });

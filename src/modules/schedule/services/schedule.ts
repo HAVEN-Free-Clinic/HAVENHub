@@ -15,6 +15,7 @@ import type { ResolvedAvailability } from "../engine/availability";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { getActiveTerm } from "@/platform/terms/active-term";
+import { getPersonTerms } from "@/platform/terms/person-terms";
 import { resolveAvailability } from "../engine/availability";
 import { isoDateKey, toScheduleEntries } from "../engine/map";
 import { computeConflicts } from "../engine/conflicts";
@@ -307,11 +308,13 @@ export async function fullSchedule(
 }
 
 /**
- * Updates the actor's self-availability for the active term.
+ * Updates the actor's self-availability for a given term (their live term or
+ * a next term they are already an active member of).
  *
  * Validates that:
- *   - An active term exists and the actor has >= 1 ACTIVE membership in it.
- *   - Every supplied date matches a term clinicDate by UTC day key.
+ *   - `input.termId` is one of the terms getPersonTerms returns for the actor
+ *     (live or next, and the actor holds >= 1 ACTIVE membership in it).
+ *   - Every supplied date matches that term's clinicDate by UTC day key.
  *
  * Deduplicates by day key and stores the canonical noon-UTC clinic date
  * objects (from Term.clinicDates) rather than caller-supplied Dates. Updates
@@ -322,21 +325,23 @@ export async function fullSchedule(
  */
 export async function updateMyAvailability(
   actorPersonId: string,
-  dates: Date[],
-  now: Date = new Date()
+  input: { termId: string; dates: Date[]; now?: Date },
 ): Promise<void> {
-  const term = await getActiveTerm();
+  const now = input.now ?? new Date();
 
-  // Fetch actor's ACTIVE memberships in the active term.
-  const memberships = term
-    ? await prisma.termMembership.findMany({
-        where: { termId: term.id, personId: actorPersonId, status: "ACTIVE" },
-        orderBy: { id: "asc" },
-      })
-    : [];
+  // The term must be one the member is currently an active member of (live or next).
+  const terms = await getPersonTerms(actorPersonId);
+  const term = terms.find((t) => t.id === input.termId);
+  if (!term) {
+    throw new AvailabilityValidationError("You are not on that term's roster.");
+  }
 
-  if (!term || memberships.length === 0) {
-    throw new AvailabilityValidationError("You are not on the active term roster.");
+  const memberships = await prisma.termMembership.findMany({
+    where: { termId: term.id, personId: actorPersonId, status: "ACTIVE" },
+    orderBy: { id: "asc" },
+  });
+  if (memberships.length === 0) {
+    throw new AvailabilityValidationError("You are not on that term's roster.");
   }
 
   // Build a map from day key -> canonical clinic date.
@@ -348,7 +353,7 @@ export async function updateMyAvailability(
   // Deduplicate input by day key.
   const seenKeys = new Set<string>();
   const deduped: string[] = [];
-  for (const d of dates) {
+  for (const d of input.dates) {
     const key = isoDateKey(d);
     if (!seenKeys.has(key)) {
       seenKeys.add(key);

@@ -6,7 +6,12 @@ import { promoteContracts, parseAvailabilityDates } from "./promotion";
 import { spanishReviewWhere } from "@/platform/spanish-review";
 
 async function seedSubmitted(opts: { netId?: string; email?: string; epicNeeded?: boolean; existingEpicId?: string; applicantType?: "NEW" | "RENEWAL" | "TRANSFER"; transferFromDepartments?: string[]; availability?: string[] } = {}) {
-  const term = await prisma.term.create({ data: { code: "FA26", name: "Fall", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
+  const term = await prisma.term.create({ data: {
+    code: "FA26", name: "Fall", startDate: new Date(), endDate: new Date(), status: "ACTIVE",
+    // Keep the calendar consistent with the availability the test seeded, so
+    // promotion's clinic-date filter is exercised rather than tripped over.
+    clinicDates: (opts.availability ?? []).map((d) => new Date(`${d}T12:00:00.000Z`)),
+  } });
   const srhd = await prisma.department.create({ data: { code: "SRHD", name: "SRHD" } });
   const srr = await prisma.person.create({ data: { name: "SRR", status: "ACTIVE" } });
   const role = await prisma.role.create({ data: { name: "Rec Admin", grants: { create: [{ permission: "recruitment.review_all" }] } } });
@@ -171,6 +176,26 @@ it("carries the application's availability answer into TermMembership.baselineAv
     "2026-05-30T00:00:00.000Z",
     "2026-06-06T00:00:00.000Z",
     "2026-06-13T00:00:00.000Z",
+  ]);
+});
+
+it("drops availability dates that are not on the term's clinic calendar", async () => {
+  // A pre-existing application: 2026-06-13 was offered as a "term Saturday" but
+  // is not a clinic date, so it must not reach baselineAvailability.
+  const { term, srhd, srr, contract } = await seedSubmitted({ availability: ["2026-06-06", "2026-06-13"] });
+  await prisma.term.update({
+    where: { id: term.id },
+    data: { clinicDates: [new Date("2026-06-06T12:00:00.000Z")] },
+  });
+
+  await promoteContracts([contract.id], srr.id);
+
+  const person = await prisma.person.findFirstOrThrow({ where: { netId: "al99" } });
+  const membership = await prisma.termMembership.findFirstOrThrow({
+    where: { personId: person.id, termId: term.id, departmentId: srhd.id, kind: "VOLUNTEER" },
+  });
+  expect(membership.baselineAvailability.map((d) => d.toISOString())).toEqual([
+    "2026-06-06T00:00:00.000Z",
   ]);
 });
 

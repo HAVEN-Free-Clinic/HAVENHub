@@ -3,6 +3,7 @@ import { can } from "@/platform/rbac/engine";
 import { recordAudit } from "@/platform/audit";
 import { log, errorAttrs } from "@/platform/logging";
 import { aliasPerson, flushEvents } from "@/platform/posthog/capture";
+import { isoDateKey } from "@/platform/dates";
 import { findAcceptanceConflicts } from "../engine/conflicts";
 import { RecruitmentAuthError } from "./review";
 
@@ -42,7 +43,7 @@ export async function promoteContracts(contractIds: string[], actorId: string): 
   for (const id of contractIds) {
     const contract = await prisma.onboardingContract.findUnique({
       where: { id },
-      include: { acceptance: { include: { application: { include: { cycle: { select: { termId: true, track: true } }, acceptances: { select: { departmentCode: true } } } } } } },
+      include: { acceptance: { include: { application: { include: { cycle: { select: { termId: true, track: true, term: { select: { clinicDates: true } } } }, acceptances: { select: { departmentCode: true } } } } } } },
     });
     if (!contract || contract.status !== "SUBMITTED") { skipped += 1; continue; }
     // Never promote a conflicted acceptance: one application accepted by more
@@ -61,9 +62,14 @@ export async function promoteContracts(contractIds: string[], actorId: string): 
     // scheduler's baseline tier. Without this the member lands with empty
     // baselineAvailability and the schedule builder shows them available on zero
     // clinic dates despite having answered the application's availability question.
+    // Applications submitted before availability options were sourced from the
+    // clinic calendar can carry dates that are not clinic days at all. Filter by
+    // UTC day key: baseline dates are UTC midnight and clinic dates are noon-UTC,
+    // so only the day key lines up.
+    const clinicDateKeys = new Set(cycle.term.clinicDates.map(isoDateKey));
     const availabilityDates = parseAvailabilityDates(
       (application.answers as Record<string, unknown> | null | undefined)?.["availability"],
-    );
+    ).filter((d) => clinicDateKeys.has(isoDateKey(d)));
 
     try {
       const result = await prisma.$transaction(async (tx) => {

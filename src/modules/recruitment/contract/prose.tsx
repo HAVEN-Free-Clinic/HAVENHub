@@ -16,9 +16,51 @@ function isSafeHref(href: string): boolean {
   return /^https?:\/\//i.test(href);
 }
 
-const LABELLED = /\[([^\]\n]+)\]\((\S+?)\)/;
+const LABEL_OPEN = /\[([^\]\n]+)\]\(/;
 const BARE = /https?:\/\/[^\s)]+/;
 const BOLD = /\*\*([^*\n]+)\*\*/;
+const TRAILING_PUNCTUATION = /[.,;:!?]+$/;
+
+type LinkMatch = { at: number; length: number; label: string; href: string };
+
+/** Finds the next `[label](url)` in `text`. Tracks paren depth through the url
+ *  portion (starting at depth 1 for the link's own opening paren) so a url
+ *  that itself contains balanced parentheses (Wikipedia-style references) is
+ *  captured whole, while an unmatched `)` inside the url still closes the
+ *  link at that character rather than swallowing more text. Whitespace before
+ *  depth returns to 0 means the parenthetical never closes as a url, so the
+ *  candidate is rejected, same as the old `(\S+?)` regex refusing to span a
+ *  space. */
+function matchLabelledLink(text: string): LinkMatch | null {
+  const open = LABEL_OPEN.exec(text);
+  if (!open) return null;
+  const urlStart = open.index + open[0].length;
+  let depth = 1;
+  let i = urlStart;
+  for (; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === "(") depth++;
+    else if (ch === ")") {
+      depth--;
+      if (depth === 0) break;
+    } else if (/\s/.test(ch)) {
+      return null;
+    }
+  }
+  if (depth !== 0) return null;
+  const href = text.slice(urlStart, i);
+  if (!href) return null;
+  return { at: open.index, length: i + 1 - open.index, label: open[1], href };
+}
+
+/** Splits trailing sentence punctuation off a bare autolinked url so
+ *  "https://x.com." keeps the period out of the href, rendering it as
+ *  ordinary text right after the link instead. */
+function splitTrailingPunctuation(url: string): { href: string; trailing: string } {
+  const trailing = TRAILING_PUNCTUATION.exec(url);
+  if (!trailing) return { href: url, trailing: "" };
+  return { href: url.slice(0, trailing.index), trailing: trailing[0] };
+}
 
 /** Tokenizes one line into spans. Order matters: labelled links are matched
  *  before bare URLs so the url inside [a](url) is not autolinked twice. */
@@ -34,14 +76,14 @@ function parseSpans(line: string): Span[] {
   };
 
   while (rest) {
-    const labelled = LABELLED.exec(rest);
+    const labelled = matchLabelledLink(rest);
     const bare = BARE.exec(rest);
     const bold = BOLD.exec(rest);
 
     const candidates = [
-      labelled ? { at: labelled.index, m: labelled, t: "labelled" as const } : null,
-      bare ? { at: bare.index, m: bare, t: "bare" as const } : null,
-      bold ? { at: bold.index, m: bold, t: "bold" as const } : null,
+      labelled ? { at: labelled.at, t: "labelled" as const, labelled } : null,
+      bare ? { at: bare.index, t: "bare" as const, bare } : null,
+      bold ? { at: bold.index, t: "bold" as const, bold } : null,
     ].filter((c): c is NonNullable<typeof c> => c !== null);
 
     if (candidates.length === 0) {
@@ -50,19 +92,34 @@ function parseSpans(line: string): Span[] {
     }
     const next = candidates.reduce((a, b) => (a.at <= b.at ? a : b));
     push(rest.slice(0, next.at));
-    const matched = next.m[0];
 
-    if (next.t === "bold") {
-      spans.push({ kind: "bold", text: next.m[1] });
-    } else if (next.t === "labelled") {
-      const href = next.m[2];
-      if (isSafeHref(href)) spans.push({ kind: "link", text: next.m[1], href });
-      else push(matched);
+    if (next.t === "labelled") {
+      const { length, label, href } = next.labelled;
+      if (isSafeHref(href)) spans.push({ kind: "link", text: label, href });
+      else push(rest.slice(next.at, next.at + length));
+      rest = rest.slice(next.at + length);
+    } else if (next.t === "bare") {
+      const matched = next.bare[0];
+      const { href, trailing } = splitTrailingPunctuation(matched);
+      if (isSafeHref(href)) {
+        spans.push({ kind: "link", text: href, href });
+        push(trailing);
+      } else {
+        push(matched);
+      }
+      rest = rest.slice(next.at + matched.length);
     } else {
-      if (isSafeHref(matched)) spans.push({ kind: "link", text: matched, href: matched });
-      else push(matched);
+      const matched = next.bold[0];
+      const inner = next.bold[1];
+      // A link inside bold must still render as a real anchor: recurse into the
+      // interior instead of swallowing it as inert bold text. Text spans that
+      // come back stay emphasized; a link span is pushed as-is, since Span has
+      // no "bold link" variant, a working link matters more than it being bold.
+      for (const innerSpan of parseSpans(inner)) {
+        spans.push(innerSpan.kind === "text" ? { kind: "bold", text: innerSpan.text } : innerSpan);
+      }
+      rest = rest.slice(next.at + matched.length);
     }
-    rest = rest.slice(next.at + matched.length);
   }
   return spans;
 }

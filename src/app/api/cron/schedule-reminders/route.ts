@@ -67,18 +67,19 @@ export async function GET(req: Request): Promise<Response> {
     },
   });
 
-  // Approver recipients are per-department and stable across this run, so memoize
-  // to avoid re-running the (permission-checking) query for every pending request
-  // that shares a department.
+  // Approver recipients are per-department and per-term, so memoize to avoid
+  // re-running the (permission-checking) query for every pending request that
+  // shares a department and term. Key on ${departmentId}|${termId}.
   const approverCache = new Map<
     string,
     Array<{ id: string; name: string; contactEmail: string | null }>
   >();
-  async function approversForDept(departmentId: string) {
-    const cached = approverCache.get(departmentId);
+  async function approversFor(departmentId: string, termId: string) {
+    const key = `${departmentId}|${termId}`;
+    const cached = approverCache.get(key);
     if (cached) return cached;
-    const recipients = await requestApproverRecipients(departmentId);
-    approverCache.set(departmentId, recipients);
+    const recipients = await requestApproverRecipients(departmentId, termId);
+    approverCache.set(key, recipients);
     return recipients;
   }
 
@@ -94,10 +95,11 @@ export async function GET(req: Request): Promise<Response> {
       ? formatCalendarDate(pending.targetDate, { month: "long", day: "numeric", year: "numeric" })
       : "";
 
-    // The department's actual approvers: directors by ACTIVE membership, one-hop
-    // delegated directors, and in-department schedule.manage_requests holders --
-    // the same set that can decide this request. Deduped by person already.
-    const approvers = await approversForDept(pending.departmentId);
+    // The department's actual approvers for this request's term: directors by
+    // ACTIVE membership, one-hop delegated directors, and in-department
+    // schedule.manage_requests holders -- the same set that can decide this
+    // request. Deduped by person already.
+    const approvers = await approversFor(pending.departmentId, pending.termId);
 
     for (const approver of approvers) {
       if (!approver.contactEmail) continue;

@@ -16,7 +16,7 @@ import { isFieldVisible, mergeDepartmentAnswer } from "../engine/field-visibilit
 import { getRenewalContext } from "./renewal";
 import { renderCycleEmail } from "../email/render";
 import { decodeSignaturePng, SignatureError } from "./signature";
-import { resolveAvailabilityOptions } from "../templates/clinic-dates";
+import { resolveAvailabilityOptions, AVAILABILITY_FIELD_KEY } from "../templates/clinic-dates";
 
 export class CycleNotOpenError extends Error { constructor(m = "This application is closed.") { super(m); this.name = "CycleNotOpenError"; } }
 export class DuplicateApplicationError extends Error { constructor(m = "You have already applied.") { super(m); this.name = "DuplicateApplicationError"; } }
@@ -200,6 +200,27 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
     selectedDepartmentCodes,
   ) as Record<string, string | string[] | undefined>;
   const ctx = { applicantType: input.applicantType, selectedDepartmentCodes, answers: answersForVisibility };
+
+  // The availability options are live (they track Term.clinicDates), so a date
+  // the admin removed between a saved draft and this submit is no longer in the
+  // enum, and no longer rendered either. Rejecting would strand the applicant on
+  // a checkbox they cannot see or clear, so drop unknown values instead. If that
+  // empties a required answer they get the normal "required" error against the
+  // refreshed list, which they can act on.
+  const availabilityField = resolvedSections
+    .flatMap((s) => s.fields)
+    .find((f) => f.key === AVAILABILITY_FIELD_KEY);
+  if (availabilityField) {
+    const live = new Set(
+      ((availabilityField.options ?? []) as { value: string }[]).map((o) => o.value),
+    );
+    const answered = (input.answers as Record<string, unknown>)[AVAILABILITY_FIELD_KEY];
+    if (answered != null && answered !== "") {
+      const list = Array.isArray(answered) ? answered : [answered];
+      (input.answers as Record<string, unknown>)[AVAILABILITY_FIELD_KEY] =
+        list.filter((v) => typeof v === "string" && live.has(v));
+    }
+  }
 
   const schema = buildApplicationSchema(sectionDefs, ctx);
   const parsed = schema.safeParse(input.answers);

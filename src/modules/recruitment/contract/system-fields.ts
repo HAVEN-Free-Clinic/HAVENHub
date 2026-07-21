@@ -1,5 +1,3 @@
-import type { Track } from "@prisma/client";
-import type { ContractLayout } from "./layout";
 import { YALE_AFFILIATION } from "../templates/content/options";
 
 export const SYSTEM_FIELD_KEYS = [
@@ -57,35 +55,7 @@ export const SYSTEM_FIELDS: Record<(typeof SYSTEM_FIELD_KEYS)[number], SystemFie
   initials:         { key: "initials", core: false, defaultLabel: "Initials", render: "text", columns: ["initials"] },
 };
 
-// Reproduces src/app/onboard/[token]/onboard-form.tsx field-for-field. Agreement
-// bodies are empty so the rendered form is identical to today (label + signature
-// only); admins fill prose later. Order matches the current form's sections.
-export const DEFAULT_CONTRACT_LAYOUT: ContractLayout = {
-  blocks: [
-    { kind: "system_field", systemKey: "name" },
-    { kind: "system_field", systemKey: "email" },
-    { kind: "system_field", systemKey: "netId" },
-    { kind: "system_field", systemKey: "phone" },
-    { kind: "system_field", systemKey: "dob" },
-    { kind: "system_field", systemKey: "dietary" },
-    { kind: "system_field", systemKey: "yaleAffiliation" },
-    { kind: "system_field", systemKey: "gradYear" },
-    { kind: "agreement", id: "agreement", title: "Volunteer agreement", body: "", signatureLabel: "type your full name" },
-    { kind: "agreement", id: "professionalism", title: "Professionalism policy", body: "", signatureLabel: "type your full name" },
-    { kind: "agreement", id: "training", title: "Training acknowledgement", body: "", signatureLabel: "type your full name" },
-    { kind: "system_field", systemKey: "initials" },
-    { kind: "system_field", systemKey: "epic" },
-    { kind: "system_field", systemKey: "spanish" },
-    { kind: "system_field", systemKey: "licensedRN" },
-    { kind: "system_field", systemKey: "hipaa" },
-  ],
-};
-
-export function defaultContractLayout(track: Track): ContractLayout {
-  if (track === "VOLUNTEER") return DEFAULT_CONTRACT_LAYOUT;
-  // Director: same fields plus a data-privacy agreement, before the training block.
-  const blocks = [...DEFAULT_CONTRACT_LAYOUT.blocks];
-  const trainingIdx = blocks.findIndex((b) => b.kind === "agreement" && b.id === "training");
-  blocks.splice(trainingIdx, 0, { kind: "agreement", id: "data_privacy", title: "Data privacy acknowledgement", body: "", signatureLabel: "type your full name" });
-  return { blocks };
-}
+// The default contract layouts (and the shared prose they're built from) live
+// in ./defaults; re-exported here so existing importers of these two names
+// keep working.
+export { defaultContractLayout, DEFAULT_CONTRACT_LAYOUT } from "./defaults";

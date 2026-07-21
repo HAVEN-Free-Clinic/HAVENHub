@@ -11,24 +11,28 @@ describe("system fields + default layout", () => {
     expect(SYSTEM_FIELDS.hipaa.core).toBe(true);
   });
 
-  it("DEFAULT_CONTRACT_LAYOUT validates and reproduces today's fields", () => {
+  it("DEFAULT_CONTRACT_LAYOUT validates and carries the onboarding fields", () => {
     const layout = parseContractLayout(DEFAULT_CONTRACT_LAYOUT);
     const systemKeys = layout.blocks
       .filter((b): b is SystemFieldBlock => b.kind === "system_field")
       .map((b) => b.systemKey);
-    // parity: every field on today's onboard-form is represented
-    for (const k of ["name","email","netId","phone","dob","dietary","yaleAffiliation","gradYear","epic","spanish","licensedRN","hipaa","initials"]) {
+    // parity: every field on today's onboard-form is represented, except
+    // "spanish", which the defaults module (see ./defaults) deliberately
+    // drops from the default layout; the key stays in SYSTEM_FIELD_KEYS as a
+    // field type a builder can still add back.
+    for (const k of ["name","email","netId","phone","dob","dietary","yaleAffiliation","gradYear","epic","licensedRN","hipaa","initials"]) {
       expect(systemKeys).toContain(k);
     }
+    expect(systemKeys).not.toContain("spanish");
     const agreements = layout.blocks
       .filter((b): b is AgreementBlock => b.kind === "agreement")
       .map((b) => b.id);
     expect(agreements).toEqual(["agreement", "professionalism", "training"]);
   });
 
-  it("default agreement bodies are empty for parity with today's form", () => {
+  it("default agreement bodies are non-empty (see ./defaults)", () => {
     const layout = parseContractLayout(DEFAULT_CONTRACT_LAYOUT);
-    for (const b of layout.blocks) if (b.kind === "agreement") expect(b.body).toBe("");
+    for (const b of layout.blocks) if (b.kind === "agreement") expect(b.body.trim().length).toBeGreaterThan(0);
   });
 });
 

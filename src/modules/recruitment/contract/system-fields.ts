@@ -3,11 +3,12 @@ import type { ContractLayout } from "./layout";
 
 export const SYSTEM_FIELD_KEYS = [
   "name", "email", "netId", "phone", "dob", "dietary", "yaleAffiliation",
-  "gradYear", "epic", "spanish", "licensedRN", "hipaa", "initials",
+  "gradYear", "pronouns", "staffTitle", "epic", "epicIdExpiration", "spanish",
+  "licensedRN", "hipaa", "initials",
 ] as const;
 
 export type SystemRenderKind =
-  | "text" | "email" | "tel" | "date" | "checkbox" | "epicBlock" | "hipaaBlock";
+  | "text" | "email" | "tel" | "date" | "select" | "checkbox" | "epicBlock" | "hipaaBlock";
 
 export type SystemFieldSpec = {
   key: (typeof SYSTEM_FIELD_KEYS)[number];
@@ -15,22 +16,50 @@ export type SystemFieldSpec = {
   defaultLabel: string;
   render: SystemRenderKind;
   columns: string[];
+  options?: { value: string; label: string }[];
 };
 
+export const YALE_AFFILIATION_OPTIONS = [
+  { value: "college", label: "College" },
+  { value: "gsas", label: "GSAS" },
+  { value: "yls", label: "YLS" },
+  { value: "ysm_md", label: "YSM - MD or MD/PhD" },
+  { value: "ysm_pa", label: "YSM - PA" },
+  { value: "ysn", label: "YSN" },
+  { value: "ysph", label: "YSPH" },
+  { value: "staff", label: "Staff" },
+  { value: "other", label: "Other" },
+] as const;
+
+/** Seven graduation years starting at `fromYear`, plus Other and N/A. The year
+ *  is passed in rather than read from the clock so callers in a render body do
+ *  not trip the react-hooks/purity rule; the page server-stamps it. */
+export function gradYearOptions(fromYear: number): { value: string; label: string }[] {
+  const years = Array.from({ length: 7 }, (_, i) => String(fromYear + i));
+  return [
+    ...years.map((y) => ({ value: y, label: y })),
+    { value: "other", label: "Other" },
+    { value: "na", label: "N/A" },
+  ];
+}
+
 export const SYSTEM_FIELDS: Record<(typeof SYSTEM_FIELD_KEYS)[number], SystemFieldSpec> = {
-  name:            { key: "name", core: true, defaultLabel: "Your name", render: "text", columns: ["firstName", "lastName"] },
-  email:           { key: "email", core: true, defaultLabel: "Email", render: "email", columns: ["email"] },
-  netId:           { key: "netId", core: false, defaultLabel: "NetID", render: "text", columns: ["netId"] },
-  phone:           { key: "phone", core: false, defaultLabel: "Phone", render: "tel", columns: ["phone"] },
-  dob:             { key: "dob", core: false, defaultLabel: "Date of birth", render: "date", columns: ["dateOfBirth"] },
-  dietary:         { key: "dietary", core: false, defaultLabel: "Dietary restrictions", render: "text", columns: ["dietaryRestrictions"] },
-  yaleAffiliation: { key: "yaleAffiliation", core: false, defaultLabel: "Yale affiliation", render: "text", columns: ["yaleAffiliation"] },
-  gradYear:        { key: "gradYear", core: false, defaultLabel: "Graduation year", render: "text", columns: ["gradYear"] },
-  epic:            { key: "epic", core: true, defaultLabel: "Epic access", render: "epicBlock", columns: ["epicNeeded", "hasEpic", "existingEpicId", "epicAccessType", "worksWithYnhh"] },
-  spanish:         { key: "spanish", core: false, defaultLabel: "I can speak Spanish with patients", render: "checkbox", columns: ["spanishSelfReported"] },
-  licensedRN:      { key: "licensedRN", core: false, defaultLabel: "I am a licensed RN", render: "checkbox", columns: ["licensedRN"] },
-  hipaa:           { key: "hipaa", core: true, defaultLabel: "HIPAA", render: "hipaaBlock", columns: ["hipaaCompletedAt", "hipaaFile"] },
-  initials:        { key: "initials", core: false, defaultLabel: "Initials", render: "text", columns: ["initials"] },
+  name:             { key: "name", core: true, defaultLabel: "Your name", render: "text", columns: ["firstName", "lastName"] },
+  email:            { key: "email", core: true, defaultLabel: "Email", render: "email", columns: ["email"] },
+  netId:            { key: "netId", core: false, defaultLabel: "NetID", render: "text", columns: ["netId"] },
+  phone:            { key: "phone", core: false, defaultLabel: "Phone", render: "tel", columns: ["phone"] },
+  dob:              { key: "dob", core: false, defaultLabel: "Date of birth", render: "date", columns: ["dateOfBirth"] },
+  dietary:          { key: "dietary", core: false, defaultLabel: "Dietary restrictions", render: "text", columns: ["dietaryRestrictions"] },
+  yaleAffiliation:  { key: "yaleAffiliation", core: false, defaultLabel: "Yale affiliation", render: "select", columns: ["yaleAffiliation"], options: [...YALE_AFFILIATION_OPTIONS] },
+  gradYear:         { key: "gradYear", core: false, defaultLabel: "Graduation year", render: "select", columns: ["gradYear"] },
+  pronouns:         { key: "pronouns", core: false, defaultLabel: "Pronouns (optional)", render: "text", columns: ["pronouns"] },
+  staffTitle:       { key: "staffTitle", core: false, defaultLabel: "If you are a staff member, please list your official employee title and office or department", render: "text", columns: ["staffTitle"] },
+  epic:             { key: "epic", core: true, defaultLabel: "Epic access", render: "epicBlock", columns: ["epicNeeded", "hasEpic", "existingEpicId", "epicAccessType", "worksWithYnhh"] },
+  epicIdExpiration: { key: "epicIdExpiration", core: false, defaultLabel: "Epic ID expiration", render: "date", columns: ["epicIdExpiration"] },
+  spanish:          { key: "spanish", core: false, defaultLabel: "I can speak Spanish with patients", render: "checkbox", columns: ["spanishSelfReported"] },
+  licensedRN:       { key: "licensedRN", core: false, defaultLabel: "I am a licensed RN", render: "checkbox", columns: ["licensedRN"] },
+  hipaa:            { key: "hipaa", core: true, defaultLabel: "HIPAA", render: "hipaaBlock", columns: ["hipaaCompletedAt", "hipaaFile"] },
+  initials:         { key: "initials", core: false, defaultLabel: "Initials", render: "text", columns: ["initials"] },
 };
 
 // Reproduces src/app/onboard/[token]/onboard-form.tsx field-for-field. Agreement

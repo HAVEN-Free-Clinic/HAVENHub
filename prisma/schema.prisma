@@ -1200,25 +1200,26 @@ model RhdClinic {
 }
 
 model RecruitmentCycle {
-  id                  String      @id @default(cuid())
-  track               Track
-  termId              String
-  title               String
-  status              CycleStatus @default(DRAFT)
-  publicSlug          String      @unique
-  opensAt             DateTime?
-  closesAt            DateTime?
-  departments         String[]
-  acceptsRenewals     Boolean     @default(false)
-  decisionsReleasedAt DateTime?
-  isTermTraining      Boolean     @default(false)
-  quizPassPercent     Int         @default(80)
-  quizMaxAttempts     Int         @default(3)
-  routeTopPercent     Int         @default(20)
-  routeBottomPercent  Int         @default(30)
-  createdById         String
-  createdAt           DateTime    @default(now())
-  updatedAt           DateTime    @updatedAt
+  id                   String      @id @default(cuid())
+  track                Track
+  termId               String
+  title                String
+  status               CycleStatus @default(DRAFT)
+  publicSlug           String      @unique
+  opensAt              DateTime?
+  closesAt             DateTime?
+  departments          String[]
+  acceptsRenewals      Boolean     @default(false)
+  decisionsReleasedAt  DateTime?
+  isTermTraining       Boolean     @default(false)
+  quizPassPercent      Int         @default(80)
+  quizMaxAttempts      Int         @default(3)
+  inPersonTrainingDate DateTime?
+  routeTopPercent      Int         @default(20)
+  routeBottomPercent   Int         @default(30)
+  createdById          String
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
 
   term         Term                      @relation(fields: [termId], references: [id], onDelete: Restrict)
   createdBy    Person                    @relation("RecruitmentCycleCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)

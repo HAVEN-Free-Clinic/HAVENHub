@@ -47,6 +47,7 @@ import {
   RequestNotFoundError,
   RequestValidationError,
 } from "@/modules/schedule/services/requests";
+import { publishSchedule, unpublishSchedule, isPublished, PublicationError } from "@/modules/schedule/services/publication";
 import { captureEvent } from "@/platform/posthog/capture";
 import { activeTermGroup } from "@/platform/posthog/groups";
 import { getWorkingTerm } from "@/platform/terms/working-term";
@@ -208,11 +209,13 @@ export default async function BuilderPage({ searchParams }: PageProps) {
   });
   const termOptions = buildTermOptions(switcherTerms, { includeArchived: true });
 
-  const isLiveTerm = workingTerm.id === liveTerm?.id;
-  const canManageRequests = isLiveTerm && (await canManageRequestsForDept(session.personId, dept.id));
+  const canManageRequests = editable && (await canManageRequestsForDept(session.personId, dept.id));
   const requestRows = canManageRequests
-    ? await listDepartmentRequests(session.personId, dept.id)
+    ? await listDepartmentRequests(session.personId, dept.id, workingTerm.id)
     : [];
+
+  const showPublishControl = workingTerm.status === "PLANNING";
+  const deptPublished = showPublishControl ? await isPublished(workingTerm.id, dept.id) : false;
 
   function href(overrides: HrefParams): string {
     return buildHref("/schedule/builder", {
@@ -486,6 +489,32 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     });
   }
 
+  async function publishAction(_formData: FormData) {
+    "use server";
+    const actor = await requireModuleAccess("schedule");
+    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, term: termParam });
+    await runAction({
+      work: () => publishSchedule(actor.personId, { termId: workingTerm.id, departmentId: dept.id }),
+      domainErrors: [PublicationError],
+      errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, term: termParam, error: "validation", message }),
+      revalidate: "/schedule/builder",
+      successRedirect: base,
+    });
+  }
+
+  async function unpublishAction(_formData: FormData) {
+    "use server";
+    const actor = await requireModuleAccess("schedule");
+    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, term: termParam });
+    await runAction({
+      work: () => unpublishSchedule(actor.personId, { termId: workingTerm.id, departmentId: dept.id }),
+      domainErrors: [PublicationError],
+      errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, term: termParam, error: "validation", message }),
+      revalidate: "/schedule/builder",
+      successRedirect: base,
+    });
+  }
+
   /**
    * Grid-view fallback for an archived (read-only) term. BuilderGrid renders
    * every cell as a clickable form regardless of term status, so the archived
@@ -632,6 +661,27 @@ export default async function BuilderPage({ searchParams }: PageProps) {
           hrefForTerm={(termId) => buildHref("/schedule/builder", { dept: dept.id, view, mode, gmode, term: termId ?? undefined })}
         />
       </div>
+
+      {/* Publish control -- next (PLANNING) term only; the live term is always
+          visible to members and an archived term is read-only. */}
+      {showPublishControl && (
+        <div className="mb-4">
+          {deptPublished ? (
+            <form action={unpublishAction}>
+              <ConfirmButton
+                label="Unpublish"
+                confirmLabel={`Unpublish ${dept.code}'s ${workingTerm.name} schedule?`}
+              />
+            </form>
+          ) : (
+            <form action={publishAction}>
+              <Button type="submit" variant="primary" size="sm">
+                {`Publish ${dept.code}'s ${workingTerm.name} schedule`}
+              </Button>
+            </form>
+          )}
+        </div>
+      )}
 
       {/* Archived read-only banner */}
       {!editable && (

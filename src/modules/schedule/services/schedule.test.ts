@@ -40,6 +40,7 @@ import {
   updateMyAvailability,
   AvailabilityValidationError,
 } from "./schedule";
+import { publishSchedule } from "./publication";
 import { isoDateKey } from "../engine/map";
 
 // ---------------------------------------------------------------------------
@@ -162,21 +163,22 @@ describe("mySchedule", () => {
     await createShift(term.id, dept.id, person.id, dates[0], "VOLUNTEER", { walkin: true, cc: true });
 
     const result = await mySchedule(person.id);
+    const live = result.terms.find((t) => t.isLive)!;
 
-    expect(result.term?.id).toBe(term.id);
-    expect(result.clinicDates).toHaveLength(3);
-    expect(result.shifts).toHaveLength(2);
+    expect(live.term.id).toBe(term.id);
+    expect(live.clinicDates).toHaveLength(3);
+    expect(live.shifts).toHaveLength(2);
     // Ordered by clinicDate asc.
-    expect(isoDateKey(result.shifts[0].clinicDate)).toBe(isoDateKey(dates[0]));
-    expect(isoDateKey(result.shifts[1].clinicDate)).toBe(isoDateKey(dates[2]));
+    expect(isoDateKey(live.shifts[0].clinicDate)).toBe(isoDateKey(dates[0]));
+    expect(isoDateKey(live.shifts[1].clinicDate)).toBe(isoDateKey(dates[2]));
     // Tags on first shift.
-    expect(result.shifts[0].tags.walkin).toBe(true);
-    expect(result.shifts[0].tags.cc).toBe(true);
-    expect(result.shifts[0].tags.triage).toBe(false);
+    expect(live.shifts[0].tags.walkin).toBe(true);
+    expect(live.shifts[0].tags.cc).toBe(true);
+    expect(live.shifts[0].tags.triage).toBe(false);
     // Tags on second shift.
-    expect(result.shifts[1].tags.triage).toBe(true);
+    expect(live.shifts[1].tags.triage).toBe(true);
     // Department attached.
-    expect(result.shifts[0].department.code).toBe("ITCM");
+    expect(live.shifts[0].department.code).toBe("ITCM");
   });
 
   it("resolves SELF tier after a self-update", async () => {
@@ -192,10 +194,11 @@ describe("mySchedule", () => {
     });
 
     const result = await mySchedule(person.id);
+    const live = result.terms.find((t) => t.isLive)!;
 
-    expect(result.availability).not.toBeNull();
-    expect(result.availability?.tier).toBe("SELF");
-    expect(result.availability?.dates).toHaveLength(2);
+    expect(live.availability).not.toBeNull();
+    expect(live.availability?.tier).toBe("SELF");
+    expect(live.availability?.dates).toHaveLength(2);
   });
 
   it("surfaces legacyNote from selfUpdatedAvailability", async () => {
@@ -209,21 +212,18 @@ describe("mySchedule", () => {
     });
 
     const result = await mySchedule(person.id);
+    const live = result.terms.find((t) => t.isLive)!;
 
-    expect(result.legacyNote).toBe("All Saturdays");
+    expect(live.legacyNote).toBe("All Saturdays");
   });
 
-  it("returns all-empty shape when no active term", async () => {
+  it("returns no term entries when the member has no ACTIVE membership in any live/next term", async () => {
     await createTerm("ARCHIVED", "SU26", []);
     const person = await createPerson("Dave");
 
     const result = await mySchedule(person.id);
 
-    expect(result.term).toBeNull();
-    expect(result.shifts).toHaveLength(0);
-    expect(result.availability).toBeNull();
-    expect(result.legacyNote).toBeNull();
-    expect(result.clinicDates).toHaveLength(0);
+    expect(result.terms).toHaveLength(0);
   });
 
   it("returns shifts but null availability and legacyNote when person has no membership", async () => {
@@ -236,9 +236,10 @@ describe("mySchedule", () => {
 
     const result = await mySchedule(person.id);
 
-    expect(result.shifts).toHaveLength(1);
-    expect(result.availability).toBeNull();
-    expect(result.legacyNote).toBeNull();
+    // getPersonTerms only returns terms backed by an ACTIVE membership, so with
+    // no membership at all there are no term entries -- shift is orphaned data
+    // with nothing to key it to (matches the invariant getPersonTerms documents).
+    expect(result.terms).toHaveLength(0);
   });
 
   it("pendingRequests contains only PENDING requests keyed by dateKey|departmentId", async () => {
@@ -262,13 +263,14 @@ describe("mySchedule", () => {
     });
 
     const result = await mySchedule(person.id);
+    const live = result.terms.find((t) => t.isLive)!;
 
     const expectedKey = `${isoDateKey(dates[0])}|${dept.id}`;
-    expect(result.pendingRequests.size).toBe(1);
-    expect(result.pendingRequests.has(expectedKey)).toBe(true);
+    expect(live.pendingRequests.size).toBe(1);
+    expect(live.pendingRequests.has(expectedKey)).toBe(true);
     // dates[1] has no pending request.
     const key1 = `${isoDateKey(dates[1])}|${dept.id}`;
-    expect(result.pendingRequests.has(key1)).toBe(false);
+    expect(live.pendingRequests.has(key1)).toBe(false);
   });
 
   it("pendingRequests swap request includes target.name", async () => {
@@ -295,10 +297,11 @@ describe("mySchedule", () => {
     });
 
     const result = await mySchedule(requester.id);
+    const live = result.terms.find((t) => t.isLive)!;
 
     const expectedKey = `${isoDateKey(dates[0])}|${dept.id}`;
-    expect(result.pendingRequests.size).toBe(1);
-    const row = result.pendingRequests.get(expectedKey);
+    expect(live.pendingRequests.size).toBe(1);
+    const row = live.pendingRequests.get(expectedKey);
     expect(row).toBeDefined();
     expect(row?.target?.name).toBe("Ingrid");
   });
@@ -335,8 +338,50 @@ describe("mySchedule", () => {
     });
 
     const result = await mySchedule(person.id);
+    const live = result.terms.find((t) => t.isLive)!;
 
-    expect(result.pendingRequests.size).toBe(0);
+    expect(live.pendingRequests.size).toBe(0);
+  });
+
+  it("mySchedule hides next-term assignments until the department is published, then shows them", async () => {
+    const live = await prisma.term.create({ data: { code: "SU26", name: "Summer", startDate: new Date("2026-05-30"), endDate: new Date("2026-09-26"), status: "ACTIVE", clinicDates: [] } });
+    const d1 = new Date(Date.UTC(2026, 8, 5, 12));
+    const next = await prisma.term.create({ data: { code: "FA26", name: "Fall", startDate: new Date("2026-09-01"), endDate: new Date("2027-01-01"), status: "PLANNING", clinicDates: [d1] } });
+    const dept = await prisma.department.create({ data: { code: "SRHD", name: "SRHD" } });
+    const dir = await prisma.person.create({ data: { name: "Dir", status: "ACTIVE" } });
+    await prisma.termMembership.create({ data: { personId: dir.id, termId: live.id, departmentId: dept.id, kind: "DIRECTOR", status: "ACTIVE" } });
+    const vol = await prisma.person.create({ data: { name: "Vol", status: "ACTIVE" } });
+    await prisma.termMembership.create({ data: { personId: vol.id, termId: next.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" } });
+    await prisma.shiftAssignment.create({ data: { termId: next.id, departmentId: dept.id, clinicDate: d1, personId: vol.id, role: "VOLUNTEER", triage: false, walkin: false, cc: false, remote: false } });
+
+    const before = await mySchedule(vol.id);
+    const nextBefore = before.terms.find((t) => t.term.id === next.id)!;
+    expect(nextBefore.shifts).toEqual([]); // not published -> hidden
+
+    await publishSchedule(dir.id, { termId: next.id, departmentId: dept.id });
+    const after = await mySchedule(vol.id);
+    const nextAfter = after.terms.find((t) => t.term.id === next.id)!;
+    expect(nextAfter.shifts.length).toBe(1); // published -> visible
+  });
+
+  it("mySchedule gates a next-term pending request by publish, same as its shifts", async () => {
+    const live = await prisma.term.create({ data: { code: "SU26", name: "Summer", startDate: new Date("2026-05-30"), endDate: new Date("2026-09-26"), status: "ACTIVE", clinicDates: [] } });
+    const d1 = new Date(Date.UTC(2026, 8, 5, 12));
+    const next = await prisma.term.create({ data: { code: "FA26", name: "Fall", startDate: new Date("2026-09-01"), endDate: new Date("2027-01-01"), status: "PLANNING", clinicDates: [d1] } });
+    const dept = await prisma.department.create({ data: { code: "SRHD", name: "SRHD" } });
+    const dir = await prisma.person.create({ data: { name: "Dir", status: "ACTIVE" } });
+    await prisma.termMembership.create({ data: { personId: dir.id, termId: live.id, departmentId: dept.id, kind: "DIRECTOR", status: "ACTIVE" } });
+    const vol = await prisma.person.create({ data: { name: "Vol", status: "ACTIVE" } });
+    await prisma.termMembership.create({ data: { personId: vol.id, termId: next.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" } });
+    await prisma.shiftRequest.create({ data: { termId: next.id, requesterId: vol.id, requesterDate: d1, departmentId: dept.id, status: "PENDING" } });
+
+    // Unpublished: the pending request must not surface next to the "not published yet" state.
+    const before = await mySchedule(vol.id);
+    expect(before.terms.find((t) => t.term.id === next.id)!.pendingRequests.size).toBe(0);
+
+    await publishSchedule(dir.id, { termId: next.id, departmentId: dept.id });
+    const after = await mySchedule(vol.id);
+    expect(after.terms.find((t) => t.term.id === next.id)!.pendingRequests.size).toBe(1);
   });
 });
 
@@ -568,7 +613,7 @@ describe("updateMyAvailability", () => {
       new Date(Date.UTC(2026, dates[2].getUTCMonth(), dates[2].getUTCDate(), 0, 0, 0)),
     ];
 
-    await updateMyAvailability(person.id, callerDates);
+    await updateMyAvailability(person.id, { termId: term.id, dates: callerDates });
 
     const updatedA = await prisma.termMembership.findUniqueOrThrow({ where: { id: memA.id } });
     const updatedB = await prisma.termMembership.findUniqueOrThrow({ where: { id: memB.id } });
@@ -624,24 +669,26 @@ describe("updateMyAvailability", () => {
     // A Wednesday that is not a clinic date.
     const badDate = new Date(Date.UTC(2026, 6, 1, 0, 0, 0)); // 2026-07-01
 
-    await expect(updateMyAvailability(person.id, [badDate])).rejects.toThrow("2026-07-01");
-    await expect(updateMyAvailability(person.id, [badDate])).rejects.toBeInstanceOf(
-      AvailabilityValidationError
-    );
+    await expect(
+      updateMyAvailability(person.id, { termId: term.id, dates: [badDate] }),
+    ).rejects.toThrow("2026-07-01");
+    await expect(
+      updateMyAvailability(person.id, { termId: term.id, dates: [badDate] }),
+    ).rejects.toBeInstanceOf(AvailabilityValidationError);
   });
 
   it("rejects with AvailabilityValidationError when person has no active membership in active term", async () => {
     const dates = saturdays("2026-05-30", 2);
-    await createTerm("ACTIVE", "SU26", dates);
+    const term = await createTerm("ACTIVE", "SU26", dates);
     const person = await createPerson("Carol");
     // No membership created.
 
-    await expect(updateMyAvailability(person.id, [dates[0]])).rejects.toBeInstanceOf(
-      AvailabilityValidationError
-    );
-    await expect(updateMyAvailability(person.id, [dates[0]])).rejects.toThrow(
-      "not on the active term roster"
-    );
+    await expect(
+      updateMyAvailability(person.id, { termId: term.id, dates: [dates[0]] }),
+    ).rejects.toBeInstanceOf(AvailabilityValidationError);
+    await expect(
+      updateMyAvailability(person.id, { termId: term.id, dates: [dates[0]] }),
+    ).rejects.toThrow("not on that term's roster");
   });
 
   it("deduplicates: same day passed twice is stored once", async () => {
@@ -655,7 +702,7 @@ describe("updateMyAvailability", () => {
     const midnight = new Date(Date.UTC(2026, dates[0].getUTCMonth(), dates[0].getUTCDate(), 0));
     const noon = new Date(Date.UTC(2026, dates[0].getUTCMonth(), dates[0].getUTCDate(), 12));
 
-    await updateMyAvailability(person.id, [midnight, noon]);
+    await updateMyAvailability(person.id, { termId: term.id, dates: [midnight, noon] });
 
     const updated = await prisma.termMembership.findUniqueOrThrow({ where: { id: mem.id } });
     expect(updated.selfAvailabilityDates).toHaveLength(1);
@@ -672,11 +719,37 @@ describe("updateMyAvailability", () => {
       availabilityAcknowledgedAt: utc(2026, 5, 2),
     });
 
-    await expect(updateMyAvailability(person.id, [])).resolves.toBeUndefined();
+    await expect(
+      updateMyAvailability(person.id, { termId: term.id, dates: [] }),
+    ).resolves.toBeUndefined();
 
     const updated = await prisma.termMembership.findUniqueOrThrow({ where: { id: mem.id } });
     expect(updated.selfAvailabilityDates).toHaveLength(0);
     expect(updated.availabilityUpdatedAt).not.toBeNull();
     expect(updated.availabilityAcknowledgedAt).toBeNull();
+  });
+
+  it("updateMyAvailability writes the passed (next) term while a different term is live", async () => {
+    // live term + next term, member active in BOTH; next term has clinic dates
+    const live = await prisma.term.create({ data: { code: "SU26", name: "Summer", startDate: new Date("2026-05-30"), endDate: new Date("2026-09-26"), status: "ACTIVE", clinicDates: [] } });
+    const nextDates = [new Date(Date.UTC(2026, 8, 5, 12))];
+    const next = await prisma.term.create({ data: { code: "FA26", name: "Fall", startDate: new Date("2026-09-01"), endDate: new Date("2027-01-01"), status: "PLANNING", clinicDates: nextDates } });
+    const dept = await prisma.department.create({ data: { code: "SRHD", name: "SRHD" } });
+    const vol = await prisma.person.create({ data: { name: "Vol", status: "ACTIVE" } });
+    await prisma.termMembership.create({ data: { personId: vol.id, termId: live.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" } });
+    const m = await prisma.termMembership.create({ data: { personId: vol.id, termId: next.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" } });
+
+    await updateMyAvailability(vol.id, { termId: next.id, dates: nextDates });
+    const updated = await prisma.termMembership.findUniqueOrThrow({ where: { id: m.id } });
+    expect(updated.selfAvailabilityDates.map((d) => d.getTime())).toEqual(nextDates.map((d) => d.getTime()));
+    // the live-term membership is untouched
+    const liveM = await prisma.termMembership.findFirstOrThrow({ where: { personId: vol.id, termId: live.id } });
+    expect(liveM.selfAvailabilityDates).toEqual([]);
+  });
+
+  it("updateMyAvailability rejects a term the member is not an active member of", async () => {
+    const other = await prisma.term.create({ data: { code: "XX26", name: "Other", startDate: new Date("2026-01-01"), endDate: new Date("2026-02-01"), status: "PLANNING", clinicDates: [] } });
+    const vol = await prisma.person.create({ data: { name: "Vol", status: "ACTIVE" } });
+    await expect(updateMyAvailability(vol.id, { termId: other.id, dates: [] })).rejects.toBeInstanceOf(AvailabilityValidationError);
   });
 });

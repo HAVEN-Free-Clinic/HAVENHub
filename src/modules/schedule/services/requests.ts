@@ -28,6 +28,8 @@ import {
 } from "../engine/requests";
 import type { ScheduleRowForValidation } from "../engine/requests";
 import { getActiveTerm } from "@/platform/terms/active-term";
+import { getPersonTerms } from "@/platform/terms/person-terms";
+import { isPublished } from "./publication";
 import { queueEmail } from "@/platform/email/send";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
 
@@ -178,17 +180,20 @@ async function scopeCheck(actorPersonId: string, departmentId: string): Promise<
  * Exported so the pending-request reminder cron
  * (src/app/api/cron/schedule-reminders/route.ts) reminds this same approver set
  * instead of re-deriving recipients from whoever holds a DIRECTOR shift.
+ *
+ * `termId` is the REQUEST's own term (not necessarily the active term), so a
+ * next-term request routes to that term's directors, not the live term's.
+ * Note: departmentDirectorPersonIds remains active-term-derived (a documented
+ * cross-term deferral); only the ACTIVE-membership half below uses `termId`.
  */
 export async function requestApproverRecipients(
   departmentId: string,
+  termId: string,
 ): Promise<Array<{ id: string; name: string; contactEmail: string | null }>> {
-  const activeTerm = await getActiveTerm();
-  if (!activeTerm) return [];
-
   const [directorIds, memberships] = await Promise.all([
     departmentDirectorPersonIds(departmentId),
     prisma.termMembership.findMany({
-      where: { termId: activeTerm.id, departmentId, status: "ACTIVE" },
+      where: { termId, departmentId, status: "ACTIVE" },
       select: { personId: true },
     }),
   ]);
@@ -275,6 +280,7 @@ function fmtEmailDate(d: Date): string {
 export async function createRequest(
   actorPersonId: string,
   input: {
+    termId: string;
     requesterDateKey: string;
     departmentId: string;
     targetId?: string;
@@ -282,9 +288,16 @@ export async function createRequest(
     note?: string;
   },
 ): Promise<ShiftRequest> {
-  const term = await getActiveTerm();
+  const terms = await getPersonTerms(actorPersonId);
+  const term = terms.find((t) => t.id === input.termId);
   if (!term) {
-    throw new RequestValidationError("No active term.");
+    throw new RequestValidationError("You are not on that term's roster.");
+  }
+  // Next-term requests are only valid once the department is published (defense
+  // in depth: a member can only see a published next-term assignment to request
+  // on in the first place).
+  if (term.status !== "ACTIVE" && !(await isPublished(term.id, input.departmentId))) {
+    throw new RequestValidationError("That schedule is not published.");
   }
 
   const clinicDateMap = new Map<string, Date>();
@@ -295,7 +308,7 @@ export async function createRequest(
   const canonicalRequesterDate = clinicDateMap.get(input.requesterDateKey);
   if (!canonicalRequesterDate) {
     throw new RequestValidationError(
-      `${input.requesterDateKey} is not a clinic date in the active term.`,
+      `${input.requesterDateKey} is not a clinic date for this term.`,
     );
   }
 
@@ -304,7 +317,7 @@ export async function createRequest(
     const d = clinicDateMap.get(input.targetDateKey);
     if (!d) {
       throw new RequestValidationError(
-        `${input.targetDateKey} is not a clinic date in the active term.`,
+        `${input.targetDateKey} is not a clinic date for this term.`,
       );
     }
     canonicalTargetDate = d;
@@ -461,7 +474,7 @@ export async function createRequest(
     // delegated directors, and schedule.manage_requests holders in the
     // department), the same authority approveRequest enforces -- not merely
     // whoever happens to hold a DIRECTOR shift on the calendar.
-    const approvers = await requestApproverRecipients(input.departmentId);
+    const approvers = await requestApproverRecipients(input.departmentId, term.id);
 
     await Promise.all(
       approvers.map((approver) =>
@@ -570,10 +583,11 @@ export async function cancelRequest(
 export async function listDepartmentRequests(
   viewerPersonId: string,
   departmentId: string,
+  termId: string,
 ): Promise<RequestRow[]> {
   await scopeCheck(viewerPersonId, departmentId);
 
-  const term = await getActiveTerm();
+  const term = await prisma.term.findUnique({ where: { id: termId } });
   if (!term) return [];
 
   const [pendingRows, decidedRows] = await Promise.all([
@@ -987,8 +1001,9 @@ export async function eligibleSwapPartners(
   actorPersonId: string,
   requesterDateKey: string,
   departmentId: string,
+  termId: string,
 ): Promise<Array<{ personId: string; name: string; dateKey: string }>> {
-  const term = await getActiveTerm();
+  const term = await prisma.term.findUnique({ where: { id: termId } });
   if (!term) return [];
 
   const actorAssignment = await prisma.shiftAssignment.findFirst({
@@ -1118,7 +1133,7 @@ export async function remindDirectors(
   // Same approver set as the initial notification: directors by membership,
   // one-hop delegated directors, and in-department schedule.manage_requests
   // holders -- the people who can actually decide this request.
-  const approvers = await requestApproverRecipients(req.departmentId);
+  const approvers = await requestApproverRecipients(req.departmentId, req.termId);
   const throttleCutoff = new Date(Date.now() - REMINDER_THROTTLE_MS);
 
   await Promise.all(

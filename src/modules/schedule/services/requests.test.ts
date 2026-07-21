@@ -26,6 +26,7 @@ import {
   RequestValidationError,
 } from "./requests";
 import { isoDateKey } from "@/platform/dates";
+import { publishSchedule } from "./publication";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -134,9 +135,11 @@ describe("createRequest", () => {
     const dept = await createDepartment("AABB");
     const actor = await createPerson("Alice");
 
+    await createMembership(actor.id, term.id, dept.id, "VOLUNTEER");
     await createShift(term.id, dept.id, actor.id, dates[0], "VOLUNTEER");
 
     const req = await createRequest(actor.id, {
+      termId: term.id,
       requesterDateKey: isoDateKey(dates[0]),
       departmentId: dept.id,
     });
@@ -161,10 +164,12 @@ describe("createRequest", () => {
     const actor = await createPerson("Alice");
     const target = await createPerson("Bob");
 
+    await createMembership(actor.id, term.id, dept.id, "VOLUNTEER");
     await createShift(term.id, dept.id, actor.id, dates[0], "VOLUNTEER");
     await createShift(term.id, dept.id, target.id, dates[1], "VOLUNTEER");
 
     const req = await createRequest(actor.id, {
+      termId: term.id,
       requesterDateKey: isoDateKey(dates[0]),
       departmentId: dept.id,
       targetId: target.id,
@@ -183,13 +188,15 @@ describe("createRequest", () => {
 
   it("rejects when actor has no assignment on that date", async () => {
     const dates = sixSaturdays();
-    await createTerm("ACTIVE", dates);
+    const term = await createTerm("ACTIVE", dates);
     const dept = await createDepartment("AABB");
     const actor = await createPerson("Alice");
+    await createMembership(actor.id, term.id, dept.id, "VOLUNTEER");
     // No shift created
 
     await expect(
       createRequest(actor.id, {
+        termId: term.id,
         requesterDateKey: isoDateKey(dates[0]),
         departmentId: dept.id,
       })
@@ -198,12 +205,14 @@ describe("createRequest", () => {
 
   it("rejects when requesterDateKey is not a clinic date", async () => {
     const dates = sixSaturdays();
-    await createTerm("ACTIVE", dates);
+    const term = await createTerm("ACTIVE", dates);
     const dept = await createDepartment("AABB");
     const actor = await createPerson("Alice");
+    await createMembership(actor.id, term.id, dept.id, "VOLUNTEER");
 
     await expect(
       createRequest(actor.id, {
+        termId: term.id,
         requesterDateKey: "2000-01-01",
         departmentId: dept.id,
       })
@@ -217,11 +226,13 @@ describe("createRequest", () => {
     const actor = await createPerson("Shadow");
     const target = await createPerson("Other");
 
+    await createMembership(actor.id, term.id, dept.id, "VOLUNTEER");
     await createShift(term.id, dept.id, actor.id, dates[0], "SHADOW");
     await createShift(term.id, dept.id, target.id, dates[1], "VOLUNTEER");
 
     await expect(
       createRequest(actor.id, {
+        termId: term.id,
         requesterDateKey: isoDateKey(dates[0]),
         departmentId: dept.id,
         targetId: target.id,
@@ -231,6 +242,7 @@ describe("createRequest", () => {
 
     await expect(
       createRequest(actor.id, {
+        termId: term.id,
         requesterDateKey: isoDateKey(dates[0]),
         departmentId: dept.id,
         targetId: target.id,
@@ -245,15 +257,18 @@ describe("createRequest", () => {
     const dept = await createDepartment("AABB");
     const actor = await createPerson("Alice");
 
+    await createMembership(actor.id, term.id, dept.id, "VOLUNTEER");
     await createShift(term.id, dept.id, actor.id, dates[0], "VOLUNTEER");
 
     await createRequest(actor.id, {
+      termId: term.id,
       requesterDateKey: isoDateKey(dates[0]),
       departmentId: dept.id,
     });
 
     await expect(
       createRequest(actor.id, {
+        termId: term.id,
         requesterDateKey: isoDateKey(dates[0]),
         departmentId: dept.id,
       })
@@ -261,6 +276,7 @@ describe("createRequest", () => {
 
     await expect(
       createRequest(actor.id, {
+        termId: term.id,
         requesterDateKey: isoDateKey(dates[0]),
         departmentId: dept.id,
       })
@@ -273,9 +289,11 @@ describe("createRequest", () => {
     const dept = await createDepartment("AABB");
     const actor = await createPerson("Alice");
 
+    await createMembership(actor.id, term.id, dept.id, "VOLUNTEER");
     await createShift(term.id, dept.id, actor.id, dates[0], "VOLUNTEER");
 
     const first = await createRequest(actor.id, {
+      termId: term.id,
       requesterDateKey: isoDateKey(dates[0]),
       departmentId: dept.id,
     });
@@ -283,6 +301,7 @@ describe("createRequest", () => {
     await cancelRequest(actor.id, first.id);
 
     const second = await createRequest(actor.id, {
+      termId: term.id,
       requesterDateKey: isoDateKey(dates[0]),
       departmentId: dept.id,
     });
@@ -299,12 +318,14 @@ describe("createRequest", () => {
 
     // Requester is a VOLUNTEER on dates[0]; target is a VOLUNTEER on dates[1]
     // but ALSO a SHADOW on dates[0] (the requester's offered date).
+    await createMembership(requester.id, term.id, dept.id, "VOLUNTEER");
     await createShift(term.id, dept.id, requester.id, dates[0], "VOLUNTEER");
     await createShift(term.id, dept.id, target.id, dates[1], "VOLUNTEER");
     await createShift(term.id, dept.id, target.id, dates[0], "SHADOW");
 
     await expect(
       createRequest(requester.id, {
+        termId: term.id,
         requesterDateKey: isoDateKey(dates[0]),
         departmentId: dept.id,
         targetId: target.id,
@@ -314,6 +335,7 @@ describe("createRequest", () => {
 
     await expect(
       createRequest(requester.id, {
+        termId: term.id,
         requesterDateKey: isoDateKey(dates[0]),
         departmentId: dept.id,
         targetId: target.id,
@@ -322,14 +344,75 @@ describe("createRequest", () => {
     ).rejects.toThrow("Partner is not eligible");
   });
 
-  it("rejects when no active term", async () => {
-    await createTerm("ARCHIVED", []);
+  it("rejects when the actor has no roster membership for the term", async () => {
+    const term = await createTerm("ARCHIVED", []);
     const dept = await createDepartment("AABB");
     const actor = await createPerson("Alice");
 
     await expect(
       createRequest(actor.id, {
+        termId: term.id,
         requesterDateKey: "2026-06-06",
+        departmentId: dept.id,
+      })
+    ).rejects.toBeInstanceOf(RequestValidationError);
+  });
+
+  it("stamps req.termId with a PLANNING next term (not the active term) once published", async () => {
+    const dates = sixSaturdays();
+    const live = await createTerm("ACTIVE", dates);
+    const next = await createTerm("PLANNING", dates);
+    const dept = await createDepartment("AABB");
+
+    const director = await createPerson("Director");
+    const vol = await createPerson("Volunteer");
+
+    // Director manages the department via an ACTIVE live-term directorship;
+    // manageableScheduleDepartmentIds/manageableDepartmentIds resolve off
+    // getActiveTerm(), which is `live`, so this is what makes them a publisher.
+    await createMembership(director.id, live.id, dept.id, "DIRECTOR");
+
+    // The volunteer's ONLY membership is an ACTIVE one in the next (PLANNING)
+    // term, with a shift on a next-term clinic date, so a drop request
+    // validates against `next`, not the live term.
+    await createMembership(vol.id, next.id, dept.id, "VOLUNTEER");
+    await createShift(next.id, dept.id, vol.id, dates[0], "VOLUNTEER");
+
+    await publishSchedule(director.id, { termId: next.id, departmentId: dept.id });
+
+    const req = await createRequest(vol.id, {
+      termId: next.id,
+      requesterDateKey: isoDateKey(dates[0]),
+      departmentId: dept.id,
+    });
+
+    // If createRequest reverted to stamping req.termId from getActiveTerm()
+    // instead of the passed input.termId, this would be `live.id` since `live`
+    // is the active term.
+    expect(req.termId).toBe(next.id);
+  });
+
+  it("rejects a PLANNING next-term request when the department's schedule is not published", async () => {
+    const dates = sixSaturdays();
+    const live = await createTerm("ACTIVE", dates);
+    const next = await createTerm("PLANNING", dates);
+    const dept = await createDepartment("AABB");
+
+    const director = await createPerson("Director");
+    const vol = await createPerson("Volunteer");
+
+    await createMembership(director.id, live.id, dept.id, "DIRECTOR");
+    await createMembership(vol.id, next.id, dept.id, "VOLUNTEER");
+    await createShift(next.id, dept.id, vol.id, dates[0], "VOLUNTEER");
+
+    // Deliberately NOT published for the next term. Every other fact about the
+    // request is otherwise valid (roster membership, shift on a real clinic
+    // date), isolating the publish re-check as the sole reason this must
+    // reject.
+    await expect(
+      createRequest(vol.id, {
+        termId: next.id,
+        requesterDateKey: isoDateKey(dates[0]),
         departmentId: dept.id,
       })
     ).rejects.toBeInstanceOf(RequestValidationError);
@@ -343,8 +426,10 @@ describe("cancelRequest", () => {
     const dept = await createDepartment("AABB");
     const actor = await createPerson("Alice");
 
+    await createMembership(actor.id, term.id, dept.id, "VOLUNTEER");
     await createShift(term.id, dept.id, actor.id, dates[0], "VOLUNTEER");
     const req = await createRequest(actor.id, {
+      termId: term.id,
       requesterDateKey: isoDateKey(dates[0]),
       departmentId: dept.id,
     });
@@ -365,8 +450,10 @@ describe("cancelRequest", () => {
     const actor = await createPerson("Alice");
     const other = await createPerson("Bob");
 
+    await createMembership(actor.id, term.id, dept.id, "VOLUNTEER");
     await createShift(term.id, dept.id, actor.id, dates[0], "VOLUNTEER");
     const req = await createRequest(actor.id, {
+      termId: term.id,
       requesterDateKey: isoDateKey(dates[0]),
       departmentId: dept.id,
     });
@@ -382,9 +469,11 @@ describe("cancelRequest", () => {
     const director = await createPerson("Director");
 
     await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(actor.id, term.id, dept.id, "VOLUNTEER");
     await createShift(term.id, dept.id, actor.id, dates[0], "VOLUNTEER");
 
     const req = await createRequest(actor.id, {
+      termId: term.id,
       requesterDateKey: isoDateKey(dates[0]),
       departmentId: dept.id,
     });
@@ -413,19 +502,21 @@ describe("listDepartmentRequests", () => {
     const vol3 = await createPerson("Vol3");
 
     await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(vol1.id, term.id, dept.id, "VOLUNTEER");
+    await createMembership(vol2.id, term.id, dept.id, "VOLUNTEER");
     await createShift(term.id, dept.id, vol1.id, dates[0], "VOLUNTEER");
     await createShift(term.id, dept.id, vol2.id, dates[1], "VOLUNTEER");
     await createShift(term.id, dept.id, vol3.id, dates[2], "VOLUNTEER");
     await createShift(term.id, dept.id, director.id, dates[3], "DIRECTOR");
 
     // Create two pending requests
-    const pending1 = await createRequest(vol1.id, { requesterDateKey: isoDateKey(dates[0]), departmentId: dept.id });
-    const pending2 = await createRequest(vol2.id, { requesterDateKey: isoDateKey(dates[1]), departmentId: dept.id });
+    const pending1 = await createRequest(vol1.id, { termId: term.id, requesterDateKey: isoDateKey(dates[0]), departmentId: dept.id });
+    const pending2 = await createRequest(vol2.id, { termId: term.id, requesterDateKey: isoDateKey(dates[1]), departmentId: dept.id });
 
     // Deny one so it becomes decided
     await denyRequest(director.id, pending1.id);
 
-    const rows = await listDepartmentRequests(director.id, dept.id);
+    const rows = await listDepartmentRequests(director.id, dept.id, term.id);
 
     expect(rows.length).toBeGreaterThanOrEqual(2);
     // PENDING comes first
@@ -453,8 +544,10 @@ describe("listDepartmentRequests", () => {
     // default), filled the entire bucket, and hid every genuine decision.
     for (let i = 0; i < 11; i++) {
       const vol = await createPerson(`Canceller ${i}`);
+      await createMembership(vol.id, term.id, dept.id, "VOLUNTEER");
       await createShift(term.id, dept.id, vol.id, dates[0], "VOLUNTEER");
       const req = await createRequest(vol.id, {
+        termId: term.id,
         requesterDateKey: isoDateKey(dates[0]),
         departmentId: dept.id,
       });
@@ -463,14 +556,16 @@ describe("listDepartmentRequests", () => {
 
     // A genuine denial happens last, so it is the most recent terminal event.
     const denied = await createPerson("Denied Vol");
+    await createMembership(denied.id, term.id, dept.id, "VOLUNTEER");
     await createShift(term.id, dept.id, denied.id, dates[1], "VOLUNTEER");
     const deniedReq = await createRequest(denied.id, {
+      termId: term.id,
       requesterDateKey: isoDateKey(dates[1]),
       departmentId: dept.id,
     });
     await denyRequest(director.id, deniedReq.id);
 
-    const rows = await listDepartmentRequests(director.id, dept.id);
+    const rows = await listDepartmentRequests(director.id, dept.id, term.id);
     const decidedRows = rows.filter((r) => r.request.status !== "PENDING");
 
     // The most recent real decision must survive the take:10 cap and rank first.
@@ -494,6 +589,7 @@ describe("listDepartmentRequests", () => {
     await createShift(term.id, dept.id, target.id, dates[1], "VOLUNTEER");
 
     const req = await createRequest(requester.id, {
+      termId: term.id,
       requesterDateKey: isoDateKey(dates[0]),
       departmentId: dept.id,
       targetId: target.id,
@@ -502,7 +598,7 @@ describe("listDepartmentRequests", () => {
 
     await approveRequest(director.id, req.id);
 
-    const rows = await listDepartmentRequests(director.id, dept.id);
+    const rows = await listDepartmentRequests(director.id, dept.id, term.id);
     expect(rows).toHaveLength(1);
     expect(rows[0].requesterName).toBe("Requester Rae");
     expect(rows[0].targetName).toBe("Target Tom");
@@ -517,7 +613,7 @@ describe("listDepartmentRequests", () => {
 
     await createMembership(director.id, term.id, dept.id, "DIRECTOR");
 
-    const rows = await listDepartmentRequests(director.id, dept.id);
+    const rows = await listDepartmentRequests(director.id, dept.id, term.id);
     expect(Array.isArray(rows)).toBe(true);
   });
 
@@ -531,29 +627,29 @@ describe("listDepartmentRequests", () => {
     const director = await createPerson("PCAR Dir");
     await createMembership(director.id, term.id, pcar.id, "DIRECTOR");
 
-    const rows = await listDepartmentRequests(director.id, sctp.id);
+    const rows = await listDepartmentRequests(director.id, sctp.id, term.id);
     expect(Array.isArray(rows)).toBe(true);
   });
 
   it("schedule.edit_all grant allows listing any department", async () => {
     const dates = sixSaturdays();
-    await createTerm("ACTIVE", dates);
+    const term = await createTerm("ACTIVE", dates);
     const dept = await createDepartment("AABB");
     const actor = await createPerson("Admin");
 
     await grantPermission(actor.id, "schedule.edit_all");
 
-    const rows = await listDepartmentRequests(actor.id, dept.id);
+    const rows = await listDepartmentRequests(actor.id, dept.id, term.id);
     expect(Array.isArray(rows)).toBe(true);
   });
 
   it("outsider (no membership, no grant) gets RequestForbiddenError", async () => {
     const dates = sixSaturdays();
-    await createTerm("ACTIVE", dates);
+    const term = await createTerm("ACTIVE", dates);
     const dept = await createDepartment("AABB");
     const outsider = await createPerson("Outsider");
 
-    await expect(listDepartmentRequests(outsider.id, dept.id)).rejects.toBeInstanceOf(
+    await expect(listDepartmentRequests(outsider.id, dept.id, term.id)).rejects.toBeInstanceOf(
       RequestForbiddenError
     );
   });
@@ -589,9 +685,11 @@ describe("approveRequest", () => {
     const vol = await createPerson("Volunteer");
 
     await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(vol.id, term.id, dept.id, "VOLUNTEER");
     await createShift(term.id, dept.id, vol.id, dates[0], "VOLUNTEER");
 
     const req = await createRequest(vol.id, {
+      termId: term.id,
       requesterDateKey: isoDateKey(dates[0]),
       departmentId: dept.id,
     });
@@ -628,6 +726,7 @@ describe("approveRequest", () => {
     await createShift(term.id, dept.id, vol2.id, dates[1], "VOLUNTEER");
 
     const req = await createRequest(vol1.id, {
+      termId: term.id,
       requesterDateKey: isoDateKey(dates[0]),
       departmentId: dept.id,
       targetId: vol2.id,
@@ -666,6 +765,7 @@ describe("approveRequest", () => {
     await createShift(term.id, dept.id, removed.id, dates[1], "VOLUNTEER");
 
     const req = await createRequest(vol1.id, {
+      termId: term.id,
       requesterDateKey: isoDateKey(dates[0]),
       departmentId: dept.id,
       targetId: removed.id,
@@ -693,10 +793,12 @@ describe("approveRequest", () => {
     const vol2 = await createPerson("Vol2");
 
     await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(vol1.id, term.id, dept.id, "VOLUNTEER");
     await createShift(term.id, dept.id, vol1.id, dates[0], "VOLUNTEER");
     const targetShift = await createShift(term.id, dept.id, vol2.id, dates[1], "VOLUNTEER");
 
     const req = await createRequest(vol1.id, {
+      termId: term.id,
       requesterDateKey: isoDateKey(dates[0]),
       departmentId: dept.id,
       targetId: vol2.id,
@@ -728,11 +830,13 @@ describe("approveRequest", () => {
     const vol2 = await createPerson("Vol2");
 
     await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(vol1.id, term.id, dept.id, "VOLUNTEER");
     await createShift(term.id, dept.id, vol1.id, dates[0], "VOLUNTEER");
     await createShift(term.id, dept.id, vol2.id, dates[1], "VOLUNTEER");
 
     // Create a valid swap request
     const req = await createRequest(vol1.id, {
+      termId: term.id,
       requesterDateKey: isoDateKey(dates[0]),
       departmentId: dept.id,
       targetId: vol2.id,
@@ -773,11 +877,13 @@ describe("approveRequest", () => {
     const vol2 = await createPerson("Vol2");
 
     await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(vol1.id, term.id, dept.id, "VOLUNTEER");
     await createShift(term.id, dept.id, vol1.id, dates[0], "VOLUNTEER");
     await createShift(term.id, dept.id, vol2.id, dates[1], "VOLUNTEER");
 
     // Create a valid swap request
     const req = await createRequest(vol1.id, {
+      termId: term.id,
       requesterDateKey: isoDateKey(dates[0]),
       departmentId: dept.id,
       targetId: vol2.id,
@@ -812,9 +918,11 @@ describe("approveRequest", () => {
     const vol = await createPerson("Volunteer");
 
     await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(vol.id, term.id, dept.id, "VOLUNTEER");
     await createShift(term.id, dept.id, vol.id, dates[0], "VOLUNTEER");
 
     const req = await createRequest(vol.id, {
+      termId: term.id,
       requesterDateKey: isoDateKey(dates[0]),
       departmentId: dept.id,
     });
@@ -833,11 +941,13 @@ describe("approveRequest", () => {
     const offboarded = await createPerson("Vol2");
 
     await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(vol1.id, term.id, dept.id, "VOLUNTEER");
     await createShift(term.id, dept.id, vol1.id, dates[0], "VOLUNTEER");
     await createShift(term.id, dept.id, offboarded.id, dates[1], "VOLUNTEER");
 
     // The swap request is created while the target is still active.
     const req = await createRequest(vol1.id, {
+      termId: term.id,
       requesterDateKey: isoDateKey(dates[0]),
       departmentId: dept.id,
       targetId: offboarded.id,
@@ -869,9 +979,11 @@ describe("denyRequest", () => {
     const vol = await createPerson("Volunteer");
 
     await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(vol.id, term.id, dept.id, "VOLUNTEER");
     await createShift(term.id, dept.id, vol.id, dates[0], "VOLUNTEER");
 
     const req = await createRequest(vol.id, {
+      termId: term.id,
       requesterDateKey: isoDateKey(dates[0]),
       departmentId: dept.id,
       note: "Original note",
@@ -898,9 +1010,11 @@ describe("denyRequest", () => {
     const vol = await createPerson("Volunteer");
 
     await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(vol.id, term.id, dept.id, "VOLUNTEER");
     await createShift(term.id, dept.id, vol.id, dates[0], "VOLUNTEER");
 
     const req = await createRequest(vol.id, {
+      termId: term.id,
       requesterDateKey: isoDateKey(dates[0]),
       departmentId: dept.id,
     });
@@ -920,9 +1034,11 @@ describe("denyRequest", () => {
     const vol = await createPerson("Volunteer");
 
     await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(vol.id, term.id, dept.id, "VOLUNTEER");
     await createShift(term.id, dept.id, vol.id, dates[0], "VOLUNTEER");
 
     const req = await createRequest(vol.id, {
+      termId: term.id,
       requesterDateKey: isoDateKey(dates[0]),
       departmentId: dept.id,
     });
@@ -948,7 +1064,7 @@ describe("eligibleSwapPartners", () => {
     await createShift(term.id, dept.id, partner1.id, dates[1], "VOLUNTEER");
     await createShift(term.id, dept.id, partner2.id, dates[2], "VOLUNTEER");
 
-    const partners = await eligibleSwapPartners(actor.id, isoDateKey(dates[0]), dept.id);
+    const partners = await eligibleSwapPartners(actor.id, isoDateKey(dates[0]), dept.id, term.id);
 
     expect(partners.length).toBe(2);
     // Both are eligible (different dates, same role)
@@ -971,7 +1087,7 @@ describe("eligibleSwapPartners", () => {
     // Actor also on another date (multi-shift)
     await createShift(term.id, dept.id, actor.id, dates[1], "VOLUNTEER");
 
-    const partners = await eligibleSwapPartners(actor.id, isoDateKey(dates[0]), dept.id);
+    const partners = await eligibleSwapPartners(actor.id, isoDateKey(dates[0]), dept.id, term.id);
 
     const ids = partners.map((p) => p.personId);
     expect(ids).not.toContain(actor.id);
@@ -988,7 +1104,7 @@ describe("eligibleSwapPartners", () => {
     await createShift(term.id, deptA.id, actor.id, dates[0], "VOLUNTEER");
     await createShift(term.id, deptB.id, otherDeptVol.id, dates[1], "VOLUNTEER");
 
-    const partners = await eligibleSwapPartners(actor.id, isoDateKey(dates[0]), deptA.id);
+    const partners = await eligibleSwapPartners(actor.id, isoDateKey(dates[0]), deptA.id, term.id);
 
     const ids = partners.map((p) => p.personId);
     expect(ids).not.toContain(otherDeptVol.id);
@@ -1004,7 +1120,7 @@ describe("eligibleSwapPartners", () => {
     await createShift(term.id, dept.id, actor.id, dates[0], "VOLUNTEER");
     await createShift(term.id, dept.id, sameDate.id, dates[0], "VOLUNTEER");
 
-    const partners = await eligibleSwapPartners(actor.id, isoDateKey(dates[0]), dept.id);
+    const partners = await eligibleSwapPartners(actor.id, isoDateKey(dates[0]), dept.id, term.id);
 
     const ids = partners.map((p) => p.personId);
     expect(ids).not.toContain(sameDate.id);
@@ -1020,7 +1136,7 @@ describe("eligibleSwapPartners", () => {
     await createShift(term.id, dept.id, actor.id, dates[0], "SHADOW");
     await createShift(term.id, dept.id, otherShadow.id, dates[1], "SHADOW");
 
-    const partners = await eligibleSwapPartners(actor.id, isoDateKey(dates[0]), dept.id);
+    const partners = await eligibleSwapPartners(actor.id, isoDateKey(dates[0]), dept.id, term.id);
 
     expect(partners).toHaveLength(0);
   });
@@ -1035,7 +1151,7 @@ describe("eligibleSwapPartners", () => {
     await createShift(term.id, dept.id, actor.id, dates[0], "VOLUNTEER");
     await createShift(term.id, dept.id, dir.id, dates[1], "DIRECTOR");
 
-    const partners = await eligibleSwapPartners(actor.id, isoDateKey(dates[0]), dept.id);
+    const partners = await eligibleSwapPartners(actor.id, isoDateKey(dates[0]), dept.id, term.id);
 
     const ids = partners.map((p) => p.personId);
     expect(ids).not.toContain(dir.id);
@@ -1053,7 +1169,7 @@ describe("eligibleSwapPartners", () => {
     // Offboarding flips Person.status but leaves the future ShiftAssignment behind.
     await prisma.person.update({ where: { id: offboarded.id }, data: { status: "OFFBOARDED" } });
 
-    const partners = await eligibleSwapPartners(actor.id, isoDateKey(dates[0]), dept.id);
+    const partners = await eligibleSwapPartners(actor.id, isoDateKey(dates[0]), dept.id, term.id);
     expect(partners.map((p) => p.personId)).not.toContain(offboarded.id);
   });
 
@@ -1071,7 +1187,7 @@ describe("eligibleSwapPartners", () => {
     await createShift(term.id, dept.id, actor.id, dates[0], "VOLUNTEER");
     await createShift(term.id, dept.id, removed.id, dates[1], "VOLUNTEER");
 
-    const partners = await eligibleSwapPartners(actor.id, isoDateKey(dates[0]), dept.id);
+    const partners = await eligibleSwapPartners(actor.id, isoDateKey(dates[0]), dept.id, term.id);
     expect(partners.map((p) => p.personId)).not.toContain(removed.id);
   });
 
@@ -1098,7 +1214,7 @@ describe("eligibleSwapPartners", () => {
     // cleanPartner is on dates[2], where the actor has no assignment.
     await createShift(term.id, dept.id, cleanPartner.id, dates[2], "VOLUNTEER");
 
-    const partners = await eligibleSwapPartners(actor.id, isoDateKey(dates[0]), dept.id);
+    const partners = await eligibleSwapPartners(actor.id, isoDateKey(dates[0]), dept.id, term.id);
 
     const ids = partners.map((p) => p.personId);
     expect(ids).not.toContain(collidingPartner.id);
@@ -1124,7 +1240,7 @@ describe("eligibleSwapPartners", () => {
     // cleanPartner only works dates[2].
     await createShift(term.id, dept.id, cleanPartner.id, dates[2], "VOLUNTEER");
 
-    const partners = await eligibleSwapPartners(actor.id, isoDateKey(dates[0]), dept.id);
+    const partners = await eligibleSwapPartners(actor.id, isoDateKey(dates[0]), dept.id, term.id);
 
     const ids = partners.map((p) => p.personId);
     expect(ids).not.toContain(collidingPartner.id);
@@ -1146,7 +1262,7 @@ describe("manage_requests scope", () => {
     await grantPermission(actor.id, "schedule.manage_requests");
 
     // Should not throw (returns [] when there are no requests).
-    await expect(listDepartmentRequests(actor.id, dept.id)).resolves.toEqual([]);
+    await expect(listDepartmentRequests(actor.id, dept.id, term.id)).resolves.toEqual([]);
   });
 
   it("forbids a member without schedule.manage_requests", async () => {
@@ -1156,7 +1272,7 @@ describe("manage_requests scope", () => {
     const actor = await createPerson("PlainMember");
     await createMembership(actor.id, term.id, dept.id, "VOLUNTEER");
 
-    await expect(listDepartmentRequests(actor.id, dept.id)).rejects.toBeInstanceOf(RequestForbiddenError);
+    await expect(listDepartmentRequests(actor.id, dept.id, term.id)).rejects.toBeInstanceOf(RequestForbiddenError);
   });
 
   it("schedule.edit_own_dept alone does NOT grant request decisions", async () => {
@@ -1167,7 +1283,7 @@ describe("manage_requests scope", () => {
     await createMembership(actor.id, term.id, dept.id, "VOLUNTEER");
     await grantPermission(actor.id, "schedule.edit_own_dept");
 
-    await expect(listDepartmentRequests(actor.id, dept.id)).rejects.toBeInstanceOf(RequestForbiddenError);
+    await expect(listDepartmentRequests(actor.id, dept.id, term.id)).rejects.toBeInstanceOf(RequestForbiddenError);
   });
 });
 
@@ -1195,10 +1311,12 @@ describe("createRequest approver notifications (L1)", () => {
     // DIRECTOR shift, so the old shift-assignment recipient query missed them.
     const director = await createPersonWithEmail("Off-shift Dir", "dir@example.org");
     await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(requester.id, term.id, dept.id, "VOLUNTEER");
 
     await createShift(term.id, dept.id, requester.id, dates[0], "VOLUNTEER");
 
     await createRequest(requester.id, {
+      termId: term.id,
       requesterDateKey: isoDateKey(dates[0]),
       departmentId: dept.id,
     });
@@ -1220,10 +1338,12 @@ describe("createRequest approver notifications (L1)", () => {
     const requester = await createPerson("SCTP Vol");
     const pcarDirector = await createPersonWithEmail("PCAR Dir", "pcar@example.org");
     await createMembership(pcarDirector.id, term.id, pcar.id, "DIRECTOR");
+    await createMembership(requester.id, term.id, sctp.id, "VOLUNTEER");
 
     await createShift(term.id, sctp.id, requester.id, dates[0], "VOLUNTEER");
 
     await createRequest(requester.id, {
+      termId: term.id,
       requesterDateKey: isoDateKey(dates[0]),
       departmentId: sctp.id,
     });
@@ -1255,7 +1375,7 @@ describe("requestApproverRecipients (M3)", () => {
     const director = await createPersonWithEmail("Off-shift Dir", "dir@example.org");
     await createMembership(director.id, term.id, dept.id, "DIRECTOR");
 
-    const recipients = await requestApproverRecipients(dept.id);
+    const recipients = await requestApproverRecipients(dept.id, term.id);
 
     expect(recipients.map((r) => r.id)).toContain(director.id);
     expect(recipients.find((r) => r.id === director.id)?.contactEmail).toBe("dir@example.org");
@@ -1271,7 +1391,7 @@ describe("requestApproverRecipients (M3)", () => {
     const pcarDirector = await createPersonWithEmail("PCAR Dir", "pcar@example.org");
     await createMembership(pcarDirector.id, term.id, pcar.id, "DIRECTOR");
 
-    const recipients = await requestApproverRecipients(sctp.id);
+    const recipients = await requestApproverRecipients(sctp.id, term.id);
 
     expect(recipients.map((r) => r.id)).toContain(pcarDirector.id);
   });
@@ -1285,7 +1405,7 @@ describe("requestApproverRecipients (M3)", () => {
     await createMembership(manager.id, term.id, dept.id, "VOLUNTEER");
     await grantPermission(manager.id, "schedule.manage_requests");
 
-    const recipients = await requestApproverRecipients(dept.id);
+    const recipients = await requestApproverRecipients(dept.id, term.id);
 
     expect(recipients.map((r) => r.id)).toContain(manager.id);
   });
@@ -1303,7 +1423,7 @@ describe("requestApproverRecipients (M3)", () => {
     const admin = await createPersonWithEmail("Org Admin", "admin@example.org");
     await grantPermission(admin.id, "schedule.edit_all");
 
-    const recipients = await requestApproverRecipients(dept.id);
+    const recipients = await requestApproverRecipients(dept.id, term.id);
 
     expect(recipients.map((r) => r.id)).toContain(director.id);
     expect(recipients.map((r) => r.id)).not.toContain(admin.id);
@@ -1320,9 +1440,34 @@ describe("requestApproverRecipients (M3)", () => {
     await createMembership(shiftOnlyDirector.id, term.id, dept.id, "VOLUNTEER");
     await createShift(term.id, dept.id, shiftOnlyDirector.id, dates[0], "DIRECTOR");
 
-    const recipients = await requestApproverRecipients(dept.id);
+    const recipients = await requestApproverRecipients(dept.id, term.id);
 
     expect(recipients.map((r) => r.id)).not.toContain(shiftOnlyDirector.id);
+  });
+
+  it("resolves the passed term's directors, not the active term's", async () => {
+    // dept "directed" by approverA in the live term and approverB in the next
+    // term. departmentDirectorPersonIds (the DIRECTOR-kind half) is a
+    // documented active-term-only deferral (see requests.ts), so neither
+    // person is given a DIRECTOR-kind membership here -- that would collapse
+    // to the active term regardless of the termId argument and prove nothing.
+    // Instead this exercises the half that DID become term-aware: an ACTIVE
+    // member of the department, in the given term, who holds
+    // schedule.manage_requests (a global, non-term-scoped grant, so the only
+    // thing distinguishing the two is which term's membership row matches).
+    const live = await createTerm("ACTIVE", []);
+    const next = await createTerm("PLANNING", []);
+    const dept = await createDepartment("APR5");
+    const approverA = await createPersonWithEmail("ApproverA", "a@x.edu");
+    const approverB = await createPersonWithEmail("ApproverB", "b@x.edu");
+    await createMembership(approverA.id, live.id, dept.id, "VOLUNTEER");
+    await createMembership(approverB.id, next.id, dept.id, "VOLUNTEER");
+    await grantPermission(approverA.id, "schedule.manage_requests");
+    await grantPermission(approverB.id, "schedule.manage_requests");
+
+    const nextRecipients = await requestApproverRecipients(dept.id, next.id);
+    expect(nextRecipients.map((r) => r.id)).toContain(approverB.id);
+    expect(nextRecipients.map((r) => r.id)).not.toContain(approverA.id);
   });
 });
 
@@ -1334,9 +1479,11 @@ describe("remindDirectors throttle (F15)", () => {
     const director = await createPersonWithEmail("Dir", "dir@example.org");
     const requester = await createPerson("Vol");
     await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(requester.id, term.id, dept.id, "VOLUNTEER");
     await createShift(term.id, dept.id, requester.id, dates[0], "VOLUNTEER");
 
     const req = await createRequest(requester.id, {
+      termId: term.id,
       requesterDateKey: isoDateKey(dates[0]),
       departmentId: dept.id,
     });

@@ -4,7 +4,7 @@
  * Exposes three operations:
  *   - mySchedule: the caller's shifts, availability, and term context.
  *   - fullSchedule: the clinic-wide schedule view for a selected date.
- *   - updateMyAvailability: structured self-update for the active term.
+ *   - updateMyAvailability: structured self-update for a given live or next term.
  *
  * Design note: this service trusts callers for permissions (pages gate). The
  * only invariant enforced here is data validity inside updateMyAvailability.
@@ -15,9 +15,11 @@ import type { ResolvedAvailability } from "../engine/availability";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { getActiveTerm } from "@/platform/terms/active-term";
+import { getPersonTerms } from "@/platform/terms/person-terms";
 import { resolveAvailability } from "../engine/availability";
 import { isoDateKey, toScheduleEntries } from "../engine/map";
 import { computeConflicts } from "../engine/conflicts";
+import { publishedDepartmentIds } from "./publication";
 
 /** A pending ShiftRequest with the swap target's name included (null for drops). */
 export type PendingRequest = ShiftRequest & { target: { name: string } | null };
@@ -59,41 +61,57 @@ export type FullScheduleDepartment = {
   conflicts: Map<string, string[]>;
 };
 
-/**
- * Returns the current person's schedule context for the active term.
- *
- * When no active term exists returns the all-empty shape. Availability is
- * resolved from the person's ACTIVE memberships ordered by department code
- * (first wins; in practice a volunteer is in at most one department per term).
- * Shifts are returned even when no membership is found.
- *
- * pendingRequests is keyed by "${isoDateKey(clinicDate)}|${departmentId}" for
- * each of the person's PENDING requests in the active term. Cancelled and
- * approved requests are excluded. The page uses this map to decide whether to
- * show the "request a change" disclosure or the pending-request line.
- */
-export async function mySchedule(personId: string): Promise<{
-  term: Term | null;
+/** One term's worth of a member's schedule context (see mySchedule). */
+export type MyTermSchedule = {
+  term: Term;
+  isLive: boolean;
   shifts: MyShift[];
   availability: ResolvedAvailability | null;
   legacyNote: string | null;
   clinicDates: Date[];
   pendingRequests: Map<string, PendingRequest>;
-}> {
-  const term = await getActiveTerm();
-  if (!term) {
-    return { term: null, shifts: [], availability: null, legacyNote: null, clinicDates: [], pendingRequests: new Map() };
-  }
+};
+
+/**
+ * Builds one term's schedule context for a person.
+ *
+ * Availability is resolved from the person's ACTIVE memberships in the term
+ * ordered by department code (first wins; in practice a volunteer is in at
+ * most one department per term). Shifts are returned even when no membership
+ * is found.
+ *
+ * pendingRequests is keyed by "${isoDateKey(clinicDate)}|${departmentId}" for
+ * each of the person's PENDING requests in the term. Cancelled and approved
+ * requests are excluded.
+ *
+ * For a non-live term, shifts are gated: only assignments in departments that
+ * have published their next-term schedule are included. The live term is
+ * never gated (members always see their current, running-term shifts).
+ */
+async function myScheduleForTerm(personId: string, term: Term, isLive: boolean): Promise<MyTermSchedule> {
+  const publishedDepts = isLive ? null : await publishedDepartmentIds(term.id);
 
   // Load shifts and pending requests in parallel.
   const [rawShifts, rawPendingRequests] = await Promise.all([
     prisma.shiftAssignment.findMany({
-      where: { termId: term.id, personId },
+      where: {
+        termId: term.id,
+        personId,
+        ...(publishedDepts ? { departmentId: { in: [...publishedDepts] } } : {}),
+      },
       include: { department: true },
       orderBy: { clinicDate: "asc" },
     }),
     prisma.shiftRequest.findMany({
-      where: { termId: term.id, requesterId: personId, status: "PENDING" },
+      // Gate pending requests by publish the same way as shifts: an unpublished
+      // next-term department contributes no visible shift, so it must not surface
+      // a stray pending-request indicator next to the "not published yet" state.
+      where: {
+        termId: term.id,
+        requesterId: personId,
+        status: "PENDING",
+        ...(publishedDepts ? { departmentId: { in: [...publishedDepts] } } : {}),
+      },
       include: { target: { select: { name: true } } },
     }),
   ]);
@@ -142,7 +160,29 @@ export async function mySchedule(personId: string): Promise<{
     }
   }
 
-  return { term, shifts, availability, legacyNote, clinicDates: term.clinicDates, pendingRequests };
+  return { term, isLive, shifts, availability, legacyNote, clinicDates: term.clinicDates, pendingRequests };
+}
+
+/**
+ * Returns the current person's schedule context spanning every term they
+ * belong to (their live term plus any next term they are already active in;
+ * see getPersonTerms). One entry per term, in getPersonTerms order (live
+ * first, then by startDate desc).
+ *
+ * The live term's entry is never gated: it is the running term, and the
+ * member's own shifts in it are always visible to them. A non-live (next)
+ * term's entry only includes shifts in departments that have published their
+ * schedule for that term; this is the no-leak safety invariant, since a
+ * next-term roster can be assembled long before shifts are meant to be seen.
+ */
+export async function mySchedule(personId: string): Promise<{ terms: MyTermSchedule[] }> {
+  const [personTerms, live] = await Promise.all([getPersonTerms(personId), getActiveTerm()]);
+  // Each term's queries are independent, so resolve them concurrently rather than
+  // serially (a member spanning a live and a next term otherwise doubles the wait).
+  const terms = await Promise.all(
+    personTerms.map((term) => myScheduleForTerm(personId, term, term.id === live?.id)),
+  );
+  return { terms };
 }
 
 /**
@@ -307,11 +347,13 @@ export async function fullSchedule(
 }
 
 /**
- * Updates the actor's self-availability for the active term.
+ * Updates the actor's self-availability for a given term (their live term or
+ * a next term they are already an active member of).
  *
  * Validates that:
- *   - An active term exists and the actor has >= 1 ACTIVE membership in it.
- *   - Every supplied date matches a term clinicDate by UTC day key.
+ *   - `input.termId` is one of the terms getPersonTerms returns for the actor
+ *     (live or next, and the actor holds >= 1 ACTIVE membership in it).
+ *   - Every supplied date matches that term's clinicDate by UTC day key.
  *
  * Deduplicates by day key and stores the canonical noon-UTC clinic date
  * objects (from Term.clinicDates) rather than caller-supplied Dates. Updates
@@ -322,21 +364,23 @@ export async function fullSchedule(
  */
 export async function updateMyAvailability(
   actorPersonId: string,
-  dates: Date[],
-  now: Date = new Date()
+  input: { termId: string; dates: Date[]; now?: Date },
 ): Promise<void> {
-  const term = await getActiveTerm();
+  const now = input.now ?? new Date();
 
-  // Fetch actor's ACTIVE memberships in the active term.
-  const memberships = term
-    ? await prisma.termMembership.findMany({
-        where: { termId: term.id, personId: actorPersonId, status: "ACTIVE" },
-        orderBy: { id: "asc" },
-      })
-    : [];
+  // The term must be one the member is currently an active member of (live or next).
+  const terms = await getPersonTerms(actorPersonId);
+  const term = terms.find((t) => t.id === input.termId);
+  if (!term) {
+    throw new AvailabilityValidationError("You are not on that term's roster.");
+  }
 
-  if (!term || memberships.length === 0) {
-    throw new AvailabilityValidationError("You are not on the active term roster.");
+  const memberships = await prisma.termMembership.findMany({
+    where: { termId: term.id, personId: actorPersonId, status: "ACTIVE" },
+    orderBy: { id: "asc" },
+  });
+  if (memberships.length === 0) {
+    throw new AvailabilityValidationError("You are not on that term's roster.");
   }
 
   // Build a map from day key -> canonical clinic date.
@@ -348,7 +392,7 @@ export async function updateMyAvailability(
   // Deduplicate input by day key.
   const seenKeys = new Set<string>();
   const deduped: string[] = [];
-  for (const d of dates) {
+  for (const d of input.dates) {
     const key = isoDateKey(d);
     if (!seenKeys.has(key)) {
       seenKeys.add(key);

@@ -22,6 +22,7 @@ import {
   RequestNotFoundError,
   RequestValidationError,
 } from "@/modules/schedule/services/requests";
+import { getActiveTerm } from "@/platform/terms/active-term";
 import { PendingRequests } from "@/modules/schedule/components/pending-requests";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Card } from "@/platform/ui/card";
@@ -41,8 +42,15 @@ export default async function ScheduleRequestsPage({ searchParams }: PageProps) 
     select: { id: true, code: true, name: true },
     orderBy: { code: "asc" },
   });
+  // Operational (live-term) view, consistent with countPendingApprovals: with no
+  // active term there is nothing pending to decide, so every department renders
+  // an empty row set rather than crashing on the now-required termId.
+  const liveTerm = await getActiveTerm();
   const perDept = await Promise.all(
-    depts.map(async (dept) => ({ dept, rows: await listDepartmentRequests(session.personId, dept.id) })),
+    depts.map(async (dept) => ({
+      dept,
+      rows: liveTerm ? await listDepartmentRequests(session.personId, dept.id, liveTerm.id) : [],
+    })),
   );
   const withRows = perDept.filter((p) => p.rows.length > 0);
 

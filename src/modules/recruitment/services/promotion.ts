@@ -3,13 +3,14 @@ import { can } from "@/platform/rbac/engine";
 import { recordAudit } from "@/platform/audit";
 import { log, errorAttrs } from "@/platform/logging";
 import { aliasPerson, flushEvents } from "@/platform/posthog/capture";
+import { isoDateKey } from "@/platform/dates";
 import { findAcceptanceConflicts } from "../engine/conflicts";
 import { RecruitmentAuthError } from "./review";
 
 /**
  * Parse an applicant's "availability" answer -- an array of YYYY-MM-DD clinic-date
  * values from the application's MULTI_SELECT (see templates/field-groups.ts
- * availabilitySection and templates/term-dates.ts) -- into UTC-midnight Dates for
+ * availabilitySection and templates/clinic-dates.ts) -- into UTC-midnight Dates for
  * TermMembership.baselineAvailability. The scheduler resolves availability tiers
  * (director > self > baseline) and compares every date by UTC day key, so baseline
  * dates must be stored as UTC midnight to line up with the term's clinic dates.
@@ -42,7 +43,7 @@ export async function promoteContracts(contractIds: string[], actorId: string): 
   for (const id of contractIds) {
     const contract = await prisma.onboardingContract.findUnique({
       where: { id },
-      include: { acceptance: { include: { application: { include: { cycle: { select: { termId: true, track: true } }, acceptances: { select: { departmentCode: true } } } } } } },
+      include: { acceptance: { include: { application: { include: { cycle: { select: { termId: true, track: true, term: { select: { clinicDates: true } } } }, acceptances: { select: { departmentCode: true } } } } } } },
     });
     if (!contract || contract.status !== "SUBMITTED") { skipped += 1; continue; }
     // Never promote a conflicted acceptance: one application accepted by more
@@ -61,9 +62,15 @@ export async function promoteContracts(contractIds: string[], actorId: string): 
     // scheduler's baseline tier. Without this the member lands with empty
     // baselineAvailability and the schedule builder shows them available on zero
     // clinic dates despite having answered the application's availability question.
-    const availabilityDates = parseAvailabilityDates(
+    // Applications submitted before availability options were sourced from the
+    // clinic calendar can carry dates that are not clinic days at all. Filter by
+    // UTC day key: baseline dates are UTC midnight and clinic dates are noon-UTC,
+    // so only the day key lines up.
+    const clinicDateKeys = new Set(cycle.term.clinicDates.map(isoDateKey));
+    const parsedAvailabilityDates = parseAvailabilityDates(
       (application.answers as Record<string, unknown> | null | undefined)?.["availability"],
     );
+    const availabilityDates = parsedAvailabilityDates.filter((d) => clinicDateKeys.has(isoDateKey(d)));
 
     try {
       const result = await prisma.$transaction(async (tx) => {
@@ -117,11 +124,17 @@ export async function promoteContracts(contractIds: string[], actorId: string): 
           // Person.status ACTIVE but absent from every ACTIVE-keyed roster,
           // scheduler, and compliance surface (audit3 M1). Reactivate it; an
           // already-ACTIVE membership is left untouched. Refresh baseline
-          // availability from the fresh application (only when it supplied one, so
-          // we never wipe an existing baseline with an empty answer).
+          // availability from the fresh application, but only when the application
+          // actually supplied an availability answer (checked on the PARSED list,
+          // before the clinic-date filter): an application with no availability
+          // answer at all must not wipe an existing baseline. If the applicant did
+          // answer but every date they picked has since fallen off the clinic
+          // calendar (or was a phantom Saturday from before this filter existed),
+          // write the empty FILTERED list so the stale dates don't linger, matching
+          // the create path above.
           await tx.termMembership.update({
             where: { id: existingMembership.id },
-            data: { status: "ACTIVE", ...(availabilityDates.length > 0 ? { baselineAvailability: availabilityDates } : {}) },
+            data: { status: "ACTIVE", ...(parsedAvailabilityDates.length > 0 ? { baselineAvailability: availabilityDates } : {}) },
           });
         }
 

@@ -887,3 +887,69 @@ it("rejects a required SIGNATURE that was not signed", async () => {
     }),
   ).rejects.toBeInstanceOf(SubmissionValidationError);
 });
+
+/** openVolunteerCycle plus an availability question and a clinic calendar. The
+ *  stored options are deliberately stale: live resolution must ignore them. */
+async function openCycleWithAvailability(clinicDates: Date[]) {
+  const { person, cycle } = await openVolunteerCycle();
+  const { termId } = await prisma.recruitmentCycle.findUniqueOrThrow({
+    where: { id: cycle.id }, select: { termId: true },
+  });
+  await prisma.term.update({ where: { id: termId }, data: { clinicDates } });
+  const section = await addSection(cycle.id, { title: "Availability", appliesTo: "BOTH", departmentCode: null });
+  await prisma.formField.create({
+    data: {
+      sectionId: section.id, cycleId: cycle.id, key: "availability", label: "Clinic dates",
+      type: "MULTI_SELECT", required: true, order: 0,
+      options: [{ value: "2026-06-27", label: "Jun 27" }],
+    },
+  });
+  return { person, cycle, termId };
+}
+
+const NEW_ANSWERS = {
+  first_name: "Ann", last_name: "Lee", email: "ann@yale.edu",
+  "1st_choice_department": "SRHD", srhd_essay: "because",
+};
+
+it("discards an availability date removed from the calendar after the draft was saved", async () => {
+  // The applicant checked 2026-06-13 while it was still a clinic date; the admin
+  // has since removed it. The remaining pick must still submit cleanly.
+  await openCycleWithAvailability([new Date("2026-06-06T12:00:00.000Z")]);
+  const app = await submitApplication("apply-v", {
+    applicantType: "NEW",
+    answers: { ...NEW_ANSWERS, availability: ["2026-06-06", "2026-06-13"] },
+    files: {},
+  });
+  expect((app.answers as Record<string, unknown>).availability).toEqual(["2026-06-06"]);
+});
+
+it("reports the ordinary required error when every availability pick is gone", async () => {
+  await openCycleWithAvailability([new Date("2026-06-06T12:00:00.000Z")]);
+  const err = await submitApplication("apply-v", {
+    applicantType: "NEW",
+    answers: { ...NEW_ANSWERS, availability: ["2026-06-13"] },
+    files: {},
+  }).catch((e) => e);
+  expect(err).toBeInstanceOf(SubmissionValidationError);
+  // Must be the ordinary zod "required" (array min-length) message against the
+  // refreshed option list, not the enum-rejection message a strict schema would
+  // raise for an unknown choice (e.g. `Invalid input: expected "2026-06-06"`).
+  // Asserting the exact issue text is what makes this test fail if the filter
+  // block in submitApplication is ever removed: without it, the stale pick would
+  // hit the zod enum directly and produce the "unknown choice" message instead.
+  expect((err as SubmissionValidationError).fieldErrors.availability).toBe(
+    "Too small: expected array to have >=1 items",
+  );
+});
+
+it("does not enforce a required availability answer when the term has no clinic dates", async () => {
+  // Empty calendar drops the field entirely, so its required-ness cannot block.
+  await openCycleWithAvailability([]);
+  const app = await submitApplication("apply-v", {
+    applicantType: "NEW",
+    answers: NEW_ANSWERS,
+    files: {},
+  });
+  expect(app.id).toBeTruthy();
+});

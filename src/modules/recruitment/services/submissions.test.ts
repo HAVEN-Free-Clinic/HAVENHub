@@ -896,13 +896,21 @@ it("discards an availability date removed from the calendar after the draft was 
 
 it("reports the ordinary required error when every availability pick is gone", async () => {
   await openCycleWithAvailability([new Date("2026-06-06T12:00:00.000Z")]);
-  await expect(
-    submitApplication("apply-v", {
-      applicantType: "NEW",
-      answers: { ...NEW_ANSWERS, availability: ["2026-06-13"] },
-      files: {},
-    }),
-  ).rejects.toBeInstanceOf(SubmissionValidationError);
+  const err = await submitApplication("apply-v", {
+    applicantType: "NEW",
+    answers: { ...NEW_ANSWERS, availability: ["2026-06-13"] },
+    files: {},
+  }).catch((e) => e);
+  expect(err).toBeInstanceOf(SubmissionValidationError);
+  // Must be the ordinary zod "required" (array min-length) message against the
+  // refreshed option list, not the enum-rejection message a strict schema would
+  // raise for an unknown choice (e.g. `Invalid input: expected "2026-06-06"`).
+  // Asserting the exact issue text is what makes this test fail if the filter
+  // block in submitApplication is ever removed: without it, the stale pick would
+  // hit the zod enum directly and produce the "unknown choice" message instead.
+  expect((err as SubmissionValidationError).fieldErrors.availability).toBe(
+    "Too small: expected array to have >=1 items",
+  );
 });
 
 it("does not enforce a required availability answer when the term has no clinic dates", async () => {

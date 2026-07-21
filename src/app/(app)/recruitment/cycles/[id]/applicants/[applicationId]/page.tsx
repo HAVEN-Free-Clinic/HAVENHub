@@ -5,7 +5,7 @@ import { visibleSections, applicantTypeLabel } from "@/modules/recruitment/engin
 import { requirePersonSession } from "@/platform/auth/session";
 import { reviewScope, listAcceptances, canViewApplication } from "@/modules/recruitment/services/review";
 import { can } from "@/platform/rbac/engine";
-import { scheduleInterviewAction, committeeScoreAction, routeAction, decideRoutedAction, reopenDecisionAction } from "../actions";
+import { scheduleInterviewAction, committeeScoreAction, routeAction, decideRoutedAction, reopenDecisionAction, rescindAcceptanceAction } from "../actions";
 import { listApplicationInterviews } from "@/modules/recruitment/services/interviews";
 import { DateTime } from "@/platform/dates/display";
 import { committeeScoreSummary } from "@/modules/recruitment/services/committee-scoring";
@@ -21,12 +21,13 @@ import { SubmitButton } from "@/platform/ui/submit-button";
 import { Card } from "@/platform/ui/card";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { prisma } from "@/platform/db";
+import { RescindAcceptanceNotice } from "@/modules/recruitment/components/rescind-acceptance-notice";
 
 const decisionLabel = { PENDING: "Pending", ACCEPT: "Accepted", REJECT: "Rejected", WAITLIST: "Waitlisted" } as const;
 
-export default async function ApplicationDetailPage({ params, searchParams }: { params: Promise<{ id: string; applicationId: string }>; searchParams: Promise<{ error?: string; saved?: string }> }) {
+export default async function ApplicationDetailPage({ params, searchParams }: { params: Promise<{ id: string; applicationId: string }>; searchParams: Promise<{ error?: string; routeError?: string; scoreError?: string; saved?: string }> }) {
   const { id, applicationId } = await params;
-  const { error, saved } = await searchParams;
+  const { error, routeError, scoreError, saved } = await searchParams;
   const app = await getApplication(applicationId);
   if (!app) notFound();
   const person = await requirePersonSession();
@@ -172,24 +173,27 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
             {formatScoreSummary(scoreSummary)}
           </p>
           {canScore && (
-          <form action={committeeScoreAction.bind(null, id, applicationId)} className="mt-3 flex flex-wrap items-end gap-3">
-            <div className="w-28">
-              <Field label="Your score">
-                <Select name="score" required defaultValue={myScore ? String(myScore.score) : ""}>
-                  <option value="" disabled>Select…</option>
-                  {[1, 2, 3, 4, 5].map((s) => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
-                </Select>
-              </Field>
-            </div>
-            <div className="min-w-[12rem] flex-1">
-              <Field label="Comments" hint="Optional.">
-                <Input name="comments" defaultValue={myScore?.comments ?? ""} />
-              </Field>
-            </div>
-            <SubmitButton size="sm" pendingLabel="Saving…">{myScore ? "Update score" : "Submit score"}</SubmitButton>
-          </form>
+            <>
+              {scoreError && <Alert tone="error" className="mt-3">{scoreError}</Alert>}
+              <form action={committeeScoreAction.bind(null, id, applicationId)} className="mt-3 flex flex-wrap items-end gap-3">
+                <div className="w-28">
+                  <Field label="Your score">
+                    <Select name="score" required defaultValue={myScore ? String(myScore.score) : ""}>
+                      <option value="" disabled>Select…</option>
+                      {[1, 2, 3, 4, 5].map((s) => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                    </Select>
+                  </Field>
+                </div>
+                <div className="min-w-[12rem] flex-1">
+                  <Field label="Comments" hint="Optional.">
+                    <Input name="comments" defaultValue={myScore?.comments ?? ""} />
+                  </Field>
+                </div>
+                <SubmitButton size="sm" pendingLabel="Saving…">{myScore ? "Update score" : "Submit score"}</SubmitButton>
+              </form>
+            </>
           )}
         </Card>
       )}
@@ -205,6 +209,7 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
           ) : (
             <p className="mt-3 text-sm text-muted-foreground">Not routed yet. Applicant ranked: {app.departmentChoices.join(", ") || "(none)"}.</p>
           )}
+          {routeError && <Alert tone="error" className="mt-3">{routeError}</Alert>}
           <form action={routeAction.bind(null, id, applicationId)} className="mt-4 flex flex-wrap items-end gap-3 border-t border-border-subtle pt-4">
             <div className="w-40">
               <Field label={app.routedDepartmentCode ? "Re-route to" : "Route to"}>
@@ -256,9 +261,9 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
       ) : (
         <Card>
           <SectionHeader>Department decision</SectionHeader>
-          {error && <Alert tone="error" className="mt-3">{error}</Alert>}
           {saved === "decision" && <Alert tone="success" className="mt-3">Decision recorded.</Alert>}
           {saved === "reopened" && <Alert tone="success" className="mt-3">Decision reopened.</Alert>}
+          {saved === "rescind" && <Alert tone="success" className="mt-3">Acceptance rescinded.</Alert>}
           {!app.routedDepartmentCode ? (
             app.decision !== "PENDING" ? (
               <div className="mt-3 space-y-2">
@@ -266,6 +271,7 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
                   This applicant was <strong className="text-foreground">{decisionLabel[app.decision as keyof typeof decisionLabel]}</strong> without routing.
                   {app.decisionNotes ? ` ${app.decisionNotes}` : ""}
                 </p>
+                {error && <Alert tone="error">{error}</Alert>}
                 {scope.all && (
                   <form action={reopenDecisionAction.bind(null, id, applicationId)}>
                     <SubmitButton size="sm" variant="outline" pendingLabel="Reopening…">Reopen</SubmitButton>
@@ -280,10 +286,13 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
               <p className="mt-3 text-sm text-foreground-soft">
                 Routed to <strong className="text-foreground">{app.routedDepartmentCode}</strong>. Decide directly from the committee score (no interview).
               </p>
+              {error && <Alert tone="error" className="mt-3">{error}</Alert>}
               {emailedAcceptance && (
-                <Alert tone="warning" className="mt-3">
-                  This applicant has already been emailed their acceptance for {app.routedDepartmentCode}. Changing to Reject or Waitlist is blocked until the acceptance is rescinded.
-                </Alert>
+                <RescindAcceptanceNotice
+                  departmentCode={app.routedDepartmentCode}
+                  canRescind={scope.all}
+                  action={rescindAcceptanceAction.bind(null, id, applicationId, emailedAcceptance.id)}
+                />
               )}
               <form action={decideRoutedAction.bind(null, id, applicationId)} className="mt-4 flex flex-wrap items-end gap-3 border-t border-border-subtle pt-4">
                 <div className="w-40">
@@ -310,7 +319,10 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
               )}
             </>
           ) : (
-            <p className="mt-3 text-sm text-muted-foreground">Routed to {app.routedDepartmentCode}. Waiting on the department to decide.</p>
+            <>
+              {error && <Alert tone="error" className="mt-3">{error}</Alert>}
+              <p className="mt-3 text-sm text-muted-foreground">Routed to {app.routedDepartmentCode}. Waiting on the department to decide.</p>
+            </>
           )}
         </Card>
       )}

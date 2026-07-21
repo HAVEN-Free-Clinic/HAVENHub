@@ -22,6 +22,7 @@ import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { AddPanelistForm } from "./add-panelist-form";
 import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
+import { RescindAcceptanceNotice } from "@/modules/recruitment/components/rescind-acceptance-notice";
 
 const SCORES = [1, 2, 3, 4, 5];
 const decisionTone = { PENDING: "default", ACCEPT: "success", REJECT: "critical", WAITLIST: "warning" } as const;
@@ -193,17 +194,11 @@ export default async function InterviewDetail({ params, searchParams }: { params
         <Card>
           <SectionHeader>Decision</SectionHeader>
           {emailedAcceptance && (
-            <div className="mt-3 space-y-3">
-              <Alert tone="warning">
-                This applicant has already been emailed their acceptance for {iv.departmentCode}. Changing the decision to Reject or Waitlist is blocked until the acceptance is rescinded.{" "}
-                {scope.all ? "Rescind it below, then record the new decision." : "Ask an SRR to rescind it first."}
-              </Alert>
-              {scope.all && (
-                <form action={rescindAcceptanceAction.bind(null, interviewId, emailedAcceptance.id)}>
-                  <ConfirmButton label="Rescind acceptance" size="sm" />
-                </form>
-              )}
-            </div>
+            <RescindAcceptanceNotice
+              departmentCode={iv.departmentCode}
+              canRescind={scope.all}
+              action={rescindAcceptanceAction.bind(null, interviewId, emailedAcceptance.id)}
+            />
           )}
           <form action={decideAction.bind(null, interviewId)} className="mt-3 flex flex-wrap items-end gap-3">
             <div className="w-40">

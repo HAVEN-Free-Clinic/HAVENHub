@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
 import { ROSTER_DECISION_ORDER, rosterDecision } from "./decision-summary";
+import type { RosterDecisionStatus } from "./decision-summary";
 
 const none = { acceptances: [], applicationDecision: "PENDING" as const, interviews: [] };
 
@@ -72,4 +73,18 @@ it("prefers WAITLIST over REJECT when both appear and no acceptance exists", () 
 it("orders decisions by precedence, strongest outcome first", () => {
   // Matches the precedence the rosterDecision if-chain already implements.
   expect(ROSTER_DECISION_ORDER).toEqual(["ACCEPTED", "WAITLIST", "REJECTED", "NONE"]);
+});
+
+it("orders every decision status", () => {
+  // Drift guard: ROSTER_DECISION_ORDER is a readonly array, not a tuple, so TypeScript
+  // cannot catch a status missing from it. This Record makes the compiler require an
+  // entry per status, and the runtime check proves the order array covers the same set.
+  // A status missing from the order array would sort at index -1, ahead of ACCEPTED.
+  const everyStatus: Record<RosterDecisionStatus, true> = {
+    ACCEPTED: true,
+    WAITLIST: true,
+    REJECTED: true,
+    NONE: true,
+  };
+  expect([...ROSTER_DECISION_ORDER].sort()).toEqual(Object.keys(everyStatus).sort());
 });

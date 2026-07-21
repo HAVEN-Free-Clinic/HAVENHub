@@ -61,7 +61,9 @@ export function SortableTH<K extends string>({
       <Link
         href={hrefFor(columnKey)}
         className={cx(
-          "inline-flex items-center gap-1 transition-colors hover:text-foreground",
+          // Negative margin plus matching padding expands the link over the th's
+          // padding, so the whole header cell is one click target.
+          "-m-3 inline-flex items-center gap-1 p-3 transition-colors hover:text-foreground",
           dir && "text-foreground",
         )}
       >

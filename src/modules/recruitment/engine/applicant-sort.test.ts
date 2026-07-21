@@ -43,9 +43,9 @@ it("breaks a shared last name on first name", () => {
 });
 
 it("sorts accented names next to their unaccented neighbours", () => {
-  // A naive `<` compare puts "Renee" after "Zamora", because U+00E9 > "Z".
-  const apps = [named("Zamora"), named("Renée"), named("Reed")];
-  expect(lastNames(sortApplicants(apps, { key: "name", dir: "asc" }))).toEqual(["Reed", "Renée", "Zamora"]);
+  // A naive `<` compare puts "Renée" after "Renz", because U+00E9 > "z".
+  const apps = [named("Renz"), named("Renée"), named("Reed")];
+  expect(lastNames(sortApplicants(apps, { key: "name", dir: "asc" }))).toEqual(["Reed", "Renée", "Renz"]);
 });
 
 it("sorts by email", () => {

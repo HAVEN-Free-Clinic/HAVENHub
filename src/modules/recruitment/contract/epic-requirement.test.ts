@@ -48,4 +48,13 @@ describe("resolveEpicNeeded", () => {
     expect(resolveEpicNeeded("SOME", true)).toBe(true);
     expect(resolveEpicNeeded("SOME", false)).toBe(false);
   });
+
+  it("exhaustively resolves all three current requirement values", () => {
+    expect(resolveEpicNeeded("ALL", true)).toBe(true);
+    expect(resolveEpicNeeded("ALL", false)).toBe(true);
+    expect(resolveEpicNeeded("NONE", true)).toBe(false);
+    expect(resolveEpicNeeded("NONE", false)).toBe(false);
+    expect(resolveEpicNeeded("SOME", true)).toBe(true);
+    expect(resolveEpicNeeded("SOME", false)).toBe(false);
+  });
 });

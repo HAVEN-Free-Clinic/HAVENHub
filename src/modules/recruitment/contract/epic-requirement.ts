@@ -14,11 +14,24 @@ export function epicRequirementFor(dept: EpicColumns | null, track: Track): Epic
   return track === "DIRECTOR" ? dept.requiresEpicDirector : dept.requiresEpicVolunteer;
 }
 
+/** Throw at runtime for impossible enum values. Ensures adding a fourth
+ *  EpicRequirement forces compilation to fail until this function is updated. */
+function assertNever(x: never): never {
+  throw new Error(`Unreachable requirement value: ${x as unknown}`);
+}
+
 /** Collapse the requirement plus the applicant's answer into the boolean that
  *  promotion.ts reads to decide whether to create an EpicRequest. Only SOME
  *  consults the applicant; ALL and NONE are decided by the department. */
 export function resolveEpicNeeded(requirement: EpicRequirement, selfReported: boolean): boolean {
-  if (requirement === "ALL") return true;
-  if (requirement === "NONE") return false;
-  return selfReported;
+  switch (requirement) {
+    case "ALL":
+      return true;
+    case "NONE":
+      return false;
+    case "SOME":
+      return selfReported;
+    default:
+      return assertNever(requirement);
+  }
 }

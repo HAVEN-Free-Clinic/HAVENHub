@@ -302,9 +302,9 @@ export default async function TrainingPage() {
               <ClearanceHero my={my} zone={zone} />
               {pending && (
                 <>
-                  <PathCards my={my} />
                   {my.makeupOpen ? (
                     <>
+                      <PathCards my={my} />
                       <SectionHeader level="title" className="mb-3.5 mt-7">Makeup quiz</SectionHeader>
                       <TrainingQuiz
                         termId={my.term.id}

@@ -228,11 +228,14 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
         <p className="text-sm text-subtle-foreground">No active term.</p>
       ) : (
         termSections.map(({ t, swapPartnersByKey }) => {
-          // The live term is never gated -- it's the running term, and members
-          // always see their own current shifts. A non-live (next) term's
-          // shifts only appear once a department publishes its schedule, so an
-          // empty list there means "not published yet" rather than "no shifts".
-          const showSchedule = t.isLive || t.shifts.length > 0;
+          // Whether to show the shift list at all -- this is purely about
+          // whether shifts exist, not about live/next status. An empty list
+          // still needs a message: which one depends on t.isLive below. A
+          // non-live (next) term's shifts only appear once a department
+          // publishes its schedule, so an empty list there means "not
+          // published yet"; a live term's empty list means "no shifts
+          // assigned yet" since the live schedule is never gated.
+          const hasShifts = t.shifts.length > 0;
           const noShiftsMessage = t.isLive
             ? "No shifts assigned yet. Check back after the schedule is published."
             : `Your ${t.term.name} schedule isn't published yet. It will show here once it's ready.`;
@@ -257,7 +260,7 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                       <span className="rounded-full bg-foreground text-surface text-xs font-semibold px-2.5 py-0.5">{t.shifts.length} total</span>
                     </div>
 
-                    {!showSchedule ? (
+                    {!hasShifts ? (
                       <div className="rounded-2xl border border-dashed border-border px-6 py-10 text-center text-sm text-subtle-foreground">
                         {noShiftsMessage}
                       </div>

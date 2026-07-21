@@ -9,7 +9,7 @@ import { RecruitmentAuthError } from "./review";
 /**
  * Parse an applicant's "availability" answer -- an array of YYYY-MM-DD clinic-date
  * values from the application's MULTI_SELECT (see templates/field-groups.ts
- * availabilitySection and templates/term-dates.ts) -- into UTC-midnight Dates for
+ * availabilitySection and templates/clinic-dates.ts) -- into UTC-midnight Dates for
  * TermMembership.baselineAvailability. The scheduler resolves availability tiers
  * (director > self > baseline) and compares every date by UTC day key, so baseline
  * dates must be stored as UTC midnight to line up with the term's clinic dates.

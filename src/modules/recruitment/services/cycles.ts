@@ -6,8 +6,7 @@ import type { TemplateSection } from "../templates/types";
 import { getApplicationTemplate, getSupplementSections } from "../templates";
 import { getQuizTemplate } from "../templates/quiz";
 import { materializeTemplate } from "../templates/materialize";
-import { termSaturdays } from "../templates/term-dates";
-import { resolveAvailabilityOptions } from "../templates/clinic-dates";
+import { clinicDateOptions, resolveAvailabilityOptions } from "../templates/clinic-dates";
 import { normalizeDeptCode, SUPPLEMENT_DEPARTMENTS } from "../templates/application/supplements/dept-codes";
 
 export class CyclePublishError extends Error {
@@ -48,8 +47,8 @@ export async function createCycle(input: CreateCycleInput, seedDefaultForm = fal
   const departments = [...new Set(input.departments.map(normalizeDeptCode))];
   let templateSections: TemplateSection[] | null = null;
   if (seedDefaultForm) {
-    const term = await prisma.term.findUniqueOrThrow({ where: { id: input.termId }, select: { startDate: true, endDate: true } });
-    const dates = termSaturdays(term.startDate, term.endDate);
+    const term = await prisma.term.findUniqueOrThrow({ where: { id: input.termId }, select: { clinicDates: true } });
+    const dates = clinicDateOptions(term.clinicDates);
     templateSections = [
       ...getApplicationTemplate(input.track, departments, dates),
       ...getQuizTemplate(input.track),

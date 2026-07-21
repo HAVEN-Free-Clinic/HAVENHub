@@ -46,6 +46,28 @@ describe("createCycle", () => {
     const codes = suppSections.map((s) => s.departmentCode).sort();
     expect(codes).toEqual(["EXEC", "SRR"]);
   });
+
+  it("seeds availability options from the term's clinic dates, not its Saturdays", async () => {
+    const person = await prisma.person.create({ data: { name: "Lead", status: "ACTIVE" } });
+    const term = await prisma.term.create({
+      data: {
+        code: "SU26", name: "Summer 2026",
+        startDate: new Date("2026-06-01"), endDate: new Date("2026-06-30"),
+        clinicDates: [new Date("2026-06-06T12:00:00.000Z"), new Date("2026-06-10T12:00:00.000Z")],
+      },
+    });
+    const cycle = await createCycle({
+      track: "VOLUNTEER", termId: term.id, title: "Volunteer SU26",
+      publicSlug: "volunteer-su26-dates", departments: [], acceptsRenewals: false,
+      createdById: person.id,
+    }, true);
+
+    const field = await prisma.formField.findFirstOrThrow({ where: { cycleId: cycle.id, key: "availability" } });
+    expect(field.options).toEqual([
+      { value: "2026-06-06", label: "Sat, Jun 6" },
+      { value: "2026-06-10", label: "Wed, Jun 10" },
+    ]);
+  });
 });
 
 describe("publishCycle", () => {

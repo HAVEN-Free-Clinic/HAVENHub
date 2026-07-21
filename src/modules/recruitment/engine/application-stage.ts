@@ -30,3 +30,14 @@ export const applicationStageLabel: Record<ApplicationStage, string> = {
   INTERVIEWING: "Interviewing",
   DECIDED: "Decided",
 };
+
+/** Pipeline order, used to sort the roster by stage. The index is the stage's
+ *  position in the recruitment process, so a stage-sorted roster groups the way
+ *  the process actually runs rather than alphabetically. */
+export const APPLICATION_STAGE_ORDER: readonly ApplicationStage[] = [
+  "AWAITING_SCORING",
+  "SCORING",
+  "ROUTED",
+  "INTERVIEWING",
+  "DECIDED",
+];

@@ -1,4 +1,6 @@
-import type { ComponentProps } from "react";
+import type { ComponentProps, ReactNode } from "react";
+import Link from "next/link";
+import { ChevronDown, ChevronUp, ChevronsUpDown } from "lucide-react";
 import { cardClasses } from "./card";
 import { cx } from "./cx";
 
@@ -24,16 +26,51 @@ export function TR({ className, ...rest }: ComponentProps<"tr">) {
   );
 }
 
+/** Shared by TH and SortableTH so a sortable header is visually identical to a
+ *  plain one apart from its affordance. */
+const thClasses = "px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-subtle-foreground";
+
 export function TH({ className, ...rest }: ComponentProps<"th">) {
+  return <th scope="col" {...rest} className={cx(thClasses, className)} />;
+}
+
+/** A column header that links to the same page sorted by its column. Renders as
+ *  a Link rather than a button so the table stays usable from a server component
+ *  with no client JavaScript, and so a sorted view is shareable. */
+export function SortableTH<K extends string>({
+  columnKey,
+  active,
+  hrefFor,
+  children,
+  className,
+}: {
+  columnKey: K;
+  active: { key: K; dir: "asc" | "desc" } | null;
+  hrefFor: (key: K) => string;
+  children: ReactNode;
+  className?: string;
+}) {
+  const dir = active?.key === columnKey ? active.dir : null;
+  const Icon = dir === "asc" ? ChevronUp : dir === "desc" ? ChevronDown : ChevronsUpDown;
   return (
     <th
       scope="col"
-      {...rest}
-      className={cx(
-        "px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-subtle-foreground",
-        className,
-      )}
-    />
+      {...(dir && { "aria-sort": dir === "asc" ? ("ascending" as const) : ("descending" as const) })}
+      className={cx(thClasses, className)}
+    >
+      <Link
+        href={hrefFor(columnKey)}
+        className={cx(
+          // Negative margin plus matching padding expands the link over the th's
+          // padding, so the whole header cell is one click target.
+          "-m-3 inline-flex items-center gap-1 p-3 transition-colors hover:text-foreground",
+          dir && "text-foreground",
+        )}
+      >
+        {children}
+        <Icon aria-hidden className={cx("h-3.5 w-3.5", !dir && "opacity-40")} />
+      </Link>
+    </th>
   );
 }
 

@@ -6,7 +6,7 @@ import { listApplicantsForReview, reviewScope } from "@/modules/recruitment/serv
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 import { PageHeader } from "@/platform/ui/page-header";
-import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
+import { Table, THead, TR, TD, SortableTH } from "@/platform/ui/table";
 import { Badge } from "@/platform/ui/badge";
 import { Pagination } from "@/platform/ui/pagination";
 import { applicantTypeLabel } from "@/modules/recruitment/engine/visibility";
@@ -19,14 +19,40 @@ import { speedScoreAction, loadReviewApplicationAction } from "./actions";
 import type { SpeedScoreItem } from "@/modules/recruitment/engine/speed-score-queue";
 import { rosterDecision, type RosterDecisionStatus } from "@/modules/recruitment/engine/decision-summary";
 import { DecisionFilter } from "@/modules/recruitment/components/decision-filter";
+import {
+  nextSortDirection,
+  parseApplicantSort,
+  sortApplicants,
+  type ApplicantSortKey,
+} from "@/modules/recruitment/engine/applicant-sort";
 
 const PAGE_SIZE = 50;
 
 const DECISION_STATUSES = new Set<RosterDecisionStatus>(["ACCEPTED", "WAITLIST", "REJECTED", "NONE"]);
 
-export default async function ApplicantsPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ page?: string; decision?: string }> }) {
+/** Builds the roster's query string from scratch each time. Every roster link
+ *  (sort headers, pagination) carries the full state, so no param is dropped by
+ *  navigating. Page 1 and the unsorted default are left implicit. */
+function rosterQuery(parts: {
+  decision: string | null;
+  sort: string | null;
+  dir: string | null;
+  page: number | null;
+}): string {
+  const q = new URLSearchParams();
+  if (parts.decision) q.set("decision", parts.decision);
+  if (parts.sort && parts.dir) {
+    q.set("sort", parts.sort);
+    q.set("dir", parts.dir);
+  }
+  if (parts.page && parts.page > 1) q.set("page", String(parts.page));
+  const s = q.toString();
+  return s ? `?${s}` : "";
+}
+
+export default async function ApplicantsPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ page?: string; decision?: string; sort?: string; dir?: string }> }) {
   const { id } = await params;
-  const { page: pageParam, decision: decisionParam } = await searchParams;
+  const { page: pageParam, decision: decisionParam, sort: sortParam, dir: dirParam } = await searchParams;
   const [person, cycle] = await Promise.all([requirePersonSession(), getCycle(id)]);
   if (!cycle) notFound();
   const apps = await listApplicantsForReview(id, person.personId);
@@ -52,9 +78,20 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
   const filtered = decisionFilter
     ? apps.filter((a) => rosterDecision({ acceptances: a.acceptances, applicationDecision: a.decision, interviews: a.interviews }).status === decisionFilter)
     : apps;
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const sort = parseApplicantSort(sortParam, dirParam);
+  // Sort after filtering and before slicing, so page boundaries stay correct.
+  const sorted = sort ? sortApplicants(filtered, sort) : filtered;
+  const pageCount = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
   const page = Math.min(Math.max(1, Number(pageParam) || 1), pageCount);
-  const pageApps = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const pageApps = sorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const sortHref = (key: ApplicantSortKey) =>
+    // Omitting page returns to page 1, matching how DecisionFilter drops it.
+    `/recruitment/cycles/${id}/applicants${rosterQuery({
+      decision: decisionFilter,
+      sort: key,
+      dir: nextSortDirection(sort, key),
+      page: null,
+    })}`;
   return (
     <div className="space-y-6">
       <SetBreadcrumb
@@ -90,13 +127,13 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
       <Table>
         <THead>
           <tr>
-            <TH>Name</TH>
-            <TH>Email</TH>
-            <TH>Type</TH>
-            <TH>Committee avg</TH>
-            <TH>Stage</TH>
-            <TH>Ranked</TH>
-            <TH>Decision</TH>
+            <SortableTH columnKey="name" active={sort} hrefFor={sortHref}>Name</SortableTH>
+            <SortableTH columnKey="email" active={sort} hrefFor={sortHref}>Email</SortableTH>
+            <SortableTH columnKey="type" active={sort} hrefFor={sortHref}>Type</SortableTH>
+            <SortableTH columnKey="score" active={sort} hrefFor={sortHref}>Committee avg</SortableTH>
+            <SortableTH columnKey="stage" active={sort} hrefFor={sortHref}>Stage</SortableTH>
+            <SortableTH columnKey="ranked" active={sort} hrefFor={sortHref}>Ranked</SortableTH>
+            <SortableTH columnKey="decision" active={sort} hrefFor={sortHref}>Decision</SortableTH>
           </tr>
         </THead>
         <tbody>
@@ -147,7 +184,14 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
       <Pagination
         page={page}
         pageCount={pageCount}
-        hrefFor={(p) => `/recruitment/cycles/${id}/applicants?${decisionFilter ? `decision=${decisionFilter}&` : ""}page=${p}`}
+        hrefFor={(p) =>
+          `/recruitment/cycles/${id}/applicants${rosterQuery({
+            decision: decisionFilter,
+            sort: sort?.key ?? null,
+            dir: sort?.dir ?? null,
+            page: p,
+          })}`
+        }
       />
     </div>
   );

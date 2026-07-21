@@ -67,9 +67,10 @@ export async function promoteContracts(contractIds: string[], actorId: string): 
     // UTC day key: baseline dates are UTC midnight and clinic dates are noon-UTC,
     // so only the day key lines up.
     const clinicDateKeys = new Set(cycle.term.clinicDates.map(isoDateKey));
-    const availabilityDates = parseAvailabilityDates(
+    const parsedAvailabilityDates = parseAvailabilityDates(
       (application.answers as Record<string, unknown> | null | undefined)?.["availability"],
-    ).filter((d) => clinicDateKeys.has(isoDateKey(d)));
+    );
+    const availabilityDates = parsedAvailabilityDates.filter((d) => clinicDateKeys.has(isoDateKey(d)));
 
     try {
       const result = await prisma.$transaction(async (tx) => {
@@ -123,11 +124,17 @@ export async function promoteContracts(contractIds: string[], actorId: string): 
           // Person.status ACTIVE but absent from every ACTIVE-keyed roster,
           // scheduler, and compliance surface (audit3 M1). Reactivate it; an
           // already-ACTIVE membership is left untouched. Refresh baseline
-          // availability from the fresh application (only when it supplied one, so
-          // we never wipe an existing baseline with an empty answer).
+          // availability from the fresh application, but only when the application
+          // actually supplied an availability answer (checked on the PARSED list,
+          // before the clinic-date filter): an application with no availability
+          // answer at all must not wipe an existing baseline. If the applicant did
+          // answer but every date they picked has since fallen off the clinic
+          // calendar (or was a phantom Saturday from before this filter existed),
+          // write the empty FILTERED list so the stale dates don't linger, matching
+          // the create path above.
           await tx.termMembership.update({
             where: { id: existingMembership.id },
-            data: { status: "ACTIVE", ...(availabilityDates.length > 0 ? { baselineAvailability: availabilityDates } : {}) },
+            data: { status: "ACTIVE", ...(parsedAvailabilityDates.length > 0 ? { baselineAvailability: availabilityDates } : {}) },
           });
         }
 

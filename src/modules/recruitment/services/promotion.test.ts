@@ -199,6 +199,55 @@ it("drops availability dates that are not on the term's clinic calendar", async 
   ]);
 });
 
+it("clears a REMOVED membership's stale baselineAvailability when the reactivating application's availability is entirely off-calendar", async () => {
+  // The applicant did answer the availability question, but every date they
+  // picked has since fallen off the term's clinic calendar (a stale phantom
+  // Saturday from before the clinic-date filter existed, or a date since
+  // removed). That must still clear the old baseline, exactly like the create
+  // path does for the same input, rather than leaving the stale dates in place.
+  const existing = await prisma.person.create({ data: { name: "Ada Lovelace", netId: "al99", status: "OFFBOARDED" } });
+  const { term, srhd, srr, contract } = await seedSubmitted({ netId: "al99", epicNeeded: false, availability: ["2026-06-13"] });
+  await prisma.term.update({
+    where: { id: term.id },
+    data: { clinicDates: [new Date("2026-06-06T12:00:00.000Z")] },
+  });
+  await prisma.termMembership.create({
+    data: {
+      personId: existing.id, termId: term.id, departmentId: srhd.id, kind: "VOLUNTEER", status: "REMOVED",
+      baselineAvailability: [new Date("2026-05-30T00:00:00.000Z")],
+    },
+  });
+
+  const res = await promoteContracts([contract.id], srr.id);
+  expect(res).toEqual({ created: 0, reactivated: 1, skipped: 0 });
+
+  const membership = await prisma.termMembership.findFirstOrThrow({
+    where: { personId: existing.id, termId: term.id, departmentId: srhd.id, kind: "VOLUNTEER" },
+  });
+  expect(membership.status).toBe("ACTIVE");
+  expect(membership.baselineAvailability).toEqual([]);
+});
+
+it("keeps a REMOVED membership's existing baselineAvailability when the reactivating application had no availability answer", async () => {
+  const existing = await prisma.person.create({ data: { name: "Ada Lovelace", netId: "al99", status: "OFFBOARDED" } });
+  const { term, srhd, srr, contract } = await seedSubmitted({ netId: "al99", epicNeeded: false });
+  await prisma.termMembership.create({
+    data: {
+      personId: existing.id, termId: term.id, departmentId: srhd.id, kind: "VOLUNTEER", status: "REMOVED",
+      baselineAvailability: [new Date("2026-05-30T00:00:00.000Z")],
+    },
+  });
+
+  const res = await promoteContracts([contract.id], srr.id);
+  expect(res).toEqual({ created: 0, reactivated: 1, skipped: 0 });
+
+  const membership = await prisma.termMembership.findFirstOrThrow({
+    where: { personId: existing.id, termId: term.id, departmentId: srhd.id, kind: "VOLUNTEER" },
+  });
+  expect(membership.status).toBe("ACTIVE");
+  expect(membership.baselineAvailability.map((d) => d.toISOString())).toEqual(["2026-05-30T00:00:00.000Z"]);
+});
+
 it("leaves baselineAvailability empty when the application had no availability answer", async () => {
   const { term, srhd, srr, contract } = await seedSubmitted();
   await promoteContracts([contract.id], srr.id);

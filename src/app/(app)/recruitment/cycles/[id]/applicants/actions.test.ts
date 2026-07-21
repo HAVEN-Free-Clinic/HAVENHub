@@ -15,7 +15,7 @@ import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import { requirePersonSession } from "@/platform/auth/session";
 import { routeApplication, decideRoutedApplication } from "@/modules/recruitment/services/routing";
-import { routeAction, decideRoutedAction, rescindAcceptanceAction } from "./actions";
+import { routeAction, decideRoutedAction, committeeScoreAction, rescindAcceptanceAction } from "./actions";
 
 beforeEach(async () => { await resetDb(); });
 afterEach(async () => { await resetDb(); vi.clearAllMocks(); });
@@ -65,7 +65,7 @@ it("re-routing away from an emailed acceptance surfaces an inline error, not a r
   // redirect to a friendly ?error= rather than letting it escape (which Next
   // renders as a blank "Server Components render" crash).
   const err = await routeAction(cycle.id, application.id, form({ departmentCode: "MDIC" })).catch((e) => e);
-  expect(err.digest).toContain(`/recruitment/cycles/${cycle.id}/applicants/${application.id}?error=`);
+  expect(err.digest).toContain(`/recruitment/cycles/${cycle.id}/applicants/${application.id}?routeError=`);
   expect(decodeURIComponent(err.digest)).toContain("Rescind it before re-routing");
   // The original routing is untouched.
   const app = await prisma.application.findUniqueOrThrow({ where: { id: application.id } });
@@ -108,4 +108,12 @@ it("unblocks the decision change: REJECT is refused before the rescind and recor
   expect(ok.digest).toContain(`/recruitment/cycles/${cycle.id}/applicants/${application.id}?saved=decision`);
   const app = await prisma.application.findUniqueOrThrow({ where: { id: application.id } });
   expect(app.decision).toBe("REJECT");
+});
+
+it("sends a committee-score failure to scoreError so it renders in the score card", async () => {
+  const { cycle, application } = await seed();
+
+  const err = await committeeScoreAction(cycle.id, application.id, form({ score: "9" })).catch((e) => e);
+  expect(err.digest).toContain(`/recruitment/cycles/${cycle.id}/applicants/${application.id}?scoreError=`);
+  expect(decodeURIComponent(err.digest)).toContain("Score must be 1 to 5.");
 });

@@ -26,6 +26,7 @@ import {
   RequestValidationError,
 } from "./requests";
 import { isoDateKey } from "@/platform/dates";
+import { publishSchedule } from "./publication";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -352,6 +353,66 @@ describe("createRequest", () => {
       createRequest(actor.id, {
         termId: term.id,
         requesterDateKey: "2026-06-06",
+        departmentId: dept.id,
+      })
+    ).rejects.toBeInstanceOf(RequestValidationError);
+  });
+
+  it("stamps req.termId with a PLANNING next term (not the active term) once published", async () => {
+    const dates = sixSaturdays();
+    const live = await createTerm("ACTIVE", dates);
+    const next = await createTerm("PLANNING", dates);
+    const dept = await createDepartment("AABB");
+
+    const director = await createPerson("Director");
+    const vol = await createPerson("Volunteer");
+
+    // Director manages the department via an ACTIVE live-term directorship;
+    // manageableScheduleDepartmentIds/manageableDepartmentIds resolve off
+    // getActiveTerm(), which is `live`, so this is what makes them a publisher.
+    await createMembership(director.id, live.id, dept.id, "DIRECTOR");
+
+    // The volunteer's ONLY membership is an ACTIVE one in the next (PLANNING)
+    // term, with a shift on a next-term clinic date, so a drop request
+    // validates against `next`, not the live term.
+    await createMembership(vol.id, next.id, dept.id, "VOLUNTEER");
+    await createShift(next.id, dept.id, vol.id, dates[0], "VOLUNTEER");
+
+    await publishSchedule(director.id, { termId: next.id, departmentId: dept.id });
+
+    const req = await createRequest(vol.id, {
+      termId: next.id,
+      requesterDateKey: isoDateKey(dates[0]),
+      departmentId: dept.id,
+    });
+
+    // If createRequest reverted to stamping req.termId from getActiveTerm()
+    // instead of the passed input.termId, this would be `live.id` since `live`
+    // is the active term.
+    expect(req.termId).toBe(next.id);
+  });
+
+  it("rejects a PLANNING next-term request when the department's schedule is not published", async () => {
+    const dates = sixSaturdays();
+    const live = await createTerm("ACTIVE", dates);
+    const next = await createTerm("PLANNING", dates);
+    const dept = await createDepartment("AABB");
+
+    const director = await createPerson("Director");
+    const vol = await createPerson("Volunteer");
+
+    await createMembership(director.id, live.id, dept.id, "DIRECTOR");
+    await createMembership(vol.id, next.id, dept.id, "VOLUNTEER");
+    await createShift(next.id, dept.id, vol.id, dates[0], "VOLUNTEER");
+
+    // Deliberately NOT published for the next term. Every other fact about the
+    // request is otherwise valid (roster membership, shift on a real clinic
+    // date), isolating the publish re-check as the sole reason this must
+    // reject.
+    await expect(
+      createRequest(vol.id, {
+        termId: next.id,
+        requesterDateKey: isoDateKey(dates[0]),
         departmentId: dept.id,
       })
     ).rejects.toBeInstanceOf(RequestValidationError);

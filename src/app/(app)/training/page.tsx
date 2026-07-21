@@ -20,6 +20,7 @@ import { requirePersonSession } from "@/platform/auth/session";
 import { getAccessibleModules } from "@/platform/modules/access";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { getMyTraining, type MyTraining } from "@/modules/recruitment/services/training";
+import { makeupOpensOn } from "@/modules/recruitment/services/makeup-window";
 import { formatDateOnly } from "@/platform/dates";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { TrainingQuiz } from "./training-quiz";
@@ -302,16 +303,30 @@ export default async function TrainingPage() {
               {pending && (
                 <>
                   <PathCards my={my} />
-                  <SectionHeader level="title" className="mb-3.5 mt-7">Makeup quiz</SectionHeader>
-                  <TrainingQuiz
-                    termId={my.term.id}
-                    track={my.track}
-                    questions={my.questions}
-                    passPercent={my.passPercent}
-                    maxAttempts={my.maxAttempts}
-                    attemptsUsed={my.attemptsUsed}
-                    intake={my.intake}
-                  />
+                  {my.makeupOpen ? (
+                    <>
+                      <SectionHeader level="title" className="mb-3.5 mt-7">Makeup quiz</SectionHeader>
+                      <TrainingQuiz
+                        termId={my.term.id}
+                        track={my.track}
+                        questions={my.questions}
+                        passPercent={my.passPercent}
+                        maxAttempts={my.maxAttempts}
+                        attemptsUsed={my.attemptsUsed}
+                        intake={my.intake}
+                      />
+                    </>
+                  ) : (
+                    <Card pad={false} className="mt-7 px-5 py-5">
+                      <SectionHeader className="mb-1.5">Attend the in-person session</SectionHeader>
+                      <p className="text-sm leading-relaxed text-foreground-soft">
+                        Your in-person training is on{" "}
+                        <span className="font-semibold text-foreground">{formatDateOnly(my.inPersonTrainingDate, zone)}</span>.
+                        Attend the live session and your director marks you complete. Missed it? The makeup quiz opens{" "}
+                        <span className="font-semibold text-foreground">{formatDateOnly(makeupOpensOn(my.inPersonTrainingDate!), zone)}</span>.
+                      </p>
+                    </Card>
+                  )}
                 </>
               )}
               {my.state === "COMPLETE" && <CompleteDetail accessibleSchedule={canSchedule} />}

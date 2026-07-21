@@ -25,8 +25,11 @@ describe("applyBlockOp", () => {
   });
 
   it("adds a custom question with a unique, namespaced key", () => {
+    // addCustom appends to the end of the block list, and the default layout
+    // already carries its own custom question (the Epic self-report), so the
+    // newly added block is the last custom_question, not the first.
     const out = applyBlockOp(DEFAULT_CONTRACT_LAYOUT, { t: "addCustom", fieldType: "SHORT_TEXT" });
-    const cq = out.blocks.find((b): b is CustomQuestionBlock => b.kind === "custom_question")!;
+    const cq = out.blocks.filter((b): b is CustomQuestionBlock => b.kind === "custom_question").at(-1)!;
     expect(cq.key).toMatch(/^[a-z0-9_]+$/);
     expect(cq.type).toBe("SHORT_TEXT");
   });

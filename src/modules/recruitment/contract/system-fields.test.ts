@@ -17,17 +17,20 @@ describe("system fields + default layout", () => {
       .filter((b): b is SystemFieldBlock => b.kind === "system_field")
       .map((b) => b.systemKey);
     // parity: every field on today's onboard-form is represented, except
-    // "spanish", which the defaults module (see ./defaults) deliberately
-    // drops from the default layout; the key stays in SYSTEM_FIELD_KEYS as a
-    // field type a builder can still add back.
-    for (const k of ["name","email","netId","phone","dob","dietary","yaleAffiliation","gradYear","epic","licensedRN","hipaa","initials"]) {
+    // "spanish" and "initials", which the defaults module (see ./defaults)
+    // deliberately drops from the default layout -- initials are now captured
+    // per-agreement via confirmKind: "initials" rather than a standalone
+    // system field. Both keys stay in SYSTEM_FIELD_KEYS as field types a
+    // builder can still add back.
+    for (const k of ["name","email","netId","phone","dob","dietary","yaleAffiliation","gradYear","epic","licensedRN","hipaa"]) {
       expect(systemKeys).toContain(k);
     }
     expect(systemKeys).not.toContain("spanish");
+    expect(systemKeys).not.toContain("initials");
     const agreements = layout.blocks
       .filter((b): b is AgreementBlock => b.kind === "agreement")
       .map((b) => b.id);
-    expect(agreements).toEqual(["agreement", "professionalism", "training"]);
+    expect(agreements).toEqual(["agreement", "professionalism", "commitment", "training", "haven_agreement"]);
   });
 
   it("default agreement bodies are non-empty (see ./defaults)", () => {
@@ -37,9 +40,9 @@ describe("system fields + default layout", () => {
 });
 
 describe("defaultContractLayout(track)", () => {
-  it("volunteer default keeps the three agreements", () => {
+  it("volunteer default keeps its five agreements", () => {
     const ids = defaultContractLayout("VOLUNTEER").blocks.filter((b): b is AgreementBlock => b.kind === "agreement").map((b) => b.id);
-    expect(ids).toEqual(["agreement", "professionalism", "training"]);
+    expect(ids).toEqual(["agreement", "professionalism", "commitment", "training", "haven_agreement"]);
   });
   it("director default includes a data-privacy agreement the volunteer default lacks", () => {
     const dirIds = defaultContractLayout("DIRECTOR").blocks.filter((b) => b.kind === "agreement").map((b) => (b as AgreementBlock).id);

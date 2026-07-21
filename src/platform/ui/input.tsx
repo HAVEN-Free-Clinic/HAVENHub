@@ -34,11 +34,19 @@ export function Textarea({
 export function Field({
   label,
   hint,
+  hintPosition = "bottom",
   required,
   children,
 }: {
   label: string;
   hint?: string;
+  /**
+   * Where the hint sits relative to the control. "bottom" (default) reads as a
+   * trailing note; "top" places the guidance between the label and the control
+   * so it's seen before the field is filled -- useful when the control itself is
+   * tall (e.g. a multi-select box) and a trailing note is easy to miss.
+   */
+  hintPosition?: "top" | "bottom";
   required?: boolean;
   children: ReactNode;
 }) {
@@ -56,6 +64,22 @@ export function Field({
     });
   }
 
+  // A top hint renders inside the wrapping <label>, so it's a block <span>
+  // (phrasing content, valid inside <label>) rather than a <p>. A bottom hint
+  // sits outside the label and stays a <p>.
+  const topHint =
+    hint && hintPosition === "top" ? (
+      <span id={hintId} className="block text-xs text-subtle-foreground">
+        {hint}
+      </span>
+    ) : null;
+  const bottomHint =
+    hint && hintPosition === "bottom" ? (
+      <p id={hintId} className="text-xs text-subtle-foreground">
+        {hint}
+      </p>
+    ) : null;
+
   return (
     <div className="flex flex-col gap-1">
       <label className="flex flex-col gap-1">
@@ -63,13 +87,10 @@ export function Field({
           {label}
           {required && <span className="text-critical" aria-hidden="true"> *</span>}
         </span>
+        {topHint}
         {control}
       </label>
-      {hint && (
-        <p id={hintId} className="text-xs text-subtle-foreground">
-          {hint}
-        </p>
-      )}
+      {bottomHint}
     </div>
   );
 }

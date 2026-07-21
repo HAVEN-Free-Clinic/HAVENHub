@@ -1,11 +1,6 @@
-import type { Track } from "@prisma/client";
+import type { EpicRequirement, Track } from "@prisma/client";
 import { isFieldVisible } from "../engine/field-visibility";
 import type { ContractBlock } from "./layout";
-
-// EpicRequirement is not yet a Prisma enum (Task 5 adds it to the schema).
-// This local union mirrors the values it will define. Replace this with
-// `import type { EpicRequirement } from "@prisma/client"` once Task 5 lands.
-export type EpicRequirement = "ALL" | "NONE" | "SOME";
 
 /** Facts the server knows about the person filling in the contract, which
  *  conditions may key on even though they are never asked as questions. */

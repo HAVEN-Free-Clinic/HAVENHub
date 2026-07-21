@@ -5,7 +5,7 @@ import { visibleSections, applicantTypeLabel } from "@/modules/recruitment/engin
 import { requirePersonSession } from "@/platform/auth/session";
 import { reviewScope, listAcceptances, canViewApplication } from "@/modules/recruitment/services/review";
 import { can } from "@/platform/rbac/engine";
-import { scheduleInterviewAction, committeeScoreAction, routeAction, decideRoutedAction, reopenDecisionAction } from "../actions";
+import { scheduleInterviewAction, committeeScoreAction, routeAction, decideRoutedAction, reopenDecisionAction, rescindAcceptanceAction } from "../actions";
 import { listApplicationInterviews } from "@/modules/recruitment/services/interviews";
 import { DateTime } from "@/platform/dates/display";
 import { committeeScoreSummary } from "@/modules/recruitment/services/committee-scoring";
@@ -21,6 +21,7 @@ import { SubmitButton } from "@/platform/ui/submit-button";
 import { Card } from "@/platform/ui/card";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { prisma } from "@/platform/db";
+import { RescindAcceptanceNotice } from "@/modules/recruitment/components/rescind-acceptance-notice";
 
 const decisionLabel = { PENDING: "Pending", ACCEPT: "Accepted", REJECT: "Rejected", WAITLIST: "Waitlisted" } as const;
 
@@ -259,6 +260,7 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
           {error && <Alert tone="error" className="mt-3">{error}</Alert>}
           {saved === "decision" && <Alert tone="success" className="mt-3">Decision recorded.</Alert>}
           {saved === "reopened" && <Alert tone="success" className="mt-3">Decision reopened.</Alert>}
+          {saved === "rescind" && <Alert tone="success" className="mt-3">Acceptance rescinded.</Alert>}
           {!app.routedDepartmentCode ? (
             app.decision !== "PENDING" ? (
               <div className="mt-3 space-y-2">
@@ -281,9 +283,11 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
                 Routed to <strong className="text-foreground">{app.routedDepartmentCode}</strong>. Decide directly from the committee score (no interview).
               </p>
               {emailedAcceptance && (
-                <Alert tone="warning" className="mt-3">
-                  This applicant has already been emailed their acceptance for {app.routedDepartmentCode}. Changing to Reject or Waitlist is blocked until the acceptance is rescinded.
-                </Alert>
+                <RescindAcceptanceNotice
+                  departmentCode={app.routedDepartmentCode}
+                  canRescind={scope.all}
+                  action={rescindAcceptanceAction.bind(null, id, applicationId, emailedAcceptance.id)}
+                />
               )}
               <form action={decideRoutedAction.bind(null, id, applicationId)} className="mt-4 flex flex-wrap items-end gap-3 border-t border-border-subtle pt-4">
                 <div className="w-40">

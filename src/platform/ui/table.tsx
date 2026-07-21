@@ -55,7 +55,7 @@ export function SortableTH<K extends string>({
   return (
     <th
       scope="col"
-      aria-sort={dir === "asc" ? "ascending" : dir === "desc" ? "descending" : "none"}
+      {...(dir && { "aria-sort": dir === "asc" ? ("ascending" as const) : ("descending" as const) })}
       className={cx(thClasses, className)}
     >
       <Link

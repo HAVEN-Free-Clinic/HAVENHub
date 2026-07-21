@@ -23,34 +23,60 @@ const TRAILING_PUNCTUATION = /[.,;:!?]+$/;
 
 type LinkMatch = { at: number; length: number; label: string; href: string };
 
-/** Finds the next `[label](url)` in `text`. Tracks paren depth through the url
- *  portion (starting at depth 1 for the link's own opening paren) so a url
- *  that itself contains balanced parentheses (Wikipedia-style references) is
- *  captured whole, while an unmatched `)` inside the url still closes the
+/** Finds the next usable `[label](url)` in `text`. Tracks paren depth through
+ *  the url portion (starting at depth 1 for the link's own opening paren) so a
+ *  url that itself contains balanced parentheses (Wikipedia-style references)
+ *  is captured whole, while an unmatched `)` inside the url still closes the
  *  link at that character rather than swallowing more text. Whitespace before
  *  depth returns to 0 means the parenthetical never closes as a url, so the
  *  candidate is rejected, same as the old `(\S+?)` regex refusing to span a
- *  space. */
+ *  space.
+ *
+ *  A candidate opener can fail three ways: the paren scan never balances, it
+ *  crosses whitespace, or the extracted href is empty or unsafe. None of
+ *  those should sink the whole string, because a later `[...](` opener, quite
+ *  possibly nested inside the failed candidate's own scan region (an outer
+ *  `[a](` whose "href" turns out to be `[b](https://good.com)`), can still be
+ *  a valid link. So on any failure the search resumes just past the failed
+ *  opener's `[` and looks for the next one, instead of giving up on the whole
+ *  string the way a single `LABEL_OPEN.exec` call used to.
+ *
+ *  Termination: `searchFrom` only ever advances to `openIndex + 1`, and
+ *  `openIndex` is always >= the `searchFrom` it was found from (a regex exec
+ *  against `text.slice(searchFrom)` can only match at or after that offset).
+ *  So each retry starts strictly later than the previous one, `searchFrom` is
+ *  bounded above by `text.length`, and the `while` below runs at most
+ *  `text.length` times regardless of input shape. */
 function matchLabelledLink(text: string): LinkMatch | null {
-  const open = LABEL_OPEN.exec(text);
-  if (!open) return null;
-  const urlStart = open.index + open[0].length;
-  let depth = 1;
-  let i = urlStart;
-  for (; i < text.length; i++) {
-    const ch = text[i];
-    if (ch === "(") depth++;
-    else if (ch === ")") {
-      depth--;
-      if (depth === 0) break;
-    } else if (/\s/.test(ch)) {
-      return null;
+  let searchFrom = 0;
+  while (searchFrom < text.length) {
+    const open = LABEL_OPEN.exec(text.slice(searchFrom));
+    if (!open) return null;
+    const openIndex = searchFrom + open.index;
+    const urlStart = openIndex + open[0].length;
+    let depth = 1;
+    let i = urlStart;
+    let brokeOnWhitespace = false;
+    for (; i < text.length; i++) {
+      const ch = text[i];
+      if (ch === "(") depth++;
+      else if (ch === ")") {
+        depth--;
+        if (depth === 0) break;
+      } else if (/\s/.test(ch)) {
+        brokeOnWhitespace = true;
+        break;
+      }
     }
+    if (!brokeOnWhitespace && depth === 0) {
+      const href = text.slice(urlStart, i);
+      if (href && isSafeHref(href)) {
+        return { at: openIndex, length: i + 1 - openIndex, label: open[1], href };
+      }
+    }
+    searchFrom = openIndex + 1;
   }
-  if (depth !== 0) return null;
-  const href = text.slice(urlStart, i);
-  if (!href) return null;
-  return { at: open.index, length: i + 1 - open.index, label: open[1], href };
+  return null;
 }
 
 /** Splits trailing sentence punctuation off a bare autolinked url so

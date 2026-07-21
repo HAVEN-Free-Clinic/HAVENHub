@@ -27,6 +27,10 @@ function dndId(block: ContractBlock): string {
       return `agr:${block.id}`;
     case "custom_question":
       return `cq:${block.key}`;
+    case "section":
+      // Task 2 scope: the layout model supports section blocks; the builder
+      // UI for authoring/rendering them lands in a later task.
+      return `sec:${block.id}`;
   }
 }
 
@@ -158,6 +162,11 @@ export function ContractEditor({
                 onRemove={() => remove(index)}
               />
             );
+          }
+          if (block.kind === "section") {
+            // Task 2 scope: the layout model supports section blocks; a
+            // builder card for authoring them lands in a later task.
+            return null;
           }
           return (
             <CustomQuestionCard

@@ -5,6 +5,7 @@ import type {
   ContractBlock,
   ContractLayout,
   CustomQuestionBlock,
+  SectionBlock,
   SystemFieldBlock,
 } from "./layout";
 import { ContractLayoutError } from "./layout";
@@ -65,6 +66,11 @@ function patchBlock(block: ContractBlock, patch: BlockPatch): ContractBlock {
   }
   if (block.kind === "agreement") {
     return { ...block, ...patch, kind: "agreement", id: block.id } as AgreementBlock;
+  }
+  if (block.kind === "section") {
+    // Task 2 scope: the layout model supports section blocks; builder
+    // authoring for them (and thus patching one in place) lands in a later task.
+    return { ...block, ...patch, kind: "section", id: block.id } as SectionBlock;
   }
   return { ...block, ...patch, kind: "custom_question", key: block.key } as CustomQuestionBlock;
 }

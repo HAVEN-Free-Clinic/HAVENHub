@@ -1,8 +1,11 @@
 import { z } from "zod";
 import type { FieldType } from "@prisma/client";
 import { SYSTEM_FIELD_KEYS } from "./system-fields";
+import type { FieldCondition } from "../engine/field-visibility";
 
 export type SystemFieldKey = (typeof SYSTEM_FIELD_KEYS)[number];
+
+export type ConfirmKind = "signature" | "initials" | "checkbox";
 
 export type SystemFieldBlock = {
   kind: "system_field";
@@ -10,6 +13,7 @@ export type SystemFieldBlock = {
   label?: string;
   helpText?: string;
   enabled?: boolean; // optional fields only; core fields ignore this
+  visibleWhen?: FieldCondition;
 };
 export type AgreementBlock = {
   kind: "agreement";
@@ -17,6 +21,8 @@ export type AgreementBlock = {
   title: string;
   body: string;
   signatureLabel: string;
+  confirmKind?: ConfirmKind;
+  visibleWhen?: FieldCondition;
 };
 export type CustomQuestionBlock = {
   kind: "custom_question";
@@ -26,8 +32,16 @@ export type CustomQuestionBlock = {
   type: FieldType;
   required: boolean;
   options?: { value: string; label: string }[];
+  visibleWhen?: FieldCondition;
 };
-export type ContractBlock = SystemFieldBlock | AgreementBlock | CustomQuestionBlock;
+export type SectionBlock = {
+  kind: "section";
+  id: string;
+  title: string;
+  body: string;
+  visibleWhen?: FieldCondition;
+};
+export type ContractBlock = SystemFieldBlock | AgreementBlock | CustomQuestionBlock | SectionBlock;
 export type ContractLayout = { blocks: ContractBlock[] };
 
 export class ContractLayoutError extends Error {
@@ -46,6 +60,12 @@ const FIELD_TYPES: [FieldType, ...FieldType[]] = [
 
 const optionSchema = z.object({ value: z.string().min(1), label: z.string().min(1) });
 
+const conditionSchema = z.union([
+  z.object({ field: z.string().min(1), op: z.literal("isAnswered") }),
+  z.object({ field: z.string().min(1), op: z.enum(["is", "isNot"]), value: z.string() }),
+  z.object({ field: z.string().min(1), op: z.literal("isAnyOf"), value: z.array(z.string()) }),
+]);
+
 const blockSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("system_field"),
@@ -53,6 +73,7 @@ const blockSchema = z.discriminatedUnion("kind", [
     label: z.string().optional(),
     helpText: z.string().optional(),
     enabled: z.boolean().optional(),
+    visibleWhen: conditionSchema.optional(),
   }),
   z.object({
     kind: z.literal("agreement"),
@@ -60,6 +81,8 @@ const blockSchema = z.discriminatedUnion("kind", [
     title: z.string().min(1),
     body: z.string(),
     signatureLabel: z.string().min(1),
+    confirmKind: z.enum(["signature", "initials", "checkbox"]).optional(),
+    visibleWhen: conditionSchema.optional(),
   }),
   z.object({
     kind: z.literal("custom_question"),
@@ -69,6 +92,14 @@ const blockSchema = z.discriminatedUnion("kind", [
     type: z.enum(FIELD_TYPES),
     required: z.boolean(),
     options: z.array(optionSchema).optional(),
+    visibleWhen: conditionSchema.optional(),
+  }),
+  z.object({
+    kind: z.literal("section"),
+    id: z.string().min(1),
+    title: z.string().min(1),
+    body: z.string(),
+    visibleWhen: conditionSchema.optional(),
   }),
 ]);
 
@@ -93,12 +124,13 @@ export function parseContractLayout(value: unknown): ContractLayout {
     if (seen.has(b.key)) problems.push(`Duplicate custom question key "${b.key}".`);
     seen.add(b.key);
   }
-  // agreement ids unique
-  const seenAgreements = new Set<string>();
+  // Agreement and section ids share one namespace: both are addressed by id in
+  // the builder's drag ids, and an agreement's id also keys stored signatures.
+  const seenIds = new Set<string>();
   for (const b of layout.blocks) {
-    if (b.kind !== "agreement") continue;
-    if (seenAgreements.has(b.id)) problems.push(`Duplicate agreement id "${b.id}".`);
-    seenAgreements.add(b.id);
+    if (b.kind !== "agreement" && b.kind !== "section") continue;
+    if (seenIds.has(b.id)) problems.push(`Duplicate block id "${b.id}".`);
+    seenIds.add(b.id);
   }
   if (problems.length) throw new ContractLayoutError(problems);
   return layout;

@@ -66,6 +66,12 @@ export function ContractField({
     );
   }
 
+  if (block.kind === "section") {
+    // Task 2 scope: the layout model supports section blocks; rendering the
+    // section heading/body (via the Task 1 Prose renderer) lands in a later task.
+    return null;
+  }
+
   // system_field
   const spec = SYSTEM_FIELDS[block.systemKey];
   const label = block.label ?? spec.defaultLabel;

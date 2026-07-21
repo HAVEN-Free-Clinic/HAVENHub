@@ -97,11 +97,18 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
         }`}
       />
 
-      {sections.map((section) => (
+      {sections.map((section) => {
+        // The ranking is hoisted into its own column at submission (submissions.ts
+        // deletes the answer key), so a rank field here only ever rendered
+        // "(none)". The Subcommittee card below is the authoritative view; drop a
+        // section that held nothing else rather than leaving an empty card.
+        const fields = section.fields.filter((f) => f.type !== "SUBCOMMITTEE_RANK");
+        if (fields.length === 0) return null;
+        return (
         <Card key={section.id}>
           <SectionHeader>{section.title}</SectionHeader>
           <dl className="mt-3 grid gap-3 sm:grid-cols-2">
-            {section.fields.map((f) => {
+            {fields.map((f) => {
               const val = answers[f.key];
               const isFileLike = (f.type === "FILE" || f.type === "SIGNATURE") && val && typeof val === "object";
               const fileVal = isFileLike ? (val as { storedName?: string; fileName?: string }) : null;
@@ -110,12 +117,14 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
                 : Array.isArray(val) ? val.join(", ") : val === undefined || val === "" ? "(none)" : String(val);
               const fileHref = `/api/recruitment/applications/${applicationId}/files/${encodeURIComponent(f.key)}?inline=1`;
               return (
-                <div key={f.id}>
+                // min-w-0 keeps a long unbroken answer from widening its grid
+                // column; break-words/overflow-wrap inherit to the dt, dd and link.
+                <div key={f.id} className="min-w-0 break-words [overflow-wrap:anywhere]">
                   <dt className="text-xs text-subtle-foreground">{f.label}</dt>
                   <dd className="mt-0.5 text-sm text-foreground">
                     {f.type === "SIGNATURE" && fileVal?.storedName ? (
                       // eslint-disable-next-line @next/next/no-img-element -- authenticated same-origin file route, not a remote asset
-                      <img src={fileHref} alt={`${f.label} signature`} className="h-20 rounded border border-border-subtle bg-white" />
+                      <img src={fileHref} alt={`${f.label} signature`} className="h-20 max-w-full rounded border border-border-subtle bg-white" />
                     ) : fileVal?.storedName ? (
                       <a href={fileHref} target="_blank" rel="noopener noreferrer" className="font-medium text-brand-fg hover:underline">
                         {display}
@@ -129,13 +138,14 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
             })}
           </dl>
         </Card>
-      ))}
+        );
+      })}
 
       {(app.subcommitteeRanking.length > 0 || app.assignedSubcommitteeId) && (
         <Card>
           <SectionHeader>Subcommittee</SectionHeader>
           <dl className="mt-3 grid gap-3 sm:grid-cols-2">
-            <div>
+            <div className="min-w-0 break-words [overflow-wrap:anywhere]">
               <dt className="text-xs text-subtle-foreground">Ranked preferences</dt>
               <dd className="mt-0.5 text-sm text-foreground">
                 {app.subcommitteeRanking.length === 0
@@ -143,7 +153,7 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
                   : app.subcommitteeRanking.map((sid, i) => `${i + 1}. ${subName.get(sid) ?? "(removed)"}`).join("  ·  ")}
               </dd>
             </div>
-            <div>
+            <div className="min-w-0 break-words [overflow-wrap:anywhere]">
               <dt className="text-xs text-subtle-foreground">Assigned</dt>
               <dd className="mt-0.5 text-sm text-foreground">
                 {app.assignedSubcommitteeId ? (subName.get(app.assignedSubcommitteeId) ?? "(removed)") : "Not assigned"}

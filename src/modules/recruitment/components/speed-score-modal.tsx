@@ -215,11 +215,11 @@ export function SpeedScoreModal({ open, onClose, items, onScore, onLoad }: Speed
         <div className="space-y-5">
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <Badge>{current!.typeLabel}</Badge>
-            <span className="text-muted-foreground">{currentView?.email}</span>
+            <span className="min-w-0 break-words [overflow-wrap:anywhere] text-muted-foreground">{currentView?.email}</span>
             {currentView && currentView.departmentChoices.length > 0 && (
-              <span className="text-muted-foreground">Prefs: {currentView.departmentChoices.join(", ")}</span>
+              <span className="min-w-0 break-words [overflow-wrap:anywhere] text-muted-foreground">Prefs: {currentView.departmentChoices.join(", ")}</span>
             )}
-            <label className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
+            <label className="ml-auto flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
               <Checkbox checked={includeScored} onChange={(e) => toggleShowScored(e.target.checked)} />
               Show scored
             </label>
@@ -259,7 +259,9 @@ function ApplicationBody({ view }: { view: ReviewApplicationView }) {
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-subtle-foreground">At a glance</h3>
           <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
             {scalars.map((f) => (
-              <div key={f.key}>
+              // min-w-0 stops a long unbroken answer (a pasted NetID, a joined
+              // multi-select) from widening its column into the neighbouring one.
+              <div key={f.key} className="min-w-0 break-words [overflow-wrap:anywhere]">
                 <dt className="text-xs text-subtle-foreground">{f.label}</dt>
                 <dd className="mt-0.5 text-sm text-foreground">{f.displayValue}</dd>
               </div>
@@ -271,7 +273,7 @@ function ApplicationBody({ view }: { view: ReviewApplicationView }) {
         <section className="space-y-4">
           <h3 className="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Essays</h3>
           {essays.map((f) => (
-            <div key={f.key}>
+            <div key={f.key} className="min-w-0 break-words [overflow-wrap:anywhere]">
               <h4 className="text-sm font-medium text-foreground">{f.label}</h4>
               <p className="mt-1 whitespace-pre-wrap text-sm text-foreground-soft">{f.displayValue}</p>
             </div>

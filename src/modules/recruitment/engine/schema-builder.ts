@@ -81,15 +81,30 @@ function fieldSchema(field: FieldDef): z.ZodTypeAny {
     case "PHONE":
       return reqString(field.required);
     case "NUMBER": {
-      let n = z.coerce.number();
-      if (v.min !== undefined) n = n.min(v.min);
-      if (v.max !== undefined) n = n.max(v.max);
+      // Range-check numerically but PERSIST THE ORIGINAL DIGITS. Parsing to a
+      // float64 silently mangles anything past ~15 significant digits -- a 40-digit
+      // entry round-tripped as "7.555555555555555e+42" in the reviewer and
+      // speed-scorer views -- and nothing downstream does arithmetic on a NUMBER
+      // answer; it is only displayed and range-checked right here.
+      const { min, max } = v;
+      const numeric = z.string().superRefine((text, ctx) => {
+        const n = Number(text);
+        if (text === "" || !Number.isFinite(n)) {
+          ctx.addIssue({ code: "custom", message: "Enter a number." });
+          return;
+        }
+        if (min !== undefined && n < min) ctx.addIssue({ code: "custom", message: `Must be at least ${min}.` });
+        if (max !== undefined && n > max) ctx.addIssue({ code: "custom", message: `Must be at most ${max}.` });
+      });
       // HTML number inputs always submit their key ("" when blank) and Number("") === 0,
       // so a bare z.coerce.number() would silently accept a required blank as 0 and store
       // 0 for an untouched optional field. Normalize "" (and null) to undefined: the
-      // required branch then rejects it (coerces to NaN), the optional branch drops it.
-      const blankToUndefined = (val: unknown) => (val === "" || val == null ? undefined : val);
-      return field.required ? z.preprocess(blankToUndefined, n) : z.preprocess(blankToUndefined, n.optional());
+      // required branch then rejects it (missing string), the optional branch drops it.
+      const blankToUndefined = (val: unknown) =>
+        val === "" || val == null ? undefined : String(val).trim();
+      return field.required
+        ? z.preprocess(blankToUndefined, numeric)
+        : z.preprocess(blankToUndefined, numeric.optional());
     }
     case "DATE": {
       const s = z.string().refine((val) => !Number.isNaN(Date.parse(val)), "invalid date");

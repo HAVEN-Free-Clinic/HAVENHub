@@ -324,6 +324,36 @@ it("rejects duplicate or unknown subcommittee IDs and over-count", async () => {
   })).rejects.toBeInstanceOf(SubmissionValidationError);
 });
 
+// The wizard renders `fieldErrors[key]` verbatim as the red text under the field
+// (field-preview.tsx) and `message` as the banner above the form. A terse code like
+// "duplicate choice" therefore reaches the applicant as a second, garbled error next
+// to the readable banner. Field errors must carry the readable sentence; the banner
+// stays generic, matching the schema-validation path.
+it("puts a readable sentence in fieldErrors for ranking problems, not a machine code", async () => {
+  const { subs } = await openCycleWithRanking();
+  const base = {
+    applicantType: "NEW" as const,
+    answers: { first_name: "E", last_name: "E", email: "e@yale.edu", "1st_choice_department": "SRHD" },
+    files: {},
+  };
+  const cases: [unknown, string][] = [
+    [[subs.a.id, subs.a.id], "Each subcommittee can be ranked only once."],
+    [[], "Please rank at least one subcommittee."],
+    [[subs.a.id, subs.b.id, subs.c.id, subs.d.id], "Rank at most 3 subcommittees."],
+    [["nope"], "That subcommittee is not available."],
+  ];
+  for (const [ranking, expected] of cases) {
+    const err = await submitApplication("apply-rank", {
+      ...base,
+      answers: { ...base.answers, subcommittee_preferences: ranking },
+    }).then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(SubmissionValidationError);
+    const v = err as SubmissionValidationError;
+    expect(v.fieldErrors.subcommittee_preferences).toBe(expected);
+    expect(v.message).toBe("Please fix the highlighted fields.");
+  }
+});
+
 it("finalizes an existing draft into a submission (no duplicate Applicant)", async () => {
   await openVolunteerCycle();
   const ID = { email: "ann@yale.edu", personId: null, firstName: null };

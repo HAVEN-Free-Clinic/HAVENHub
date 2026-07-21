@@ -334,7 +334,9 @@ export async function submitContract(
       // putObject throw escaped and leaked them.)
       await cleanupSignatures();
       if (writtenKey) await deleteObject(writtenKey);
-      if (err instanceof SignatureError) throw new ContractValidationError("Please provide a valid signature.", { [`sig__${id}`]: "invalid signature" });
+      // Same contract as the apply wizard: the field error is rendered verbatim
+      // under the field, so it carries the sentence and the banner stays generic.
+      if (err instanceof SignatureError) throw new ContractValidationError("Please fix the highlighted fields.", { [`sig__${id}`]: "Please provide a valid signature." });
       throw err;
     }
   }

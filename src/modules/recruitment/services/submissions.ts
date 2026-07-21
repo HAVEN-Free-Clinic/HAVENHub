@@ -24,6 +24,17 @@ export class SubmissionValidationError extends Error {
   constructor(message: string, fieldErrors: Record<string, string> = {}) { super(message); this.name = "SubmissionValidationError"; this.fieldErrors = fieldErrors; }
 }
 
+/** The apply wizard renders `message` as the banner above the form and each
+ *  `fieldErrors` value verbatim as the red text under its field (field-preview).
+ *  So a field error must be the readable sentence, and the banner stays generic --
+ *  otherwise the applicant reads the complaint twice, the second time as an
+ *  internal code ("duplicate choice"). Schema validation already works this way. */
+const FIX_HIGHLIGHTED = "Please fix the highlighted fields.";
+
+function fieldProblem(fieldKey: string, message: string): SubmissionValidationError {
+  return new SubmissionValidationError(FIX_HIGHLIGHTED, { [fieldKey]: message });
+}
+
 export type SubmitInput = {
   applicantType: ApplicantType;
   renewalDepartment?: string;
@@ -73,18 +84,18 @@ function resolveRanking(
     .map((v) => String(v))
     .filter((v) => v !== "");
   if (list.length === 0) {
-    if (required) throw new SubmissionValidationError("Please rank at least one subcommittee.", { [fieldKey]: "required" });
+    if (required) throw fieldProblem(fieldKey, "Please rank at least one subcommittee.");
     return [];
   }
   if (new Set(list).size !== list.length) {
-    throw new SubmissionValidationError("Each subcommittee can be ranked only once.", { [fieldKey]: "duplicate choice" });
+    throw fieldProblem(fieldKey, "Each subcommittee can be ranked only once.");
   }
   if (list.length > rankCount) {
-    throw new SubmissionValidationError(`Rank at most ${rankCount} subcommittees.`, { [fieldKey]: `max ${rankCount}` });
+    throw fieldProblem(fieldKey, `Rank at most ${rankCount} subcommittees.`);
   }
   for (const id of list) {
     if (!activeIds.has(id)) {
-      throw new SubmissionValidationError("That subcommittee is not available.", { [fieldKey]: "unknown choice" });
+      throw fieldProblem(fieldKey, "That subcommittee is not available.");
     }
   }
   return list;
@@ -155,7 +166,7 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
     // belongs to in this cycle, not just any cycle department. The client locks
     // this control, but the server is the source of truth.
     if (!input.renewalDepartment || !renewalAllowedDepartments.includes(input.renewalDepartment)) {
-      throw new SubmissionValidationError("You can only renew in a department you currently belong to.", { renewalDepartment: "required" });
+      throw fieldProblem("renewalDepartment", "You can only renew in a department you currently belong to.");
     }
     selectedDepartmentCodes = [input.renewalDepartment];
   } else {
@@ -168,9 +179,9 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
       const stayingPut = selectedDepartmentCodes.filter((d) => transferFromDepartments.includes(d));
       if (stayingPut.length > 0) {
         const key = deptField?.key ?? "renewalDepartment";
-        throw new SubmissionValidationError(
+        throw fieldProblem(
+          key,
           `You are already in ${stayingPut.join(", ")}. Choose "Renewing in my current department" to come back to it.`,
-          { [key]: "already a member" },
         );
       }
     }
@@ -247,7 +258,7 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
 
   const needFiles = requiredFileKeys(sectionDefs, ctx);
   const missingFile = needFiles.find((k) => !input.files[k] && !draftFileKeys.includes(k));
-  if (missingFile) throw new SubmissionValidationError("A required file is missing.", { [missingFile]: "required" });
+  if (missingFile) throw fieldProblem(missingFile, "Please attach a file.");
 
   // Enforce upload rules: a file may only be uploaded under the key of a visible
   // FILE field. Rejecting unknown keys is also the primary defense against a
@@ -268,7 +279,9 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
   for (const [key, file] of Object.entries(input.files)) {
     const field = fileFields.find((f) => f.key === key);
     if (!field) {
-      throw new SubmissionValidationError("Unexpected file upload.", { [key]: "unknown field" });
+      // No field error: `key` names no field the applicant can see, so there is
+      // nothing to highlight -- only the banner can carry this one.
+      throw new SubmissionValidationError("Unexpected file upload.");
     }
     if (!isFieldVisible(field.visibleWhen, ctx.answers)) continue; // condition-hidden: silently skip, not persisted
     const problem = validateUploadedFile(file, field.validation, maxMb);
@@ -334,7 +347,7 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
       } catch (err) {
         // Rethrows as SubmissionValidationError, now caught by the outer catch ->
         // cleanup -> rethrow, so the caller still receives the validation error.
-        if (err instanceof SignatureError) throw new SubmissionValidationError("Please provide a valid signature.", { [field.key]: "invalid signature" });
+        if (err instanceof SignatureError) throw fieldProblem(field.key, "Please provide a valid signature.");
         throw err;
       }
       const safeKey = field.key.replace(/[^a-z0-9_]/gi, "_");

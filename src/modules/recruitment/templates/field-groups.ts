@@ -135,7 +135,8 @@ export function directorLogisticsSection(): TemplateSection {
     { key: "time_commitments", label: "What other significant time commitments do you have or anticipate having next year?", type: "LONG_TEXT", required: true },
     { key: "resume", label: "Please upload your most recent CV/Resume", type: "FILE", required: true },
     { key: "additional_info", label: "Additional information", type: "LONG_TEXT", required: false },
-    { key: "info_session_confirm", label: "Please confirm that you attended one of the mandatory info sessions and can attend the mandatory training.", type: "CHECKBOX", required: true },
+    // Info-session attendance is no longer self-attested on the application; it is
+    // reconciled on the backend against the info-session attendance list.
   ]);
 }
 

@@ -520,7 +520,7 @@ Then replace both remaining uses of `cycle.sections` in the file with `sections`
 - [ ] **Step 8: Run the recruitment suite**
 
 Run: `npx vitest run src/modules/recruitment src/app/apply`
-Expected: PASS. If a `submitApplication` test fails because its fixture term has no `clinicDates`, that is the Task 5 behavior (the field is dropped, so a required availability answer is no longer enforced); note it and confirm it in Task 5 rather than patching it here.
+Expected: PASS. No existing test should break: `openVolunteerCycle` in `submissions.test.ts` builds its cycle without `seedDefaultForm`, so those cycles have no `availability` field at all and the resolver is a no-op for them. If something does fail, stop and report it rather than committing red.
 
 - [ ] **Step 9: Commit**
 
@@ -783,9 +783,14 @@ Replace lines 225-226:
               )}
 ```
 
-- [ ] **Step 2: Verify the field renders read-only**
+- [ ] **Step 2: Verify the guard is wired, not the pixels**
 
-Run: `npm run dev`, open a seeded cycle at `/recruitment/cycles/<id>/builder`, and confirm the Availability field lists the term's clinic dates with its add/remove/reorder controls disabled and the explanatory line beneath.
+There is no automated coverage for this component and a browser check is not available in this environment, so verify statically instead:
+
+Run: `grep -n "AVAILABILITY_FIELD_KEY" "src/app/(app)/recruitment/cycles/[id]/builder/field-card.tsx"`
+Expected: three hits, the import plus the `disabled` expression plus the explanatory paragraph's guard.
+
+The visual result is left for manual confirmation by the repo owner; flag it in your report as unverified rather than claiming it renders correctly.
 
 - [ ] **Step 3: Run lint and typecheck**
 

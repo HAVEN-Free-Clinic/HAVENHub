@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requirePersonSession } from "@/platform/auth/session";
 import { captureEvent, GROUP_DEPARTMENT } from "@/platform/posthog/capture";
 import { termGroupForCycle } from "@/platform/posthog/groups";
-import { RecruitmentAuthError, AcceptanceError } from "@/modules/recruitment/services/review";
+import { RecruitmentAuthError, AcceptanceError, revokeAcceptance } from "@/modules/recruitment/services/review";
 import { createInterview, InterviewError } from "@/modules/recruitment/services/interviews";
 import { submitCommitteeScore, CommitteeScoreError } from "@/modules/recruitment/services/committee-scoring";
 import { routeApplication, decideRoutedApplication, reopenDecision, RoutingError } from "@/modules/recruitment/services/routing";
@@ -148,4 +148,23 @@ export async function reopenDecisionAction(cycleId: string, applicationId: strin
     throw err;
   }
   redirect(bounce(cycleId, applicationId, { saved: "reopened" }));
+}
+
+// Rescind a notified acceptance from the applicant detail page. A routed decision
+// taken without an interview has no interview screen, so before this existed the
+// "rescind the acceptance first" guards pointed at a control the reviewer could not
+// reach from anywhere in the app. revokeAcceptance self-authorizes: only review_all
+// may delete an emailed acceptance, and an existing onboarding contract blocks it
+// outright (deleting would cascade away signatures, DOB, and the HIPAA cert).
+export async function rescindAcceptanceAction(cycleId: string, applicationId: string, acceptanceId: string) {
+  const person = await requirePersonSession();
+  try {
+    await revokeAcceptance(acceptanceId, person.personId);
+  } catch (err) {
+    if (err instanceof RecruitmentAuthError || err instanceof AcceptanceError) {
+      redirect(bounce(cycleId, applicationId, { error: (err as Error).message }));
+    }
+    throw err;
+  }
+  redirect(bounce(cycleId, applicationId, { saved: "rescind" }));
 }

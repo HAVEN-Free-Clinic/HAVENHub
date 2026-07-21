@@ -9,6 +9,7 @@ import { scheduleInterviewAction, committeeScoreAction, routeAction, decideRoute
 import { listApplicationInterviews } from "@/modules/recruitment/services/interviews";
 import { DateTime } from "@/platform/dates/display";
 import { committeeScoreSummary } from "@/modules/recruitment/services/committee-scoring";
+import { formatScoreSummary } from "@/modules/recruitment/engine/scoring";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 import { PageHeader } from "@/platform/ui/page-header";
@@ -168,7 +169,7 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
         <Card>
           <SectionHeader>Committee score</SectionHeader>
           <p className="mt-1 text-xs text-subtle-foreground">
-            Average {scoreSummary.average != null ? scoreSummary.average.toFixed(1) : "-"} · {scoreSummary.count} scored
+            {formatScoreSummary(scoreSummary)}
           </p>
           {canScore && (
           <form action={committeeScoreAction.bind(null, id, applicationId)} className="mt-3 flex flex-wrap items-end gap-3">

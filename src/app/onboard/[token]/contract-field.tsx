@@ -2,9 +2,10 @@
 import { useState } from "react";
 import { Input, Field } from "@/platform/ui/input";
 import { Checkbox } from "@/platform/ui/checkbox";
+import { Select } from "@/platform/ui/select";
 import { SignaturePad } from "@/platform/ui/signature-pad";
 import { FieldPreview } from "@/modules/recruitment/components/field-preview";
-import { SYSTEM_FIELDS } from "@/modules/recruitment/contract/system-fields";
+import { SYSTEM_FIELDS, systemFieldOptions } from "@/modules/recruitment/contract/system-fields";
 import type { ContractBlock } from "@/modules/recruitment/contract/layout";
 
 // todayIso is stamped once on the server (YYYY-MM-DD) and passed down, so the
@@ -116,6 +117,33 @@ export function ContractField({
           <span>{label}</span>
         </label>
       );
+    case "select": {
+      // yaleAffiliation / gradYear store stable machine keys ("other_yale"), so a
+      // plain text input showed applicants the key instead of the label. Options
+      // carry the key as the value, keeping what gets submitted unchanged.
+      const inputName = block.systemKey;
+      // Mirrors the text branch's `defaults` map: a select field added later
+      // without an entry here starts empty rather than silently inheriting
+      // another field's value.
+      const selectDefaults: Partial<Record<typeof block.systemKey, string>> = {
+        yaleAffiliation: prefill.yaleAffiliation,
+        gradYear: prefill.gradYear,
+      };
+      const current = selectDefaults[block.systemKey] ?? "";
+      return (
+        <div>
+          <Field label={label}>
+            <Select name={inputName} defaultValue={current} {...errorProps(inputName)}>
+              <option value="">Select…</option>
+              {systemFieldOptions(block.systemKey, current).map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </Select>
+          </Field>
+          {err(inputName) && <p id={errorId(inputName)} className="mt-1 text-xs text-critical">{err(inputName)}</p>}
+        </div>
+      );
+    }
     case "date": case "email": case "tel": case "text": default: {
       // "name" is special: two inputs (first + last).
       if (block.systemKey === "name") {
@@ -144,14 +172,12 @@ export function ContractField({
           />
         );
       }
-      const nameByKey: Record<string, string> = { email: "email", netId: "netId", phone: "phone", dob: "dateOfBirth", dietary: "dietaryRestrictions", yaleAffiliation: "yaleAffiliation", gradYear: "gradYear" };
+      const nameByKey: Record<string, string> = { email: "email", netId: "netId", phone: "phone", dob: "dateOfBirth", dietary: "dietaryRestrictions" };
       const type = spec.render === "text" ? "text" : spec.render;
       const defaults: Record<string, string> = {
         email: prefill.email,
         netId: prefill.netId,
         phone: prefill.phone,
-        yaleAffiliation: prefill.yaleAffiliation,
-        gradYear: prefill.gradYear,
       };
       const required = block.systemKey === "email";
       const inputName = nameByKey[block.systemKey];

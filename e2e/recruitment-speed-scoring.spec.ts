@@ -100,9 +100,9 @@ test("speed score: score two applicants with the keyboard and see the roster upd
 
   // Close (Esc) and confirm the roster reflects the committee averages: the
   // launcher calls router.refresh() on close, so the roster's "Committee avg"
-  // column should no longer read "-" for either applicant.
+  // column should no longer read "Not yet scored" for either applicant.
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
-  await expect(page.getByText(/^3\.0 · 1$/)).toBeVisible();
-  await expect(page.getByText(/^4\.0 · 1$/)).toBeVisible();
+  await expect(page.getByText(/^3\.0 avg · 1 reviewer$/)).toBeVisible();
+  await expect(page.getByText(/^4\.0 avg · 1 reviewer$/)).toBeVisible();
 });

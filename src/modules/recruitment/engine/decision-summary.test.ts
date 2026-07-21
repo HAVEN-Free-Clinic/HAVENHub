@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { rosterDecision } from "./decision-summary";
+import { ROSTER_DECISION_ORDER, rosterDecision } from "./decision-summary";
 
 const none = { acceptances: [], applicationDecision: "PENDING" as const, interviews: [] };
 
@@ -67,4 +67,9 @@ it("prefers ACCEPTED over a waitlisted interview (an acceptance is the strongest
 it("prefers WAITLIST over REJECT when both appear and no acceptance exists", () => {
   const d = rosterDecision({ acceptances: [], applicationDecision: "PENDING", interviews: [{ decision: "WAITLIST" }, { decision: "REJECT" }] });
   expect(d.status).toBe("WAITLIST");
+});
+
+it("orders decisions by precedence, strongest outcome first", () => {
+  // Matches the precedence the rosterDecision if-chain already implements.
+  expect(ROSTER_DECISION_ORDER).toEqual(["ACCEPTED", "WAITLIST", "REJECTED", "NONE"]);
 });

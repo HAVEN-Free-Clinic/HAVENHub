@@ -148,7 +148,7 @@ export function ApplyWizard({
   const formRef = useRef<HTMLFormElement | null>(null);
   const headingRef = useRef<HTMLHeadingElement | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
   const [fileStatus, setFileStatus] = useState<Record<string, string>>(() => {
     const out: Record<string, string> = {};
@@ -176,21 +176,44 @@ export function ApplyWizard({
     [applicantType, renewalDept, deptChoice],
   );
 
-  // Answers used for field-level visibility: `answers` merged with the
-  // authoritative department selection (see mergeDepartmentAnswer) so a field
-  // condition keyed on the department-choice field is correct regardless of
-  // navigation path. This is separate from, and does not change, the existing
-  // department -> section visibility mechanism (deriveSteps/isSectionVisible),
-  // which already reads selectedDepartmentCodes directly.
-  const effectiveAnswers = useMemo(
-    () => mergeDepartmentAnswer(answers, departmentChoiceKey, selectedDepartmentCodes),
-    [answers, selectedDepartmentCodes, departmentChoiceKey],
-  );
-
   const steps = useMemo<WizardStep[]>(
     () => deriveSteps({ sections: def.sections, acceptsRenewals: def.acceptsRenewals, applicantType, selectedDepartmentCodes }),
     [def.sections, def.acceptsRenewals, applicantType, selectedDepartmentCodes],
   );
+
+  // Owning section per field key + the set of currently-visible section ids, used to
+  // drop a controller's stale value once its section is hidden (below).
+  const keyToSectionId = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const s of def.sections) for (const f of s.fields) m.set(f.key, s.id);
+    return m;
+  }, [def.sections]);
+  const visibleSectionIds = useMemo(
+    () => new Set(steps.filter((st) => st.kind === "section").map((st) => st.id)),
+    [steps],
+  );
+
+  // Answers used for field-level visibility: `answers` (pruned to controllers whose
+  // owning section is still visible) merged with the authoritative department
+  // selection (see mergeDepartmentAnswer) so a field condition keyed on the
+  // department-choice field is correct regardless of navigation path.
+  //
+  // Pruning matters: the server strips any field whose visibleWhen controller is
+  // absent from the submitted form. If a controller A lives in a section that becomes
+  // hidden, A unmounts and is never submitted, so a dependent B keyed on A must be
+  // hidden here too -- otherwise the review would show B answered while the server
+  // silently drops it. Retaining A in `answers` state (not pruned there) keeps the
+  // value if the section is shown again. Separate from the department -> section
+  // visibility mechanism (deriveSteps/isSectionVisible), which reads
+  // selectedDepartmentCodes directly.
+  const effectiveAnswers = useMemo(() => {
+    const pruned: Record<string, string | string[]> = {};
+    for (const [k, v] of Object.entries(answers)) {
+      const sid = keyToSectionId.get(k);
+      if (sid === undefined || visibleSectionIds.has(sid)) pruned[k] = v;
+    }
+    return mergeDepartmentAnswer(pruned, departmentChoiceKey, selectedDepartmentCodes);
+  }, [answers, keyToSectionId, visibleSectionIds, departmentChoiceKey, selectedDepartmentCodes]);
   const reviewIndex = steps.length - 1;
 
   // Clamp the pointer if the visible-step set shrinks below the current index.
@@ -231,7 +254,10 @@ export function ApplyWizard({
         applicantType,
         renewalDepartment: applicantType === "RENEWAL" ? renewalDept : null,
       });
-      setSaveState(res.ok ? "saved" : "idle");
+      // A failed draft save must not silently collapse to "idle" (visually identical
+      // to never-having-saved) -- surface it so the applicant knows their answers may
+      // not be persisted before they close the tab.
+      setSaveState(res.ok ? "saved" : "error");
     }, 800);
   }
 
@@ -392,7 +418,7 @@ export function ApplyWizard({
 
         {result && !result.ok && <Alert tone="error">{result.message}</Alert>}
         {saveState !== "idle" && (
-          <p className="text-xs text-muted-foreground" aria-live="polite">{saveState === "saving" ? "Saving…" : "Saved"}</p>
+          <p className={`text-xs ${saveState === "error" ? "text-critical" : "text-muted-foreground"}`} aria-live="polite">{saveState === "saving" ? "Saving…" : saveState === "error" ? "Couldn't save your draft, check your connection" : "Saved"}</p>
         )}
 
         {current.kind === "intro" && (

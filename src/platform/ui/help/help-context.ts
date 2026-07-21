@@ -16,7 +16,8 @@ const GENERIC_GREETING = {
   subtitle: "Search the docs or ask a question.",
 };
 
-const GENERIC_SUGGESTIONS = ["How do I use HAVEN Hub?", "Where do I update my info?"];
+// Product-name-free so the chip never leaks a stale brand on a renamed deployment.
+const GENERIC_SUGGESTIONS = ["How do I get started?", "Where do I update my info?"];
 
 /** The module title for a pathname's first segment, or null when unknown / at the root. */
 export function moduleTitleForPath(

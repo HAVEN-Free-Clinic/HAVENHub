@@ -9,7 +9,7 @@ import { getSetting } from "@/platform/settings/service";
 import { buildPageMetadata } from "@/platform/branding/metadata";
 import { brandStyleVars } from "@/platform/ui/brand-style";
 import { TopProgressBar } from "@/platform/ui/top-progress-bar";
-import { prisma } from "@/platform/db";
+import { getPersonThemePreference } from "@/platform/ui/theme-preference";
 import { ThemeListener } from "@/platform/ui/theme-listener";
 import {
   resolvePreference,
@@ -35,17 +35,14 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
     getSetting<string>("ui.defaultTheme"),
   ]);
 
-  // Person preference wins; cookie is a fast hint when there is no session.
-  // This lightweight findUnique is deliberate: it runs before the page's own
-  // requirePersonSession so the <html> class (no-flash dark mode) is set before
-  // any page content renders.
+  // Person preference wins; cookie is a fast hint when there is no session. The
+  // lookup runs before the page's own requirePersonSession so the <html> class
+  // (no-flash dark mode) is set before any content renders. It degrades to the
+  // admin default (personPref null) if the DB is briefly unreachable, so a Neon
+  // blip on this every-render path cannot 500 the whole authenticated app.
   let personPref: string | null = null;
   if (session?.personId) {
-    const person = await prisma.person.findUnique({
-      where: { id: session.personId },
-      select: { themePreference: true },
-    });
-    personPref = person?.themePreference ?? null;
+    personPref = await getPersonThemePreference(session.personId);
   } else {
     personPref = (await cookies()).get(THEME_COOKIE)?.value ?? null;
   }

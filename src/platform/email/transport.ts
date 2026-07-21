@@ -19,6 +19,21 @@ export interface EmailTransport {
   send(message: EmailMessage): Promise<void>;
 }
 
+/** A send that failed for a transient reason (Graph throttling / temporary
+ *  unavailability). The queue must retry these WITHOUT counting them toward a row's
+ *  permanent attempt budget, or a routine large blast would march its throttled
+ *  tail to FAILED even though nothing was wrong with those recipients. */
+export class TransientEmailError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TransientEmailError";
+  }
+}
+
+/** Cap a single Graph request so a hung/black-holing endpoint can't consume the
+ *  whole function budget (default 300s) and starve the rest of the drain. */
+const GRAPH_REQUEST_TIMEOUT_MS = 8000;
+
 // ---------------------------------------------------------------------------
 // LogTransport
 // ---------------------------------------------------------------------------
@@ -95,10 +110,21 @@ export class GraphTransport implements EmailTransport {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ message: graphMessage, saveToSentItems: true }),
+      signal: AbortSignal.timeout(GRAPH_REQUEST_TIMEOUT_MS),
     });
 
     if (!res.ok) {
       const text = await res.text().catch(() => "");
+      // 429 (throttled) and 503 (service unavailable) are transient: a single shared
+      // mailbox throttles at ~30 msg/min, so a large blast WILL hit 429s mid-run.
+      // Signal transient so the queue retries without burning the row's permanent
+      // attempt budget (see TransientEmailError).
+      if (res.status === 429 || res.status === 503) {
+        const retryAfter = res.headers.get("retry-after");
+        throw new TransientEmailError(
+          `Graph sendMail throttled: ${res.status}${retryAfter ? ` retry-after=${retryAfter}` : ""} ${text}`,
+        );
+      }
       throw new Error(`Graph sendMail failed: ${res.status} ${text}`);
     }
   }
@@ -115,11 +141,19 @@ export async function resolveEmailTransport(): Promise<EmailTransport> {
   const transport = await getSetting<"log" | "graph">("email.transport");
   if (transport === "graph") {
     const sender = await getSetting<string>("email.sender");
-    // Defensive: the write guard blocks enabling graph without a sender, but a
-    // later reset of email.sender could leave graph active with no sender. Fall
-    // back to the log transport (with a warning) rather than build a malformed
-    // Graph request that fails opaquely at send time.
+    // The write guard blocks enabling graph without a sender, but a later reset of
+    // email.sender could leave graph active with no sender. In production this must
+    // NOT silently fall back to the log transport: LogTransport resolves successfully,
+    // so the drain marks every row SENT while delivering nothing (green dashboard,
+    // zero delivery, including magic-link logins). Throw so the send fails loudly --
+    // rows go FAILED, the admin Failed card lights, and the drain logs it. In dev/CI
+    // keep the log fallback so local runs without a sender still work.
     if (!sender) {
+      if (process.env.VERCEL_ENV === "production" || process.env.NODE_ENV === "production") {
+        throw new Error(
+          "email.transport is 'graph' but email.sender is not configured -- refusing to route mail to the log transport in production (would record undelivered mail as SENT)",
+        );
+      }
       log.warn(
         "[email] transport is graph but no sender is configured; falling back to log transport",
       );

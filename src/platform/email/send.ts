@@ -1,6 +1,7 @@
 import type { Prisma, PrismaClient, EmailLog } from "@prisma/client";
 import { prisma } from "@/platform/db";
-import { resolveEmailTransport, type EmailTransport } from "./transport";
+import { log } from "@/platform/logging";
+import { resolveEmailTransport, TransientEmailError, type EmailTransport } from "./transport";
 import { resolveSenderForTemplate } from "./sender-rules";
 import { createEnqueueFlusher } from "@/platform/flush-on-enqueue";
 
@@ -183,13 +184,19 @@ export async function drainEmailQueue(
           data: { status: "SENT", sentAt: new Date(), lockedAt: null },
         });
       } catch (error) {
-        const attempts = row.attempts + 1;
+        // A transient failure (Graph 429/503 throttling) must NOT consume the row's
+        // permanent attempt budget, or a routine all-roster blast would march its
+        // throttled tail to FAILED. Re-queue unchanged; it retries next drain once the
+        // stale-lock window passes and self-heals when throttling clears.
+        const transient = error instanceof TransientEmailError;
+        const attempts = transient ? row.attempts : row.attempts + 1;
         const failed = attempts >= MAX_ATTEMPTS;
+        const message = error instanceof Error ? error.message.slice(0, 500) : String(error);
         await prisma.emailLog.update({
           where: { id: row.id },
           data: {
             attempts,
-            lastError: error instanceof Error ? error.message.slice(0, 500) : String(error),
+            lastError: message,
             status: failed ? "FAILED" : "QUEUED",
             // Transient failure: keep the claim (lockedAt stays set) so the retry
             // is gated by the STALE_LOCK_MS window, not by how often a drain is
@@ -202,6 +209,18 @@ export async function drainEmailQueue(
             lockedAt: failed ? null : claimedAt,
           },
         });
+        if (failed) {
+          // Surface permanent send failures to server logs/alerting. A broken mailer
+          // (e.g. expired Graph OAuth) otherwise flips every row to FAILED silently,
+          // with no signal beyond a passive count on the admin page.
+          log.error("[email] Permanent send failure after max attempts", {
+            emailLogId: row.id,
+            to: row.toEmail,
+            template: row.template,
+            attempts,
+            lastError: message,
+          });
+        }
       }
       processed += 1;
     }

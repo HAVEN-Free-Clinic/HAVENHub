@@ -31,6 +31,9 @@ import { Card } from "@/platform/ui/card";
 import { Input, Textarea, Field } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { SubmitButton } from "@/platform/ui/submit-button";
+import { ConfirmButton } from "@/platform/ui/confirm-button";
+import { EPIC_KIND_LABELS, EPIC_STATUS_LABELS, EPIC_STATUS_TONE } from "@/modules/support/labels";
+import type { EpicRequestStatus } from "@prisma/client";
 import { Alert } from "@/platform/ui/alert";
 import { FormActions } from "@/platform/ui/form";
 import { SectionHeader } from "@/platform/ui/section-header";
@@ -325,12 +328,12 @@ function TrackerTable({
               <div className="space-y-2">
                 {requests.map((r) => (
                   <div key={r.id} className="flex flex-wrap items-center gap-2 text-xs text-foreground-soft">
-                    <Badge>{r.kind}</Badge>
+                    <Badge>{EPIC_KIND_LABELS[r.kind]}</Badge>
                     <span>{r.person.name}</span>
                     {r.person.epicId && (
                       <span className="text-subtle-foreground">{r.person.epicId}</span>
                     )}
-                    <Badge>{r.status}</Badge>
+                    <Badge tone={EPIC_STATUS_TONE[r.status as EpicRequestStatus]}>{EPIC_STATUS_LABELS[r.status as EpicRequestStatus]}</Badge>
 
                     {(r.status === "PENDING" || r.status === "SUBMITTED") && (
                       <form action={completeEpicRequestAction} className="flex items-center gap-1">
@@ -365,15 +368,21 @@ function TrackerTable({
                         {/* Onboarding / activation / password-reset templates model NEW/MODIFY/RENEW
                             access requests, not a DEACTIVATE, whose email would send an
                             access-instructions message to a person being offboarded. */}
-                        {(["epic-onboarding", "epic-activation", "epic-password-reset"] as const).map((tpl) => (
-                          <form key={tpl} action={sendEpicEmailFromTrackerAction}>
-                            <input type="hidden" name="requestId" value={r.id} />
-                            <input type="hidden" name="template" value={tpl} />
-                            <SubmitButton size="sm" variant="ghost" pendingLabel="Sending…">
-                              {tpl === "epic-onboarding" ? "Onboarding" : tpl === "epic-activation" ? "Activation" : "Password reset"}
-                            </SubmitButton>
-                          </form>
-                        ))}
+                        {(["epic-onboarding", "epic-activation", "epic-password-reset"] as const).map((tpl) => {
+                          // Three look-alike buttons that each send a real email to the
+                          // volunteer on one click. Arm-then-confirm so a misclick can't
+                          // fire the wrong template at a real person, and the confirm
+                          // names which email is about to go out.
+                          const emailLabel =
+                            tpl === "epic-onboarding" ? "Onboarding" : tpl === "epic-activation" ? "Activation" : "Password reset";
+                          return (
+                            <form key={tpl} action={sendEpicEmailFromTrackerAction}>
+                              <input type="hidden" name="requestId" value={r.id} />
+                              <input type="hidden" name="template" value={tpl} />
+                              <ConfirmButton size="sm" label={emailLabel} confirmLabel={`Send ${emailLabel} email?`} />
+                            </form>
+                          );
+                        })}
                       </div>
                     )}
 
@@ -467,7 +476,7 @@ function HistoryTable({ history }: { history: EpicRequestHistoryRow[] }) {
                     <div className="space-y-1">
                       {requests.map((r) => (
                         <div key={r.id} className="flex items-center gap-2 text-xs text-foreground-soft">
-                          <Badge>{r.kind}</Badge>
+                          <Badge>{EPIC_KIND_LABELS[r.kind]}</Badge>
                           <span>{r.person.name}</span>
                           {r.person.epicId && <span className="text-subtle-foreground">{r.person.epicId}</span>}
                         </div>
@@ -518,7 +527,7 @@ function PendingTab({
           {pending.map((r) => (
             <li key={r.id} className="flex flex-wrap items-center gap-2 text-sm">
               <Checkbox name="requestIds" value={r.id} />
-              <Badge>{r.kind}</Badge>
+              <Badge>{EPIC_KIND_LABELS[r.kind]}</Badge>
               <span className="font-medium">{r.person.name}</span>
               {r.techRequest ? (
                 <Link href={`/support/${r.techRequest.id}`} className="text-xs text-brand-fg underline underline-offset-2">

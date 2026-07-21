@@ -29,6 +29,7 @@
  * (issue #63).
  */
 import { authorizeCron } from "@/platform/cron";
+import { recordCronHeartbeat } from "@/platform/cron-heartbeat";
 import { dispatchDueCampaigns } from "@/platform/email/campaigns/dispatch";
 import { drainEmailQueue } from "@/platform/email/send";
 import { resolveEmailTransport } from "@/platform/email/transport";
@@ -62,5 +63,6 @@ export async function GET(req: Request): Promise<Response> {
   // route stays callable directly (e.g. from unit tests).
   await flushLogs();
 
+  await recordCronHeartbeat("email");
   return Response.json({ ok: true, dispatched: executed, errors, emails, teams });
 }

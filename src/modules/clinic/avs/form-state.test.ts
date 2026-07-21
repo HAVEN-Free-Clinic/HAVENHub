@@ -41,4 +41,13 @@ describe("avsReducer", () => {
     expect(initialAvsData.medications).toHaveLength(0);
     expect(next).not.toBe(initialAvsData);
   });
+
+  it("resets a filled-in form back to empty (no data carries to the next patient)", () => {
+    let s = avsReducer(initialAvsData, { type: "setField", key: "lastName", value: "Garcia" });
+    s = avsReducer(s, { type: "setField", key: "primaryReason", value: "Hypertension" });
+    s = avsReducer(s, { type: "addMed" });
+    s = avsReducer(s, { type: "toggle", key: "vitals", value: "blood-pressure" });
+    const cleared = avsReducer(s, { type: "reset" });
+    expect(cleared).toEqual(initialAvsData);
+  });
 });

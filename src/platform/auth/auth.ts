@@ -10,6 +10,7 @@ import {
   entraTenantAllowed,
   type LoginProfile,
 } from "./match-person";
+import { verifyAndConsumeMemberToken } from "./member-magic-link";
 import { recordAudit } from "@/platform/audit";
 import { prisma } from "@/platform/db";
 import { captureEvent, GROUP_TERM, type PersonProperties } from "@/platform/posthog/capture";
@@ -87,6 +88,21 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           }),
         ]
       : []),
+    Credentials({
+      id: "member-magic-link",
+      name: "Member Magic Link",
+      credentials: { token: { label: "Token", type: "text" } },
+      // Verifies + consumes a single-use member-login token. Security lives
+      // entirely here and in the /login/verify peek-then-confirm step, so the
+      // provider is safe to register in production.
+      async authorize(credentials) {
+        const token = credentials?.token as string | undefined;
+        if (!token) return null;
+        const result = await verifyAndConsumeMemberToken(token);
+        if (!result) return null;
+        return { id: result.personId };
+      },
+    }),
   ],
   pages: {
     signIn: "/login",
@@ -94,7 +110,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   },
   callbacks: {
     async signIn({ account, profile }) {
-      if (account?.provider === "credentials") return true; // authorize() validated
+      if (account?.provider === "credentials" || account?.provider === "member-magic-link") return true; // authorize() validated
       // Admit any Yale-tenant account. Recognized members get a personId in jwt();
       // everyone else becomes a prospective applicant (personId null). Hub access
       // stays gated by requirePersonSession, so this only unlocks the apply portal.
@@ -108,6 +124,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (account.provider === "credentials" && user) {
           token.personId = user.id;
           personId = user.id ?? null;
+        } else if (account.provider === "member-magic-link" && user) {
+          token.personId = user.id;
+          personId = user.id ?? null;
+          await recordAudit({
+            action: "auth.member_login",
+            entityType: "Auth",
+            actorPersonId: user.id ?? null,
+            entityId: user.id ?? null,
+          });
         } else {
           const claims = (profile ?? {}) as EntraClaims;
           const person = await resolveEntraLogin(

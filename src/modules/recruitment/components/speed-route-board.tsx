@@ -161,7 +161,12 @@ export function SpeedRouteBoard({ board, onRoute, onReject, onReopen, onApplyTop
     setConfirm(null);
     setError(null);
     setNote(null);
-    const ids = board.bottom.filter((r) => r.decision === "PENDING").map((r) => r.applicationId);
+    // Match `routable`/`applyTop`: never auto-reject an applicant a lead already
+    // manually routed to a department, even if their committee average lands them
+    // in the bottom bucket.
+    const ids = board.bottom
+      .filter((r) => r.decision === "PENDING" && r.routedDepartmentCode == null)
+      .map((r) => r.applicationId);
     if (ids.length === 0) { setError("No bottom-tier rows to reject."); return; }
     startBusy(async () => {
       const res = await onApplyBottom(ids);
@@ -172,7 +177,7 @@ export function SpeedRouteBoard({ board, onRoute, onReject, onReopen, onApplyTop
   }
 
   const topPending = board.top.filter((r) => r.decision === "PENDING" && r.routedDepartmentCode == null).length;
-  const bottomPending = board.bottom.filter((r) => r.decision === "PENDING").length;
+  const bottomPending = board.bottom.filter((r) => r.decision === "PENDING" && r.routedDepartmentCode == null).length;
 
   return (
     <div className="space-y-5">

@@ -7,6 +7,7 @@
 import type { Department, Prisma } from "@prisma/client";
 import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
+import { getActiveTerm } from "@/platform/terms/active-term";
 
 const CODE_RE = /^[A-Z0-9]{2,12}$/;
 
@@ -34,11 +35,19 @@ export type DepartmentRow = Department & {
   managesDelegations: { managedDepartmentId: string }[];
 };
 
-/** All departments, active first then by code, with membership counts + managed ids. */
+/** All departments, active first then by code, with membership counts + managed ids.
+ *  The "Members" count is the CURRENT active-term headcount: Department.memberships
+ *  spans every term and status, so an unscoped _count inflated the column with
+ *  archived-term and REMOVED rows. Scope it to ACTIVE memberships in the active term
+ *  (0 when there is no active term). */
 export async function listDepartments(): Promise<DepartmentRow[]> {
+  const activeTerm = await getActiveTerm();
+  const membershipWhere: Prisma.TermMembershipWhereInput = activeTerm
+    ? { status: "ACTIVE", termId: activeTerm.id }
+    : { status: "ACTIVE", termId: "__none__" };
   return prisma.department.findMany({
     include: {
-      _count: { select: { memberships: true } },
+      _count: { select: { memberships: { where: membershipWhere } } },
       managesDelegations: { select: { managedDepartmentId: true } },
     },
     orderBy: [{ isActive: "desc" }, { code: "asc" }],

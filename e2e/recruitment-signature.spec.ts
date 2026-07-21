@@ -36,7 +36,7 @@ test("apply: draw a signature field and submit; it persists as a png blob", asyn
 
   await page.goto(`/recruitment/cycles/${cycleId}`);
   await page.click('button:has-text("Publish")');
-  await expect(page.locator("span").filter({ hasText: "OPEN" })).toBeVisible();
+  await expect(page.locator("span").filter({ hasText: /^OPEN$/ })).toBeVisible();
 
   // Apply as a verified portal applicant.
   const applicantEmail = `e2e-sig-${t}@yale.edu`;
@@ -118,7 +118,7 @@ test("apply: type a signature via the fallback input and submit; it persists as 
 
   await page.goto(`/recruitment/cycles/${cycleId}`);
   await page.click('button:has-text("Publish")');
-  await expect(page.locator("span").filter({ hasText: "OPEN" })).toBeVisible();
+  await expect(page.locator("span").filter({ hasText: /^OPEN$/ })).toBeVisible();
 
   // Apply as a verified portal applicant.
   const applicantEmail = `e2e-sigtype-${t}@yale.edu`;

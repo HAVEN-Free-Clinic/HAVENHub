@@ -1,5 +1,6 @@
 import type { Prisma, PrismaClient, TeamsMessage } from "@prisma/client";
 import { prisma } from "@/platform/db";
+import { log } from "@/platform/logging";
 import { queueEmail } from "@/platform/email/send";
 import { resolveTeamsTransport, type TeamsTransport } from "./teams-transport";
 import { createEnqueueFlusher } from "@/platform/flush-on-enqueue";
@@ -186,6 +187,18 @@ export async function drainTeamsQueue(
             // time (#74 dedup must hold on the retry path, not just first send).
             data: { attempts, lastError, status: emailLands ? "FALLBACK" : "FAILED", emailAlreadyQueued: emailLands, lockedAt: null },
           });
+          // Surface the permanent failure so a broken Graph token/mailer is visible in
+          // logs/alerting, not just as a passive admin count. FAILED means the message
+          // was NOT delivered by any channel; FALLBACK means Teams failed but email landed.
+          if (!emailLands) {
+            log.error("[notifications] Teams message permanently failed with no email fallback (undelivered)", {
+              teamsMessageId: row.id, personId: row.personId, type: row.type, attempts, lastError,
+            });
+          } else {
+            log.warn("[notifications] Teams delivery failed permanently; delivered via email fallback", {
+              teamsMessageId: row.id, personId: row.personId, type: row.type, attempts,
+            });
+          }
         } else {
           await prisma.teamsMessage.update({
             where: { id: row.id },

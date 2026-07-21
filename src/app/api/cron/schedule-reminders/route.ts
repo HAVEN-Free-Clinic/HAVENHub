@@ -25,12 +25,14 @@
  * /api/cron/email route.
  */
 import { authorizeCron } from "@/platform/cron";
+import { recordCronHeartbeat } from "@/platform/cron-heartbeat";
 import { prisma } from "@/platform/db";
+import { log, flushLogs } from "@/platform/logging";
 import { queueEmail } from "@/platform/email/send";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
 import { requestApproverRecipients } from "@/modules/schedule/services/requests";
 import { isoDateKey, formatCalendarDate } from "@/platform/dates";
-import { claimReminderDispatch } from "@/platform/email/reminder-dispatch";
+import { claimReminderDispatch, releaseReminderDispatch } from "@/platform/email/reminder-dispatch";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -145,11 +147,22 @@ export async function GET(req: Request): Promise<Response> {
           triggeredById: approver.id,
         });
         reminded++;
-      } catch {
-        // Best-effort.
+      } catch (err) {
+        // Release the per-day claim (taken before this enqueue) so a failed reminder
+        // retries next tick instead of being silently suppressed by the marker, and
+        // surface it rather than swallowing.
+        await releaseReminderDispatch("schedule-request-reminder", approver.id, todayKey);
+        log.warn("[cron/schedule-reminders] failed to enqueue reminder", {
+          personId: approver.id,
+          requestId: pending.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
     }
   }
 
+  log.info("[cron/schedule-reminders] complete", { reminded, skipped });
+  await recordCronHeartbeat("schedule-reminders");
+  await flushLogs();
   return Response.json({ ok: true, reminded, skipped });
 }

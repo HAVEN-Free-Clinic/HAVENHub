@@ -1,9 +1,10 @@
 import { getEffectivePermissions, hasPermission } from "@/platform/rbac/engine";
 import { MODULES } from "./registry";
 import type { ModuleManifest, ModuleNavItem } from "./types";
-
-/** A module reduced to what the global nav needs (serializable, no icon). */
-export type NavModule = { id: string; title: string; href: string };
+// NavModule + isModuleActive live in the client-safe ./nav module (no engine/prisma
+// import) so the "use client" global nav can use them without tree-shaking PrismaClient.
+import type { NavModule } from "./nav";
+export type { NavModule };
 
 /** True when the user may use this module (no permission required, or held). */
 export function canAccessModule(
@@ -30,28 +31,30 @@ export function filterNavItems(
   return items.filter((item) => !item.permission || hasPermission(perms, item.permission));
 }
 
-/** Active modules the user can access, as nav items. Excludes coming-soon. */
+/**
+ * Active modules the user can access, as nav items. Excludes coming-soon.
+ *
+ * `extraIds` admits modules whose access can't be expressed as a permission the
+ * engine holds -- notably recruitment, which a department director reaches by
+ * *review scope* (a derived directorship, not a permission). The caller resolves
+ * those ids (see the (app) layout) so this platform helper stays free of any
+ * module-service import, and the top nav then matches the dashboard tile.
+ */
 export function filterAccessibleModules(
   modules: ModuleManifest[],
   perms: Set<string>,
+  extraIds: ReadonlySet<string> = new Set(),
 ): NavModule[] {
   return modules
-    .filter((m) => m.status === "active" && canAccessModule(m, perms))
+    .filter((m) => m.status === "active" && (canAccessModule(m, perms) || extraIds.has(m.id)))
     .map((m) => ({ id: m.id, title: m.title, href: `/${m.id}` }));
 }
 
-/**
- * Active-state test for a module link given the current pathname.
- * Intentionally differs from ModuleNav's active logic: module links stay highlighted across
- * the whole module subtree (always prefix-match), whereas ModuleNav avoids prefix-matching
- * the module-root tab to prevent every sub-page from highlighting the root tab.
- */
-export function isModuleActive(pathname: string, href: string): boolean {
-  return pathname === href || pathname.startsWith(`${href}/`);
-}
-
 /** Server entry point: resolve the signed-in user's accessible modules. */
-export async function getAccessibleModules(personId: string): Promise<NavModule[]> {
+export async function getAccessibleModules(
+  personId: string,
+  extraIds: ReadonlySet<string> = new Set(),
+): Promise<NavModule[]> {
   const perms = await getEffectivePermissions(personId);
-  return filterAccessibleModules(MODULES, perms);
+  return filterAccessibleModules(MODULES, perms, extraIds);
 }

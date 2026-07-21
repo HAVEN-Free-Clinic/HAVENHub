@@ -10,7 +10,7 @@ import {
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronDown, Menu, X } from "lucide-react";
-import { isModuleActive, type NavModule } from "@/platform/modules/access";
+import { isModuleActive, type NavModule } from "@/platform/modules/nav";
 
 /** useLayoutEffect on the client, useEffect on the server (SSR-safe). */
 const useIsomorphicLayoutEffect =
@@ -33,6 +33,7 @@ export function GlobalNav({ items }: { items: NavModule[] }) {
   const [visibleCount, setVisibleCount] = useState(items.length);
 
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const moreButtonRef = useRef<HTMLButtonElement>(null);
   const navRef = useRef<HTMLElement>(null);
   const measureRef = useRef<HTMLDivElement>(null);
   const moreRef = useRef<HTMLDivElement>(null);
@@ -126,9 +127,13 @@ export function GlobalNav({ items }: { items: NavModule[] }) {
     if (!open && !moreOpen) return;
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
+        // Restore focus to whichever trigger was open. buttonRef is the mobile
+        // hamburger (sm:hidden on desktop, so focusing it there is a no-op), so the
+        // desktop "More" menu must restore focus to its own button.
+        if (moreOpen) moreButtonRef.current?.focus();
+        else buttonRef.current?.focus();
         setOpen(false);
         setMoreOpen(false);
-        buttonRef.current?.focus();
       }
     }
     document.addEventListener("keydown", handleKeyDown);
@@ -178,6 +183,7 @@ export function GlobalNav({ items }: { items: NavModule[] }) {
         {overflow.length > 0 && (
           <div ref={moreRef} className="relative">
             <button
+              ref={moreButtonRef}
               type="button"
               aria-haspopup="true"
               aria-expanded={moreOpen}

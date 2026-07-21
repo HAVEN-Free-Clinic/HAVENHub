@@ -64,7 +64,7 @@ test("speed score: score two applicants with the keyboard and see the roster upd
 
   await page.goto(`/recruitment/cycles/${cycleId}`);
   await page.click('button:has-text("Publish")');
-  await expect(page.locator("span").filter({ hasText: "OPEN" })).toBeVisible();
+  await expect(page.locator("span").filter({ hasText: /^OPEN$/ })).toBeVisible();
 
   // --- Submit two applications so the queue advances between them ---
   const browser = context.browser()!;
@@ -83,13 +83,17 @@ test("speed score: score two applicants with the keyboard and see the roster upd
   await expect(dialog.getByText(/at a glance/i)).toBeVisible();
   await expect(dialog.getByText(/1 of 2/)).toBeVisible();
 
-  // Press 3 to score the first applicant and advance.
+  // Press 3 to score the first applicant and advance. Wait for the score control
+  // to be interactive (not mid-save) before each keypress, so the key can't land
+  // in a save transition and be ignored.
+  await expect(dialog.getByRole("button", { name: "Score 3" })).toBeEnabled();
   await page.keyboard.press("3");
   await expect(dialog.getByText(/2 of 2/)).toBeVisible();
   await expect(dialog.getByText(/at a glance/i)).toBeVisible();
 
   // Score the second (and last) applicant; the queue is exhausted and the done
   // screen appears.
+  await expect(dialog.getByRole("button", { name: "Score 4" })).toBeEnabled();
   await page.keyboard.press("4");
   await expect(dialog.getByText(/all caught up/i)).toBeVisible();
   await expect(dialog.getByText(/scored 2 of 2 applicants/i)).toBeVisible();

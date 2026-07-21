@@ -13,10 +13,24 @@ function isFileAnswer(v: unknown): boolean {
   return !!v && typeof v === "object" && "storedName" in (v as object);
 }
 
-/** Full-replace incoming answers, but carry over any stored file references the
- *  incoming set omits. A file input cannot round-trip through the form's
- *  FormData, so each autosave arrives without it; without this the next save
- *  would wipe a previously uploaded file. Non-file answers are intentionally
+/** Drop any file-shaped value from a client-supplied answer set. File references
+ *  are written ONLY by uploadDraftFile, which validates the upload and generates
+ *  the storedName server-side. Trusting a client-supplied storedName here would let
+ *  an applicant point a FILE answer at an arbitrary storage key (path traversal /
+ *  reading another applicant's upload) and satisfy a required-FILE field with no
+ *  real upload. */
+function stripFileAnswers(answers: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(answers)) {
+    if (!isFileAnswer(v)) out[k] = v;
+  }
+  return out;
+}
+
+/** Full-replace incoming (already file-free) answers, then overlay the stored
+ *  draft's real file references. A file input cannot round-trip through the form's
+ *  FormData, so each autosave arrives without it; overlaying the stored refs keeps
+ *  a previously uploaded file from being wiped. Non-file answers are intentionally
  *  not preserved so unchecking a box or clearing a select still clears it. */
 function mergeDraftAnswers(
   existing: Record<string, unknown> | null | undefined,
@@ -24,7 +38,7 @@ function mergeDraftAnswers(
 ): Record<string, unknown> {
   const merged: Record<string, unknown> = { ...incoming };
   for (const [k, v] of Object.entries(existing ?? {})) {
-    if (!(k in merged) && isFileAnswer(v)) merged[k] = v;
+    if (isFileAnswer(v)) merged[k] = v;
   }
   return merged;
 }
@@ -89,13 +103,18 @@ export async function saveDraft(
     (!cycle.closesAt || cycle.closesAt >= now);
   if (!open) throw new DraftError("This application is closed.");
 
+  // Never trust client-supplied file answers on autosave; file refs are written
+  // only by uploadDraftFile. Use the stripped set for both the update-merge and the
+  // create branches below.
+  const cleanAnswers = stripFileAnswers(input.answers);
+
   const existing = applicant?.applications[0];
   if (existing && existing.status === "SUBMITTED") {
     throw new DraftError("Your application has already been submitted.");
   }
 
   if (existing) {
-    const answers = mergeDraftAnswers(existing.answers as Record<string, unknown> | null, input.answers);
+    const answers = mergeDraftAnswers(existing.answers as Record<string, unknown> | null, cleanAnswers);
     await prisma.application.update({
       where: { id: existing.id },
       data: {
@@ -126,7 +145,7 @@ export async function saveDraft(
           subcommitteeRanking: [],
           status: "DRAFT",
           renewalDepartment: input.renewalDepartment ?? null,
-          answers: input.answers as never,
+          answers: cleanAnswers as never,
         },
       },
     },
@@ -139,7 +158,7 @@ export async function saveDraft(
           subcommitteeRanking: [],
           status: "DRAFT",
           renewalDepartment: input.renewalDepartment ?? null,
-          answers: input.answers as never,
+          answers: cleanAnswers as never,
         },
       },
     },

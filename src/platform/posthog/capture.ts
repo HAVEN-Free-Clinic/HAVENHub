@@ -1,4 +1,5 @@
 import { getPostHogClient } from "@/platform/posthog/posthog-server";
+import { log } from "@/platform/logging";
 
 /**
  * Server-side PostHog event capture for HAVEN Hub.
@@ -6,14 +7,37 @@ import { getPostHogClient } from "@/platform/posthog/posthog-server";
  * Wraps `getPostHogClient()` so call sites stop repeating the
  * get-client / capture / flush dance, and so every event flows through one
  * place that (a) drops `undefined` properties, (b) attaches group analytics,
- * and (c) flushes before a serverless function can freeze (the node client runs
- * `flushAt: 1`, so capture already queues the send; the awaited flush guarantees
- * the request finishes before the function is frozen).
+ * and (c) flushes best-effort.
+ *
+ * BEST-EFFORT CONTRACT (enforced, not just documented): capture is awaited on the
+ * request path at ~30 call sites, many right after a committed DB write. A slow or
+ * unreachable PostHog must never fail that action or add its ~49s retry budget to
+ * the latency. So the flush is bounded by a short timeout AND every path swallows
+ * errors -- callers must not depend on delivery. Losing an event during a PostHog
+ * outage is acceptable; breaking a user's action because analytics is down is not.
  *
  * Server-only (posthog-node). Safe to import from `@/modules` services: the
  * banned boundary direction is `@/platform` importing `@/modules`, not this.
- * Best-effort by nature; callers should not depend on delivery.
  */
+
+/** Max time to block a request on a PostHog flush before letting it finish in the
+ *  background. posthog-node otherwise retries with ~10s timeouts (~49s worst case). */
+const FLUSH_TIMEOUT_MS = 3000;
+
+/** Flush queued events without ever throwing or blocking longer than the timeout. */
+async function boundedFlush(client: { flush: () => Promise<unknown> }): Promise<void> {
+  const flushed = Promise.resolve(client.flush())
+    .then(() => undefined)
+    .catch((err) => {
+      log.warn("[posthog] event flush failed (best-effort)", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+  await Promise.race([
+    flushed,
+    new Promise<void>((resolve) => setTimeout(resolve, FLUSH_TIMEOUT_MS)),
+  ]);
+}
 
 /** PostHog group types. Registered implicitly the first time an event carries one. */
 export const GROUP_TERM = "term";
@@ -69,18 +93,26 @@ function cleanGroups(groups?: EventGroups): Record<string, string> | undefined {
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
-/** Capture one server-side event. Flushes unless `flush: false`. */
+/** Capture one server-side event. Flushes (bounded, best-effort) unless `flush: false`.
+ *  Never throws -- analytics must not fail a committed user action. */
 export async function captureEvent(input: CaptureEventInput): Promise<void> {
-  const client = getPostHogClient();
-  const properties: Record<string, unknown> = cleanProperties(input.properties);
-  if (input.setPersonProperties) properties.$set = input.setPersonProperties;
-  client.capture({
-    distinctId: input.distinctId,
-    event: input.event,
-    properties,
-    groups: cleanGroups(input.groups),
-  });
-  if (input.flush !== false) await client.flush();
+  try {
+    const client = getPostHogClient();
+    const properties: Record<string, unknown> = cleanProperties(input.properties);
+    if (input.setPersonProperties) properties.$set = input.setPersonProperties;
+    client.capture({
+      distinctId: input.distinctId,
+      event: input.event,
+      properties,
+      groups: cleanGroups(input.groups),
+    });
+    if (input.flush !== false) await boundedFlush(client);
+  } catch (err) {
+    log.warn("[posthog] captureEvent failed (best-effort)", {
+      event: input.event,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 /**
@@ -93,12 +125,19 @@ export async function aliasPerson(input: {
   previousDistinctId: string;
   flush?: boolean;
 }): Promise<void> {
-  const client = getPostHogClient();
-  client.alias({ distinctId: input.personId, alias: input.previousDistinctId });
-  if (input.flush !== false) await client.flush();
+  try {
+    const client = getPostHogClient();
+    client.alias({ distinctId: input.personId, alias: input.previousDistinctId });
+    if (input.flush !== false) await boundedFlush(client);
+  } catch (err) {
+    log.warn("[posthog] aliasPerson failed (best-effort)", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
-/** Force-flush queued events. Use after a batch captured with `flush: false`. */
+/** Force-flush queued events. Use after a batch captured with `flush: false`.
+ *  Bounded + best-effort: never throws or blocks longer than the flush timeout. */
 export async function flushEvents(): Promise<void> {
-  await getPostHogClient().flush();
+  await boundedFlush(getPostHogClient());
 }

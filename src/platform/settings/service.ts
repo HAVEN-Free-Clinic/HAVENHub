@@ -1,8 +1,8 @@
 import type { Prisma } from "@prisma/client";
-import { prisma } from "@/platform/db";
+import { prisma, isDbUnreachableError } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { config } from "@/platform/config";
-import { log } from "@/platform/logging";
+import { log, errorAttrs } from "@/platform/logging";
 import { SETTINGS, getSettingDef, type SettingDef, type SettingInput } from "./registry";
 
 const TTL_MS = 30_000;
@@ -39,7 +39,10 @@ export class SettingValidationError extends Error {
 /**
  * Resolve a setting: validated DB override -> env default. An invalid stored
  * value logs a warning and falls back to the default; it never throws to the
- * caller. An unregistered key throws (programmer error).
+ * caller. A brief DB outage (server unreachable) likewise degrades to the env
+ * default rather than throwing -- getSetting runs on every page render via
+ * generateMetadata, so a momentary Neon blip must not become a site-wide 500.
+ * An unregistered key throws (programmer error).
  */
 export async function getSetting<T = unknown>(key: string): Promise<T> {
   const def = getSettingDef(key);
@@ -47,7 +50,18 @@ export async function getSetting<T = unknown>(key: string): Promise<T> {
   const cached = cache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.value as T;
 
-  const row = await prisma.setting.findUnique({ where: { key } });
+  let row: Awaited<ReturnType<typeof prisma.setting.findUnique>>;
+  try {
+    row = await prisma.setting.findUnique({ where: { key } });
+  } catch (err) {
+    if (isDbUnreachableError(err)) {
+      // The safe answer is the env default. Return it without caching so the
+      // next read picks up the real stored value as soon as the DB recovers.
+      log.warn(`[settings] database unreachable resolving "${key}"; using default`, errorAttrs(err));
+      return def.envDefault() as T;
+    }
+    throw err;
+  }
   const value = row ? resolveStored(def, row.value).value : def.envDefault();
 
   cache.set(key, { value, expiresAt: Date.now() + TTL_MS });
@@ -64,12 +78,33 @@ export type ResolvedSetting = {
   isOverridden: boolean;
 };
 
-/** Resolve every setting in a category for rendering a form group. */
+/**
+ * Resolve every setting in a category for rendering a form group. Like
+ * getSetting, a brief DB outage (server unreachable) degrades to the env
+ * defaults -- an admin viewing /admin/settings during a momentary Neon blip
+ * sees the default-valued form rather than a 500. The overrides simply read as
+ * empty, so every setting shows its default with isOverridden=false until the
+ * DB recovers; the result is not cached, so the next render reflects reality.
+ */
 export async function getCategory(category: string): Promise<ResolvedSetting[]> {
   const defs = SETTINGS.filter((d) => d.category === category && !d.hidden);
-  const rows = await prisma.setting.findMany({
-    where: { key: { in: defs.map((d) => d.key) } },
-  });
+
+  let rows: Awaited<ReturnType<typeof prisma.setting.findMany>>;
+  try {
+    rows = await prisma.setting.findMany({
+      where: { key: { in: defs.map((d) => d.key) } },
+    });
+  } catch (err) {
+    if (isDbUnreachableError(err)) {
+      log.warn(
+        `[settings] database unreachable resolving category "${category}"; using defaults`,
+        errorAttrs(err)
+      );
+      rows = [];
+    } else {
+      throw err;
+    }
+  }
   const overrides = new Map(rows.map((r) => [r.key, r.value]));
 
   return defs.map((def) => {
@@ -135,7 +170,14 @@ export async function setSetting(
   });
 }
 
-/** Remove an override so the value falls back to the env default; audit it. */
+/**
+ * Remove an override so the value falls back to the env default; audit it.
+ *
+ * Unlike the read paths (getSetting / getCategory), this is a write triggered by
+ * an explicit admin action, so a DB-unreachable error is left to propagate: the
+ * reset genuinely did not happen and the admin must see the failure and retry.
+ * Swallowing it here would redirect to "Saved." while the override still exists.
+ */
 export async function resetSetting(
   key: string,
   actorPersonId: string | null

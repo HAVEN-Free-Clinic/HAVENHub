@@ -465,6 +465,9 @@ export async function POST(req: Request) {
     // Non-null when tracking was skipped because an open request already exists;
     // the client shows it as a warning and keeps the downloaded artifacts.
     trackingWarning,
+    // The ET-formatted MMDDYYYY date (same one used for the filename/PDF), so the
+    // client builds the email subject from it instead of the browser's local clock.
+    date: dateStr,
   });
 }
 

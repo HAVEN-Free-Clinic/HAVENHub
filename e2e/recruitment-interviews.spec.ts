@@ -37,7 +37,7 @@ test("director interview: schedule, decide accept, release", async ({
 
   await page.goto(`/recruitment/cycles/${cycleId}`);
   await page.click('button:has-text("Publish")');
-  await expect(page.locator("span").filter({ hasText: "OPEN" })).toBeVisible();
+  await expect(page.locator("span").filter({ hasText: /^OPEN$/ })).toBeVisible();
 
   // --- Submit a public application as a verified portal applicant ---
   const applicantEmail = `e2e-dee-${Date.now()}@yale.edu`;

@@ -56,7 +56,17 @@ export async function decideInterview(
         // (revokeAcceptance), so block the change rather than lose data silently.
         throw new AcceptanceError("This applicant has already been emailed their acceptance or started onboarding. Rescind the acceptance before changing this decision.");
       }
-      if (existing) await tx.acceptance.delete({ where: { id: existing.id } });
+      // Atomic teardown: the guard above read `existing` earlier in this READ
+      // COMMITTED tx, so a concurrent releaseDecisions could stamp emailedAt in the
+      // gap. Delete only while still not-emailed; if that removes nothing, the
+      // acceptance was emailed concurrently -- abort so we never leave an
+      // emailed-but-rejected applicant.
+      if (existing) {
+        const del = await tx.acceptance.deleteMany({ where: { id: existing.id, emailedAt: null } });
+        if (del.count === 0) {
+          throw new AcceptanceError("This applicant has already been emailed their acceptance or started onboarding. Rescind the acceptance before changing this decision.");
+        }
+      }
     }
     return tx.interview.update({
       where: { id: interviewId },

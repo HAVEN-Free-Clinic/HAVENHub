@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
 import { Modal } from "@/platform/ui/modal";
 import { Button } from "@/platform/ui/button";
 import { Badge } from "@/platform/ui/badge";
@@ -118,7 +118,14 @@ export function SpeedScoreModal({ open, onClose, items, onScore, onLoad }: Speed
 
   // Global keyboard: 1-5 scores + advances; arrows navigate. Suppressed while a
   // form control is focused (comment field), while saving, and on the done screen.
-  useEffect(() => {
+  //
+  // useLayoutEffect (not useEffect) so the listener re-registers with the fresh
+  // isSaving/index closure SYNCHRONOUSLY at commit, before the browser paints the
+  // advanced applicant. A passive effect would leave a window right after a save
+  // where the stale listener (captured isSaving=true during the save) is still
+  // installed, silently dropping the very next keypress -- exactly the rapid
+  // "score, advance, score again" flow the keyboard grader is built for.
+  useLayoutEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
       const t = e.target as HTMLElement | null;

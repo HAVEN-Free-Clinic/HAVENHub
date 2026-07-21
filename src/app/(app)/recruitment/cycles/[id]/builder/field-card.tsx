@@ -103,10 +103,28 @@ function VisibleWhenEditor({
             )}
             {op === "isAnyOf" && (
               opts ? (
-                <Select disabled={disabled} multiple value={selectedValues}
-                  onChange={(e) => handleMultiValueChange(Array.from(e.target.selectedOptions).map((o) => o.value))}>
-                  {opts.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </Select>
+                // A native <select multiple> replaces the whole selection on a plain
+                // click (only ctrl/cmd-click adds), which reads as "can only pick one"
+                // and is near-unusable on touch. A checkbox group toggles per single
+                // tap and is keyboard/touch friendly.
+                <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                  {opts.map((o) => (
+                    <label key={o.value} className="flex items-center gap-2 text-sm">
+                      <Checkbox
+                        disabled={disabled}
+                        checked={selectedValues.includes(o.value)}
+                        onChange={(e) =>
+                          handleMultiValueChange(
+                            e.target.checked
+                              ? [...selectedValues, o.value]
+                              : selectedValues.filter((v) => v !== o.value),
+                          )
+                        }
+                      />
+                      {o.label}
+                    </label>
+                  ))}
+                </div>
               ) : (
                 <Input disabled={disabled} defaultValue={selectedValues.join(", ")}
                   placeholder="comma-separated values"

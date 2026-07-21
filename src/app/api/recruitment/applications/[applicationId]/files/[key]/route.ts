@@ -1,6 +1,7 @@
 import { auth } from "@/platform/auth/auth";
 import { getActivePerson } from "@/platform/auth/match-person";
 import { getObject } from "@/platform/storage";
+import { contentDisposition } from "@/platform/content-disposition";
 import { log } from "@/platform/logging";
 import { getApplication } from "@/modules/recruitment/services/submissions";
 import { reviewScope, canViewApplication } from "@/modules/recruitment/services/review";
@@ -29,8 +30,11 @@ type StoredFile = { storedName?: string; fileName?: string; mimeType?: string };
  *     that ranked their department. (Previously this route omitted the scorer
  *     and routed-director branches, 404-ing committee scorers on every file.)
  *   - The stored object key is built from the application's own cycleId and the
- *     answer's storedName (both from the DB), never from user input, so no path
- *     traversal is possible via the URL `key`.
+ *     answer's storedName. storedName is server-generated (persistFiles /
+ *     uploadDraftFile); saveDraft strips client-supplied file answers so an
+ *     applicant cannot inject one, and this route additionally validates storedName
+ *     against the server format below -- so no path traversal is possible via the
+ *     URL `key` or a persisted answer.
  *   - Both "missing" and "not allowed" return 404, so an unauthorized viewer
  *     cannot tell a file exists from one that doesn't.
  */
@@ -69,6 +73,13 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
     return Response.json({ error: "Not found" }, { status: 404 });
   }
 
+  // Defense in depth: persistFiles generates storedName as `<fieldKey>-<uuid>[.ext]`.
+  // Reject anything that doesn't match so a malformed/injected value can never escape
+  // the cycle prefix (path traversal) or reference an arbitrary object.
+  if (!/^[A-Za-z0-9_]+-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(\.[A-Za-z0-9]{1,8})?$/.test(file.storedName)) {
+    return Response.json({ error: "Not found" }, { status: 404 });
+  }
+
   const buf = await getObject(`recruitment/${app.cycleId}/${file.storedName}`);
   if (!buf) {
     log.error("[recruitment/files] file missing in storage", {
@@ -89,14 +100,12 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
   const inline = new URL(request.url).searchParams.get("inline") === "1";
   const renderInline = inline && INLINE_SAFE_MIME_TYPES.has(file.mimeType);
   const rawName = file.fileName ?? "file";
-  const safeFileName = rawName.replace(/[\x00-\x1f\x7f"]/g, "").trim() || "file";
-  const encodedFileName = encodeURIComponent(rawName);
 
   return new Response(fileBytes, {
     status: 200,
     headers: {
       "Content-Type": file.mimeType,
-      "Content-Disposition": `${renderInline ? "inline" : "attachment"}; filename="${safeFileName}"; filename*=UTF-8''${encodedFileName}`,
+      "Content-Disposition": contentDisposition(rawName, { inline: renderInline }),
       "Content-Length": String(fileByteLength),
       // Defense-in-depth: never sniff a different type than declared, and deny the
       // served document any ability to load or execute sub-resources.

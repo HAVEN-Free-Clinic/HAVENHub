@@ -209,6 +209,7 @@ describe("campaign service", () => {
 
 describe("campaign scheduling", () => {
   it("schedules a one-time send and sets SCHEDULED + nextRunAt = scheduledAt", async () => {
+    await activePerson("Later Recipient", "later@example.com");
     const c = await createDraft(null, "Later");
     await updateCampaign(null, c.id, { subject: "s", body: "<p>hi</p>", audience: ALL_ACTIVE });
     const at = new Date("2030-01-01T12:00:00Z");
@@ -280,11 +281,28 @@ describe("campaign scheduling", () => {
   });
 
   it("cancel sets CANCELLED", async () => {
+    await activePerson("Stop Recipient", "stop@example.com");
     const c = await createDraft(null, "Stop");
     await updateCampaign(null, c.id, { subject: "s", body: "<p>hi</p>", audience: ALL_ACTIVE });
     await scheduleCampaign(null, c.id, { scheduleType: "SCHEDULED", scheduledAt: new Date("2030-01-01T00:00:00Z") });
     await cancelCampaign(null, c.id);
     const after = await prisma.emailCampaign.findUniqueOrThrow({ where: { id: c.id } });
     expect(after.status).toBe("CANCELLED");
+  });
+
+  it("refuses a one-off send/schedule to an empty audience, but allows recurring (zero-recipient guard)", async () => {
+    // No active persons seeded, so ALL_ACTIVE resolves to nobody.
+    const c = await createDraft(null, "Empty");
+    await updateCampaign(null, c.id, { subject: "s", body: "<p>hi</p>", audience: ALL_ACTIVE });
+    // An immediate send to nobody would burn the campaign to terminal SENT.
+    await expect(sendCampaignNow(null, c.id, {})).rejects.toBeInstanceOf(CampaignValidationError);
+    // A one-off SCHEDULED send is the same unrecoverable mistake.
+    await expect(
+      scheduleCampaign(null, c.id, { scheduleType: "SCHEDULED", scheduledAt: new Date("2030-01-01T00:00:00Z") }),
+    ).rejects.toBeInstanceOf(CampaignValidationError);
+    // Recurring is exempt: its audience is resolved live at each run, so zero-now is legitimate.
+    await scheduleCampaign(null, c.id, { scheduleType: "RECURRING", cronExpr: "0 13 * * *" }, new Date("2026-06-10T12:00:00Z"));
+    const after = await prisma.emailCampaign.findUniqueOrThrow({ where: { id: c.id } });
+    expect(after.status).toBe("ACTIVE");
   });
 });

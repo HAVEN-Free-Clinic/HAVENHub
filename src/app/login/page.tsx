@@ -11,6 +11,7 @@ import { Input, Field } from "@/platform/ui/input";
 import { Button } from "@/platform/ui/button";
 import { FormActions } from "@/platform/ui/form";
 import { SignInButton } from "./sign-in-button";
+import { MemberSignInForm } from "./member-sign-in-form";
 import { buildPageMetadata } from "@/platform/branding/metadata";
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -48,9 +49,10 @@ export default async function LoginPage({
   }
   const session = await auth();
   if (session?.personId) redirect(safeCallbackUrl);
-  const [appName, support] = await Promise.all([
+  const [appName, support, memberLinkEnabled] = await Promise.all([
     getSetting<string>("branding.appName"),
     getSupportContact(),
+    getSetting<boolean>("auth.memberMagicLinkEnabled"),
   ]);
   const errorMessage = error ? (ERROR_MESSAGES[error] ?? DEFAULT_ERROR) : null;
 
@@ -125,6 +127,17 @@ export default async function LoginPage({
           </p>
         )}
 
+        {memberLinkEnabled && (
+          <div className="mt-6 border-t border-border-subtle pt-6">
+            <p className="text-center text-xs text-muted-foreground">
+              No yale.edu email? Get a one-time sign-in link by email.
+            </p>
+            <div className="mt-3">
+              <MemberSignInForm callbackUrl={safeCallbackUrl} />
+            </div>
+          </div>
+        )}
+
         {/* Persistent help affordance, available before any error occurs.
             Hidden entirely when no support email is configured, so a
             locked-out user is never shown a contact they cannot reach. */}
@@ -164,7 +177,7 @@ export default async function LoginPage({
                 name="email"
                 type="email"
                 required
-                placeholder="j.carney@yale.edu"
+                placeholder="netid@yale.edu"
                 className="mt-1"
               />
             </Field>

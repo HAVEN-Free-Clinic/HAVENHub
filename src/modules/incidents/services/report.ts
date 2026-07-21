@@ -815,13 +815,19 @@ export async function reviewReport(
   if (actorIsSubject) throw new IncidentForbiddenError();
 
   const terminal = input.status === "RESOLVED" || input.status === "DISMISSED";
+  // Only treat this as a fresh resolution when the status actually CHANGES to a
+  // terminal value. Re-saving an already-terminal report (e.g. editing reviewNotes
+  // with the Status select still on RESOLVED) must not re-notify the reporter nor
+  // reset the original decision timestamp; it keeps the existing resolver/date.
+  const statusChanged = input.status !== existing.status;
+  const resolvedNow = terminal && statusChanged;
   const updated = await prisma.incidentReport.update({
     where: { id },
     data: {
       status: input.status,
       reviewNotes: input.reviewNotes === undefined ? existing.reviewNotes : input.reviewNotes,
-      resolvedById: terminal ? actorPersonId : null,
-      resolvedAt: terminal ? new Date() : null,
+      resolvedById: terminal ? (resolvedNow ? actorPersonId : existing.resolvedById) : null,
+      resolvedAt: terminal ? (resolvedNow ? new Date() : existing.resolvedAt) : null,
     },
   });
 
@@ -833,7 +839,7 @@ export async function reviewReport(
     after: { status: updated.status },
   });
 
-  if (terminal) {
+  if (resolvedNow) {
     await notifyReporterOfResolution(updated, actorPersonId);
   }
 

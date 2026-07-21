@@ -30,7 +30,7 @@
 import { prisma } from "@/platform/db";
 import { getSetting } from "@/platform/settings/service";
 import { log } from "@/platform/logging";
-import { complianceStatus, certExpiresAt } from "@/platform/compliance/rules";
+import { effectiveComplianceStatus, certExpiresAt } from "@/platform/compliance/rules";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { notify } from "@/platform/notifications/notify";
 import { renderEmail } from "./templates/renderEmail";
@@ -78,6 +78,7 @@ export type ReminderRunResult = {
 export async function runComplianceReminders(
   now: Date = new Date()
 ): Promise<ReminderRunResult> {
+  const startedAt = Date.now();
   const result: ReminderRunResult = {
     remindersSent: 0,
     escalationsSent: 0,
@@ -113,19 +114,22 @@ export async function runComplianceReminders(
 
   const personIds = persons.map((p) => p.id);
 
-  // 3. Newest cert per candidate. Order by (personId asc, uploadedAt desc) then
-  //    reduce to the first-seen entry per personId in JS.
+  // 3. Full cert history per candidate, newest-first. Order by (personId asc,
+  //    uploadedAt desc) then group per personId, preserving newest-first order so
+  //    effectiveComplianceStatus can fall back to an older still-valid verified cert
+  //    when the newest is an early renewal awaiting verification.
   const allCerts = await prisma.hipaaCertificate.findMany({
     where: { personId: { in: personIds } },
     orderBy: [{ personId: "asc" }, { uploadedAt: "desc" }],
     select: { personId: true, completionDate: true, verifiedAt: true },
   });
 
-  const certMap = new Map<string, { completionDate: Date | null; verifiedAt: Date | null }>();
+  const certsByPerson = new Map<string, Array<{ completionDate: Date | null; verifiedAt: Date | null }>>();
   for (const c of allCerts) {
-    if (!certMap.has(c.personId)) {
-      certMap.set(c.personId, { completionDate: c.completionDate, verifiedAt: c.verifiedAt });
-    }
+    const list = certsByPerson.get(c.personId);
+    const entry = { completionDate: c.completionDate, verifiedAt: c.verifiedAt };
+    if (list) list.push(entry);
+    else certsByPerson.set(c.personId, [entry]);
   }
 
   // 4. Existing reminder rows.
@@ -155,8 +159,12 @@ export async function runComplianceReminders(
 
   // 5 + 6 + 7. Process each candidate.
   for (const person of persons) {
-    const cert = certMap.get(person.id) ?? null;
-    const status = complianceStatus(cert, activeTerm.endDate, now);
+    const certs = certsByPerson.get(person.id) ?? [];
+    const cert = certs[0] ?? null;
+    // Effective (all-certs) status: an early renewal awaiting verification must not
+    // flip a still-cleared member back to PENDING_VERIFICATION and re-trigger reminders
+    // + director escalation. EXPIRING_SOON is still surfaced so the renewal nudge holds.
+    const status = effectiveComplianceStatus(certs, activeTerm.endDate, now);
     const existing = reminderMap.get(person.id) ?? null;
     const ehsMissingAll = ehsMissingByPerson.get(person.id) ?? [];
     const clearance = clearanceByPerson.get(person.id);
@@ -294,6 +302,13 @@ export async function runComplianceReminders(
     result.remindersSent++;
   }
 
+  // Surface the run size + duration so the write phase (O(active members) serial
+  // round-trips) can be watched trending toward the 300s budget before it truncates.
+  log.info("[reminders] run complete", {
+    candidates: persons.length,
+    elapsedMs: Date.now() - startedAt,
+    ...result,
+  });
   return result;
 }
 

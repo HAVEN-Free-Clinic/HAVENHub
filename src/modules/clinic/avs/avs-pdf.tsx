@@ -38,6 +38,7 @@ export function createAvsStyles(brand: string) {
   return StyleSheet.create({
     page: { padding: 36, fontSize: 10, color: INK, fontFamily: "Helvetica", lineHeight: 1.5 },
     header: { borderBottomWidth: 2, borderBottomColor: brand, paddingBottom: 8, marginBottom: 14 },
+    orgName: { fontSize: 9, color: MUTED, fontFamily: "Helvetica-Bold", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 3 },
     docTitle: { fontSize: 16, color: brand, fontFamily: "Helvetica-Bold" },
     headerName: { fontSize: 12, marginTop: 2 },
     headerDate: { fontSize: 10, color: MUTED, marginTop: 2 },
@@ -64,6 +65,7 @@ export function createAvsStyles(brand: string) {
     medName: { fontSize: 10, fontFamily: "Helvetica-Bold" },
     medDetail: { fontSize: 9, color: MUTED },
     footer: { marginTop: 18, paddingTop: 8, borderTopWidth: 1, borderTopColor: "#dde8e9", fontSize: 8, color: MUTED },
+    footerContact: { fontSize: 8, color: MUTED, marginTop: 3 },
   });
 }
 
@@ -135,15 +137,23 @@ function Item({ item, styles }: { item: SummaryItem; styles: AvsStyles }) {
 export function AvsDocument({
   summary,
   brandColor = DEFAULT_BRAND,
+  orgName,
+  supportContact,
 }: {
   summary: LocalizedSummary;
   brandColor?: string;
+  /** Issuing clinic name, so the handout identifies where it came from (the
+   *  disclaimer tells patients to "contact the clinic"). */
+  orgName?: string;
+  /** A support email/phone the patient can use to follow up. */
+  supportContact?: string;
 }) {
   const styles = createAvsStyles(brandColor);
   return (
     <Document>
       <Page size="LETTER" style={styles.page}>
         <View style={styles.header}>
+          {orgName ? <Text style={styles.orgName}>{orgName}</Text> : null}
           <Text style={styles.docTitle}>{summary.docTitle}</Text>
           {summary.headerName ? <Text style={styles.headerName}>{summary.headerName}</Text> : null}
           {summary.visitDateValue ? (
@@ -166,6 +176,11 @@ export function AvsDocument({
           </Fragment>
         ))}
         <Text style={styles.footer}>{summary.disclaimer}</Text>
+        {supportContact ? (
+          <Text style={styles.footerContact}>
+            Questions? Contact {orgName ?? "the clinic"} at {supportContact}.
+          </Text>
+        ) : null}
       </Page>
     </Document>
   );

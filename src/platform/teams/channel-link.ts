@@ -187,6 +187,7 @@ export async function getCurrentClinicChannelLink(
     )}/channels`;
     const res = await fetchImpl(url, {
       headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(8000),
     });
     if (!res.ok) {
       throw new Error(`Graph channels list failed: ${res.status}`);

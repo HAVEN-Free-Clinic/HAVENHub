@@ -17,7 +17,9 @@ import { Badge } from "@/platform/ui/badge";
 export const STATUS_LABELS: Record<TechRequestStatus, string> = {
   SUBMITTED: "Submitted",
   IN_PROGRESS: "In progress",
-  AWAITING_REQUESTER: "Awaiting you",
+  // Viewer-neutral: this label renders on manager surfaces too (triage list, status
+  // dropdown), where "Awaiting you" would wrongly read as awaiting the manager.
+  AWAITING_REQUESTER: "Awaiting requester",
   AWAITING_YNHH: "Awaiting YNHH",
   RESOLVED: "Resolved",
   CLOSED: "Closed",

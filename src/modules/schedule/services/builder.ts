@@ -495,6 +495,17 @@ export async function upsertRhdClinic(
     throw new BuilderValidationError(`${opts.dateKey} is not a clinic date in the active term.`);
   }
 
+  // attendingId is a foreign key read verbatim from FormData. Validate it before the
+  // upsert so a stale/tampered id surfaces a friendly validation error rather than a
+  // raw Prisma P2003 that runAction rethrows as a 500 (mirrors the dateKey check above).
+  if (opts.attendingId != null) {
+    const attending = await prisma.rhdAttending.findUnique({
+      where: { id: opts.attendingId },
+      select: { id: true },
+    });
+    if (!attending) throw new BuilderValidationError("Selected attending no longer exists.");
+  }
+
   const rhdClinicBefore = await prisma.rhdClinic.findFirst({
     where: { termId: term.id, clinicDate },
     select: { attendingId: true, directorName: true, proceduresBooked: true },

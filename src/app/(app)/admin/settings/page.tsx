@@ -51,6 +51,11 @@ export default async function SettingsPage({ searchParams }: PageProps) {
     if (!def) redirect(`/admin/settings?error=${encodeURIComponent("Unknown setting")}`);
 
     const value = coerce(def.input, formData.get(key));
+    // A blank numeric field coerces to NaN, which Zod rejects with the raw
+    // "Expected number, received nan"; surface a human message instead.
+    if (def.input.type === "number" && Number.isNaN(value)) {
+      redirect(`/admin/settings?error=${encodeURIComponent(`${def.label}: enter a whole number.`)}`);
+    }
     try {
       await setSetting(key, value, session.personId);
     } catch (err) {

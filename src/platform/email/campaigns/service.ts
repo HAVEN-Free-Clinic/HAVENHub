@@ -7,6 +7,7 @@ import { PERSON_VARIABLES } from "@/platform/email/audience/variables";
 import { resolveAudience } from "@/platform/email/audience/resolve";
 import type { Recipient } from "@/platform/email/audience/resolve";
 import { renderInlineEmail, loadLayoutSource } from "@/platform/email/templates/renderEmail";
+import { getSetting } from "@/platform/settings/service";
 import { queueEmail, queueEmails } from "@/platform/email/send";
 import type { Prisma } from "@prisma/client";
 import { isValidCron, nextCronAfter, cronMinIntervalMinutes, CAMPAIGN_DISPATCH_CADENCE_MINUTES } from "./cron";
@@ -68,7 +69,29 @@ export async function createDraft(
 }
 
 export async function getCampaign(id: string) {
-  return prisma.emailCampaign.findUnique({ where: { id }, include: { runs: { orderBy: { runAt: "desc" } } } });
+  const campaign = await prisma.emailCampaign.findUnique({
+    where: { id },
+    include: { runs: { orderBy: { runAt: "desc" } } },
+  });
+  if (!campaign) return null;
+  // Attach the ACTUAL EmailLog count per run. recipientCount is recorded when a run is
+  // claimed (marked SENT / nextRunAt advanced), but the recipient rows are enqueued
+  // AFTER that transaction commits -- a crash in that window leaves a run recorded as
+  // sent with fewer (or zero) EmailLog rows and nothing to detect it. Surfacing the
+  // real count lets an admin spot an orphaned claim and resend.
+  const runIds = campaign.runs.map((r) => r.id);
+  const counts = runIds.length
+    ? await prisma.emailLog.groupBy({
+        by: ["campaignRunId"],
+        where: { campaignRunId: { in: runIds } },
+        _count: { _all: true },
+      })
+    : [];
+  const byRun = new Map(counts.map((c) => [c.campaignRunId, c._count._all]));
+  return {
+    ...campaign,
+    runs: campaign.runs.map((r) => ({ ...r, enqueuedCount: byRun.get(r.id) ?? 0 })),
+  };
 }
 
 export async function listCampaigns() {
@@ -205,16 +228,23 @@ export async function executeRun(
     });
   }
   const layoutSource = await loadLayoutSource();
+  // Resolve the brand color ONCE up front. renderInlineEmail otherwise reads
+  // branding.brandColor per recipient; a large audience rendered via Promise.all
+  // would then fire N concurrent setting.findUnique behind a small pool and time out
+  // (P2024), throwing before the claim so nothing sends. Hoisting it (like
+  // layoutSource) keeps the per-recipient render at zero DB round-trips.
+  const brandColor = await getSetting<string>("branding.brandColor");
 
-  // Render every recipient BEFORE opening the claim transaction. renderInlineEmail
-  // is pure CPU (no DB round-trips), so doing it up front keeps the transaction
-  // short and independent of recipient count.
+  // Render every recipient BEFORE opening the claim transaction. With layoutSource
+  // and brandColor hoisted, renderInlineEmail is pure CPU (no DB round-trips), so
+  // doing it up front keeps the transaction short and independent of recipient count.
   const rendered = await Promise.all(
     deduped.map(async (recipient) => {
       const { subject, html } = await renderInlineEmail(
         { subject: campaign.subject, body: campaign.body },
         recipient.variables,
         layoutSource,
+        brandColor,
       );
       return { to: recipient.email, subject, html, personId: recipient.recordId };
     }),
@@ -284,6 +314,13 @@ export async function sendCampaignNow(
     return true;
   });
 
+  // A send to nobody would flip the campaign to terminal SENT with zero recipients
+  // -- unrecoverable and almost always a forgotten condition. Block it up front.
+  if (deduped.length === 0) {
+    throw new CampaignValidationError([
+      "This audience matches nobody. Add or adjust a condition before sending.",
+    ]);
+  }
   if (deduped.length > CAMPAIGN_CONFIRM_THRESHOLD && opts.confirmCount !== deduped.length) {
     throw new CampaignConfirmationError(deduped.length);
   }
@@ -326,6 +363,15 @@ export async function scheduleCampaign(
   });
   if (deduped.length > CAMPAIGN_CONFIRM_THRESHOLD && opts.confirmCount !== deduped.length) {
     throw new CampaignConfirmationError(deduped.length);
+  }
+  // A one-off SCHEDULED send to nobody is the same unrecoverable mistake as an
+  // immediate send-to-nobody. A RECURRING campaign is exempt: its audience is
+  // resolved live at each run, so zero-as-of-now is legitimate (e.g. "certs
+  // expiring this week").
+  if (input.scheduleType === "SCHEDULED" && deduped.length === 0) {
+    throw new CampaignValidationError([
+      "This audience matches nobody. Add or adjust a condition before scheduling a send.",
+    ]);
   }
 
   if (input.scheduleType === "SCHEDULED") {

@@ -1,17 +1,28 @@
 import Link from "next/link";
 import { prisma } from "@/platform/db";
+import { requirePersonSession } from "@/platform/auth/session";
+import { getEffectivePermissions, hasPermission } from "@/platform/rbac/engine";
 import { getSetting } from "@/platform/settings/service";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { PageHeader } from "@/platform/ui/page-header";
 import { buttonClasses } from "@/platform/ui/button";
 import { StatCard } from "@/platform/ui/stat-card";
 import { emailHealthCounts } from "@/modules/admin/services/email";
+import { getCronHealth } from "@/platform/cron-heartbeat";
+import { Alert } from "@/platform/ui/alert";
 
-// requirePermission already ran in the admin layout; this page is reachable only
-// by users with admin.access. No second permission check needed here.
+// requirePermission already ran in the admin layout; this page is reachable by
+// any admin.access holder. Each quick-link / stat card below targets a page with
+// its OWN sub-permission, so we filter them to what the viewer can actually open
+// (mirroring the nav filtering in the layout) -- otherwise a scoped admin sees
+// links and cards that dead-end at /no-access.
 
 export default async function AdminOverviewPage() {
-  const appName = await getSetting<string>("branding.appName");
+  const { personId } = await requirePersonSession();
+  const [appName, perms] = await Promise.all([
+    getSetting<string>("branding.appName"),
+    getEffectivePermissions(personId),
+  ]);
 
   // Find the active term first so we can scope membership counts.
   const activeTerm = await getActiveTerm();
@@ -41,14 +52,28 @@ export default async function AdminOverviewPage() {
     emailHealthCounts(),
   ]);
 
+  // Flag any externally-scheduled cron job whose last success is stale (schedule
+  // dropped / secret rotated). Dead enqueue-only jobs otherwise leave no signal.
+  const cronHealth = await getCronHealth();
+  const staleCrons = cronHealth.filter((c) => c.stale);
+
   const quickLinks = [
-    { label: "People", href: "/admin/people" },
-    { label: "Terms", href: "/admin/terms" },
-    { label: "Roles", href: "/admin/roles" },
-    { label: "Subcommittees", href: "/admin/subcommittees" },
-    { label: "Onboarding contract", href: "/admin/contract" },
-    { label: "Audit", href: "/admin/audit" },
-  ];
+    { label: "People", href: "/admin/people", permission: "admin.manage_people" },
+    { label: "Terms", href: "/admin/terms", permission: "admin.manage_terms" },
+    { label: "Roles", href: "/admin/roles", permission: "admin.manage_roles" },
+    { label: "Subcommittees", href: "/admin/subcommittees", permission: "admin.manage_subcommittees" },
+    { label: "Onboarding contract", href: "/admin/contract", permission: "admin.manage_settings" },
+    { label: "Audit", href: "/admin/audit", permission: "admin.view_audit" },
+  ].filter((ql) => hasPermission(perms, ql.permission));
+
+  const statCards = [
+    { label: "Active People", value: activePersonCount, href: "/admin/people", permission: "admin.manage_people" },
+    { label: activeTerm ? `${activeTerm.name} Memberships` : "Memberships", value: activeMembershipCount, href: "/admin/terms", permission: "admin.manage_terms" },
+    { label: "Active Departments", value: activeDeptCount, href: "/admin/departments", permission: "admin.manage_departments" },
+    { label: "Roles", value: roleCount, href: "/admin/roles", permission: "admin.manage_roles" },
+    { label: "Audit Events (7 days)", value: recentAuditCount, href: "/admin/audit", permission: "admin.view_audit" },
+    { label: `Email (${emailCounts.queued} queued, ${emailCounts.failed} failed)`, value: emailCounts.failed, href: "/admin/email", permission: "admin.manage_sync" },
+  ].filter((c) => hasPermission(perms, c.permission));
 
   return (
     <div>
@@ -56,52 +81,38 @@ export default async function AdminOverviewPage() {
         title="Admin"
         description={`${appName} operations: people, terms, roles, and audit.`}
         action={
-          <div className="flex flex-wrap gap-2">
-            {quickLinks.map((ql) => (
-              <Link
-                key={ql.href}
-                href={ql.href}
-                className={buttonClasses("outline", "sm")}
-              >
-                {ql.label}
-              </Link>
-            ))}
-          </div>
+          quickLinks.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {quickLinks.map((ql) => (
+                <Link
+                  key={ql.href}
+                  href={ql.href}
+                  className={buttonClasses("outline", "sm")}
+                >
+                  {ql.label}
+                </Link>
+              ))}
+            </div>
+          ) : undefined
         }
       />
 
-      <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <StatCard
-          label="Active People"
-          value={activePersonCount}
-          href="/admin/people"
-        />
-        <StatCard
-          label={activeTerm ? `${activeTerm.name} Memberships` : "Memberships"}
-          value={activeMembershipCount}
-          href="/admin/terms"
-        />
-        <StatCard
-          label="Active Departments"
-          value={activeDeptCount}
-          href="/admin/departments"
-        />
-        <StatCard
-          label="Roles"
-          value={roleCount}
-          href="/admin/roles"
-        />
-        <StatCard
-          label="Audit Events (7 days)"
-          value={recentAuditCount}
-          href="/admin/audit"
-        />
-        <StatCard
-          label={`Email (${emailCounts.queued} queued, ${emailCounts.failed} failed)`}
-          value={emailCounts.failed}
-          href="/admin/email"
-        />
-      </div>
+      {staleCrons.length > 0 && (
+        <div className="mt-6">
+          <Alert tone="error">
+            Scheduled jobs may have stopped running: {staleCrons.map((c) => c.label).join(", ")}. These run
+            on an external scheduler; confirm it is still calling the cron endpoints (see docs/DEPLOY.md).
+          </Alert>
+        </div>
+      )}
+
+      {statCards.length > 0 && (
+        <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {statCards.map((c) => (
+            <StatCard key={c.href} label={c.label} value={c.value} href={c.href} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

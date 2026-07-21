@@ -14,7 +14,7 @@ export default function ApplyError({ error, reset }: { error: Error & { digest?:
           title="Something went wrong"
           action={<Button size="lg" onClick={() => reset()}>Try again</Button>}
         >
-          <p>Please try again. If the problem persists, contact the HAVEN IT team.</p>
+          <p>Please try again. If the problem persists, contact support.</p>
         </PortalNotice>
       </main>
     </div>

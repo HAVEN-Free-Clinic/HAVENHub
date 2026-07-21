@@ -24,9 +24,10 @@ import { Checkbox } from "@/platform/ui/checkbox";
 import { Radio, RadioGroup } from "@/platform/ui/radio";
 import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
-import { Button } from "@/platform/ui/button";
+import { SubmitButton } from "@/platform/ui/submit-button";
 import { FormActions } from "@/platform/ui/form";
 import { CONCERN_TYPES, listSubjectOptions } from "@/modules/incidents/services/report";
+import { ConcernTypesFieldset } from "./concern-types-fieldset";
 import { SubjectPicker } from "./subject-picker";
 import { submitReportAction } from "./actions";
 
@@ -88,21 +89,9 @@ export default async function ReportConcernPage({ searchParams }: PageProps) {
 
       <form action={submitReportAction} className="mt-8">
         <Card className="space-y-8">
-          {/* Section 1: concern types */}
-          <fieldset>
-            <legend className="mb-2 text-sm font-medium">1. Type of concern (select all that apply)</legend>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {CONCERN_TYPES.map((t) => (
-                <label key={t.value} className="flex items-start gap-2 text-sm">
-                  <Checkbox name="concernTypes" value={t.value} className="mt-0.5" />
-                  <span>
-                    <span className="font-medium">{t.label}</span> -{" "}
-                    <span className="text-muted-foreground">{t.help}</span>
-                  </span>
-                </label>
-              ))}
-            </div>
-          </fieldset>
+          {/* Section 1: concern types (client fieldset enforces at least one, so a
+              validation miss never round-trips and discards the whole form) */}
+          <ConcernTypesFieldset options={CONCERN_TYPES} />
 
           {/* Section 2: description */}
           <Field label="2. Describe what happened" required>
@@ -192,7 +181,7 @@ export default async function ReportConcernPage({ searchParams }: PageProps) {
           </div>
 
           <FormActions>
-            <Button type="submit">Submit report</Button>
+            <SubmitButton pendingLabel="Submitting…">Submit report</SubmitButton>
           </FormActions>
         </Card>
       </form>

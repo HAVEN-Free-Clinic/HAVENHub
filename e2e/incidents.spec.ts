@@ -209,7 +209,10 @@ test("strike request to approve: director requests a strike, admin approves it, 
   // Approve the strike request with a category.
   const approveForm = page.locator('form:has(input[name="approve"][value="yes"])');
   await approveForm.locator('select[name="category"]').selectOption("Attendance");
+  // "Approve strike" is a two-click ConfirmButton (arm, then confirm) because it
+  // issues a permanent strike and emails the subject.
   await approveForm.getByRole("button", { name: "Approve strike" }).click();
+  await approveForm.getByRole("button", { name: "Confirm strike?" }).click();
 
   // decideStrikeAction redirects back to the same detail page.
   await page.waitForURL(detailUrl);
@@ -284,7 +287,10 @@ test("multi-person report: director links two people, admin approves the single 
   // Approve/Decline form pair on the page. Approve it with a category.
   const approveForm = page.locator('form:has(input[name="approve"][value="yes"])');
   await approveForm.locator('select[name="category"]').selectOption("Attendance");
+  // "Approve strike" is a two-click ConfirmButton (arm, then confirm) because it
+  // issues a permanent strike and emails the subject.
   await approveForm.getByRole("button", { name: "Approve strike" }).click();
+  await approveForm.getByRole("button", { name: "Confirm strike?" }).click();
 
   // decideStrikeAction redirects back to the same detail page.
   await page.waitForURL(detailUrl);

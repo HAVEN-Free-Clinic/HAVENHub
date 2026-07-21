@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { requirePermission } from "@/platform/auth/session";
 import { PageHeader } from "@/platform/ui/page-header";
-import { Button, buttonClasses } from "@/platform/ui/button";
+import { buttonClasses } from "@/platform/ui/button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
+import { SubmitButton } from "@/platform/ui/submit-button";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { Pagination } from "@/platform/ui/pagination";
 import { getEhsDashboard } from "@/platform/ehs/services/status";
@@ -68,14 +69,14 @@ export default async function EhsDashboardPage({
                         name="value"
                         value={row.addedToEhs ? "0" : "1"}
                       />
-                      <Button
-                        type="submit"
+                      <SubmitButton
                         size="sm"
                         variant={row.addedToEhs ? "primary" : "outline"}
                         aria-label={`${row.addedToEhs ? "Remove from" : "Add to"} EHS: ${row.name}`}
+                        pendingLabel="Saving…"
                       >
                         {row.addedToEhs ? "Added" : "Add"}
-                      </Button>
+                      </SubmitButton>
                     </form>
                   </TD>
                   {row.cells.map((cell) => {
@@ -104,14 +105,14 @@ export default async function EhsDashboardPage({
                             <input type="hidden" name="personId" value={row.personId} />
                             <input type="hidden" name="trainingId" value={cell.trainingId} />
                             <input type="hidden" name="complete" value="1" />
-                            <Button
-                              type="submit"
+                            <SubmitButton
                               size="sm"
                               variant="outline"
                               aria-label={`Mark ${trainingName} complete for ${row.name}`}
+                              pendingLabel="Saving…"
                             >
                               Mark
-                            </Button>
+                            </SubmitButton>
                           </form>
                         )}
                       </TD>

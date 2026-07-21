@@ -2,7 +2,7 @@ import { cache } from "react";
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { getActiveTerm } from "@/platform/terms/active-term";
-import { complianceStatus } from "@/platform/compliance/rules";
+import { effectiveComplianceStatus } from "@/platform/compliance/rules";
 import { listMyCertificates } from "@/modules/my-info/services/my-info";
 import { requiredTrainingTracks, resolveTrainingProgress } from "@/modules/recruitment/services/training";
 import { getMyCourses } from "@/modules/learning/services/enrollment";
@@ -106,7 +106,11 @@ export const getOnboardingStatus = cache(async function getOnboardingStatus(
 
   const entries = [
     buildTask("profile", deriveProfileTaskState(person)),
-    buildTask("hipaa", deriveHipaaTaskState(complianceStatus(certs[0] ?? null, term.endDate))),
+    // Use the full cert history with the verified-fallback (not just the newest cert):
+    // an early renewal awaiting verification must not revoke clearance a still-valid
+    // verified cert already grants. Mirrors loadClearanceMap so the gate and the roster
+    // agree. See effectiveComplianceStatus.
+    buildTask("hipaa", deriveHipaaTaskState(effectiveComplianceStatus(certs, term.endDate))),
     ...trainingEntries,
     buildTask("learning", deriveLearningTaskState(courses)),
     buildTask("ehs", deriveEhsTaskState(ehsItems)),

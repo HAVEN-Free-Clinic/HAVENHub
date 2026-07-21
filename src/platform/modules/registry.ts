@@ -63,11 +63,14 @@ export const MODULES: ModuleManifest[] = [
     ],
     status: "active",
     nav: [
-      { label: "Compliance", href: "/volunteers" },
+      // Compliance (/volunteers) and Offboarding both enforce requirePermission("volunteers.view"),
+      // so gate their nav items on the same permission -- otherwise a Spanish-review-only
+      // reviewer (admitted via additionalAccessPermissions) sees tabs that bounce to /no-access.
+      { label: "Compliance", href: "/volunteers", permission: "volunteers.view" },
       { label: "Master view", href: "/volunteers/master", permission: "volunteers.manage_compliance" },
       { label: "EHS training", href: "/volunteers/ehs", permission: "volunteers.manage_compliance" },
       { label: "Spanish review", href: "/volunteers/spanish-review", permission: "volunteers.verify_spanish" },
-      { label: "Offboarding", href: "/volunteers/offboarding" },
+      { label: "Offboarding", href: "/volunteers/offboarding", permission: "volunteers.view" },
     ],
   },
   {
@@ -156,6 +159,12 @@ export const MODULES: ModuleManifest[] = [
     description: "Self-paced training courses assigned by department",
     icon: GraduationCap,
     accessPermission: "learning.access",
+    // A Learning Coordinator / Compliance role may hold only manage_courses or
+    // view_progress. Admit them to the module (the tile, the layout, the nav) so
+    // the granted permission isn't dead; each page still enforces its own gate,
+    // and the "My courses" landing page gates on module access (requireModuleAccess),
+    // so it stays reachable for them. Mirrors recruitment.score above.
+    additionalAccessPermissions: ["learning.manage_courses", "learning.view_progress"],
     permissions: ["learning.access", "learning.manage_courses", "learning.view_progress"],
     status: "active",
     nav: [

@@ -74,10 +74,21 @@ export function volunteerDepartmentSection(): TemplateSection {
     { key: "department_choice", label: "Department / position preference", type: "DEPARTMENT_CHOICE", required: true },
     { key: "switch_departments", label: "Would you be willing to switch departments?", type: "SINGLE_SELECT", required: false, options: YES_NO },
     { key: "department_flexibility", label: "Are you flexible in your department choice?", type: "SINGLE_SELECT", required: false, options: YES_NO },
+  ], { description: "See department descriptions at havenfreeclinic.com/apply." });
+}
+
+/** Cover letter + resume, required, but scoped NEW so they are asked of new
+ *  applicants and department-switchers (TRANSFER resolves to NEW) yet hidden from
+ *  same-department renewals -- matching the fields' own help text. Kept as its own
+ *  section because required-ness is per-field but applicant scope is per-section;
+ *  leaving these required FILE fields in the BOTH "Department preference" section
+ *  hard-blocked every renewal at submit ("A required file is missing"). */
+export function volunteerApplicationMaterialsSection(): TemplateSection {
+  return sec("Application materials", "NEW", [
     { key: "cover_letter", label: "Cover letter", type: "FILE", required: true,
       helpText: "We request that all new incoming volunteers or if you want to switch departments please submit a PDF cover letter." },
     { key: "resume", label: "Resume", type: "FILE", required: true, helpText: "Please upload your resume here." },
-  ], { description: "See department descriptions at havenfreeclinic.com/apply." });
+  ]);
 }
 
 export function directorHavenExperienceSection(): TemplateSection {

@@ -29,10 +29,15 @@ export default async function WelcomePage() {
         <HavenLogo className="h-10 text-brand-fg" />
         <h1 className="mt-4 text-2xl font-bold tracking-tight">Welcome to {orgName}</h1>
         <p className="mt-3 text-sm leading-relaxed text-foreground-soft">
-          You signed in successfully, but we couldn&apos;t find you in our records.
-          If you&apos;re a current member, contact{" "}
-          <SupportLink email={support.email}>the IT team</SupportLink> so we can fix
-          your record.
+          You signed in successfully, but we couldn&apos;t find you in our records.{" "}
+          {support.email ? (
+            <>
+              If you&apos;re a current member, contact{" "}
+              <SupportLink email={support.email}>the IT team</SupportLink> so we can fix your record.
+            </>
+          ) : (
+            <>If you&apos;re a current member, reach out to your recruitment director so we can fix your record.</>
+          )}
           {openCycleCount > 0
             ? " If you'd like to join, you can start an application now."
             : " If you'd like to join, keep an eye out for the next recruitment cycle."}

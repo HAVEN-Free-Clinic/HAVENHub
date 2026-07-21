@@ -10,7 +10,7 @@ import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { Badge } from "@/platform/ui/badge";
 import { Pagination } from "@/platform/ui/pagination";
 import { applicantTypeLabel } from "@/modules/recruitment/engine/visibility";
-import { scoreAverage } from "@/modules/recruitment/engine/scoring";
+import { formatScoreSummary, scoreAverage } from "@/modules/recruitment/engine/scoring";
 import { applicationStage, applicationStageLabel } from "@/modules/recruitment/engine/application-stage";
 import { can } from "@/platform/rbac/engine";
 import { buttonClasses } from "@/platform/ui/button";
@@ -115,10 +115,7 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
                 <TD className="text-foreground-soft">{a.applicant.email}</TD>
                 <TD className="text-foreground-soft">{applicantTypeLabel(a.applicantType)}</TD>
                 <TD className="text-foreground-soft">
-                  {(() => {
-                    const s = scoreAverage(a.committeeScores.map((c) => c.score));
-                    return s.average != null ? `${s.average.toFixed(1)} · ${s.count}` : "-";
-                  })()}
+                  {formatScoreSummary(scoreAverage(a.committeeScores.map((c) => c.score)))}
                 </TD>
                 <TD>
                   <Badge>{applicationStageLabel[applicationStage({

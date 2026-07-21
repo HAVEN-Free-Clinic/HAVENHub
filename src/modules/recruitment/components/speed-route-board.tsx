@@ -10,6 +10,7 @@ import { Card } from "@/platform/ui/card";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { applicationStageLabel } from "@/modules/recruitment/engine/application-stage";
+import { formatScoreSummary } from "@/modules/recruitment/engine/scoring";
 import type { SpeedRouteBoard as Board, SpeedRouteRow } from "@/modules/recruitment/services/speed-route";
 import type { BatchResult } from "@/modules/recruitment/services/routing";
 import { SpeedRouteModal } from "./speed-route-modal";
@@ -37,7 +38,7 @@ type RowHandlers = {
 };
 
 function avgLabel(r: SpeedRouteRow) {
-  return r.average != null ? `${r.average.toFixed(1)} · ${r.scoreCount}` : "-";
+  return formatScoreSummary({ average: r.average, count: r.scoreCount });
 }
 
 function RouteRow({ r, kind, h }: { r: SpeedRouteRow; kind: "top" | "middle" | "bottom"; h: RowHandlers }) {

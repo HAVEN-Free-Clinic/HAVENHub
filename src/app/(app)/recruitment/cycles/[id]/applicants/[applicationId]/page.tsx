@@ -173,27 +173,27 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
             {formatScoreSummary(scoreSummary)}
           </p>
           {canScore && (
-          <>
-          {scoreError && <Alert tone="error" className="mt-3">{scoreError}</Alert>}
-          <form action={committeeScoreAction.bind(null, id, applicationId)} className="mt-3 flex flex-wrap items-end gap-3">
-            <div className="w-28">
-              <Field label="Your score">
-                <Select name="score" required defaultValue={myScore ? String(myScore.score) : ""}>
-                  <option value="" disabled>Select…</option>
-                  {[1, 2, 3, 4, 5].map((s) => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
-                </Select>
-              </Field>
-            </div>
-            <div className="min-w-[12rem] flex-1">
-              <Field label="Comments" hint="Optional.">
-                <Input name="comments" defaultValue={myScore?.comments ?? ""} />
-              </Field>
-            </div>
-            <SubmitButton size="sm" pendingLabel="Saving…">{myScore ? "Update score" : "Submit score"}</SubmitButton>
-          </form>
-          </>
+            <>
+              {scoreError && <Alert tone="error" className="mt-3">{scoreError}</Alert>}
+              <form action={committeeScoreAction.bind(null, id, applicationId)} className="mt-3 flex flex-wrap items-end gap-3">
+                <div className="w-28">
+                  <Field label="Your score">
+                    <Select name="score" required defaultValue={myScore ? String(myScore.score) : ""}>
+                      <option value="" disabled>Select…</option>
+                      {[1, 2, 3, 4, 5].map((s) => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                    </Select>
+                  </Field>
+                </div>
+                <div className="min-w-[12rem] flex-1">
+                  <Field label="Comments" hint="Optional.">
+                    <Input name="comments" defaultValue={myScore?.comments ?? ""} />
+                  </Field>
+                </div>
+                <SubmitButton size="sm" pendingLabel="Saving…">{myScore ? "Update score" : "Submit score"}</SubmitButton>
+              </form>
+            </>
           )}
         </Card>
       )}
@@ -286,6 +286,7 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
               <p className="mt-3 text-sm text-foreground-soft">
                 Routed to <strong className="text-foreground">{app.routedDepartmentCode}</strong>. Decide directly from the committee score (no interview).
               </p>
+              {error && <Alert tone="error" className="mt-3">{error}</Alert>}
               {emailedAcceptance && (
                 <RescindAcceptanceNotice
                   departmentCode={app.routedDepartmentCode}
@@ -293,7 +294,6 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
                   action={rescindAcceptanceAction.bind(null, id, applicationId, emailedAcceptance.id)}
                 />
               )}
-              {error && <Alert tone="error" className="mt-3">{error}</Alert>}
               <form action={decideRoutedAction.bind(null, id, applicationId)} className="mt-4 flex flex-wrap items-end gap-3 border-t border-border-subtle pt-4">
                 <div className="w-40">
                   <Field label="Outcome">
@@ -319,7 +319,10 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
               )}
             </>
           ) : (
-            <p className="mt-3 text-sm text-muted-foreground">Routed to {app.routedDepartmentCode}. Waiting on the department to decide.</p>
+            <>
+              {error && <Alert tone="error" className="mt-3">{error}</Alert>}
+              <p className="mt-3 text-sm text-muted-foreground">Routed to {app.routedDepartmentCode}. Waiting on the department to decide.</p>
+            </>
           )}
         </Card>
       )}

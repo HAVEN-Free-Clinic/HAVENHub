@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { DateTime } from "@/platform/dates/display";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { zoneLabel } from "@/platform/dates/zone";
-import { formatForDateTimeInput } from "@/platform/dates";
+import { formatForDateTimeInput, formatForDateInput } from "@/platform/dates";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { requirePermission, requirePersonSession } from "@/platform/auth/session";
 import { can } from "@/platform/rbac/engine";
@@ -259,6 +259,15 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
                 <div className="w-28">
                   <Field label="Max attempts">
                     <Input name="quizMaxAttempts" type="number" min={1} defaultValue={cycle.quizMaxAttempts} />
+                  </Field>
+                </div>
+                <div className="w-44">
+                  <Field label="In-person training date">
+                    <Input
+                      name="inPersonTrainingDate"
+                      type="date"
+                      defaultValue={cycle.inPersonTrainingDate ? formatForDateInput(cycle.inPersonTrainingDate, zone) : ""}
+                    />
                   </Field>
                 </div>
                 <SubmitButton size="sm" variant="outline" pendingLabel="Saving…">Save quiz settings</SubmitButton>

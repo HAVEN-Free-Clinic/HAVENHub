@@ -169,8 +169,11 @@ export async function updateQuizSettingsAction(cycleId: string, formData: FormDa
   const person = await requirePermission("recruitment.manage_cycles");
   const quizPassPercent = Number(formData.get("quizPassPercent"));
   const quizMaxAttempts = Number(formData.get("quizMaxAttempts"));
+  const rawDate = (formData.get("inPersonTrainingDate") as string | null) ?? "";
+  // Anchor at noon UTC so the calendar day is timezone-stable (matches clinicDates).
+  const inPersonTrainingDate = rawDate ? new Date(`${rawDate}T12:00:00Z`) : null;
   await runAction({
-    work: () => updateQuizSettings(cycleId, { quizPassPercent, quizMaxAttempts }, person.personId),
+    work: () => updateQuizSettings(cycleId, { quizPassPercent, quizMaxAttempts, inPersonTrainingDate }, person.personId),
     domainErrors: [TrainingStateError],
     errorRedirect: (m) => `/recruitment/cycles/${cycleId}?error=${encodeURIComponent(m)}`,
     revalidate: `/recruitment/cycles/${cycleId}`,

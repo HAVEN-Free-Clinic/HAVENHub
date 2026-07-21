@@ -1,7 +1,8 @@
 import { redirect } from "next/navigation";
 import { requirePersonSession } from "@/platform/auth/session";
 import { Alert } from "@/platform/ui/alert";
-import { getMyTraining } from "@/modules/recruitment/services/training";
+import { getMyTrainingForTerm } from "@/modules/recruitment/services/training";
+import { getActiveTerm } from "@/platform/terms/active-term";
 import { getOnboardingStatus } from "@/modules/onboarding/services/onboarding";
 import { TrainingQuiz } from "@/app/(app)/training/training-quiz";
 import { OnboardingStepShell } from "../onboarding-step-shell";
@@ -13,7 +14,9 @@ export default async function OnboardingTrainingPage({ searchParams }: { searchP
 
   const sp = await searchParams;
   const track = sp.track === "director" ? "DIRECTOR" : "VOLUNTEER";
-  const trainings = await getMyTraining(person.personId);
+  const liveTerm = await getActiveTerm();
+  if (!liveTerm) redirect("/get-started");
+  const trainings = await getMyTrainingForTerm(person.personId, liveTerm);
   const my = trainings.find((m) => m.track === track);
   if (!my || my.state === "COMPLETE") redirect("/get-started");
 
@@ -32,6 +35,7 @@ export default async function OnboardingTrainingPage({ searchParams }: { searchP
         </Alert>
       ) : (
         <TrainingQuiz
+          termId={my.term.id}
           track={my.track}
           questions={my.questions}
           passPercent={my.passPercent}

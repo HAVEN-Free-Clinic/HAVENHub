@@ -18,6 +18,7 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { requirePersonSession } from "@/platform/auth/session";
 import { getAccessibleModules } from "@/platform/modules/access";
+import { getActiveTerm } from "@/platform/terms/active-term";
 import { getMyTraining, type MyTraining } from "@/modules/recruitment/services/training";
 import { formatDateOnly } from "@/platform/dates";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
@@ -269,9 +270,13 @@ export default async function TrainingPage() {
   const person = await requirePersonSession();
   const trainings = await getMyTraining(person.personId);
   const zone = await getDisplayTimeZone();
+  const liveTerm = await getActiveTerm();
+  // Scheduling is inherently live-term: an incomplete NEXT-term training (surfaced
+  // early for self-serve) must not suppress the live-term "View the schedule" CTA.
+  const liveTrainings = liveTerm ? trainings.filter((m) => m.term.id === liveTerm.id) : [];
   const canSchedule =
-    trainings.length > 0 &&
-    trainings.every((m) => m.state === "COMPLETE") &&
+    liveTrainings.length > 0 &&
+    liveTrainings.every((m) => m.state === "COMPLETE") &&
     (await getAccessibleModules(person.personId)).some((m) => m.id === "schedule");
 
   return (
@@ -279,7 +284,7 @@ export default async function TrainingPage() {
       <header className="mb-5">
         <PageHeader
           title="Training"
-          description={`Complete your training to be cleared${trainings[0] ? ` for ${trainings[0].term.name}` : ""}.`}
+          description="Complete your training to be cleared for each term you're part of."
         />
       </header>
 
@@ -291,14 +296,15 @@ export default async function TrainingPage() {
         trainings.map((my) => {
           const pending = my.cycle && my.state !== "COMPLETE" && !my.locked;
           return (
-            <section key={my.track} className="mb-9">
-              <SectionHeader level="title" className="mb-3">{my.trackLabel}</SectionHeader>
+            <section key={`${my.term.id}-${my.track}`} className="mb-9">
+              <SectionHeader level="title" className="mb-3">{my.term.name} · {my.trackLabel}</SectionHeader>
               <ClearanceHero my={my} zone={zone} />
               {pending && (
                 <>
                   <PathCards my={my} />
                   <SectionHeader level="title" className="mb-3.5 mt-7">Makeup quiz</SectionHeader>
                   <TrainingQuiz
+                    termId={my.term.id}
                     track={my.track}
                     questions={my.questions}
                     passPercent={my.passPercent}

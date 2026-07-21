@@ -25,6 +25,7 @@ export type QuizActionResult =
  *  Returns the result for in-place rendering; the page refreshes itself when the
  *  attempt is terminal (passed or locked) to re-render the clearance state. */
 export async function gradeQuizAction(input: {
+  termId: string;
   track: Track;
   answers: Record<string, string>;
   intake: TrainingIntake;
@@ -32,6 +33,7 @@ export async function gradeQuizAction(input: {
   const person = await requirePersonSession();
   try {
     const result = await submitQuiz(person.personId, {
+      termId: input.termId,
       track: input.track,
       answers: input.answers,
       intake: input.intake,

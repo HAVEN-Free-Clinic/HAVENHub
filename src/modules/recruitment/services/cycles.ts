@@ -7,6 +7,7 @@ import { getApplicationTemplate, getSupplementSections } from "../templates";
 import { getQuizTemplate } from "../templates/quiz";
 import { materializeTemplate } from "../templates/materialize";
 import { termSaturdays } from "../templates/term-dates";
+import { resolveAvailabilityOptions } from "../templates/clinic-dates";
 import { normalizeDeptCode, SUPPLEMENT_DEPARTMENTS } from "../templates/application/supplements/dept-codes";
 
 export class CyclePublishError extends Error {
@@ -96,10 +97,17 @@ export async function createCycle(input: CreateCycleInput, seedDefaultForm = fal
 }
 
 export async function getCycle(id: string) {
-  return prisma.recruitmentCycle.findUnique({
+  const cycle = await prisma.recruitmentCycle.findUnique({
     where: { id },
-    include: { sections: { include: { fields: { orderBy: { order: "asc" } } }, orderBy: { order: "asc" } } },
+    include: {
+      term: { select: { clinicDates: true } },
+      sections: { include: { fields: { orderBy: { order: "asc" } } }, orderBy: { order: "asc" } },
+    },
   });
+  if (!cycle) return null;
+  // Availability options are owned by the term's clinic calendar, not by the
+  // stored snapshot. Resolving here covers the form builder and ApplyPreview.
+  return { ...cycle, sections: resolveAvailabilityOptions(cycle.sections, cycle.term.clinicDates) };
 }
 
 /** A cycle with its full form definition (sections -> fields), as returned by getCycle. */

@@ -20,9 +20,11 @@
 - Test DB is throwaway Postgres on port 5434, never Neon. Per-worktree `TEST_DATABASE_URL`.
 - Every new block property must be **optional** in the Zod schema so existing layouts parse.
 
-## Blocking Dependency
+## Dependency: resolved
 
-**Task 13 requires `RecruitmentCycle.inPersonTrainingDate`,** added by the unmerged branch `worktree-in-person-training-date` (#352). Tasks 1 through 12, 14 and 15 do not depend on it and can proceed immediately. Before starting Task 13, confirm #352 has merged to `main` and rebase this branch onto it. **Do not add a second training-date column.**
+Task 13 requires `RecruitmentCycle.inPersonTrainingDate` from branch `worktree-in-person-training-date` (#352). **This branch has already been rebased onto it**, so the column exists and Task 13 is unblocked. Verify with `grep -n inPersonTrainingDate prisma/schema.prisma` before starting Task 13. **Do not add a second training-date column.**
+
+Because this branch sits on top of an unmerged branch, the eventual PR should target #352's branch, or wait for #352 to merge to `main` first.
 
 ---
 
@@ -1410,7 +1412,7 @@ export const DEPARTMENT_RESPONSIBILITY_BLOCKS: AgreementBlock[] = DEPARTMENTS.ma
 }));
 ```
 
-**Transcription is the bulk of this task.** Fill `DEPARTMENTS` with all 21 entries using the responsibility text and hours from the Airtable form screenshots in the originating conversation. Verify each `code` against the database before committing:
+**Transcription is the bulk of this task.** The full source text for all 21 departments is in `.superpowers/sdd/department-responsibilities.md` at the repo root. Read that file and fill `DEPARTMENTS` from it: each heading gives the code, the display name, and the hours string, and the bullets below it become `duties` verbatim. Do not paraphrase, and keep `{{orgName}}` where it appears. Verify each `code` against the database before committing:
 
 ```bash
 npx tsx -e "import{prisma}from'./src/platform/db';prisma.department.findMany({select:{code:true,name:true},orderBy:{code:'asc'}}).then(r=>{console.table(r);return prisma.\$disconnect()})"
@@ -1614,10 +1616,12 @@ git commit -m "feat(recruitment): rebuild the director contract default from the
 
 - [ ] **Step 1: Write the failing test**
 
+**Test style:** this repo runs vitest with `environment: "node"` and has no jsdom or `@testing-library/react`. The convention for `.tsx` tests is `renderToStaticMarkup` from `react-dom/server` — see `src/platform/dates/display.test.tsx`. Do not add a testing library. Assertions are made against the rendered HTML string, which covers initial render; interaction behaviour is covered by the pure functions in Tasks 1 and 4.
+
 ```tsx
 // src/app/onboard/[token]/contract-field.test.tsx
 import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { ContractField } from "./contract-field";
 
 const ctx = {
@@ -1629,43 +1633,51 @@ const prefill = { firstName: "Ada", lastName: "L", email: "", netId: "", phone: 
 const noop = () => {};
 const noErr = () => undefined;
 
+const html = (block: Parameters<typeof ContractField>[0]["block"]) =>
+  renderToStaticMarkup(<ContractField block={block} prefill={prefill} ctx={ctx} err={noErr} onAnswer={noop} />);
+
 describe("ContractField", () => {
   it("renders a section heading and its prose", () => {
-    render(<ContractField block={{ kind: "section", id: "s", title: "Epic Access", body: "**Read** this." }}
-      prefill={prefill} ctx={ctx} err={noErr} onAnswer={noop} />);
-    expect(screen.getByText("Epic Access")).toBeTruthy();
-    expect(screen.getByText("Read")).toBeTruthy();
+    const out = html({ kind: "section", id: "s", title: "Epic Access", body: "**Read** this." });
+    expect(out).toContain("Epic Access");
+    expect(out).toContain("<strong");
+    expect(out).toContain("Read");
   });
 
   it("renders a checkbox agreement instead of a signature pad", () => {
-    render(<ContractField block={{ kind: "agreement", id: "d", title: "Duties", body: "- one", confirmKind: "checkbox", signatureLabel: "confirm" }}
-      prefill={prefill} ctx={ctx} err={noErr} onAnswer={noop} />);
-    expect(screen.getByRole("checkbox")).toBeTruthy();
-    expect(screen.queryByText(/draw/i)).toBeNull();
+    const out = html({ kind: "agreement", id: "d", title: "Duties", body: "- one", confirmKind: "checkbox", signatureLabel: "confirm" });
+    expect(out).toContain('name="confirm__d"');
+    expect(out).not.toContain('name="sig__d"');
+    expect(out).toContain("<li>");
   });
 
   it("interpolates the training date into agreement prose", () => {
-    render(<ContractField block={{ kind: "agreement", id: "t", title: "T", body: "Training is on {{trainingDate}}.", confirmKind: "checkbox", signatureLabel: "confirm" }}
-      prefill={prefill} ctx={ctx} err={noErr} onAnswer={noop} />);
-    expect(screen.getByText(/Training is on Sunday, May 3\./)).toBeTruthy();
+    const out = html({ kind: "agreement", id: "t", title: "T", body: "Training is on {{trainingDate}}.", confirmKind: "checkbox", signatureLabel: "confirm" });
+    expect(out).toContain("Training is on Sunday, May 3.");
+    expect(out).not.toContain("{{trainingDate}}");
   });
 
   it("omits the epicNeeded checkbox entirely", () => {
-    const { container } = render(<ContractField block={{ kind: "system_field", systemKey: "epic" }}
-      prefill={prefill} ctx={ctx} err={noErr} onAnswer={noop} />);
-    expect(container.querySelector('[name="epicNeeded"]')).toBeNull();
+    expect(html({ kind: "system_field", systemKey: "epic" })).not.toContain('name="epicNeeded"');
   });
 
-  it("hides the access type until an Epic ID is declared", () => {
-    const { container } = render(<ContractField block={{ kind: "system_field", systemKey: "epic" }}
-      prefill={prefill} ctx={ctx} err={noErr} onAnswer={noop} />);
-    expect(container.querySelector('[name="epicAccessType"]')).toBeNull();
+  it("hides the access type and expiration until an Epic ID is declared", () => {
+    const out = html({ kind: "system_field", systemKey: "epic" });
+    expect(out).not.toContain('name="epicAccessType"');
+    expect(out).not.toContain('name="existingEpicId"');
   });
 
-  it("renders affiliation as a select", () => {
-    const { container } = render(<ContractField block={{ kind: "system_field", systemKey: "yaleAffiliation" }}
-      prefill={prefill} ctx={ctx} err={noErr} onAnswer={noop} />);
-    expect(container.querySelector('select[name="yaleAffiliation"]')).toBeTruthy();
+  it("renders affiliation as a select carrying every option", () => {
+    const out = html({ kind: "system_field", systemKey: "yaleAffiliation" });
+    expect(out).toContain('<select name="yaleAffiliation"');
+    expect(out).toContain("GSAS");
+    expect(out).toContain("YSPH");
+  });
+
+  it("renders grad year options from the context year", () => {
+    const out = html({ kind: "system_field", systemKey: "gradYear" });
+    expect(out).toContain(">2026<");
+    expect(out).toContain(">2032<");
   });
 });
 ```
@@ -1915,13 +1927,13 @@ git commit -m "feat(recruitment): render contract sections, conditions and the r
 
 ### Task 13: Training date and location
 
-**BLOCKED until #352 (`worktree-in-person-training-date`) merges to main.** Rebase this branch onto it first, then confirm `RecruitmentCycle.inPersonTrainingDate` exists:
+This branch is already rebased onto #352, so the column exists. Confirm before starting:
 
 ```bash
 grep -n "inPersonTrainingDate" prisma/schema.prisma
 ```
 
-If that returns nothing, stop and rebase. **Do not add a second column.**
+If that returns nothing, stop and escalate. **Do not add a second column.**
 
 **Files:**
 - Modify: `src/app/onboard/[token]/page.tsx`
@@ -2259,35 +2271,98 @@ git commit -m "feat(recruitment): carry pronouns and staff title through promoti
 
 - [ ] **Step 1: Write the failing test**
 
+**Test style:** as in Task 12, no testing library and no jsdom. Interaction behaviour cannot be simulated, so the editor's state transitions are extracted into pure functions in `condition-ops.ts` and tested directly; the component itself gets a render-only test. This matches how `block-ops.ts` already holds the editor logic the contract builder drives.
+
+```ts
+// src/app/(app)/recruitment/cycles/[id]/builder/contract/condition-ops.test.ts
+import { describe, it, expect } from "vitest";
+import { newCondition, changeOp } from "./condition-ops";
+
+const fields = [{ value: "department", label: "Department" }, { value: "track", label: "Track" }];
+
+describe("newCondition", () => {
+  it("seeds an equals condition on the first field option", () => {
+    expect(newCondition(fields)).toEqual({ field: "department", op: "is", value: "" });
+  });
+
+  it("returns undefined when there is nothing to key on", () => {
+    expect(newCondition([])).toBeUndefined();
+  });
+});
+
+describe("changeOp", () => {
+  it("drops the value when switching to isAnswered", () => {
+    expect(changeOp({ field: "department", op: "is", value: "BVHD" }, "isAnswered"))
+      .toEqual({ field: "department", op: "isAnswered" });
+  });
+
+  it("restores an empty value when switching away from isAnswered", () => {
+    expect(changeOp({ field: "department", op: "isAnswered" }, "is"))
+      .toEqual({ field: "department", op: "is", value: "" });
+  });
+
+  it("preserves the value when switching between is and isNot", () => {
+    expect(changeOp({ field: "department", op: "is", value: "BVHD" }, "isNot"))
+      .toEqual({ field: "department", op: "isNot", value: "BVHD" });
+  });
+});
+```
+
 ```tsx
 // src/app/(app)/recruitment/cycles/[id]/builder/contract/condition-editor.test.tsx
-import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { describe, it, expect } from "vitest";
+import { renderToStaticMarkup } from "react-dom/server";
 import { ConditionEditor } from "./condition-editor";
 
 const fields = [{ value: "department", label: "Department" }, { value: "track", label: "Track" }];
 
 describe("ConditionEditor", () => {
-  it("renders as always visible when there is no condition", () => {
-    render(<ConditionEditor value={undefined} onChange={() => {}} fieldOptions={fields} />);
-    expect(screen.getByText(/always shown/i)).toBeTruthy();
+  it("reads as always shown when there is no condition", () => {
+    const out = renderToStaticMarkup(<ConditionEditor value={undefined} onChange={() => {}} fieldOptions={fields} />);
+    expect(out).toContain("Always shown");
+    expect(out).toContain("Add condition");
   });
 
-  it("emits a condition when a field is chosen", () => {
-    const onChange = vi.fn();
-    render(<ConditionEditor value={undefined} onChange={onChange} fieldOptions={fields} />);
-    fireEvent.click(screen.getByRole("button", { name: /add condition/i }));
-    expect(onChange).toHaveBeenCalledWith({ field: "department", op: "is", value: "" });
+  it("renders the field, operator and value controls for a condition", () => {
+    const out = renderToStaticMarkup(
+      <ConditionEditor value={{ field: "department", op: "is", value: "BVHD" }} onChange={() => {}} fieldOptions={fields} />
+    );
+    expect(out).toContain("Department");
+    expect(out).toContain("BVHD");
+    expect(out).toContain("Remove condition");
   });
 
-  it("clears the condition when removed", () => {
-    const onChange = vi.fn();
-    render(<ConditionEditor value={{ field: "department", op: "is", value: "BVHD" }} onChange={onChange} fieldOptions={fields} />);
-    fireEvent.click(screen.getByRole("button", { name: /remove condition/i }));
-    expect(onChange).toHaveBeenCalledWith(undefined);
+  it("hides the value control for isAnswered", () => {
+    const out = renderToStaticMarkup(
+      <ConditionEditor value={{ field: "department", op: "isAnswered" }} onChange={() => {}} fieldOptions={fields} />
+    );
+    expect(out).not.toContain("Value");
   });
 });
 ```
+
+`condition-ops.ts` holds the two pure helpers:
+
+```ts
+import type { FieldCondition, FieldConditionOp } from "@/modules/recruitment/engine/field-visibility";
+
+/** Seed a condition on the first available field. Returns undefined when there
+ *  is nothing to key on, so the caller leaves the block unconditional. */
+export function newCondition(fieldOptions: { value: string; label: string }[]): FieldCondition | undefined {
+  const first = fieldOptions[0]?.value;
+  return first ? { field: first, op: "is", value: "" } : undefined;
+}
+
+/** Switch a condition's operator, adding or dropping `value` to match the
+ *  operator's shape so the result always satisfies parseFieldCondition. */
+export function changeOp(cond: FieldCondition, op: FieldConditionOp): FieldCondition {
+  if (op === "isAnswered") return { field: cond.field, op };
+  const value = typeof cond.value === "string" ? cond.value : "";
+  return { field: cond.field, op, value };
+}
+```
+
+`ConditionEditor` calls `newCondition(fieldOptions)` and `changeOp(value, op)` rather than building conditions inline.
 
 - [ ] **Step 2: Run test to verify it fails**
 

@@ -43,11 +43,13 @@ describe("getApplicationTemplate", () => {
       "prev_volunteered", "returning_board",
       "essay_community_care", "essay_priorities", "essay_accountability",
       "department_choice", "subcommittee_rank",
-      "time_commitments", "resume", "info_session_confirm",
+      "time_commitments", "resume",
     ]));
     // The volunteer-specific contract/acknowledgements section must not leak into
-    // the director track: directors have their own logistics confirmation instead.
+    // the director track.
     expect(keys).not.toEqual(expect.arrayContaining(["volunteer_agreement"]));
+    // Info-session attendance is reconciled on the backend, not self-attested.
+    expect(keys).not.toEqual(expect.arrayContaining(["info_session_confirm"]));
     expect(keys.filter((k) => k === "subcommittee_rank")).toHaveLength(1);
   });
 

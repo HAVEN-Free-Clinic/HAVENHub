@@ -4,7 +4,7 @@
  * Exposes three operations:
  *   - mySchedule: the caller's shifts, availability, and term context.
  *   - fullSchedule: the clinic-wide schedule view for a selected date.
- *   - updateMyAvailability: structured self-update for the active term.
+ *   - updateMyAvailability: structured self-update for a given live or next term.
  *
  * Design note: this service trusts callers for permissions (pages gate). The
  * only invariant enforced here is data validity inside updateMyAvailability.
@@ -103,7 +103,15 @@ async function myScheduleForTerm(personId: string, term: Term, isLive: boolean):
       orderBy: { clinicDate: "asc" },
     }),
     prisma.shiftRequest.findMany({
-      where: { termId: term.id, requesterId: personId, status: "PENDING" },
+      // Gate pending requests by publish the same way as shifts: an unpublished
+      // next-term department contributes no visible shift, so it must not surface
+      // a stray pending-request indicator next to the "not published yet" state.
+      where: {
+        termId: term.id,
+        requesterId: personId,
+        status: "PENDING",
+        ...(publishedDepts ? { departmentId: { in: [...publishedDepts] } } : {}),
+      },
       include: { target: { select: { name: true } } },
     }),
   ]);
@@ -169,10 +177,11 @@ async function myScheduleForTerm(personId: string, term: Term, isLive: boolean):
  */
 export async function mySchedule(personId: string): Promise<{ terms: MyTermSchedule[] }> {
   const [personTerms, live] = await Promise.all([getPersonTerms(personId), getActiveTerm()]);
-  const terms: MyTermSchedule[] = [];
-  for (const term of personTerms) {
-    terms.push(await myScheduleForTerm(personId, term, term.id === live?.id));
-  }
+  // Each term's queries are independent, so resolve them concurrently rather than
+  // serially (a member spanning a live and a next term otherwise doubles the wait).
+  const terms = await Promise.all(
+    personTerms.map((term) => myScheduleForTerm(personId, term, term.id === live?.id)),
+  );
   return { terms };
 }
 

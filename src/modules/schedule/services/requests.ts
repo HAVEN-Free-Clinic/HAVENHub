@@ -308,7 +308,7 @@ export async function createRequest(
   const canonicalRequesterDate = clinicDateMap.get(input.requesterDateKey);
   if (!canonicalRequesterDate) {
     throw new RequestValidationError(
-      `${input.requesterDateKey} is not a clinic date in the active term.`,
+      `${input.requesterDateKey} is not a clinic date for this term.`,
     );
   }
 
@@ -317,7 +317,7 @@ export async function createRequest(
     const d = clinicDateMap.get(input.targetDateKey);
     if (!d) {
       throw new RequestValidationError(
-        `${input.targetDateKey} is not a clinic date in the active term.`,
+        `${input.targetDateKey} is not a clinic date for this term.`,
       );
     }
     canonicalTargetDate = d;

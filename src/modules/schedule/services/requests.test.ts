@@ -344,7 +344,7 @@ describe("createRequest", () => {
     ).rejects.toThrow("Partner is not eligible");
   });
 
-  it("rejects when no active term", async () => {
+  it("rejects when the actor has no roster membership for the term", async () => {
     const term = await createTerm("ARCHIVED", []);
     const dept = await createDepartment("AABB");
     const actor = await createPerson("Alice");

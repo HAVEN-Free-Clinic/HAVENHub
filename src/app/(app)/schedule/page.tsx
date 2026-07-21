@@ -24,7 +24,7 @@ import {
   RequestNotFoundError,
 } from "@/modules/schedule/services/requests";
 import { captureEvent } from "@/platform/posthog/capture";
-import { activeTermGroup } from "@/platform/posthog/groups";
+import { termGroup } from "@/platform/posthog/groups";
 import { isoDateKey } from "@/modules/schedule/engine/map";
 import { displayDate } from "@/modules/schedule/engine/display";
 import { CalendarDate } from "@/platform/dates/display";
@@ -143,7 +143,8 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
       event: "shift_change_requested",
       distinctId: actor.personId,
       properties: { department_id: departmentId, request_kind: kind || (targetId ? "swap" : "drop"), date_key: dateKey },
-      groups: await activeTermGroup(),
+      // Attribute the request to its own term (may be the next/PLANNING term), not the live one.
+      groups: termGroup(termId),
     });
     revalidatePath("/schedule");
     redirect("/schedule?requested=1");

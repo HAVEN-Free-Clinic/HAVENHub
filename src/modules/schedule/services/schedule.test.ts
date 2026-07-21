@@ -363,6 +363,26 @@ describe("mySchedule", () => {
     const nextAfter = after.terms.find((t) => t.term.id === next.id)!;
     expect(nextAfter.shifts.length).toBe(1); // published -> visible
   });
+
+  it("mySchedule gates a next-term pending request by publish, same as its shifts", async () => {
+    const live = await prisma.term.create({ data: { code: "SU26", name: "Summer", startDate: new Date("2026-05-30"), endDate: new Date("2026-09-26"), status: "ACTIVE", clinicDates: [] } });
+    const d1 = new Date(Date.UTC(2026, 8, 5, 12));
+    const next = await prisma.term.create({ data: { code: "FA26", name: "Fall", startDate: new Date("2026-09-01"), endDate: new Date("2027-01-01"), status: "PLANNING", clinicDates: [d1] } });
+    const dept = await prisma.department.create({ data: { code: "SRHD", name: "SRHD" } });
+    const dir = await prisma.person.create({ data: { name: "Dir", status: "ACTIVE" } });
+    await prisma.termMembership.create({ data: { personId: dir.id, termId: live.id, departmentId: dept.id, kind: "DIRECTOR", status: "ACTIVE" } });
+    const vol = await prisma.person.create({ data: { name: "Vol", status: "ACTIVE" } });
+    await prisma.termMembership.create({ data: { personId: vol.id, termId: next.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" } });
+    await prisma.shiftRequest.create({ data: { termId: next.id, requesterId: vol.id, requesterDate: d1, departmentId: dept.id, status: "PENDING" } });
+
+    // Unpublished: the pending request must not surface next to the "not published yet" state.
+    const before = await mySchedule(vol.id);
+    expect(before.terms.find((t) => t.term.id === next.id)!.pendingRequests.size).toBe(0);
+
+    await publishSchedule(dir.id, { termId: next.id, departmentId: dept.id });
+    const after = await mySchedule(vol.id);
+    expect(after.terms.find((t) => t.term.id === next.id)!.pendingRequests.size).toBe(1);
+  });
 });
 
 describe("fullSchedule", () => {

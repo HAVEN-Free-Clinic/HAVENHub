@@ -43,6 +43,47 @@ describe("buildContractAnswers", () => {
     const out = buildContractAnswers({ epicRequirement: "ALL" }, unplaced);
     expect(out.epicRequirement).toBe("NONE");
   });
+
+  // CONFIRMED security defect: `...(ctx.department ? { department: ctx.department } : {})`
+  // adds nothing when ctx.department is null, so a `department` key already
+  // present in formAnswers used to survive untouched. That let an applicant
+  // with no assigned department choose which department's responsibility
+  // agreement they were shown (or hidden) via visibleContractBlocks, on a
+  // document they legally sign. The fix strips the three authoritative keys
+  // out of formAnswers before applying ctx, so a null ctx.department yields
+  // no department key at all, not an empty string and not the submitted
+  // value.
+  describe("does not let a hostile department form answer survive a null context department", () => {
+    it("strips a hostile string department answer, leaving no department key at all", () => {
+      const out = buildContractAnswers({ department: "BVHD" }, unplaced);
+      expect("department" in out).toBe(false);
+    });
+
+    it("strips a hostile array-shaped department answer, leaving no department key at all", () => {
+      const out = buildContractAnswers({ department: ["BVHD", "CRAD"] }, unplaced);
+      expect("department" in out).toBe(false);
+    });
+
+    // Pinned alongside the null cases above so the pair is obvious: a
+    // hostile department answer is stripped either way, but when
+    // ctx.department is set it is replaced by the authoritative value
+    // rather than simply removed.
+    it("still lets the authoritative department win over a hostile answer when ctx.department is set", () => {
+      const out = buildContractAnswers({ department: "WRONG" }, director);
+      expect(out.department).toBe("BVHD");
+    });
+
+    it("does not let a hostile department answer make a department-gated block visible when unplaced", () => {
+      const blocks = [agreement("bvhd", "BVHD")];
+      const answers = buildContractAnswers({ department: "BVHD" }, unplaced);
+      expect(visibleContractBlocks(blocks, answers)).toHaveLength(0);
+    });
+
+    it("still preserves unrelated form answers alongside a stripped hostile department", () => {
+      const out = buildContractAnswers({ department: "BVHD", hasEpic: "on" }, unplaced);
+      expect(out.hasEpic).toBe("on");
+    });
+  });
 });
 
 describe("visibleContractBlocks", () => {

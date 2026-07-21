@@ -28,8 +28,18 @@ export function buildContractAnswers(
   formAnswers: Record<string, string | string[]>,
   ctx: ContractContext,
 ): Record<string, string | string[]> {
+  // Strip the three authoritative keys out of formAnswers before applying
+  // ctx, then spread only the remainder. This strip-then-apply order is what
+  // makes "context always wins" hold in every case, not just when
+  // ctx.department is set. Skipping the strip (spreading formAnswers as-is
+  // and only conditionally adding department) would let a submitted value
+  // survive whenever the context value is absent: that conditional spread
+  // adds nothing when ctx.department is null, so a `department` key already
+  // present in formAnswers would remain in the result untouched. That is the
+  // exact bug being fixed here.
+  const { department: _department, track: _track, epicRequirement: _epicRequirement, ...rest } = formAnswers;
   return {
-    ...formAnswers,
+    ...rest,
     ...(ctx.department ? { department: ctx.department } : {}),
     track: ctx.track,
     epicRequirement: ctx.epicRequirement,
@@ -37,7 +47,11 @@ export function buildContractAnswers(
 }
 
 /** Filter a block list to those whose visibleWhen passes. Blocks without a
- *  condition are always kept, matching isFieldVisible's contract. */
+ *  condition are always kept, matching isFieldVisible's contract. A
+ *  malformed or unparseable condition also fails open (the block is shown),
+ *  inherited from isFieldVisible: on a legal document, wrongly hiding a
+ *  required agreement is worse than wrongly showing one, so the evaluator
+ *  errs toward showing it. */
 export function visibleContractBlocks(
   blocks: ContractBlock[],
   answers: Record<string, string | string[]>,

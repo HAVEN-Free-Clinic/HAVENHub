@@ -13,10 +13,11 @@ degrades in two ways:
    outside the step-conditional content, so a stale submit failure is displayed on every
    step until the next successful submit.
 
-A third, smaller problem surfaced while scoping: the inline message rendered next to the
-offending field is a terse internal tag (`"duplicate choice"`, `"unknown choice"`,
-`"max 3"`) rather than a sentence. The readable text exists only in the banner, which is
-precisely the element that is about to be scoped away from most steps.
+A third problem was considered and dropped: the inline message next to the offending field
+was once a terse internal tag (`"duplicate choice"`, `"max 3"`). Commit `6aef367e`
+("fix(recruitment): show readable field errors instead of internal codes", PR #345) already
+replaced these with a `fieldProblem(fieldKey, message)` helper that puts the readable
+sentence in both the banner and the field slot. No work remains there.
 
 ## Current behavior
 
@@ -71,51 +72,38 @@ In `handleNext`, once the current section passes local required-field validation
 `result` and `errorStepIndex` if the applicant is leaving the error step. Without this a
 later visit back to an already-corrected step would resurrect a stale banner.
 
-### 3. Readable inline field messages
-
-`src/modules/recruitment/services/submissions.ts` throws single-field
-`SubmissionValidationError`s that put a terse tag in the field slot:
-
-```js
-throw new SubmissionValidationError(
-  "Each subcommittee can be ranked only once.",
-  { [fieldKey]: "duplicate choice" },
-);
-```
-
-Pass the same sentence to both slots. Eight throw sites: the four in `resolveRanking`
-(required, duplicate, over-cap, unknown), plus missing file, unexpected upload, invalid
-signature, and `renewalDepartment`.
-
-The zod path already does this correctly, putting `issue.message` in the field slot and a
-generic "Please fix the highlighted fields." in the banner. It is untouched.
-
-Net effect: the field carries a full sentence at the point of correction, and the banner
-reinforces it on that step only.
+The `catch` branch around the submit call also clears `errorStepIndex`. A thrown server
+action (signature storage, DB failure) blames no field, so a stale index left over from an
+earlier field-error submit would pin that banner to a step the applicant is not on.
 
 ## Files
 
 | File | Change |
 | --- | --- |
-| `src/app/apply/[slug]/apply-wizard.tsx` | `editStep` on bounce; `errorStepIndex` state, render guard, clear-on-leave |
-| `src/modules/recruitment/services/submissions.ts` | Readable sentence into the field slot at eight throw sites |
-| `src/modules/recruitment/services/submissions.test.ts` | Assert the field-slot message for the ranking cases |
+| `src/app/apply/[slug]/apply-wizard.tsx` | `editStep` on bounce; `errorStepIndex` state, render guard, clear-on-leave, clear-on-throw |
 
 ## Testing
 
-**Change 3 is unit-testable.** Add assertions to `submissions.test.ts` covering the four
-`resolveRanking` outcomes. Existing tests there assert key presence
-(`toHaveProperty("1st_choice_department")`) rather than tag values, so they do not break.
-The one test asserting a specific message (`fieldErrors.availability`, line 911) comes
-through the zod path and is unaffected.
-
-**Changes 1 and 2 have no local test coverage.** This repo has no jsdom or React Testing
-Library configuration, so the wizard has no component tests. The only automated coverage is
+**Neither change has automated coverage.** This repo has no jsdom or React Testing Library
+configuration, so the wizard has no component tests. The only automated coverage is
 `e2e/apply-portal.spec.ts`, which requires Neon and cannot run locally, and is not a
-required check. These two changes will be verified by driving the running app: submit an
-application with a deliberate duplicate subcommittee ranking, confirm the bounce lands on
-the owning step, that Continue returns directly to Review, and that the banner does not
-appear on any other step.
+required check.
+
+Both were instead verified by driving the running app (dev server on a throwaway local
+Postgres, seeded with a 7-step OPEN cycle whose step 3 carries a `SUBCOMMITTEE_RANK`
+field). Observed:
+
+- Submitting with the same subcommittee ranked 1st and 2nd bounces to step 3 of 7,
+  "Department preference", with the banner and the inline "Each subcommittee can be ranked
+  only once." both present.
+- Walking every step with the error outstanding shows the banner on step 3 and on no other
+  step. Before the change it rendered on all seven.
+- Correcting the 2nd choice and pressing Continue once goes straight from step 3 to step 7,
+  the review. Previously this took four presses.
+- Resubmitting the corrected application reaches "Application received", so the bounce path
+  does not leave the form in a state that blocks a valid submit.
+
+Typecheck (`npx tsc --noEmit`) and the full repo lint (`npm run lint`) both pass.
 
 ## Out of scope
 

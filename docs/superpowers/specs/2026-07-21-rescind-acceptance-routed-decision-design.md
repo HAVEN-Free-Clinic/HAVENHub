@@ -46,8 +46,15 @@ director in scope for the routed department sees the warning plus "Ask an SRR to
 it first." No service change is required, because `revokeAcceptance` line 212 already
 enforces this server-side.
 
-**Copy: copied verbatim from the interview page.** The two rescind paths read identically
-and cannot drift in wording.
+**Copy: one shared component, not a second inline copy.** Amended after the plan's
+pre-flight review. The warning and its control move into
+`RescindAcceptanceNotice` at `src/modules/recruitment/components/rescind-acceptance-notice.tsx`,
+consumed by both the interview detail page and the applicant page. The original design
+called for copying the block verbatim, which achieved identical wording only by
+convention; a single component makes drift structurally impossible. The component keeps
+the interview page's existing wording unchanged, so that page's rendered output stays
+byte-identical and its Playwright coverage is unaffected. This widens the change to touch
+the interview page, which the first draft of this spec did not anticipate.
 
 **Onboarding contracts stay out of scope.** If a contract exists, `revokeAcceptance`
 throws and the action surfaces "Remove the onboarding contract before revoking the

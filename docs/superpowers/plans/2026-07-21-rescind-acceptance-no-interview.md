@@ -16,7 +16,8 @@
 
 - **No service-layer changes.** `revokeAcceptance` at `src/modules/recruitment/services/review.ts:195` already enforces every rule this feature needs. Do not relax line 210, 212, or 206.
 - **Permission is SRR only.** The rescind button renders only under `scope.all`. A department director sees "Ask an SRR to rescind it first."
-- **Copy is verbatim from the interview page** (`src/app/(app)/recruitment/interviews/[interviewId]/page.tsx:195-207`). Do not reword. The two rescind paths must read identically.
+- **One shared component owns the warning and the control.** `RescindAcceptanceNotice` at `src/modules/recruitment/components/rescind-acceptance-notice.tsx` is consumed by both the interview detail page and the applicant page. Do not inline a second copy on either page. Its text is the interview page's existing wording carried over unchanged, so that page's rendered output stays byte-identical and the two rescind paths cannot drift.
+- **Domain components live in `src/modules/<module>/components/`.** `src/platform/ui/` holds primitives only and is barred by ESLint from importing module code, so a recruitment-specific component must not go there.
 - **No em-dashes in any user-facing copy, comment, or commit message.** Use commas, colons, or semicolons.
 - **Do not add an applicant-facing email.** Rescinding is silent by design; notifying the applicant stays a manual conversation.
 - **Do not build onboarding-contract teardown.** If a contract exists, `revokeAcceptance` throws and the action surfaces its message. That dead end is deliberate and out of scope.
@@ -32,8 +33,10 @@
 | `src/app/(app)/recruitment/cycles/[id]/applicants/actions.ts` | Server actions for the applicant detail page | Add `rescindAcceptanceAction`; widen `bounce()`; reroute `routeAction` and `committeeScoreAction` error params |
 | `src/app/(app)/recruitment/cycles/[id]/applicants/[applicationId]/page.tsx` | Applicant detail page (RSC) | Render the rescind control; move error alerts next to their forms |
 | `src/app/(app)/recruitment/cycles/[id]/applicants/actions.test.ts` | Action-layer tests | Add a scoped director to `seed()`; add rescind tests; update the routeError assertion; add a scoreError test |
+| `src/modules/recruitment/components/rescind-acceptance-notice.tsx` | The emailed-acceptance warning plus the SRR-only rescind control | Create |
+| `src/app/(app)/recruitment/interviews/[interviewId]/page.tsx` | Interview detail page (RSC) | Replace its inline warning/control block with the shared component |
 
-No new files. No test file for `page.tsx`: this codebase does not unit-test RSC page components, and the page changes are verified by typecheck, lint, and the action tests behind them.
+No test file for the page components: this codebase does not unit-test RSC pages, and these changes are verified by typecheck, lint, and the action tests behind them.
 
 ---
 
@@ -194,16 +197,62 @@ git commit -m "fix(recruitment): add a rescind action for acceptances decided wi
 
 ---
 
-### Task 2: Rescind control on the applicant page
+### Task 2: Shared rescind notice, used by both pages
 
 **Files:**
-- Modify: `src/app/(app)/recruitment/cycles/[id]/applicants/[applicationId]/page.tsx` (imports at lines 8 and 19-21; warning block at lines 282-286; saved alerts at lines 259-260)
+- Create: `src/modules/recruitment/components/rescind-acceptance-notice.tsx`
+- Modify: `src/app/(app)/recruitment/cycles/[id]/applicants/[applicationId]/page.tsx` (actions import line 8; UI imports near line 19; saved alerts lines 259-260; warning block lines 282-286)
+- Modify: `src/app/(app)/recruitment/interviews/[interviewId]/page.tsx` (imports near line 21; inline block lines 195-207)
 
 **Interfaces:**
-- Consumes: `rescindAcceptanceAction(cycleId, applicationId, acceptanceId)` from Task 1; `emailedAcceptance` already computed at page lines 62-64, which is a full Prisma `Acceptance` row and therefore carries `.id`.
-- Produces: no exports. This is the last piece that makes Task 1 reachable.
+- Consumes: `rescindAcceptanceAction(cycleId, applicationId, acceptanceId)` from Task 1, and the pre-existing `rescindAcceptanceAction(interviewId, acceptanceId)` in `src/app/(app)/recruitment/interviews/actions.ts:75`. The two actions have different signatures; each page binds its own before passing it in, so the component never knows which one it holds.
+- Produces: `RescindAcceptanceNotice({ departmentCode: string; canRescind: boolean; action: () => Promise<void> })`.
+- `emailedAcceptance` is already computed on both pages (applicant page lines 62-64, interview page line 72) and is a full Prisma `Acceptance` row, so `.id` is available on each.
 
-- [ ] **Step 1: Add the imports**
+- [ ] **Step 1: Create the shared component**
+
+Create `src/modules/recruitment/components/rescind-acceptance-notice.tsx`. This is a Server Component (no `"use client"`): it renders the client-side `ConfirmButton` as a child, which is allowed, and it must stay a Server Component so pages can pass it a bound server action.
+
+```tsx
+import { Alert } from "@/platform/ui/alert";
+import { ConfirmButton } from "@/platform/ui/confirm-button";
+
+/** Warns that a department's acceptance has already been emailed, and offers the
+ *  SRR-only control to rescind it. Shared by the interview detail page and the
+ *  routed applicant page: a routed decision taken without an interview has no
+ *  interview screen, so both surfaces need this warning and control. Holding it in
+ *  one component is what keeps the two rescind paths from drifting in wording.
+ *
+ *  `action` is a server action the caller has already bound, because the two pages
+ *  reach different actions with different signatures. */
+export function RescindAcceptanceNotice({
+  departmentCode,
+  canRescind,
+  action,
+}: {
+  departmentCode: string;
+  canRescind: boolean;
+  action: () => Promise<void>;
+}) {
+  return (
+    <div className="mt-3 space-y-3">
+      <Alert tone="warning">
+        This applicant has already been emailed their acceptance for {departmentCode}. Changing the decision to Reject or Waitlist is blocked until the acceptance is rescinded.{" "}
+        {canRescind ? "Rescind it below, then record the new decision." : "Ask an SRR to rescind it first."}
+      </Alert>
+      {canRescind && (
+        <form action={action}>
+          <ConfirmButton label="Rescind acceptance" size="sm" />
+        </form>
+      )}
+    </div>
+  );
+}
+```
+
+The text is the interview page's current wording carried over verbatim, so that page's rendered output does not change. If TypeScript rejects the `action` prop on `<form>`, widen the prop type to `(formData: FormData) => void | Promise<void>` rather than casting.
+
+- [ ] **Step 2: Use it on the applicant page**
 
 Extend the actions import on line 8:
 
@@ -211,56 +260,76 @@ Extend the actions import on line 8:
 import { scheduleInterviewAction, committeeScoreAction, routeAction, decideRoutedAction, reopenDecisionAction, rescindAcceptanceAction } from "../actions";
 ```
 
-Add the `ConfirmButton` import beside the other `@/platform/ui` imports (after line 19):
+Add the component import beside the other imports (after line 21):
 
 ```tsx
-import { ConfirmButton } from "@/platform/ui/confirm-button";
+import { RescindAcceptanceNotice } from "@/modules/recruitment/components/rescind-acceptance-notice";
 ```
 
-- [ ] **Step 2: Add the rescind success alert**
-
-Directly below the `saved === "reopened"` alert (line 260), add:
+Directly below the `saved === "reopened"` alert (line 260), add the success alert:
 
 ```tsx
 {saved === "rescind" && <Alert tone="success" className="mt-3">Acceptance rescinded.</Alert>}
 ```
 
-- [ ] **Step 3: Replace the dead-end warning with the warning plus control**
-
-Replace lines 282-286 (the `{emailedAcceptance && (...)}` block) with a copy of the interview page's block, adapted only in its bound arguments:
+Replace lines 282-286 (the `{emailedAcceptance && (...)}` warning block) with:
 
 ```tsx
 {emailedAcceptance && (
-  <div className="mt-3 space-y-3">
-    <Alert tone="warning">
-      This applicant has already been emailed their acceptance for {app.routedDepartmentCode}. Changing to Reject or Waitlist is blocked until the acceptance is rescinded.{" "}
-      {scope.all ? "Rescind it below, then record the new decision." : "Ask an SRR to rescind it first."}
-    </Alert>
-    {scope.all && (
-      <form action={rescindAcceptanceAction.bind(null, id, applicationId, emailedAcceptance.id)}>
-        <ConfirmButton label="Rescind acceptance" size="sm" />
-      </form>
-    )}
-  </div>
+  <RescindAcceptanceNotice
+    departmentCode={app.routedDepartmentCode}
+    canRescind={scope.all}
+    action={rescindAcceptanceAction.bind(null, id, applicationId, emailedAcceptance.id)}
+  />
 )}
 ```
 
-The copy is intentionally identical to `interviews/[interviewId]/page.tsx:197-205` so the two rescind paths cannot drift in wording.
+`app.routedDepartmentCode` is `string | null` on the model, but this JSX sits inside the `canDecideRouted` branch, which is only reachable when it is non-null. If TypeScript cannot narrow it there, use `app.routedDepartmentCode!` with a brief comment naming the guarding branch rather than restructuring the page.
 
-- [ ] **Step 4: Verify it compiles and lints**
+- [ ] **Step 3: Use it on the interview page**
+
+Add the import beside the other imports (after line 21):
+
+```tsx
+import { RescindAcceptanceNotice } from "@/modules/recruitment/components/rescind-acceptance-notice";
+```
+
+Replace lines 195-207 (the `{emailedAcceptance && (...)}` block, from the opening brace through its closing `)}`) with:
+
+```tsx
+          {emailedAcceptance && (
+            <RescindAcceptanceNotice
+              departmentCode={iv.departmentCode}
+              canRescind={scope.all}
+              action={rescindAcceptanceAction.bind(null, interviewId, emailedAcceptance.id)}
+            />
+          )}
+```
+
+Note the bound action here takes two arguments, not three: this page uses the pre-existing action from `interviews/actions.ts`, which is unchanged. If `Alert` or `ConfirmButton` become unused on this page after the replacement, remove those imports so lint stays clean; check the rest of the file first, since both are used elsewhere in it.
+
+- [ ] **Step 4: Verify both pages compile and lint**
 
 ```bash
 npm run typecheck
 npm run lint
 ```
 
-Expected: both exit 0. If `ConfirmButton` reports a missing prop, check its signature at `src/platform/ui/confirm-button.tsx` and match the interview page's usage exactly rather than inventing props.
+Expected: both exit 0. Lint matters especially here: the component's placement under `src/modules/recruitment/` is what satisfies the boundary rule, and an unused `Alert` or `ConfirmButton` import left on the interview page will fail it.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Confirm the interview page's rendered text is unchanged**
 
 ```bash
-git add "src/app/(app)/recruitment/cycles/[id]/applicants/[applicationId]/page.tsx"
-git commit -m "fix(recruitment): let an SRR rescind an acceptance from the applicant page"
+git diff -- "src/app/(app)/recruitment/interviews/[interviewId]/page.tsx"
+```
+
+Expected: the removed inline block and the added component call carry identical user-facing strings. This page is covered by Playwright tests that cannot run locally, so a wording change here would only surface in CI. If any visible string differs, fix the component to match the interview page's original wording.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/modules/recruitment/components/rescind-acceptance-notice.tsx "src/app/(app)/recruitment/cycles/[id]/applicants/[applicationId]/page.tsx" "src/app/(app)/recruitment/interviews/[interviewId]/page.tsx"
+git commit -m "fix(recruitment): share one rescind notice between the interview and applicant pages"
 ```
 
 ---

@@ -192,7 +192,11 @@ export default async function HubPage() {
     reviewScope(person.personId),
     getDisplayTimeZone(),
   ]);
-  const { term, shifts } = schedule;
+  // The dashboard is a live-term view only: next-term shifts/requests are not
+  // shown here (they belong to the term-aware schedule page). See mySchedule.
+  const liveEntry = schedule.terms.find((t) => t.isLive) ?? null;
+  const term = liveEntry?.term ?? null;
+  const shifts = liveEntry?.shifts ?? [];
 
   // --- Module visibility ---
   // A department director reviews recruitment applications by scope (not a
@@ -303,7 +307,7 @@ export default async function HubPage() {
     hasMyInfoAccess: accessible.has("my-info"),
     upcomingCount: upcoming.length,
     nextShiftDaysAway: next ? daysAway : null,
-    pendingSwapCount: schedule.pendingRequests.size,
+    pendingSwapCount: liveEntry?.pendingRequests.size ?? 0,
     pendingApprovals,
     compliance: status,
     trainingIncomplete,

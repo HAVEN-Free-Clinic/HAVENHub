@@ -19,6 +19,7 @@ import { getPersonTerms } from "@/platform/terms/person-terms";
 import { resolveAvailability } from "../engine/availability";
 import { isoDateKey, toScheduleEntries } from "../engine/map";
 import { computeConflicts } from "../engine/conflicts";
+import { publishedDepartmentIds } from "./publication";
 
 /** A pending ShiftRequest with the swap target's name included (null for drops). */
 export type PendingRequest = ShiftRequest & { target: { name: string } | null };
@@ -60,36 +61,44 @@ export type FullScheduleDepartment = {
   conflicts: Map<string, string[]>;
 };
 
-/**
- * Returns the current person's schedule context for the active term.
- *
- * When no active term exists returns the all-empty shape. Availability is
- * resolved from the person's ACTIVE memberships ordered by department code
- * (first wins; in practice a volunteer is in at most one department per term).
- * Shifts are returned even when no membership is found.
- *
- * pendingRequests is keyed by "${isoDateKey(clinicDate)}|${departmentId}" for
- * each of the person's PENDING requests in the active term. Cancelled and
- * approved requests are excluded. The page uses this map to decide whether to
- * show the "request a change" disclosure or the pending-request line.
- */
-export async function mySchedule(personId: string): Promise<{
-  term: Term | null;
+/** One term's worth of a member's schedule context (see mySchedule). */
+export type MyTermSchedule = {
+  term: Term;
+  isLive: boolean;
   shifts: MyShift[];
   availability: ResolvedAvailability | null;
   legacyNote: string | null;
   clinicDates: Date[];
   pendingRequests: Map<string, PendingRequest>;
-}> {
-  const term = await getActiveTerm();
-  if (!term) {
-    return { term: null, shifts: [], availability: null, legacyNote: null, clinicDates: [], pendingRequests: new Map() };
-  }
+};
+
+/**
+ * Builds one term's schedule context for a person.
+ *
+ * Availability is resolved from the person's ACTIVE memberships in the term
+ * ordered by department code (first wins; in practice a volunteer is in at
+ * most one department per term). Shifts are returned even when no membership
+ * is found.
+ *
+ * pendingRequests is keyed by "${isoDateKey(clinicDate)}|${departmentId}" for
+ * each of the person's PENDING requests in the term. Cancelled and approved
+ * requests are excluded.
+ *
+ * For a non-live term, shifts are gated: only assignments in departments that
+ * have published their next-term schedule are included. The live term is
+ * never gated (members always see their current, running-term shifts).
+ */
+async function myScheduleForTerm(personId: string, term: Term, isLive: boolean): Promise<MyTermSchedule> {
+  const publishedDepts = isLive ? null : await publishedDepartmentIds(term.id);
 
   // Load shifts and pending requests in parallel.
   const [rawShifts, rawPendingRequests] = await Promise.all([
     prisma.shiftAssignment.findMany({
-      where: { termId: term.id, personId },
+      where: {
+        termId: term.id,
+        personId,
+        ...(publishedDepts ? { departmentId: { in: [...publishedDepts] } } : {}),
+      },
       include: { department: true },
       orderBy: { clinicDate: "asc" },
     }),
@@ -143,7 +152,28 @@ export async function mySchedule(personId: string): Promise<{
     }
   }
 
-  return { term, shifts, availability, legacyNote, clinicDates: term.clinicDates, pendingRequests };
+  return { term, isLive, shifts, availability, legacyNote, clinicDates: term.clinicDates, pendingRequests };
+}
+
+/**
+ * Returns the current person's schedule context spanning every term they
+ * belong to (their live term plus any next term they are already active in;
+ * see getPersonTerms). One entry per term, in getPersonTerms order (live
+ * first, then by startDate desc).
+ *
+ * The live term's entry is never gated: it is the running term, and the
+ * member's own shifts in it are always visible to them. A non-live (next)
+ * term's entry only includes shifts in departments that have published their
+ * schedule for that term; this is the no-leak safety invariant, since a
+ * next-term roster can be assembled long before shifts are meant to be seen.
+ */
+export async function mySchedule(personId: string): Promise<{ terms: MyTermSchedule[] }> {
+  const [personTerms, live] = await Promise.all([getPersonTerms(personId), getActiveTerm()]);
+  const terms: MyTermSchedule[] = [];
+  for (const term of personTerms) {
+    terms.push(await myScheduleForTerm(personId, term, term.id === live?.id));
+  }
+  return { terms };
 }
 
 /**

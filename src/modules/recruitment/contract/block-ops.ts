@@ -143,7 +143,8 @@ export function applyBlockOp(layout: ContractLayout, op: BlockOp): ContractLayou
  * must appear exactly once, as an enabled `system_field` block. Optional
  * system fields may be missing or disabled. Also rejects duplicate
  * `system_field` blocks for the same key (parseContractLayout does not check
- * this -- it only guards custom-question/agreement identifiers).
+ * this -- it only guards custom-question keys and agreement/section ids,
+ * which share one namespace).
  */
 export function assertTwoTier(layout: ContractLayout): void {
   const problems: string[] = [];

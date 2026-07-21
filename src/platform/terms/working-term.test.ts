@@ -22,7 +22,15 @@ it("returns the next term when selected", async () => {
   expect((await getWorkingTerm(next.id))?.id).toBe(next.id);
 });
 
-it("falls back to the live term for an invalid or archived selection", async () => {
+it("falls back to the live term for an unknown selection", async () => {
   const { live } = await seed();
   expect((await getWorkingTerm("does-not-exist"))?.id).toBe(live.id);
+});
+
+it("resolves an archived term by id (for read-only viewing)", async () => {
+  const { live } = await seed();
+  const archived = await prisma.term.create({ data: { code: "SP26", name: "Spring", startDate: new Date("2026-01-01"), endDate: new Date("2026-05-01"), status: "ARCHIVED" } });
+  expect((await getWorkingTerm(archived.id))?.id).toBe(archived.id);
+  // an unknown id still falls back to live
+  expect((await getWorkingTerm("nope"))?.id).toBe(live.id);
 });

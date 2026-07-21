@@ -49,6 +49,11 @@ import {
 } from "@/modules/schedule/services/requests";
 import { captureEvent } from "@/platform/posthog/capture";
 import { activeTermGroup } from "@/platform/posthog/groups";
+import { getWorkingTerm } from "@/platform/terms/working-term";
+import { getActiveTerm } from "@/platform/terms/active-term";
+import { buildTermOptions } from "@/platform/terms/term-options";
+import { TermSwitcher } from "@/modules/schedule/components/term-switcher";
+import { prisma } from "@/platform/db";
 import { BuilderCell } from "@/modules/schedule/components/builder-cell";
 import { BuilderGrid } from "@/modules/schedule/components/builder-grid";
 import { CapacityPanel } from "@/modules/schedule/components/capacity-panel";
@@ -93,6 +98,7 @@ type PageProps = {
     view?: string;
     mode?: string;
     gmode?: string;
+    term?: string;
     error?: string;
     message?: string;
   }>;
@@ -108,6 +114,7 @@ type HrefParams = {
   view?: string | null;
   mode?: string | null;
   gmode?: string | null;
+  term?: string | null;
   error?: string;
   message?: string;
 };
@@ -119,6 +126,7 @@ function buildHref(base: string, p: HrefParams): string {
   if (p.view) params.set("view", p.view);
   if (p.mode) params.set("mode", p.mode);
   if (p.gmode) params.set("gmode", p.gmode);
+  if (p.term) params.set("term", p.term);
   if (p.error) params.set("error", p.error);
   if (p.message) params.set("message", p.message);
   const qs = params.toString();
@@ -151,9 +159,31 @@ export default async function BuilderPage({ searchParams }: PageProps) {
       : errorCode
     : null;
 
+  const [workingTermOrNull, liveTerm] = await Promise.all([getWorkingTerm(sp.term), getActiveTerm()]);
+  if (!workingTermOrNull) {
+    // No active term (and no valid ?term): nothing to build.
+    return (
+      <div>
+        <div className="rounded-2xl bg-brand px-8 py-6 text-white mb-8">
+          <p className="text-xs font-semibold uppercase tracking-widest text-white/60 mb-1">Schedule Builder</p>
+          <h1 className="text-2xl font-bold tracking-tight">No active term</h1>
+          <p className="text-sm text-white/70 mt-1">There is no term to build a schedule for yet.</p>
+        </div>
+      </div>
+    );
+  }
+  // Reassigned (rather than used narrowed) so the non-null type carries into the
+  // "use server" action closures below -- TS does not retain control-flow
+  // narrowing of an outer const across a nested function boundary (mirrors the
+  // `const dept = selectedDepartment!;` pattern a few lines down).
+  const workingTerm = workingTermOrNull;
+  const editable = workingTerm.status !== "ARCHIVED";
+  const termParam = workingTerm.id === liveTerm?.id ? undefined : workingTerm.id; // omit ?term for the live term
+
   const data = await builderView(session.personId, {
     departmentId: deptParam,
     dateKey: dateParam,
+    termId: workingTerm.id,
   });
 
   if (data.departments.length === 0) {
@@ -171,7 +201,15 @@ export default async function BuilderPage({ searchParams }: PageProps) {
   const { selectedDepartment, clinicDates, selectedDateKey, currentClinicDateKey, members, assignmentsByDate, conflicts } = data;
   const dept = selectedDepartment!;
 
-  const canManageRequests = await canManageRequestsForDept(session.personId, dept.id);
+  const switcherTerms = await prisma.term.findMany({
+    orderBy: { startDate: "desc" },
+    take: 8, // the 8 most recent terms: live + next + a bounded set of recent archived
+    select: { id: true, code: true, status: true },
+  });
+  const termOptions = buildTermOptions(switcherTerms, { includeArchived: true });
+
+  const isLiveTerm = workingTerm.id === liveTerm?.id;
+  const canManageRequests = isLiveTerm && (await canManageRequestsForDept(session.personId, dept.id));
   const requestRows = canManageRequests
     ? await listDepartmentRequests(session.personId, dept.id)
     : [];
@@ -183,6 +221,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
       view,
       mode,
       gmode,
+      term: termParam,
       ...overrides,
     });
   }
@@ -252,11 +291,11 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     const dateKey = (formData.get("dateKey") as string) ?? "";
     const personId = (formData.get("personId") as string) ?? "";
     const role = (formData.get("role") as "VOLUNTEER" | "SHADOW" | "DIRECTOR") ?? "VOLUNTEER";
-    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode });
+    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, term: termParam });
     await runAction({
-      work: () => setAssignment(actor.personId, { departmentId, dateKey, personId, role }),
+      work: () => setAssignment(actor.personId, { termId: workingTerm.id, departmentId, dateKey, personId, role }),
       domainErrors: [BuilderValidationError, BuilderForbiddenError],
-      errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message }),
+      errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, term: termParam, error: "validation", message }),
       revalidate: "/schedule/builder",
       successRedirect: base,
     });
@@ -269,11 +308,11 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     const dateKey = (formData.get("dateKey") as string) ?? "";
     const personId = (formData.get("personId") as string) ?? "";
     const reason = ((formData.get("reason") as string) ?? "").trim() || undefined;
-    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode });
+    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, term: termParam });
     await runAction({
-      work: () => setAssignment(actor.personId, { departmentId, dateKey, personId, role: null, reason }),
+      work: () => setAssignment(actor.personId, { termId: workingTerm.id, departmentId, dateKey, personId, role: null, reason }),
       domainErrors: [BuilderValidationError, BuilderForbiddenError],
-      errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message }),
+      errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, term: termParam, error: "validation", message }),
       revalidate: "/schedule/builder",
       successRedirect: base,
     });
@@ -286,11 +325,11 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     const dateKey = (formData.get("dateKey") as string) ?? "";
     const personId = (formData.get("personId") as string) ?? "";
     const tag = (formData.get("tag") as "triage" | "walkin" | "cc" | "remote") ?? "triage";
-    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode });
+    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, term: termParam });
     await runAction({
-      work: () => toggleTag(actor.personId, { departmentId, dateKey, personId, tag }),
+      work: () => toggleTag(actor.personId, { termId: workingTerm.id, departmentId, dateKey, personId, tag }),
       domainErrors: [BuilderValidationError, BuilderForbiddenError],
-      errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message }),
+      errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, term: termParam, error: "validation", message }),
       revalidate: "/schedule/builder",
       successRedirect: base,
     });
@@ -301,11 +340,11 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     const actor = await requireModuleAccess("schedule");
     const membershipId = (formData.get("membershipId") as string) ?? "";
     const rawDates = formData.getAll("dates") as string[];
-    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode });
+    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, term: termParam });
     await runAction({
       work: () => setAvailabilityOverride(actor.personId, { membershipId, dateKeys: rawDates }),
       domainErrors: [BuilderValidationError, BuilderForbiddenError],
-      errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message }),
+      errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, term: termParam, error: "validation", message }),
       revalidate: "/schedule/builder",
       successRedirect: base,
     });
@@ -315,11 +354,11 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     "use server";
     const actor = await requireModuleAccess("schedule");
     const membershipId = (formData.get("membershipId") as string) ?? "";
-    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode });
+    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, term: termParam });
     await runAction({
       work: () => setAvailabilityOverride(actor.personId, { membershipId, dateKeys: null }),
       domainErrors: [BuilderValidationError, BuilderForbiddenError],
-      errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message }),
+      errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, term: termParam, error: "validation", message }),
       revalidate: "/schedule/builder",
       successRedirect: base,
     });
@@ -329,11 +368,11 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     "use server";
     const actor = await requireModuleAccess("schedule");
     const membershipId = (formData.get("membershipId") as string) ?? "";
-    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode });
+    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, term: termParam });
     await runAction({
       work: () => acknowledgeAvailability(actor.personId, membershipId),
       domainErrors: [BuilderValidationError, BuilderForbiddenError],
-      errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message }),
+      errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, term: termParam, error: "validation", message }),
       revalidate: "/schedule/builder",
       successRedirect: base,
     });
@@ -345,16 +384,17 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     const departmentId = (formData.get("departmentId") as string) ?? "";
     const dateKey = (formData.get("dateKey") as string) ?? "";
     const raw = (formData.get("patientsBooked") as string) ?? "";
-    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode });
+    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, term: termParam });
     await runAction({
       work: () =>
         setPatientsBooked(actor.personId, {
+          termId: workingTerm.id,
           departmentId,
           dateKey,
           patientsBooked: parseBookedCount(raw, "Patients booked"),
         }),
       domainErrors: [BuilderValidationError, BuilderForbiddenError],
-      errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message }),
+      errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, term: termParam, error: "validation", message }),
       revalidate: "/schedule/builder",
       successRedirect: base,
     });
@@ -369,17 +409,18 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     const rawProceduresBooked = (formData.get("proceduresBooked") as string) ?? "";
     const attendingId = rawAttendingId === "" ? null : rawAttendingId;
     const directorName = rawDirectorName.trim() === "" ? null : rawDirectorName.trim();
-    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode });
+    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, term: termParam });
     await runAction({
       work: () =>
         upsertRhdClinic(actor.personId, {
+          termId: workingTerm.id,
           dateKey,
           attendingId,
           directorName,
           proceduresBooked: parseBookedCount(rawProceduresBooked, "Procedures booked"),
         }),
       domainErrors: [BuilderValidationError, BuilderForbiddenError],
-      errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message }),
+      errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, term: termParam, error: "validation", message }),
       revalidate: "/schedule/builder",
       successRedirect: base,
     });
@@ -390,11 +431,11 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     const actor = await requireModuleAccess("schedule");
     const scheduleName = ((formData.get("scheduleName") as string) ?? "").trim();
     const fullName = ((formData.get("fullName") as string) ?? "").trim();
-    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode });
+    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, term: termParam });
     await runAction({
       work: () => createAttending(actor.personId, { scheduleName, fullName: fullName || scheduleName }),
       domainErrors: [AttendingValidationError, AttendingForbiddenError],
-      errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message }),
+      errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, term: termParam, error: "validation", message }),
       revalidate: "/schedule/builder",
       successRedirect: base,
     });
@@ -404,7 +445,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     "use server";
     const actor = await requireModuleAccess("schedule");
     const requestId = (formData.get("requestId") as string) ?? "";
-    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode });
+    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, term: termParam });
     await runAction({
       work: async () => {
         await approveRequest(actor.personId, requestId);
@@ -416,7 +457,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
         });
       },
       domainErrors: [RequestValidationError, RequestForbiddenError, RequestNotFoundError],
-      errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message }),
+      errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, term: termParam, error: "validation", message }),
       revalidate: "/schedule/builder",
       successRedirect: base,
     });
@@ -427,7 +468,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     const actor = await requireModuleAccess("schedule");
     const requestId = (formData.get("requestId") as string) ?? "";
     const note = ((formData.get("denyNote") as string) ?? "").trim() || undefined;
-    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode });
+    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, term: termParam });
     await runAction({
       work: async () => {
         await denyRequest(actor.personId, requestId, note);
@@ -439,10 +480,23 @@ export default async function BuilderPage({ searchParams }: PageProps) {
         });
       },
       domainErrors: [RequestValidationError, RequestForbiddenError, RequestNotFoundError],
-      errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, error: "validation", message }),
+      errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, term: termParam, error: "validation", message }),
       revalidate: "/schedule/builder",
       successRedirect: base,
     });
+  }
+
+  /**
+   * Grid-view fallback for an archived (read-only) term. BuilderGrid renders
+   * every cell as a clickable form regardless of term status, so the archived
+   * banner alone would not stop a click from posting -- this swaps in a no-op
+   * in place of assignAction/unassignAction, keeping the grid itself visible
+   * (per spec) while making every cell inert. setAssignment would reject the
+   * write anyway (loadEditableTerm), so this is a UX nicety, not the
+   * enforcement boundary.
+   */
+  async function readOnlyGridAction(_formData: FormData) {
+    "use server";
   }
 
   const selectedDisplay = selectedDateKey
@@ -480,43 +534,45 @@ export default async function BuilderPage({ searchParams }: PageProps) {
           {flagBadges(member.person)}
           {!available && <Badge tone="warning">not free</Badge>}
         </div>
-        <div className="flex flex-wrap gap-2">
-          {isDirectorKind && (
+        {editable && (
+          <div className="flex flex-wrap gap-2">
+            {isDirectorKind && (
+              <BuilderCell
+                action={assignAction}
+                hidden={{
+                  departmentId: dept.id,
+                  dateKey: selectedDateKey ?? "",
+                  personId: member.person.id,
+                  role: "DIRECTOR",
+                }}
+                label="Assign as director"
+                variant="assign"
+              />
+            )}
             <BuilderCell
               action={assignAction}
               hidden={{
                 departmentId: dept.id,
                 dateKey: selectedDateKey ?? "",
                 personId: member.person.id,
-                role: "DIRECTOR",
+                role: "VOLUNTEER",
               }}
-              label="Assign as director"
+              label="Assign as volunteer"
               variant="assign"
             />
-          )}
-          <BuilderCell
-            action={assignAction}
-            hidden={{
-              departmentId: dept.id,
-              dateKey: selectedDateKey ?? "",
-              personId: member.person.id,
-              role: "VOLUNTEER",
-            }}
-            label="Assign as volunteer"
-            variant="assign"
-          />
-          <BuilderCell
-            action={assignAction}
-            hidden={{
-              departmentId: dept.id,
-              dateKey: selectedDateKey ?? "",
-              personId: member.person.id,
-              role: "SHADOW",
-            }}
-            label="Assign as shadow"
-            variant="assign"
-          />
-        </div>
+            <BuilderCell
+              action={assignAction}
+              hidden={{
+                departmentId: dept.id,
+                dateKey: selectedDateKey ?? "",
+                personId: member.person.id,
+                role: "SHADOW",
+              }}
+              label="Assign as shadow"
+              variant="assign"
+            />
+          </div>
+        )}
         <IntakeNotes intake={member.intake} />
       </Card>
     );
@@ -555,6 +611,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
               {view !== "saturday" && <input type="hidden" name="view" value={view} />}
               {mode !== "assign" && <input type="hidden" name="mode" value={mode} />}
               {gmode !== "assign" && <input type="hidden" name="gmode" value={gmode} />}
+              {termParam && <input type="hidden" name="term" value={termParam} />}
               <Select name="dept" aria-label="Department" defaultValue={dept.id} className="text-sm text-foreground bg-surface">
                 {data.departments.map((d) => (
                   <option key={d.id} value={d.id}>{d.code} - {d.name}</option>
@@ -565,6 +622,23 @@ export default async function BuilderPage({ searchParams }: PageProps) {
           </div>
         </div>
       </div>
+
+      {/* Working term switcher */}
+      <div className="mb-6">
+        <TermSwitcher
+          options={termOptions}
+          selectedId={workingTerm.id}
+          liveTermId={liveTerm?.id ?? null}
+          hrefForTerm={(termId) => buildHref("/schedule/builder", { dept: dept.id, view, mode, gmode, term: termId ?? undefined })}
+        />
+      </div>
+
+      {/* Archived read-only banner */}
+      {!editable && (
+        <div className="mb-4 rounded-xl border border-border bg-muted px-4 py-3 text-sm text-foreground-soft">
+          Viewing <span className="font-semibold text-foreground">{workingTerm.name}</span>, archived and read-only.
+        </div>
+      )}
 
       {/* Error banner */}
       {errorMessage && (
@@ -606,6 +680,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
             members={members}
             clinicDates={clinicDates}
             dept={dept}
+            editable={editable}
             saveOverrideAction={saveOverrideAction}
             clearOverrideAction={clearOverrideAction}
             acknowledgeAction={acknowledgeAction}
@@ -639,8 +714,8 @@ export default async function BuilderPage({ searchParams }: PageProps) {
               deptId={dept.id}
               deptCode={dept.code}
               mode={gmode}
-              assignAction={assignAction}
-              unassignAction={unassignAction}
+              assignAction={editable ? assignAction : readOnlyGridAction}
+              unassignAction={editable ? unassignAction : readOnlyGridAction}
             />
           </>
         ) : (
@@ -689,12 +764,14 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                             <span className="text-sm font-bold text-foreground">{name}</span>
                             {flagPerson && flagBadges(flagPerson)}
                           </span>
-                          <form action={unassignAction} className="flex items-center gap-2">
-                            <input type="hidden" name="departmentId" value={dept.id} />
-                            <input type="hidden" name="dateKey" value={selectedDateKey ?? ""} />
-                            <input type="hidden" name="personId" value={pid} />
-                            <ConfirmButton label="Remove" confirmLabel="Remove this director?" />
-                          </form>
+                          {editable && (
+                            <form action={unassignAction} className="flex items-center gap-2">
+                              <input type="hidden" name="departmentId" value={dept.id} />
+                              <input type="hidden" name="dateKey" value={selectedDateKey ?? ""} />
+                              <input type="hidden" name="personId" value={pid} />
+                              <ConfirmButton label="Remove" confirmLabel="Remove this director?" />
+                            </form>
+                          )}
                         </Card>
                       );
                     })}
@@ -727,25 +804,29 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                               </Badge>
                             )}
                           </div>
-                          <div className="mt-2 flex flex-wrap gap-1">
-                            {([...rolesForDept(dept.code), "remote"] as Array<"triage" | "walkin" | "cc" | "remote">).map((tag) => (
-                              <BuilderCell
-                                key={tag}
-                                action={toggleTagAction}
-                                hidden={{ departmentId: dept.id, dateKey: selectedDateKey ?? "", personId: pid, tag }}
-                                label={tag === "walkin" ? "Walk-in" : tag.charAt(0).toUpperCase() + tag.slice(1)}
-                                pressed={tags[tag]}
-                                variant="tag"
-                              />
-                            ))}
-                          </div>
-                          <form action={unassignAction} className="mt-2 flex flex-wrap items-center gap-2">
-                            <input type="hidden" name="departmentId" value={dept.id} />
-                            <input type="hidden" name="dateKey" value={selectedDateKey ?? ""} />
-                            <input type="hidden" name="personId" value={pid} />
-                            <Input name="reason" aria-label="Removal reason" placeholder="Reason (optional)" className="flex-1 min-w-32" />
-                            <ConfirmButton label="Remove" confirmLabel="Remove this volunteer?" />
-                          </form>
+                          {editable && (
+                            <div className="mt-2 flex flex-wrap gap-1">
+                              {([...rolesForDept(dept.code), "remote"] as Array<"triage" | "walkin" | "cc" | "remote">).map((tag) => (
+                                <BuilderCell
+                                  key={tag}
+                                  action={toggleTagAction}
+                                  hidden={{ departmentId: dept.id, dateKey: selectedDateKey ?? "", personId: pid, tag }}
+                                  label={tag === "walkin" ? "Walk-in" : tag.charAt(0).toUpperCase() + tag.slice(1)}
+                                  pressed={tags[tag]}
+                                  variant="tag"
+                                />
+                              ))}
+                            </div>
+                          )}
+                          {editable && (
+                            <form action={unassignAction} className="mt-2 flex flex-wrap items-center gap-2">
+                              <input type="hidden" name="departmentId" value={dept.id} />
+                              <input type="hidden" name="dateKey" value={selectedDateKey ?? ""} />
+                              <input type="hidden" name="personId" value={pid} />
+                              <Input name="reason" aria-label="Removal reason" placeholder="Reason (optional)" className="flex-1 min-w-32" />
+                              <ConfirmButton label="Remove" confirmLabel="Remove this volunteer?" />
+                            </form>
+                          )}
                         </Card>
                       );
                     })}
@@ -770,12 +851,14 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                             <span className="text-sm font-medium text-foreground-soft">{name}</span>
                             {flagPerson && flagBadges(flagPerson)}
                           </span>
-                          <form action={unassignAction} className="flex items-center gap-2">
-                            <input type="hidden" name="departmentId" value={dept.id} />
-                            <input type="hidden" name="dateKey" value={selectedDateKey ?? ""} />
-                            <input type="hidden" name="personId" value={pid} />
-                            <ConfirmButton label="Remove" confirmLabel="Remove this shadow?" />
-                          </form>
+                          {editable && (
+                            <form action={unassignAction} className="flex items-center gap-2">
+                              <input type="hidden" name="departmentId" value={dept.id} />
+                              <input type="hidden" name="dateKey" value={selectedDateKey ?? ""} />
+                              <input type="hidden" name="personId" value={pid} />
+                              <ConfirmButton label="Remove" confirmLabel="Remove this shadow?" />
+                            </form>
+                          )}
                         </Card>
                       );
                     })}
@@ -828,7 +911,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
 
             {/* Column 3: Sidebar */}
             <div className="flex flex-col gap-4">
-              {selectedDateKey && data.hasCapacityConfig && (
+              {editable && selectedDateKey && data.hasCapacityConfig && (
                 <CapacityPanel
                   metrics={data.capacity}
                   deptCode={dept.code}
@@ -837,7 +920,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                   dateKey={selectedDateKey!}
                 />
               )}
-              {data.rhd != null && selectedDateKey && (
+              {editable && data.rhd != null && selectedDateKey && (
                 <ReadinessPanel
                   rhd={data.rhd!}
                   clinicAction={rhdClinicAction}
@@ -912,6 +995,8 @@ type AvailabilityViewProps = {
   members: Awaited<ReturnType<typeof builderView>>["members"];
   clinicDates: Date[];
   dept: { id: string; code: string; name: string };
+  /** Archived (non-live/next) terms are read-only: hide the override/acknowledge forms. */
+  editable: boolean;
   saveOverrideAction: (fd: FormData) => Promise<void>;
   clearOverrideAction: (fd: FormData) => Promise<void>;
   acknowledgeAction: (fd: FormData) => Promise<void>;
@@ -921,6 +1006,7 @@ function AvailabilityView({
   members,
   clinicDates,
   dept: _dept,
+  editable,
   saveOverrideAction,
   clearOverrideAction,
   acknowledgeAction,
@@ -960,37 +1046,56 @@ function AvailabilityView({
               <p className="mb-3 text-xs text-subtle-foreground italic">{member.legacyNote}</p>
             )}
             <IntakeNotes intake={member.intake} className="mb-3" />
-            <form action={saveOverrideAction} className="mb-2">
-              <input type="hidden" name="membershipId" value={member.membershipId} />
-              <div className="flex flex-wrap gap-2 mb-3">
+            {editable ? (
+              <>
+                <form action={saveOverrideAction} className="mb-2">
+                  <input type="hidden" name="membershipId" value={member.membershipId} />
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {clinicDates.map((d) => {
+                      const key = isoDateKey(d);
+                      const checked = availKeys.has(key);
+                      return (
+                        <label key={key} className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs cursor-pointer transition-colors whitespace-nowrap ${checked ? "border-brand bg-brand/5 text-brand-fg font-semibold" : "border-border text-muted-foreground hover:border-border-strong"}`}>
+                          <Checkbox
+                            name="dates"
+                            value={key}
+                            defaultChecked={checked}
+                          />
+                          {displayDate(key)}
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <Button type="submit" variant="outline" size="sm">Save override</Button>
+                </form>
+                {member.overrideActive && (
+                  <form action={clearOverrideAction} className="inline mr-2">
+                    <input type="hidden" name="membershipId" value={member.membershipId} />
+                    <Button type="submit" variant="ghost" size="sm">Clear override</Button>
+                  </form>
+                )}
+                {member.acknowledgePending && (
+                  <form action={acknowledgeAction} className="inline">
+                    <input type="hidden" name="membershipId" value={member.membershipId} />
+                    <ConfirmButton label="Acknowledge" confirmLabel="Mark availability as reviewed?" />
+                  </form>
+                )}
+              </>
+            ) : (
+              <div className="flex flex-wrap gap-2">
                 {clinicDates.map((d) => {
                   const key = isoDateKey(d);
                   const checked = availKeys.has(key);
                   return (
-                    <label key={key} className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs cursor-pointer transition-colors whitespace-nowrap ${checked ? "border-brand bg-brand/5 text-brand-fg font-semibold" : "border-border text-muted-foreground hover:border-border-strong"}`}>
-                      <Checkbox
-                        name="dates"
-                        value={key}
-                        defaultChecked={checked}
-                      />
+                    <span
+                      key={key}
+                      className={`rounded-full border px-2.5 py-1 text-xs whitespace-nowrap ${checked ? "border-brand bg-brand/5 text-brand-fg font-semibold" : "border-border text-muted-foreground"}`}
+                    >
                       {displayDate(key)}
-                    </label>
+                    </span>
                   );
                 })}
               </div>
-              <Button type="submit" variant="outline" size="sm">Save override</Button>
-            </form>
-            {member.overrideActive && (
-              <form action={clearOverrideAction} className="inline mr-2">
-                <input type="hidden" name="membershipId" value={member.membershipId} />
-                <Button type="submit" variant="ghost" size="sm">Clear override</Button>
-              </form>
-            )}
-            {member.acknowledgePending && (
-              <form action={acknowledgeAction} className="inline">
-                <input type="hidden" name="membershipId" value={member.membershipId} />
-                <ConfirmButton label="Acknowledge" confirmLabel="Mark availability as reviewed?" />
-              </form>
             )}
           </Card>
         );

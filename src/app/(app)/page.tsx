@@ -23,6 +23,7 @@ import { countPendingApprovals } from "@/modules/schedule/services/requests";
 import { buildActionCards, type ActionCard } from "./action-cards";
 import { listMyCertificates } from "@/modules/my-info/services/my-info";
 import { getOnboardingStatus, getMyOnboarding, type OnboardingTask } from "@/modules/onboarding/services/onboarding";
+import { getActiveTerm } from "@/platform/terms/active-term";
 import { getMyTraining } from "@/modules/recruitment/services/training";
 import { isInterviewPanelist } from "@/modules/recruitment/services/interviews";
 import { reviewScope } from "@/modules/recruitment/services/review";
@@ -180,7 +181,7 @@ export default async function HubPage() {
   // One permission fetch per render; tiles filter in memory (never can() in a loop).
   const permissions = await getEffectivePermissions(person.personId);
 
-  const [schedule, certificates, isPanelist, orgName, onboarding, myOnboarding, myTraining, pendingApprovals, recruitmentScope, displayZone] = await Promise.all([
+  const [schedule, certificates, isPanelist, orgName, onboarding, myOnboarding, myTraining, pendingApprovals, recruitmentScope, displayZone, liveTerm] = await Promise.all([
     mySchedule(person.personId),
     listMyCertificates(person.personId),
     isInterviewPanelist(person.personId),
@@ -191,11 +192,15 @@ export default async function HubPage() {
     countPendingApprovals(person.personId),
     reviewScope(person.personId),
     getDisplayTimeZone(),
+    getActiveTerm(),
   ]);
   // The dashboard is a live-term view only: next-term shifts/requests are not
   // shown here (they belong to the term-aware schedule page). See mySchedule.
   const liveEntry = schedule.terms.find((t) => t.isLive) ?? null;
-  const term = liveEntry?.term ?? null;
+  // Membership-independent: mirrors getOnboardingStatus's own term resolution
+  // (getActiveTerm), so the compliance sub-text below always agrees with the
+  // clearance checkmark, even for a person with no active live-term membership.
+  const term = liveTerm;
   const shifts = liveEntry?.shifts ?? [];
 
   // --- Module visibility ---

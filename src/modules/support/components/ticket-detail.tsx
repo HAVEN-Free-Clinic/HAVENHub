@@ -14,7 +14,7 @@
  *     independent.
  *   - a `canManage` gated Epic section, shown for any ticket category: the
  *     list of Epic requests already attached (kind, person, status, and the
- *     linked YNHH ticket's SR# once set), each cancellable while PENDING and
+ *     linked YNHH ticket's SR# once set), each cancellable while open and
  *     the ticket is open, plus an attach form (request-type selector +
  *     EpicPersonPicker) while the ticket is open. Attaching creates one
  *     PENDING EpicRequest per selected person via attachEpicRequests; the
@@ -285,7 +285,7 @@ export async function TicketDetail({
                         YNHH SR#: {r.ticket.serviceRequestNumber ?? "(not set)"}
                       </span>
                     )}
-                    {isOpen && r.status === "PENDING" && cancelEpicAction && (
+                    {isOpen && (r.status === "PENDING" || r.status === "SUBMITTED") && cancelEpicAction && (
                       <form action={cancelEpicAction} className="ml-auto">
                         <input type="hidden" name="epicRequestId" value={r.id} />
                         <SubmitButton size="sm" variant="ghost" pendingLabel="Cancelling…">

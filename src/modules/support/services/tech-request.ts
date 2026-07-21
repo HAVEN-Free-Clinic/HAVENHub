@@ -44,6 +44,23 @@ export class SupportStateError extends Error {
     this.name = "SupportStateError";
   }
 }
+/**
+ * A SupportStateError raised specifically when a submission is blocked by an
+ * existing OPEN Epic request for one or more people (a recoverable conflict, not
+ * malformed input). Extends SupportStateError so existing
+ * `instanceof SupportStateError` handlers still treat it as a state error, while
+ * callers that want to distinguish "already exists" (and, e.g., keep the
+ * generated artifacts rather than discard them) can catch this narrower type.
+ */
+export class SupportConflictError extends SupportStateError {
+  /** Names of the people who already have an open Epic request. */
+  readonly personNames: string[];
+  constructor(message: string, personNames: string[]) {
+    super(message);
+    this.name = "SupportConflictError";
+    this.personNames = personNames;
+  }
+}
 
 export async function isManager(personId: string): Promise<boolean> {
   return can(personId, MANAGE);

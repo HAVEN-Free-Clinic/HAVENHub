@@ -69,6 +69,7 @@ type Props = {
   completeEpicRequestAction: (formData: FormData) => Promise<void>;
   sendEpicEmailFromTrackerAction: (formData: FormData) => Promise<void>;
   linkEpicRequestAction: (formData: FormData) => Promise<void>;
+  cancelEpicRequestAction: (formData: FormData) => Promise<void>;
 };
 
 // ---------------------------------------------------------------------------
@@ -257,6 +258,7 @@ function TrackerTable({
   completeEpicRequestAction,
   sendEpicEmailFromTrackerAction,
   linkEpicRequestAction,
+  cancelEpicRequestAction,
 }: {
   history: EpicRequestHistoryRow[];
   closeTicketAction: (ticketId: string) => Promise<void>;
@@ -265,6 +267,7 @@ function TrackerTable({
   completeEpicRequestAction: (formData: FormData) => Promise<void>;
   sendEpicEmailFromTrackerAction: (formData: FormData) => Promise<void>;
   linkEpicRequestAction: (formData: FormData) => Promise<void>;
+  cancelEpicRequestAction: (formData: FormData) => Promise<void>;
 }) {
   const zone = useTimeZone();
   const openTickets = history.filter((h) => h.ticket.status === "OPEN");
@@ -347,6 +350,16 @@ function TrackerTable({
                             Complete
                           </SubmitButton>
                         )}
+                      </form>
+                    )}
+
+                    {(r.status === "PENDING" || r.status === "SUBMITTED") && (
+                      <form action={cancelEpicRequestAction}>
+                        <input type="hidden" name="requestId" value={r.id} />
+                        <input type="hidden" name="tab" value="tracker" />
+                        <SubmitButton size="sm" variant="ghost" pendingLabel="Cancelling…">
+                          Cancel
+                        </SubmitButton>
                       </form>
                     )}
 
@@ -561,6 +574,7 @@ export function EpicRequestTabs({
   completeEpicRequestAction,
   sendEpicEmailFromTrackerAction,
   linkEpicRequestAction,
+  cancelEpicRequestAction,
 }: Props) {
   return (
     <div>
@@ -582,6 +596,7 @@ export function EpicRequestTabs({
             completeEpicRequestAction={completeEpicRequestAction}
             sendEpicEmailFromTrackerAction={sendEpicEmailFromTrackerAction}
             linkEpicRequestAction={linkEpicRequestAction}
+            cancelEpicRequestAction={cancelEpicRequestAction}
           />
         </div>
       ) : (

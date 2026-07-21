@@ -78,9 +78,14 @@ describe("applyBlockOp", () => {
   });
 
   it("updateBlock patches a block by index without mutating other blocks", () => {
-    const out = applyBlockOp(DEFAULT_CONTRACT_LAYOUT, { t: "updateBlock", index: 0, patch: { label: "Full name" } });
-    expect((out.blocks[0] as { label: string }).label).toBe("Full name");
-    expect(out.blocks[1]).toEqual(DEFAULT_CONTRACT_LAYOUT.blocks[1]);
+    const idx = DEFAULT_CONTRACT_LAYOUT.blocks.findIndex(
+      (b) => b.kind === "system_field" && b.systemKey === "name"
+    );
+    const out = applyBlockOp(DEFAULT_CONTRACT_LAYOUT, { t: "updateBlock", index: idx, patch: { label: "Full name" } });
+    expect((out.blocks[idx] as { label: string }).label).toBe("Full name");
+    out.blocks.forEach((b, i) => {
+      if (i !== idx) expect(b).toEqual(DEFAULT_CONTRACT_LAYOUT.blocks[i]);
+    });
   });
 
   it("removeBlock drops the block at the given index", () => {

@@ -7,6 +7,8 @@ export function defaultContractLayout(track: Track): ContractLayout {
   return track === "DIRECTOR" ? DIRECTOR_LAYOUT : VOLUNTEER_LAYOUT;
 }
 
-/** Retained for the render fallback in `/onboard/[token]/page.tsx`, which has no
- *  track to hand when a snapshot fails to parse. */
+/** Fallback layout for callers with no track to hand, used when a stored
+ *  snapshot is missing or fails to parse. Consumed by `/onboard/[token]/page.tsx`,
+ *  `admin/contract/page.tsx`, `recruitment/cycles/[id]/onboarding/[contractId]/page.tsx`,
+ *  and `services/onboarding.ts`. */
 export const DEFAULT_CONTRACT_LAYOUT = VOLUNTEER_LAYOUT;

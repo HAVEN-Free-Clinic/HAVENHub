@@ -21,16 +21,16 @@ Directions about Epic updates will follow in the days after you complete this fo
 
 export const DATA_PRIVACY_STATEMENT = `**Introduction**
 
-HAVEN Free Clinic is a volunteer-run free clinic that services uninsured patients living in the greater New Haven area. As volunteers, we have the privilege of serving patients who are particularly vulnerable in the health care system. In that process, we must balance the need to collect data on our patients to improve our operations with the risks associated with accessing, storing, and sharing patient data.
+{{orgName}} is a volunteer-run free clinic that services uninsured patients living in the greater New Haven area. As volunteers, we have the privilege of serving patients who are particularly vulnerable in the health care system. In that process, we must balance the need to collect data on our patients to improve our operations with the risks associated with accessing, storing, and sharing patient data.
 
 **Data Privacy and Safety Measures**
 
-In order to access medical records on HAVEN's patients, every volunteer completes the Yale HIPAA training through the HIPAA privacy office before gaining access to HAVEN's platforms. By signing this form, you affirm that:
+In order to access medical records on {{orgName}}'s patients, every volunteer completes the Yale HIPAA training through the HIPAA privacy office before gaining access to {{orgName}}'s platforms. By signing this form, you affirm that:
 
 - As a volunteer, you have completed or will complete the Yale HIPAA training and annual refresher as required through Yale. Volunteers are responsible for tracking when their certification expires. Any questions may be directed to the QA/QI directors and IT director.
 - As a director, you are responsible for ensuring that all your volunteers are up to date on their HIPAA training at the start of each term, regardless of whether they are new or returning.
 
-HAVEN operates across several different platforms based on each department's workflow. By signing this form, you affirm that you will use only HIPAA-compliant platforms to discuss clinic or patient-related information.
+{{orgName}} operates across several different platforms based on each department's workflow. By signing this form, you affirm that you will use only HIPAA-compliant platforms to discuss clinic or patient-related information.
 
 - HIPAA-compliant platforms include Epic, Yale Secure Box, Microsoft Teams, and Yale Outlook Email.
 - Non-HIPAA-compliant platforms include Yale Box, the native Google suite, any other email modality, Slack (the free base version), downloading any documents from HIPAA-compliant platforms onto personal devices, GroupMe, and text messaging.

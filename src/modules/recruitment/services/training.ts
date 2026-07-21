@@ -7,6 +7,8 @@ import { getPersonTerms } from "@/platform/terms/person-terms";
 import { recordAudit } from "@/platform/audit";
 import { RecruitmentAuthError, reviewScope } from "./review";
 import { gradeQuiz, type GradedQuestion } from "@/platform/quiz/grading";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
+import { makeupIsOpen } from "./makeup-window";
 
 export class TrainingStateError extends Error {
   constructor(message: string) { super(message); this.name = "TrainingStateError"; }
@@ -50,10 +52,11 @@ export async function setTrainingCycle(cycleId: string, value: boolean, actorId:
   await recordAudit({ actorPersonId: actorId, action: "recruitment.training_designate", entityType: "RecruitmentCycle", entityId: cycleId, after: { isTermTraining: value } });
 }
 
-/** Update the cycle's quiz threshold and attempt cap. Requires manage_cycles. */
+/** Update the cycle's quiz threshold, attempt cap, and in-person training date.
+ *  Requires manage_cycles. */
 export async function updateQuizSettings(
   cycleId: string,
-  input: { quizPassPercent: number; quizMaxAttempts: number },
+  input: { quizPassPercent: number; quizMaxAttempts: number; inPersonTrainingDate: Date | null },
   actorId: string
 ): Promise<RecruitmentCycle> {
   if (!(await can(actorId, "recruitment.manage_cycles"))) {
@@ -65,7 +68,10 @@ export async function updateQuizSettings(
   if (!Number.isInteger(input.quizMaxAttempts) || input.quizMaxAttempts < 1) {
     throw new TrainingStateError("Max attempts must be at least 1.");
   }
-  const updated = await prisma.recruitmentCycle.update({ where: { id: cycleId }, data: { quizPassPercent: input.quizPassPercent, quizMaxAttempts: input.quizMaxAttempts } });
+  const updated = await prisma.recruitmentCycle.update({
+    where: { id: cycleId },
+    data: { quizPassPercent: input.quizPassPercent, quizMaxAttempts: input.quizMaxAttempts, inPersonTrainingDate: input.inPersonTrainingDate },
+  });
   await recordAudit({ actorPersonId: actorId, action: "recruitment.training_quiz_settings", entityType: "RecruitmentCycle", entityId: cycleId, after: input });
   return updated;
 }
@@ -182,6 +188,8 @@ export type MyTraining = {
   attemptsUsed: number;
   maxAttempts: number;
   passPercent: number;
+  inPersonTrainingDate: Date | null;
+  makeupOpen: boolean;
   questions: { key: string; label: string; options: { value: string; label: string }[] }[];
   intake: TrainingIntake;
 };
@@ -195,6 +203,8 @@ const TRACK_LABEL: Record<Track, string> = {
 export async function getMyTrainingForTerm(personId: string, term: { id: string; name: string }): Promise<MyTraining[]> {
   const tracks = await requiredTrainingTracks(personId, term.id);
   const out: MyTraining[] = [];
+  const zone = await getDisplayTimeZone();
+  const now = new Date();
   for (const track of tracks) {
     const cycle = await getTrainingCycleForTerm(term.id, track);
     const row = await prisma.training.findUnique({ where: { personId_termId_track: { personId, termId: term.id, track } } });
@@ -218,6 +228,8 @@ export async function getMyTrainingForTerm(personId: string, term: { id: string;
       cycle: cycle ? { id: cycle.id, title: cycle.title } : null,
       state, locked: row?.locked ?? false, completedVia: row?.completedVia ?? null, completedAt: row?.completedAt ?? null,
       attemptsUsed, maxAttempts: cycle?.quizMaxAttempts ?? 0, passPercent: cycle?.quizPassPercent ?? 0,
+      inPersonTrainingDate: cycle?.inPersonTrainingDate ?? null,
+      makeupOpen: makeupIsOpen(cycle?.inPersonTrainingDate ?? null, now, zone),
       questions,
       intake: {
         additionalShiftAvailability: row?.additionalShiftAvailability ?? null,
@@ -251,6 +263,11 @@ export async function submitQuiz(
 
   const isMember = await prisma.termMembership.count({ where: { personId, termId: input.termId, kind: input.track, status: "ACTIVE" } });
   if (isMember === 0) throw new TrainingStateError("Not an active member of this track this term.");
+
+  const zone = await getDisplayTimeZone();
+  if (!makeupIsOpen(cycle.inPersonTrainingDate, new Date(), zone)) {
+    throw new TrainingStateError("The makeup quiz isn't open yet.");
+  }
 
   const questions = await quizQuestions(cycle.id);
   if (questions.length === 0) throw new TrainingStateError("This training has no quiz questions yet.");

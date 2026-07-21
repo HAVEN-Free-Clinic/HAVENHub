@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { SYSTEM_FIELDS, SYSTEM_FIELD_KEYS, DEFAULT_CONTRACT_LAYOUT, defaultContractLayout, YALE_AFFILIATION_OPTIONS, gradYearOptions } from "./system-fields";
 import { parseContractLayout, type AgreementBlock, type SystemFieldBlock } from "./layout";
+import { YALE_AFFILIATION } from "../templates/content/options";
 
 describe("system fields + default layout", () => {
   it("marks name, email, epic, hipaa as core", () => {
@@ -57,10 +58,13 @@ describe("new system fields", () => {
     expect(SYSTEM_FIELDS.gradYear.render).toBe("select");
   });
 
-  it("offers the Airtable affiliation options", () => {
-    expect(YALE_AFFILIATION_OPTIONS.map((o) => o.label)).toEqual([
-      "College", "GSAS", "YLS", "YSM - MD or MD/PhD", "YSM - PA", "YSN", "YSPH", "Staff", "Other",
-    ]);
+  it("offers the canonical Yale affiliation options, not a parallel copy", () => {
+    expect(YALE_AFFILIATION_OPTIONS).toEqual(YALE_AFFILIATION);
+    expect(SYSTEM_FIELDS.yaleAffiliation.options).toEqual(YALE_AFFILIATION);
+  });
+
+  it("includes a literal staff value in the affiliation options", () => {
+    expect(YALE_AFFILIATION_OPTIONS.some((o) => o.value === "staff")).toBe(true);
   });
 
   it("builds a seven year grad window plus Other and N/A", () => {

@@ -1,5 +1,6 @@
 import type { Track } from "@prisma/client";
 import type { ContractLayout } from "./layout";
+import { YALE_AFFILIATION } from "../templates/content/options";
 
 export const SYSTEM_FIELD_KEYS = [
   "name", "email", "netId", "phone", "dob", "dietary", "yaleAffiliation",
@@ -19,17 +20,11 @@ export type SystemFieldSpec = {
   options?: { value: string; label: string }[];
 };
 
-export const YALE_AFFILIATION_OPTIONS = [
-  { value: "college", label: "College" },
-  { value: "gsas", label: "GSAS" },
-  { value: "yls", label: "YLS" },
-  { value: "ysm_md", label: "YSM - MD or MD/PhD" },
-  { value: "ysm_pa", label: "YSM - PA" },
-  { value: "ysn", label: "YSN" },
-  { value: "ysph", label: "YSPH" },
-  { value: "staff", label: "Staff" },
-  { value: "other", label: "Other" },
-] as const;
+// Alias for the canonical Yale-affiliation option list. The applicant's stored
+// affiliation value flows verbatim into the contract, so this must stay the
+// same list used to render and validate the recruitment application form,
+// not a parallel hand-written copy that would drift and blank out prefills.
+export const YALE_AFFILIATION_OPTIONS = YALE_AFFILIATION;
 
 /** Seven graduation years starting at `fromYear`, plus Other and N/A. The year
  *  is passed in rather than read from the clock so callers in a render body do

@@ -10,6 +10,7 @@ beforeEach(async () => {
 describe("loadOnboardingPreviewContext", () => {
   it("loads the named departments with their Epic flags and formatted training", async () => {
     await prisma.department.create({ data: { code: "IM", name: "Internal Medicine", requiresEpicVolunteer: "SOME", isActive: true } });
+    await prisma.department.create({ data: { code: "PEDS", name: "Pediatrics", isActive: true } });
     await prisma.department.create({ data: { code: "OFF", name: "Inactive", isActive: false } });
     const ctx = await loadOnboardingPreviewContext({
       departmentCodes: ["IM"],
@@ -21,6 +22,10 @@ describe("loadOnboardingPreviewContext", () => {
     expect(ctx.departments).toEqual([
       { code: "IM", name: "Internal Medicine", requiresEpicDirector: "NONE", requiresEpicVolunteer: "SOME" },
     ]);
+    // allDepartmentCodes is the full active set, independent of the cycle's own
+    // department scoping: it includes PEDS (not in departmentCodes) and excludes
+    // the inactive OFF department.
+    expect(ctx.allDepartmentCodes).toEqual(["IM", "PEDS"]);
     expect(ctx.fixedTrack).toBe("VOLUNTEER");
     expect(ctx.title).toBe("Fall 2026");
     expect(ctx.trainingDate).toContain("May"); // formatted, not a placeholder
@@ -39,6 +44,8 @@ describe("loadOnboardingPreviewContext", () => {
       title: "master template",
     });
     expect(ctx.departments.map((d) => d.code)).toEqual(["IM"]);
+    // In "all" mode, allDepartmentCodes equals the picker list.
+    expect(ctx.allDepartmentCodes).toEqual(["IM"]);
     expect(ctx.fixedTrack).toBeNull();
     expect(ctx.trainingLocation).toBe(""); // placeholder for no location
   });

@@ -21,10 +21,15 @@ export async function loadOnboardingPreviewContext(opts: {
   title: string;
 }): Promise<OnboardingPreviewContext> {
   const where = opts.departmentCodes === "all" ? { isActive: true } : { code: { in: opts.departmentCodes } };
-  const [departments, orgName, zone] = await Promise.all([
+  const [departments, allDepartments, orgName, zone] = await Promise.all([
     prisma.department.findMany({
       where,
       select: { code: true, name: true, requiresEpicDirector: true, requiresEpicVolunteer: true },
+      orderBy: { name: "asc" },
+    }),
+    prisma.department.findMany({
+      where: { isActive: true },
+      select: { code: true },
       orderBy: { name: "asc" },
     }),
     getSetting<string>("branding.orgName"),
@@ -32,6 +37,7 @@ export async function loadOnboardingPreviewContext(opts: {
   ]);
   return {
     departments,
+    allDepartmentCodes: allDepartments.map((d) => d.code),
     orgName,
     trainingDate: formatTrainingDate(opts.inPersonTrainingDate, zone),
     trainingLocation: formatTrainingLocation(opts.trainingLocation),

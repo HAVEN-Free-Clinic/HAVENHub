@@ -21,6 +21,10 @@ export type PreviewDepartment = {
 
 export type OnboardingPreviewContext = {
   departments: PreviewDepartment[];
+  /** Every active department's code, independent of the cycle's own department
+   *  scoping. Fed to ContractField for the DEPARTMENT_CHOICE custom-question
+   *  case, mirroring what the live /onboard page passes (see onboard/page.tsx). */
+  allDepartmentCodes: string[];
   orgName: string;
   trainingDate: string;
   trainingLocation: string;
@@ -51,6 +55,7 @@ function trackLabel(t: Track): string {
 export function OnboardingPreviewBody({
   layout,
   departments,
+  allDepartmentCodes,
   orgName,
   trainingDate,
   trainingLocation,
@@ -71,7 +76,6 @@ export function OnboardingPreviewBody({
     () => visibleOnboardingBlocks(layout, answers, { department, track, epicRequirement }),
     [layout, answers, department, track, epicRequirement],
   );
-  const departmentCodes = departments.map((d) => d.code);
   const onAnswer = (name: string, value: string | string[]) => setAnswers((prev) => ({ ...prev, [name]: value }));
 
   return (
@@ -133,7 +137,7 @@ export function OnboardingPreviewBody({
                 ctx={ctx}
                 err={noErr}
                 onAnswer={onAnswer}
-                departments={departmentCodes}
+                departments={allDepartmentCodes}
               />
             ))
           )}

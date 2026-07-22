@@ -8,6 +8,7 @@ const base: OnboardingPreviewContext = {
     { code: "IM", name: "Internal Medicine", requiresEpicDirector: "ALL", requiresEpicVolunteer: "SOME" },
     { code: "PEDS", name: "Pediatrics", requiresEpicDirector: "NONE", requiresEpicVolunteer: "NONE" },
   ],
+  allDepartmentCodes: ["IM", "PEDS"],
   orgName: "HAVEN Free Clinic",
   trainingDate: "Sunday, May 3",
   trainingLocation: " in person",
@@ -25,7 +26,7 @@ describe("OnboardingPreviewBody", () => {
     expect(out).toContain("Internal Medicine");
     expect(out).toContain("Pediatrics");
     expect(out).toContain("Volunteer"); // fixed-track chip
-    expect(out).not.toContain('value="DIRECTOR"'); // no toggle button in cycle mode
+    expect(out).not.toContain("Director"); // read-only chip shows only "Volunteer"; no toggle button in cycle mode
   });
 
   it("renders a track toggle when there is no fixed track (global mode)", () => {

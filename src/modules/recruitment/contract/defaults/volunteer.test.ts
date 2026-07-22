@@ -35,7 +35,7 @@ describe("VOLUNTEER_LAYOUT", () => {
 
   it("gates the Epic self report on a SOME department", () => {
     const b = VOLUNTEER_LAYOUT.blocks.find((x) => x.kind === "custom_question" && x.key === "epic_needed_self");
-    expect(b?.visibleWhen).toMatchObject({ field: "epicRequirement", op: "is", value: "SOME" });
+    expect(b?.visibleWhen).toMatchObject({ field: "epicAsk", op: "is", value: "yes" });
   });
 
   it("includes pronouns and staff title", () => {

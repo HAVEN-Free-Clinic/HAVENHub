@@ -8,6 +8,9 @@ export type ContractContext = {
   department: string | null;
   track: Track;
   epicRequirement: EpicRequirement;
+  /** The Epic ID already on file for this applicant (matched Person), or null.
+   *  When set, the Epic section confirms it instead of re-collecting. */
+  storedEpicId: string | null;
 };
 
 /**
@@ -32,12 +35,27 @@ export function buildContractAnswers(
   // adds nothing when ctx.department is null, so a `department` key already
   // present in formAnswers would remain in the result untouched. That is the
   // exact bug being fixed here.
-  const { department: _department, track: _track, epicRequirement: _epicRequirement, ...rest } = formAnswers;
+  const {
+    department: _department, track: _track, epicRequirement: _epicRequirement,
+    epicSection: _epicSection, epicAsk: _epicAsk, ...rest
+  } = formAnswers;
+  // The Epic section (heading + collection) shows when the applicant either
+  // already has an Epic ID on file (nothing to collect, we just confirm it) or
+  // is in a department that uses Epic. It hides only when neither holds.
+  const epicSection = ctx.storedEpicId || ctx.epicRequirement !== "NONE" ? "show" : "hide";
+  // The "do you need Epic?" question is only asked for a SOME department when we
+  // have no id on file. ALL/NONE are decided without asking; a stored id makes
+  // the question moot. Both keys are derived from authoritative context alone,
+  // so client and server compute them identically and a spoofed form value
+  // cannot force the section or question open or closed.
+  const epicAsk = ctx.epicRequirement === "SOME" && !ctx.storedEpicId ? "yes" : "no";
   return {
     ...rest,
     ...(ctx.department ? { department: ctx.department } : {}),
     track: ctx.track,
     epicRequirement: ctx.epicRequirement,
+    epicSection,
+    epicAsk,
   };
 }
 

@@ -1,4 +1,4 @@
-import { getContractByToken } from "@/modules/recruitment/services/onboarding";
+import { getContractByToken, lookupStoredEpicId } from "@/modules/recruitment/services/onboarding";
 import { parseContractLayout } from "@/modules/recruitment/contract/layout";
 import { DEFAULT_CONTRACT_LAYOUT } from "@/modules/recruitment/contract/system-fields";
 import { epicRequirementFor } from "@/modules/recruitment/contract/epic-requirement";
@@ -62,6 +62,11 @@ export default async function OnboardPage({ params }: { params: Promise<{ token:
       })
     : null;
   const epicRequirement = epicRequirementFor(dept, track);
+  // The Epic ID already on file for this applicant (a returning member), matched
+  // the same way promotion and submitContract match. When set, the Epic section
+  // confirms it instead of re-collecting. Same lookup on both sides keeps the
+  // section's client/server visibility in agreement.
+  const storedEpicId = await lookupStoredEpicId(contract.netId, contract.email);
 
   // The director default's second_department_name question is a
   // DEPARTMENT_CHOICE custom question (contract/defaults/director.ts); its
@@ -98,7 +103,7 @@ export default async function OnboardPage({ params }: { params: Promise<{ token:
         ctx={{
           firstName: contract.firstName, orgName, todayIso,
           trainingDate, trainingLocation,
-          department: departmentCode, track, epicRequirement,
+          department: departmentCode, track, epicRequirement, storedEpicId,
         }}
         departments={departments}
       />

@@ -20,6 +20,7 @@ type Ctx = {
   firstName: string; orgName: string; todayIso: string;
   trainingDate: string; trainingLocation: string;
   department: string | null; track: Track; epicRequirement: EpicRequirement;
+  storedEpicId: string | null;
 };
 type Prefill = { firstName: string; lastName: string; email: string; netId: string; phone: string; yaleAffiliation: string; gradYear: string };
 
@@ -140,8 +141,24 @@ export function ContractField({
   const label = renderVars(block.label ?? spec.defaultLabel, ctx);
   switch (spec.render) {
     case "epicBlock":
+      // State 1: an Epic ID is already on file for this returning member, so we
+      // confirm it rather than re-collect. No inputs.
+      if (ctx.storedEpicId) {
+        return (
+          <div className="space-y-2">
+            <p className="text-sm font-medium text-foreground">{label}</p>
+            <p className="text-sm text-foreground-soft">
+              Your Epic ID (<span className="font-mono font-medium text-foreground">{ctx.storedEpicId}</span>) is
+              already on file. No action needed here.
+            </p>
+          </div>
+        );
+      }
+      // State 2: no Epic ID on file and the department uses Epic. One question,
+      // then collect only what IT needs. The "work with YNHH" checkbox lives
+      // here because it only matters when modifying an existing account.
       return (
-        <div className="space-y-2">
+        <div className="space-y-3">
           <p className="text-sm font-medium text-foreground">{label}</p>
           <label className="flex items-center gap-2 text-sm">
             <Checkbox
@@ -149,28 +166,25 @@ export function ContractField({
               checked={hasEpic}
               onChange={(e) => { setHasEpic(e.target.checked); onAnswer("hasEpic", e.target.checked ? "on" : ""); }}
             />
-            <span>I already have an Epic ID</span>
+            <span>I already have a Yale Epic account.</span>
           </label>
-          {hasEpic && (
-            <>
+          {hasEpic ? (
+            <div className="space-y-2 border-l-2 border-border pl-3">
               <div>
-                <Field label="Existing Epic ID" hint="Enter it in capital letters." required>
+                <Field label="Your Epic ID" hint="Enter it in capital letters." required>
                   <Input name="existingEpicId" required {...errorProps("existingEpicId")} />
                 </Field>
                 {err("existingEpicId") && <p id={errorId("existingEpicId")} className="mt-1 text-xs text-critical">{err("existingEpicId")}</p>}
               </div>
-              <Field label="What type of access are you requesting?">
-                <Select name="epicAccessType" defaultValue="">
-                  <option value="">Select one</option>
-                  <option value="new">I need a new account. I have never had a Yale Epic account before.</option>
-                  <option value="renewal">I need a reactivation, renewal, extension or modification to my existing account.</option>
-                </Select>
-              </Field>
-            </>
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox name="worksWithYnhh" /><span>I currently work with Yale New Haven Hospital.</span>
+              </label>
+            </div>
+          ) : (
+            <p className="text-sm text-foreground-soft">
+              We will set up your Epic account. Directions follow after you submit this form.
+            </p>
           )}
-          <label className="flex items-center gap-2 text-sm">
-            <Checkbox name="worksWithYnhh" /><span>I currently work with Yale New Haven Hospital</span>
-          </label>
         </div>
       );
     case "hipaaBlock": {

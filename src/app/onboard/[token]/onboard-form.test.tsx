@@ -7,6 +7,7 @@ const ctx = {
   firstName: "Ada", orgName: "HAVEN Free Clinic", todayIso: "2026-07-21",
   trainingDate: "Sunday, May 3", trainingLocation: " in person",
   department: "BVHD", track: "DIRECTOR" as const, epicRequirement: "ALL" as const,
+  storedEpicId: null,
 };
 
 describe("OnboardForm", () => {

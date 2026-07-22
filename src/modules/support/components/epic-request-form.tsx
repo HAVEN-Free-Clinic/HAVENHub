@@ -20,6 +20,7 @@
 import { useState, useMemo } from "react";
 import Link from "next/link";
 import type { DepartmentWithMembers, EpicAuthorizer, MemberLite, PendingDeactivation } from "@/modules/support/services/itcm";
+import type { EpicRequestType as RequestType } from "@/modules/support/epic-request-types";
 import { Button } from "@/platform/ui/button";
 import { Select } from "@/platform/ui/select";
 import { Input, Field } from "@/platform/ui/input";
@@ -33,21 +34,12 @@ import { SectionHeader } from "@/platform/ui/section-header";
 // Constants
 // ---------------------------------------------------------------------------
 
-type RequestType =
-  | "new_individual"
-  | "mod_individual"
-  | "renew_individual"
-  | "bulk_new"
-  | "bulk_mod"
-  | "deactivate_individual"
-  | "bulk_deactivate";
-
-
 const EMAIL_SUBJECTS: Record<RequestType, (initials: string, date: string) => string> = {
   new_individual: (i, d) => `[HAVEN] New Epic Account Request ${i} ${d}`,
   mod_individual: (i, d) => `[HAVEN] Modify Epic Access for One User ${d} ${i}`,
   renew_individual: (i, d) => `[HAVEN] Renew Epic Access for One User ${d} ${i}`,
-  bulk_mod: (i, d) => `[HAVEN] Reactivate/Extend and Modify Epic Access for Multiple Users ${d} ${i}`,
+  bulk_mod: (i, d) => `[HAVEN] Modify Epic Access for Multiple Users ${d} ${i}`,
+  bulk_renew: (i, d) => `[HAVEN] Renew Epic Access for Multiple Users ${d} ${i}`,
   bulk_new: (i, d) => `[HAVEN] Multiple New Epic Account Request ${d} ${i}`,
   deactivate_individual: (i, d) => `[HAVEN] Deactivate Epic Access for One User ${d} ${i}`,
   bulk_deactivate: (i, d) => `[HAVEN] Deactivate Epic Access for Multiple Users ${d} ${i}`,
@@ -260,8 +252,7 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
               onChange={(e) => {
                 const base = e.target.value as "new" | "mod" | "renew" | "deactivate";
                 const raw = isBulk ? `bulk_${base}` : `${base}_individual`;
-                const safe = raw === "bulk_renew" ? "bulk_mod" : raw;
-                setRequestType(safe as RequestType);
+                setRequestType(raw as RequestType);
                 setSelectedPeopleIds(new Set());
                 setSelectedPeopleMap(new Map());
                 setError(null);
@@ -270,7 +261,7 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
             >
               <option value="new">New</option>
               <option value="mod">Modify</option>
-              {!isBulk && <option value="renew">Renew</option>}
+              <option value="renew">Renew</option>
               <option value="deactivate">Deactivate</option>
             </Select>
           </Field>
@@ -282,8 +273,7 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
                 const bulk = e.target.value === "bulk";
                 const base = requestType.replace("_individual", "").replace("bulk_", "");
                 const raw = bulk ? `bulk_${base}` : `${base}_individual`;
-                const safe = raw === "bulk_renew" ? "bulk_mod" : raw;
-                setRequestType(safe as RequestType);
+                setRequestType(raw as RequestType);
                 setSelectedPeopleIds(new Set());
                 setSelectedPeopleMap(new Map());
                 setError(null);

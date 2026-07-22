@@ -29,6 +29,7 @@ import {
   generatePdf,
   type RequestType,
 } from "@/modules/support/services/itcm-pdf";
+import { epicKindForRequestType } from "@/modules/support/epic-request-types";
 import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
@@ -55,6 +56,8 @@ const EMAIL_BODIES: Record<RequestType, (args: {
     `Hello,\nCould we renew Epic access for the user ${personName} (Epic ID: ${epicId})? They will need the abilities of the corresponding Epic ID to mirror included in the request PDF in the department YM HAVEN FREE CLINIC.\n\nPlease feel free to contact me with any questions or if you need any more information.\n\nBest,\n${authorizerName}`,
   bulk_mod: ({ endDate, authorizerName, userCount }) =>
     `Hello,\nCould we please reactivate/extend the Epic accounts for the users in the Excel Spreadsheet?\nThey already have an Epic account, but need access to the department "YM HAVEN FREE CLINIC".\nPlease reactivate and/or extend their access until ${endDate}.\nThey will need the abilities of the corresponding Epic ID to mirror (included in the spreadsheet), in the department YM HAVEN FREE CLINIC.\nThey neither have YNHH privileges nor are requesting them.\nI've attached a spreadsheet containing ${userCount} users and the completed pdf request form. Please feel free to contact me with any questions or if you require more information. Thank you very much!\n\nBest,\n${authorizerName}`,
+  bulk_renew: ({ endDate, authorizerName, userCount }) =>
+    `Hello,\nCould we please renew Epic access for the users in the attached spreadsheet? They already have Epic accounts in the department "YM HAVEN FREE CLINIC" and need their access extended until ${endDate}.\nThey will need the abilities of the corresponding Epic ID to mirror (included in the spreadsheet), in the department YM HAVEN FREE CLINIC.\nThey neither have YNHH privileges nor are requesting them.\nI've attached a spreadsheet containing ${userCount} users and the completed pdf request form. Please feel free to contact me with any questions or if you require more information. Thank you very much!\n\nBest,\n${authorizerName}`,
   bulk_new: ({ authorizerName, userCount }) =>
     `Hello,\nI hope you are doing well! Could we please create new Epic accounts for each of the attached users in the department "YM HAVEN FREE CLINIC"?\nThey will need the abilities identical to the Epic ID listed under "Epic ID to Mirror," in the department YM HAVEN FREE CLINIC\nThese individuals neither have YNHH hospital privileges nor are requesting them.\nThey will complete Epic training upon receipt of their accounts.\nI've attached the completed pdf request form with further details and an Excel spreadsheet with a set of ${userCount} users who need access. Please feel free to contact me with any questions or if you need any more information. Thank you!\n\nBest,\n${authorizerName}`,
   deactivate_individual: ({ personName, endDate, authorizerName }) =>
@@ -69,6 +72,7 @@ const PDF_FILENAMES: Record<RequestType, (initials: string, date: string) => str
   renew_individual: (i, d) => `${i} ${d} MOD_REACT Service Request Form_V5.5.pdf`,
   bulk_new: (i, d) => `${i} ${d} Multiple Users NEW Service Request Form_V5.5.pdf`,
   bulk_mod: (i, d) => `${i} ${d} Multiple Users MOD_REACT Service Request Form_V5.5.pdf`,
+  bulk_renew: (i, d) => `${i} ${d} Multiple Users MOD_REACT Service Request Form_V5.5.pdf`,
   deactivate_individual: (i, d) => `${i} ${d} DEACTIVATE Service Request Form_V5.5.pdf`,
   bulk_deactivate: (i, d) => `${i} ${d} Multiple Users DEACTIVATE Service Request Form_V5.5.pdf`,
 };
@@ -78,7 +82,8 @@ const REQUEST_TYPE_LABELS: Record<RequestType, string> = {
   mod_individual: "Modify - Individual",
   renew_individual: "Renew - Individual",
   bulk_new: "New - Bulk",
-  bulk_mod: "Modify / Renew - Bulk",
+  bulk_mod: "Modify - Bulk",
+  bulk_renew: "Renew - Bulk",
   deactivate_individual: "Deactivate - Individual",
   bulk_deactivate: "Deactivate - Bulk",
 };
@@ -337,6 +342,7 @@ export async function POST(req: Request) {
     case "renew_individual": pdfFilename = PDF_FILENAMES.renew_individual(initials, dateStr); break;
     case "bulk_new": pdfFilename = PDF_FILENAMES.bulk_new(initials, dateStr); break;
     case "bulk_mod": pdfFilename = PDF_FILENAMES.bulk_mod(initials, dateStr); break;
+    case "bulk_renew": pdfFilename = PDF_FILENAMES.bulk_renew(initials, dateStr); break;
     case "deactivate_individual": pdfFilename = PDF_FILENAMES.deactivate_individual(initials, dateStr); break;
     case "bulk_deactivate": pdfFilename = PDF_FILENAMES.bulk_deactivate(initials, dateStr); break;
     default: return NextResponse.json({ error: "Invalid request type" }, { status: 400 });
@@ -360,6 +366,7 @@ export async function POST(req: Request) {
     case "renew_individual": emailBody = EMAIL_BODIES.renew_individual(emailBodyArgs); break;
     case "bulk_new": emailBody = EMAIL_BODIES.bulk_new(emailBodyArgs); break;
     case "bulk_mod": emailBody = EMAIL_BODIES.bulk_mod(emailBodyArgs); break;
+    case "bulk_renew": emailBody = EMAIL_BODIES.bulk_renew(emailBodyArgs); break;
     case "deactivate_individual": emailBody = EMAIL_BODIES.deactivate_individual(emailBodyArgs); break;
     case "bulk_deactivate": emailBody = EMAIL_BODIES.bulk_deactivate(emailBodyArgs); break;
     default: return NextResponse.json({ error: "Invalid request type" }, { status: 400 });
@@ -418,19 +425,11 @@ export async function POST(req: Request) {
       throw err;
     }
   } else {
-    // Record access-granting Epic requests for tracking.
-    // kind maps: new_individual/bulk_new -> NEW, mod_individual -> MODIFY,
-    // renew_individual/bulk_mod -> RENEW. submitEpicRequests enforces the same
-    // invariants createEpicRequest guarantees (person ACTIVE, no open request,
-    // NEW -> no epicId, MODIFY/RENEW -> epicId) and creates the ticket plus its
-    // requests atomically, so a duplicate submission is rejected here instead of
-    // manufacturing a second open request or an orphan ticket.
-    const epicKind =
-      requestType === "new_individual" || requestType === "bulk_new"
-        ? "NEW"
-        : requestType === "mod_individual"
-        ? "MODIFY"
-        : "RENEW";
+    // kind comes from the shared mapping so the Generate tab and the Term batch
+    // tab can never disagree about what a request type is tracked as. The cast is
+    // safe: this branch only runs when isDeactivate is false, and the mapping
+    // returns DEACTIVATE only for the two deactivate types.
+    const epicKind = epicKindForRequestType(requestType) as "NEW" | "MODIFY" | "RENEW";
 
     try {
       await submitEpicRequests(

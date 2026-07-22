@@ -38,9 +38,9 @@ function StatusPill({ state, actionable }: { state: OnboardingTaskState; actiona
   if (state === "COMPLETE") return <Badge tone="success">Done</Badge>;
   if (state === "NOT_REQUIRED") return <Badge tone="default">Not required</Badge>;
   if (state === "IN_PROGRESS") return <Badge tone="brand">In progress</Badge>;
-  // A task with no CTA (e.g. EHS, recorded by a coordinator) is not something the
-  // member can act on, so "Action needed" would misdirect them. Show a neutral
-  // "Pending" instead of the warning-toned call to action.
+  // A task with no CTA at all (neither an internal fix-it link nor an external
+  // one) is not something the member can act on, so "Action needed" would
+  // misdirect them. Show a neutral "Pending" instead of the warning-toned CTA.
   if (!actionable) return <Badge tone="default">Pending</Badge>;
   return <Badge tone="warning">Action needed</Badge>;
 }

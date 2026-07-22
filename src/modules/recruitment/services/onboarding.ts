@@ -16,7 +16,7 @@ import { renderCycleEmail } from "../email/render";
 import { resolveContractLayout } from "../contract/resolve";
 import { parseContractLayout, type ContractLayout } from "../contract/layout";
 import { DEFAULT_CONTRACT_LAYOUT } from "../contract/system-fields";
-import { buildContractAnswers, visibleContractBlocks } from "../contract/visibility";
+import { buildContractAnswers, visibleContractBlocks, type ContractContext } from "../contract/visibility";
 import { epicRequirementFor, resolveEpicNeeded } from "../contract/epic-requirement";
 
 /**
@@ -543,12 +543,43 @@ export async function listOnboarding(cycleId: string) {
 }
 
 /** Load a submitted contract for the admin signed-contract view, with the owning
- *  cycle id so the page can confirm the contract belongs to the cycle in its URL. */
+ *  cycle id so the page can confirm the contract belongs to the cycle in its URL,
+ *  and the authoritative visibility context (department/track/epicRequirement)
+ *  so the review renders exactly the blocks the applicant was shown -- the same
+ *  acceptance -> application -> cycle chain, and the same epicRequirementFor
+ *  derivation, that the fill-out page and submit validator use. */
 export async function getContractForReview(contractId: string) {
   const contract = await prisma.onboardingContract.findUnique({
     where: { id: contractId },
-    include: { acceptance: { include: { application: { select: { cycleId: true } } } } },
+    include: {
+      acceptance: {
+        include: { application: { select: { cycleId: true, cycle: { select: { track: true } } } } },
+      },
+    },
   });
   if (!contract) return null;
-  return { contract, cycleId: contract.acceptance.application.cycleId };
+  const departmentCode = contract.acceptance.departmentCode;
+  const track = contract.acceptance.application.cycle?.track ?? "VOLUNTEER";
+  const dept = departmentCode
+    ? await prisma.department.findUnique({
+        where: { code: departmentCode },
+        select: { requiresEpicDirector: true, requiresEpicVolunteer: true },
+      })
+    : null;
+  const ctx: ContractContext = {
+    department: departmentCode,
+    track,
+    epicRequirement: epicRequirementFor(dept, track),
+  };
+  return { contract, cycleId: contract.acceptance.application.cycleId, ctx };
+}
+
+/** Minimal certificate metadata for the reviewer-gated HIPAA download route:
+ *  the stored blob name (server-generated), the applicant's original file name,
+ *  and its mime type. Null when the contract does not exist. */
+export async function getContractHipaa(contractId: string) {
+  return prisma.onboardingContract.findUnique({
+    where: { id: contractId },
+    select: { hipaaStoredName: true, hipaaFileName: true, hipaaMimeType: true },
+  });
 }

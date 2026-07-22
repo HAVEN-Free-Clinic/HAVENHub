@@ -9,6 +9,7 @@ import { getObject } from "@/platform/storage";
 import { RecruitmentAuthError } from "./review";
 import {
   createOrResendContract, getContractByToken, submitContract, listOnboarding,
+  getContractForReview,
   ContractError, ContractValidationError, type ContractSubmission,
 } from "./onboarding";
 import type { SignatureInput } from "../contract/signatures";
@@ -503,4 +504,33 @@ it("uses the cycle's onboarding email override when present", async () => {
   expect(mail.subject).toContain("Finish");
   expect(mail.html).toContain("Go to");
   expect(mail.html).toContain("<!DOCTYPE html>");
+});
+
+describe("getContractForReview", () => {
+  it("returns the owning cycle id and the acceptance-derived visibility context", async () => {
+    const { cycle, acceptance } = await seed();
+    const contract = await prisma.onboardingContract.create({
+      data: { acceptanceId: acceptance.id, token: "tok-review-1", firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu", status: "SUBMITTED" },
+    });
+    const found = await getContractForReview(contract.id);
+    expect(found).not.toBeNull();
+    expect(found!.cycleId).toBe(cycle.id);
+    // SRHD is a VOLUNTEER-track department with requiresEpicVolunteer: SOME.
+    expect(found!.ctx).toEqual({ department: "SRHD", track: "VOLUNTEER", epicRequirement: "SOME" });
+  });
+
+  it("falls back to a NONE Epic requirement when the acceptance's department no longer resolves", async () => {
+    const { acceptance } = await seed();
+    const contract = await prisma.onboardingContract.create({
+      data: { acceptanceId: acceptance.id, token: "tok-review-2", firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu", status: "SUBMITTED" },
+    });
+    // The named department is gone (deleted/renamed) but the acceptance still carries its code.
+    await prisma.department.delete({ where: { code: "SRHD" } });
+    const found = await getContractForReview(contract.id);
+    expect(found!.ctx).toEqual({ department: "SRHD", track: "VOLUNTEER", epicRequirement: "NONE" });
+  });
+
+  it("returns null for an unknown contract id", async () => {
+    expect(await getContractForReview("does-not-exist")).toBeNull();
+  });
 });

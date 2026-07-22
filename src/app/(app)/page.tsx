@@ -18,6 +18,7 @@ import type { ModuleManifest } from "@/platform/modules/types";
 import { TimeGreeting } from "@/platform/ui/time-greeting";
 import { Card, cardClasses } from "@/platform/ui/card";
 import { ClinicChannelCard } from "./clinic-channel-card";
+import { EpicAccessCard } from "./epic-access-card";
 import { mySchedule } from "@/modules/schedule/services/schedule";
 import { countPendingApprovals } from "@/modules/schedule/services/requests";
 import { buildActionCards, type ActionCard } from "./action-cards";
@@ -458,6 +459,8 @@ export default async function HubPage() {
           <Suspense fallback={null}>
             <ClinicChannelCard />
           </Suspense>
+
+          <EpicAccessCard personId={person.personId} />
 
           <Card>
             <div className="flex items-center justify-between gap-2">

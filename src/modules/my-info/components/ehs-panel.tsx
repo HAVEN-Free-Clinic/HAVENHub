@@ -1,6 +1,8 @@
 import { Card } from "@/platform/ui/card";
 import type { MyEhsItem } from "@/platform/ehs/services/my-ehs";
 import { DateOnly } from "@/platform/dates/display";
+import { ExternalLinkButton } from "@/platform/ui/external-link-button";
+import { WORKDAY_LEARNING_URL } from "@/platform/external-links";
 
 export function EhsPanel({ items }: { items: MyEhsItem[] }) {
   if (items.length === 0) {
@@ -12,6 +14,7 @@ export function EhsPanel({ items }: { items: MyEhsItem[] }) {
       </Card>
     );
   }
+  const hasOutstanding = items.some((item) => !item.complete);
   return (
     <Card>
       <ul className="space-y-2">
@@ -33,6 +36,13 @@ export function EhsPanel({ items }: { items: MyEhsItem[] }) {
           </li>
         ))}
       </ul>
+      {hasOutstanding && (
+        <div className="mt-4">
+          <ExternalLinkButton href={WORKDAY_LEARNING_URL} variant="primary">
+            Complete EHS training in Workday
+          </ExternalLinkButton>
+        </div>
+      )}
     </Card>
   );
 }

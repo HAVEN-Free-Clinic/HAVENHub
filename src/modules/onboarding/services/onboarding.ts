@@ -29,9 +29,9 @@ export type OnboardingTask = {
   key: OnboardingTaskKey;
   label: string;
   description: string;
-  // Actionable tasks link to an allowlisted /get-started fix-it page. Tasks the
-  // volunteer cannot self-serve (EHS is recorded by a coordinator) omit these so
-  // the checklist shows status only, with no CTA that dead-ends at the gate.
+  // Actionable tasks link to an allowlisted /get-started fix-it page. Tasks with
+  // no in-app fix-it page omit these (EHS is recorded by a coordinator); the
+  // checklist row may still render an external CTA (EHS links out to Workday).
   href?: string;
   ctaLabel?: string;
   state: OnboardingTaskState;

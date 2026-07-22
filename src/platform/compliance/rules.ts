@@ -47,6 +47,21 @@ export type ComplianceStatus =
   | "NO_CERTIFICATE";
 
 /**
+ * Whether to show the "complete HIPAA training in Workday" link for a status.
+ * True when the person must (re)take the course: no cert on file, expired, or
+ * expiring soon. False when a cert is on file awaiting a manager
+ * (UNKNOWN_DATE, PENDING_VERIFICATION) or already compliant, where sending them
+ * back to the course would misdirect.
+ */
+export function hipaaNeedsTrainingLink(status: ComplianceStatus): boolean {
+  return (
+    status === "NO_CERTIFICATE" ||
+    status === "EXPIRED" ||
+    status === "EXPIRING_SOON"
+  );
+}
+
+/**
  * Compute the compliance status for a person.
  *
  * @param cert     The most recent certificate on file, or null if none exists.

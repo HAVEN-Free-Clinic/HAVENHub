@@ -12,7 +12,7 @@ incident-report email:
    "Open the review queue" link points at `{app.baseUrl}/incidents/review`, which is the correct
    URL. But `requirePersonSession()` (`src/platform/auth/session.ts:75`) bounces a signed-out
    visitor with a bare `redirect("/login")` carrying no `callbackUrl`. The login page *fully
-   supports* `callbackUrl` (`src/app/login/page.tsx:32-49`, with same-origin validation) — nothing
+   supports* `callbackUrl` (`src/app/login/page.tsx:32-49`, with same-origin validation) -- nothing
    ever passes it. So the recipient signs in through SSO and lands on `/`, never reaching the
    queue. This affects **every** emailed deep link in the app, not just incidents.
 
@@ -28,7 +28,7 @@ incident-report email:
 
 4. **No way to link a strike to an incident report from the ledger.** `DisciplinaryAction.reportId`
    exists and is populated by `decideStrike()`, but a strike recorded directly on the Strikes page
-   can never be associated with an INC — neither at creation nor after the fact.
+   can never be associated with an INC -- neither at creation nor after the fact.
 
 5. **Long descriptions are unreadable.** The Description cell is `line-clamp-2` with a `title`
    tooltip. Follow-up actions, policy reference, notes, and the linked report are stored but never
@@ -71,7 +71,7 @@ incident-report email:
 
 ## Design
 
-### 1. Login `callbackUrl` — `src/platform/auth/session.ts`
+### 1. Login `callbackUrl` -- `src/platform/auth/session.ts`
 
 `proxy.ts:19` already stamps `x-pathname` on every request that reaches a page. `enforceOnboarding`
 in the same file already reads it, so the plumbing exists.
@@ -99,7 +99,7 @@ Notes:
 - **Server actions have no path context.** `headers().get("x-pathname")` returns null there and the
   bare `/login` redirect is used, exactly as today.
 
-### 2. Strike notifications — `src/modules/incidents/services/strike-notifications.ts` (new)
+### 2. Strike notifications -- `src/modules/incidents/services/strike-notifications.ts` (new)
 
 The notification cannot live inside `issueAction()`: `decideStrike()` calls it with a transaction
 client, and notifications must only queue after the strike commits. So it is a separate helper both
@@ -115,15 +115,15 @@ export type StrikeNotificationInput = {
 export async function notifyStrikeIssued(input: StrikeNotificationInput): Promise<void>
 ```
 
-Whether to notify at all is the **caller's** decision — the helper has no opt-out parameter. The
+Whether to notify at all is the **caller's** decision -- the helper has no opt-out parameter. The
 Strikes page calls it only when the form's `notifyPeople` checkbox (labelled "Notify by email",
 checked by default) was submitted; `decideStrike()` always calls it.
 
 Recipient rules:
 
-- **Subject** — the person the strike is against. Always notified.
+- **Subject** -- the person the strike is against. Always notified.
   Type `incidents.strike_issued`, using the existing template.
-- **Directors** — `departmentDirectorPersonIds()` (`src/platform/departments.ts`) unioned across the
+- **Directors** -- `departmentDirectorPersonIds()` (`src/platform/departments.ts`) unioned across the
   subject's ACTIVE department memberships in the ACTIVE term, deduped. Type
   `incidents.strike_issued_directors`, a new template.
   - **Skipped entirely when `action.confidential` is true.** This mirrors `directorVisibility()` in
@@ -144,7 +144,7 @@ Both notifications go through `notify(prisma, {...})` with an `email` and a `tea
 Variables: `directorName`, `subjectName` (full name, not first name), `category`, `issuedDate`,
 `issuedBy`, `strikeCount` (the subject's running total, from the existing visibility-independent
 `strikeCount(personId)` service in `disciplinary.ts`), `ledgerLink`
-(`{app.baseUrl}/incidents/strikes`). Deliberately **omits the description** — directors get the
+(`{app.baseUrl}/incidents/strikes`). Deliberately **omits the description** -- directors get the
 categorical fact and a link to the ledger, where `directorVisibility()` governs what they can read.
 
 Paired with a `strikeIssuedDirectorsContext()` builder, matching the file's existing convention that
@@ -156,7 +156,7 @@ Body and variables are unchanged. Only the delivery path changes: `renderEmail` 
 `queueEmail` becomes `renderEmail` + `notify`. Since `notify()` calls `queueEmail` under the hood
 with `template: input.type`, the `EmailLog` rows keep the same template key.
 
-#### Registry — `src/platform/notifications/registry.ts`
+#### Registry -- `src/platform/notifications/registry.ts`
 
 Two entries appended, both `defaultChannel: "email"`:
 
@@ -171,14 +171,14 @@ derives `notifications.<key>.channel` from this list with `envDefault: () => t.d
 
 #### Call sites
 
-- **`decideStrike()`** — the inline `try { ... } catch {}` block at `report.ts:1019-1053` is deleted
+- **`decideStrike()`** -- the inline `try { ... } catch {}` block at `report.ts:1019-1053` is deleted
   and replaced with `await notifyStrikeIssued({ action: strikeAction, actorPersonId })`. This
   removes the duplicated `renderEmail`/`queueEmail`/date-formatting logic and the bare `catch {}`
   that currently swallows errors without logging.
-- **`issueActionForm`** on the Strikes page — after `issueAction()` returns, calls
+- **`issueActionForm`** on the Strikes page -- after `issueAction()` returns, calls
   `notifyStrikeIssued` when the form's `notifyPeople` checkbox was submitted.
 
-### 3. Person search — `strikeablePeople()` in `disciplinary.ts`
+### 3. Person search -- `strikeablePeople()` in `disciplinary.ts`
 
 New service beside `issuablePeople()`, for the central (`incidents.manage`) branch only:
 
@@ -192,7 +192,8 @@ export async function strikeablePeople(actorPersonId: string): Promise<
   `issuable.all` branch, so directors never reach it).
 - Returns **all** people, not just ACTIVE. Today's `findFirst` lookup has no status filter, so
   restricting to ACTIVE would regress the ability to record a strike against someone who has since
-  offboarded. Inactive people are sorted last and their hint is suffixed `— inactive`.
+  offboarded. `PersonStatus` is `ACTIVE | OFFBOARDED` (there is no `INACTIVE` value); OFFBOARDED
+  people sort last and their hint is suffixed `offboarded`.
 - `hint` follows `listSubjectOptions`' convention: active-term department codes plus
   `volunteer`/`director`, so same-named people are distinguishable.
 - Sort: ACTIVE first, then by name.
@@ -200,7 +201,7 @@ export async function strikeablePeople(actorPersonId: string): Promise<
 The page's central branch replaces the `personKey` `Input` with `<Combobox name="personId" ...>`.
 `issueActionForm` then always reads `personId` and the `personKey` fallback branch
 (`page.tsx:172-191`) is deleted along with the now-unreachable `person-not-found` lookup. The
-`person-not-found` error code stays in `ERROR_MESSAGES` — `issueAction` still throws
+`person-not-found` error code stays in `ERROR_MESSAGES` -- `issueAction` still throws
 `DisciplinaryNotFoundError` for a stale id.
 
 Director users keep their existing scoped `<Select>` unchanged.
@@ -216,7 +217,7 @@ export async function linkableReports(actorPersonId: string): Promise<
 ```
 
 Requires `incidents.manage` (throws `IncidentForbiddenError` otherwise). Returns the 200 most
-recent reports, newest first, labelled `#12 — Professional Conduct, Patient Safety — Jul 1, 2026`
+recent reports, newest first, labelled `#12 -- Professional Conduct, Patient Safety -- Jul 1, 2026`
 using the existing `CONCERN_LABELS` map and the configured display time zone. The 200 cap is
 explicit and documented in the JSDoc, since the `Combobox` filters client-side over whatever it is
 given.
@@ -245,7 +246,7 @@ The Record form gains an optional "Related incident report" `Combobox` (`name="r
 `linkableReports()`. `issueActionForm` passes it through to `issueAction`'s existing `reportId`
 input field. A collision on the composite unique surfaces the same validation message.
 
-#### Correctness fix this forces — `deleteAction()` (`disciplinary.ts:233`)
+#### Correctness fix this forces -- `deleteAction()` (`disciplinary.ts:233`)
 
 `deleteAction` resets the source `IncidentReportSubject` to `PENDING` so a deleted strike can be
 re-approved. Today that is safe because `reportId` is only ever set by `decideStrike()`, which
@@ -259,14 +260,14 @@ where: { reportId: row.reportId, personId: row.personId, strikeDecision: "APPROV
 
 `StrikeDecision` is `PENDING | APPROVED | DECLINED`. Rows that were never approved are left alone.
 
-### 5. Expandable rows — `src/app/(app)/incidents/strikes/strike-row.tsx` (new, client)
+### 5. Expandable rows -- `src/app/(app)/incidents/strikes/strike-row.tsx` (new, client)
 
 The ledger's `<tbody>` maps to a client `StrikeRow` per action instead of an inline `<TR>`.
 
 - Collapsed: the current seven columns, unchanged, plus a chevron toggle button on the Description
   cell (`aria-expanded`, `aria-controls`).
 - Expanded: a second `<TR>` with a `colSpan` cell containing the full description and the fields the
-  table hides — follow-up actions, policy reference, notes, and the linked report — each rendered
+  table hides -- follow-up actions, policy reference, notes, and the linked report -- each rendered
   only when present. Notes are labelled as internal.
 - The linked-report control lives here: a `Combobox` + "Link" submit, or the current report's label
   with an "Unlink" button, both posting to a `linkReportForm` server action. Rendered only when
@@ -292,13 +293,15 @@ Service-level (Vitest, throwaway pg on :5434), mirroring `disciplinary.test.ts` 
   audit row.
 - `deleteAction`: resets an `APPROVED` subject to `PENDING` (existing behaviour holds); **leaves a
   `DECLINED` subject untouched** (the new scoping).
-- `strikeablePeople`: includes inactive people; sorts active first; rejects a non-central actor.
+- `strikeablePeople`: includes OFFBOARDED people; sorts active first; hints department and kind;
+  returns `[]` (not a throw) for a non-central actor, since the page only renders the combobox on
+  the central branch.
 - `linkableReports`: rejects a non-central actor; caps at 200; labels correctly.
 - `requirePersonSession`: redirects to `/login?callbackUrl=<path>` when `x-pathname` is present and
   to bare `/login` when it is not.
 
 `src/platform/notifications/registry.test.ts` (which asserts the full key list) updated for the two
-new keys. `src/platform/settings/registry.test.ts` needs no change — it walks the derived list
+new keys. `src/platform/settings/registry.test.ts` needs no change -- it walks the derived list
 generically rather than hardcoding keys.
 
 ## Risks

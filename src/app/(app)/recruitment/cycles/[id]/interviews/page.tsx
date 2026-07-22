@@ -38,7 +38,12 @@ export default async function InterviewsPage({ params }: { params: Promise<{ id:
           section: { label: "Interviews", slug: "interviews" },
         })}
       />
-      <PageHeader title="Interviews" description={cycle.title} />
+      <div className="space-y-2">
+        <PageHeader title="Interviews" description={cycle.title} />
+        <p className="max-w-2xl text-sm text-muted-foreground">
+          This is where you send Zoom links to applicants and panelists for their interviews. It is a confirmation tool only; you manage your own scheduling.
+        </p>
+      </div>
       <Table>
         <THead>
           <tr>

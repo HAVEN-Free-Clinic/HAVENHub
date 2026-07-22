@@ -73,16 +73,19 @@ export async function updateQuizSettings(
   if (!Number.isInteger(input.quizMaxAttempts) || input.quizMaxAttempts < 1) {
     throw new TrainingStateError("Max attempts must be at least 1.");
   }
+  // Normalize here, not just in the UI action, so a direct/internal caller
+  // cannot store a whitespace-only location and the audit log stays consistent.
+  const trainingLocation = input.trainingLocation?.trim() || null;
   const updated = await prisma.recruitmentCycle.update({
     where: { id: cycleId },
     data: {
       quizPassPercent: input.quizPassPercent,
       quizMaxAttempts: input.quizMaxAttempts,
       inPersonTrainingDate: input.inPersonTrainingDate,
-      trainingLocation: input.trainingLocation,
+      trainingLocation,
     },
   });
-  await recordAudit({ actorPersonId: actorId, action: "recruitment.training_quiz_settings", entityType: "RecruitmentCycle", entityId: cycleId, after: input });
+  await recordAudit({ actorPersonId: actorId, action: "recruitment.training_quiz_settings", entityType: "RecruitmentCycle", entityId: cycleId, after: { ...input, trainingLocation } });
   return updated;
 }
 

@@ -49,6 +49,14 @@ it("updates quiz settings within bounds and rejects bad values", async () => {
   await expect(updateQuizSettings(c1.id, { quizPassPercent: 80, quizMaxAttempts: 0, inPersonTrainingDate: null, trainingLocation: null }, srr.id)).rejects.toBeInstanceOf(TrainingStateError);
 });
 
+it("normalizes trainingLocation: trims, and stores a whitespace-only value as null", async () => {
+  const { srr, c1 } = await seed();
+  const trimmed = await updateQuizSettings(c1.id, { quizPassPercent: 90, quizMaxAttempts: 5, inPersonTrainingDate: null, trainingLocation: "  on Zoom at 10 AM  " }, srr.id);
+  expect(trimmed.trainingLocation).toBe("on Zoom at 10 AM");
+  const blank = await updateQuizSettings(c1.id, { quizPassPercent: 90, quizMaxAttempts: 5, inPersonTrainingDate: null, trainingLocation: "   " }, srr.id);
+  expect(blank.trainingLocation).toBeNull();
+});
+
 async function seedMember() {
   const base = await seed();
   const dept = await prisma.department.findUniqueOrThrow({ where: { code: "SRHD" } });

@@ -69,12 +69,26 @@ export function availabilitySection(dates: TemplateOption[]): TemplateSection {
   ]);
 }
 
+/** Scoped NEW so the department choice (and its "are you flexible?" follow-up)
+ *  is asked of new applicants and department-switchers (TRANSFER resolves to NEW)
+ *  yet hidden from same-department renewals, who keep the department they pick in
+ *  the intro step. The willingness-to-switch question is asked of renewals too, so
+ *  it lives in its own BOTH-scoped section (volunteerDepartmentSwitchSection)
+ *  rather than here -- applicant scope is per-section, not per-field. */
 export function volunteerDepartmentSection(): TemplateSection {
-  return sec("Department preference", "BOTH", [
+  return sec("Department preference", "NEW", [
     { key: "department_choice", label: "Department / position preference", type: "DEPARTMENT_CHOICE", required: true },
-    { key: "switch_departments", label: "Would you be willing to switch departments?", type: "SINGLE_SELECT", required: false, options: YES_NO },
     { key: "department_flexibility", label: "Are you flexible in your department choice?", type: "SINGLE_SELECT", required: false, options: YES_NO },
   ], { description: "See department descriptions at havenfreeclinic.com/apply." });
+}
+
+/** Asked of everyone, including renewals: a renewal keeps their current
+ *  department but may still be willing to move. Kept out of the NEW-scoped
+ *  volunteerDepartmentSection so it survives for renewals. */
+export function volunteerDepartmentSwitchSection(): TemplateSection {
+  return sec("Switching departments", "BOTH", [
+    { key: "switch_departments", label: "Would you be willing to switch departments?", type: "SINGLE_SELECT", required: false, options: YES_NO },
+  ]);
 }
 
 /** Cover letter + resume, required, but scoped NEW so they are asked of new
@@ -116,8 +130,12 @@ export function directorEssaysSection(): TemplateSection {
   ]);
 }
 
+/** Scoped NEW, mirroring the volunteer department section: a renewing director
+ *  keeps their current department (chosen in the intro step), so the ranked-
+ *  preference dropdown is asked only of new applicants and transfers (TRANSFER
+ *  resolves to NEW), not same-department renewals. */
 export function directorDepartmentSection(): TemplateSection {
-  return sec("Department preferences", "BOTH", [
+  return sec("Department preferences", "NEW", [
     { key: "department_choice", label: "Department preference (1st and 2nd choice)", type: "DEPARTMENT_CHOICE", required: true,
       helpText: "See department descriptions at havenfreeclinic.com/apply before ranking your choices." },
   ]);

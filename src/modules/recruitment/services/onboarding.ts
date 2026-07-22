@@ -174,7 +174,13 @@ export async function createOrResendContract(
 }
 
 export async function getContractByToken(token: string) {
-  const contract = await prisma.onboardingContract.findUnique({ where: { token } });
+  // Include the acceptance -> application -> cycle chain so the onboarding
+  // page can derive the applicant's department and track (and from those,
+  // the Epic requirement) without a second round trip.
+  const contract = await prisma.onboardingContract.findUnique({
+    where: { token },
+    include: { acceptance: { include: { application: { include: { cycle: true } } } } },
+  });
   // An expired link is treated as invalid (the page shows the not-valid state). An
   // SRR can revive it by resending, which refreshes expiresAt on the same token.
   if (contract && isContractExpired(contract)) return null;

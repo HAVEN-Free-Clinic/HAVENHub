@@ -1,30 +1,64 @@
 "use client";
 import { useState } from "react";
+import type { EpicRequirement, Track } from "@prisma/client";
 import { Input, Field } from "@/platform/ui/input";
+import { Select } from "@/platform/ui/select";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { SignaturePad } from "@/platform/ui/signature-pad";
 import { FieldPreview } from "@/modules/recruitment/components/field-preview";
-import { SYSTEM_FIELDS } from "@/modules/recruitment/contract/system-fields";
+import { Prose } from "@/modules/recruitment/contract/prose";
+import { SYSTEM_FIELDS, gradYearOptions } from "@/modules/recruitment/contract/system-fields";
 import type { ContractBlock } from "@/modules/recruitment/contract/layout";
 
-// todayIso is stamped once on the server (YYYY-MM-DD) and passed down, so the
-// HIPAA date bounds are identical between the server render and client hydration
-// (a render-body new Date() would differ across the request/hydration boundary).
-type Ctx = { firstName: string; orgName: string; todayIso: string };
-type Prefill = { firstName: string; lastName: string; email: string; netId: string; phone: string; yaleAffiliation: string; gradYear: string; spanish: boolean };
+// todayIso/currentYear are stamped once on the server and passed down, so the
+// HIPAA date bounds and grad-year options are identical between the server
+// render and client hydration (a render-body new Date() would differ across
+// the request/hydration boundary). department/track/epicRequirement are the
+// same authoritative context buildContractAnswers uses, so client-side
+// visibility (visibleContractBlocks, in onboard-form.tsx) matches what the
+// server will validate.
+type Ctx = {
+  firstName: string; orgName: string; todayIso: string; currentYear: number;
+  trainingDate: string; trainingLocation: string;
+  department: string | null; track: Track; epicRequirement: EpicRequirement;
+};
+type Prefill = { firstName: string; lastName: string; email: string; netId: string; phone: string; yaleAffiliation: string; gradYear: string };
 
 function renderVars(text: string, ctx: Ctx): string {
-  // Escaped-text output only; substitutes {{firstName}} / {{orgName}} for preview.
-  // Kept deliberately simple to avoid importing server-only render helpers into
-  // this client component.
+  // Escaped-text output only; substitutes {{firstName}} / {{orgName}} /
+  // {{trainingDate}} / {{trainingLocation}} for preview. Kept deliberately
+  // simple to avoid importing server-only render helpers into this client
+  // component.
   return text
     .replace(/\{\{\s*firstName\s*\}\}/g, ctx.firstName)
-    .replace(/\{\{\s*orgName\s*\}\}/g, ctx.orgName);
+    .replace(/\{\{\s*orgName\s*\}\}/g, ctx.orgName)
+    .replace(/\{\{\s*trainingDate\s*\}\}/g, ctx.trainingDate)
+    .replace(/\{\{\s*trainingLocation\s*\}\}/g, ctx.trainingLocation);
+}
+
+/** Prepends the stored/prefilled value as a selectable option when it is
+ *  missing from the generated option list, so a value outside the list still
+ *  renders selected instead of silently blanking out. `gradYearOptions` is
+ *  only a 7-year rolling window, but a stored gradYear flows verbatim from
+ *  the application and the canonical application list runs wider (plus
+ *  "other"); this guard keeps that answer visible and selected regardless. */
+function withStoredOption(
+  options: { value: string; label: string }[],
+  stored: string,
+): { value: string; label: string }[] {
+  if (!stored || options.some((o) => o.value === stored)) return options;
+  return [{ value: stored, label: stored }, ...options];
 }
 
 export function ContractField({
-  block, prefill, ctx, err,
-}: { block: ContractBlock; prefill: Prefill; ctx: Ctx; err: (k: string) => string | undefined }) {
+  block, prefill, ctx, err, onAnswer,
+}: {
+  block: ContractBlock;
+  prefill: Prefill;
+  ctx: Ctx;
+  err: (k: string) => string | undefined;
+  onAnswer: (name: string, value: string | string[]) => void;
+}) {
   const [hasEpic, setHasEpic] = useState(false);
 
   // Tie each field's error message to its control so screen readers announce it
@@ -34,42 +68,72 @@ export function ContractField({
   const errorProps = (name: string): { "aria-invalid": boolean; "aria-describedby"?: string } =>
     err(name) ? { "aria-invalid": true, "aria-describedby": errorId(name) } : { "aria-invalid": false };
 
+  if (block.kind === "section") {
+    return (
+      <div className="space-y-1 border-t border-border pt-6 first:border-0 first:pt-0">
+        <h2 className="text-lg font-semibold text-foreground">{renderVars(block.title, ctx)}</h2>
+        {block.body.trim() && <Prose text={renderVars(block.body, ctx)} />}
+      </div>
+    );
+  }
+
   if (block.kind === "agreement") {
+    const kind = block.confirmKind ?? "signature";
     return (
       <div className="space-y-2">
-        {block.body.trim() && (
+        <p className="text-sm font-medium text-foreground">{renderVars(block.title, ctx)}</p>
+        {block.body.trim() && <Prose text={renderVars(block.body, ctx)} />}
+        {kind === "checkbox" ? (
           <>
-            <p className="text-sm font-medium text-foreground">{block.title}</p>
-            <p className="whitespace-pre-line text-sm text-foreground-soft">{renderVars(block.body, ctx)}</p>
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox
+                name={`confirm__${block.id}`}
+                required
+                onChange={(e) => onAnswer(`confirm__${block.id}`, e.target.checked ? "on" : "")}
+                {...errorProps(`confirm__${block.id}`)}
+              />
+              <span>{renderVars(block.signatureLabel, ctx)}</span>
+            </label>
+            {err(`confirm__${block.id}`) && (
+              <p id={errorId(`confirm__${block.id}`)} className="mt-1 text-xs text-critical">{err(`confirm__${block.id}`)}</p>
+            )}
           </>
+        ) : (
+          <SignaturePad
+            name={`sig__${block.id}`}
+            label={renderVars(block.title, ctx)}
+            required
+            personName={`${prefill.firstName} ${prefill.lastName}`.trim()}
+            error={err(`sig__${block.id}`)}
+          />
         )}
-        <SignaturePad
-          name={`sig__${block.id}`}
-          label={block.title}
-          required
-          personName={`${prefill.firstName} ${prefill.lastName}`.trim()}
-          error={err(`sig__${block.id}`)}
-        />
       </div>
     );
   }
 
   if (block.kind === "custom_question") {
+    // FieldPreview is shared with the apply wizard and renders label/helpText
+    // as plain text with no {{...}} substitution, so interpolate here first.
+    // epic_needed_self's authored label carries {{orgName}}; without this the
+    // literal token would leak to signers.
+    const label = renderVars(block.label, ctx);
+    const helpText = block.helpText ? renderVars(block.helpText, ctx) : null;
     return (
       <div>
         <FieldPreview
-          f={{ key: `custom__${block.key}`, label: block.label, helpText: block.helpText ?? null, type: block.type, required: block.required, options: block.options ?? null, validation: null }}
+          f={{ key: `custom__${block.key}`, label, helpText, type: block.type, required: block.required, options: block.options ?? null, validation: null }}
           departments={[]}
           fieldError={err(`custom__${block.key}`)}
+          // Notify by the block's raw key (not the custom__-prefixed submit
+          // name) since that is what a later block's visibleWhen addresses
+          // (e.g. second_department_name gates on "second_department"). This
+          // keeps client-side visibility live as the applicant answers,
+          // matching buildContractAnswers/visibleContractBlocks in
+          // onboard-form.tsx.
+          onValueChange={(_key, value) => onAnswer(block.key, value)}
         />
       </div>
     );
-  }
-
-  if (block.kind === "section") {
-    // Task 2 scope: the layout model supports section blocks; rendering the
-    // section heading/body (via the Task 1 Prose renderer) lands in a later task.
-    return null;
   }
 
   // system_field
@@ -80,16 +144,34 @@ export function ContractField({
       return (
         <div className="space-y-2">
           <p className="text-sm font-medium text-foreground">{label}</p>
-          <label className="flex items-center gap-2 text-sm"><Checkbox name="epicNeeded" /><span>Epic access is required for my role</span></label>
-          <label className="flex items-center gap-2 text-sm"><Checkbox name="hasEpic" checked={hasEpic} onChange={(e) => setHasEpic(e.target.checked)} /><span>I already have an Epic ID</span></label>
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox
+              name="hasEpic"
+              checked={hasEpic}
+              onChange={(e) => { setHasEpic(e.target.checked); onAnswer("hasEpic", e.target.checked ? "on" : ""); }}
+            />
+            <span>I already have an Epic ID</span>
+          </label>
           {hasEpic && (
-            <div>
-              <Field label="Existing Epic ID" required><Input name="existingEpicId" required {...errorProps("existingEpicId")} /></Field>
-              {err("existingEpicId") && <p id={errorId("existingEpicId")} className="mt-1 text-xs text-critical">{err("existingEpicId")}</p>}
-            </div>
+            <>
+              <div>
+                <Field label="Existing Epic ID" hint="Enter it in capital letters." required>
+                  <Input name="existingEpicId" required {...errorProps("existingEpicId")} />
+                </Field>
+                {err("existingEpicId") && <p id={errorId("existingEpicId")} className="mt-1 text-xs text-critical">{err("existingEpicId")}</p>}
+              </div>
+              <Field label="What type of access are you requesting?">
+                <Select name="epicAccessType" defaultValue="">
+                  <option value="">Select one</option>
+                  <option value="new">I need a new account. I have never had a Yale Epic account before.</option>
+                  <option value="renewal">I need a reactivation, renewal, extension or modification to my existing account.</option>
+                </Select>
+              </Field>
+            </>
           )}
-          <Field label="Access type (if known)"><Input name="epicAccessType" /></Field>
-          <label className="flex items-center gap-2 text-sm"><Checkbox name="worksWithYnhh" /><span>I currently work with Yale New Haven Hospital</span></label>
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox name="worksWithYnhh" /><span>I currently work with Yale New Haven Hospital</span>
+          </label>
         </div>
       );
     case "hipaaBlock": {
@@ -102,6 +184,7 @@ export function ContractField({
       return (
         <div className="space-y-2">
           <p className="text-sm font-medium text-foreground">{label}</p>
+          {block.helpText && <Prose text={renderVars(block.helpText, ctx)} />}
           <Field label="HIPAA completion date" required><Input name="hipaaCompletedAt" type="date" required min={minHipaa} max={maxHipaa} {...errorProps("hipaaCompletedAt")} /></Field>
           {err("hipaaCompletedAt") && <p id={errorId("hipaaCompletedAt")} className="mt-1 text-xs text-critical">{err("hipaaCompletedAt")}</p>}
           <Field label="HIPAA certificate (PDF)" required>
@@ -113,15 +196,45 @@ export function ContractField({
       );
     }
     case "checkbox":
+      // "spanish" is no longer emitted by either default layout (the Spanish
+      // field was dropped from Prefill along with it), but the system key
+      // stays legal for a custom/legacy layout snapshot; render it
+      // unprefilled rather than reading a Prefill field that no longer exists.
       return (
         <label className="flex items-center gap-2 text-sm">
           <Checkbox
             name={block.systemKey === "spanish" ? "spanishSelfReported" : "licensedRN"}
-            defaultChecked={block.systemKey === "spanish" ? prefill.spanish : false}
+            defaultChecked={false}
           />
           <span>{label}</span>
         </label>
       );
+    case "select": {
+      const stored = block.systemKey === "gradYear" ? prefill.gradYear
+        : block.systemKey === "yaleAffiliation" ? prefill.yaleAffiliation
+        : "";
+      const generated = block.systemKey === "gradYear" ? gradYearOptions(ctx.currentYear) : (spec.options ?? []);
+      const options = withStoredOption(generated, stored);
+      const nameByKey: Record<string, string> = { yaleAffiliation: "yaleAffiliation", gradYear: "gradYear" };
+      const inputName = nameByKey[block.systemKey];
+      const defaults: Record<string, string> = { yaleAffiliation: prefill.yaleAffiliation, gradYear: prefill.gradYear };
+      return (
+        <div>
+          <Field label={label}>
+            <Select
+              name={inputName}
+              defaultValue={defaults[block.systemKey] ?? ""}
+              onChange={(e) => onAnswer(inputName, e.target.value)}
+              {...errorProps(inputName)}
+            >
+              <option value="">Select one</option>
+              {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </Select>
+          </Field>
+          {err(inputName) && <p id={errorId(inputName)} className="mt-1 text-xs text-critical">{err(inputName)}</p>}
+        </div>
+      );
+    }
     case "date": case "email": case "tel": case "text": default: {
       // "name" is special: two inputs (first + last).
       if (block.systemKey === "name") {
@@ -150,14 +263,16 @@ export function ContractField({
           />
         );
       }
-      const nameByKey: Record<string, string> = { email: "email", netId: "netId", phone: "phone", dob: "dateOfBirth", dietary: "dietaryRestrictions", yaleAffiliation: "yaleAffiliation", gradYear: "gradYear" };
+      const nameByKey: Record<string, string> = {
+        email: "email", netId: "netId", phone: "phone", dob: "dateOfBirth",
+        dietary: "dietaryRestrictions", pronouns: "pronouns", staffTitle: "staffTitle",
+        epicIdExpiration: "epicIdExpiration",
+      };
       const type = spec.render === "text" ? "text" : spec.render;
       const defaults: Record<string, string> = {
         email: prefill.email,
         netId: prefill.netId,
         phone: prefill.phone,
-        yaleAffiliation: prefill.yaleAffiliation,
-        gradYear: prefill.gradYear,
       };
       const required = block.systemKey === "email";
       const inputName = nameByKey[block.systemKey];

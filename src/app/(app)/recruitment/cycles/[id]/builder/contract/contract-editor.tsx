@@ -1,7 +1,7 @@
 "use client";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Plus } from "lucide-react";
+import { Check, Eye, Plus } from "lucide-react";
 import type { FieldType } from "@prisma/client";
 import { applyBlockOp } from "@/modules/recruitment/contract/block-ops";
 import type { BlockPatch } from "@/modules/recruitment/contract/block-ops";
@@ -15,6 +15,7 @@ import { AgreementCard } from "./agreement-card";
 import { CustomQuestionCard } from "./custom-question-card";
 import { SectionCard } from "./section-card";
 import { buildFieldOptions } from "./field-options";
+import { OnboardingPreview, type OnboardingPreviewContext } from "./onboarding-preview";
 import { Button } from "@/platform/ui/button";
 import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
@@ -42,12 +43,14 @@ export function ContractEditor({
   hasOverride,
   mode = "cycle",
   status,
+  preview,
 }: {
   cycleId: string;
   initialLayout: ContractLayout;
   hasOverride: boolean;
   mode?: "cycle" | "global";
   status?: string;
+  preview: OnboardingPreviewContext;
 }) {
   const router = useRouter();
   // The global master template has no cycle, so it has no cycle status to lock
@@ -59,6 +62,7 @@ export function ContractEditor({
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   // Re-seed local edit state whenever the server sends a fresh layout (after a
   // successful save or reset triggers router.refresh()). This is React's
@@ -218,6 +222,9 @@ export function ContractEditor({
       {error && <Alert tone="error">{error}</Alert>}
 
       <div className="flex flex-wrap items-center gap-3">
+        <Button type="button" variant="outline" onClick={() => setPreviewOpen(true)}>
+          <Eye className="h-4 w-4" aria-hidden /> Preview form
+        </Button>
         <Button type="button" onClick={save} disabled={pending || !editable}>
           {pending ? "Saving…" : "Save contract"}
         </Button>
@@ -239,6 +246,13 @@ export function ContractEditor({
           </Button>
         )}
       </div>
+
+      <OnboardingPreview
+        open={previewOpen}
+        onClose={() => setPreviewOpen(false)}
+        layout={layout}
+        {...preview}
+      />
     </div>
   );
 }

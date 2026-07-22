@@ -5,8 +5,10 @@ import { epicRequirementFor } from "@/modules/recruitment/contract/epic-requirem
 import { getSetting } from "@/platform/settings/service";
 import { getSupportContact } from "@/platform/branding/support";
 import { SupportLink } from "@/platform/branding/support-link";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { prisma } from "@/platform/db";
 import { OnboardForm } from "./onboard-form";
+import { formatTrainingDate, formatTrainingLocation } from "./training-date";
 
 export default async function OnboardPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
@@ -51,7 +53,8 @@ export default async function OnboardPage({ params }: { params: Promise<{ token:
   // branch to NONE, matching its documented "no basis to provision Epic"
   // contract.
   const departmentCode = contract.acceptance?.departmentCode ?? null;
-  const track = contract.acceptance?.application?.cycle?.track ?? "VOLUNTEER";
+  const cycle = contract.acceptance?.application?.cycle ?? null;
+  const track = cycle?.track ?? "VOLUNTEER";
   const dept = departmentCode
     ? await prisma.department.findUnique({
         where: { code: departmentCode },
@@ -59,6 +62,10 @@ export default async function OnboardPage({ params }: { params: Promise<{ token:
       })
     : null;
   const epicRequirement = epicRequirementFor(dept, track);
+
+  const zone = await getDisplayTimeZone();
+  const trainingDate = formatTrainingDate(cycle?.inPersonTrainingDate ?? null, zone);
+  const trainingLocation = formatTrainingLocation(cycle?.trainingLocation ?? null);
 
   // Stamp the date/year once on the server so the HIPAA date bounds and grad
   // year options hydrate identically on the client.
@@ -75,7 +82,7 @@ export default async function OnboardPage({ params }: { params: Promise<{ token:
         layout={layout}
         ctx={{
           firstName: contract.firstName, orgName, todayIso, currentYear,
-          trainingDate: "", trainingLocation: "",
+          trainingDate, trainingLocation,
           department: departmentCode, track, epicRequirement,
         }}
       />

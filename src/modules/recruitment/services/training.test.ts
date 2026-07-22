@@ -42,11 +42,11 @@ it("requires manage_cycles to designate", async () => {
 
 it("updates quiz settings within bounds and rejects bad values", async () => {
   const { srr, c1 } = await seed();
-  const updated = await updateQuizSettings(c1.id, { quizPassPercent: 90, quizMaxAttempts: 5, inPersonTrainingDate: null }, srr.id);
+  const updated = await updateQuizSettings(c1.id, { quizPassPercent: 90, quizMaxAttempts: 5, inPersonTrainingDate: null, trainingLocation: null }, srr.id);
   expect(updated.quizPassPercent).toBe(90);
   expect(updated.quizMaxAttempts).toBe(5);
-  await expect(updateQuizSettings(c1.id, { quizPassPercent: 150, quizMaxAttempts: 5, inPersonTrainingDate: null }, srr.id)).rejects.toBeInstanceOf(TrainingStateError);
-  await expect(updateQuizSettings(c1.id, { quizPassPercent: 80, quizMaxAttempts: 0, inPersonTrainingDate: null }, srr.id)).rejects.toBeInstanceOf(TrainingStateError);
+  await expect(updateQuizSettings(c1.id, { quizPassPercent: 150, quizMaxAttempts: 5, inPersonTrainingDate: null, trainingLocation: null }, srr.id)).rejects.toBeInstanceOf(TrainingStateError);
+  await expect(updateQuizSettings(c1.id, { quizPassPercent: 80, quizMaxAttempts: 0, inPersonTrainingDate: null, trainingLocation: null }, srr.id)).rejects.toBeInstanceOf(TrainingStateError);
 });
 
 async function seedMember() {
@@ -101,7 +101,7 @@ async function addQuiz(cycleId: string) {
 
 it("quiz path: failing accrues attempts then locks; passing completes and saves intake", async () => {
   const { term, srr, vol, c1 } = await seedMember();
-  await updateQuizSettings(c1.id, { quizPassPercent: 100, quizMaxAttempts: 2, inPersonTrainingDate: null }, srr.id);
+  await updateQuizSettings(c1.id, { quizPassPercent: 100, quizMaxAttempts: 2, inPersonTrainingDate: null, trainingLocation: null }, srr.id);
   await addQuiz(c1.id);
 
   const r1 = await submitQuiz(vol.id, { termId: term.id, track: "VOLUNTEER", answers: { q1: "a", q2: "x" }, intake: { feedback: "hi" } });
@@ -146,7 +146,7 @@ it("gates the makeup quiz until the day after the in-person training date", asyn
   await addQuiz(c1.id);
   // Set an in-person date in the future -> makeup not open yet.
   const future = new Date(Date.now() + 7 * 86_400_000);
-  await updateQuizSettings(c1.id, { quizPassPercent: 100, quizMaxAttempts: 3, inPersonTrainingDate: future }, srr.id);
+  await updateQuizSettings(c1.id, { quizPassPercent: 100, quizMaxAttempts: 3, inPersonTrainingDate: future, trainingLocation: null }, srr.id);
 
   const beforeOpen = await getMyTraining(vol.id);
   expect(beforeOpen[0]!.inPersonTrainingDate?.getTime()).toBe(future.getTime());
@@ -158,7 +158,7 @@ it("gates the makeup quiz until the day after the in-person training date", asyn
 
   // Move the date to the past -> makeup open, submission works.
   const past = new Date(Date.now() - 2 * 86_400_000);
-  await updateQuizSettings(c1.id, { quizPassPercent: 100, quizMaxAttempts: 3, inPersonTrainingDate: past }, srr.id);
+  await updateQuizSettings(c1.id, { quizPassPercent: 100, quizMaxAttempts: 3, inPersonTrainingDate: past, trainingLocation: null }, srr.id);
   const afterOpen = await getMyTraining(vol.id);
   expect(afterOpen[0]!.makeupOpen).toBe(true);
   const r = await submitQuiz(vol.id, { termId: term.id, track: "VOLUNTEER", answers: { q1: "a", q2: "y" }, intake: {} });
@@ -244,7 +244,7 @@ it("a director completes director training via the quiz", async () => {
   const { term, srr, dir } = await seedMember();
   const dirCycle = await prisma.recruitmentCycle.create({ data: { track: "DIRECTOR", termId: term.id, title: "D", publicSlug: "d", departments: ["SRHD"], createdById: srr.id, status: "OPEN" } });
   await setTrainingCycle(dirCycle.id, true, srr.id);
-  await updateQuizSettings(dirCycle.id, { quizPassPercent: 100, quizMaxAttempts: 2, inPersonTrainingDate: null }, srr.id);
+  await updateQuizSettings(dirCycle.id, { quizPassPercent: 100, quizMaxAttempts: 2, inPersonTrainingDate: null, trainingLocation: null }, srr.id);
   await addQuiz(dirCycle.id);
 
   const r = await submitQuiz(dir.id, { termId: term.id, track: "DIRECTOR", answers: { q1: "a", q2: "y" }, intake: {} });
@@ -268,7 +268,7 @@ it("submitQuiz completes NEXT-term training while a different term is live", asy
   const next = await prisma.term.create({ data: { code: "FA26", name: "Fall", startDate: new Date("2026-09-01"), endDate: new Date("2027-01-01"), status: "PLANNING" } });
   const nextCycle = await prisma.recruitmentCycle.create({ data: { track: "VOLUNTEER", termId: next.id, title: "FA vol", publicSlug: "fa-vol", departments: ["SRHD"], createdById: srr.id, status: "OPEN" } });
   await setTrainingCycle(nextCycle.id, true, srr.id);
-  await updateQuizSettings(nextCycle.id, { quizPassPercent: 100, quizMaxAttempts: 2, inPersonTrainingDate: null }, srr.id);
+  await updateQuizSettings(nextCycle.id, { quizPassPercent: 100, quizMaxAttempts: 2, inPersonTrainingDate: null, trainingLocation: null }, srr.id);
   await addQuiz(nextCycle.id);
   await prisma.termMembership.create({ data: { personId: vol.id, termId: next.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" } });
 

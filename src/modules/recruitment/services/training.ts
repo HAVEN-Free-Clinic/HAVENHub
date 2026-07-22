@@ -52,11 +52,16 @@ export async function setTrainingCycle(cycleId: string, value: boolean, actorId:
   await recordAudit({ actorPersonId: actorId, action: "recruitment.training_designate", entityType: "RecruitmentCycle", entityId: cycleId, after: { isTermTraining: value } });
 }
 
-/** Update the cycle's quiz threshold, attempt cap, and in-person training date.
- *  Requires manage_cycles. */
+/** Update the cycle's quiz threshold, attempt cap, in-person training date, and
+ *  training location/time text. Requires manage_cycles. */
 export async function updateQuizSettings(
   cycleId: string,
-  input: { quizPassPercent: number; quizMaxAttempts: number; inPersonTrainingDate: Date | null },
+  input: {
+    quizPassPercent: number;
+    quizMaxAttempts: number;
+    inPersonTrainingDate: Date | null;
+    trainingLocation: string | null;
+  },
   actorId: string
 ): Promise<RecruitmentCycle> {
   if (!(await can(actorId, "recruitment.manage_cycles"))) {
@@ -70,7 +75,12 @@ export async function updateQuizSettings(
   }
   const updated = await prisma.recruitmentCycle.update({
     where: { id: cycleId },
-    data: { quizPassPercent: input.quizPassPercent, quizMaxAttempts: input.quizMaxAttempts, inPersonTrainingDate: input.inPersonTrainingDate },
+    data: {
+      quizPassPercent: input.quizPassPercent,
+      quizMaxAttempts: input.quizMaxAttempts,
+      inPersonTrainingDate: input.inPersonTrainingDate,
+      trainingLocation: input.trainingLocation,
+    },
   });
   await recordAudit({ actorPersonId: actorId, action: "recruitment.training_quiz_settings", entityType: "RecruitmentCycle", entityId: cycleId, after: input });
   return updated;

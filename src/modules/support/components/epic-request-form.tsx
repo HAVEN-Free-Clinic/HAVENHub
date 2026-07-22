@@ -158,12 +158,11 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
     setEmailDraft(null);
 
     try {
-      // endDate is held as an ISO YYYY-MM-DD string from the date input; the
-      // server and PDF expect MM/DD/YYYY. Convert by slicing (not via Date) so
-      // the calendar day the admin picked is preserved regardless of timezone.
-      const endDateFormatted = endDate
-        ? `${endDate.slice(5, 7)}/${endDate.slice(8, 10)}/${endDate.slice(0, 4)}`
-        : "";
+      // endDate is guaranteed non-empty by the guard above. It is held as an ISO
+      // YYYY-MM-DD string from the date input; the server and PDF expect MM/DD/YYYY.
+      // Convert by slicing (not via Date) so the calendar day the admin picked is
+      // preserved regardless of timezone.
+      const endDateFormatted = `${endDate.slice(5, 7)}/${endDate.slice(8, 10)}/${endDate.slice(0, 4)}`;
 
       const res = await fetch("/api/support/epic/generate", {
         method: "POST",

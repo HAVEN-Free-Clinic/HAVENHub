@@ -45,6 +45,11 @@ const schema = z
     // at <APP_BASE_URL>/apply and no host rewrite happens. Deploy-time value,
     // never derived from the request Host header.
     PORTAL_BASE_URL: z.preprocess((v) => (v === "" ? undefined : v), z.string().url().optional()),
+    // Optional label for a persistent non-production banner (e.g. "Staging").
+    // When set, every page renders a top warning strip so a user can never
+    // mistake the deploy for production. Left unset on production. Deploy-time
+    // value; empty string is treated as unset.
+    ENV_BANNER_LABEL: z.preprocess((v) => (v === "" ? undefined : v), z.string().optional()),
     // GitBook docs visitor authentication (custom JWT backend). When both are set,
     // /api/gitbook/auth signs an HS256 JWT with GITBOOK_JWT_KEY for the signed-in
     // person and redirects the visitor back into the published docs site. Optional:

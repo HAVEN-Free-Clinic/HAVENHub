@@ -263,4 +263,21 @@ describe("loadConfig", () => {
   it("rejects a non-empty PORTAL_BASE_URL that is not a URL, naming the variable", () => {
     expect(() => loadConfig({ ...base, PORTAL_BASE_URL: "not-a-url" })).toThrowError(/PORTAL_BASE_URL/);
   });
+
+  // --- Environment banner label (non-production deploy notice) ---
+
+  it("leaves ENV_BANNER_LABEL undefined when absent", () => {
+    const config = loadConfig(base);
+    expect(config.ENV_BANNER_LABEL).toBeUndefined();
+  });
+
+  it("treats an empty ENV_BANNER_LABEL as unset (no banner)", () => {
+    const config = loadConfig({ ...base, ENV_BANNER_LABEL: "" });
+    expect(config.ENV_BANNER_LABEL).toBeUndefined();
+  });
+
+  it("exposes ENV_BANNER_LABEL when provided", () => {
+    const config = loadConfig({ ...base, ENV_BANNER_LABEL: "Staging" });
+    expect(config.ENV_BANNER_LABEL).toBe("Staging");
+  });
 });

@@ -93,9 +93,14 @@ export function ContractField({
             )}
           </>
         ) : (
+          // The title is already the heading above; the pad's own label shows
+          // the editable signature prompt ("type your full name", "initial
+          // below") so it stays visible next to the box and the builder's
+          // "Signature prompt" field is not dead. Mirrors the checkbox branch,
+          // which shows signatureLabel beside the checkbox.
           <SignaturePad
             name={`sig__${block.id}`}
-            label={renderVars(block.title, ctx)}
+            label={renderVars(block.signatureLabel, ctx)}
             required
             personName={`${prefill.firstName} ${prefill.lastName}`.trim()}
             error={err(`sig__${block.id}`)}

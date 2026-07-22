@@ -35,6 +35,25 @@ describe("ContractField", () => {
     expect(out).not.toContain("{{trainingDate}}");
   });
 
+  // A signature/initials agreement must keep its editable signature prompt
+  // (signatureLabel) visible beside the pad, and must not just repeat the
+  // agreement title. Copilot flagged the old render, which passed the title as
+  // the pad label so the prompt was dead and the title duplicated.
+  it("shows the signature prompt (not a repeated title) for a signature agreement", () => {
+    const out = html({ kind: "agreement", id: "s", title: "Volunteer Agreement", body: "You agree.", confirmKind: "signature", signatureLabel: "type your full name" });
+    expect(out).toContain('name="sig__s"');
+    // title shown once (the heading), prompt shown as the pad label
+    expect(out.match(/Volunteer Agreement/g)?.length).toBe(1);
+    expect(out).toContain("type your full name");
+  });
+
+  it("shows the initials prompt for an initials agreement", () => {
+    const out = html({ kind: "agreement", id: "i", title: "Commitment", body: "You commit.", confirmKind: "initials", signatureLabel: "initial below" });
+    expect(out).toContain('name="sig__i"');
+    expect(out).toContain("initial below");
+    expect(out.match(/Commitment/g)?.length).toBe(1);
+  });
+
   it("omits the epicNeeded checkbox entirely", () => {
     expect(html({ kind: "system_field", systemKey: "epic" })).not.toContain('name="epicNeeded"');
   });

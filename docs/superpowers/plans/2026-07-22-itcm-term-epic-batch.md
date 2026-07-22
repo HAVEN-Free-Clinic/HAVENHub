@@ -103,13 +103,20 @@ describe("epicKindForRequestType", () => {
     expect(epicKindForRequestType("bulk_deactivate")).toBe("DEACTIVATE");
   });
 
-  it("covers every request type", () => {
-    const all: EpicRequestType[] = [
-      "new_individual", "mod_individual", "renew_individual",
-      "bulk_new", "bulk_mod", "bulk_renew",
-      "deactivate_individual", "bulk_deactivate",
-    ];
-    for (const t of all) expect(epicKindForRequestType(t)).toBeTruthy();
+  it("maps every request type to exactly the expected kind", () => {
+    const expected: Record<EpicRequestType, string> = {
+      new_individual: "NEW",
+      bulk_new: "NEW",
+      mod_individual: "MODIFY",
+      bulk_mod: "MODIFY",
+      renew_individual: "RENEW",
+      bulk_renew: "RENEW",
+      deactivate_individual: "DEACTIVATE",
+      bulk_deactivate: "DEACTIVATE",
+    };
+    for (const [type, kind] of Object.entries(expected)) {
+      expect(epicKindForRequestType(type as EpicRequestType)).toBe(kind);
+    }
   });
 });
 
@@ -233,9 +240,13 @@ import type { EpicRequestType } from "@/modules/support/epic-request-types";
 export type RequestType = EpicRequestType;
 ```
 
-Then add a `bulk_renew` entry to `SECTION_IX`, immediately after the `bulk_mod` entry. A renewal is a MOD/REACT request at YNHH, so the narrative is identical to `bulk_mod`:
+Then add a `bulk_renew` entry to `SECTION_IX`, immediately after the `bulk_mod` entry. A renewal is a MOD/REACT request at YNHH, so the narrative is deliberately identical to `bulk_mod`. Do NOT collapse the two into a shared constant: `SECTION_IX` is a per-request-type lookup of the exact narrative YNHH expects on the form, the shipped file already carries byte-identical `mod_individual` and `renew_individual` entries for the same reason, and either entry must stay independently editable when YNHH revises one flavour's wording. Add a comment saying so:
 
 ```ts
+  // Deliberately identical to bulk_mod: YNHH treats a renewal as a MOD/REACT
+  // request. Kept as its own entry (not a shared constant) so the wording of one
+  // flavour can change without touching the other, matching how mod_individual
+  // and renew_individual are already carried separately above.
   bulk_renew:
     "These individuals already have Epic accounts, but they require extended access to the department YM HAVEN FREE CLINIC. Their accounts should also have similar functions of the aforementioned Epic ID to mirror within the department YM HAVEN FREE CLINIC. Please see the attached spreadsheet for the multiple user information.",
 ```

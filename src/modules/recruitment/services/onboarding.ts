@@ -284,14 +284,34 @@ export async function submitContract(
   // Required agreement signatures + required custom questions come from the frozen
   // snapshot layout, so an edited contract validates exactly what it renders.
   const layout = safeParseLayout(contract.templateSnapshot);
-  // Validate exactly what the applicant was shown: the same
+  // Feed the submitted system-field values into the same
   // buildContractAnswers/visibleContractBlocks pair the client
   // (onboard-form.tsx) runs, over the frozen snapshot, with the same
-  // authoritative context. hasEpic feeds in as "on"/"" to match how the
-  // client's own answers map represents that checkbox, since a block's
-  // visibleWhen (e.g. epicIdExpiration) can key off it.
+  // authoritative context, so client and server compute the same visibility.
+  // The client's answers map is seeded from prefill and kept live via onChange
+  // for these input names, so a block's visibleWhen can key off any of them
+  // (e.g. staffTitle on yaleAffiliation === "staff"); without this the server
+  // could never see a raw system-field value and would evaluate such a
+  // condition against an empty map. systemAnswers is spread first so a custom
+  // answer or the authoritative context still wins on any key collision.
+  // hasEpic feeds in as "on"/"" to match how the client's own answers map
+  // represents that checkbox, since a block's visibleWhen (e.g.
+  // epicIdExpiration) can key off it.
+  const systemAnswers: Record<string, string> = {};
+  if (input.firstName) systemAnswers.firstName = input.firstName;
+  if (input.lastName) systemAnswers.lastName = input.lastName;
+  if (input.email) systemAnswers.email = input.email;
+  if (input.netId) systemAnswers.netId = input.netId;
+  if (input.phone) systemAnswers.phone = input.phone;
+  if (input.dateOfBirth) systemAnswers.dateOfBirth = input.dateOfBirth;
+  if (input.dietaryRestrictions) systemAnswers.dietaryRestrictions = input.dietaryRestrictions;
+  if (input.yaleAffiliation) systemAnswers.yaleAffiliation = input.yaleAffiliation;
+  if (input.gradYear) systemAnswers.gradYear = input.gradYear;
+  if (input.pronouns) systemAnswers.pronouns = input.pronouns;
+  if (input.staffTitle) systemAnswers.staffTitle = input.staffTitle;
+  if (input.epicIdExpiration) systemAnswers.epicIdExpiration = input.epicIdExpiration;
   const answers = buildContractAnswers(
-    { ...(input.customAnswers ?? {}), hasEpic: input.hasEpic ? "on" : "" },
+    { ...systemAnswers, ...(input.customAnswers ?? {}), hasEpic: input.hasEpic ? "on" : "" },
     { department: departmentCode, track, epicRequirement: requirement },
   );
   const visible = visibleContractBlocks(layout.blocks, answers);

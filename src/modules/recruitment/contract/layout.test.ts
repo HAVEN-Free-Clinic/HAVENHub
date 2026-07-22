@@ -38,6 +38,33 @@ describe("parseContractLayout", () => {
       { kind: "agreement", id: "a1", title: "B", body: "", signatureLabel: "sign" },
     ] })).toThrow(ContractLayoutError);
   });
+
+  it("rejects a custom-question key that starts with confirm__ (reserved for checkbox confirmations)", () => {
+    // Checkbox-agreement confirmations are stored under
+    // customAnswers["confirm__<agreementId>"], spread after the applicant's
+    // customAnswers. A custom_question whose key is literally confirm__<id>
+    // would silently clobber (or be clobbered by) that stored confirmation.
+    expect(() => parseContractLayout({ blocks: [
+      { kind: "custom_question", key: "confirm__x", label: "A", type: "SHORT_TEXT", required: false },
+    ] })).toThrow(ContractLayoutError);
+  });
+
+  it("rejects a custom-question key equal to an agreement id", () => {
+    // Agreement ids and custom_question keys share the same customAnswers
+    // keyspace at submit time, so a matching pair would let one clobber the
+    // other's stored answer.
+    expect(() => parseContractLayout({ blocks: [
+      { kind: "agreement", id: "dept_bvhd", title: "A", body: "", signatureLabel: "sign" },
+      { kind: "custom_question", key: "dept_bvhd", label: "B", type: "SHORT_TEXT", required: false },
+    ] })).toThrow(ContractLayoutError);
+  });
+
+  it("rejects a custom-question key equal to a section id", () => {
+    expect(() => parseContractLayout({ blocks: [
+      { kind: "section", id: "sec_intro", title: "A", body: "" },
+      { kind: "custom_question", key: "sec_intro", label: "B", type: "SHORT_TEXT", required: false },
+    ] })).toThrow(ContractLayoutError);
+  });
 });
 
 describe("section blocks and conditions", () => {

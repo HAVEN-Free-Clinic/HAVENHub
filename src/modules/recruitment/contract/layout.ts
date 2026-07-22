@@ -115,13 +115,21 @@ export function parseContractLayout(value: unknown): ContractLayout {
   const layout = parsed.data;
   const problems: string[] = [];
 
-  // custom-question keys unique and disjoint from system keys
+  // custom-question keys unique, disjoint from system keys, and not reserved
+  // for checkbox-agreement confirmations. Checkbox confirmations are stored as
+  // customAnswers["confirm__<agreementId>"], spread after the applicant's
+  // customAnswers at submit time; a custom_question key literally starting
+  // with confirm__ would silently clobber (or be clobbered by) that stored
+  // confirmation.
   const seen = new Set<string>();
   const systemKeySet = new Set<string>(SYSTEM_FIELD_KEYS);
   for (const b of layout.blocks) {
     if (b.kind !== "custom_question") continue;
     if (systemKeySet.has(b.key)) problems.push(`Custom question key "${b.key}" collides with a system field.`);
     if (seen.has(b.key)) problems.push(`Duplicate custom question key "${b.key}".`);
+    if (b.key.startsWith("confirm__")) {
+      problems.push(`Custom question key "${b.key}" is reserved for checkbox confirmations (the confirm__ prefix).`);
+    }
     seen.add(b.key);
   }
   // Agreement and section ids share one namespace: both are addressed by id in
@@ -131,6 +139,14 @@ export function parseContractLayout(value: unknown): ContractLayout {
     if (b.kind !== "agreement" && b.kind !== "section") continue;
     if (seenIds.has(b.id)) problems.push(`Duplicate block id "${b.id}".`);
     seenIds.add(b.id);
+  }
+  // Cross-namespace check: a custom_question key must not equal any agreement
+  // or section id either. Both land in the same stored customAnswers/answer
+  // keyspace at submit, so a collision here is silent data loss on a legal
+  // form just like the confirm__ case above.
+  for (const b of layout.blocks) {
+    if (b.kind !== "custom_question") continue;
+    if (seenIds.has(b.key)) problems.push(`Custom question key "${b.key}" collides with an agreement or section id.`);
   }
   if (problems.length) throw new ContractLayoutError(problems);
   return layout;

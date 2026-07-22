@@ -188,7 +188,7 @@ describe("submitContract visibility and Epic resolution", () => {
     expect(res.staffTitle).toBe("Program Manager");
   });
 
-  it("persists epicIdExpiration as a Date and null when absent", async () => {
+  it("persists epicIdExpiration as a Date when present", async () => {
     const { token } = await seedPending({ deptCode: "BVHD", requiresEpicVolunteer: "ALL" });
     const res = await submitContract(token, {
       ...base,
@@ -198,6 +198,47 @@ describe("submitContract visibility and Epic resolution", () => {
       confirmations: { dept_bvhd: true },
     });
     expect(res.epicIdExpiration?.toISOString()).toBe("2027-05-01T00:00:00.000Z");
+  });
+
+  it("persists epicIdExpiration as null when absent", async () => {
+    // The absent case actually submitted and asserted: epicIdExpiration must
+    // persist as null, not an Invalid Date (input.epicIdExpiration is falsy,
+    // so parseYmdDate is never called and epicIdExpiration stays undefined,
+    // which the claim write coalesces to null).
+    const { token } = await seedPending({ deptCode: "BVHD", requiresEpicVolunteer: "ALL" });
+    const res = await submitContract(token, {
+      ...base,
+      signatures: {},
+      customAnswers: {},
+      confirmations: { dept_bvhd: true },
+    });
+    expect(res.epicIdExpiration).toBeNull();
+  });
+
+  it("rejects an epicIdExpiration that overflows the calendar", async () => {
+    const { token } = await seedPending({ deptCode: "BVHD", requiresEpicVolunteer: "ALL" });
+    const err = await submitContract(token, {
+      ...base,
+      epicIdExpiration: "2026-02-30",
+      signatures: {},
+      customAnswers: {},
+      confirmations: { dept_bvhd: true },
+    }).catch((e) => e);
+    expect(err).toBeInstanceOf(ContractValidationError);
+    expect((err as ContractValidationError).fieldErrors.epicIdExpiration).toBe("Enter a valid date.");
+  });
+
+  it("rejects an epicIdExpiration that is not a date at all", async () => {
+    const { token } = await seedPending({ deptCode: "BVHD", requiresEpicVolunteer: "ALL" });
+    const err = await submitContract(token, {
+      ...base,
+      epicIdExpiration: "not-a-date",
+      signatures: {},
+      customAnswers: {},
+      confirmations: { dept_bvhd: true },
+    }).catch((e) => e);
+    expect(err).toBeInstanceOf(ContractValidationError);
+    expect((err as ContractValidationError).fieldErrors.epicIdExpiration).toBe("Enter a valid date.");
   });
 
   it("requires a checkbox confirmation for a visible checkbox agreement", async () => {
@@ -259,6 +300,71 @@ describe("submitContract visibility and Epic resolution", () => {
       confirmations: { dept_bvhd: true },
     });
     expect(res.epicNeeded).toBe(true);
+  });
+
+  it("sees a submitted system-field value that gates a required custom question (client/server visibility parity)", async () => {
+    // The client's answers map includes submitted system-field values (see
+    // onboard-form.tsx), so a block gated on one of those fields is visible
+    // to the client whenever the applicant's answer satisfies the condition.
+    // Before this fix the server's answers map never carried yaleAffiliation,
+    // so a required custom_question gated on it stayed permanently HIDDEN
+    // server-side no matter what the applicant submitted -- this constructed
+    // layout proves the server now sees the same value the client does.
+    const { token, contractId } = await seedPending({ deptCode: "BVHD", requiresEpicVolunteer: "NONE" });
+    await prisma.onboardingContract.update({
+      where: { id: contractId },
+      data: {
+        templateSnapshot: {
+          blocks: [
+            { kind: "system_field", systemKey: "name" },
+            { kind: "system_field", systemKey: "email" },
+            { kind: "system_field", systemKey: "hipaa" },
+            {
+              kind: "custom_question", key: "staff_reason", label: "Why are you staff?",
+              type: "SHORT_TEXT", required: true,
+              visibleWhen: { field: "yaleAffiliation", op: "is", value: "staff" },
+            },
+          ],
+        },
+      },
+    });
+
+    // yaleAffiliation="staff" makes staff_reason visible and required; omitting
+    // an answer must be rejected under its own field key. This only happens if
+    // the server's answers map actually contains the submitted yaleAffiliation.
+    const err = await submitContract(token, {
+      ...base, yaleAffiliation: "staff", signatures: {}, customAnswers: {}, confirmations: {},
+    }).catch((e) => e);
+    expect(err).toBeInstanceOf(ContractValidationError);
+    expect((err as ContractValidationError).fieldErrors.custom__staff_reason).toBe("required");
+  });
+
+  it("hides a custom question gated on a system-field value the applicant did not submit", async () => {
+    const { token, contractId } = await seedPending({ deptCode: "BVHD", requiresEpicVolunteer: "NONE" });
+    await prisma.onboardingContract.update({
+      where: { id: contractId },
+      data: {
+        templateSnapshot: {
+          blocks: [
+            { kind: "system_field", systemKey: "name" },
+            { kind: "system_field", systemKey: "email" },
+            { kind: "system_field", systemKey: "hipaa" },
+            {
+              kind: "custom_question", key: "staff_reason", label: "Why are you staff?",
+              type: "SHORT_TEXT", required: true,
+              visibleWhen: { field: "yaleAffiliation", op: "is", value: "staff" },
+            },
+          ],
+        },
+      },
+    });
+
+    // yaleAffiliation="college" hides staff_reason, so submission succeeds
+    // without ever answering it.
+    const res = await submitContract(token, {
+      ...base, yaleAffiliation: "college", signatures: {}, customAnswers: {}, confirmations: {},
+    });
+    expect(res.status).toBe("SUBMITTED");
   });
 
   it("submits end-to-end against the real production DIRECTOR_LAYOUT (checkbox + signature agreements together)", async () => {

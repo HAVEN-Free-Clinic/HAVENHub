@@ -15,6 +15,7 @@ type Ctx = {
   firstName: string; orgName: string; todayIso: string;
   trainingDate: string; trainingLocation: string;
   department: string | null; track: Track; epicRequirement: EpicRequirement;
+  storedEpicId: string | null;
 };
 
 export function OnboardForm({
@@ -96,6 +97,7 @@ export function OnboardForm({
   // applicant's answers merged with the authoritative context.
   const shown = visibleOnboardingBlocks(layout, answers, {
     department: ctx.department, track: ctx.track, epicRequirement: ctx.epicRequirement,
+    storedEpicId: ctx.storedEpicId,
   });
 
   return (

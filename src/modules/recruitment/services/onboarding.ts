@@ -16,7 +16,7 @@ import { renderCycleEmail } from "../email/render";
 import { resolveContractLayout } from "../contract/resolve";
 import { parseContractLayout, type ContractLayout } from "../contract/layout";
 import { DEFAULT_CONTRACT_LAYOUT } from "../contract/system-fields";
-import { buildContractAnswers, visibleContractBlocks } from "../contract/visibility";
+import { buildContractAnswers, visibleContractBlocks, type ContractContext } from "../contract/visibility";
 import { epicRequirementFor, resolveEpicNeeded } from "../contract/epic-requirement";
 
 /**
@@ -207,6 +207,26 @@ export async function getContractByToken(token: string) {
   return contract;
 }
 
+/**
+ * The Epic ID already on file for an applicant, or null. Matched the same way
+ * promotion.ts matches an existing Person: by netId (case-insensitive), else by
+ * contactEmail. A brand-new applicant has no Person yet, so this returns null
+ * and the Epic section collects normally. The onboarding page and submitContract
+ * both call this so their Epic-section visibility agrees (client/server parity).
+ */
+export async function lookupStoredEpicId(
+  netId: string | null,
+  email: string | null,
+): Promise<string | null> {
+  const byNetId = netId
+    ? await prisma.person.findFirst({ where: { netId: { equals: netId, mode: "insensitive" } }, select: { epicId: true } })
+    : null;
+  const matched = byNetId ?? (email
+    ? await prisma.person.findFirst({ where: { contactEmail: { equals: email, mode: "insensitive" } }, select: { epicId: true } })
+    : null);
+  return matched?.epicId ?? null;
+}
+
 export type ContractSubmission = {
   firstName: string;
   lastName: string;
@@ -276,6 +296,7 @@ export async function submitContract(
       })
     : null;
   const requirement = epicRequirementFor(dept, track);
+  const storedEpicId = await lookupStoredEpicId(contract.netId, contract.email);
 
   const e: Record<string, string> = {};
   if (!input.firstName?.trim()) e.firstName = "required";
@@ -312,7 +333,7 @@ export async function submitContract(
   if (input.epicIdExpiration) systemAnswers.epicIdExpiration = input.epicIdExpiration;
   const answers = buildContractAnswers(
     { ...systemAnswers, ...(input.customAnswers ?? {}), hasEpic: input.hasEpic ? "on" : "" },
-    { department: departmentCode, track, epicRequirement: requirement },
+    { department: departmentCode, track, epicRequirement: requirement, storedEpicId },
   );
   const visible = visibleContractBlocks(layout.blocks, answers);
   const initialsEnabled = visible.some(
@@ -543,12 +564,48 @@ export async function listOnboarding(cycleId: string) {
 }
 
 /** Load a submitted contract for the admin signed-contract view, with the owning
- *  cycle id so the page can confirm the contract belongs to the cycle in its URL. */
+ *  cycle id so the page can confirm the contract belongs to the cycle in its URL,
+ *  and the authoritative visibility context (department/track/epicRequirement)
+ *  so the review renders exactly the blocks the applicant was shown -- the same
+ *  acceptance -> application -> cycle chain, and the same epicRequirementFor
+ *  derivation, that the fill-out page and submit validator use. */
 export async function getContractForReview(contractId: string) {
   const contract = await prisma.onboardingContract.findUnique({
     where: { id: contractId },
-    include: { acceptance: { include: { application: { select: { cycleId: true } } } } },
+    include: {
+      acceptance: {
+        include: { application: { select: { cycleId: true, cycle: { select: { track: true } } } } },
+      },
+    },
   });
   if (!contract) return null;
-  return { contract, cycleId: contract.acceptance.application.cycleId };
+  const departmentCode = contract.acceptance.departmentCode;
+  const track = contract.acceptance.application.cycle?.track ?? "VOLUNTEER";
+  const dept = departmentCode
+    ? await prisma.department.findUnique({
+        where: { code: departmentCode },
+        select: { requiresEpicDirector: true, requiresEpicVolunteer: true },
+      })
+    : null;
+  // Resolve the Epic ID already on file the same way the fill-out page and
+  // submit validator do, so the review's Epic-section visibility matches what
+  // the applicant was shown (a stored id hides the "do you need Epic?" ask).
+  const storedEpicId = await lookupStoredEpicId(contract.netId, contract.email);
+  const ctx: ContractContext = {
+    department: departmentCode,
+    track,
+    epicRequirement: epicRequirementFor(dept, track),
+    storedEpicId,
+  };
+  return { contract, cycleId: contract.acceptance.application.cycleId, ctx };
+}
+
+/** Minimal certificate metadata for the reviewer-gated HIPAA download route:
+ *  the stored blob name (server-generated), the applicant's original file name,
+ *  and its mime type. Null when the contract does not exist. */
+export async function getContractHipaa(contractId: string) {
+  return prisma.onboardingContract.findUnique({
+    where: { id: contractId },
+    select: { hipaaStoredName: true, hipaaFileName: true, hipaaMimeType: true },
+  });
 }

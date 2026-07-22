@@ -7,13 +7,13 @@ const agreement = (id: string, dept: string): ContractBlock => ({
   confirmKind: "checkbox", visibleWhen: { field: "department", op: "is", value: dept },
 });
 
-const director = { department: "BVHD", track: "DIRECTOR" as const, epicRequirement: "ALL" as const };
-const unplaced = { department: null, track: "VOLUNTEER" as const, epicRequirement: "NONE" as const };
+const director = { department: "BVHD", track: "DIRECTOR" as const, epicRequirement: "ALL" as const, storedEpicId: null };
+const unplaced = { department: null, track: "VOLUNTEER" as const, epicRequirement: "NONE" as const, storedEpicId: null };
 
 describe("buildContractAnswers", () => {
-  it("injects department, track and epicRequirement", () => {
+  it("injects department, track, epicRequirement, epicSection and epicAsk", () => {
     expect(buildContractAnswers({}, director))
-      .toEqual({ department: "BVHD", track: "DIRECTOR", epicRequirement: "ALL" });
+      .toEqual({ department: "BVHD", track: "DIRECTOR", epicRequirement: "ALL", epicSection: "show", epicAsk: "no" });
   });
 
   it("lets the authoritative department win over a form answer", () => {
@@ -21,11 +21,49 @@ describe("buildContractAnswers", () => {
   });
 
   it("omits department when there is none", () => {
-    expect(buildContractAnswers({}, unplaced)).toEqual({ track: "VOLUNTEER", epicRequirement: "NONE" });
+    expect(buildContractAnswers({}, unplaced)).toEqual({ track: "VOLUNTEER", epicRequirement: "NONE", epicSection: "hide", epicAsk: "no" });
   });
 
   it("preserves unrelated form answers", () => {
     expect(buildContractAnswers({ hasEpic: "on" }, unplaced).hasEpic).toBe("on");
+  });
+
+  describe("epicSection derivation", () => {
+    it("shows for a department that uses Epic (ALL or SOME), no stored id", () => {
+      expect(buildContractAnswers({}, { ...unplaced, epicRequirement: "ALL" }).epicSection).toBe("show");
+      expect(buildContractAnswers({}, { ...unplaced, epicRequirement: "SOME" }).epicSection).toBe("show");
+    });
+
+    it("hides for a NONE department with no stored id", () => {
+      expect(buildContractAnswers({}, { ...unplaced, epicRequirement: "NONE" }).epicSection).toBe("hide");
+    });
+
+    it("shows when an Epic id is on file, even for a NONE department", () => {
+      expect(buildContractAnswers({}, { ...unplaced, epicRequirement: "NONE", storedEpicId: "ABC123" }).epicSection).toBe("show");
+    });
+
+    it("cannot be forced by a spoofed form answer", () => {
+      // hostile "show" against a NONE/no-stored context must still resolve hide
+      expect(buildContractAnswers({ epicSection: "show" }, unplaced).epicSection).toBe("hide");
+      // hostile "hide" against an ALL context must still resolve show
+      expect(buildContractAnswers({ epicSection: "hide" }, director).epicSection).toBe("show");
+    });
+  });
+
+  describe("epicAsk derivation", () => {
+    it("asks only for a SOME department with no id on file", () => {
+      expect(buildContractAnswers({}, { ...unplaced, epicRequirement: "SOME" }).epicAsk).toBe("yes");
+    });
+    it("does not ask for ALL or NONE", () => {
+      expect(buildContractAnswers({}, { ...unplaced, epicRequirement: "ALL" }).epicAsk).toBe("no");
+      expect(buildContractAnswers({}, { ...unplaced, epicRequirement: "NONE" }).epicAsk).toBe("no");
+    });
+    it("does not ask a SOME department when an id is on file", () => {
+      expect(buildContractAnswers({}, { ...unplaced, epicRequirement: "SOME", storedEpicId: "X" }).epicAsk).toBe("no");
+    });
+    it("cannot be forced by a spoofed form answer", () => {
+      expect(buildContractAnswers({ epicAsk: "yes" }, director).epicAsk).toBe("no");
+    });
   });
 
   // Core invariant of this task: department, track and epicRequirement are

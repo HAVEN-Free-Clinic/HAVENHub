@@ -6,6 +6,7 @@ const ctx = {
   firstName: "Ada", orgName: "HAVEN Free Clinic", todayIso: "2026-07-21",
   trainingDate: "Sunday, May 3", trainingLocation: " in person",
   department: "BVHD", track: "DIRECTOR" as const, epicRequirement: "ALL" as const,
+  storedEpicId: null,
 };
 const prefill = { firstName: "Ada", lastName: "L", email: "", netId: "", phone: "", yaleAffiliation: "", gradYear: "" };
 const noop = () => {};
@@ -54,14 +55,33 @@ describe("ContractField", () => {
     expect(out.match(/Commitment/g)?.length).toBe(1);
   });
 
-  it("omits the epicNeeded checkbox entirely", () => {
-    expect(html({ kind: "system_field", systemKey: "epic" })).not.toContain('name="epicNeeded"');
+  const epicHtml = (storedEpicId: string | null) =>
+    renderToStaticMarkup(
+      <ContractField block={{ kind: "system_field", systemKey: "epic" }} prefill={prefill}
+        ctx={{ ...ctx, storedEpicId }} err={noErr} onAnswer={noop} />,
+    );
+
+  it("omits the epicNeeded checkbox and the access-type select entirely", () => {
+    const out = epicHtml(null);
+    expect(out).not.toContain('name="epicNeeded"');
+    expect(out).not.toContain('name="epicAccessType"');
   });
 
-  it("hides the access type and expiration until an Epic ID is declared", () => {
-    const out = html({ kind: "system_field", systemKey: "epic" });
-    expect(out).not.toContain('name="epicAccessType"');
+  it("collection state: shows the have-an-account question, hides the id field until checked", () => {
+    const out = epicHtml(null);
+    expect(out).toContain("I already have a Yale Epic account");
+    // uncontrolled checkbox starts unchecked, so the id + YNHH collection is hidden
     expect(out).not.toContain('name="existingEpicId"');
+    expect(out).not.toContain('name="worksWithYnhh"');
+  });
+
+  it("on-file state: confirms the stored Epic ID and collects nothing", () => {
+    const out = epicHtml("YM12345");
+    expect(out).toContain("already on file");
+    expect(out).toContain("YM12345");
+    expect(out).not.toContain('name="existingEpicId"');
+    expect(out).not.toContain('name="hasEpic"');
+    expect(out).not.toContain('name="worksWithYnhh"');
   });
 
   it("renders affiliation as a select carrying every option", () => {

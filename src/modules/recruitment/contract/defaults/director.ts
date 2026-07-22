@@ -81,15 +81,17 @@ A tardy is defined as late to the extent that it impacts patient care or the wor
       confirmKind: "signature", signatureLabel: "type your full name",
       body: HAVEN_AGREEMENT_SIGNATURE },
 
-    { kind: "section", id: "sec_epic", title: "Epic Access", body: EPIC_ACCESS_GUIDANCE },
+    // The Epic section hides for a department that never uses Epic when the
+    // applicant has no id on file (epicSection derived in contract/visibility.ts).
+    { kind: "section", id: "sec_epic", title: "Epic Access", body: EPIC_ACCESS_GUIDANCE,
+      visibleWhen: { field: "epicSection", op: "is", value: "show" } },
     { kind: "custom_question", key: "epic_needed_self",
       label: "Is Epic access required for your role at {{orgName}}?",
       type: "SINGLE_SELECT", required: true,
       options: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }],
-      visibleWhen: { field: "epicRequirement", op: "is", value: "SOME" } },
-    { kind: "system_field", systemKey: "epic" },
-    { kind: "system_field", systemKey: "epicIdExpiration",
-      visibleWhen: { field: "hasEpic", op: "is", value: "on" } },
+      visibleWhen: { field: "epicAsk", op: "is", value: "yes" } },
+    { kind: "system_field", systemKey: "epic",
+      visibleWhen: { field: "epicSection", op: "is", value: "show" } },
 
     { kind: "agreement", id: "training", title: "Director Training",
       confirmKind: "checkbox", signatureLabel: "I will be attending",

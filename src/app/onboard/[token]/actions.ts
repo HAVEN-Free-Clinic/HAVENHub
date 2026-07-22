@@ -43,8 +43,10 @@ export async function submitOnboarding(token: string, formData: FormData): Promi
     pronouns: str("pronouns") || undefined, staffTitle: str("staffTitle") || undefined,
     epicIdExpiration: str("epicIdExpiration") || undefined,
     signatures, customAnswers, confirmations,
+    // Epic access type is no longer collected: IT decides the account
+    // modification type, not the applicant.
     hasEpic: bool("hasEpic"), existingEpicId: str("existingEpicId") || undefined,
-    epicAccessType: str("epicAccessType") || undefined, worksWithYnhh: bool("worksWithYnhh"),
+    worksWithYnhh: bool("worksWithYnhh"),
     spanishSelfReported: bool("spanishSelfReported"), licensedRN: bool("licensedRN"),
     hipaaCompletedAt: hipaaAt || undefined,
     hipaaFile: file instanceof File && file.size > 0 ? { fileName: file.name, mimeType: file.type, bytes: Buffer.from(await file.arrayBuffer()) } : undefined,

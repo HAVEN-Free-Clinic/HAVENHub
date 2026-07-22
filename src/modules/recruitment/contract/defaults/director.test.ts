@@ -40,7 +40,7 @@ describe("DIRECTOR_LAYOUT", () => {
     }
   });
 
-  it("gates staffTitle, second_department_name, epic_needed_self and epicIdExpiration correctly", () => {
+  it("gates staffTitle, second_department_name, epic_needed_self, the Epic section and block correctly", () => {
     const staffTitle = DIRECTOR_LAYOUT.blocks.find((b) => b.kind === "system_field" && b.systemKey === "staffTitle");
     expect(staffTitle?.visibleWhen).toMatchObject({ field: "yaleAffiliation", op: "is", value: "staff" });
 
@@ -48,10 +48,16 @@ describe("DIRECTOR_LAYOUT", () => {
     expect(secondDeptName?.visibleWhen).toMatchObject({ field: "second_department", op: "is", value: "yes" });
 
     const epicNeededSelf = DIRECTOR_LAYOUT.blocks.find((b) => b.kind === "custom_question" && b.key === "epic_needed_self");
-    expect(epicNeededSelf?.visibleWhen).toMatchObject({ field: "epicRequirement", op: "is", value: "SOME" });
+    expect(epicNeededSelf?.visibleWhen).toMatchObject({ field: "epicAsk", op: "is", value: "yes" });
 
-    const epicIdExpiration = DIRECTOR_LAYOUT.blocks.find((b) => b.kind === "system_field" && b.systemKey === "epicIdExpiration");
-    expect(epicIdExpiration?.visibleWhen).toMatchObject({ field: "hasEpic", op: "is", value: "on" });
+    const epicSection = DIRECTOR_LAYOUT.blocks.find((b) => b.kind === "section" && b.id === "sec_epic");
+    expect(epicSection?.visibleWhen).toMatchObject({ field: "epicSection", op: "is", value: "show" });
+
+    const epicBlock = DIRECTOR_LAYOUT.blocks.find((b) => b.kind === "system_field" && b.systemKey === "epic");
+    expect(epicBlock?.visibleWhen).toMatchObject({ field: "epicSection", op: "is", value: "show" });
+
+    // epicIdExpiration is no longer collected on the onboarding form.
+    expect(DIRECTOR_LAYOUT.blocks.some((b) => b.kind === "system_field" && b.systemKey === "epicIdExpiration")).toBe(false);
   });
 
   it("training agreement body carries the trainingDate and trainingLocation tokens", () => {

@@ -57,7 +57,7 @@ it("returns currentDepartments from the most-recent term only when memberships s
   expect(ctx.currentDepartments).toEqual(["EXEC"]);
 });
 
-it("resolveRenewalPrefill splits name, locks email by type, maps phone/netid, skips off-convention keys", async () => {
+it("resolveRenewalPrefill splits name, locks email and netid, maps phone, skips off-convention keys", async () => {
   const ctx = { personId: "p1", name: "Mary Jane Watson", email: "mjw@yale.edu", netId: "mjw1", phone: "555", currentDepartments: ["SRHD"], eligible: true };
   const { values, lockedKeys } = resolveRenewalPrefill(
     [{ key: "first_name", type: "SHORT_TEXT" }, { key: "last_name", type: "SHORT_TEXT" }, { key: "email", type: "EMAIL" }, { key: "phone", type: "PHONE" }, { key: "net_id", type: "SHORT_TEXT" }, { key: "favorite_color", type: "SHORT_TEXT" }],
@@ -69,5 +69,14 @@ it("resolveRenewalPrefill splits name, locks email by type, maps phone/netid, sk
   expect(values.phone).toBe("555");
   expect(values.net_id).toBe("mjw1");
   expect(values.favorite_color).toBeUndefined();
-  expect(lockedKeys).toEqual(["email"]);
+  // A person with an existing record cannot edit their NetID: it is locked like
+  // the verified email. Phone stays editable.
+  expect(lockedKeys).toEqual(["email", "net_id"]);
+});
+
+it("resolveRenewalPrefill does not lock net_id when the record has no NetID", async () => {
+  const ctx = { personId: "p1", name: "No Net", email: "nn@yale.edu", netId: null, phone: null, currentDepartments: ["SRHD"], eligible: true };
+  const { values, lockedKeys } = resolveRenewalPrefill([{ key: "net_id", type: "SHORT_TEXT" }, { key: "email", type: "EMAIL" }], ctx);
+  expect(values.net_id).toBeUndefined();
+  expect(lockedKeys).not.toContain("net_id");
 });

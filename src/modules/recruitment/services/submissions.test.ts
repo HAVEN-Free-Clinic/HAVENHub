@@ -757,6 +757,21 @@ it("captures the applicant's NetID from the net_id answer key (NEW)", async () =
   expect(applicant.netId).toBe("ni42");
 });
 
+it("pins a NEW applicant's NetID to their matched record, ignoring a tampered form value", async () => {
+  await openVolunteerCycle();
+  // A signed-in applicant with an existing record who applies as NEW cannot
+  // change their NetID: the server uses the record's value, not the form's.
+  const person = await prisma.person.create({ data: { name: "Rec Ord", netId: "rec9", status: "ACTIVE" } });
+  await submitApplication("apply-v", {
+    applicantType: "NEW",
+    answers: { first_name: "Rec", last_name: "Ord", email: "rec@yale.edu", net_id: "tampered", "1st_choice_department": "MDIC" },
+    files: {},
+    sessionPersonId: person.id,
+  });
+  const applicant = await prisma.applicant.findFirstOrThrow({ where: { emailLower: "rec@yale.edu" } });
+  expect(applicant.netId).toBe("rec9");
+});
+
 it("fills a RENEWAL applicant's identity from their matched record, not the (absent) NEW-only identity fields", async () => {
   await openVolunteerCycle();
   const person = await makeVolunteer("SRHD");

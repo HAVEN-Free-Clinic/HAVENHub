@@ -162,6 +162,17 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
     input.answers = { ...input.answers, email: input.identityEmail };
   }
 
+  // A NEW applicant who is nonetheless a matched person (signed in with an
+  // existing record) cannot change their NetID -- pin it to the record, the same
+  // authority principle as the verified email above. Returning applicants already
+  // take their NetID from the record (below); unmatched applicants (no
+  // sessionPersonId) and records without a NetID keep the form value.
+  let matchedRecordNetId: string | null = null;
+  if (!isReturning && input.sessionPersonId) {
+    const rec = await prisma.person.findUnique({ where: { id: input.sessionPersonId }, select: { netId: true } });
+    matchedRecordNetId = rec?.netId ?? null;
+  }
+
   const resolvedSections = resolveAvailabilityOptions(cycle.sections, cycle.term.clinicDates);
   const sectionDefs = toSectionDefs(resolvedSections, cycle.departments, input.applicantType);
 
@@ -263,7 +274,7 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
   ).trim();
   const identityNetId = isReturning
     ? returningIdentity?.netId ?? null
-    : typeof input.answers.net_id === "string" ? input.answers.net_id : null;
+    : matchedRecordNetId ?? (typeof input.answers.net_id === "string" ? input.answers.net_id : null);
   const identityPhone = isReturning
     ? returningIdentity?.phone ?? null
     : typeof input.answers.phone === "string" ? input.answers.phone : null;

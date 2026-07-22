@@ -16,6 +16,7 @@ type Ctx = {
   firstName: string; orgName: string; todayIso: string;
   trainingDate: string; trainingLocation: string;
   department: string | null; track: Track; epicRequirement: EpicRequirement;
+  storedEpicId: string | null;
 };
 
 export function OnboardForm({
@@ -97,6 +98,7 @@ export function OnboardForm({
   // which visibleWhen conditions do not model.
   const resolved = buildContractAnswers(answers, {
     department: ctx.department, track: ctx.track, epicRequirement: ctx.epicRequirement,
+    storedEpicId: ctx.storedEpicId,
   });
   const enabled = layout.blocks.filter(
     (b) => b.kind !== "system_field" || b.enabled !== false || SYSTEM_FIELDS[b.systemKey].core,

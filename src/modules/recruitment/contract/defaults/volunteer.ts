@@ -20,16 +20,19 @@ export const VOLUNTEER_LAYOUT: ContractLayout = {
     { kind: "section", id: "sec_hipaa", title: "HIPAA Compliance", body: HIPAA_INSTRUCTIONS },
     { kind: "system_field", systemKey: "hipaa" },
 
-    { kind: "section", id: "sec_epic", title: "Epic Access", body: EPIC_ACCESS_GUIDANCE },
+    // The Epic section hides for a department that never uses Epic when the
+    // applicant has no id on file (epicSection derived in contract/visibility.ts).
+    { kind: "section", id: "sec_epic", title: "Epic Access", body: EPIC_ACCESS_GUIDANCE,
+      visibleWhen: { field: "epicSection", op: "is", value: "show" } },
     { kind: "custom_question", key: "epic_needed_self",
       label: "Is Epic access required for your role at {{orgName}}?",
       type: "SINGLE_SELECT", required: true,
       options: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }],
-      visibleWhen: { field: "epicRequirement", op: "is", value: "SOME" } },
-    { kind: "system_field", systemKey: "epic" },
-    { kind: "system_field", systemKey: "epicIdExpiration",
-      visibleWhen: { field: "hasEpic", op: "is", value: "on" } },
-    { kind: "system_field", systemKey: "licensedRN" },
+      visibleWhen: { field: "epicAsk", op: "is", value: "yes" } },
+    // The epic block itself confirms a stored id or collects one; hidden with
+    // the section when Epic is not needed and none is on file.
+    { kind: "system_field", systemKey: "epic",
+      visibleWhen: { field: "epicSection", op: "is", value: "show" } },
 
     { kind: "section", id: "sec_contract", title: "Volunteer Contract", body: "" },
     { kind: "agreement", id: "agreement", title: "Volunteer Agreement", confirmKind: "initials",

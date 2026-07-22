@@ -207,6 +207,26 @@ export async function getContractByToken(token: string) {
   return contract;
 }
 
+/**
+ * The Epic ID already on file for an applicant, or null. Matched the same way
+ * promotion.ts matches an existing Person: by netId (case-insensitive), else by
+ * contactEmail. A brand-new applicant has no Person yet, so this returns null
+ * and the Epic section collects normally. The onboarding page and submitContract
+ * both call this so their Epic-section visibility agrees (client/server parity).
+ */
+export async function lookupStoredEpicId(
+  netId: string | null,
+  email: string | null,
+): Promise<string | null> {
+  const byNetId = netId
+    ? await prisma.person.findFirst({ where: { netId: { equals: netId, mode: "insensitive" } }, select: { epicId: true } })
+    : null;
+  const matched = byNetId ?? (email
+    ? await prisma.person.findFirst({ where: { contactEmail: { equals: email, mode: "insensitive" } }, select: { epicId: true } })
+    : null);
+  return matched?.epicId ?? null;
+}
+
 export type ContractSubmission = {
   firstName: string;
   lastName: string;
@@ -276,6 +296,7 @@ export async function submitContract(
       })
     : null;
   const requirement = epicRequirementFor(dept, track);
+  const storedEpicId = await lookupStoredEpicId(contract.netId, contract.email);
 
   const e: Record<string, string> = {};
   if (!input.firstName?.trim()) e.firstName = "required";
@@ -312,7 +333,7 @@ export async function submitContract(
   if (input.epicIdExpiration) systemAnswers.epicIdExpiration = input.epicIdExpiration;
   const answers = buildContractAnswers(
     { ...systemAnswers, ...(input.customAnswers ?? {}), hasEpic: input.hasEpic ? "on" : "" },
-    { department: departmentCode, track, epicRequirement: requirement },
+    { department: departmentCode, track, epicRequirement: requirement, storedEpicId },
   );
   const visible = visibleContractBlocks(layout.blocks, answers);
   const initialsEnabled = visible.some(

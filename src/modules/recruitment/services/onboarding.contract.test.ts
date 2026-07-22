@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import {
-  createOrResendContract, submitContract,
+  createOrResendContract, submitContract, lookupStoredEpicId,
   ContractValidationError, type ContractSubmission,
 } from "./onboarding";
 import type { ContractLayout } from "../contract/layout";
@@ -402,5 +402,69 @@ describe("submitContract visibility and Epic resolution", () => {
     });
     expect(res.status).toBe("SUBMITTED");
     expect(res.epicNeeded).toBe(true);
+  });
+});
+
+describe("lookupStoredEpicId", () => {
+  beforeEach(async () => { await resetDb(); });
+  afterEach(async () => { await resetDb(); });
+
+  it("matches an existing Person by netId (case-insensitive) and returns their Epic ID", async () => {
+    await prisma.person.create({ data: { name: "Ada", status: "ACTIVE", netId: "AL99", epicId: "YM111" } });
+    expect(await lookupStoredEpicId("al99", "other@yale.edu")).toBe("YM111");
+  });
+
+  it("falls back to contactEmail when there is no netId match", async () => {
+    await prisma.person.create({ data: { name: "Ada", status: "ACTIVE", contactEmail: "ada@yale.edu", epicId: "YM222" } });
+    expect(await lookupStoredEpicId(null, "ADA@yale.edu")).toBe("YM222");
+  });
+
+  it("returns null for a brand-new applicant with no matching Person", async () => {
+    expect(await lookupStoredEpicId("nobody", "nobody@yale.edu")).toBeNull();
+  });
+
+  it("returns null when the matched Person has no Epic ID on file", async () => {
+    await prisma.person.create({ data: { name: "Ada", status: "ACTIVE", netId: "al99" } });
+    expect(await lookupStoredEpicId("al99", null)).toBeNull();
+  });
+});
+
+describe("submitContract Epic section visibility from a stored Epic ID", () => {
+  beforeEach(async () => { await resetDb(); });
+  afterEach(async () => { await resetDb(); });
+
+  // A block gated on epicSection === "show" is hidden for a NONE department with
+  // no id on file, but a stored Epic ID forces the section visible. This proves
+  // lookupStoredEpicId reaches the server's visibility map, matching the client.
+  const epicGatedLayout = (): ContractLayout => ({
+    blocks: [
+      { kind: "system_field", systemKey: "name" },
+      { kind: "system_field", systemKey: "email" },
+      { kind: "system_field", systemKey: "hipaa" },
+      { kind: "agreement", id: "epic_ack", title: "Epic acknowledgement", confirmKind: "checkbox",
+        signatureLabel: "I confirm", body: "",
+        visibleWhen: { field: "epicSection", op: "is", value: "show" } },
+    ],
+  });
+
+  it("hides the epicSection block for a NONE department with no id on file (submits without it)", async () => {
+    const { token, contractId } = await seedPending({ deptCode: "SRHD", requiresEpicVolunteer: "NONE" });
+    await prisma.onboardingContract.update({ where: { id: contractId }, data: { templateSnapshot: epicGatedLayout() as object } });
+    const res = await submitContract(token, { ...base, signatures: {}, customAnswers: {}, confirmations: {} });
+    expect(res.status).toBe("SUBMITTED");
+  });
+
+  it("shows and requires the epicSection block when an Epic ID is on file, even for a NONE department", async () => {
+    const { token, contractId } = await seedPending({ deptCode: "SRHD", requiresEpicVolunteer: "NONE" });
+    await prisma.onboardingContract.update({ where: { id: contractId }, data: { templateSnapshot: epicGatedLayout() as object } });
+    // Seed a Person matching the contract's netId (al99) with an Epic ID on file.
+    await prisma.person.create({ data: { name: "Ada", status: "ACTIVE", netId: "al99", epicId: "YM999" } });
+
+    const missing = await submitContract(token, { ...base, signatures: {}, customAnswers: {}, confirmations: {} }).catch((e) => e);
+    expect(missing).toBeInstanceOf(ContractValidationError);
+    expect((missing as ContractValidationError).fieldErrors.confirm__epic_ack).toBe("required");
+
+    const ok = await submitContract(token, { ...base, signatures: {}, customAnswers: {}, confirmations: { epic_ack: true } });
+    expect(ok.status).toBe("SUBMITTED");
   });
 });

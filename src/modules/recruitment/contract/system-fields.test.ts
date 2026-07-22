@@ -57,7 +57,7 @@ describe("system fields + default layout", () => {
     // per-agreement via confirmKind: "initials" rather than a standalone
     // system field. Both keys stay in SYSTEM_FIELD_KEYS as field types a
     // builder can still add back.
-    for (const k of ["name","email","netId","phone","dob","dietary","yaleAffiliation","gradYear","epic","licensedRN","hipaa"]) {
+    for (const k of ["name","email","netId","phone","dob","dietary","yaleAffiliation","gradYear","epic","hipaa"]) {
       expect(systemKeys).toContain(k);
     }
     expect(systemKeys).not.toContain("spanish");

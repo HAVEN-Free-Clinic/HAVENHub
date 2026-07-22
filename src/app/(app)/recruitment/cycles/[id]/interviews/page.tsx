@@ -58,6 +58,11 @@ export default async function InterviewsPage({ params }: { params: Promise<{ id:
         <tbody>
           {interviews.map((iv) => {
             const s = status(iv);
+            const panelistCount = iv.panelists.length;
+            const evaluationCount = iv.evaluations.length;
+            // Never render more evaluations than panelists (stray non-panelist evals
+            // would otherwise show e.g. "3/2"); show "-" when there are no panelists.
+            const displayEvaluationCount = Math.min(evaluationCount, panelistCount);
             return (
               <TR key={iv.id}>
                 <TD>
@@ -73,9 +78,9 @@ export default async function InterviewsPage({ params }: { params: Promise<{ id:
                   <Badge tone={s.tone}>{s.label}</Badge>
                 </TD>
                 <TD className="text-foreground-soft"><DateTime value={iv.scheduledAt} fallback="TBD" /></TD>
-                <TD className="text-foreground-soft">{iv.panelists.length}</TD>
+                <TD className="text-foreground-soft">{panelistCount}</TD>
                 <TD className="text-foreground-soft">
-                  {iv.evaluations.length}/{iv.panelists.length}
+                  {panelistCount === 0 ? "-" : `${displayEvaluationCount}/${panelistCount}`}
                 </TD>
               </TR>
             );

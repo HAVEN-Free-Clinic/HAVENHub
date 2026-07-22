@@ -1,5 +1,5 @@
 import type { ContractLayout } from "../layout";
-import { HIPAA_INSTRUCTIONS, EPIC_PREAMBLE, DATA_PRIVACY_STATEMENT, HAVEN_AGREEMENT_SIGNATURE } from "./shared";
+import { HIPAA_INSTRUCTIONS, EPIC_PREAMBLE, EPIC_ACCESS_GUIDANCE, DATA_PRIVACY_STATEMENT, HAVEN_AGREEMENT_SIGNATURE } from "./shared";
 import { DEPARTMENT_RESPONSIBILITY_BLOCKS } from "./departments";
 
 export const DIRECTOR_LAYOUT: ContractLayout = {
@@ -81,7 +81,7 @@ A tardy is defined as late to the extent that it impacts patient care or the wor
       confirmKind: "signature", signatureLabel: "type your full name",
       body: HAVEN_AGREEMENT_SIGNATURE },
 
-    { kind: "section", id: "sec_epic", title: "Epic Access", body: EPIC_PREAMBLE },
+    { kind: "section", id: "sec_epic", title: "Epic Access", body: EPIC_ACCESS_GUIDANCE },
     { kind: "custom_question", key: "epic_needed_self",
       label: "Is Epic access required for your role at {{orgName}}?",
       type: "SINGLE_SELECT", required: true,

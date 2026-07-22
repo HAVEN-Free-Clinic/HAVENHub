@@ -1,5 +1,5 @@
 import type { ContractLayout } from "../layout";
-import { HIPAA_INSTRUCTIONS, EPIC_PREAMBLE, HAVEN_AGREEMENT_SIGNATURE } from "./shared";
+import { HIPAA_INSTRUCTIONS, EPIC_ACCESS_GUIDANCE, HAVEN_AGREEMENT_SIGNATURE } from "./shared";
 
 export const VOLUNTEER_LAYOUT: ContractLayout = {
   blocks: [
@@ -20,7 +20,7 @@ export const VOLUNTEER_LAYOUT: ContractLayout = {
     { kind: "section", id: "sec_hipaa", title: "HIPAA Compliance", body: HIPAA_INSTRUCTIONS },
     { kind: "system_field", systemKey: "hipaa" },
 
-    { kind: "section", id: "sec_epic", title: "Epic Access", body: EPIC_PREAMBLE },
+    { kind: "section", id: "sec_epic", title: "Epic Access", body: EPIC_ACCESS_GUIDANCE },
     { kind: "custom_question", key: "epic_needed_self",
       label: "Is Epic access required for your role at {{orgName}}?",
       type: "SINGLE_SELECT", required: true,

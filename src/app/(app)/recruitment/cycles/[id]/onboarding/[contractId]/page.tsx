@@ -4,13 +4,14 @@ import { getCycle } from "@/modules/recruitment/services/cycles";
 import { getContractForReview } from "@/modules/recruitment/services/onboarding";
 import { parseContractLayout, type ContractLayout } from "@/modules/recruitment/contract/layout";
 import { DEFAULT_CONTRACT_LAYOUT } from "@/modules/recruitment/contract/system-fields";
-import { buildContractSignatureView } from "@/modules/recruitment/contract/signatures";
+import { buildContractReview } from "@/modules/recruitment/contract/review";
 import { getObject } from "@/platform/storage";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Card } from "@/platform/ui/card";
 import { SectionHeader } from "@/platform/ui/section-header";
+import { Badge } from "@/platform/ui/badge";
 import { DateTime } from "@/platform/dates/display";
 
 function safeLayout(value: unknown): ContractLayout {
@@ -33,17 +34,12 @@ export default async function SignedContractPage({ params }: { params: Promise<{
   if (!cycle) notFound();
   const found = await getContractForReview(contractId);
   if (!found || found.cycleId !== id) notFound();
-  const { contract } = found;
+  const { contract, ctx } = found;
 
   const layout = safeLayout(contract.templateSnapshot);
-  const rows = buildContractSignatureView(layout, contract.signatures, {
-    agreementSignature: contract.agreementSignature,
-    professionalismSignature: contract.professionalismSignature,
-    trainingSignature: contract.trainingSignature,
-    initials: contract.initials,
-  });
+  const review = buildContractReview(contract, layout, ctx);
   const images = await Promise.all(
-    rows.map((r) => (r.imageKey ? inlineSignature(r.imageKey) : Promise.resolve(null))),
+    review.signatureRows.map((r) => (r.imageKey ? inlineSignature(r.imageKey) : Promise.resolve(null))),
   );
 
   return (
@@ -62,9 +58,55 @@ export default async function SignedContractPage({ params }: { params: Promise<{
       />
 
       <Card>
+        <SectionHeader>Responses</SectionHeader>
+        <dl className="mt-3 divide-y divide-border-subtle">
+          {review.responses.map((f, i) => (
+            <div key={`${f.label}-${i}`} className="grid grid-cols-1 gap-x-4 gap-y-0.5 py-2 first:pt-0 last:pb-0 sm:grid-cols-[11rem_1fr]">
+              <dt className="text-xs text-subtle-foreground">{f.label}</dt>
+              <dd className="text-sm text-foreground">
+                {f.cert ? (
+                  <a
+                    href={`/api/recruitment/onboarding/${contract.id}/hipaa?inline=1`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-brand-fg underline hover:text-brand-hover"
+                  >
+                    {f.value}
+                  </a>
+                ) : f.value != null ? (
+                  f.value
+                ) : (
+                  <span className="italic text-subtle-foreground">Not provided</span>
+                )}
+              </dd>
+            </div>
+          ))}
+          {review.responses.length === 0 && (
+            <p className="text-sm text-muted-foreground">No responses recorded.</p>
+          )}
+        </dl>
+      </Card>
+
+      {review.agreements.length > 0 && (
+        <Card>
+          <SectionHeader>Agreements</SectionHeader>
+          <ul className="mt-3 space-y-2">
+            {review.agreements.map((a) => (
+              <li key={a.blockId} className="flex items-center justify-between gap-3 text-sm">
+                <span className="text-foreground">{a.title}</span>
+                <Badge tone={a.confirmed ? "success" : "warning"}>
+                  {a.confirmed ? (a.confirmKind === "checkbox" ? "Confirmed" : "Signed") : "Not completed"}
+                </Badge>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
+      <Card>
         <SectionHeader>Signatures</SectionHeader>
         <dl className="mt-3 space-y-4">
-          {rows.map((r, i) => {
+          {review.signatureRows.map((r, i) => {
             // A legacy (pre-feature) typed-name row sets both `legacyText` and `name`
             // to the same raw string, and the main text above already renders
             // `legacyText`. Suppress the byline name when it would just repeat it, so
@@ -95,7 +137,7 @@ export default async function SignedContractPage({ params }: { params: Promise<{
               </div>
             );
           })}
-          {rows.length === 0 && <p className="text-sm text-muted-foreground">This contract has no signature blocks.</p>}
+          {review.signatureRows.length === 0 && <p className="text-sm text-muted-foreground">This contract has no signature blocks.</p>}
         </dl>
       </Card>
     </div>

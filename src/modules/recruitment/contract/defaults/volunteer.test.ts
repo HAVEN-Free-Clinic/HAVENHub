@@ -9,14 +9,22 @@ describe("VOLUNTEER_LAYOUT", () => {
     expect(sections).toEqual(["Basic Information", "HIPAA Compliance", "Epic Access", "Volunteer Contract"]);
   });
 
-  it("uses initials for the volunteer agreement and commitment", () => {
-    for (const id of ["agreement", "commitment"]) {
+  it("all five agreements have correct confirmKind values", () => {
+    const confirmKinds: Record<string, string> = {
+      agreement: "initials",
+      professionalism: "initials",
+      commitment: "initials",
+      training: "initials",
+      haven_agreement: "signature",
+    };
+
+    for (const [id, expectedKind] of Object.entries(confirmKinds)) {
       const b = VOLUNTEER_LAYOUT.blocks.find((x) => x.kind === "agreement" && x.id === id);
-      expect(b && "confirmKind" in b && b.confirmKind).toBe("initials");
+      expect(b && "confirmKind" in b && b.confirmKind).toBe(expectedKind);
     }
   });
 
-  it("carries a training acknowledgement interpolating the training date", () => {
+  it("training acknowledgement body carries the trainingDate token", () => {
     const b = VOLUNTEER_LAYOUT.blocks.find((x) => x.kind === "agreement" && x.id === "training");
     expect(b && "body" in b && b.body).toContain("{{trainingDate}}");
   });

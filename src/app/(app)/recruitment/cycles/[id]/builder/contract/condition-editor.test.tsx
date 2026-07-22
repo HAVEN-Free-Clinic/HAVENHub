@@ -26,4 +26,16 @@ describe("ConditionEditor", () => {
     );
     expect(out).not.toContain("Value");
   });
+
+  it("shows an existing isAnyOf condition's array value and operator instead of blanking it", () => {
+    const out = renderToStaticMarkup(
+      <ConditionEditor
+        value={{ field: "department", op: "isAnyOf", value: ["BVHD", "MDIC"] }}
+        onChange={() => {}}
+        fieldOptions={fields}
+      />
+    );
+    expect(out).toContain("BVHD, MDIC");
+    expect(out).toContain("is any of");
+  });
 });

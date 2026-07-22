@@ -3,14 +3,19 @@ import { Select } from "@/platform/ui/select";
 import { Input, Field } from "@/platform/ui/input";
 import { Button } from "@/platform/ui/button";
 import type { FieldCondition, FieldConditionOp } from "@/modules/recruitment/engine/field-visibility";
-import { newCondition, changeOp } from "./condition-ops";
+import { newCondition, changeOp, changeValue } from "./condition-ops";
 
 /**
  * Edits a block's `visibleWhen` condition. With no condition the block is
  * always shown; "Add condition" seeds one on the first available field.
- * `isAnyOf` is deliberately not offered here: the schema and the default
- * layouts use it, but hand-authoring a value list is a worse experience than
- * two `is` conditions, so this control stays to `is` / `isNot` / `isAnswered`.
+ * `isAnyOf` is deliberately not offered as a new choice here: the schema
+ * supports it (some application-form templates use it), but hand-authoring a
+ * value list is a worse experience than two `is` conditions, so a fresh
+ * condition can only be `is` / `isNot` / `isAnswered`. A condition that
+ * already has `op: "isAnyOf"` (from a hand-edited or future template) still
+ * needs to display and stay editable here, so its operator option is shown
+ * conditionally and its value control handles the array shape; see
+ * `changeValue`.
  */
 export function ConditionEditor({
   value,
@@ -51,13 +56,14 @@ export function ConditionEditor({
             <option value="is">equals</option>
             <option value="isNot">does not equal</option>
             <option value="isAnswered">is answered</option>
+            {value.op === "isAnyOf" && <option value="isAnyOf">is any of</option>}
           </Select>
         </Field>
         {value.op !== "isAnswered" && (
-          <Field label="Value">
+          <Field label="Value" hint={value.op === "isAnyOf" ? "Comma-separated list" : undefined}>
             <Input
-              value={typeof value.value === "string" ? value.value : ""}
-              onChange={(e) => onChange({ ...value, value: e.target.value })}
+              value={Array.isArray(value.value) ? value.value.join(", ") : (value.value ?? "")}
+              onChange={(e) => onChange(changeValue(value, e.target.value))}
             />
           </Field>
         )}

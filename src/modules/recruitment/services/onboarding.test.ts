@@ -516,7 +516,8 @@ describe("getContractForReview", () => {
     expect(found).not.toBeNull();
     expect(found!.cycleId).toBe(cycle.id);
     // SRHD is a VOLUNTEER-track department with requiresEpicVolunteer: SOME.
-    expect(found!.ctx).toEqual({ department: "SRHD", track: "VOLUNTEER", epicRequirement: "SOME" });
+    // storedEpicId is null: the seeded applicant matches no Person with an Epic ID on file.
+    expect(found!.ctx).toEqual({ department: "SRHD", track: "VOLUNTEER", epicRequirement: "SOME", storedEpicId: null });
   });
 
   it("falls back to a NONE Epic requirement when the acceptance's department no longer resolves", async () => {
@@ -527,7 +528,7 @@ describe("getContractForReview", () => {
     // The named department is gone (deleted/renamed) but the acceptance still carries its code.
     await prisma.department.delete({ where: { code: "SRHD" } });
     const found = await getContractForReview(contract.id);
-    expect(found!.ctx).toEqual({ department: "SRHD", track: "VOLUNTEER", epicRequirement: "NONE" });
+    expect(found!.ctx).toEqual({ department: "SRHD", track: "VOLUNTEER", epicRequirement: "NONE", storedEpicId: null });
   });
 
   it("returns null for an unknown contract id", async () => {

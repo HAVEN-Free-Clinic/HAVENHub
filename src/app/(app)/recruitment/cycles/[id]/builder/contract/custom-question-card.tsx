@@ -13,21 +13,24 @@ import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Card } from "@/platform/ui/card";
+import { ConditionEditor } from "./condition-editor";
 
 /**
  * A custom question is an admin-authored field stored under its own `key`. The
  * key is the answer key, so it is immutable here (swap via remove + add). The
- * field type is fixed at add time; only label, required, and (for select types)
- * the choices are editable.
+ * field type is fixed at add time; only label, required, visibility, and (for
+ * select types) the choices are editable.
  */
 export function CustomQuestionCard({
   block,
   handle,
+  fieldOptions,
   onUpdate,
   onRemove,
 }: {
   block: CustomQuestionBlock;
   handle: SortableHandleProps;
+  fieldOptions: { value: string; label: string }[];
   onUpdate: (patch: BlockPatch) => void;
   onRemove: () => void;
 }) {
@@ -69,6 +72,11 @@ export function CustomQuestionCard({
               />
             </Field>
           )}
+          <ConditionEditor
+            value={block.visibleWhen}
+            onChange={(next) => onUpdate({ visibleWhen: next })}
+            fieldOptions={fieldOptions}
+          />
           <div className="flex items-center justify-between">
             <label className="flex items-center gap-2 text-sm text-foreground-soft">
               <Checkbox checked={block.required} onChange={(e) => onUpdate({ required: e.target.checked })} /> Required

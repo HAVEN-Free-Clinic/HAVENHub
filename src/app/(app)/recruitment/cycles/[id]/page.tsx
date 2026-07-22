@@ -270,6 +270,16 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
                     />
                   </Field>
                 </div>
+                <div className="w-56">
+                  <Field label="Training location / time">
+                    <Input
+                      name="trainingLocation"
+                      type="text"
+                      defaultValue={cycle.trainingLocation ?? ""}
+                      placeholder="on Zoom at 10:00 AM"
+                    />
+                  </Field>
+                </div>
                 <SubmitButton size="sm" variant="outline" pendingLabel="Saving…">Save quiz settings</SubmitButton>
               </form>
             </>

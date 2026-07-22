@@ -13,6 +13,8 @@ import { TypePicker } from "../type-picker";
 import { SystemFieldCard } from "./system-field-card";
 import { AgreementCard } from "./agreement-card";
 import { CustomQuestionCard } from "./custom-question-card";
+import { SectionCard } from "./section-card";
+import { buildFieldOptions } from "./field-options";
 import { Button } from "@/platform/ui/button";
 import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
@@ -27,6 +29,8 @@ function dndId(block: ContractBlock): string {
       return `agr:${block.id}`;
     case "custom_question":
       return `cq:${block.key}`;
+    case "section":
+      return `sec:${block.id}`;
   }
 }
 
@@ -88,8 +92,20 @@ export function ContractEditor({
   const toggle = (index: number, enabled: boolean) =>
     setLayout((prev) => applyBlockOp(prev, { t: "toggleSystem", index, enabled }));
   const addAgreement = () => setLayout((prev) => applyBlockOp(prev, { t: "addAgreement" }));
+  const addSection = () => setLayout((prev) => applyBlockOp(prev, { t: "addSection" }));
   const addCustom = (fieldType: FieldType) =>
     setLayout((prev) => applyBlockOp(prev, { t: "addCustom", fieldType }));
+
+  // Conditions can key on the authoritative context (department/track/epic
+  // requirement, always present regardless of what the form asks), any
+  // answerable custom question already in this layout, or a non-core system
+  // field's answer-map key (both client and server put submitted system-field
+  // values into the same onboarding answers map a visibleWhen condition
+  // reads -- that is exactly why the shipped staffTitle/epicIdExpiration
+  // conditions work). Agreements and sections are not offered as controllers:
+  // they have no stored answer to branch on. See field-options.ts for the
+  // system-field answer-key mapping and the core-field exclusion.
+  const fieldOptions = buildFieldOptions(layout);
 
   function save() {
     setError(null);
@@ -144,6 +160,7 @@ export function ContractEditor({
               <SystemFieldCard
                 block={block}
                 handle={handle}
+                fieldOptions={fieldOptions}
                 onUpdate={(patch) => update(index, patch)}
                 onToggle={(enabled) => toggle(index, enabled)}
               />
@@ -154,6 +171,18 @@ export function ContractEditor({
               <AgreementCard
                 block={block}
                 handle={handle}
+                fieldOptions={fieldOptions}
+                onUpdate={(patch) => update(index, patch)}
+                onRemove={() => remove(index)}
+              />
+            );
+          }
+          if (block.kind === "section") {
+            return (
+              <SectionCard
+                block={block}
+                handle={handle}
+                fieldOptions={fieldOptions}
                 onUpdate={(patch) => update(index, patch)}
                 onRemove={() => remove(index)}
               />
@@ -163,6 +192,7 @@ export function ContractEditor({
             <CustomQuestionCard
               block={block}
               handle={handle}
+              fieldOptions={fieldOptions}
               onUpdate={(patch) => update(index, patch)}
               onRemove={() => remove(index)}
             />
@@ -173,6 +203,9 @@ export function ContractEditor({
       <Card size="compact" className="flex flex-wrap items-center gap-3 border-dashed">
         <Button type="button" variant="outline" size="sm" onClick={addAgreement} disabled={!editable}>
           <Plus className="h-4 w-4" aria-hidden /> Add agreement
+        </Button>
+        <Button type="button" variant="outline" size="sm" onClick={addSection} disabled={!editable}>
+          <Plus className="h-4 w-4" aria-hidden /> Add section
         </Button>
         <TypePicker
           label="Add question"

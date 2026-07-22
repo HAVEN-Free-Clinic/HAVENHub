@@ -296,3 +296,47 @@ it("carries dateOfBirth, dietaryRestrictions, and Epic access details onto the P
   const req = await prisma.epicRequest.findFirstOrThrow({ where: { personId: person.id, kind: "NEW" } });
   expect(req.notes).toBe("Access type: Read-only. Already works with YNHH");
 });
+
+describe("promotion carries the new contract fields (pronouns, staffTitle)", () => {
+  it("sets pronouns and staffTitle on a newly created person", async () => {
+    const { srr, contract } = await seedSubmitted();
+    await prisma.onboardingContract.update({
+      where: { id: contract.id },
+      data: { pronouns: "they/them", staffTitle: "Program Manager" },
+    });
+    await promoteContracts([contract.id], srr.id);
+    const person = await prisma.person.findFirstOrThrow({ where: { netId: "al99" } });
+    expect(person.pronouns).toBe("they/them");
+    expect(person.staffTitle).toBe("Program Manager");
+  });
+
+  it("does not overwrite an existing person's pronouns and staffTitle with the contract's values", async () => {
+    const existing = await prisma.person.create({
+      data: { name: "Ada Lovelace", netId: "al99", status: "OFFBOARDED", pronouns: "she/her", staffTitle: "Volunteer" },
+    });
+    const { srr, contract } = await seedSubmitted({ netId: "al99" });
+    await prisma.onboardingContract.update({
+      where: { id: contract.id },
+      data: { pronouns: "they/them", staffTitle: "Program Manager" },
+    });
+    await promoteContracts([contract.id], srr.id);
+    const person = await prisma.person.findUniqueOrThrow({ where: { id: existing.id } });
+    expect(person.pronouns).toBe("she/her");
+    expect(person.staffTitle).toBe("Volunteer");
+  });
+
+  it("sets pronouns and staffTitle from the contract when an existing person has them null", async () => {
+    const existing = await prisma.person.create({
+      data: { name: "Ada Lovelace", netId: "al99", status: "OFFBOARDED" },
+    });
+    const { srr, contract } = await seedSubmitted({ netId: "al99" });
+    await prisma.onboardingContract.update({
+      where: { id: contract.id },
+      data: { pronouns: "they/them", staffTitle: "Program Manager" },
+    });
+    await promoteContracts([contract.id], srr.id);
+    const person = await prisma.person.findUniqueOrThrow({ where: { id: existing.id } });
+    expect(person.pronouns).toBe("they/them");
+    expect(person.staffTitle).toBe("Program Manager");
+  });
+});

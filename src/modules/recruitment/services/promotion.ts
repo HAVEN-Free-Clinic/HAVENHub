@@ -95,6 +95,8 @@ export async function promoteContracts(contractIds: string[], actorId: string): 
               // Carry onboarding-collected member data (don't clobber an existing value).
               dateOfBirth: person.dateOfBirth ?? contract.dateOfBirth,
               dietaryRestrictions: person.dietaryRestrictions ?? contract.dietaryRestrictions,
+              pronouns: person.pronouns ?? contract.pronouns,
+              staffTitle: person.staffTitle ?? contract.staffTitle,
             },
           });
         } else {
@@ -109,6 +111,8 @@ export async function promoteContracts(contractIds: string[], actorId: string): 
               licensedRN: contract.licensedRN,
               dateOfBirth: contract.dateOfBirth,
               dietaryRestrictions: contract.dietaryRestrictions,
+              pronouns: contract.pronouns,
+              staffTitle: contract.staffTitle,
             },
           });
         }

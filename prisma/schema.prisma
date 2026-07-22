@@ -22,6 +22,16 @@ enum PersonStatus {
   OFFBOARDED
 }
 
+/// Whether a department's members need an Epic account. SOME means it depends on
+/// the individual role (for example LCC Patient Navigators but not the whole
+/// department), so those people are asked directly; ALL and NONE are resolved
+/// silently from the department.
+enum EpicRequirement {
+  ALL
+  NONE
+  SOME
+}
+
 enum ShiftRequestStatus {
   PENDING
   APPROVED
@@ -107,6 +117,8 @@ model Person {
   phone                          String?
   epicId                         String?
   yaleAffiliation                String?
+  pronouns                       String?
+  staffTitle                     String?
   /// Date of birth, carried from the onboarding contract at promotion (used for
   /// records + YNHH Epic identity). Date-only value; stored at UTC midnight.
   dateOfBirth                    DateTime?
@@ -306,6 +318,14 @@ model Department {
   idealHeadcount             Int?
   /// Capacity panel config: imported then admin-maintained.
   patientCapacityPerProvider Int?
+  /// Epic account requirement for this department's directors and volunteers.
+  /// Drives OnboardingContract.epicNeeded, which promotion.ts uses to raise the
+  /// EpicRequest. Defaults are deliberately NONE so a newly created department
+  /// never silently provisions Epic accounts.
+  requiresEpicDirector       EpicRequirement         @default(NONE)
+  requiresEpicVolunteer      EpicRequirement         @default(NONE)
+  /// Shown as help text when the requirement is SOME, explaining who qualifies.
+  epicGuidance               String?
   createdAt                  DateTime                @default(now())
   updatedAt                  DateTime                @updatedAt
 }
@@ -1214,6 +1234,7 @@ model RecruitmentCycle {
   isTermTraining       Boolean     @default(false)
   quizPassPercent      Int         @default(80)
   quizMaxAttempts      Int         @default(3)
+  trainingLocation     String?
   inPersonTrainingDate DateTime?
   routeTopPercent      Int         @default(20)
   routeBottomPercent   Int         @default(30)
@@ -1398,6 +1419,9 @@ model OnboardingContract {
   dateOfBirth              DateTime?
   dietaryRestrictions      String?
   yaleAffiliation          String?
+  pronouns                 String?
+  staffTitle               String?
+  epicIdExpiration         DateTime?
   gradYear                 String?
   agreementSignature       String?
   professionalismSignature String?

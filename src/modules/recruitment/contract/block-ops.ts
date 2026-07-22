@@ -5,6 +5,7 @@ import type {
   ContractBlock,
   ContractLayout,
   CustomQuestionBlock,
+  SectionBlock,
   SystemFieldBlock,
 } from "./layout";
 import { ContractLayoutError } from "./layout";
@@ -16,14 +17,16 @@ import { SYSTEM_FIELDS, SYSTEM_FIELD_KEYS } from "./system-fields";
 
 /** Fields an `updateBlock` op may patch. The discriminant ("kind") and each
  *  block kind's identity field -- a system field's "systemKey", an
- *  agreement's "id", a custom question's "key" -- are immutable -- swap the
- *  block via remove+add instead of patching them. */
+ *  agreement's "id", a custom question's "key", a section's "id" -- are
+ *  immutable -- swap the block via remove+add instead of patching them. */
 export type BlockPatch = Partial<Omit<SystemFieldBlock, "kind" | "systemKey">> &
   Partial<Omit<AgreementBlock, "kind" | "id">> &
-  Partial<Omit<CustomQuestionBlock, "kind" | "key">>;
+  Partial<Omit<CustomQuestionBlock, "kind" | "key">> &
+  Partial<Omit<SectionBlock, "kind" | "id">>;
 
 export type BlockOp =
   | { t: "addAgreement" }
+  | { t: "addSection" }
   | { t: "addCustom"; fieldType: FieldType }
   | { t: "updateBlock"; index: number; patch: BlockPatch }
   | { t: "removeBlock"; index: number }
@@ -36,11 +39,13 @@ function assertIndex(blocks: ContractBlock[], index: number, op: string): void {
   }
 }
 
-function nextAgreementId(blocks: ContractBlock[]): string {
+/** Agreement and section ids share one namespace (see parseContractLayout), so
+ *  a new id of either kind must avoid both. */
+function nextBlockId(blocks: ContractBlock[], base: string): string {
   const existing = blocks
-    .filter((b): b is AgreementBlock => b.kind === "agreement")
+    .filter((b): b is AgreementBlock | SectionBlock => b.kind === "agreement" || b.kind === "section")
     .map((b) => b.id);
-  return uniqueKey("agreement", existing);
+  return uniqueKey(base, existing);
 }
 
 function nextCustomKey(blocks: ContractBlock[]): string {
@@ -66,6 +71,9 @@ function patchBlock(block: ContractBlock, patch: BlockPatch): ContractBlock {
   if (block.kind === "agreement") {
     return { ...block, ...patch, kind: "agreement", id: block.id } as AgreementBlock;
   }
+  if (block.kind === "section") {
+    return { ...block, ...patch, kind: "section", id: block.id } as SectionBlock;
+  }
   return { ...block, ...patch, kind: "custom_question", key: block.key } as CustomQuestionBlock;
 }
 
@@ -89,10 +97,19 @@ export function applyBlockOp(layout: ContractLayout, op: BlockOp): ContractLayou
     case "addAgreement": {
       const block: AgreementBlock = {
         kind: "agreement",
-        id: nextAgreementId(layout.blocks),
+        id: nextBlockId(layout.blocks, "agreement"),
         title: "New agreement",
         body: "",
         signatureLabel: "type your full name",
+      };
+      return { blocks: [...layout.blocks, block] };
+    }
+    case "addSection": {
+      const block: SectionBlock = {
+        kind: "section",
+        id: nextBlockId(layout.blocks, "section"),
+        title: "New section",
+        body: "",
       };
       return { blocks: [...layout.blocks, block] };
     }
@@ -137,7 +154,8 @@ export function applyBlockOp(layout: ContractLayout, op: BlockOp): ContractLayou
  * must appear exactly once, as an enabled `system_field` block. Optional
  * system fields may be missing or disabled. Also rejects duplicate
  * `system_field` blocks for the same key (parseContractLayout does not check
- * this -- it only guards custom-question/agreement identifiers).
+ * this -- it only guards custom-question keys and agreement/section ids,
+ * which share one namespace).
  */
 export function assertTwoTier(layout: ContractLayout): void {
   const problems: string[] = [];

@@ -16,6 +16,8 @@ import { renderCycleEmail } from "../email/render";
 import { resolveContractLayout } from "../contract/resolve";
 import { parseContractLayout, type ContractLayout } from "../contract/layout";
 import { DEFAULT_CONTRACT_LAYOUT } from "../contract/system-fields";
+import { buildContractAnswers, visibleContractBlocks } from "../contract/visibility";
+import { epicRequirementFor, resolveEpicNeeded } from "../contract/epic-requirement";
 
 /**
  * How long an onboarding link stays usable after a send. The link is a standing
@@ -58,6 +60,24 @@ function parseDateOfBirth(value: string): Date | null {
   const endOfTodayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999);
   if (dob.getTime() > endOfTodayUtc) return null;
   return dob;
+}
+
+/**
+ * Validate a YYYY-MM-DD date from the Epic ID expiration date input: it must be
+ * a real calendar date. Unlike parseDateOfBirth, no past/future bound applies
+ * (an expiration is naturally often in the future, and a lapsed one is allowed
+ * to already be in the past). Returns the date normalized to midnight UTC, or
+ * null when the value is malformed.
+ */
+function parseYmdDate(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+  const year = parseInt(match[1], 10);
+  const month0 = parseInt(match[2], 10) - 1;
+  const day = parseInt(match[3], 10);
+  const d = new Date(Date.UTC(year, month0, day, 0, 0, 0, 0));
+  if (d.getUTCFullYear() !== year || d.getUTCMonth() !== month0 || d.getUTCDate() !== day) return null;
+  return d;
 }
 
 export class ContractError extends Error {
@@ -174,7 +194,13 @@ export async function createOrResendContract(
 }
 
 export async function getContractByToken(token: string) {
-  const contract = await prisma.onboardingContract.findUnique({ where: { token } });
+  // Include the acceptance -> application -> cycle chain so the onboarding
+  // page can derive the applicant's department and track (and from those,
+  // the Epic requirement) without a second round trip.
+  const contract = await prisma.onboardingContract.findUnique({
+    where: { token },
+    include: { acceptance: { include: { application: { include: { cycle: true } } } } },
+  });
   // An expired link is treated as invalid (the page shows the not-valid state). An
   // SRR can revive it by resending, which refreshes expiresAt on the same token.
   if (contract && isContractExpired(contract)) return null;
@@ -191,12 +217,22 @@ export type ContractSubmission = {
   dietaryRestrictions?: string;
   yaleAffiliation?: string;
   gradYear?: string;
+  pronouns?: string;
+  staffTitle?: string;
+  epicIdExpiration?: string; // raw YYYY-MM-DD from the date input; validated in submitContract
   // Drawn signatures keyed by block id: each agreement's id, plus "initials".
   // Which are required is driven by the frozen snapshot layout. The typed-name
   // fallback still produces a PNG, so every value is a SignatureInput.
   signatures: Record<string, SignatureInput>;
   customAnswers?: Record<string, string | string[]>;
-  epicNeeded: boolean;
+  // Checkbox-confirmed agreements (confirmKind: "checkbox"), keyed by agreement
+  // block id. Unlike signature/initials agreements, these have no drawn PNG;
+  // the boolean confirmation itself is the record that the applicant agreed.
+  confirmations?: Record<string, boolean>;
+  // epicNeeded is deliberately NOT part of this type: it is derived
+  // server-side from the department's Epic requirement plus the applicant's
+  // epic_needed_self answer (see resolveEpicNeeded in submitContract), never
+  // trusted from the client.
   hasEpic: boolean;
   existingEpicId?: string;
   epicAccessType?: string;
@@ -220,6 +256,27 @@ export async function submitContract(
     throw new ContractError("This onboarding link has expired. Please ask your recruitment lead to resend it.");
   }
 
+  // Load the authoritative context the client used to decide what to show:
+  // the acceptance's department and the cycle's track, from which the Epic
+  // requirement follows. A broken chain (acceptance or department no longer
+  // resolves) degrades safely rather than throwing: track defaults to
+  // VOLUNTEER and department to null, which makes epicRequirementFor return
+  // NONE and hides every department-gated block, matching what the onboarding
+  // page itself falls back to when rendering.
+  const acceptance = await prisma.acceptance.findUnique({
+    where: { id: contract.acceptanceId },
+    include: { application: { include: { cycle: { select: { track: true } } } } },
+  });
+  const track = acceptance?.application?.cycle?.track ?? "VOLUNTEER";
+  const departmentCode = acceptance?.departmentCode ?? null;
+  const dept = departmentCode
+    ? await prisma.department.findUnique({
+        where: { code: departmentCode },
+        select: { requiresEpicDirector: true, requiresEpicVolunteer: true },
+      })
+    : null;
+  const requirement = epicRequirementFor(dept, track);
+
   const e: Record<string, string> = {};
   if (!input.firstName?.trim()) e.firstName = "required";
   if (!input.lastName?.trim()) e.lastName = "required";
@@ -227,14 +284,50 @@ export async function submitContract(
   // Required agreement signatures + required custom questions come from the frozen
   // snapshot layout, so an edited contract validates exactly what it renders.
   const layout = safeParseLayout(contract.templateSnapshot);
-  const initialsEnabled = layout.blocks.some(
+  // Feed the submitted system-field values into the same
+  // buildContractAnswers/visibleContractBlocks pair the client
+  // (onboard-form.tsx) runs, over the frozen snapshot, with the same
+  // authoritative context, so client and server compute the same visibility.
+  // The client's answers map is seeded from prefill and kept live via onChange
+  // for these input names, so a block's visibleWhen can key off any of them
+  // (e.g. staffTitle on yaleAffiliation === "staff"); without this the server
+  // could never see a raw system-field value and would evaluate such a
+  // condition against an empty map. systemAnswers is spread first so a custom
+  // answer or the authoritative context still wins on any key collision.
+  // hasEpic feeds in as "on"/"" to match how the client's own answers map
+  // represents that checkbox, since a block's visibleWhen (e.g.
+  // epicIdExpiration) can key off it.
+  const systemAnswers: Record<string, string> = {};
+  if (input.firstName) systemAnswers.firstName = input.firstName;
+  if (input.lastName) systemAnswers.lastName = input.lastName;
+  if (input.email) systemAnswers.email = input.email;
+  if (input.netId) systemAnswers.netId = input.netId;
+  if (input.phone) systemAnswers.phone = input.phone;
+  if (input.dateOfBirth) systemAnswers.dateOfBirth = input.dateOfBirth;
+  if (input.dietaryRestrictions) systemAnswers.dietaryRestrictions = input.dietaryRestrictions;
+  if (input.yaleAffiliation) systemAnswers.yaleAffiliation = input.yaleAffiliation;
+  if (input.gradYear) systemAnswers.gradYear = input.gradYear;
+  if (input.pronouns) systemAnswers.pronouns = input.pronouns;
+  if (input.staffTitle) systemAnswers.staffTitle = input.staffTitle;
+  if (input.epicIdExpiration) systemAnswers.epicIdExpiration = input.epicIdExpiration;
+  const answers = buildContractAnswers(
+    { ...systemAnswers, ...(input.customAnswers ?? {}), hasEpic: input.hasEpic ? "on" : "" },
+    { department: departmentCode, track, epicRequirement: requirement },
+  );
+  const visible = visibleContractBlocks(layout.blocks, answers);
+  const initialsEnabled = visible.some(
     (b) => b.kind === "system_field" && b.systemKey === "initials" && b.enabled !== false,
   );
   const signed = (id: string) => Boolean(input.signatures?.[id]?.dataUrl);
   if (initialsEnabled && !signed("initials")) e["sig__initials"] = "required";
-  for (const b of layout.blocks) {
-    if (b.kind === "agreement" && !signed(b.id)) {
-      e[`sig__${b.id}`] = "required";
+  for (const b of visible) {
+    if (b.kind === "agreement") {
+      const kind = b.confirmKind ?? "signature";
+      if (kind === "checkbox") {
+        if (!input.confirmations?.[b.id]) e[`confirm__${b.id}`] = "required";
+      } else if (!signed(b.id)) {
+        e[`sig__${b.id}`] = "required";
+      }
     }
     if (b.kind === "custom_question" && b.required) {
       const v = input.customAnswers?.[b.key];
@@ -264,6 +357,12 @@ export async function submitContract(
     const parsed = parseDateOfBirth(input.dateOfBirth);
     if (parsed) dateOfBirth = parsed;
     else e.dateOfBirth = "Enter a valid date of birth.";
+  }
+  let epicIdExpiration: Date | undefined;
+  if (input.epicIdExpiration) {
+    const parsed = parseYmdDate(input.epicIdExpiration);
+    if (parsed) epicIdExpiration = parsed;
+    else e.epicIdExpiration = "Enter a valid date.";
   }
   if (Object.keys(e).length > 0) {
     throw new ContractValidationError("Please fix the highlighted fields.", e);
@@ -309,8 +408,14 @@ export async function submitContract(
   const signatureJson: Record<string, StoredSignature> = {};
   const signatureKeys: string[] = [];
   const cleanupSignatures = async () => { for (const k of signatureKeys) await deleteObject(k); };
+  // Only visible, non-checkbox agreements carry a drawn/typed signature to blob
+  // out here: a hidden agreement was never required above, and a checkbox
+  // agreement's confirmation has no PNG at all (input.signatures[id] would be
+  // undefined for it, so including it here would throw on sig.dataUrl).
   const requiredIds = new Set<string>([
-    ...layout.blocks.filter((b) => b.kind === "agreement").map((b) => (b as { id: string }).id),
+    ...visible
+      .filter((b) => b.kind === "agreement" && (b.confirmKind ?? "signature") !== "checkbox")
+      .map((b) => (b as { id: string }).id),
     ...(initialsEnabled ? ["initials"] : []),
   ]);
   for (const id of requiredIds) {
@@ -360,10 +465,29 @@ export async function submitContract(
         dietaryRestrictions: input.dietaryRestrictions?.trim() || null,
         yaleAffiliation: input.yaleAffiliation?.trim() || null,
         gradYear: input.gradYear?.trim() || null,
+        pronouns: input.pronouns?.trim() || null,
+        staffTitle: input.staffTitle?.trim() || null,
+        epicIdExpiration: epicIdExpiration ?? null,
         initials: initialsName,
         signatures: signatureJson as object,
-        customAnswers: (input.customAnswers ?? {}) as object,
-        epicNeeded: input.epicNeeded,
+        // Confirmations (checkbox agreements) have no drawn signature, so this
+        // is their only durable record that the applicant agreed. Namespaced
+        // under confirm__<id> so a director-authored custom question can never
+        // collide with an agreement's id (the two live in disjoint id/key
+        // spaces at the schema level, but nothing stops an author from picking
+        // the same string for both).
+        customAnswers: {
+          ...(input.customAnswers ?? {}),
+          ...Object.fromEntries(
+            Object.entries(input.confirmations ?? {})
+              .filter(([, v]) => v)
+              .map(([id]) => [`confirm__${id}`, "on"]),
+          ),
+        } as object,
+        // epicNeeded is never read from the client: ALL/NONE departments are
+        // decided by the department regardless of what a spoofed or stale
+        // submission claims, and SOME defers to the applicant's own answer.
+        epicNeeded: resolveEpicNeeded(requirement, input.customAnswers?.epic_needed_self === "yes"),
         hasEpic: input.hasEpic,
         existingEpicId: input.existingEpicId?.trim() || null,
         epicAccessType: input.epicAccessType?.trim() || null,

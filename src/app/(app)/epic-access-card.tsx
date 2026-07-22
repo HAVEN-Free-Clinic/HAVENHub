@@ -37,7 +37,7 @@ export async function EpicAccessCard({ personId }: { personId: string }) {
           Access Epic
         </span>
         <span className="mt-0.5 block truncate text-sm font-medium text-foreground-soft">
-          YNHH remote apps
+          YNHH Remote Access
         </span>
         <span className="sr-only"> (opens in a new tab)</span>
       </span>

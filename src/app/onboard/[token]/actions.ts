@@ -24,6 +24,12 @@ export async function submitOnboarding(token: string, formData: FormData): Promi
       else customAnswers[key] = val;
     }
   }
+  // Checkbox-confirmed agreements (confirmKind: "checkbox") arrive as
+  // confirm__<id> checkbox fields; harvest them the same way as custom answers.
+  const confirmations: Record<string, boolean> = {};
+  for (const [k, v] of formData.entries()) {
+    if (k.startsWith("confirm__")) confirmations[k.slice(9)] = v === "on";
+  }
   // Signatures (agreements + initials) arrive as sig__<id> data URLs with __method
   // / __name companions; group them by block id. FormData values can be File for
   // the HIPAA input, so coerce to string first.
@@ -34,8 +40,10 @@ export async function submitOnboarding(token: string, formData: FormData): Promi
     firstName: str("firstName"), lastName: str("lastName"), email: str("email"), netId: str("netId") || undefined, phone: str("phone") || undefined,
     dateOfBirth: dob || undefined, dietaryRestrictions: str("dietaryRestrictions") || undefined,
     yaleAffiliation: str("yaleAffiliation") || undefined, gradYear: str("gradYear") || undefined,
-    signatures, customAnswers,
-    epicNeeded: bool("epicNeeded"), hasEpic: bool("hasEpic"), existingEpicId: str("existingEpicId") || undefined,
+    pronouns: str("pronouns") || undefined, staffTitle: str("staffTitle") || undefined,
+    epicIdExpiration: str("epicIdExpiration") || undefined,
+    signatures, customAnswers, confirmations,
+    hasEpic: bool("hasEpic"), existingEpicId: str("existingEpicId") || undefined,
     epicAccessType: str("epicAccessType") || undefined, worksWithYnhh: bool("worksWithYnhh"),
     spanishSelfReported: bool("spanishSelfReported"), licensedRN: bool("licensedRN"),
     hipaaCompletedAt: hipaaAt || undefined,

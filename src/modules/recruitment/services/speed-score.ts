@@ -66,7 +66,13 @@ export async function loadReviewApplication(
     selectedDepartmentCodes: app.departmentChoices,
   });
 
-  const needsSubNames = shown.some((s) => s.fields.some((f) => f.type === "SUBCOMMITTEE_RANK"));
+  // The ranking lives in its own column, hoisted by submissions.ts from the FIRST
+  // SUBCOMMITTEE_RANK field only. Mirror that here: a form carrying several rank
+  // fields otherwise rendered the one hoisted ranking once per field, as N
+  // identical "Subcommittee ranking" rows.
+  const rankFieldId =
+    app.cycle.sections.flatMap((s) => s.fields).find((f) => f.type === "SUBCOMMITTEE_RANK")?.id ?? null;
+  const needsSubNames = rankFieldId != null && shown.some((s) => s.fields.some((f) => f.id === rankFieldId));
   const subNames = new Map<string, string>();
   if (needsSubNames && app.subcommitteeRanking.length > 0) {
     const rows = await prisma.subcommittee.findMany({
@@ -113,6 +119,7 @@ export async function loadReviewApplication(
 
       let displayValue = "";
       if (f.type === "SUBCOMMITTEE_RANK") {
+        if (f.id !== rankFieldId) continue; // nothing was hoisted for the extra rank fields
         displayValue = app.subcommitteeRanking.map((id, i) => `${i + 1}. ${subNames.get(id) ?? "(removed)"}`).join("  ·  ");
       } else {
         const val = answers[f.key];

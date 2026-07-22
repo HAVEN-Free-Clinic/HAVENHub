@@ -141,6 +141,11 @@ export function ApplyWizard({
   const [result, setResult] = useState<SubmitResult | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  // The step a failed submit sent the applicant back to, so the page-level error
+  // banner can be pinned there instead of trailing them across every step. null
+  // means the failure had no field to blame (duplicate application, closed cycle,
+  // a signature storage throw), so the banner shows wherever they are: the review.
+  const [errorStepIndex, setErrorStepIndex] = useState<number | null>(null);
   const [stepIndex, setStepIndex] = useState(0);
   const [editingReturn, setEditingReturn] = useState(false);
   const [reviewGroups, setReviewGroups] = useState<ReviewGroup[]>([]);
@@ -354,6 +359,13 @@ export function ApplyWizard({
         for (const f of cur.section.fields) delete next[f.key];
         return next;
       });
+      // Leaving the step a failed submit blamed, with its required fields now
+      // satisfied: retire the banner too. Otherwise navigating back here later
+      // would resurrect a message about an error that has already been fixed.
+      if (stepIndex === errorStepIndex) {
+        setErrorStepIndex(null);
+        setResult(null);
+      }
     }
     const target = editingReturn ? reviewIndex : stepIndex + 1;
     setEditingReturn(false);
@@ -376,16 +388,24 @@ export function ApplyWizard({
       fd.set("__applicantType", applicantType);
       if (applicantType === "RENEWAL") fd.set("__renewalDepartment", renewalDept);
       const res = await submitPublicApplication(def.slug, fd);
+      let bounceTo: number | null = null;
       if (!res.ok && res.fieldErrors) {
         setFieldErrors(res.fieldErrors);
-        const idx = stepIndexForKeys(steps, Object.keys(res.fieldErrors));
-        if (idx != null) goTo(idx);
+        bounceTo = stepIndexForKeys(steps, Object.keys(res.fieldErrors));
+        // editStep, not goTo: it sets editingReturn so a single Continue takes
+        // them straight back to the review rather than re-walking every step
+        // between the offending one and the end of the form.
+        if (bounceTo != null) editStep(bounceTo);
       }
+      setErrorStepIndex(bounceTo);
       setResult(res);
     } catch {
       // A server-action throw (e.g. a signature blob-storage or DB failure) would
       // otherwise leave the button stuck on "Submitting…" with no feedback. Show a
-      // retryable error and always re-enable the button.
+      // retryable error and always re-enable the button. This failure blames no
+      // field, so clear any step a previous submit pinned the banner to, or it
+      // would render on that step instead of the review the applicant is on.
+      setErrorStepIndex(null);
       setResult({ ok: false, message: "Something went wrong submitting your application. Please try again." });
     } finally {
       setSubmitting(false);
@@ -416,7 +436,9 @@ export function ApplyWizard({
           </h2>
         </div>
 
-        {result && !result.ok && <Alert tone="error">{result.message}</Alert>}
+        {result && !result.ok && (errorStepIndex === null || stepIndex === errorStepIndex) && (
+          <Alert tone="error">{result.message}</Alert>
+        )}
         {saveState !== "idle" && (
           <p className={`text-xs ${saveState === "error" ? "text-critical" : "text-muted-foreground"}`} aria-live="polite">{saveState === "saving" ? "Saving…" : saveState === "error" ? "Couldn't save your draft, check your connection" : "Saved"}</p>
         )}

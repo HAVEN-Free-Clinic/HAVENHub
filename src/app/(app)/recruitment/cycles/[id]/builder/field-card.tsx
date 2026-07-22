@@ -8,6 +8,7 @@ import { parseFieldCondition, type FieldCondition, type FieldConditionOp } from 
 import { updateFieldAction, deleteFieldAction, duplicateFieldAction } from "./actions";
 import { OptionsEditor } from "./options-editor";
 import type { Choice } from "@/modules/recruitment/engine/options";
+import { AVAILABILITY_FIELD_KEY } from "@/modules/recruitment/templates/clinic-dates";
 import type { SortableHandleProps } from "./sortable-list";
 import { Field, Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
@@ -222,8 +223,15 @@ export function FieldCard({
 
           {meta.hasOptions && (
             <Field label="Choices">
-              <OptionsEditor options={(field.options ?? []) as Choice[]} disabled={!editable}
+              <OptionsEditor options={(field.options ?? []) as Choice[]}
+                disabled={!editable || field.key === AVAILABILITY_FIELD_KEY}
                 onChange={(next) => save({ options: next })} />
+              {field.key === AVAILABILITY_FIELD_KEY && (
+                <p className="mt-2 text-sm text-muted-foreground">
+                  These dates come from the term&rsquo;s clinic calendar and update automatically.
+                  Change them in Admin, Terms, Clinic dates.
+                </p>
+              )}
             </Field>
           )}
 

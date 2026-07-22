@@ -38,7 +38,10 @@ export default async function NewCyclePage({ searchParams }: PageProps) {
       <form action={createCycleAction}>
         <Card className="space-y-4">
           {error && <Alert tone="error">{error}</Alert>}
-          <Field label="Title">
+          <Field
+            label="Title"
+            hint="Used to generate the email subject line and public sign-up link, so name it carefully."
+          >
             <Input name="title" required />
           </Field>
           <Field label="Track">
@@ -59,7 +62,11 @@ export default async function NewCyclePage({ searchParams }: PageProps) {
           <Field label="Public slug" hint="Optional, auto-generated from the title if left blank.">
             <Input name="publicSlug" placeholder="auto from title" />
           </Field>
-          <Field label="Departments" hint="Search and pick the departments this cycle recruits for.">
+          <Field
+            label="Departments"
+            hint="Search and pick the departments this cycle recruits for."
+            hintPosition="top"
+          >
             {deptOptions.length === 0 ? (
               <p className="text-sm text-subtle-foreground">
                 No active departments to choose from. Add departments in the admin area first.

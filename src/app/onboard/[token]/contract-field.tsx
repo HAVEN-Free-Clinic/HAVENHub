@@ -7,18 +7,17 @@ import { Checkbox } from "@/platform/ui/checkbox";
 import { SignaturePad } from "@/platform/ui/signature-pad";
 import { FieldPreview } from "@/modules/recruitment/components/field-preview";
 import { Prose } from "@/modules/recruitment/contract/prose";
-import { SYSTEM_FIELDS, gradYearOptions } from "@/modules/recruitment/contract/system-fields";
+import { SYSTEM_FIELDS, systemFieldOptions } from "@/modules/recruitment/contract/system-fields";
 import type { ContractBlock } from "@/modules/recruitment/contract/layout";
 
-// todayIso/currentYear are stamped once on the server and passed down, so the
-// HIPAA date bounds and grad-year options are identical between the server
-// render and client hydration (a render-body new Date() would differ across
-// the request/hydration boundary). department/track/epicRequirement are the
-// same authoritative context buildContractAnswers uses, so client-side
-// visibility (visibleContractBlocks, in onboard-form.tsx) matches what the
-// server will validate.
+// todayIso is stamped once on the server and passed down, so the HIPAA date
+// bounds are identical between the server render and client hydration (a
+// render-body new Date() would differ across the request/hydration boundary).
+// department/track/epicRequirement are the same authoritative context
+// buildContractAnswers uses, so client-side visibility (visibleContractBlocks,
+// in onboard-form.tsx) matches what the server will validate.
 type Ctx = {
-  firstName: string; orgName: string; todayIso: string; currentYear: number;
+  firstName: string; orgName: string; todayIso: string;
   trainingDate: string; trainingLocation: string;
   department: string | null; track: Track; epicRequirement: EpicRequirement;
 };
@@ -36,19 +35,9 @@ function renderVars(text: string, ctx: Ctx): string {
     .replace(/\{\{\s*trainingLocation\s*\}\}/g, ctx.trainingLocation);
 }
 
-/** Prepends the stored/prefilled value as a selectable option when it is
- *  missing from the generated option list, so a value outside the list still
- *  renders selected instead of silently blanking out. `gradYearOptions` is
- *  only a 7-year rolling window, but a stored gradYear flows verbatim from
- *  the application and the canonical application list runs wider (plus
- *  "other"); this guard keeps that answer visible and selected regardless. */
-function withStoredOption(
-  options: { value: string; label: string }[],
-  stored: string,
-): { value: string; label: string }[] {
-  if (!stored || options.some((o) => o.value === stored)) return options;
-  return [{ value: stored, label: stored }, ...options];
-}
+// systemFieldOptions (in system-fields.ts) supplies the choice list and
+// prepends any stored value the canonical list does not know, so a prefill
+// outside the list still renders selected instead of silently blanking out.
 
 export function ContractField({
   block, prefill, ctx, err, onAnswer, departments = [],
@@ -215,25 +204,33 @@ export function ContractField({
         </label>
       );
     case "select": {
-      const stored = block.systemKey === "gradYear" ? prefill.gradYear
-        : block.systemKey === "yaleAffiliation" ? prefill.yaleAffiliation
-        : "";
-      const generated = block.systemKey === "gradYear" ? gradYearOptions(ctx.currentYear) : (spec.options ?? []);
-      const options = withStoredOption(generated, stored);
-      const nameByKey: Record<string, string> = { yaleAffiliation: "yaleAffiliation", gradYear: "gradYear" };
-      const inputName = nameByKey[block.systemKey];
-      const defaults: Record<string, string> = { yaleAffiliation: prefill.yaleAffiliation, gradYear: prefill.gradYear };
+      // yaleAffiliation / gradYear store stable machine keys ("other_yale"), so a
+      // plain text input showed applicants the key instead of the label. Options
+      // carry the key as the value, keeping what gets submitted unchanged.
+      const inputName = block.systemKey;
+      // Mirrors the text branch's `defaults` map: a select field added later
+      // without an entry here starts empty rather than silently inheriting
+      // another field's value.
+      const selectDefaults: Partial<Record<typeof block.systemKey, string>> = {
+        yaleAffiliation: prefill.yaleAffiliation,
+        gradYear: prefill.gradYear,
+      };
+      const current = selectDefaults[block.systemKey] ?? "";
       return (
         <div>
           <Field label={label}>
+            {/* onChange feeds the answers map so a visibleWhen keyed on this
+                field (e.g. staffTitle on yaleAffiliation) matches server-side. */}
             <Select
               name={inputName}
-              defaultValue={defaults[block.systemKey] ?? ""}
+              defaultValue={current}
               onChange={(e) => onAnswer(inputName, e.target.value)}
               {...errorProps(inputName)}
             >
-              <option value="">Select one</option>
-              {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              <option value="">Select…</option>
+              {systemFieldOptions(block.systemKey, current).map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
             </Select>
           </Field>
           {err(inputName) && <p id={errorId(inputName)} className="mt-1 text-xs text-critical">{err(inputName)}</p>}

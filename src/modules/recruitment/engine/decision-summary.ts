@@ -32,3 +32,12 @@ export function rosterDecision(input: {
   if (decisions.includes("REJECT")) return { status: "REJECTED", label: "Rejected", tone: "critical", departments: [] };
   return { status: "NONE", label: "None", tone: "default", departments: [] };
 }
+
+/** Precedence order, used to sort the roster by decision. Mirrors the if-chain
+ *  in rosterDecision: accepted > waitlisted > rejected > none. */
+export const ROSTER_DECISION_ORDER: readonly RosterDecisionStatus[] = [
+  "ACCEPTED",
+  "WAITLIST",
+  "REJECTED",
+  "NONE",
+];

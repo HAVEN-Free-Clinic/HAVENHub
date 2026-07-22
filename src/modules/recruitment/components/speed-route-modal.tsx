@@ -8,6 +8,7 @@ import { Alert } from "@/platform/ui/alert";
 import { Spinner } from "@/platform/ui/spinner";
 import { Checkbox } from "@/platform/ui/checkbox";
 import type { SpeedRouteRow } from "@/modules/recruitment/services/speed-route";
+import { formatScoreSummary } from "@/modules/recruitment/engine/scoring";
 
 type SpeedRouteModalProps = {
   open: boolean;
@@ -153,7 +154,7 @@ export function SpeedRouteModal({ open, onClose, rows, departments, onRoute, onR
       ) : (
         <div className="space-y-5">
           <div className="flex flex-wrap items-center gap-2 text-sm">
-            <Badge>{current!.average != null ? `avg ${current!.average.toFixed(1)} · ${current!.scoreCount}` : "unscored"}</Badge>
+            <Badge>{formatScoreSummary({ average: current!.average, count: current!.scoreCount })}</Badge>
             <span className="text-muted-foreground">Ranked: {current!.departmentChoices.join(", ") || "(none)"}</span>
             <label className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
               <Checkbox checked={includeDecided} onChange={(e) => toggleShowDecided(e.target.checked)} />

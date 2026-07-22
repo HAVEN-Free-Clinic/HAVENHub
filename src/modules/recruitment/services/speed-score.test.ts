@@ -58,7 +58,7 @@ async function seed() {
   });
   const outsider = await prisma.person.create({ data: { name: "Out", status: "ACTIVE" } });
 
-  return { gradYear, essay, hasCert, certDetail, scorer, application, outsider, outsiderApplication };
+  return { gradYear, essay, hasCert, certDetail, scorer, application, outsider, outsiderApplication, section };
 }
 
 beforeEach(async () => { await resetDb(); });
@@ -85,6 +85,29 @@ describe("loadReviewApplication", () => {
     if (!("view" in res)) throw new Error("expected view");
     const keys = res.view.sections.flatMap((s) => s.fields).map((f) => f.key);
     expect(keys).not.toContain("cert_detail"); // has_cert = "no"
+  });
+
+  it("shows the hoisted ranking once even when the form has several rank fields", async () => {
+    const { scorer, application, section } = await seed();
+    // submitApplication hoists the ranking out of the FIRST rank field into its
+    // own column, so extra rank fields have nothing of their own to render; each
+    // used to repeat the same hoisted list as another identical row.
+    await addField(section.id, { label: "Subcommittee ranking", type: "SUBCOMMITTEE_RANK", required: false });
+    await addField(section.id, { label: "Subcommittee ranking", type: "SUBCOMMITTEE_RANK", required: false });
+    const cqa = await prisma.subcommittee.create({ data: { name: "CQA" } });
+    const crec = await prisma.subcommittee.create({ data: { name: "CREC" } });
+    await prisma.application.update({
+      where: { id: application.id },
+      data: { subcommitteeRanking: [cqa.id, crec.id] },
+    });
+
+    const res = await loadReviewApplication(application.id, scorer.id);
+    if (!("view" in res)) throw new Error("expected view");
+    const ranked = res.view.sections
+      .flatMap((s) => s.fields)
+      .filter((f) => f.label === "Subcommittee ranking");
+    expect(ranked).toHaveLength(1);
+    expect(ranked[0].displayValue).toBe("1. CQA  ·  2. CREC");
   });
 
   it("returns an error for a viewer out of scope", async () => {

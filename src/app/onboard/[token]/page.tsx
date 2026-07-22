@@ -84,11 +84,9 @@ export default async function OnboardPage({ params }: { params: Promise<{ token:
   const trainingDate = formatTrainingDate(cycle?.inPersonTrainingDate ?? null, zone);
   const trainingLocation = formatTrainingLocation(cycle?.trainingLocation ?? null);
 
-  // Stamp the date/year once on the server so the HIPAA date bounds and grad
-  // year options hydrate identically on the client.
-  const now = new Date();
-  const todayIso = now.toISOString().slice(0, 10);
-  const currentYear = now.getUTCFullYear();
+  // Stamp the date once on the server so the HIPAA date bounds hydrate
+  // identically on the client.
+  const todayIso = new Date().toISOString().slice(0, 10);
 
   return (
     <main className="mx-auto max-w-2xl px-6 py-10">
@@ -98,7 +96,7 @@ export default async function OnboardPage({ params }: { params: Promise<{ token:
         prefill={prefill}
         layout={layout}
         ctx={{
-          firstName: contract.firstName, orgName, todayIso, currentYear,
+          firstName: contract.firstName, orgName, todayIso,
           trainingDate, trainingLocation,
           department: departmentCode, track, epicRequirement,
         }}

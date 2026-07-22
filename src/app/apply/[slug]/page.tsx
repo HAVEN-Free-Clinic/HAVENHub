@@ -4,6 +4,7 @@ import { auth } from "@/platform/auth/auth";
 import { getRenewalContext, resolveRenewalPrefill } from "@/modules/recruitment/services/renewal";
 import { getApplicantIdentity } from "@/modules/recruitment/services/portal-auth";
 import { getDraft } from "@/modules/recruitment/services/drafts";
+import { resolveAvailabilityOptions } from "@/modules/recruitment/templates/clinic-dates";
 import type { ApplicantType } from "@/modules/recruitment/engine/visibility";
 import { getSupportContact } from "@/platform/branding/support";
 import { SupportLink } from "@/platform/branding/support-link";
@@ -16,7 +17,10 @@ export default async function ApplyPage({ params, searchParams }: { params: Prom
   const { type } = await searchParams;
   const cycle = await prisma.recruitmentCycle.findUnique({
     where: { publicSlug: slug },
-    include: { sections: { where: { purpose: "APPLICATION" }, include: { fields: { orderBy: { order: "asc" } } }, orderBy: { order: "asc" } } },
+    include: {
+      term: { select: { clinicDates: true } },
+      sections: { where: { purpose: "APPLICATION" }, include: { fields: { orderBy: { order: "asc" } } }, orderBy: { order: "asc" } },
+    },
   });
 
   const now = new Date();
@@ -27,6 +31,11 @@ export default async function ApplyPage({ params, searchParams }: { params: Prom
   // lands on the applications dashboard. A real cycle that is merely closed keeps
   // the friendly public notice below.
   if (!cycle) redirect("/apply");
+
+  // The availability question's options come from the term's clinic calendar,
+  // not from the stored snapshot. Everything below reads `sections`, not
+  // `cycle.sections`, so the form and its validation see the same list.
+  const sections = resolveAvailabilityOptions(cycle.sections, cycle.term.clinicDates);
 
   if (!open) {
     const support = await getSupportContact();
@@ -68,7 +77,7 @@ export default async function ApplyPage({ params, searchParams }: { params: Prom
     acceptsRenewals: cycle.acceptsRenewals,
     departments: cycle.departments,
     subcommittees,
-    sections: cycle.sections.map((s) => ({
+    sections: sections.map((s) => ({
       id: s.id, title: s.title, description: s.description, appliesTo: s.appliesTo, departmentCode: s.departmentCode,
       fields: s.fields.map((f) => ({ key: f.key, label: f.label, helpText: f.helpText, type: f.type, required: f.required, options: (f.options as { value: string; label: string }[] | null) ?? null, validation: (f.validation as Record<string, unknown> | null) ?? null, visibleWhen: f.visibleWhen ?? null })),
     })),
@@ -90,7 +99,7 @@ export default async function ApplyPage({ params, searchParams }: { params: Prom
     // needs an active membership in the track (their department may be elsewhere).
     eligible = ctx.eligible && currentDepartments.length > 0;
     isReturning = ctx.eligible;
-    const fields = cycle.sections.flatMap((s) => s.fields).map((f) => ({ key: f.key, type: f.type }));
+    const fields = sections.flatMap((s) => s.fields).map((f) => ({ key: f.key, type: f.type }));
     prefill = resolveRenewalPrefill(fields, ctx);
   }
   const initialApplicantType: ApplicantType = type === "renewal" ? "RENEWAL" : type === "transfer" ? "TRANSFER" : "NEW";

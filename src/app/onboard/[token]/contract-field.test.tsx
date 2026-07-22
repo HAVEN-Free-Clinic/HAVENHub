@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { ContractField } from "./contract-field";
 
 const ctx = {
-  firstName: "Ada", orgName: "HAVEN Free Clinic", todayIso: "2026-07-21", currentYear: 2026,
+  firstName: "Ada", orgName: "HAVEN Free Clinic", todayIso: "2026-07-21",
   trainingDate: "Sunday, May 3", trainingLocation: " in person",
   department: "BVHD", track: "DIRECTOR" as const, epicRequirement: "ALL" as const,
 };
@@ -85,22 +85,21 @@ describe("ContractField", () => {
     expect(out).not.toContain("{{orgName}}");
   });
 
-  // Addition 2: gradYearOptions(currentYear) is only a 7-year rolling window,
-  // but a stored/prefilled value can fall outside it (the canonical
-  // application list runs wider, and "other"/"na" are always possible). The
-  // select must not silently drop the applicant's real answer.
-  it("keeps and selects a stored gradYear value outside the generated option window", () => {
+  // systemFieldOptions prepends a stored value the canonical grad-year list
+  // does not know (an older applicant, an Airtable import) so the select does
+  // not silently drop the applicant's real answer.
+  it("keeps and selects a stored gradYear value outside the canonical option list", () => {
     const out = renderToStaticMarkup(
       <ContractField
         block={{ kind: "system_field", systemKey: "gradYear" }}
-        prefill={{ ...prefill, gradYear: "2033" }}
+        prefill={{ ...prefill, gradYear: "2035" }}
         ctx={ctx}
         err={noErr}
         onAnswer={noop}
       />,
     );
-    expect(out).toContain(">2033<");
-    expect(out).toContain('value="2033" selected');
+    expect(out).toContain(">2035<");
+    expect(out).toContain('value="2035" selected');
   });
 
   // Finding 1 (HIGH): the director default's second_department_name question

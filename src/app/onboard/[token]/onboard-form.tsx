@@ -13,7 +13,7 @@ import type { ContractLayout } from "@/modules/recruitment/contract/layout";
 
 type Prefill = { firstName: string; lastName: string; email: string; netId: string; phone: string; yaleAffiliation: string; gradYear: string };
 type Ctx = {
-  firstName: string; orgName: string; todayIso: string; currentYear: number;
+  firstName: string; orgName: string; todayIso: string;
   trainingDate: string; trainingLocation: string;
   department: string | null; track: Track; epicRequirement: EpicRequirement;
 };

@@ -4,7 +4,7 @@ import { OnboardForm } from "./onboard-form";
 import { DIRECTOR_LAYOUT } from "@/modules/recruitment/contract/defaults/director";
 
 const ctx = {
-  firstName: "Ada", orgName: "HAVEN Free Clinic", todayIso: "2026-07-21", currentYear: 2026,
+  firstName: "Ada", orgName: "HAVEN Free Clinic", todayIso: "2026-07-21",
   trainingDate: "Sunday, May 3", trainingLocation: " in person",
   department: "BVHD", track: "DIRECTOR" as const, epicRequirement: "ALL" as const,
 };

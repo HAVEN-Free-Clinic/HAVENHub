@@ -1,7 +1,42 @@
 import { describe, it, expect } from "vitest";
-import { SYSTEM_FIELDS, SYSTEM_FIELD_KEYS, DEFAULT_CONTRACT_LAYOUT, defaultContractLayout, YALE_AFFILIATION_OPTIONS, gradYearOptions } from "./system-fields";
+import { SYSTEM_FIELDS, SYSTEM_FIELD_KEYS, DEFAULT_CONTRACT_LAYOUT, defaultContractLayout, YALE_AFFILIATION_OPTIONS, systemFieldOptions } from "./system-fields";
 import { parseContractLayout, type AgreementBlock, type SystemFieldBlock } from "./layout";
-import { YALE_AFFILIATION } from "../templates/content/options";
+import { GRAD_YEAR, YALE_AFFILIATION } from "../templates/content/options";
+
+describe("systemFieldOptions", () => {
+  it("renders yaleAffiliation as a choice list, not free text", () => {
+    expect(SYSTEM_FIELDS.yaleAffiliation.render).toBe("select");
+    expect(SYSTEM_FIELDS.gradYear.render).toBe("select");
+  });
+
+  it("gives every affiliation key a human label", () => {
+    const opts = systemFieldOptions("yaleAffiliation", "other_yale");
+    expect(opts.find((o) => o.value === "other_yale")?.label).toBe("Other Yale Affiliation");
+    expect(opts.find((o) => o.value === "ysm_md")?.label).toBe("Yale School of Medicine (YSM), MD or MD/PhD");
+  });
+
+  it("leaves the canonical list untouched for a known value", () => {
+    expect(systemFieldOptions("yaleAffiliation", "staff")).toHaveLength(13);
+  });
+
+  it("leaves the canonical list untouched when there is no stored value", () => {
+    expect(systemFieldOptions("yaleAffiliation", "")).toHaveLength(13);
+    expect(systemFieldOptions("yaleAffiliation", undefined)).toHaveLength(13);
+  });
+
+  // Person.yaleAffiliation holds a mix of vocabularies (recruitment machine keys,
+  // /my-info human strings, Airtable imports). An unrecognised stored value must
+  // survive a round-trip through the form rather than being silently reset.
+  it("preserves a stored value that is not in the canonical list", () => {
+    const opts = systemFieldOptions("yaleAffiliation", "Yale School of Medicine");
+    expect(opts).toHaveLength(14);
+    expect(opts[0]).toEqual({ value: "Yale School of Medicine", label: "Yale School of Medicine" });
+  });
+
+  it("returns no options for a field that is not a choice list", () => {
+    expect(systemFieldOptions("netId", "abc123")).toEqual([]);
+  });
+});
 
 describe("system fields + default layout", () => {
   it("marks name, email, epic, hipaa as core", () => {
@@ -74,11 +109,8 @@ describe("new system fields", () => {
     expect(YALE_AFFILIATION_OPTIONS.some((o) => o.value === "staff")).toBe(true);
   });
 
-  it("builds a seven year grad window plus Other and N/A", () => {
-    const opts = gradYearOptions(2026);
-    expect(opts.map((o) => o.value)).toEqual([
-      "2026", "2027", "2028", "2029", "2030", "2031", "2032", "other", "na",
-    ]);
+  it("offers the canonical grad-year options, not a parallel copy", () => {
+    expect(SYSTEM_FIELDS.gradYear.options).toEqual(GRAD_YEAR);
   });
 
   it("keeps every system field's columns non-empty", () => {
@@ -102,22 +134,9 @@ describe("new system fields", () => {
     expect(specKeys.length).toBe(SYSTEM_FIELD_KEYS.length);
   });
 
-  it("gradYearOptions returns strictly increasing consecutive years plus two extras", () => {
-    const opts = gradYearOptions(2026);
-    expect(opts.length).toBe(9);
-    const yearOpts = opts.slice(0, 7);
-    for (let i = 0; i < yearOpts.length; i++) {
-      expect(Number(yearOpts[i].value)).toBe(2026 + i);
-    }
-    expect(opts[7].value).toBe("other");
-    expect(opts[8].value).toBe("na");
-  });
-
-  it("honors its fromYear argument rather than hardcoding a year", () => {
-    const opts2026 = gradYearOptions(2026);
-    const opts2030 = gradYearOptions(2030);
-    expect(opts2026[0].value).toBe("2026");
-    expect(opts2030[0].value).toBe("2030");
-    expect(opts2026[0].value).not.toBe(opts2030[0].value);
+  it("prepends a stored grad year outside the canonical list rather than dropping it", () => {
+    const opts = systemFieldOptions("gradYear", "1999");
+    expect(opts[0]).toEqual({ value: "1999", label: "1999" });
+    expect(opts.length).toBe(GRAD_YEAR.length + 1);
   });
 });

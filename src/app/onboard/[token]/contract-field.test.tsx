@@ -102,4 +102,30 @@ describe("ContractField", () => {
     expect(out).toContain(">2033<");
     expect(out).toContain('value="2033" selected');
   });
+
+  // Finding 1 (HIGH): the director default's second_department_name question
+  // is a required DEPARTMENT_CHOICE, but ContractField used to hard-code
+  // departments={[]} on FieldPreview, so the required <select> rendered with
+  // no selectable options at all -- a director who answered "yes" to
+  // second_department could never submit. departments must be threaded
+  // through from a real caller-supplied list and land as <option>s.
+  it("renders selectable options for a DEPARTMENT_CHOICE custom question when departments are supplied", () => {
+    const out = renderToStaticMarkup(
+      <ContractField
+        block={{
+          kind: "custom_question", key: "second_department_name",
+          label: "If yes, what department will you be volunteering with?",
+          type: "DEPARTMENT_CHOICE", required: true,
+        }}
+        prefill={prefill}
+        ctx={ctx}
+        err={noErr}
+        onAnswer={noop}
+        departments={["BVHD", "MDIC"]}
+      />,
+    );
+    expect(out).toContain('<select name="custom__second_department_name"');
+    expect(out).toContain('<option value="BVHD">BVHD</option>');
+    expect(out).toContain('<option value="MDIC">MDIC</option>');
+  });
 });

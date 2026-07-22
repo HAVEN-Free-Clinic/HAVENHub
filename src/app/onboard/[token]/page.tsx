@@ -63,6 +63,23 @@ export default async function OnboardPage({ params }: { params: Promise<{ token:
     : null;
   const epicRequirement = epicRequirementFor(dept, track);
 
+  // The director default's second_department_name question is a
+  // DEPARTMENT_CHOICE custom question (contract/defaults/director.ts); its
+  // options come from the clinic's active departments, not the layout
+  // itself. FieldPreview (shared with the apply wizard) renders whatever
+  // strings this list contains as the option value; the apply wizard passes
+  // department CODES (RecruitmentCycle.departments is String[] of Department
+  // codes, threaded through apply/[slug]/page.tsx's `def.departments`), so
+  // codes are used here too to keep a stored answer consistent across both
+  // flows and with the department-gated agreement blocks in
+  // defaults/departments.ts, which key visibleWhen on the code.
+  const departmentRows = await prisma.department.findMany({
+    where: { isActive: true },
+    select: { code: true, name: true },
+    orderBy: { name: "asc" },
+  });
+  const departments = departmentRows.map((d) => d.code);
+
   const zone = await getDisplayTimeZone();
   const trainingDate = formatTrainingDate(cycle?.inPersonTrainingDate ?? null, zone);
   const trainingLocation = formatTrainingLocation(cycle?.trainingLocation ?? null);
@@ -85,6 +102,7 @@ export default async function OnboardPage({ params }: { params: Promise<{ token:
           trainingDate, trainingLocation,
           department: departmentCode, track, epicRequirement,
         }}
+        departments={departments}
       />
     </main>
   );

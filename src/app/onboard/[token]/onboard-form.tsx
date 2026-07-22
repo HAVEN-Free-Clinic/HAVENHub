@@ -19,8 +19,18 @@ type Ctx = {
 };
 
 export function OnboardForm({
-  token, prefill, layout, ctx,
-}: { token: string; prefill: Prefill; layout: ContractLayout; ctx: Ctx }) {
+  token, prefill, layout, ctx, departments = [],
+}: {
+  token: string;
+  prefill: Prefill;
+  layout: ContractLayout;
+  ctx: Ctx;
+  // Active department codes, threaded down to every ContractField for the
+  // DEPARTMENT_CHOICE custom-question case. Defaults to [] so existing tests
+  // that never render a DEPARTMENT_CHOICE block keep typechecking; the real
+  // onboard page always supplies the loaded list.
+  departments?: string[];
+}) {
   const [result, setResult] = useState<SubmitResult | null>(null);
   const [submitting, setSubmitting] = useState(false);
   // Free-form answers the applicant has entered so far (selects, checkboxes,
@@ -30,12 +40,16 @@ export function OnboardForm({
   // requirement.
   //
   // Seeded from prefill on first render, mirroring apply-wizard.tsx's answers
-  // seeding: several fields (yaleAffiliation, gradYear, netId, phone) render
-  // with defaultValue and never fire onChange on mount, so without this seed
-  // a prefilled value that gates another block (e.g. staffTitle's
-  // visibleWhen on yaleAffiliation === "staff") would evaluate against an
-  // empty answers map on the first render and hide a block the applicant
-  // never gets a chance to answer. department/track/epicRequirement are
+  // seeding: several fields (yaleAffiliation, gradYear, netId, phone,
+  // firstName, lastName, email) render with defaultValue and never fire
+  // onChange on mount, so without this seed a prefilled value that gates
+  // another block (e.g. staffTitle's visibleWhen on yaleAffiliation ===
+  // "staff") would evaluate against an empty answers map on the first render
+  // and hide a block the applicant never gets a chance to answer. firstName/
+  // lastName/email are not controllers of any shipped default today, but the
+  // server always reconstructs them into its own answers map (submitContract),
+  // so seeding them here keeps the client's first render from diverging if a
+  // future condition keys on one. department/track/epicRequirement are
   // deliberately NOT seeded here: they are authoritative context that
   // buildContractAnswers strips out of formAnswers and overrides from ctx on
   // every call, so seeding them would do nothing except be misleading.
@@ -45,6 +59,9 @@ export function OnboardForm({
     if (prefill.gradYear) seed.gradYear = prefill.gradYear;
     if (prefill.netId) seed.netId = prefill.netId;
     if (prefill.phone) seed.phone = prefill.phone;
+    if (prefill.firstName) seed.firstName = prefill.firstName;
+    if (prefill.lastName) seed.lastName = prefill.lastName;
+    if (prefill.email) seed.email = prefill.email;
     return seed;
   });
   const onAnswer = useCallback((name: string, value: string | string[]) => {
@@ -94,7 +111,7 @@ export function OnboardForm({
         {shown.map((b) => (
           <ContractField
             key={"id" in b ? b.id : b.kind === "system_field" ? b.systemKey : b.key}
-            block={b} prefill={prefill} ctx={ctx} err={err} onAnswer={onAnswer}
+            block={b} prefill={prefill} ctx={ctx} err={err} onAnswer={onAnswer} departments={departments}
           />
         ))}
 

@@ -51,13 +51,18 @@ function withStoredOption(
 }
 
 export function ContractField({
-  block, prefill, ctx, err, onAnswer,
+  block, prefill, ctx, err, onAnswer, departments = [],
 }: {
   block: ContractBlock;
   prefill: Prefill;
   ctx: Ctx;
   err: (k: string) => string | undefined;
   onAnswer: (name: string, value: string | string[]) => void;
+  // Active department codes, for a custom_question of type DEPARTMENT_CHOICE
+  // (e.g. the director default's second_department_name). Defaults to [] so
+  // existing callers that never render a DEPARTMENT_CHOICE block keep
+  // typechecking; the real onboard page always supplies the loaded list.
+  departments?: string[];
 }) {
   const [hasEpic, setHasEpic] = useState(false);
 
@@ -122,7 +127,7 @@ export function ContractField({
       <div>
         <FieldPreview
           f={{ key: `custom__${block.key}`, label, helpText, type: block.type, required: block.required, options: block.options ?? null, validation: null }}
-          departments={[]}
+          departments={departments}
           fieldError={err(`custom__${block.key}`)}
           // Notify by the block's raw key (not the custom__-prefixed submit
           // name) since that is what a later block's visibleWhen addresses
@@ -138,7 +143,7 @@ export function ContractField({
 
   // system_field
   const spec = SYSTEM_FIELDS[block.systemKey];
-  const label = block.label ?? spec.defaultLabel;
+  const label = renderVars(block.label ?? spec.defaultLabel, ctx);
   switch (spec.render) {
     case "epicBlock":
       return (
@@ -257,7 +262,7 @@ export function ContractField({
             name="sig__initials"
             label={label}
             required
-            helpText={block.helpText}
+            helpText={block.helpText ? renderVars(block.helpText, ctx) : block.helpText}
             personName={`${prefill.firstName} ${prefill.lastName}`.trim()}
             error={err("sig__initials")}
           />

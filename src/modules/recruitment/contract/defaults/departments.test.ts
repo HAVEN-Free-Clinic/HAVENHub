@@ -13,6 +13,19 @@ describe("DEPARTMENT_RESPONSIBILITY_BLOCKS", () => {
     expect(gated.sort()).toEqual([...CODES].sort());
   });
 
+  // Cheap safety insurance: department gating is safety-relevant (it decides
+  // which department-specific responsibilities agreement a director signs),
+  // so cover the full condition shape, not just its value. A block whose
+  // visibleWhen keyed on the wrong field, or used "isNot"/"isAnyOf" instead
+  // of "is", would still pass the value-only assertion above while gating on
+  // an entirely different (or inverted) condition.
+  it("gates every block on department is <code>, not any other field or operator", () => {
+    for (const b of DEPARTMENT_RESPONSIBILITY_BLOCKS) {
+      expect(b.visibleWhen?.field).toBe("department");
+      expect(b.visibleWhen?.op).toBe("is");
+    }
+  });
+
   it("confirms with a checkbox, not a signature", () => {
     for (const b of DEPARTMENT_RESPONSIBILITY_BLOCKS) expect(b.confirmKind).toBe("checkbox");
   });

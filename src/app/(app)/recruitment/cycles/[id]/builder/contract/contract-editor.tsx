@@ -14,6 +14,7 @@ import { SystemFieldCard } from "./system-field-card";
 import { AgreementCard } from "./agreement-card";
 import { CustomQuestionCard } from "./custom-question-card";
 import { SectionCard } from "./section-card";
+import { buildFieldOptions } from "./field-options";
 import { Button } from "@/platform/ui/button";
 import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
@@ -96,19 +97,15 @@ export function ContractEditor({
     setLayout((prev) => applyBlockOp(prev, { t: "addCustom", fieldType }));
 
   // Conditions can key on the authoritative context (department/track/epic
-  // requirement, always present regardless of what the form asks) or on any
-  // answerable custom question already in this layout. Agreements, sections
-  // and system fields are not offered as controllers: an agreement/section has
-  // no stored answer to branch on, and a system field's value lives on the
-  // Person record rather than in the answers map a visibleWhen condition reads.
-  const fieldOptions = [
-    { value: "department", label: "Department" },
-    { value: "track", label: "Track" },
-    { value: "epicRequirement", label: "Epic requirement" },
-    ...layout.blocks
-      .filter((b): b is Extract<ContractBlock, { kind: "custom_question" }> => b.kind === "custom_question")
-      .map((b) => ({ value: b.key, label: b.label })),
-  ];
+  // requirement, always present regardless of what the form asks), any
+  // answerable custom question already in this layout, or a non-core system
+  // field's answer-map key (both client and server put submitted system-field
+  // values into the same onboarding answers map a visibleWhen condition
+  // reads -- that is exactly why the shipped staffTitle/epicIdExpiration
+  // conditions work). Agreements and sections are not offered as controllers:
+  // they have no stored answer to branch on. See field-options.ts for the
+  // system-field answer-key mapping and the core-field exclusion.
+  const fieldOptions = buildFieldOptions(layout);
 
   function save() {
     setError(null);

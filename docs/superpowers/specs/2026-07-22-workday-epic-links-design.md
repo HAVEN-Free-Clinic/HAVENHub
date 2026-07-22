@@ -38,40 +38,40 @@ Two external systems that volunteers must reach are invisible inside HAVEN Hub:
 
 ## Design
 
-### 1. Constants — `src/platform/external-links.ts` (new)
+### 1. Constants: `src/platform/external-links.ts` (new)
 
 ```ts
-/** Yale Workday Learning — where volunteers complete EHS and HIPAA training. */
+/** Yale Workday Learning: where volunteers complete EHS and HIPAA training. */
 export const WORKDAY_LEARNING_URL = "https://www.myworkday.com/yale/learning";
 
-/** YNHH remote apps portal — where provisioned users launch Epic. */
+/** YNHH remote apps portal: where provisioned users launch Epic. */
 export const EPIC_APPS_URL = "https://myapps.ynhh.org";
 ```
 
-### 2. Reusable primitive — `src/platform/ui/external-link-button.tsx` (new)
+### 2. Reusable primitive: `src/platform/ui/external-link-button.tsx` (new)
 
 The codebase has no anchor variant of `Button`; external CTAs are hand-rolled `<a>` +
-`buttonClasses(...)` + `target="_blank" rel="noopener noreferrer"` + sr-only text (see the two
-`eslint-disable no-restricted-syntax` sites). This primitive centralizes that pattern so the
-three Workday CTAs stay consistent.
+`buttonClasses(...)` + `target="_blank" rel="noopener noreferrer"` + sr-only text. This primitive
+centralizes that pattern so the three Workday CTAs stay consistent.
 
 - Props: `href`, `variant` (default `"outline"`), `size` (default `"sm"`), `children`,
   optional `className`.
 - Renders `<a href target="_blank" rel="noopener noreferrer" className={buttonClasses(variant, size, className)}>`
   with `children`, a trailing `ExternalLink` (lucide) icon (`aria-hidden`), and a
   `<span className="sr-only"> (opens in a new tab)</span>`.
-- Carries the `eslint-disable-next-line no-restricted-syntax` comment for the raw anchor, so
-  callers don't each need it.
+- A raw external `<a>` needs NO `eslint-disable` (this matches `clinic-channel-card.tsx`, the
+  proven external-link pattern; the two existing `no-restricted-syntax` disables in the codebase
+  are for a `<button>` text-link and a file input, not anchors).
 
-### 3. Workday CTAs — three placements, each gated on "outstanding"
+### 3. Workday CTAs: three placements, each gated on "outstanding"
 
-**a. EHS panel — `src/modules/my-info/components/ehs-panel.tsx`**
+**a. EHS panel: `src/modules/my-info/components/ehs-panel.tsx`**
 - Compute `hasOutstanding = items.some((i) => !i.complete)`.
 - When `hasOutstanding`, render below the list:
   `<ExternalLinkButton href={WORKDAY_LEARNING_URL} variant="primary">Complete EHS training in Workday</ExternalLinkButton>`
-- The empty state ("No EHS trainings are required for you.") is unchanged — no link.
+- The empty state ("No EHS trainings are required for you.") is unchanged: no link.
 
-**b. HIPAA panel — `src/modules/my-info/components/hipaa-panel.tsx`**
+**b. HIPAA panel: `src/modules/my-info/components/hipaa-panel.tsx`**
 - Add a pure predicate `hipaaNeedsTrainingLink(status: ComplianceStatus): boolean` to
   `src/platform/compliance/rules.ts` (next to the `ComplianceStatus` union, so it is importable
   in a plain vitest test without pulling in JSX/UI). Returns `true` for
@@ -86,7 +86,7 @@ three Workday CTAs stay consistent.
 - This component is shared by `/my-info` and `/get-started/hipaa`, so both surfaces are covered
   by this single change.
 
-**c. Onboarding checklist — `src/app/get-started/onboarding-checklist.tsx`**
+**c. Onboarding checklist: `src/app/get-started/onboarding-checklist.tsx`**
 - The EHS row (`task.key === "ehs"`) currently renders no CTA (EHS has no `href`). When the EHS
   task is not done, render `<ExternalLinkButton href={WORKDAY_LEARNING_URL}>Complete in Workday</ExternalLinkButton>`
   in the CTA slot.
@@ -100,7 +100,7 @@ three Workday CTAs stay consistent.
   routing consumed by `<Link>`); the Workday link is handled locally in the row for the `ehs`
   key only.
 
-### 4. Epic access card — `src/app/(app)/epic-access-card.tsx` (new)
+### 4. Epic access card: `src/app/(app)/epic-access-card.tsx` (new)
 
 Async server component mirroring `ClinicChannelCard`:
 - Signature `EpicAccessCard({ personId }: { personId: string })`.
@@ -130,7 +130,7 @@ No new data model. Reads only:
 ## Testing
 
 - **Unit (vitest):** `hipaaNeedsTrainingLink(status)` in `src/platform/compliance/rules.test.ts`
-  (add to the existing file if present, else create) — assert `true` for
+  (add to the existing file if present, else create): assert `true` for
   `NO_CERTIFICATE/EXPIRED/EXPIRING_SOON`, `false` for `COMPLIANT/PENDING_VERIFICATION/UNKNOWN_DATE`.
   Written test-first (TDD).
 - EHS "outstanding" is a trivial `.some(!complete)` and the Epic gate is `epicId != null`;

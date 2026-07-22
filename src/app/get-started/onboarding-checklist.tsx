@@ -5,6 +5,8 @@ import { Badge } from "@/platform/ui/badge";
 import { buttonClasses } from "@/platform/ui/button";
 import type { OnboardingTask } from "@/modules/onboarding/services/onboarding";
 import type { OnboardingTaskKey, OnboardingTaskState } from "@/modules/onboarding/engine/status";
+import { ExternalLinkButton } from "@/platform/ui/external-link-button";
+import { WORKDAY_LEARNING_URL } from "@/platform/external-links";
 
 const ICON: Record<OnboardingTaskKey, LucideIcon> = {
   profile: UserRoundPen,
@@ -46,6 +48,10 @@ function StatusPill({ state, actionable }: { state: OnboardingTaskState; actiona
 function TaskRow({ task }: { task: OnboardingTask }) {
   const Icon = ICON[task.key];
   const done = task.state === "COMPLETE" || task.state === "NOT_REQUIRED";
+  // EHS is recorded by a coordinator (no internal href), but volunteers still
+  // complete it in Workday, so it gets an external CTA and counts as actionable.
+  const workdayHref = task.key === "ehs" ? WORKDAY_LEARNING_URL : null;
+  const actionable = !!task.href || !!workdayHref;
   return (
     <li
       className={`flex items-center gap-4 rounded-2xl border p-4 shadow-sm ${
@@ -61,7 +67,7 @@ function TaskRow({ task }: { task: OnboardingTask }) {
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-[15px] font-bold tracking-tight text-foreground">{task.label}</span>
-          <StatusPill state={task.state} actionable={!!task.href} />
+          <StatusPill state={task.state} actionable={actionable} />
         </div>
         <p className="mt-0.5 text-[13px] leading-snug text-foreground-soft">{task.description}</p>
       </div>
@@ -70,11 +76,13 @@ function TaskRow({ task }: { task: OnboardingTask }) {
           <Check aria-hidden className="h-4 w-4" strokeWidth={3} />
         </span>
       ) : task.href ? (
-        // Non-actionable tasks (e.g. EHS, recorded by a coordinator) carry no href,
-        // so no CTA is rendered; the status pill communicates their state instead.
         <Link href={task.href} className={buttonClasses(task.state === "INCOMPLETE" ? "primary" : "outline", "sm")}>
           {task.ctaLabel}
         </Link>
+      ) : workdayHref ? (
+        <ExternalLinkButton href={workdayHref} variant={task.state === "INCOMPLETE" ? "primary" : "outline"}>
+          Complete in Workday
+        </ExternalLinkButton>
       ) : null}
     </li>
   );

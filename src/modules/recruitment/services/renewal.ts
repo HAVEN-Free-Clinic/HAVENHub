@@ -75,7 +75,11 @@ export function resolveRenewalPrefill(
     } else if ((f.type === "PHONE" || f.key === "phone") && ctx.phone) {
       values[f.key] = ctx.phone;
     } else if (f.key === "net_id" && ctx.netId) {
+      // A person with an existing record cannot edit their NetID: lock it like the
+      // verified email. Only locked when the record actually has one -- a record
+      // without a NetID leaves the field editable so it can still be supplied.
       values[f.key] = ctx.netId;
+      lockedKeys.push(f.key);
     }
   }
   return { values, lockedKeys };

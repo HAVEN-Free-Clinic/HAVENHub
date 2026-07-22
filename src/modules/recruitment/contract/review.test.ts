@@ -3,7 +3,7 @@ import { buildContractReview, reconstructContractAnswers } from "./review";
 import type { ContractLayout } from "./layout";
 import type { ContractContext } from "./visibility";
 
-const ctx: ContractContext = { department: "IM", track: "VOLUNTEER", epicRequirement: "SOME" };
+const ctx: ContractContext = { department: "IM", track: "VOLUNTEER", epicRequirement: "SOME", storedEpicId: null };
 
 /** A stored submitted contract with every field defaulted to "not provided",
  *  so each test overrides only what it exercises. */

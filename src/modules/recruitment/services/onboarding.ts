@@ -587,10 +587,15 @@ export async function getContractForReview(contractId: string) {
         select: { requiresEpicDirector: true, requiresEpicVolunteer: true },
       })
     : null;
+  // Resolve the Epic ID already on file the same way the fill-out page and
+  // submit validator do, so the review's Epic-section visibility matches what
+  // the applicant was shown (a stored id hides the "do you need Epic?" ask).
+  const storedEpicId = await lookupStoredEpicId(contract.netId, contract.email);
   const ctx: ContractContext = {
     department: departmentCode,
     track,
     epicRequirement: epicRequirementFor(dept, track),
+    storedEpicId,
   };
   return { contract, cycleId: contract.acceptance.application.cycleId, ctx };
 }

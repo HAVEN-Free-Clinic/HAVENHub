@@ -9,6 +9,8 @@ import { getSetting } from "@/platform/settings/service";
 import { buildPageMetadata } from "@/platform/branding/metadata";
 import { brandStyleVars } from "@/platform/ui/brand-style";
 import { TopProgressBar } from "@/platform/ui/top-progress-bar";
+import { EnvBanner } from "@/platform/ui/env-banner";
+import { config } from "@/platform/config";
 import { getPersonThemePreference } from "@/platform/ui/theme-preference";
 import { ThemeListener } from "@/platform/ui/theme-listener";
 import {
@@ -60,6 +62,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
       </head>
       <body className={`${hanken.variable} min-h-screen bg-canvas font-sans text-foreground antialiased`}>
         <style dangerouslySetInnerHTML={{ __html: brandStyleVars(brandColor) }} />
+        <EnvBanner label={config.ENV_BANNER_LABEL} />
         <ThemeListener />
         <TopProgressBar>
           <InactivityTracker authenticated={!!session?.user} />

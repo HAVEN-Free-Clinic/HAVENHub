@@ -603,20 +603,27 @@ export async function reconcileDeactivationRequests(
 
 /**
  * Creates the YNHH ticket and its SUBMITTED access-granting (NEW/MODIFY/RENEW)
- * Epic requests for the generate route's non-deactivate path, enforcing the
- * same invariants createEpicRequest guarantees so this bulk/PDF path cannot
- * manufacture a duplicate open request or a NEW request for someone who
- * already has an Epic ID.
+ * Epic requests for a batch, enforcing the same invariants createEpicRequest
+ * guarantees so this bulk/PDF path cannot manufacture a NEW request for someone
+ * who already has an Epic ID.
  *
- * Mirrors reconcileDeactivationRequests (the DEACTIVATE path) but rejects
- * duplicates instead of reusing them. Validation and both writes run in one
- * transaction, so any violation throws before the ticket is committed (no
- * orphan ticket, no partially-created batch):
+ * Validation and all writes run in one transaction, so any violation throws
+ * before the ticket is committed (no orphan ticket, no partially-created batch):
  *   - every person must still exist and be ACTIVE (SupportNotFoundError /
  *     SupportStateError);
- *   - NEW requires no epicId, MODIFY/RENEW requires an epicId (SupportStateError);
- *   - no person may already have an open (PENDING/SUBMITTED) request
- *     (SupportStateError).
+ *   - NEW requires no epicId, MODIFY/RENEW requires an epicId (SupportStateError).
+ *
+ * Open-request handling: an existing PENDING request of the SAME kind that is not
+ * yet on a ticket is ADOPTED onto this ticket rather than rejected. That row is
+ * exactly what this batch is submitting (promotion raises one for every volunteer
+ * who needs Epic), and rejecting it used to strand it as an orphan while the batch
+ * went to YNHH untracked. The claim is an atomic updateMany scoped to
+ * status PENDING + ticketId null, so a concurrent submit from the other surface
+ * matches zero rows and throws instead of re-pointing a request already claimed.
+ *
+ * Anything else is a real conflict a human must resolve, and raises
+ * SupportConflictError naming the people: a request of a DIFFERENT kind, or one
+ * already SUBMITTED onto a ticket.
  *
  * Trusts its caller for permissions: the generate route gates on
  * support.manage_requests. Returns the created ticket.
@@ -654,11 +661,21 @@ export async function submitEpicRequests(
       where: { personId: { in: personIds }, status: { in: ["PENDING", "SUBMITTED"] } },
       include: { person: { select: { name: true } } },
     });
-    if (open.length > 0) {
-      const uniqueNames = [...new Set(open.map((r) => r.person.name))];
-      const names = uniqueNames.join(", ");
+
+    // Partition open requests into ones this batch can absorb and ones it cannot.
+    const adoptable = new Map<string, string>(); // personId -> requestId
+    const conflicting: string[] = [];
+    for (const r of open) {
+      if (r.status === "PENDING" && r.ticketId === null && r.kind === kind) {
+        adoptable.set(r.personId, r.id);
+      } else {
+        conflicting.push(r.person.name);
+      }
+    }
+    if (conflicting.length > 0) {
+      const uniqueNames = [...new Set(conflicting)];
       throw new SupportConflictError(
-        `An open Epic request already exists for: ${names}. Cancel or complete it in the Tracker before submitting another.`,
+        `An open Epic request already exists for: ${uniqueNames.join(", ")}. Cancel or complete it in the Tracker before submitting another.`,
         uniqueNames
       );
     }
@@ -666,16 +683,32 @@ export async function submitEpicRequests(
     const ticket = await tx.ynhhTicket.create({
       data: { submittedById: actorPersonId, description: ticketDescription, status: "OPEN" },
     });
-    await tx.epicRequest.createMany({
-      data: requests.map((r) => ({
-        personId: r.personId,
-        kind,
-        status: "SUBMITTED",
-        mirrorEpicId: r.mirrorEpicId,
-        requestedById: actorPersonId,
-        ticketId: ticket.id,
-      })),
-    });
+
+    for (const r of requests) {
+      const existingId = adoptable.get(r.personId);
+      if (existingId) {
+        const claimed = await tx.epicRequest.updateMany({
+          where: { id: existingId, status: "PENDING", ticketId: null },
+          data: { status: "SUBMITTED", ticketId: ticket.id, mirrorEpicId: r.mirrorEpicId },
+        });
+        if (claimed.count !== 1) {
+          throw new SupportStateError(
+            "One or more of these requests were just submitted by a concurrent action. Refresh and try again."
+          );
+        }
+      } else {
+        await tx.epicRequest.create({
+          data: {
+            personId: r.personId,
+            kind,
+            status: "SUBMITTED",
+            mirrorEpicId: r.mirrorEpicId,
+            requestedById: actorPersonId,
+            ticketId: ticket.id,
+          },
+        });
+      }
+    }
 
     return ticket;
   });

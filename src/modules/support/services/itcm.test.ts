@@ -349,28 +349,90 @@ describe("submitEpicRequests", () => {
     expect(reqs.find((r) => r.personId === b.id)?.mirrorEpicId).toBeNull();
   });
 
-  it("rejects a duplicate open request and creates no ticket", async () => {
+  it("adopts a same-kind un-ticketed PENDING request instead of creating a second one", async () => {
     const actor = await createPerson("Manager");
     await grantPermission(actor.id, "support.manage_requests");
     const person = await createPerson("Alice");
-    // An existing open (PENDING) request already tracks this person.
-    await prisma.epicRequest.create({
+    // Exactly what promotion raises for a promoted volunteer who needs Epic.
+    const promoted = await prisma.epicRequest.create({
       data: { personId: person.id, kind: "NEW", status: "PENDING", requestedById: actor.id },
     });
 
-    // The open-request block is a recoverable conflict: a SupportConflictError
-    // (a SupportStateError subclass) carrying the blocked person's name so the
-    // caller can keep the generated artifacts and point at the Tracker.
+    const ticket = await submitEpicRequests(actor.id, "NEW", "New - Individual - Alice", [
+      { personId: person.id, mirrorEpicId: "MIRROR-A" },
+    ]);
+
+    // The promotion row itself moved onto the ticket: no second request exists.
+    const all = await prisma.epicRequest.findMany({ where: { personId: person.id } });
+    expect(all).toHaveLength(1);
+    expect(all[0].id).toBe(promoted.id);
+    expect(all[0].status).toBe("SUBMITTED");
+    expect(all[0].ticketId).toBe(ticket.id);
+    expect(all[0].mirrorEpicId).toBe("MIRROR-A");
+  });
+
+  it("rejects an open request of a different kind and creates no ticket", async () => {
+    const actor = await createPerson("Manager");
+    await grantPermission(actor.id, "support.manage_requests");
+    const person = await createPerson("Alice", { epicId: "E1" });
+    await prisma.epicRequest.create({
+      data: { personId: person.id, kind: "MODIFY", status: "PENDING", requestedById: actor.id },
+    });
+
+    const err = await submitEpicRequests(actor.id, "RENEW", "Renew - Individual - Alice", [
+      { personId: person.id, mirrorEpicId: null },
+    ]).catch((e) => e);
+    expect(err).toBeInstanceOf(SupportConflictError);
+    expect((err as SupportConflictError).personNames).toEqual(["Alice"]);
+
+    expect(await prisma.ynhhTicket.count()).toBe(0);
+    expect(await prisma.epicRequest.count({ where: { personId: person.id } })).toBe(1);
+  });
+
+  it("rejects a request already submitted onto another ticket", async () => {
+    const actor = await createPerson("Manager");
+    await grantPermission(actor.id, "support.manage_requests");
+    const person = await createPerson("Alice");
+    const oldTicket = await prisma.ynhhTicket.create({
+      data: { submittedById: actor.id, status: "OPEN" },
+    });
+    await prisma.epicRequest.create({
+      data: {
+        personId: person.id, kind: "NEW", status: "SUBMITTED",
+        requestedById: actor.id, ticketId: oldTicket.id,
+      },
+    });
+
     const err = await submitEpicRequests(actor.id, "NEW", "New - Individual - Alice", [
       { personId: person.id, mirrorEpicId: null },
     ]).catch((e) => e);
     expect(err).toBeInstanceOf(SupportConflictError);
-    expect(err).toBeInstanceOf(SupportStateError);
-    expect((err as SupportConflictError).personNames).toEqual(["Alice"]);
 
-    // The whole transaction rolls back: no new ticket, no second request.
-    expect(await prisma.ynhhTicket.count()).toBe(0);
-    expect(await prisma.epicRequest.count({ where: { personId: person.id } })).toBe(1);
+    // Only the original ticket survives; the request stays on it.
+    expect(await prisma.ynhhTicket.count()).toBe(1);
+    const reqs = await prisma.epicRequest.findMany({ where: { personId: person.id } });
+    expect(reqs).toHaveLength(1);
+    expect(reqs[0].ticketId).toBe(oldTicket.id);
+  });
+
+  it("adopts one person while creating a fresh request for another in the same batch", async () => {
+    const actor = await createPerson("Manager");
+    await grantPermission(actor.id, "support.manage_requests");
+    const a = await createPerson("Alice");
+    const b = await createPerson("Bob");
+    const promoted = await prisma.epicRequest.create({
+      data: { personId: a.id, kind: "NEW", status: "PENDING", requestedById: actor.id },
+    });
+
+    const ticket = await submitEpicRequests(actor.id, "NEW", "New - Bulk - Alice, Bob", [
+      { personId: a.id, mirrorEpicId: null },
+      { personId: b.id, mirrorEpicId: null },
+    ]);
+
+    const reqs = await prisma.epicRequest.findMany({ where: { ticketId: ticket.id } });
+    expect(reqs).toHaveLength(2);
+    expect(reqs.every((r) => r.status === "SUBMITTED" && r.kind === "NEW")).toBe(true);
+    expect(reqs.map((r) => r.id)).toContain(promoted.id);
   });
 
   it("rejects a NEW request for a person who already has an Epic ID, and creates no ticket", async () => {

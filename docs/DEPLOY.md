@@ -115,6 +115,35 @@ Mitigations in place / to set up:
 dead-man's-switch) configuration **in the same change**, or all scheduled work silently
 stops.
 
+## Staging environment (`staging.havenfreeclinic.org`)
+
+A persistent pre-production mirror runs as a Vercel custom environment named
+`staging`, tracking the `staging` git branch. `vercel.json`'s `ignoreCommand`
+builds `main` and `staging` and skips every other branch, so pushing `staging`
+deploys it through the same `prisma migrate deploy && next build` pipeline as
+production. Promote by merging `staging` into `main`.
+
+Staging is isolated from production so a test can never touch real data. Each of
+these is scoped to the `staging` environment only:
+
+- **Database:** its own Neon branch `staging` (project `floral-dawn-97522801`),
+  forked from `main` with a distinct role password, wired through `DATABASE_URL`
+  and `DATABASE_URL_UNPOOLED`. It doubles as the safest place to rehearse a
+  constraint-adding migration before it runs against production (see section 2).
+- **File storage:** its own Vercel Blob store `havenhub-staging-uploads`.
+- **Email:** `EMAIL_TRANSPORT=log`, so staging never sends real mail.
+- **Auth:** `DEMO_MODE=true` enables the email/credentials login and drops the
+  Azure requirement. Keep Vercel Deployment Protection on the environment: the
+  database is a fork of production and the login is open.
+- **Links:** `APP_BASE_URL=https://staging.havenfreeclinic.org`.
+
+Regenerate the staging connection strings with
+`neonctl connection-string staging --project-id floral-dawn-97522801`.
+
+The Airtable, Azure, Graph, GitBook, PostHog, and cron/auth variables still read
+production's values; scope any of them to `staging` the same way if it needs to
+diverge.
+
 ---
 
 _Owner: keep the "holder" and scheduler-account notes above filled in. When the pipeline

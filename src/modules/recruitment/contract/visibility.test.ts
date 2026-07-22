@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { buildContractAnswers, visibleContractBlocks } from "./visibility";
-import type { ContractBlock } from "./layout";
+import { buildContractAnswers, visibleContractBlocks, visibleOnboardingBlocks } from "./visibility";
+import type { ContractBlock, ContractLayout } from "./layout";
 
 const agreement = (id: string, dept: string): ContractBlock => ({
   kind: "agreement", id, title: id, body: "", signatureLabel: "sign",
@@ -181,5 +181,42 @@ describe("visibleContractBlocks", () => {
       visibleWhen: { field: "department" }, // missing op: unparseable
     } as ContractBlock;
     expect(visibleContractBlocks([block], buildContractAnswers({}, unplaced))).toHaveLength(1);
+  });
+});
+
+describe("visibleOnboardingBlocks", () => {
+  const ctx = { department: "IM", track: "VOLUNTEER" as const, epicRequirement: "SOME" as const };
+
+  it("drops a disabled optional system field but keeps core ones", () => {
+    const layout: ContractLayout = {
+      blocks: [
+        { kind: "system_field", systemKey: "email" }, // core
+        { kind: "system_field", systemKey: "netId", enabled: false }, // optional, off
+      ],
+    };
+    const shown = visibleOnboardingBlocks(layout, {}, ctx);
+    expect(shown.map((b) => (b.kind === "system_field" ? b.systemKey : null))).toEqual(["email"]);
+  });
+
+  it("shows a department-gated agreement only for the matching department", () => {
+    const layout: ContractLayout = {
+      blocks: [
+        { kind: "agreement", id: "im_duties", title: "IM duties", body: "", signatureLabel: "Sign",
+          confirmKind: "checkbox", visibleWhen: { field: "department", op: "is", value: "IM" } },
+      ],
+    };
+    expect(visibleOnboardingBlocks(layout, {}, { ...ctx, department: "IM" })).toHaveLength(1);
+    expect(visibleOnboardingBlocks(layout, {}, { ...ctx, department: "PEDS" })).toHaveLength(0);
+  });
+
+  it("reveals a block gated on hasEpic once hasEpic is answered", () => {
+    const layout: ContractLayout = {
+      blocks: [
+        { kind: "system_field", systemKey: "epicIdExpiration",
+          visibleWhen: { field: "hasEpic", op: "is", value: "on" } },
+      ],
+    };
+    expect(visibleOnboardingBlocks(layout, {}, ctx)).toHaveLength(0);
+    expect(visibleOnboardingBlocks(layout, { hasEpic: "on" }, ctx)).toHaveLength(1);
   });
 });

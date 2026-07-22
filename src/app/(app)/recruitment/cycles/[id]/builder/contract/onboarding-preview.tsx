@@ -70,10 +70,13 @@ export function OnboardingPreviewBody({
   const selectedDept = departments.find((d) => d.code === departmentCode) ?? null;
   const epicRequirement = epicRequirementFor(selectedDept, track);
   const department = departmentCode || null;
-  const ctx = { firstName: "", orgName, todayIso, trainingDate, trainingLocation, department, track, epicRequirement };
+  // The preview simulates a fresh applicant with no Epic ID on file, so the Epic
+  // section always renders its collect flow (never the "confirm your stored ID"
+  // path). storedEpicId is null for both ContractField and visibleOnboardingBlocks.
+  const ctx = { firstName: "", orgName, todayIso, trainingDate, trainingLocation, department, track, epicRequirement, storedEpicId: null };
 
   const shown = useMemo(
-    () => visibleOnboardingBlocks(layout, answers, { department, track, epicRequirement }),
+    () => visibleOnboardingBlocks(layout, answers, { department, track, epicRequirement, storedEpicId: null }),
     [layout, answers, department, track, epicRequirement],
   );
   const onAnswer = (name: string, value: string | string[]) => setAnswers((prev) => ({ ...prev, [name]: value }));

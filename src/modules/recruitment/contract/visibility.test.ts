@@ -223,7 +223,7 @@ describe("visibleContractBlocks", () => {
 });
 
 describe("visibleOnboardingBlocks", () => {
-  const ctx = { department: "IM", track: "VOLUNTEER" as const, epicRequirement: "SOME" as const };
+  const ctx = { department: "IM", track: "VOLUNTEER" as const, epicRequirement: "SOME" as const, storedEpicId: null };
 
   it("drops a disabled optional system field but keeps core ones", () => {
     const layout: ContractLayout = {

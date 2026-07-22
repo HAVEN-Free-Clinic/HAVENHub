@@ -7,6 +7,7 @@ import {
   complianceStatus,
   effectiveComplianceStatus,
   overallClearance,
+  hipaaNeedsTrainingLink,
 } from "./rules";
 
 // All tests use noon UTC to avoid any day-boundary ambiguity.
@@ -253,5 +254,19 @@ describe("effectiveComplianceStatus - early-renewal fallback (audit #17)", () =>
   it("uses the newest cert directly when it is verified", () => {
     const certs = [{ completionDate: noon(2026, 7, 10), verifiedAt: noon(2026, 7, 11) }];
     expect(effectiveComplianceStatus(certs, null, now)).toBe("COMPLIANT");
+  });
+});
+
+describe("hipaaNeedsTrainingLink", () => {
+  it("is true when the person must (re)take the course", () => {
+    expect(hipaaNeedsTrainingLink("NO_CERTIFICATE")).toBe(true);
+    expect(hipaaNeedsTrainingLink("EXPIRED")).toBe(true);
+    expect(hipaaNeedsTrainingLink("EXPIRING_SOON")).toBe(true);
+  });
+
+  it("is false when a cert is on file awaiting a manager, or compliant", () => {
+    expect(hipaaNeedsTrainingLink("COMPLIANT")).toBe(false);
+    expect(hipaaNeedsTrainingLink("PENDING_VERIFICATION")).toBe(false);
+    expect(hipaaNeedsTrainingLink("UNKNOWN_DATE")).toBe(false);
   });
 });

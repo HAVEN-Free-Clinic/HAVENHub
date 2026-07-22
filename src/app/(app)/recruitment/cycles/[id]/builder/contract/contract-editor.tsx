@@ -13,6 +13,7 @@ import { TypePicker } from "../type-picker";
 import { SystemFieldCard } from "./system-field-card";
 import { AgreementCard } from "./agreement-card";
 import { CustomQuestionCard } from "./custom-question-card";
+import { SectionCard } from "./section-card";
 import { Button } from "@/platform/ui/button";
 import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
@@ -28,8 +29,6 @@ function dndId(block: ContractBlock): string {
     case "custom_question":
       return `cq:${block.key}`;
     case "section":
-      // Task 2 scope: the layout model supports section blocks; the builder
-      // UI for authoring/rendering them lands in a later task.
       return `sec:${block.id}`;
   }
 }
@@ -92,8 +91,24 @@ export function ContractEditor({
   const toggle = (index: number, enabled: boolean) =>
     setLayout((prev) => applyBlockOp(prev, { t: "toggleSystem", index, enabled }));
   const addAgreement = () => setLayout((prev) => applyBlockOp(prev, { t: "addAgreement" }));
+  const addSection = () => setLayout((prev) => applyBlockOp(prev, { t: "addSection" }));
   const addCustom = (fieldType: FieldType) =>
     setLayout((prev) => applyBlockOp(prev, { t: "addCustom", fieldType }));
+
+  // Conditions can key on the authoritative context (department/track/epic
+  // requirement, always present regardless of what the form asks) or on any
+  // answerable custom question already in this layout. Agreements, sections
+  // and system fields are not offered as controllers: an agreement/section has
+  // no stored answer to branch on, and a system field's value lives on the
+  // Person record rather than in the answers map a visibleWhen condition reads.
+  const fieldOptions = [
+    { value: "department", label: "Department" },
+    { value: "track", label: "Track" },
+    { value: "epicRequirement", label: "Epic requirement" },
+    ...layout.blocks
+      .filter((b): b is Extract<ContractBlock, { kind: "custom_question" }> => b.kind === "custom_question")
+      .map((b) => ({ value: b.key, label: b.label })),
+  ];
 
   function save() {
     setError(null);
@@ -148,6 +163,7 @@ export function ContractEditor({
               <SystemFieldCard
                 block={block}
                 handle={handle}
+                fieldOptions={fieldOptions}
                 onUpdate={(patch) => update(index, patch)}
                 onToggle={(enabled) => toggle(index, enabled)}
               />
@@ -158,20 +174,28 @@ export function ContractEditor({
               <AgreementCard
                 block={block}
                 handle={handle}
+                fieldOptions={fieldOptions}
                 onUpdate={(patch) => update(index, patch)}
                 onRemove={() => remove(index)}
               />
             );
           }
           if (block.kind === "section") {
-            // Task 2 scope: the layout model supports section blocks; a
-            // builder card for authoring them lands in a later task.
-            return null;
+            return (
+              <SectionCard
+                block={block}
+                handle={handle}
+                fieldOptions={fieldOptions}
+                onUpdate={(patch) => update(index, patch)}
+                onRemove={() => remove(index)}
+              />
+            );
           }
           return (
             <CustomQuestionCard
               block={block}
               handle={handle}
+              fieldOptions={fieldOptions}
               onUpdate={(patch) => update(index, patch)}
               onRemove={() => remove(index)}
             />
@@ -182,6 +206,9 @@ export function ContractEditor({
       <Card size="compact" className="flex flex-wrap items-center gap-3 border-dashed">
         <Button type="button" variant="outline" size="sm" onClick={addAgreement} disabled={!editable}>
           <Plus className="h-4 w-4" aria-hidden /> Add agreement
+        </Button>
+        <Button type="button" variant="outline" size="sm" onClick={addSection} disabled={!editable}>
+          <Plus className="h-4 w-4" aria-hidden /> Add section
         </Button>
         <TypePicker
           label="Add question"

@@ -20,11 +20,13 @@ import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
 import { FormActions } from "@/platform/ui/form";
 import { CertificateViewer } from "@/modules/my-info/components/certificate-viewer";
-import { certExpiresAt } from "@/platform/compliance/rules";
+import { certExpiresAt, hipaaNeedsTrainingLink } from "@/platform/compliance/rules";
 import type { ComplianceStatus } from "@/platform/compliance/rules";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { formatCalendarDate, formatDateOnly } from "@/platform/dates";
+import { ExternalLinkButton } from "@/platform/ui/external-link-button";
+import { WORKDAY_LEARNING_URL } from "@/platform/external-links";
 
 function formatSize(bytes: number): string {
   const kb = bytes / 1024;
@@ -115,6 +117,16 @@ export async function HipaaPanel({
       {/* Upload form */}
       <div>
         <SectionHeader as="h3" className="mb-2">Upload New Certificate</SectionHeader>
+        {hipaaNeedsTrainingLink(status) && (
+          <div className="mb-3 space-y-2">
+            <p className="text-sm text-foreground-soft">
+              Complete or renew your HIPAA training in Workday, then upload the certificate below.
+            </p>
+            <ExternalLinkButton href={WORKDAY_LEARNING_URL} variant="primary">
+              Complete HIPAA training in Workday
+            </ExternalLinkButton>
+          </div>
+        )}
         {error && (
           <Alert tone="error" className="mb-3">
             {error}

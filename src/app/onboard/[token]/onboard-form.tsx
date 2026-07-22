@@ -7,8 +7,7 @@ import { Alert } from "@/platform/ui/alert";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
-import { SYSTEM_FIELDS } from "@/modules/recruitment/contract/system-fields";
-import { buildContractAnswers, visibleContractBlocks } from "@/modules/recruitment/contract/visibility";
+import { visibleOnboardingBlocks } from "@/modules/recruitment/contract/visibility";
 import type { ContractLayout } from "@/modules/recruitment/contract/layout";
 
 type Prefill = { firstName: string; lastName: string; email: string; netId: string; phone: string; yaleAffiliation: string; gradYear: string };
@@ -91,19 +90,15 @@ export function OnboardForm({
 
   const err = (k: string) => (result && !result.ok ? result.fieldErrors?.[k] : undefined);
 
-  // Client-side visibility mirrors the server: build the answers map through
-  // the same buildContractAnswers/visibleContractBlocks pair the submit path
-  // (Task 14) uses, so the two can never diverge. The enabled/core filter is
-  // separate: it drops optional system fields a director turned off entirely,
-  // which visibleWhen conditions do not model.
-  const resolved = buildContractAnswers(answers, {
+  // Client-side visibility mirrors the server: both call visibleOnboardingBlocks,
+  // the same helper the builder preview uses, so the two can never diverge. It
+  // handles both the enabled/core filter (dropping optional system fields a
+  // director turned off entirely) and the visibleWhen evaluation against the
+  // applicant's answers merged with the authoritative context.
+  const shown = visibleOnboardingBlocks(layout, answers, {
     department: ctx.department, track: ctx.track, epicRequirement: ctx.epicRequirement,
     storedEpicId: ctx.storedEpicId,
   });
-  const enabled = layout.blocks.filter(
-    (b) => b.kind !== "system_field" || b.enabled !== false || SYSTEM_FIELDS[b.systemKey].core,
-  );
-  const shown = visibleContractBlocks(enabled, resolved);
 
   return (
     <form onSubmit={onSubmit} className="mt-6">

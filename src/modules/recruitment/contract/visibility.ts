@@ -1,6 +1,7 @@
 import type { EpicRequirement, Track } from "@prisma/client";
 import { isFieldVisible } from "../engine/field-visibility";
-import type { ContractBlock } from "./layout";
+import { SYSTEM_FIELDS } from "./system-fields";
+import type { ContractBlock, ContractLayout } from "./layout";
 
 /** Facts the server knows about the person filling in the contract, which
  *  conditions may key on even though they are never asked as questions. */
@@ -70,4 +71,22 @@ export function visibleContractBlocks(
   answers: Record<string, string | string[]>,
 ): ContractBlock[] {
   return blocks.filter((b) => isFieldVisible(b.visibleWhen, answers));
+}
+
+/**
+ * The blocks an applicant actually sees on the onboarding form: optional system
+ * fields a director disabled are dropped (the enabled/core filter), then
+ * visibleWhen is evaluated against the applicant's answers merged with the
+ * authoritative context. Mirrors the inline computation onboard-form.tsx does at
+ * render time; kept here so the builder preview renders from the same logic.
+ */
+export function visibleOnboardingBlocks(
+  layout: ContractLayout,
+  formAnswers: Record<string, string | string[]>,
+  ctx: ContractContext,
+): ContractBlock[] {
+  const enabled = layout.blocks.filter(
+    (b) => b.kind !== "system_field" || b.enabled !== false || SYSTEM_FIELDS[b.systemKey].core,
+  );
+  return visibleContractBlocks(enabled, buildContractAnswers(formAnswers, ctx));
 }

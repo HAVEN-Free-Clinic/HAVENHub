@@ -6,6 +6,7 @@ import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 import { PageHeader } from "@/platform/ui/page-header";
 import { ContractEditor } from "./contract-editor";
+import { loadOnboardingPreviewContext } from "./preview-context";
 
 export default async function ContractBuilderPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -14,6 +15,13 @@ export default async function ContractBuilderPage({ params }: { params: Promise<
   const cycle = await getCycle(id);
   if (!cycle) notFound();
   const { layout, hasOverride } = await getContractLayoutForEdit(id);
+  const preview = await loadOnboardingPreviewContext({
+    departmentCodes: cycle.departments,
+    fixedTrack: cycle.track,
+    inPersonTrainingDate: cycle.inPersonTrainingDate,
+    trainingLocation: cycle.trainingLocation,
+    title: cycle.title,
+  });
   return (
     <div className="max-w-3xl space-y-6">
       <SetBreadcrumb
@@ -25,7 +33,7 @@ export default async function ContractBuilderPage({ params }: { params: Promise<
         })}
       />
       <PageHeader title="Onboarding contract" description={cycle.title} />
-      <ContractEditor cycleId={id} initialLayout={layout} hasOverride={hasOverride} status={cycle.status} />
+      <ContractEditor cycleId={id} initialLayout={layout} hasOverride={hasOverride} status={cycle.status} preview={preview} />
     </div>
   );
 }

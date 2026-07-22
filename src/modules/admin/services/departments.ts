@@ -4,7 +4,7 @@
  * checks are the caller's job. Code is immutable after creation; removal is soft
  * (isActive=false).
  */
-import type { Department, Prisma } from "@prisma/client";
+import type { Department, EpicRequirement, Prisma } from "@prisma/client";
 import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { getActiveTerm } from "@/platform/terms/active-term";
@@ -70,6 +70,10 @@ export async function createDepartment(
     isActive?: boolean;
     idealHeadcount?: number | null;
     patientCapacityPerProvider?: number | null;
+    // Per-track Epic requirement driving the onboarding contract's Epic section
+    // (see contract/epic-requirement.ts). Absent → NONE, matching the column default.
+    requiresEpicDirector?: EpicRequirement;
+    requiresEpicVolunteer?: EpicRequirement;
   }
 ): Promise<Department> {
   const code = input.code.trim().toUpperCase();
@@ -85,6 +89,8 @@ export async function createDepartment(
     "Patient capacity per provider",
     input.patientCapacityPerProvider ?? null
   );
+  const requiresEpicDirector = input.requiresEpicDirector ?? "NONE";
+  const requiresEpicVolunteer = input.requiresEpicVolunteer ?? "NONE";
 
   const existing = await prisma.department.findFirst({
     where: { code: { equals: code, mode: "insensitive" } },
@@ -94,7 +100,10 @@ export async function createDepartment(
   let dept: Department;
   try {
     dept = await prisma.department.create({
-      data: { code, name, isActive: input.isActive ?? true, idealHeadcount, patientCapacityPerProvider },
+      data: {
+        code, name, isActive: input.isActive ?? true, idealHeadcount, patientCapacityPerProvider,
+        requiresEpicDirector, requiresEpicVolunteer,
+      },
     });
   } catch (err) {
     if (isUniqueConstraintError(err)) {
@@ -116,6 +125,8 @@ export async function createDepartment(
       isActive: dept.isActive,
       idealHeadcount: dept.idealHeadcount,
       patientCapacityPerProvider: dept.patientCapacityPerProvider,
+      requiresEpicDirector: dept.requiresEpicDirector,
+      requiresEpicVolunteer: dept.requiresEpicVolunteer,
     },
   });
   return dept;
@@ -124,7 +135,16 @@ export async function createDepartment(
 export async function updateDepartment(
   actorPersonId: string,
   id: string,
-  input: { name: string; isActive: boolean; idealHeadcount: number | null; patientCapacityPerProvider: number | null }
+  input: {
+    name: string;
+    isActive: boolean;
+    idealHeadcount: number | null;
+    patientCapacityPerProvider: number | null;
+    // Optional so an update that does not touch Epic preserves the existing
+    // values rather than resetting them to NONE.
+    requiresEpicDirector?: EpicRequirement;
+    requiresEpicVolunteer?: EpicRequirement;
+  }
 ): Promise<Department> {
   const before = await prisma.department.findUnique({ where: { id } });
   if (!before) throw new DepartmentNotFoundError(id);
@@ -136,10 +156,12 @@ export async function updateDepartment(
     "Patient capacity per provider",
     input.patientCapacityPerProvider
   );
+  const requiresEpicDirector = input.requiresEpicDirector ?? before.requiresEpicDirector;
+  const requiresEpicVolunteer = input.requiresEpicVolunteer ?? before.requiresEpicVolunteer;
 
   const dept = await prisma.department.update({
     where: { id },
-    data: { name, isActive: input.isActive, idealHeadcount, patientCapacityPerProvider },
+    data: { name, isActive: input.isActive, idealHeadcount, patientCapacityPerProvider, requiresEpicDirector, requiresEpicVolunteer },
   });
 
   await recordAudit({
@@ -152,12 +174,16 @@ export async function updateDepartment(
       isActive: before.isActive,
       idealHeadcount: before.idealHeadcount,
       patientCapacityPerProvider: before.patientCapacityPerProvider,
+      requiresEpicDirector: before.requiresEpicDirector,
+      requiresEpicVolunteer: before.requiresEpicVolunteer,
     },
     after: {
       name: dept.name,
       isActive: dept.isActive,
       idealHeadcount: dept.idealHeadcount,
       patientCapacityPerProvider: dept.patientCapacityPerProvider,
+      requiresEpicDirector: dept.requiresEpicDirector,
+      requiresEpicVolunteer: dept.requiresEpicVolunteer,
     },
   });
   return dept;

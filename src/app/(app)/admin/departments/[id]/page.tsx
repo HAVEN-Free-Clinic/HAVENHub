@@ -11,7 +11,7 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { DepartmentForm } from "@/modules/admin/components/department-form";
 import { DelegationEditor } from "@/modules/admin/components/delegation-editor";
-import { optionalInt } from "@/modules/admin/form-coerce";
+import { optionalInt, epicRequirement } from "@/modules/admin/form-coerce";
 
 type PageProps = {
   params: Promise<{ id: string }>;
@@ -48,6 +48,8 @@ export default async function EditDepartmentPage({ params, searchParams }: PageP
         isActive: formData.get("isActive") === "on",
         idealHeadcount: optionalInt(formData.get("idealHeadcount")),
         patientCapacityPerProvider: optionalInt(formData.get("patientCapacityPerProvider")),
+        requiresEpicDirector: epicRequirement(formData.get("requiresEpicDirector")),
+        requiresEpicVolunteer: epicRequirement(formData.get("requiresEpicVolunteer")),
       });
     } catch (err) {
       if (err instanceof DepartmentValidationError || err instanceof DepartmentNotFoundError) {

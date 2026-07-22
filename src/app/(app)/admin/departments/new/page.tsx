@@ -7,7 +7,7 @@ import {
 } from "@/modules/admin/services/departments";
 import { PageHeader } from "@/platform/ui/page-header";
 import { DepartmentForm } from "@/modules/admin/components/department-form";
-import { optionalInt } from "@/modules/admin/form-coerce";
+import { optionalInt, epicRequirement } from "@/modules/admin/form-coerce";
 
 type PageProps = { searchParams: Promise<{ error?: string }> };
 
@@ -25,6 +25,8 @@ export default async function NewDepartmentPage({ searchParams }: PageProps) {
         isActive: formData.get("isActive") === "on",
         idealHeadcount: optionalInt(formData.get("idealHeadcount")),
         patientCapacityPerProvider: optionalInt(formData.get("patientCapacityPerProvider")),
+        requiresEpicDirector: epicRequirement(formData.get("requiresEpicDirector")),
+        requiresEpicVolunteer: epicRequirement(formData.get("requiresEpicVolunteer")),
       });
       redirect(`/admin/departments/${dept.id}?saved=1`);
     } catch (err) {

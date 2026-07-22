@@ -43,6 +43,25 @@ describe("createDepartment", () => {
       createDepartment("a", { code: "OKAY", name: "x", idealHeadcount: 0 })
     ).rejects.toBeInstanceOf(DepartmentValidationError);
   });
+
+  it("persists per-track Epic requirements and audits them; defaults both to NONE", async () => {
+    const withEpic = await createDepartment("a", {
+      code: "PCAR",
+      name: "Primary Care",
+      requiresEpicDirector: "ALL",
+      requiresEpicVolunteer: "SOME",
+    });
+    expect(withEpic.requiresEpicDirector).toBe("ALL");
+    expect(withEpic.requiresEpicVolunteer).toBe("SOME");
+    const audit = await prisma.auditLog.findFirst({
+      where: { action: "department.create", entityId: withEpic.id },
+    });
+    expect(audit?.after).toMatchObject({ requiresEpicDirector: "ALL", requiresEpicVolunteer: "SOME" });
+
+    const bare = await createDepartment("a", { code: "CRAD", name: "Community Relations" });
+    expect(bare.requiresEpicDirector).toBe("NONE");
+    expect(bare.requiresEpicVolunteer).toBe("NONE");
+  });
 });
 
 describe("updateDepartment", () => {
@@ -61,6 +80,47 @@ describe("updateDepartment", () => {
     const audit = await prisma.auditLog.findFirst({ where: { action: "department.update" } });
     expect(audit?.before).toMatchObject({ name: "Old", isActive: true });
     expect(audit?.after).toMatchObject({ name: "New", isActive: false });
+  });
+
+  it("updates per-track Epic requirements and audits them before/after", async () => {
+    const d = await createDepartment("a", {
+      code: "ORHI",
+      name: "Oral Health",
+      requiresEpicDirector: "ALL",
+      requiresEpicVolunteer: "ALL",
+    });
+    const u = await updateDepartment("a", d.id, {
+      name: "Oral Health",
+      isActive: true,
+      idealHeadcount: null,
+      patientCapacityPerProvider: null,
+      requiresEpicDirector: "SOME",
+      requiresEpicVolunteer: "NONE",
+    });
+    expect(u.requiresEpicDirector).toBe("SOME");
+    expect(u.requiresEpicVolunteer).toBe("NONE");
+    const audit = await prisma.auditLog.findFirst({
+      where: { action: "department.update", entityId: d.id },
+    });
+    expect(audit?.before).toMatchObject({ requiresEpicDirector: "ALL", requiresEpicVolunteer: "ALL" });
+    expect(audit?.after).toMatchObject({ requiresEpicDirector: "SOME", requiresEpicVolunteer: "NONE" });
+  });
+
+  it("preserves the existing Epic requirements when an update omits them", async () => {
+    const d = await createDepartment("a", {
+      code: "ORHI",
+      name: "Oral Health",
+      requiresEpicDirector: "ALL",
+      requiresEpicVolunteer: "SOME",
+    });
+    const u = await updateDepartment("a", d.id, {
+      name: "Renamed",
+      isActive: true,
+      idealHeadcount: null,
+      patientCapacityPerProvider: null,
+    });
+    expect(u.requiresEpicDirector).toBe("ALL");
+    expect(u.requiresEpicVolunteer).toBe("SOME");
   });
 
   it("throws DepartmentNotFoundError for a missing id", async () => {

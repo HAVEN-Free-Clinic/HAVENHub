@@ -47,8 +47,8 @@ Derive the classification live from the roster on every page load; materialize
 
 Rejected alternative: writing a request row per person up front (extending
 `promotion.ts` to raise RENEW/MODIFY plus a sweep for roster carry-forwards). Rows
-stamped once go stale — a later department change or a manually entered `epicId`
-leaves the wrong kind sitting in the queue — so it needs a reconcile sweep anyway,
+stamped once go stale: a later department change or a manually entered `epicId`
+leaves the wrong kind sitting in the queue, so it needs a reconcile sweep anyway,
 and it requires a backfill for members already on the roster.
 
 Deriving live needs no migration and no backfill, and the kind is always current: if
@@ -74,8 +74,9 @@ clearance inputs `loadClearanceMap` already reads.
 
 ## Classification
 
-New file `src/modules/support/services/epic-rollup.ts`. The decision logic is pure
-and separated from the IO so it can be unit-tested without a database.
+Two new files: `src/modules/support/services/epic-rollup-classify.ts` holds the pure
+decision logic so every branch is unit-testable without a database, and
+`src/modules/support/services/epic-rollup.ts` holds the batched loader that feeds it.
 
 ### Does this person need Epic?
 
@@ -113,7 +114,7 @@ department ids, and their prior-term department ids:
 term's `startDate` in which the person held an ACTIVE `TermMembership`.
 
 The no-prior-term-but-has-epicId case is `MODIFY` because such a person has a YNHH
-Epic account that needs the `YM HAVEN FREE CLINIC` department added — which is
+Epic account that needs the `YM HAVEN FREE CLINIC` department added, which is
 exactly what the existing `bulk_mod` cover email describes ("They already have an
 Epic account, but need access to the department YM HAVEN FREE CLINIC").
 
@@ -133,7 +134,7 @@ a role change to force MODIFY, that is a one-line change to the pure function.
 - **Adopted.** A person with an open `PENDING`, un-ticketed request that has no
   `techRequestId` (promotion's row) is selectable and marked *queued*; submitting
   adopts that row rather than creating a second one.
-- **Open deactivation.** `DEACTIVATE` never places a row — it has its own pipeline
+- **Open deactivation.** `DEACTIVATE` never places a row, it has its own pipeline
   and no group here. But a person on the roster with an open `DEACTIVATE` request is
   a contradiction (being revoked and granted at once) and would in any case hit the
   different-kind conflict at submit, so they get `blockedReason: "has an open
@@ -150,12 +151,16 @@ export type EpicRollupRow = {
   epicId: string | null;
   /** Target-term departments, for display: "SRR", "SRR -> JCTP" for a MODIFY. */
   departments: { id: string; name: string; kind: Track }[];
-  priorDepartments: { id: string; name: string }[];
-  kind: EpicRequestKind;           // NEW | MODIFY | RENEW
+  /** Department names from the most recent prior term, for the MODIFY diff. */
+  priorDepartmentNames: string[];
+  kind: RollupGroupKind;           // NEW | MODIFY | RENEW
   kindSource: "derived" | "ticket";
   /** SOME-department member with no contract signal and no epicId. */
   optional: boolean;
-  clearance: ClearanceSummary;     // from loadClearanceMap
+  /** From loadClearanceMap: every step satisfied, blocking or not. */
+  cleared: boolean;
+  /** Labels of the unsatisfied steps. Empty when cleared. */
+  missingLabels: string[];
   /** Set when the person already has an open request. */
   existingRequest: {
     id: string;
@@ -165,11 +170,16 @@ export type EpicRollupRow = {
   } | null;
   /** Non-null when the row cannot be submitted at all, with the reason. */
   blockedReason: string | null;
+  /** False when blocked, or already SUBMITTED onto a ticket. Keeps the
+   *  "who can be submitted" rule in the loader rather than the UI. */
+  selectable: boolean;
 };
 
 export type EpicRollup = {
-  term: { id: string; code: string; name: string; endDate: Date };
-  groups: Record<"NEW" | "MODIFY" | "RENEW", EpicRollupRow[]>;
+  /** endDateIso is YYYY-MM-DD, so the client can seed the date input with no
+   *  timezone handling at the RSC boundary. */
+  term: { id: string; code: string; name: string; endDateIso: string };
+  groups: Record<RollupGroupKind, EpicRollupRow[]>;
 };
 
 export async function loadTermEpicRollup(termId: string): Promise<EpicRollup>;

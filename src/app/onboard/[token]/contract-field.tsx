@@ -278,7 +278,23 @@ export function ContractField({
       const inputName = nameByKey[block.systemKey];
       return (
         <div>
-          <Field label={label} required={required}><Input name={inputName} type={type} defaultValue={defaults[block.systemKey]} required={required} {...errorProps(inputName)} /></Field>
+          <Field label={label} required={required}>
+            <Input
+              name={inputName}
+              type={type}
+              defaultValue={defaults[block.systemKey]}
+              required={required}
+              // Uncontrolled (defaultValue), but still reports every keystroke
+              // to onAnswer, matching the select/checkbox/custom_question
+              // branches above. None of these fields is a visibleWhen
+              // controller today, but keeping every field's value available
+              // in the answers map is what makes the next one that becomes a
+              // controller (staffTitle, netId, etc.) work correctly from the
+              // first keystroke instead of silently failing to gate anything.
+              onChange={(e) => onAnswer(inputName, e.target.value)}
+              {...errorProps(inputName)}
+            />
+          </Field>
           {err(inputName) && <p id={errorId(inputName)} className="mt-1 text-xs text-critical">{err(inputName)}</p>}
         </div>
       );

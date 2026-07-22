@@ -28,7 +28,25 @@ export function OnboardForm({
   // buildContractAnswers before every visibility check, so a hostile or stale
   // form field of the same name can never override department/track/Epic
   // requirement.
-  const [answers, setAnswers] = useState<Record<string, string | string[]>>({});
+  //
+  // Seeded from prefill on first render, mirroring apply-wizard.tsx's answers
+  // seeding: several fields (yaleAffiliation, gradYear, netId, phone) render
+  // with defaultValue and never fire onChange on mount, so without this seed
+  // a prefilled value that gates another block (e.g. staffTitle's
+  // visibleWhen on yaleAffiliation === "staff") would evaluate against an
+  // empty answers map on the first render and hide a block the applicant
+  // never gets a chance to answer. department/track/epicRequirement are
+  // deliberately NOT seeded here: they are authoritative context that
+  // buildContractAnswers strips out of formAnswers and overrides from ctx on
+  // every call, so seeding them would do nothing except be misleading.
+  const [answers, setAnswers] = useState<Record<string, string | string[]>>(() => {
+    const seed: Record<string, string | string[]> = {};
+    if (prefill.yaleAffiliation) seed.yaleAffiliation = prefill.yaleAffiliation;
+    if (prefill.gradYear) seed.gradYear = prefill.gradYear;
+    if (prefill.netId) seed.netId = prefill.netId;
+    if (prefill.phone) seed.phone = prefill.phone;
+    return seed;
+  });
   const onAnswer = useCallback((name: string, value: string | string[]) => {
     setAnswers((prev) => ({ ...prev, [name]: value }));
   }, []);

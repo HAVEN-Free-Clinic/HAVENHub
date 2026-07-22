@@ -188,7 +188,7 @@ export async function setAssignment(
   // Validate clinic date.
   const clinicDate = term.clinicDates.find((d) => isoDateKey(d) === opts.dateKey);
   if (!clinicDate) {
-    throw new BuilderValidationError(`${opts.dateKey} is not a clinic date in the active term.`);
+    throw new BuilderValidationError(`${opts.dateKey} is not a clinic date in the selected term.`);
   }
 
   if (opts.role !== null) {
@@ -306,7 +306,7 @@ export async function toggleTag(
 
   const clinicDate = term.clinicDates.find((d) => isoDateKey(d) === opts.dateKey);
   if (!clinicDate) {
-    throw new BuilderValidationError(`${opts.dateKey} is not a clinic date in the active term.`);
+    throw new BuilderValidationError(`${opts.dateKey} is not a clinic date in the selected term.`);
   }
 
   const existing = await prisma.shiftAssignment.findFirst({
@@ -351,7 +351,7 @@ export async function setPatientsBooked(
 
   const clinicDate = term.clinicDates.find((d) => isoDateKey(d) === opts.dateKey);
   if (!clinicDate) {
-    throw new BuilderValidationError(`${opts.dateKey} is not a clinic date in the active term.`);
+    throw new BuilderValidationError(`${opts.dateKey} is not a clinic date in the selected term.`);
   }
 
   const scheduleDayBefore = await prisma.scheduleDay.findFirst({
@@ -513,7 +513,7 @@ export async function upsertRhdClinic(
 
   const clinicDate = term.clinicDates.find((d) => isoDateKey(d) === opts.dateKey);
   if (!clinicDate) {
-    throw new BuilderValidationError(`${opts.dateKey} is not a clinic date in the active term.`);
+    throw new BuilderValidationError(`${opts.dateKey} is not a clinic date in the selected term.`);
   }
 
   // attendingId is a foreign key read verbatim from FormData. Validate it before the

@@ -120,13 +120,26 @@ export async function resolveTrainingProgress(
  *  training cycle for that track. Generalizes the volunteer-only check. */
 export async function requiredTrainingTracks(personId: string, termId: string): Promise<Track[]> {
   const pairs: [Track, "VOLUNTEER" | "DIRECTOR"][] = [["VOLUNTEER", "VOLUNTEER"], ["DIRECTOR", "DIRECTOR"]];
-  const result: Track[] = [];
-  for (const [track, kind] of pairs) {
-    const hasMembership = await prisma.termMembership.count({ where: { personId, termId, kind, status: "ACTIVE" } });
-    if (hasMembership === 0) continue;
-    if (await getTrainingCycleForTerm(termId, track)) result.push(track);
-  }
-  return result;
+  const tracks = pairs.map(([track]) => track);
+  const kinds = pairs.map(([, kind]) => kind);
+  // Two parallel reads instead of a per-track count+lookup loop: the person's active
+  // memberships and the term's designated training cycles, intersected in memory.
+  // isTermTraining mirrors getTrainingCycleForTerm's designated-cycle filter.
+  const [memberships, cycles] = await Promise.all([
+    prisma.termMembership.findMany({
+      where: { personId, termId, status: "ACTIVE", kind: { in: kinds } },
+      select: { kind: true },
+    }),
+    prisma.recruitmentCycle.findMany({
+      where: { termId, track: { in: tracks }, isTermTraining: true },
+      select: { track: true },
+    }),
+  ]);
+  const activeKinds = new Set(memberships.map((m) => m.kind));
+  const designatedTracks = new Set(cycles.map((c) => c.track));
+  return pairs
+    .filter(([track, kind]) => activeKinds.has(kind) && designatedTracks.has(track))
+    .map(([track]) => track);
 }
 
 /** Upsert the person's training row to COMPLETE for the term and track, stamping the method.
@@ -179,7 +192,10 @@ export type TrainingIntake = {
   feedback?: string | null;
 };
 
-/** The designated cycle's graded quiz questions, in form order. */
+/** Grading-only quiz question fetch, in form order.
+ *  Returns only `key` and `correctValue` for answer checking.
+ *  Do not use this for rendering; display flows (for example `getMyTrainingForTerm`)
+ *  must fetch question `label` and `options` separately. */
 async function quizQuestions(cycleId: string): Promise<GradedQuestion[]> {
   const fields = await prisma.formField.findMany({
     where: { cycleId, type: "SINGLE_SELECT", section: { purpose: "QUIZ" } },
@@ -215,43 +231,47 @@ const TRACK_LABEL: Record<Track, string> = {
 /** The required training(s) for one specific term, one entry per required track. */
 export async function getMyTrainingForTerm(personId: string, term: { id: string; name: string }): Promise<MyTraining[]> {
   const tracks = await requiredTrainingTracks(personId, term.id);
-  const out: MyTraining[] = [];
   const zone = await getDisplayTimeZone();
   const now = new Date();
-  for (const track of tracks) {
-    const cycle = await getTrainingCycleForTerm(term.id, track);
-    const row = await prisma.training.findUnique({ where: { personId_termId_track: { personId, termId: term.id, track } } });
-    const state: TrainingState = row?.status === "COMPLETE" ? "COMPLETE" : "PENDING";
+  // Fan the tracks out rather than awaiting each in series; within a track the
+  // cycle and training row are independent, so fetch them together too.
+  return Promise.all(
+    tracks.map(async (track) => {
+      const [cycle, row] = await Promise.all([
+        getTrainingCycleForTerm(term.id, track),
+        prisma.training.findUnique({ where: { personId_termId_track: { personId, termId: term.id, track } } }),
+      ]);
+      const state: TrainingState = row?.status === "COMPLETE" ? "COMPLETE" : "PENDING";
 
-    let questions: MyTraining["questions"] = [];
-    if (cycle) {
-      const fields = await prisma.formField.findMany({
-        where: { cycleId: cycle.id, type: "SINGLE_SELECT", section: { purpose: "QUIZ" } },
-        orderBy: [{ section: { order: "asc" } }, { order: "asc" }],
-        select: { key: true, label: true, options: true },
-      });
-      questions = fields.map((f) => ({ key: f.key, label: f.label, options: (f.options as { value: string; label: string }[] | null) ?? [] }));
-    }
+      let questions: MyTraining["questions"] = [];
+      if (cycle) {
+        const fields = await prisma.formField.findMany({
+          where: { cycleId: cycle.id, type: "SINGLE_SELECT", section: { purpose: "QUIZ" } },
+          orderBy: [{ section: { order: "asc" } }, { order: "asc" }],
+          select: { key: true, label: true, options: true },
+        });
+        questions = fields.map((f) => ({ key: f.key, label: f.label, options: (f.options as { value: string; label: string }[] | null) ?? [] }));
+      }
 
-    const attemptsUsed = row ? await prisma.quizAttempt.count({ where: { trainingId: row.id, ...(row.lockResetAt ? { takenAt: { gte: row.lockResetAt } } : {}) } }) : 0;
+      const attemptsUsed = row ? await prisma.quizAttempt.count({ where: { trainingId: row.id, ...(row.lockResetAt ? { takenAt: { gte: row.lockResetAt } } : {}) } }) : 0;
 
-    out.push({
-      track, trackLabel: TRACK_LABEL[track],
-      term: { id: term.id, name: term.name },
-      cycle: cycle ? { id: cycle.id, title: cycle.title } : null,
-      state, locked: row?.locked ?? false, completedVia: row?.completedVia ?? null, completedAt: row?.completedAt ?? null,
-      attemptsUsed, maxAttempts: cycle?.quizMaxAttempts ?? 0, passPercent: cycle?.quizPassPercent ?? 0,
-      inPersonTrainingDate: cycle?.inPersonTrainingDate ?? null,
-      makeupOpen: makeupIsOpen(cycle?.inPersonTrainingDate ?? null, now, zone),
-      questions,
-      intake: {
-        additionalShiftAvailability: row?.additionalShiftAvailability ?? null,
-        minShiftsWanted: row?.minShiftsWanted ?? null,
-        feedback: row?.feedback ?? null,
-      },
-    });
-  }
-  return out;
+      return {
+        track, trackLabel: TRACK_LABEL[track],
+        term: { id: term.id, name: term.name },
+        cycle: cycle ? { id: cycle.id, title: cycle.title } : null,
+        state, locked: row?.locked ?? false, completedVia: row?.completedVia ?? null, completedAt: row?.completedAt ?? null,
+        attemptsUsed, maxAttempts: cycle?.quizMaxAttempts ?? 0, passPercent: cycle?.quizPassPercent ?? 0,
+        inPersonTrainingDate: cycle?.inPersonTrainingDate ?? null,
+        makeupOpen: makeupIsOpen(cycle?.inPersonTrainingDate ?? null, now, zone),
+        questions,
+        intake: {
+          additionalShiftAvailability: row?.additionalShiftAvailability ?? null,
+          minShiftsWanted: row?.minShiftsWanted ?? null,
+          feedback: row?.feedback ?? null,
+        },
+      };
+    }),
+  );
 }
 
 /** The training(s) the signed-in member must complete across every term they belong to. */

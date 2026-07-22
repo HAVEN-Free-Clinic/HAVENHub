@@ -7,7 +7,7 @@ import {
   requiredTrainingTracks,
 } from "./training";
 import { recordAttendance, resolveTrainingState } from "./training";
-import { getMyTraining, submitQuiz, resetTraining } from "./training";
+import { getMyTraining, submitQuiz, resetTraining, listTrainingRoster } from "./training";
 
 async function seed() {
   const term = await prisma.term.create({ data: { code: "SU26", name: "Summer", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
@@ -139,6 +139,23 @@ it("quiz path: failing accrues attempts then locks; passing completes and saves 
   expect(await prisma.quizAttempt.count({ where: { training: { personId: vol.id, termId: term.id, track: "VOLUNTEER" } } })).toBe(3);
 });
 
+it("does not reset a member whose training is already COMPLETE", async () => {
+  const { term, srr, vol } = await seedMember();
+  // Reach COMPLETE via attendance, then confirm resetTraining leaves the row untouched
+  // (its updateMany filters on status: { not: "COMPLETE" }).
+  await recordAttendance(vol.id, term.id, "VOLUNTEER", srr.id);
+  const before = await prisma.training.findUniqueOrThrow({ where: { personId_termId_track: { personId: vol.id, termId: term.id, track: "VOLUNTEER" } } });
+  expect(before.status).toBe("COMPLETE");
+  expect(before.lockResetAt).toBeNull();
+
+  await resetTraining(vol.id, term.id, "VOLUNTEER", srr.id);
+
+  const after = await prisma.training.findUniqueOrThrow({ where: { personId_termId_track: { personId: vol.id, termId: term.id, track: "VOLUNTEER" } } });
+  expect(after.status).toBe("COMPLETE");
+  expect(after.lockResetAt).toBeNull();
+  expect(after.completedAt?.getTime()).toBe(before.completedAt?.getTime());
+});
+
 it("getMyTraining returns the cycle, questions, and state for the volunteer", async () => {
   const { vol, c1 } = await seedMember();
   await addQuiz(c1.id);
@@ -189,8 +206,6 @@ it("submitQuiz rejects when already complete", async () => {
   await recordAttendance(vol.id, term.id, "VOLUNTEER", srr.id);
   await expect(submitQuiz(vol.id, { termId: term.id, track: "VOLUNTEER", answers: { q1: "a", q2: "y" }, intake: {} })).rejects.toBeInstanceOf(TrainingStateError);
 });
-
-import { listTrainingRoster } from "./training";
 
 it("listTrainingRoster lists in-scope active volunteers with cert + training state", async () => {
   const { srr, vol, c1, dept } = await seedMember();

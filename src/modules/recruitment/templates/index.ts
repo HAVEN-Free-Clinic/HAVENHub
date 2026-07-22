@@ -2,7 +2,7 @@ import type { Track } from "@prisma/client";
 import type { TemplateOption, TemplateSection } from "./types";
 import {
   identitySection, eligibilitySection, languagesSection, additionalOpportunitiesSection,
-  availabilitySection, volunteerDepartmentSection, volunteerApplicationMaterialsSection,
+  availabilitySection, volunteerDepartmentSection, volunteerDepartmentSwitchSection, volunteerApplicationMaterialsSection,
   acknowledgementsSection, additionalInfoSection,
   directorHavenExperienceSection, directorEssaysSection, directorDepartmentSection,
   subcommitteeSection, directorLogisticsSection,
@@ -20,7 +20,7 @@ function renumber(sections: TemplateSection[]): TemplateSection[] {
 export function getApplicationTemplate(track: Track, departments: string[], availabilityDates: TemplateOption[]): TemplateSection[] {
   const shared: TemplateSection[] = track === "VOLUNTEER"
     ? [identitySection(), eligibilitySection(), languagesSection(), additionalOpportunitiesSection(),
-       volunteerDepartmentSection(), volunteerApplicationMaterialsSection(), availabilitySection(availabilityDates), acknowledgementsSection(track), additionalInfoSection()]
+       volunteerDepartmentSection(), volunteerDepartmentSwitchSection(), volunteerApplicationMaterialsSection(), availabilitySection(availabilityDates), acknowledgementsSection(track), additionalInfoSection()]
     : [identitySection(), directorHavenExperienceSection(), languagesSection(), directorEssaysSection(),
        directorDepartmentSection(), availabilitySection(availabilityDates), subcommitteeSection(), directorLogisticsSection()];
   const supplements = getSupplementSections(track, departments);

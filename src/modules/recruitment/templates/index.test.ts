@@ -70,6 +70,27 @@ describe("getApplicationTemplate", () => {
     expect(fields.find((f) => f.key === "medical_certifications")).toBeUndefined();
   });
 
+  it("scopes the department choice to new applicants but keeps the switch-departments question for renewals", () => {
+    const t = getApplicationTemplate("VOLUNTEER", [], dates);
+    const sectionFor = (key: string) => t.find((s) => s.fields.some((f) => f.key === key))!;
+    // The department dropdown and its "are you flexible?" follow-up are only asked
+    // of new applicants and transfers (TRANSFER resolves to NEW) -- a renewal keeps
+    // their current department, chosen in the intro step, so the section is hidden.
+    expect(sectionFor("department_choice").appliesTo).toBe("NEW");
+    expect(sectionFor("department_flexibility").appliesTo).toBe("NEW");
+    // "Would you be willing to switch departments?" is still asked of renewals.
+    expect(sectionFor("switch_departments").appliesTo).toBe("BOTH");
+  });
+
+  it("scopes the director department preference to new applicants (hidden from renewals)", () => {
+    const t = getApplicationTemplate("DIRECTOR", [], dates);
+    const sectionFor = (key: string) => t.find((s) => s.fields.some((f) => f.key === key))!;
+    // A renewing director keeps their current department (chosen in the intro
+    // step), so the ranked-preference dropdown is asked only of new applicants
+    // and transfers (TRANSFER resolves to NEW).
+    expect(sectionFor("department_choice").appliesTo).toBe("NEW");
+  });
+
   it("volunteer department section requires a cover letter ahead of the resume", () => {
     const t = getApplicationTemplate("VOLUNTEER", [], dates);
     const deptSection = t.find((s) => s.fields.some((f) => f.key === "cover_letter"))!;

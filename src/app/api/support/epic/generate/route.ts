@@ -200,9 +200,11 @@ export async function POST(req: Request) {
     authorizerId: string;
     personIds: string[];
     endDate: string;
+    /** Target term. Omitted by the Generate tab, which always means the active term. */
+    termId?: string;
   };
 
-  const { requestType, authorizerId, personIds, endDate } = body;
+  const { requestType, authorizerId, personIds, endDate, termId } = body;
 
   if (!Object.prototype.hasOwnProperty.call(PDF_FILENAMES, requestType)) {
     return NextResponse.json({ error: "Invalid request type" }, { status: 400 });
@@ -259,25 +261,30 @@ export async function POST(req: Request) {
     );
   }
 
-  // Resolve the active term once and reuse it for both membership lookups.
-  const activeTerm = await getActiveTerm();
+  // Resolve the term this batch targets once and reuse it for the membership
+  // lookup and every mirror lookup. The Term batch tab prepares a batch for a
+  // term before it goes active, so honour an explicit termId; the Generate tab
+  // sends none and gets the active term.
+  const targetTerm = termId
+    ? await prisma.term.findUnique({ where: { id: termId } })
+    : await getActiveTerm();
 
   // Find a mirror Epic ID per selected person, based on THEIR OWN department
   // and role; bulk requests can now span multiple departments, so there is
   // no single global mirror; each spreadsheet row gets its own.
   const mirrorByPersonId = new Map<string, { name: string; epicId: string } | null>();
-  if (activeTerm) {
+  if (targetTerm) {
     const memberships = await prisma.termMembership.findMany({
       where: {
         personId: { in: people.map((p) => p.id) },
-        termId: activeTerm.id,
+        termId: targetTerm.id,
         status: "ACTIVE",
       },
     });
     for (const m of memberships) {
       const mirror = await findMirrorPerson(m.departmentId, m.kind, {
         excludePersonIds: people.map((p) => p.id),
-        termId: activeTerm.id,
+        termId: targetTerm.id,
       });
       mirrorByPersonId.set(m.personId, mirror);
     }

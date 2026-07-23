@@ -8,6 +8,7 @@ import {
   listPendingEpicRequests,
   reconcileDeactivationRequests,
   submitEpicRequests,
+  closeTicket,
   logYnhhIncident,
   resolveIncident,
   getEpicRequestHistory,
@@ -590,5 +591,35 @@ describe("listIncidentPeople", () => {
 
     const rows = await listIncidentPeople();
     expect(rows.map((r) => r.name)).toEqual(["Amy Active", "Zed Active"]);
+  });
+});
+
+describe("closeTicket", () => {
+  beforeEach(resetDb);
+
+  // A CLOSED ticket vanishes from every actionable view, so closing it while a
+  // request is still open would strand that request with nothing able to complete
+  // or cancel it.
+  it("refuses to close a ticket that still has open requests", async () => {
+    const actor = await createPerson("Manager");
+    await grantPermission(actor.id, "support.manage_requests");
+    const alice = await createPerson("Alice");
+    const ticket = await submitEpicRequests(actor.id, "NEW", "New - Alice", [{ personId: alice.id, mirrorEpicId: null }]);
+
+    await expect(closeTicket(actor.id, ticket.id)).rejects.toBeInstanceOf(SupportStateError);
+    // Still OPEN, so the request remains actionable on the Tracker.
+    expect((await prisma.ynhhTicket.findUniqueOrThrow({ where: { id: ticket.id } })).status).toBe("OPEN");
+  });
+
+  it("closes a ticket once all its requests are completed or cancelled", async () => {
+    const actor = await createPerson("Manager");
+    await grantPermission(actor.id, "support.manage_requests");
+    const alice = await createPerson("Alice");
+    const ticket = await submitEpicRequests(actor.id, "NEW", "New - Alice", [{ personId: alice.id, mirrorEpicId: null }]);
+    await prisma.epicRequest.updateMany({ where: { ticketId: ticket.id }, data: { status: "COMPLETED" } });
+
+    const closed = await closeTicket(actor.id, ticket.id);
+    expect(closed.status).toBe("CLOSED");
+    expect(closed.closedAt).not.toBeNull();
   });
 });

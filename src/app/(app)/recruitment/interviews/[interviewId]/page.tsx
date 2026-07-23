@@ -13,7 +13,7 @@ import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { interviewDetailTrail } from "@/modules/recruitment/breadcrumbs";
 import { PageHeader } from "@/platform/ui/page-header";
 import { SectionHeader } from "@/platform/ui/section-header";
-import { Field, Input } from "@/platform/ui/input";
+import { Field, Input, Textarea } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
@@ -102,8 +102,11 @@ export default async function InterviewDetail({ params, searchParams }: { params
               <Field label="Zoom link">
                 <Input name="zoomLink" defaultValue={iv.zoomLink ?? ""} />
               </Field>
-              <Field label="Notes">
+              <Field label="Notes" hint="Internal only. Not shared with the applicant.">
                 <Input name="notes" defaultValue={iv.notes ?? ""} />
+              </Field>
+              <Field label="Note to applicant" hint="Included in the invitation email. Leave blank to send none.">
+                <Textarea name="applicantNote" rows={3} defaultValue={iv.applicantNote ?? ""} />
               </Field>
               <FormActions>
                 <SubmitButton size="sm" pendingLabel="Saving…">Save</SubmitButton>

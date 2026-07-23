@@ -1515,6 +1515,7 @@ model Interview {
   decidedById    String?
   decidedAt      DateTime?
   notes          String?
+  applicantNote  String?
   createdById    String
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt

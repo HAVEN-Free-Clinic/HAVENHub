@@ -28,7 +28,8 @@ export async function scheduleAction(interviewId: string, formData: FormData) {
   const scheduledAt = rawAt ? parseZonedInput(rawAt, await getDisplayTimeZone()) : null;
   const zoomLink = String(formData.get("zoomLink") ?? "").trim() || null;
   const notes = String(formData.get("notes") ?? "").trim() || null;
-  try { await updateInterview(interviewId, { scheduledAt, zoomLink, notes }, person.personId); }
+  const applicantNote = String(formData.get("applicantNote") ?? "").trim() || null;
+  try { await updateInterview(interviewId, { scheduledAt, zoomLink, notes, applicantNote }, person.personId); }
   catch (err) { if (isDomain(err)) redirect(detail(interviewId, { error: (err as Error).message })); throw err; }
   redirect(detail(interviewId, { saved: "schedule" }));
 }

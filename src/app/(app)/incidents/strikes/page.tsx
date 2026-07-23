@@ -21,10 +21,8 @@ import { can } from "@/platform/rbac/engine";
 import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { PageHeader } from "@/platform/ui/page-header";
-import { Badge } from "@/platform/ui/badge";
-import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
+import { Table, THead, TR, TH } from "@/platform/ui/table";
 import { Pagination } from "@/platform/ui/pagination";
-import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Field, Input, Textarea } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Button, buttonClasses } from "@/platform/ui/button";
@@ -34,20 +32,27 @@ import { Checkbox } from "@/platform/ui/checkbox";
 import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
+import { Combobox } from "@/platform/ui/combobox";
 import {
   issueAction,
   deleteAction,
   listActions,
   issuablePeople,
+  strikeablePeople,
+  linkActionToReport,
   DISCIPLINARY_CATEGORIES,
   DisciplinaryForbiddenError,
   DisciplinaryNotFoundError,
   DisciplinaryValidationError,
 } from "@/modules/incidents/services/disciplinary";
+import { linkableReports } from "@/modules/incidents/services/report";
+import { notifyStrikeIssued } from "@/modules/incidents/services/strike-notifications";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { CalendarDate } from "@/platform/dates/display";
 import Link from "next/link";
+import type { DisciplinaryAction } from "@prisma/client";
+import { StrikeRow } from "./strike-row";
+import { formatCalendarDate } from "@/platform/dates";
 
 // ---------------------------------------------------------------------------
 // Error codes
@@ -59,7 +64,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   "bad-category": "Invalid category. Please select a valid category.",
   "blank-description": "Description must not be blank.",
   "future-date": "Occurred date must not be in the future.",
-  "person-not-found": "Person not found. Check the NetID or email and try again.",
+  "person-not-found": "Person not found. Search and select a person from the list, then try again.",
   "validation": "Please check your input and try again.",
 };
 
@@ -101,8 +106,15 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
       : (ERROR_MESSAGES[errorCode] ?? "An unexpected error occurred.")
     : null;
 
-  // Load issuable people for the issue form.
-  const issuable = await issuablePeople(viewer.personId);
+  // Load the pickers for the issue form. strikeablePeople and linkableReports
+  // are central-only and return empty / throw for directors, so only fetch them
+  // when the viewer actually holds incidents.manage.
+  const isCentral = await can(viewer.personId, "incidents.manage");
+  const [issuable, searchablePeople, reportOptions] = await Promise.all([
+    issuablePeople(viewer.personId),
+    isCentral ? strikeablePeople(viewer.personId) : Promise.resolve([]),
+    isCentral ? linkableReports(viewer.personId) : Promise.resolve([]),
+  ]);
 
   // Load actions; catch Forbidden to render a friendly empty state.
   let listResult: Awaited<ReturnType<typeof listActions>> | null = null;
@@ -139,6 +151,16 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
   const canManageAll = listResult?.canManageAll ?? false;
   const pageCount = Math.max(1, Math.ceil(total / 25));
 
+  // Label any report a visible strike is linked to. One query, no N+1.
+  const linkedReportIds = [...new Set(rows.map((r) => r.action.reportId).filter(Boolean))] as string[];
+  const linkedReports = linkedReportIds.length
+    ? await prisma.incidentReport.findMany({
+        where: { id: { in: linkedReportIds } },
+        select: { id: true, number: true },
+      })
+    : [];
+  const reportLabelById = new Map(linkedReports.map((r) => [r.id, `Incident report #${r.number}`]));
+
   function buildHref(targetPage: number): string {
     const params = new URLSearchParams();
     if (qSearch) params.set("q", qSearch);
@@ -147,6 +169,9 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
     params.set("page", String(targetPage));
     return `/incidents/strikes?${params.toString()}`;
   }
+
+  // Compute report options once for all strike rows.
+  const reportComboOptions = reportOptions.map((r) => ({ value: r.id, label: r.label }));
 
   // ---------------------------------------------------------------------------
   // Server actions
@@ -167,27 +192,12 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
     const notes = (formData.get("notes") as string | null) || null;
     const confidential = formData.get("confidential") === "on";
     const patientInvolved = formData.get("patientInvolved") === "on";
+    const reportId = (formData.get("reportId") as string | null) || null;
+    const notifyPeople = formData.get("notifyPeople") === "on";
 
-    // Resolve person -- either personId (select) or personKey (free input).
-    let personId = (formData.get("personId") as string | null) || null;
+    const personId = (formData.get("personId") as string | null) || null;
     if (!personId) {
-      const personKey = (formData.get("personKey") as string | null)?.trim() ?? "";
-      if (!personKey) {
-        redirect("/incidents/strikes?error=person-not-found");
-      }
-      const person = await prisma.person.findFirst({
-        where: {
-          OR: [
-            { netId: personKey },
-            { contactEmail: { equals: personKey, mode: "insensitive" } },
-          ],
-        },
-        select: { id: true },
-      });
-      if (!person) {
-        redirect("/incidents/strikes?error=person-not-found");
-      }
-      personId = person.id;
+      redirect("/incidents/strikes?error=person-not-found");
     }
 
     const occurredAt = occurredAtStr ? new Date(occurredAtStr) : null;
@@ -195,9 +205,10 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
       redirect("/incidents/strikes?error=validation");
     }
 
+    let action: DisciplinaryAction;
     try {
-      await issueAction(actor.personId, {
-        personId: personId!,
+      action = await issueAction(actor.personId, {
+        personId,
         occurredAt: occurredAt!,
         category,
         description,
@@ -206,6 +217,7 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
         notes,
         confidential,
         patientInvolved,
+        reportId,
       });
     } catch (err) {
       if (err instanceof DisciplinaryForbiddenError) {
@@ -219,6 +231,39 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
         if (msg.includes("category")) redirect("/incidents/strikes?error=bad-category");
         if (msg.includes("description")) redirect("/incidents/strikes?error=blank-description");
         if (msg.includes("future")) redirect("/incidents/strikes?error=future-date");
+        redirect(
+          `/incidents/strikes?error=validation&message=${encodeURIComponent(err.message)}`
+        );
+      }
+      throw err;
+    }
+
+    // After the write commits, never inside it: a rollback must not mail anyone.
+    if (notifyPeople) {
+      await notifyStrikeIssued({ action, actorPersonId: actor.personId });
+    }
+
+    revalidatePath("/incidents/strikes");
+    redirect("/incidents/strikes");
+  }
+
+  // Consumed as a prop by StrikeRow's link/unlink control below.
+  async function linkReportForm(formData: FormData) {
+    "use server";
+    const actor = await requirePermission("incidents.manage");
+    const actionId = (formData.get("actionId") as string | null) ?? "";
+    // An empty value means unlink.
+    const reportId = (formData.get("reportId") as string | null) || null;
+    try {
+      await linkActionToReport(actor.personId, actionId, reportId);
+    } catch (err) {
+      if (err instanceof DisciplinaryForbiddenError) {
+        redirect("/incidents/strikes?error=forbidden");
+      }
+      if (err instanceof DisciplinaryNotFoundError) {
+        redirect("/incidents/strikes?error=not-found");
+      }
+      if (err instanceof DisciplinaryValidationError) {
         redirect(
           `/incidents/strikes?error=validation&message=${encodeURIComponent(err.message)}`
         );
@@ -273,14 +318,19 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
           <Card>
             <div className="flex flex-wrap items-end gap-3">
 
-              {/* Person picker: free input for central, select for directors */}
+              {/* Person picker: searchable combobox for central, select for directors */}
               {issuable.all ? (
-                <div className="w-56">
-                  <Field label="NetID or email" required>
-                    <Input
-                      name="personKey"
-                      placeholder="netid or email@yale.edu"
+                <div className="w-72">
+                  <Field label="Person" required>
+                    <Combobox
+                      name="personId"
+                      ariaLabel="Person"
+                      placeholder="Search by name..."
                       required
+                      options={searchablePeople.map((p) => ({
+                        value: p.id,
+                        label: p.hint ? `${p.name} (${p.hint})` : p.name,
+                      }))}
                     />
                   </Field>
                 </div>
@@ -318,6 +368,19 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
                       </option>
                     ))}
                   </Select>
+                </Field>
+              </div>
+
+              {/* Optional link to the incident report this strike relates to. */}
+              <div className="w-72">
+                <Field label="Related incident report">
+                  <Combobox
+                    name="reportId"
+                    ariaLabel="Related incident report"
+                    placeholder="Search reports..."
+                    emptyLabel="No matching reports"
+                    options={reportOptions.map((r) => ({ value: r.id, label: r.label }))}
+                  />
                 </Field>
               </div>
 
@@ -364,6 +427,10 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
 
               {/* Checkboxes */}
               <div className="flex items-center gap-4">
+                <label className="flex items-center gap-2 text-sm text-foreground-soft cursor-pointer">
+                  <Checkbox name="notifyPeople" defaultChecked />
+                  Notify by email
+                </label>
                 <label className="flex items-center gap-2 text-sm text-foreground-soft cursor-pointer">
                   <Checkbox name="confidential" />
                   Confidential
@@ -472,45 +539,35 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
               </THead>
               <tbody>
                 {rows.map(({ action, personName, issuedByName, strikes }) => (
-                  <TR key={action.id}>
-                    <TD className="tabular-nums text-sm text-foreground-soft whitespace-nowrap">
-                      <CalendarDate value={action.occurredAt} />
-                    </TD>
-                    <TD className="font-medium">{personName}</TD>
-                    <TD>
-                      <Badge tone="default">{action.category}</Badge>
-                    </TD>
-                    <TD className="max-w-xs text-sm text-foreground-soft">
-                      <span title={action.description} aria-label={action.description} className="line-clamp-2">
-                        {action.description}
-                      </span>
-                    </TD>
-                    <TD className="text-sm text-foreground-soft">{issuedByName}</TD>
-                    <TD>
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        {action.confidential && (
-                          <Badge tone="warning">Confidential</Badge>
-                        )}
-                        {action.patientInvolved && (
-                          <Badge tone="critical">Patient</Badge>
-                        )}
-                      </div>
-                    </TD>
-                    <TD className="tabular-nums text-sm font-medium text-foreground-soft">
-                      {strikes}
-                    </TD>
-                    {canManageAll && (
-                      <TD>
-                        <form action={deleteActionForm}>
-                          <input type="hidden" name="actionId" value={action.id} />
-                          <ConfirmButton
-                            label="Delete"
-                            confirmLabel="Delete this disciplinary action? This cannot be undone."
-                          />
-                        </form>
-                      </TD>
-                    )}
-                  </TR>
+                  <StrikeRow
+                    key={action.id}
+                    action={{
+                      id: action.id,
+                      occurredLabel: formatCalendarDate(action.occurredAt, {
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                      }),
+                      category: action.category,
+                      description: action.description,
+                      followUpActions: action.followUpActions,
+                      policyReference: action.policyReference,
+                      notes: action.notes,
+                      confidential: action.confidential,
+                      patientInvolved: action.patientInvolved,
+                      reportId: action.reportId,
+                      reportLabel: action.reportId
+                        ? (reportLabelById.get(action.reportId) ?? null)
+                        : null,
+                    }}
+                    personName={personName}
+                    issuedByName={issuedByName}
+                    strikes={strikes}
+                    canManageAll={canManageAll}
+                    reportOptions={reportComboOptions}
+                    deleteAction={deleteActionForm}
+                    linkReport={linkReportForm}
+                  />
                 ))}
               </tbody>
             </Table>

@@ -7,6 +7,7 @@ import { getActiveTerm } from "@/platform/terms/active-term";
 import { getModule } from "@/platform/modules/registry";
 import { isAllowlistedPath } from "./onboarding-allowlist";
 import { isGateClearedCached, markGateCleared } from "./onboarding-gate-cache";
+import { loginRedirectPath } from "./safe-next";
 // The onboarding gate must run on every page render, including soft (client)
 // navigations -- which re-render the page Server Component but NOT the root
 // layout, so a layout-level gate is bypassable via in-app nav. requirePersonSession
@@ -72,7 +73,14 @@ async function enforceOnboarding(personId: string): Promise<void> {
  */
 export async function requirePersonSession(): Promise<PersonSession> {
   const session = await auth();
-  if (!session) redirect("/login");
+  if (!session) {
+    // Carry the intended destination so an emailed deep link survives the SSO
+    // round trip. proxy.ts stamps x-pathname on every request, including
+    // server-action POSTs (Next posts an action to the current page's URL),
+    // so this resolves to the real page path there too, not just on full
+    // page loads.
+    redirect(loginRedirectPath((await headers()).get("x-pathname")));
+  }
   if (!session.personId) redirect("/welcome");
   const person = await getActivePerson(session.personId);
   if (!person) redirect("/welcome");

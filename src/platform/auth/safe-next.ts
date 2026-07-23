@@ -30,6 +30,9 @@ export function safeLoginPath(raw: string | null | undefined): string {
  * The destination is run through safeLoginPath first, so a hostile or malformed
  * path degrades to a bare /login rather than being echoed into the query string.
  * "/" and a missing path both yield a bare /login: there is nothing to resume.
+ *
+ * Note: proxy.ts stamps only `nextUrl.pathname` into x-pathname, so any query
+ * string on the original request is not preserved through this callback.
  */
 export function loginRedirectPath(pathname: string | null | undefined): string {
   const target = safeLoginPath(pathname);

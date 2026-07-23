@@ -75,8 +75,10 @@ export async function requirePersonSession(): Promise<PersonSession> {
   const session = await auth();
   if (!session) {
     // Carry the intended destination so an emailed deep link survives the SSO
-    // round trip. proxy.ts stamps x-pathname on every page request; server
-    // actions have no path context, so this degrades to a bare /login there.
+    // round trip. proxy.ts stamps x-pathname on every request, including
+    // server-action POSTs (Next posts an action to the current page's URL),
+    // so this resolves to the real page path there too, not just on full
+    // page loads.
     redirect(loginRedirectPath((await headers()).get("x-pathname")));
   }
   if (!session.personId) redirect("/welcome");

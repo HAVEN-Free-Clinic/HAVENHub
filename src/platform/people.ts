@@ -72,14 +72,24 @@ export type PersonInput = {
   licensedRN?: boolean;
 };
 
-/** Normalize values that must be lowercase (ids, emails). */
+/**
+ * Normalize identity values. netId and contactEmail are trimmed AND lowercased,
+ * and a value that trims to empty becomes null. This is the single point every
+ * caller (admin create/edit, my-info) shares, so it must be complete: login
+ * resolution compares with a case-insensitive but WHITESPACE-sensitive `equals`,
+ * and the ci-unique indexes are on lower(netId)/lower(contactEmail), so an
+ * untrimmed " jc123 " neither matches at login nor collides with the clean value,
+ * silently locking the person out and defeating the unique constraint. name is
+ * trimmed too (never lowercased, never nulled).
+ */
 function normalize(input: PersonInput): PersonInput;
 function normalize(input: Partial<PersonInput>): Partial<PersonInput>;
 function normalize(input: Partial<PersonInput>): Partial<PersonInput> {
   return {
     ...input,
-    ...(input.netId !== undefined && { netId: input.netId?.toLowerCase() ?? input.netId }),
-    ...(input.contactEmail !== undefined && { contactEmail: input.contactEmail?.toLowerCase() ?? input.contactEmail }),
+    ...(input.name !== undefined && { name: input.name?.trim() ?? input.name }),
+    ...(input.netId !== undefined && { netId: input.netId?.trim().toLowerCase() || null }),
+    ...(input.contactEmail !== undefined && { contactEmail: input.contactEmail?.trim().toLowerCase() || null }),
   };
 }
 

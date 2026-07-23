@@ -51,6 +51,13 @@ export class DirectorHasShiftAssignmentsError extends Error {
   }
 }
 
+export class OffboardedPersonError extends Error {
+  constructor(public personId: string) {
+    super("Reactivate this person before adding them to a roster.");
+    this.name = "OffboardedPersonError";
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Queries
 // ---------------------------------------------------------------------------
@@ -122,6 +129,20 @@ export async function addMembership(
     kind: "DIRECTOR" | "VOLUNTEER";
   }
 ): Promise<void> {
+  // Offboard convergence: Person.status OFFBOARDED implies zero ACTIVE
+  // memberships (setPersonStatusField holds the other direction by flipping all
+  // memberships to REMOVED). Without this check an admin on /admin/people/<id>
+  // could "Add assignment" to an offboarded person and put somebody who cannot
+  // log in back onto the term roster, the compliance and training rosters, the
+  // schedule builder's assignable list, and the Monday shift-reminder cron.
+  // The term RosterPanel's person picker already filters to ACTIVE; guarding in
+  // the service covers both entry points.
+  const target = await prisma.person.findUnique({
+    where: { id: input.personId },
+    select: { status: true },
+  });
+  if (target && target.status !== "ACTIVE") throw new OffboardedPersonError(input.personId);
+
   let membership;
   try {
     membership = await prisma.termMembership.upsert({
@@ -249,6 +270,18 @@ export async function changeMembershipKind(
   });
   if (!membership) throw new MembershipNotFoundError(input.membershipId);
   if (membership.kind === input.toKind) return;
+
+  // Same offboard-convergence guard as addMembership. This path writes an ACTIVE
+  // row of the target kind, so for an OFFBOARDED person (whose rows are all
+  // REMOVED) it would resurrect them onto the active roster with Person.status
+  // still OFFBOARDED. The panel only renders the control for ACTIVE rows, but
+  // membershipId arrives from FormData and this service gates on permission
+  // alone, so the check belongs here.
+  const subject = await prisma.person.findUnique({
+    where: { id: membership.personId },
+    select: { status: true },
+  });
+  if (subject && subject.status !== "ACTIVE") throw new OffboardedPersonError(membership.personId);
 
   if (membership.kind === "DIRECTOR" && input.toKind === "VOLUNTEER") {
     const directorShifts = await countDirectorShiftAssignments(

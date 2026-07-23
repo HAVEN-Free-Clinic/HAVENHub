@@ -450,8 +450,19 @@ directorVisibility governs what they can read on the ledger."
 - Test: `src/modules/incidents/services/strike-notifications.test.ts`
 
 **Interfaces:**
-- Consumes: `strikeIssuedDirectorsContext` and the template keys from Task 3; existing `departmentDirectorPersonIds(departmentId: string): Promise<string[]>` from `@/platform/departments`; existing `strikeCount(personId: string): Promise<number>` from `./disciplinary`.
+- Consumes: `strikeIssuedDirectorsContext` and the template keys from Task 3; existing `departmentDirectorPersonIds(departmentId: string): Promise<string[]>` from `@/platform/departments`; a new `visibleStrikeCount(personId, viewerPersonId)` from `./disciplinary` (see the correction below).
 - Produces: `notifyStrikeIssued(input: { action: DisciplinaryAction; actorPersonId: string }): Promise<void>`.
+
+> **CORRECTION (applied during execution, commit `c26febbc`).** The code below originally
+> used `strikeCount(action.personId)` for the directors' total and computed it once before
+> the director loop. That is a confidentiality leak: `strikeCount` is documented
+> "Visibility-independent: counts all records regardless of confidentiality," so a director
+> could be emailed a total higher than their ledger shows them, revealing that a confidential
+> row exists. Commit `963c4613` (PR #165) fixed this identical leak on the ledger's Strikes
+> column. The correct form exports `visibleStrikeCount(personId, viewerPersonId)` from
+> `disciplinary.ts`, reusing the module-private `directorVisibility` predicate, and computes
+> it **inside** the per-director loop, since each director's visible count differs. A
+> regression test with a mixed confidential/non-confidential history covers it.
 
 - [ ] **Step 1: Write the failing tests**
 

@@ -251,14 +251,25 @@ export async function cancelOpenDeactivationRequestsTx(
     where: { personId, status: { in: ["PENDING", "SUBMITTED"] }, kind: "DEACTIVATE" },
     select: { id: true, notes: true },
   });
+  if (openDeact.length === 0) return [];
+
+  const line = "Cancelled: person reactivated";
+  const ids = openDeact.map((r) => r.id);
+
+  await tx.epicRequest.updateMany({
+    where: { id: { in: ids } },
+    data: { status: "CANCELLED", notes: line },
+  });
+
   for (const r of openDeact) {
-    const line = "Cancelled: person reactivated";
+    if (!r.notes) continue;
     await tx.epicRequest.update({
       where: { id: r.id },
-      data: { status: "CANCELLED", notes: r.notes ? `${r.notes}\n${line}` : line },
+      data: { notes: `${r.notes}\n${line}` },
     });
   }
-  return openDeact.map((r) => r.id);
+
+  return ids;
 }
 
 export async function setPersonStatusField(

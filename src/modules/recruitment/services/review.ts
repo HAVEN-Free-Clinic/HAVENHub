@@ -204,7 +204,7 @@ export async function revokeAcceptance(acceptanceId: string, actorId: string): P
   // Tearing down the onboarding contract is the deliberate, separate teardown path
   // (mirrors the guard in interview-decisions.ts), so block the revoke here.
   if (acc.contract) {
-    throw new AcceptanceError("This applicant has an onboarding contract. Remove the onboarding contract before revoking the acceptance.");
+    throw new AcceptanceError("This applicant has an onboarding contract. Withdraw it on the Onboarding page first, then revoke the acceptance.");
   }
   const scope = await reviewScope(actorId);
   const inScope = scope.all || scope.departmentCodes.includes(acc.departmentCode);

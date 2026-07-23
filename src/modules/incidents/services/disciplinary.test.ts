@@ -53,6 +53,7 @@ import {
   issuablePeople,
   strikeablePeople,
   strikeCount,
+  linkActionToReport,
   DISCIPLINARY_CATEGORIES,
   DisciplinaryForbiddenError,
   DisciplinaryNotFoundError,
@@ -1022,5 +1023,90 @@ describe("strikeablePeople", () => {
     const row = people.find((p) => p.id === vol.id);
     expect(row!.hint).toContain("SCTM");
     expect(row!.hint).toContain("volunteer");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// linkActionToReport
+// ---------------------------------------------------------------------------
+
+describe("linkActionToReport", () => {
+  async function setup(prefix: string) {
+    const central = await createPerson("Central", `${prefix}-c`);
+    const subject = await createPerson("Subject", `${prefix}-s`);
+    const reporter = await createPerson("Reporter", `${prefix}-r`);
+    await grantPermission(central.id, "incidents.manage");
+    const report = await prisma.incidentReport.create({
+      data: {
+        number: Math.floor(Math.random() * 100000) + 10000,
+        reporterId: reporter.id,
+        concernTypes: ["OTHER"],
+        description: "A report to link against.",
+      },
+    });
+    const action = await issueAction(central.id, {
+      personId: subject.id,
+      occurredAt: new Date("2026-07-01"),
+      category: "Attendance",
+      description: "Recorded directly on the ledger.",
+    });
+    return { central, subject, report, action };
+  }
+
+  it("links a strike to a report", async () => {
+    const { central, report, action } = await setup("lat-ok");
+
+    const linked = await linkActionToReport(central.id, action.id, report.id);
+    expect(linked.reportId).toBe(report.id);
+
+    const audit = await prisma.auditLog.findFirst({
+      where: { action: "disciplinary.link_report", entityId: action.id },
+    });
+    expect(audit).not.toBeNull();
+  });
+
+  it("unlinks when passed null", async () => {
+    const { central, report, action } = await setup("lat-unlink");
+    await linkActionToReport(central.id, action.id, report.id);
+
+    const unlinked = await linkActionToReport(central.id, action.id, null);
+    expect(unlinked.reportId).toBeNull();
+  });
+
+  it("rejects an actor without incidents.manage", async () => {
+    const { report, action } = await setup("lat-forbid");
+    const director = await createPerson("Director", "lat-forbid-d");
+
+    await expect(
+      linkActionToReport(director.id, action.id, report.id)
+    ).rejects.toBeInstanceOf(DisciplinaryForbiddenError);
+  });
+
+  it("rejects an unknown action or report", async () => {
+    const { central, action } = await setup("lat-404");
+
+    await expect(
+      linkActionToReport(central.id, "no-such-action", null)
+    ).rejects.toBeInstanceOf(DisciplinaryNotFoundError);
+    await expect(
+      linkActionToReport(central.id, action.id, "no-such-report")
+    ).rejects.toBeInstanceOf(DisciplinaryNotFoundError);
+  });
+
+  it("translates the composite-unique collision into a readable validation error", async () => {
+    const { central, subject, report, action } = await setup("lat-dup");
+    await linkActionToReport(central.id, action.id, report.id);
+
+    // A second strike against the SAME person cannot also claim that report.
+    const second = await issueAction(central.id, {
+      personId: subject.id,
+      occurredAt: new Date("2026-07-02"),
+      category: "Professionalism",
+      description: "A second strike for the same person.",
+    });
+
+    await expect(
+      linkActionToReport(central.id, second.id, report.id)
+    ).rejects.toBeInstanceOf(DisciplinaryValidationError);
   });
 });

@@ -18,7 +18,7 @@
  */
 
 import type { DisciplinaryAction, Prisma } from "@prisma/client";
-import { prisma } from "@/platform/db";
+import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { can } from "@/platform/rbac/engine";
 import { manageableDepartmentIds } from "@/platform/departments";
@@ -651,4 +651,66 @@ export async function strikeablePeople(actorPersonId: string): Promise<
       return a.name.localeCompare(b.name);
     })
     .map(({ id, name, hint }) => ({ id, name, hint }));
+}
+
+/**
+ * Attaches a strike to an incident report, or detaches it when reportId is null.
+ * The only field on an existing strike this module lets a reviewer change.
+ *
+ * Requires incidents.manage -> DisciplinaryForbiddenError. Directors may not
+ * relink, mirroring deleteAction.
+ *
+ * DisciplinaryAction is unique per (reportId, personId), so a report that
+ * already carries a strike for this person surfaces as a readable
+ * DisciplinaryValidationError rather than a raw 500.
+ *
+ * Audits disciplinary.link_report with the before/after reportId.
+ */
+export async function linkActionToReport(
+  actorPersonId: string,
+  actionId: string,
+  reportId: string | null
+): Promise<DisciplinaryAction> {
+  if (!(await can(actorPersonId, "incidents.manage"))) {
+    throw new DisciplinaryForbiddenError(
+      "incidents.manage is required to link a disciplinary action to a report."
+    );
+  }
+
+  const row = await prisma.disciplinaryAction.findUnique({ where: { id: actionId } });
+  if (!row) throw new DisciplinaryNotFoundError();
+
+  if (reportId) {
+    const report = await prisma.incidentReport.findUnique({
+      where: { id: reportId },
+      select: { id: true },
+    });
+    if (!report) throw new DisciplinaryNotFoundError(`Incident report ${reportId} not found.`);
+  }
+
+  let updated: DisciplinaryAction;
+  try {
+    updated = await prisma.disciplinaryAction.update({
+      where: { id: actionId },
+      data: { reportId },
+    });
+  } catch (err) {
+    if (isUniqueConstraintError(err)) {
+      throw new DisciplinaryValidationError(
+        "That incident report already has a strike for this person."
+      );
+    }
+    throw err;
+  }
+
+  await recordAudit({
+    actorPersonId,
+    action: "disciplinary.link_report",
+    entityType: "DisciplinaryAction",
+    entityId: actionId,
+    before: { reportId: row.reportId },
+    after: { reportId },
+  });
+
+  return updated;
 }

@@ -47,7 +47,7 @@ import {
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { formatDateOnly } from "@/platform/dates";
 import { log } from "@/platform/logging";
-import type { EpicRequestType } from "@/modules/support/epic-request-types";
+import { isNewAccountRequest, type EpicRequestType } from "@/modules/support/epic-request-types";
 
 /**
  * Section I authorizer details. Resolved by the caller from the current term's
@@ -212,7 +212,7 @@ export async function generatePdf(args: {
   // "Check Box60" is the "Delete Access (Systems: ... Date: ...)" box in Section V.
   const TERMINATION_CHECKBOX: string | null = "Check Box60";
   const isBulk = requestType.startsWith("bulk");
-  const isNew = requestType === "new_individual" || requestType === "bulk_new";
+  const isNew = isNewAccountRequest(requestType);
   const isDeactivate = requestType === "deactivate_individual" || requestType === "bulk_deactivate";
 
   const pdfDoc = await PDFDocument.load(templateBytes);

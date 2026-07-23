@@ -566,8 +566,9 @@ export async function reconcileDeactivationRequests(
       if (open && open.status === "SUBMITTED" && open.ticketId) continue;
       toAttach.push({ personId, existingId: open?.id ?? null });
     }
-    // Nothing new to submit: don't create an empty (orphan) ticket. Mirrors the
-    // duplicate rejection submitEpicRequests already performs on the grant path.
+    // Nothing new to submit: an empty-batch guard that avoids creating an orphan
+    // ticket with zero requests attached, the same failure mode F18 guards against
+    // for a mid-batch write failure below.
     if (toAttach.length === 0) {
       throw new SupportStateError(
         "Every selected person already has a submitted deactivation request. Refresh to see current status."
@@ -684,6 +685,14 @@ export async function submitEpicRequests(
       data: { submittedById: actorPersonId, description: ticketDescription, status: "OPEN" },
     });
 
+    // Adopted rows (the minority) still need their own updateMany: each has its
+    // own claim precondition (status PENDING + ticketId null) that a batched insert
+    // can't express. Everything else is collected and inserted with one createMany
+    // below instead of one create per person, since the headline use of this
+    // function is a whole term's roster (100-250 people) in one click, and a
+    // sequential per-row create risks the transaction's timeout at hosted-Postgres
+    // latency.
+    const toCreate: { personId: string; mirrorEpicId: string | null }[] = [];
     for (const r of requests) {
       const existingId = adoptable.get(r.personId);
       if (existingId) {
@@ -697,21 +706,25 @@ export async function submitEpicRequests(
           );
         }
       } else {
-        await tx.epicRequest.create({
-          data: {
-            personId: r.personId,
-            kind,
-            status: "SUBMITTED",
-            mirrorEpicId: r.mirrorEpicId,
-            requestedById: actorPersonId,
-            ticketId: ticket.id,
-          },
-        });
+        toCreate.push(r);
       }
     }
 
+    if (toCreate.length > 0) {
+      await tx.epicRequest.createMany({
+        data: toCreate.map((r) => ({
+          personId: r.personId,
+          kind,
+          status: "SUBMITTED",
+          mirrorEpicId: r.mirrorEpicId,
+          requestedById: actorPersonId,
+          ticketId: ticket.id,
+        })),
+      });
+    }
+
     return ticket;
-  });
+  }, { timeout: 30_000, maxWait: 10_000 });
 }
 
 // ---------------------------------------------------------------------------

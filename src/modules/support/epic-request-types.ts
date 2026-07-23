@@ -42,6 +42,14 @@ export function epicKindForRequestType(t: EpicRequestType): EpicRequestKind {
   }
 }
 
+/** True for the two request types that create a brand new Epic account. These
+ *  are the only ones where the person has no Epic ID yet, so the PDF and the
+ *  spreadsheet leave the Epic ID column blank. Written as an explicit
+ *  comparison, not a substring test: "bulk_renew" contains "new". */
+export function isNewAccountRequest(t: EpicRequestType): boolean {
+  return t === "new_individual" || t === "bulk_new";
+}
+
 /**
  * The request type a Term batch group submits: the individual variant for one
  * person, the bulk variant (with spreadsheet) above one. The generate route

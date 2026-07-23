@@ -119,12 +119,18 @@ export function TermBatchTab({
         termId: rollup.term.id,
       });
       setDraft({ group, subject: result.subject, body: result.body });
-      if (result.trackingWarning) setWarning(result.trackingWarning);
-      // The people just submitted are now SUBMITTED-and-ticketed server-side; drop
-      // them from the local selection and ask the server to re-render the rollup so
-      // their rows come back non-selectable instead of staying checked and re-clickable.
-      setSelection((prev) => ({ ...prev, [group]: new Set() }));
-      router.refresh();
+      if (result.trackingWarning) {
+        setWarning(result.trackingWarning);
+      } else {
+        // The people just submitted are now SUBMITTED-and-ticketed server-side;
+        // drop them from the local selection and ask the server to re-render the
+        // rollup so their rows come back non-selectable instead of staying checked
+        // and re-clickable. Skipped when tracking failed (trackingWarning set):
+        // nothing was recorded server-side, so clearing here would force the
+        // director to re-tick everyone by hand.
+        setSelection((prev) => ({ ...prev, [group]: new Set() }));
+        router.refresh();
+      }
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -330,7 +336,12 @@ function RollupRow({
 
   return (
     <li className="flex flex-wrap items-center gap-2 rounded-lg px-2 py-1.5 text-sm">
-      <Checkbox checked={checked} onChange={onToggle} disabled={!row.selectable} />
+      <Checkbox
+        checked={checked}
+        onChange={onToggle}
+        disabled={!row.selectable}
+        aria-label={`Select ${row.name}`}
+      />
       <span className="font-medium text-foreground">{row.name}</span>
       <span className="text-xs text-subtle-foreground">{deptLabel}</span>
 

@@ -250,6 +250,29 @@ describe("loadTermEpicRollup", () => {
     expect(row.blockedReason).toContain("deactivation");
   });
 
+  it("blocks a row whose open PENDING request has a different kind than the derived group", async () => {
+    const prior = await makeTerm("FA25", 2025);
+    const term = await makeTerm("SU26", 2026);
+    const dept = await makeDept("SRR", "ALL");
+    const p = await makePerson("Wes", { epicId: "E-WES" });
+    const actor = await makePerson("Manager");
+    await join(p.id, prior.id, dept.id);
+    await join(p.id, term.id, dept.id); // same department both terms: derived kind is RENEW
+
+    // A stale promotion-origin NEW request nobody completed (no techRequestId, so
+    // it does not override the derived kind via kindSource === "ticket").
+    await prisma.epicRequest.create({
+      data: { personId: p.id, kind: "NEW", status: "PENDING", requestedById: actor.id },
+    });
+
+    const rollup = await loadTermEpicRollup(term.id);
+    expect(rollup.groups.RENEW).toHaveLength(1);
+    const row = rollup.groups.RENEW[0];
+    expect(row.name).toBe("Wes");
+    expect(row.selectable).toBe(false);
+    expect(row.blockedReason).toContain("open new request");
+  });
+
   it("reports the missing onboarding steps for an uncleared member", async () => {
     const term = await makeTerm("SU26", 2026);
     const dept = await makeDept("SRR", "ALL");

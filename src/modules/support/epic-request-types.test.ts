@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   epicKindForRequestType,
+  isNewAccountRequest,
   requestTypeForGroup,
   type EpicRequestType,
 } from "./epic-request-types";
@@ -42,6 +43,26 @@ describe("epicKindForRequestType", () => {
     for (const [type, kind] of Object.entries(expected)) {
       expect(epicKindForRequestType(type as EpicRequestType)).toBe(kind);
     }
+  });
+});
+
+describe("isNewAccountRequest", () => {
+  it("is true only for the two NEW request types", () => {
+    expect(isNewAccountRequest("new_individual")).toBe(true);
+    expect(isNewAccountRequest("bulk_new")).toBe(true);
+  });
+
+  it("is false for the other six request types", () => {
+    expect(isNewAccountRequest("mod_individual")).toBe(false);
+    expect(isNewAccountRequest("bulk_mod")).toBe(false);
+    expect(isNewAccountRequest("renew_individual")).toBe(false);
+    expect(isNewAccountRequest("bulk_renew")).toBe(false);
+    expect(isNewAccountRequest("deactivate_individual")).toBe(false);
+    expect(isNewAccountRequest("bulk_deactivate")).toBe(false);
+  });
+
+  it("regression: bulk_renew is false, even though the string 'bulk_renew' contains 'new' as a substring (the .includes(\"new\") trap)", () => {
+    expect(isNewAccountRequest("bulk_renew")).toBe(false);
   });
 });
 

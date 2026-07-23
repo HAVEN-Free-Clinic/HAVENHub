@@ -248,7 +248,12 @@ export default async function EpicRequestsPage({ searchParams }: PageProps) {
     getActiveTerm(),
     listBatchTermOptions(),
   ]);
-  const rollup = workingTerm ? await loadTermEpicRollup(workingTerm.id) : null;
+  // The roll-up is six queries plus loadClearanceMap (roughly twelve more over the
+  // full roster); only the Term batch tab renders it (EpicRequestTabs), so skip the
+  // work on every other tab visit instead of paying for it on the default Generate
+  // tab too.
+  const rollup =
+    activeTab === "term-batch" && workingTerm ? await loadTermEpicRollup(workingTerm.id) : null;
 
   return (
     <div className="space-y-6">

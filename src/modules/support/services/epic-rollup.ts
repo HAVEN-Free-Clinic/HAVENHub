@@ -227,6 +227,8 @@ export async function loadTermEpicRollup(termId: string): Promise<EpicRollup> {
       blockedReason = "Already has an Epic ID, so a new-account request would be refused.";
     } else if (kind !== "NEW" && !person.epicId) {
       blockedReason = `Has no Epic ID on file, so a ${kind.toLowerCase()} request would be refused.`;
+    } else if (grantRequest?.status === "PENDING" && grantRequest.kind !== kind) {
+      blockedReason = `Has an open ${grantRequest.kind.toLowerCase()} request; cancel it in the Tracker before submitting a ${kind.toLowerCase()}.`;
     }
 
     const summary = clearance.get(personId);

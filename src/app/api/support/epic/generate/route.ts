@@ -29,7 +29,7 @@ import {
   generatePdf,
   type RequestType,
 } from "@/modules/support/services/itcm-pdf";
-import { epicKindForRequestType } from "@/modules/support/epic-request-types";
+import { epicKindForRequestType, isNewAccountRequest } from "@/modules/support/epic-request-types";
 import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
@@ -126,7 +126,7 @@ async function generateSpreadsheet(args: {
   const { requestType, people, endDate } = args;
   const zone = await getDisplayTimeZone();
   const today = formatDateOnly(new Date(), zone, { month: "2-digit", day: "2-digit", year: "numeric" });
-  const isNew = requestType.includes("new");
+  const isNew = isNewAccountRequest(requestType);
 
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet("Epic Request");

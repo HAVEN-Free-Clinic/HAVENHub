@@ -55,6 +55,22 @@ export async function GET(_request: Request, context: RouteContext): Promise<Res
       "Content-Type": contentTypeFor(rel),
       "Content-Length": String(buf.byteLength),
       "Cache-Control": "private, max-age=0, must-revalidate",
+      // This is the one route that serves EXECUTABLE uploaded content, and the
+      // player frames it with allow-same-origin (SCORM 1.2 needs window.parent.API),
+      // so package script runs on the app's origin with the learner's cookie.
+      // Without a CSP, a coordinator holding only learning.manage_courses could
+      // upload a package that reads any page the learner can read and POSTs it
+      // off-origin. default-src/connect-src 'self' closes every off-origin load
+      // and send; form-action 'none' closes the form channel. Matches the header
+      // convention of the other six user-content routes.
+      //
+      // Residual: same-origin reads by package script are still possible, and a
+      // determined payload could self-navigate the iframe to exfiltrate. Full
+      // isolation needs the package served from a separate origin with the
+      // scorm-again cross-frame postMessage shim (see audit 2026-07-23 #4).
+      "Content-Security-Policy":
+        "default-src 'self'; connect-src 'self'; form-action 'none'; frame-ancestors 'self'; base-uri 'none'; object-src 'none'",
+      "X-Content-Type-Options": "nosniff",
     },
   });
 }

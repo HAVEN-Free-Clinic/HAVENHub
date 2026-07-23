@@ -27,6 +27,8 @@ export function Combobox({
   emptyLabel = "No matches",
   ariaLabel,
   onValueChange,
+  required = false,
+  "aria-describedby": ariaDescribedBy,
 }: {
   name: string;
   options: ComboboxOption[];
@@ -34,6 +36,17 @@ export function Combobox({
   emptyLabel?: string;
   ariaLabel?: string;
   onValueChange?: (value: string) => void;
+  /**
+   * Marks the visible text input required (native + aria-required), so it
+   * matches `Field required`'s aria-required/asterisk contract. Honest limit:
+   * the text input holds the search query, not the selected id, so this only
+   * catches a completely empty box. Someone who types text without picking an
+   * option still submits an empty hidden value; the server must still guard
+   * against that (this is existing behavior, not a regression from adding
+   * `required` here).
+   */
+  required?: boolean;
+  "aria-describedby"?: string;
 }) {
   const [query, setQuery] = useState("");
   const [value, setValue] = useState("");
@@ -102,6 +115,9 @@ export function Combobox({
         aria-autocomplete="list"
         aria-activedescendant={open && filtered.length > 0 ? `${listId}-opt-${active}` : undefined}
         aria-label={ariaLabel}
+        aria-describedby={ariaDescribedBy}
+        aria-required={required}
+        required={required}
         autoComplete="off"
         className={controlBase}
         placeholder={placeholder}

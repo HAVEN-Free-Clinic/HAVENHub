@@ -316,6 +316,7 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
                       name="personId"
                       ariaLabel="Person"
                       placeholder="Search by name..."
+                      required
                       options={searchablePeople.map((p) => ({
                         value: p.id,
                         label: p.hint ? `${p.name} (${p.hint})` : p.name,

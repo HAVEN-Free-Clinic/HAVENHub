@@ -1106,6 +1106,63 @@ describe("decideStrike (per subject)", () => {
     expect(row?.strikeDecision).toBe("PENDING");
   });
 
+  // The reporting form promises "your name is not shared with the subject", but
+  // the subject-facing email used to carry the reporter's verbatim first-person
+  // narrative, which identifies them to anyone who knows that shift's roster.
+  async function seedAnonymousStrikeWithEmail(narrative: string, anonymous = true) {
+    const term = await createTerm();
+    const dept = await createDepartment("ITCM");
+    const director = await createPerson("Director", "ds-anon-dir");
+    const managed = await prisma.person.create({
+      data: { name: "Managed Subject", netId: "ds-anon-vol", contactEmail: "subject@yale.edu" },
+    });
+    const manager = await createPerson("Manager", "ds-anon-mgr");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(managed.id, term.id, dept.id, "VOLUNTEER");
+    await grantPermission(manager.id, "incidents.manage");
+    const report = await submitReport(director.id, {
+      concernTypes: ["ATTENDANCE_RELIABILITY"],
+      description: narrative,
+      anonymous,
+      subjects: [{ personId: managed.id, requestStrike: true }],
+    });
+    const pending = await prisma.incidentReportSubject.findFirstOrThrow({
+      where: { reportId: report.id, strikeDecision: "PENDING" },
+    });
+    return { pending, manager };
+  }
+
+  const NARRATIVE = "I was working triage with him on Saturday when he walked out.";
+
+  it("never sends the anonymous reporter's narrative to the subject: uses the reviewer's notes", async () => {
+    const { pending, manager } = await seedAnonymousStrikeWithEmail(NARRATIVE);
+    await decideStrike(manager.id, pending.id, {
+      approve: true,
+      category: DISCIPLINARY_CATEGORIES[0],
+      notes: "Missed an assigned shift without notice.",
+    });
+    const [mail] = await prisma.emailLog.findMany({ where: { template: "incidents.strike_issued" } });
+    expect(mail.toEmail).toBe("subject@yale.edu");
+    expect(mail.html).not.toContain(NARRATIVE);
+    expect(mail.html).not.toContain("working triage");
+    expect(mail.html).toContain("Missed an assigned shift without notice.");
+  });
+
+  it("omits the narrative entirely when an anonymous strike is approved with no reviewer notes", async () => {
+    const { pending, manager } = await seedAnonymousStrikeWithEmail(NARRATIVE);
+    await decideStrike(manager.id, pending.id, { approve: true, category: DISCIPLINARY_CATEGORIES[0] });
+    const [mail] = await prisma.emailLog.findMany({ where: { template: "incidents.strike_issued" } });
+    expect(mail.html).not.toContain(NARRATIVE);
+    expect(mail.html).toContain("Executive Directors");
+  });
+
+  it("still sends the narrative for a non-anonymous report with no reviewer notes", async () => {
+    const { pending, manager } = await seedAnonymousStrikeWithEmail(NARRATIVE, false);
+    await decideStrike(manager.id, pending.id, { approve: true, category: DISCIPLINARY_CATEGORIES[0] });
+    const [mail] = await prisma.emailLog.findMany({ where: { template: "incidents.strike_issued" } });
+    expect(mail.html).toContain(NARRATIVE);
+  });
+
   it("approve issues one DisciplinaryAction for that person, mirrors anonymous->confidential, sets APPROVED", async () => {
     const { pending, managed, manager } = await seedPendingStrike();
 

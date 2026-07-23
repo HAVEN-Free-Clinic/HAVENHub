@@ -217,3 +217,38 @@ describe("notifyCommentAdded", () => {
     expect(logs).toHaveLength(0);
   });
 });
+
+describe("addComment reopen on requester reply", () => {
+  async function resolvedTicket() {
+    const owner = await createPerson("Owner");
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
+    await prisma.techRequest.update({ where: { id: req.id }, data: { status: "RESOLVED", resolvedAt: new Date() } });
+    return { owner, mgr, req };
+  }
+
+  // The resolution email tells the requester "reply on the ticket and we'll
+  // follow up", but there was no reopen path; a reply used to succeed into a void.
+  it("reopens a RESOLVED ticket to IN_PROGRESS when the requester replies", async () => {
+    const { owner, req } = await resolvedTicket();
+    await addComment(owner.id, req.id, { body: "still broken", visibility: "PUBLIC" });
+    const after = await prisma.techRequest.findUniqueOrThrow({ where: { id: req.id } });
+    expect(after.status).toBe("IN_PROGRESS");
+    expect(after.resolvedAt).toBeNull();
+  });
+
+  it("does NOT reopen when a manager comments on a resolved ticket", async () => {
+    const { mgr, req } = await resolvedTicket();
+    await addComment(mgr.id, req.id, { body: "closing note", visibility: "PUBLIC" });
+    expect((await prisma.techRequest.findUniqueOrThrow({ where: { id: req.id } })).status).toBe("RESOLVED");
+  });
+
+  it("does NOT reopen a CANCELLED ticket on a requester reply", async () => {
+    const owner = await createPerson("Owner");
+    const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
+    await prisma.techRequest.update({ where: { id: req.id }, data: { status: "CANCELLED" } });
+    await addComment(owner.id, req.id, { body: "hello?", visibility: "PUBLIC" });
+    expect((await prisma.techRequest.findUniqueOrThrow({ where: { id: req.id } })).status).toBe("CANCELLED");
+  });
+});

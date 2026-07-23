@@ -48,7 +48,14 @@ const EPIC_EMAIL_TEMPLATES: EpicTemplateKey[] = ["epic-onboarding", "epic-activa
 async function closeTicketAction(ticketId: string) {
   "use server";
   const session = await requirePermission("support.manage_requests");
-  await closeTicket(session.personId, ticketId);
+  try {
+    await closeTicket(session.personId, ticketId);
+  } catch (err) {
+    if (err instanceof SupportStateError || err instanceof SupportForbiddenError) {
+      redirect(`/support/epic?tab=tracker&error=${encodeURIComponent(err.message)}`);
+    }
+    throw err;
+  }
   revalidatePath("/support/epic");
 }
 

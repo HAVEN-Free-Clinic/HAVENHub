@@ -313,6 +313,21 @@ export async function getEpicRequestHistory(): Promise<EpicRequestHistoryRow[]> 
  * single-ticket close on the request detail page.
  */
 export async function closeTicket(actorPersonId: string, ticketId: string) {
+  // Refuse to close while any request on the ticket is still open. A CLOSED
+  // ticket vanishes from the Tracker (OPEN-only) and the Pending tab
+  // (ticketId: null only), and the History tab renders its requests read-only,
+  // so a still-PENDING/SUBMITTED request would be stranded with no surface that
+  // can complete or cancel it, permanently blocking Epic provisioning for that
+  // person. Resolve the requests first.
+  const openCount = await prisma.epicRequest.count({
+    where: { ticketId, status: { in: ["PENDING", "SUBMITTED"] } },
+  });
+  if (openCount > 0) {
+    throw new SupportStateError(
+      `This ticket still has ${openCount} open request(s). Complete or cancel them before closing the ticket.`,
+    );
+  }
+
   const ticket = await prisma.ynhhTicket.update({
     where: { id: ticketId },
     data: {

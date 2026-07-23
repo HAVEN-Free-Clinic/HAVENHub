@@ -500,10 +500,12 @@ function HistoryTable({ history }: { history: EpicRequestHistoryRow[] }) {
 function PendingTab({
   pending,
   action,
+  cancelAction,
   error,
 }: {
   pending: PendingEpicRequestRow[];
   action: (formData: FormData) => Promise<void>;
+  cancelAction: (formData: FormData) => Promise<void>;
   error?: string;
 }) {
   if (pending.length === 0) {
@@ -523,6 +525,9 @@ function PendingTab({
 
         {error && <Alert tone="error">{error}</Alert>}
 
+        {/* tab=pending is read by cancelEpicRequestAction so a per-row cancel
+            (formAction below) redirects back to this tab. */}
+        <input type="hidden" name="tab" value="pending" />
         <ul className="space-y-1">
           {pending.map((r) => (
             <li key={r.id} className="flex flex-wrap items-center gap-2 text-sm">
@@ -537,6 +542,23 @@ function PendingTab({
                 <span className="text-xs text-subtle-foreground">Promotion</span>
               )}
               {r.notes && <span className="text-xs text-subtle-foreground">· {r.notes}</span>}
+              {/* Discard a stale pending request (e.g. a promotion-origin one for
+                  someone who already has an Epic ID or withdrew). formAction
+                  submits this row's id to the cancel action within the same form,
+                  so it needs no nested form. Only the clicked button's requestId
+                  enters the FormData, so it does not interfere with the create
+                  checkboxes above. */}
+              <SubmitButton
+                size="sm"
+                variant="ghost"
+                pendingLabel="Cancelling…"
+                formAction={cancelAction}
+                name="requestId"
+                value={r.id}
+                className="ml-auto"
+              >
+                Cancel
+              </SubmitButton>
             </li>
           ))}
         </ul>
@@ -584,7 +606,7 @@ export function EpicRequestTabs({
       {activeTab === "generate" ? (
         <EpicRequestForm departments={departments} pendingDeactivations={pendingDeactivations} authorizers={authorizers} />
       ) : activeTab === "pending" ? (
-        <PendingTab pending={pending} action={createTicketFromPendingAction} error={error} />
+        <PendingTab pending={pending} action={createTicketFromPendingAction} cancelAction={cancelEpicRequestAction} error={error} />
       ) : activeTab === "tracker" ? (
         <div className="space-y-8">
           <LogIncidentForm incidentPeople={incidentPeople} logIncidentAction={logIncidentAction} error={error} />

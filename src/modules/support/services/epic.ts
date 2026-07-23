@@ -324,13 +324,29 @@ export async function completeRequest(
     );
   }
 
-  let writtenEpicId: string | null = null;
+  // Validate the epicId is present BEFORE claiming, so a NEW/MODIFY missing its
+  // epicId never leaves the row marked COMPLETED without one.
+  const needsEpicId = req.kind === "NEW" || req.kind === "MODIFY";
+  if (needsEpicId && (!epicId || !epicId.trim())) {
+    throw new EpicStateError(`An epicId is required to complete a ${req.kind} request.`);
+  }
+  const writtenEpicId: string | null = needsEpicId ? epicId!.trim() : null;
 
-  if (req.kind === "NEW" || req.kind === "MODIFY") {
-    if (!epicId || !epicId.trim()) {
-      throw new EpicStateError(`An epicId is required to complete a ${req.kind} request.`);
-    }
-    writtenEpicId = epicId.trim();
+  // Atomic claim BEFORE any side effect, matching cancelEpicRequest /
+  // createTicket / reconcile: the status read above and this write are not in one
+  // transaction, so without the precondition a concurrent cancel could be
+  // silently reverted (its CANCELLED flipped to COMPLETED) and Person.epicId
+  // stamped for a request that was actually cancelled. Claiming first means a
+  // lost race writes nothing.
+  const claimed = await prisma.epicRequest.updateMany({
+    where: { id: requestId, status: { in: ["PENDING", "SUBMITTED"] } },
+    data: { status: "COMPLETED", completedAt: new Date() },
+  });
+  if (claimed.count !== 1) {
+    throw new EpicStateError("This request was already resolved by a concurrent action.");
+  }
+
+  if (writtenEpicId) {
     try {
       await updatePersonFields(actorPersonId, req.personId, { epicId: writtenEpicId });
     } catch (err) {
@@ -343,11 +359,6 @@ export async function completeRequest(
   // RENEW and DEACTIVATE: leave Person.epicId untouched. DEACTIVATE keeps the
   // epicId as a historical record per product decision; revocation happens at
   // YNHH and is tracked by the request status, not by clearing the field.
-
-  await prisma.epicRequest.update({
-    where: { id: requestId },
-    data: { status: "COMPLETED", completedAt: new Date() },
-  });
 
   await recordAudit({
     actorPersonId,

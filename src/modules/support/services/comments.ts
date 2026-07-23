@@ -73,7 +73,19 @@ export async function addComment(
   const comment = await prisma.techRequestComment.create({
     data: { requestId, authorId: actorPersonId, body, visibility: input.visibility },
   });
-  await prisma.techRequest.update({ where: { id: requestId }, data: { updatedAt: new Date() } });
+  // A requester's public reply to a RESOLVED ticket reopens it. The resolution
+  // email tells them "reply on the ticket and we'll follow up", but there was no
+  // reopen path anywhere and managers hide their controls once a ticket is
+  // terminal, so a reply used to succeed into a void: it bumped updatedAt and
+  // notified nobody who could act. Reopening to IN_PROGRESS puts it back in the
+  // manager queue (notifyCommentAdded already alerts the assignee/managers of a
+  // requester comment). CLOSED and CANCELLED are left terminal: no email invites
+  // a reply there, and a manager's own note must not reopen the ticket.
+  const reopens = !manager && input.visibility === "PUBLIC" && req.status === "RESOLVED";
+  await prisma.techRequest.update({
+    where: { id: requestId },
+    data: { updatedAt: new Date(), ...(reopens ? { status: "IN_PROGRESS", resolvedAt: null } : {}) },
+  });
   await recordAudit({
     actorPersonId,
     action: "support.comment_add",
@@ -81,6 +93,16 @@ export async function addComment(
     entityId: requestId,
     after: { visibility: input.visibility },
   });
+  if (reopens) {
+    await recordAudit({
+      actorPersonId,
+      action: "support.reopen",
+      entityType: "TechRequest",
+      entityId: requestId,
+      before: { status: "RESOLVED" },
+      after: { status: "IN_PROGRESS" },
+    });
+  }
   return comment;
 }
 

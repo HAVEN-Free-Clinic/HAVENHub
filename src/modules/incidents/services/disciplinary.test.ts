@@ -11,11 +11,18 @@
  *   - Validation: future occurredAt -> DisciplinaryValidationError.
  *   - Missing person -> DisciplinaryNotFoundError.
  *   - No active term, no permission -> DisciplinaryForbiddenError.
+ *   - reportId already carrying a strike for this person -> readable
+ *     DisciplinaryValidationError, not a raw 500 (composite unique collision).
+ *   - Nonexistent reportId -> DisciplinaryNotFoundError.
  *
  * deleteAction(actorPersonId, id):
  *   - Central can delete; audit before snapshot present.
  *   - Director cannot delete -> DisciplinaryForbiddenError.
  *   - Missing row -> DisciplinaryNotFoundError.
+ *   - Deleting a strike linked to a DECLINED-request report leaves that
+ *     subject row untouched (no resurrection).
+ *   - Deleting a strike linked to an APPROVED-request report resets that
+ *     subject row to PENDING so it can be re-approved.
  *
  * listActions(viewerPersonId, q):
  *   - Central sees ALL rows (canManageAll true), including confidential of others.
@@ -29,18 +36,40 @@
  *   - q name search case-insensitive.
  *   - Pagination: 26 rows -> page 2 has 1 row.
  *
- * issuablePeople(actorPersonId):
- *   - Central -> { all: true, people: [] }.
- *   - Director -> deduped members with departmentNames, sorted by name.
- *   - Delegation: delegated-dept members included.
- *   - No directorships -> { all: false, people: [] }.
- *
  * strikeCount(personId):
  *   - Person with 3 actions shows strikeCount 3.
  *   - Central rows' strikes field matches strikeCount (all actions).
  *   - Director rows' strikes field counts only actions visible to that
  *     director (non-confidential OR issued by them) so confidential records
  *     raised by others do not leak via the count.
+ *
+ * visibleStrikeCount(personId, viewerPersonId):
+ *   - Counts non-confidential rows plus confidential rows the viewer issued
+ *     themselves.
+ *   - Excludes a confidential row issued by someone else.
+ *
+ * issuablePeople(actorPersonId):
+ *   - Central -> { all: true, people: [] }.
+ *   - Director -> deduped members with departmentNames, sorted by name.
+ *   - Delegation: delegated-dept members included.
+ *   - No directorships -> { all: false, people: [] }.
+ *
+ * strikeablePeople(actorPersonId):
+ *   - Non-central actor -> [].
+ *   - Includes OFFBOARDED people so a strike can still be recorded against them.
+ *   - Sorts ACTIVE people before OFFBOARDED ones, then by name.
+ *   - Hints the active-term department code and volunteer/director kind.
+ *
+ * linkActionToReport(actorPersonId, actionId, reportId):
+ *   - Links a strike to a report; audit row recorded.
+ *   - Unlinks when passed null.
+ *   - Unlinking a report-derived strike reverts its APPROVED subject row to
+ *     PENDING so it can be re-approved.
+ *   - Relinking to a different report reverts the PREVIOUS report's APPROVED
+ *     subject row to PENDING the same way.
+ *   - Rejects an actor without incidents.manage -> DisciplinaryForbiddenError.
+ *   - Unknown action or report -> DisciplinaryNotFoundError.
+ *   - Composite-unique collision -> readable DisciplinaryValidationError.
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
@@ -53,6 +82,7 @@ import {
   issuablePeople,
   strikeablePeople,
   strikeCount,
+  visibleStrikeCount,
   linkActionToReport,
   DISCIPLINARY_CATEGORIES,
   DisciplinaryForbiddenError,
@@ -346,6 +376,62 @@ describe("issueAction", () => {
 
     expect(action.confidential).toBe(false);
     expect(action.patientInvolved).toBe(false);
+  });
+
+  it("reportId that already has a strike for this person -> readable DisciplinaryValidationError, not a raw 500", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("ITCM");
+    const central = await createPerson("Central", "ia-dup-c");
+    const subject = await createPerson("Subject", "ia-dup-s");
+    const reporter = await createPerson("Reporter", "ia-dup-r");
+    await grantPermission(central.id, "incidents.manage");
+    await createMembership(subject.id, term.id, dept.id, "VOLUNTEER");
+
+    const report = await prisma.incidentReport.create({
+      data: {
+        number: Math.floor(Math.random() * 100000) + 10000,
+        reporterId: reporter.id,
+        concernTypes: ["OTHER"],
+        description: "Report already carrying a strike for this person.",
+      },
+    });
+
+    await issueAction(central.id, {
+      personId: subject.id,
+      occurredAt: new Date("2026-07-01"),
+      category: "Attendance",
+      description: "First strike, linked directly to the report on issue.",
+      reportId: report.id,
+    });
+
+    await expect(
+      issueAction(central.id, {
+        personId: subject.id,
+        occurredAt: new Date("2026-07-02"),
+        category: "Professionalism",
+        description: "A second strike for the same person, same report.",
+        reportId: report.id,
+      })
+    ).rejects.toBeInstanceOf(DisciplinaryValidationError);
+  });
+
+  it("a nonexistent reportId -> DisciplinaryNotFoundError", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("ITCM");
+    const central = await createPerson("Central", "ia-404-c");
+    const subject = await createPerson("Subject", "ia-404-s");
+    await grantPermission(central.id, "incidents.manage");
+    await createMembership(subject.id, term.id, dept.id, "VOLUNTEER");
+
+    await expect(
+      issueAction(central.id, {
+        personId: subject.id,
+        occurredAt: new Date("2026-07-01"),
+        category: "Attendance",
+        description: "Test",
+        reportId: "no-such-report",
+      })
+    ).rejects.toBeInstanceOf(DisciplinaryNotFoundError);
   });
 });
 
@@ -882,6 +968,55 @@ describe("strikes", () => {
   });
 });
 
+describe("visibleStrikeCount", () => {
+  it("counts non-confidential rows plus confidential rows the viewer issued themselves", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("ITCM");
+    const central = await createPerson("Central", "vsc-c");
+    const director = await createPerson("Director", "vsc-d");
+    const target = await createPerson("Target", "vsc-t");
+
+    await grantPermission(central.id, "incidents.manage");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(target.id, term.id, dept.id, "VOLUNTEER");
+
+    // Non-confidential, issued by central: visible to the director.
+    await issueCentral(central.id, target.id, { description: "Visible row" });
+    // Confidential, issued by the director themselves: visible to them.
+    await issueAction(director.id, {
+      personId: target.id,
+      occurredAt: new Date("2026-04-02"),
+      category: DISCIPLINARY_CATEGORIES[0],
+      description: "My own confidential row",
+      confidential: true,
+    });
+
+    expect(await visibleStrikeCount(target.id, director.id)).toBe(2);
+  });
+
+  it("excludes a confidential row issued by someone else", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("ITCM");
+    const central = await createPerson("Central", "vsc-ex-c");
+    const director = await createPerson("Director", "vsc-ex-d");
+    const target = await createPerson("Target", "vsc-ex-t");
+
+    await grantPermission(central.id, "incidents.manage");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(target.id, term.id, dept.id, "VOLUNTEER");
+
+    // Confidential, issued by central: hidden from the director.
+    await issueCentral(central.id, target.id, {
+      description: "Hidden from the director",
+      confidential: true,
+    });
+
+    expect(await visibleStrikeCount(target.id, director.id)).toBe(0);
+    // The unscoped total still counts it, confirming the row really exists.
+    expect(await strikeCount(target.id)).toBe(1);
+  });
+});
+
 describe("issuablePeople", () => {
   it("central -> { all: true, people: [] }", async () => {
     const actor = await createPerson("Central", "ctr001");
@@ -1071,6 +1206,66 @@ describe("linkActionToReport", () => {
 
     const unlinked = await linkActionToReport(central.id, action.id, null);
     expect(unlinked.reportId).toBeNull();
+  });
+
+  it("unlinking a report-derived strike reverts the APPROVED subject row to PENDING so it can be re-approved", async () => {
+    const { central, subject, report, action } = await setup("lat-unlink-revert");
+    const subjectRow = await prisma.incidentReportSubject.create({
+      data: {
+        reportId: report.id,
+        personId: subject.id,
+        strikeDecision: "APPROVED",
+        strikeDecidedById: central.id,
+        strikeDecidedAt: new Date(),
+      },
+    });
+    await linkActionToReport(central.id, action.id, report.id);
+
+    const unlinked = await linkActionToReport(central.id, action.id, null);
+    expect(unlinked.reportId).toBeNull();
+
+    const after = await prisma.incidentReportSubject.findUniqueOrThrow({
+      where: { id: subjectRow.id },
+    });
+    expect(after.strikeDecision).toBe("PENDING");
+    expect(after.strikeDecidedById).toBeNull();
+    expect(after.strikeDecidedAt).toBeNull();
+  });
+
+  it("relinking to a different report reverts the previous report's APPROVED subject row to PENDING", async () => {
+    const { central, subject, report, action } = await setup("lat-relink");
+    const reporter2 = await createPerson("Reporter2", "lat-relink-r2");
+    const otherReport = await prisma.incidentReport.create({
+      data: {
+        number: Math.floor(Math.random() * 100000) + 10000,
+        reporterId: reporter2.id,
+        concernTypes: ["OTHER"],
+        description: "A second report to relink the strike to.",
+      },
+    });
+    const subjectRow = await prisma.incidentReportSubject.create({
+      data: {
+        reportId: report.id,
+        personId: subject.id,
+        strikeDecision: "APPROVED",
+        strikeDecidedById: central.id,
+        strikeDecidedAt: new Date(),
+      },
+    });
+    await linkActionToReport(central.id, action.id, report.id);
+
+    const relinked = await linkActionToReport(central.id, action.id, otherReport.id);
+    expect(relinked.reportId).toBe(otherReport.id);
+
+    // The FIRST report's subject row must be reverted, exactly as an unlink
+    // would revert it, so it does not silently stay "issued" with no ledger
+    // row backing it.
+    const after = await prisma.incidentReportSubject.findUniqueOrThrow({
+      where: { id: subjectRow.id },
+    });
+    expect(after.strikeDecision).toBe("PENDING");
+    expect(after.strikeDecidedById).toBeNull();
+    expect(after.strikeDecidedAt).toBeNull();
   });
 
   it("rejects an actor without incidents.manage", async () => {

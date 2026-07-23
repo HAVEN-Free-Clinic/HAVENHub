@@ -144,15 +144,6 @@ export async function updatePersonFields(
 ): Promise<Person> {
   const data = normalize(input);
 
-  const existingOrNull = await prisma.person.findUnique({ where: { id: personId } });
-  if (!existingOrNull) throw new PersonNotFoundError(personId);
-  const existing = existingOrNull;
-
-  // Compute the diff: only keys explicitly present in `input` that have a
-  // different value from the existing row. Undefined input keys mean "leave
-  // unchanged", null means "clear".
-  const changedKeys: Array<keyof PersonInput> = [];
-
   const fields: Array<keyof PersonInput> = [
     "name",
     "netId",
@@ -169,10 +160,15 @@ export async function updatePersonFields(
 
   try {
     const txResult = await prisma.$transaction(async (tx) => {
+      // Read the current row inside the transaction so the diff and the write
+      // are atomic (no lost update between read and write).
       const current = await tx.person.findUnique({ where: { id: personId } });
-      if (!current) throw new Error("Person not found");
+      if (!current) throw new PersonNotFoundError(personId);
 
-      const changedKeys: (keyof typeof data)[] = [];
+      // Compute the diff: only keys explicitly present in `input` that have a
+      // different value from the existing row. Undefined input keys mean "leave
+      // unchanged", null means "clear".
+      const changedKeys: Array<keyof PersonInput> = [];
       for (const key of fields) {
         if (key in input) {
           const newVal = data[key] ?? null;
@@ -185,10 +181,10 @@ export async function updatePersonFields(
 
       // No-op: nothing changed, skip write and audit.
       if (changedKeys.length === 0) {
-        return { updated: current, changedKeys, beforeSnapshot: {} as Record<string, unknown> };
+        return { updated: current, changedKeys, beforeSnapshot: {} as Prisma.InputJsonObject };
       }
 
-      const beforeSnapshot = Object.fromEntries(
+      const beforeSnapshot: Prisma.InputJsonObject = Object.fromEntries(
         changedKeys.map((k) => [k, (current as Record<string, unknown>)[k] ?? null])
       );
 
@@ -216,7 +212,7 @@ export async function updatePersonFields(
       return txResult.updated;
     }
 
-    const afterSnapshot = Object.fromEntries(
+    const afterSnapshot: Prisma.InputJsonObject = Object.fromEntries(
       txResult.changedKeys.map((k) => [k, (txResult.updated as Record<string, unknown>)[k] ?? null])
     );
 

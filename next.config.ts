@@ -1,4 +1,31 @@
 import type { NextConfig } from "next";
+import { withPostHogConfig } from "@posthog/nextjs-config";
+
+/**
+ * Refs whose builds upload source maps to PostHog Error Tracking. These are
+ * exactly the two Vercel builds itself (see `ignoreCommand` in vercel.json):
+ * `main` -> hub.havenfreeclinic.org, `staging` -> staging.havenfreeclinic.org.
+ * PR previews are built by .github/workflows/neon-preview.yml and are left out
+ * on purpose -- every preview would otherwise mint its own release and symbol
+ * set for a URL nobody triages errors from.
+ */
+const UPLOAD_REFS = ["main", "staging"];
+
+const ref = process.env.VERCEL_GIT_COMMIT_REF ?? "";
+const isUploadRef = UPLOAD_REFS.includes(ref);
+// The key is required to be present, not just expected: `resolveConfig` throws
+// "personalApiKey is required when sourcemaps are enabled" while next.config is
+// being loaded, which would fail the deploy outright rather than skip the
+// upload. Gating on the key keeps a missing/rotated secret from taking
+// production down, at the cost of failing quietly -- hence the warning below.
+const uploadSourcemaps = isUploadRef && Boolean(process.env.POSTHOG_API_KEY);
+
+if (isUploadRef && !uploadSourcemaps) {
+  console.warn(
+    `[posthog] POSTHOG_API_KEY is not set for the "${ref}" build; skipping source map upload. ` +
+      `Stack traces from this deploy will stay minified in Error Tracking.`,
+  );
+}
 
 const nextConfig: NextConfig = {
   output: "standalone",
@@ -29,4 +56,29 @@ const nextConfig: NextConfig = {
   skipTrailingSlashRedirect: true,
 };
 
-export default nextConfig;
+/**
+ * Wraps the config so `next build` generates browser source maps, uploads them
+ * to Error Tracking, then deletes them. Without this, every client stack frame
+ * arrives as a minified name in an anonymous chunk ("Could not find sourcemap
+ * for source url"), and server frames as single letters, which is as far as any
+ * client-side issue can currently be triaged.
+ *
+ * Turbopack (the Next 16 default) is driven through the `runAfterProductionCompile`
+ * compiler hook rather than a webpack plugin; the package picks the right path
+ * itself. It must stay the OUTERMOST wrapper -- another wrapper around it would
+ * flatten the config to a plain object and silently drop these build hooks.
+ */
+export default withPostHogConfig(nextConfig, {
+  personalApiKey: process.env.POSTHOG_API_KEY!,
+  projectId: "514029",
+  sourcemaps: {
+    enabled: uploadSourcemaps,
+    // Ties each stack trace back to the commit that produced it. Vercel builds
+    // from a tarball without full git metadata, so the CLI cannot infer this.
+    releaseVersion: process.env.VERCEL_GIT_COMMIT_SHA,
+    // Source maps reconstruct the original source, including the RBAC checks and
+    // query shapes behind PHI. They must never be served: uploaded, then deleted
+    // from the build output before it ships.
+    deleteAfterUpload: true,
+  },
+});

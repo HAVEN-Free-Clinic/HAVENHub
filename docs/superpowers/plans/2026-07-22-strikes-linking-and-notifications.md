@@ -2048,3 +2048,41 @@ npm run lint && npm run typecheck && npm run test
 ```
 
 - [ ] **Tell ops before this reaches production.** Ledger-recorded strikes have never notified anyone. After this ships, the first strike recorded on `/incidents/strikes` emails the subject and their department directors by default. The per-strike "Notify by email" checkbox and the per-type channel settings under `/admin` are the controls.
+
+---
+
+## Post-implementation corrections (from the whole-branch review)
+
+The plan's code was wrong in four places that only a cross-task review could see. All are
+fixed on the branch; recorded here so this document is not a trap for the next reader.
+
+1. **CRITICAL, dates rendered a day early.** The plan replaced `CalendarDate` with
+   `formatDateOnly(action.occurredAt, displayZone, ...)` on the ledger row and in both
+   strike emails. `occurredAt` is a date-only anchor stored at UTC midnight, and this repo's
+   convention is that calendar markers render in UTC and are never zone-shifted (see
+   `formatCalendarDate` in `src/platform/dates/format.ts` and `CalendarDate` in
+   `src/platform/dates/display.tsx`). Zone-shifting into ET rendered `2026-07-01T00:00:00Z`
+   as "Jun 30, 2026" on 100% of rows, and mailed the wrong date to the person being
+   disciplined. Fixed to `formatCalendarDate`; the misleading `issuedDate` template variable
+   was renamed `occurredDate` and its row label changed to "Date of incident".
+   Commit `2be0948d`.
+
+2. **`issueAction` did not translate the composite-unique collision.** The spec required a
+   readable validation message on the creation path, but only `linkActionToReport`
+   implemented it, so choosing a report that already carried a strike for that person on the
+   Record form produced a raw 500. Fixed, plus a report-existence check so a stale id is a
+   `DisciplinaryNotFoundError` rather than a foreign-key error. Commit `78e2594d`.
+
+3. **Unlinking a report-derived strike desynchronized the report permanently.**
+   `linkActionToReport` wrote only `DisciplinaryAction.reportId`, leaving the
+   `IncidentReportSubject` at APPROVED. Because `deleteAction`'s revert is guarded on
+   `if (row.reportId)`, a later delete then skipped the revert too, so the report claimed a
+   strike forever with no ledger row and the request could never be re-decided. It now
+   performs the same APPROVED-scoped revert inside a transaction with the update.
+   Commit `78e2594d`.
+
+4. **The person combobox destroyed the filled form on a typed-but-unselected value.**
+   `required` on the visible input only checks the search box is non-empty, so typing a name
+   without picking the option passed validation, submitted an empty `personId`, and
+   redirected away, discarding every other field. `Combobox` now clears an abandoned query
+   on blur so the native required guard fires in place. Commit `b353cf75`.

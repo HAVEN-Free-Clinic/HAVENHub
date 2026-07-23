@@ -202,7 +202,14 @@ export async function loadTermEpicRollup(termId: string): Promise<EpicRollup> {
     const personRequests = requestsByPerson.get(personId) ?? [];
     const deactivation = personRequests.find((r) => r.kind === "DEACTIVATE") ?? null;
     // DEACTIVATE never places a row; the grant-side request (if any) does.
-    const grantRequest = personRequests.find((r) => r.kind !== "DEACTIVATE") ?? null;
+    // Prefer a ticket-origin request: its kind was chosen deliberately by a human
+    // working a support ticket, so it must win the override even when an older
+    // promotion-origin row also happens to be open (createEpicRequest's
+    // duplicate guard is find-then-create, with no unique constraint behind it).
+    const grantRequest =
+      personRequests.find((r) => r.kind !== "DEACTIVATE" && r.techRequestId !== null) ??
+      personRequests.find((r) => r.kind !== "DEACTIVATE") ??
+      null;
     // A request raised from a support ticket carries a kind a human chose
     // deliberately, so it overrides the derived one.
     const ticketKind =

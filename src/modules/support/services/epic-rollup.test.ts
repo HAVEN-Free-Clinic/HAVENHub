@@ -109,6 +109,26 @@ describe("loadTermEpicRollup", () => {
     expect(rollup.groups.RENEW.map((r) => r.name)).toEqual(["Gil"]);
   });
 
+  it("accumulates every department from the most recent prior term, not just one", async () => {
+    const older = await makeTerm("FA24", 2024);
+    const recentPrior = await makeTerm("FA25", 2025);
+    const term = await makeTerm("SU26", 2026);
+    const deptA = await makeDept("AAA", "ALL");
+    const deptB = await makeDept("BBB", "ALL");
+    const deptC = await makeDept("CCC", "ALL");
+    const p = await makePerson("Rae", { epicId: "E-RAE" });
+    await join(p.id, older.id, deptC.id); // older prior term: department C
+    await join(p.id, recentPrior.id, deptA.id); // most recent prior: department A
+    await join(p.id, recentPrior.id, deptB.id); // most recent prior: department B (same term as A)
+    await join(p.id, term.id, deptA.id); // this term: only department A
+
+    const rollup = await loadTermEpicRollup(term.id);
+    expect(rollup.groups.MODIFY.map((r) => r.name)).toEqual(["Rae"]);
+    expect(rollup.groups.MODIFY[0].priorDepartmentNames).toContain("AAA");
+    expect(rollup.groups.MODIFY[0].priorDepartmentNames).toContain("BBB");
+    expect(rollup.groups.MODIFY[0].priorDepartmentNames).not.toContain("CCC");
+  });
+
   it("marks a SOME-department member with no signal as optional in NEW", async () => {
     const term = await makeTerm("SU26", 2026);
     const dept = await makeDept("MAYBE", "SOME");
@@ -146,6 +166,49 @@ describe("loadTermEpicRollup", () => {
     expect(rollup.groups.RENEW).toHaveLength(0);
     expect(rollup.groups.MODIFY).toHaveLength(1);
     expect(rollup.groups.MODIFY[0].kindSource).toBe("ticket");
+    expect(rollup.groups.MODIFY[0].existingRequest?.techRequestNumber).toBe(ticket.number);
+  });
+
+  it("prefers a ticket-origin request over an older non-ticket request when picking the grant-side row", async () => {
+    const prior = await makeTerm("FA25", 2025);
+    const term = await makeTerm("SU26", 2026);
+    const dept = await makeDept("SRR", "ALL");
+    const p = await makePerson("Jan", { epicId: "E-JAN" });
+    const actor = await makePerson("Manager");
+    await join(p.id, prior.id, dept.id);
+    await join(p.id, term.id, dept.id); // derived kind would be RENEW
+
+    // Older, non-ticket, open grant-side request. Under a naive "oldest open
+    // request wins" selection this would be picked instead of the ticket-origin
+    // request below, hiding that a human is already working a ticket.
+    await prisma.epicRequest.create({
+      data: {
+        personId: p.id, kind: "NEW", status: "PENDING",
+        requestedById: actor.id,
+        createdAt: new Date("2025-01-01T00:00:00Z"),
+      },
+    });
+
+    const ticket = await prisma.techRequest.create({
+      data: {
+        requesterId: p.id, category: "EPIC", subject: "Access change",
+        description: "New role", status: "SUBMITTED",
+      },
+    });
+    const ticketRequest = await prisma.epicRequest.create({
+      data: {
+        personId: p.id, kind: "MODIFY", status: "PENDING",
+        requestedById: actor.id, techRequestId: ticket.id,
+        createdAt: new Date("2025-06-01T00:00:00Z"),
+      },
+    });
+
+    const rollup = await loadTermEpicRollup(term.id);
+    expect(rollup.groups.NEW).toHaveLength(0);
+    expect(rollup.groups.RENEW).toHaveLength(0);
+    expect(rollup.groups.MODIFY).toHaveLength(1);
+    expect(rollup.groups.MODIFY[0].kindSource).toBe("ticket");
+    expect(rollup.groups.MODIFY[0].existingRequest?.id).toBe(ticketRequest.id);
     expect(rollup.groups.MODIFY[0].existingRequest?.techRequestNumber).toBe(ticket.number);
   });
 

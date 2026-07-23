@@ -7,6 +7,7 @@ import {
   updateClinicDates,
   saturdaysBetween,
   TermNotFoundError,
+  TermNotActivatableError,
   TermDateError,
 } from "@/modules/admin/services/terms";
 import { prisma } from "@/platform/db";
@@ -83,9 +84,9 @@ export default async function TermDetailPage({ params, searchParams }: PageProps
       await activateTerm(actorSession.personId, id);
     } catch (err) {
       if (err instanceof TermNotFoundError) notFound();
-      redirect(
-        `/admin/terms/${id}?error=${encodeURIComponent("Failed to activate term.")}`
-      );
+      const message =
+        err instanceof TermNotActivatableError ? err.message : "Failed to activate term.";
+      redirect(`/admin/terms/${id}?error=${encodeURIComponent(message)}`);
     }
     redirect(`/admin/terms/${id}?saved=1`);
   }
@@ -211,15 +212,23 @@ export default async function TermDetailPage({ params, searchParams }: PageProps
             <form action={archiveAction}>
               <p className="mb-3 text-sm text-muted-foreground">
                 Archiving this term will leave no active term. The engine handles the
-                no-active-term state gracefully.
+                no-active-term state gracefully. Any still-pending shift requests for
+                this term are cancelled.
               </p>
               <ConfirmButton label="Archive" confirmLabel="Archive this term? Confirm?" />
             </form>
-          ) : (
+          ) : term.status === "PLANNING" ? (
             <form action={activateAction}>
               <p className="mb-3 text-sm text-muted-foreground">{activateLabel}</p>
               <ConfirmButton label="Activate" confirmLabel={activateConfirmLabel} />
             </form>
+          ) : (
+            // ARCHIVED: terminal. Activation is refused server-side, so offer no
+            // button; a mis-flipped term is recovered by re-activating the one
+            // that was demoted to Planning, not by resurrecting this one.
+            <p className="text-sm text-muted-foreground">
+              This term is archived. Archiving is terminal, so it cannot be reactivated.
+            </p>
           )}
         </section>
       )}

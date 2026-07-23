@@ -10,6 +10,7 @@ import {
   updateClinicDates,
   TermConflictError,
   TermNotFoundError,
+  TermNotActivatableError,
   TermDateError,
 } from "./terms";
 
@@ -156,17 +157,66 @@ describe("createTerm", () => {
 describe("activateTerm", () => {
   beforeEach(resetDb);
 
-  async function seedTerm(code: string, status: "PLANNING" | "ACTIVE" | "ARCHIVED") {
+  async function seedTerm(
+    code: string,
+    status: "PLANNING" | "ACTIVE" | "ARCHIVED",
+    endDate = new Date("2026-04-30T12:00:00Z") // past by default
+  ) {
     return prisma.term.create({
-      data: {
-        code,
-        name: `Term ${code}`,
-        startDate: new Date("2026-01-01T12:00:00Z"),
-        endDate: new Date("2026-04-30T12:00:00Z"),
-        status,
-      },
+      data: { code, name: `Term ${code}`, startDate: new Date("2026-01-01T12:00:00Z"), endDate, status },
     });
   }
+
+  async function pendingRequest(termId: string) {
+    const dept = await prisma.department.create({ data: { code: `D${Math.random()}`, name: "D" } });
+    const requester = await prisma.person.create({ data: { name: "Req" } });
+    return prisma.shiftRequest.create({
+      data: { termId, departmentId: dept.id, requesterId: requester.id, requesterDate: new Date("2026-06-06T12:00:00Z"), status: "PENDING" },
+    });
+  }
+
+  it("refuses to re-activate an ARCHIVED term", async () => {
+    const archived = await seedTerm("SP26", "ARCHIVED");
+    await expect(activateTerm(ACTOR, archived.id)).rejects.toBeInstanceOf(TermNotActivatableError);
+  });
+
+  // A term flipped early by mistake is recoverable: it becomes PLANNING (not
+  // ARCHIVED, which is terminal), so it can be re-activated to undo the flip.
+  it("demotes a displaced future-dated term to PLANNING, not ARCHIVED", async () => {
+    const future = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
+    const current = await seedTerm("FA26", "ACTIVE", future);
+    const next = await seedTerm("SP27", "PLANNING");
+
+    await activateTerm(ACTOR, next.id);
+
+    expect((await prisma.term.findUniqueOrThrow({ where: { id: current.id } })).status).toBe("PLANNING");
+    // ...and it can be re-activated to undo the mistake.
+    await activateTerm(ACTOR, current.id);
+    expect((await prisma.term.findUniqueOrThrow({ where: { id: current.id } })).status).toBe("ACTIVE");
+  });
+
+  it("archives a displaced term whose end date has passed, and cancels its PENDING requests", async () => {
+    const current = await seedTerm("FA25", "ACTIVE"); // past end date
+    const next = await seedTerm("SU26", "PLANNING");
+    const req = await pendingRequest(current.id);
+
+    await activateTerm(ACTOR, next.id);
+
+    expect((await prisma.term.findUniqueOrThrow({ where: { id: current.id } })).status).toBe("ARCHIVED");
+    expect((await prisma.shiftRequest.findUniqueOrThrow({ where: { id: req.id } })).status).toBe("CANCELLED");
+  });
+
+  it("does NOT cancel PENDING requests on a term that is only demoted to PLANNING", async () => {
+    const future = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
+    const current = await seedTerm("FA26", "ACTIVE", future);
+    const next = await seedTerm("SP27", "PLANNING");
+    const req = await pendingRequest(current.id);
+
+    await activateTerm(ACTOR, next.id);
+
+    // Still decidable: a PLANNING term's requests are shown on the approvals page.
+    expect((await prisma.shiftRequest.findUniqueOrThrow({ where: { id: req.id } })).status).toBe("PENDING");
+  });
 
   it("activates a PLANNING term and archives the current ACTIVE term atomically", async () => {
     const oldActive = await seedTerm("FA25", "ACTIVE");
@@ -248,6 +298,26 @@ describe("activateTerm", () => {
 
 describe("archiveTerm", () => {
   beforeEach(resetDb);
+
+  it("cancels the term's still-PENDING shift requests when archiving", async () => {
+    const term = await prisma.term.create({
+      data: { code: "SU26", name: "Summer 2026", startDate: new Date("2026-05-30T12:00:00Z"), endDate: new Date("2026-09-26T12:00:00Z"), status: "ACTIVE" },
+    });
+    const dept = await prisma.department.create({ data: { code: "SRHD", name: "SRHD" } });
+    const requester = await prisma.person.create({ data: { name: "Req" } });
+    const pending = await prisma.shiftRequest.create({
+      data: { termId: term.id, departmentId: dept.id, requesterId: requester.id, requesterDate: new Date("2026-06-06T12:00:00Z"), status: "PENDING" },
+    });
+    const decided = await prisma.shiftRequest.create({
+      data: { termId: term.id, departmentId: dept.id, requesterId: requester.id, requesterDate: new Date("2026-06-13T12:00:00Z"), status: "APPROVED" },
+    });
+
+    await archiveTerm(ACTOR, term.id);
+
+    expect((await prisma.shiftRequest.findUniqueOrThrow({ where: { id: pending.id } })).status).toBe("CANCELLED");
+    // An already-decided request is left as it was.
+    expect((await prisma.shiftRequest.findUniqueOrThrow({ where: { id: decided.id } })).status).toBe("APPROVED");
+  });
 
   it("sets the term status to ARCHIVED", async () => {
     const term = await prisma.term.create({
@@ -401,6 +471,51 @@ describe("updateClinicDates", () => {
     await expect(
       updateClinicDates(ACTOR, term.id, ["2026-02-30"])
     ).rejects.toBeInstanceOf(TermDateError);
+  });
+
+  // Removing a clinic date used to strand shifts on it: visible to the member but
+  // undroppable, unswappable, unapprovable. Clean them up with the date change.
+  it("deletes assignments and cancels PENDING requests on a removed clinic date", async () => {
+    const term = await seedTerm(); // clinic dates 06-06 and 06-13
+    const dept = await prisma.department.create({ data: { code: "SRHD", name: "SRHD" } });
+    const person = await prisma.person.create({ data: { name: "Vol" } });
+    const jun6 = new Date("2026-06-06T12:00:00Z");
+    const jun13 = new Date("2026-06-13T12:00:00Z");
+
+    const droppedAssignment = await prisma.shiftAssignment.create({
+      data: { termId: term.id, departmentId: dept.id, personId: person.id, clinicDate: jun6, role: "VOLUNTEER" },
+    });
+    const keptAssignment = await prisma.shiftAssignment.create({
+      data: { termId: term.id, departmentId: dept.id, personId: person.id, clinicDate: jun13, role: "VOLUNTEER" },
+    });
+    const droppedReq = await prisma.shiftRequest.create({
+      data: { termId: term.id, departmentId: dept.id, requesterId: person.id, requesterDate: jun6, status: "PENDING" },
+    });
+    const keptReq = await prisma.shiftRequest.create({
+      data: { termId: term.id, departmentId: dept.id, requesterId: person.id, requesterDate: jun13, status: "PENDING" },
+    });
+
+    // Keep only 06-13; drop 06-06.
+    await updateClinicDates(ACTOR, term.id, ["2026-06-13"]);
+
+    expect(await prisma.shiftAssignment.findUnique({ where: { id: droppedAssignment.id } })).toBeNull();
+    expect(await prisma.shiftAssignment.findUnique({ where: { id: keptAssignment.id } })).not.toBeNull();
+    expect((await prisma.shiftRequest.findUniqueOrThrow({ where: { id: droppedReq.id } })).status).toBe("CANCELLED");
+    expect((await prisma.shiftRequest.findUniqueOrThrow({ where: { id: keptReq.id } })).status).toBe("PENDING");
+  });
+
+  it("touches no shifts on a purely additive clinic-date edit", async () => {
+    const term = await seedTerm(); // 06-06 and 06-13
+    const dept = await prisma.department.create({ data: { code: "SRHD", name: "SRHD" } });
+    const person = await prisma.person.create({ data: { name: "Vol" } });
+    const a = await prisma.shiftAssignment.create({
+      data: { termId: term.id, departmentId: dept.id, personId: person.id, clinicDate: new Date("2026-06-06T12:00:00Z"), role: "VOLUNTEER" },
+    });
+
+    // Keep both existing dates, add one.
+    await updateClinicDates(ACTOR, term.id, ["2026-06-06", "2026-06-13", "2026-06-20"]);
+
+    expect(await prisma.shiftAssignment.findUnique({ where: { id: a.id } })).not.toBeNull();
   });
 });
 

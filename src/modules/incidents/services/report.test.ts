@@ -66,6 +66,7 @@ import {
   listReviewQueue,
   reviewReport,
   decideStrike,
+  linkableReports,
   CONCERN_TYPE_VALUES,
   IncidentValidationError,
   IncidentNotFoundError,
@@ -1290,5 +1291,54 @@ describe("decideStrike (per subject)", () => {
     expect(
       await prisma.notification.count({ where: { type: "incidents.strike_issued_directors" } })
     ).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// linkableReports
+// ---------------------------------------------------------------------------
+
+describe("linkableReports", () => {
+  it("rejects an actor without incidents.manage", async () => {
+    const nobody = await createPerson("Nobody", "lr-nc");
+    await expect(linkableReports(nobody.id)).rejects.toBeInstanceOf(IncidentForbiddenError);
+  });
+
+  it("labels a report with its number, concern types, and date, newest first", async () => {
+    const central = await createPerson("Central", "lr-c");
+    const reporter = await createPerson("Reporter", "lr-r");
+    await grantPermission(central.id, "incidents.manage");
+
+    const older = await submitReport(reporter.id, {
+      concernTypes: ["PROFESSIONAL_CONDUCT"],
+      description: "Older report.",
+    });
+    const newer = await submitReport(reporter.id, {
+      concernTypes: ["PATIENT_SAFETY", "PRIVACY_HIPAA"],
+      description: "Newer report.",
+    });
+
+    const rows = await linkableReports(central.id);
+    expect(rows[0].id).toBe(newer.id);
+    expect(rows[0].label).toContain(`#${newer.number}`);
+    expect(rows[0].label).toContain("Patient Safety");
+    expect(rows[1].id).toBe(older.id);
+  });
+
+  it("caps the list at 200 reports", async () => {
+    const central = await createPerson("Central", "lr-cap-c");
+    const reporter = await createPerson("Reporter", "lr-cap-r");
+    await grantPermission(central.id, "incidents.manage");
+
+    await prisma.incidentReport.createMany({
+      data: Array.from({ length: 205 }, (_, i) => ({
+        number: 5000 + i,
+        reporterId: reporter.id,
+        concernTypes: ["OTHER"],
+        description: `Bulk report ${i}.`,
+      })),
+    });
+
+    expect(await linkableReports(central.id)).toHaveLength(200);
   });
 });

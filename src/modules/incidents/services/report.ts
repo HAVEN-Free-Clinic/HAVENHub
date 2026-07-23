@@ -27,6 +27,8 @@ import { getActiveTerm } from "@/platform/terms/active-term";
 import { can } from "@/platform/rbac/engine";
 import { getSetting } from "@/platform/settings/service";
 import { putObject, deleteObject } from "@/platform/storage";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
+import { formatDateOnly } from "@/platform/dates";
 import { validateUploadedFile } from "@/modules/recruitment/services/upload";
 import { peopleWithAnyPermission } from "@/platform/rbac/holders";
 import { notify } from "@/platform/notifications/notify";
@@ -775,6 +777,45 @@ export async function listReviewQueue(
     rows: reports.map((r) => ({ report: r, reporterName: r.reporter.name, ...summarizeSubjects(r.subjects) })),
     total,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Strike-linking (report picker for the Strikes page)
+// ---------------------------------------------------------------------------
+
+/** How many reports the strike-linking picker offers. */
+const LINKABLE_REPORT_LIMIT = 200;
+
+/**
+ * Reports a central reviewer may link a strike to, newest first, for the
+ * Combobox on the Strikes page.
+ *
+ * Requires incidents.manage -> IncidentForbiddenError. Capped at
+ * LINKABLE_REPORT_LIMIT: the Combobox filters client-side over whatever it is
+ * given, so this deliberately does not ship the full history. Older reports are
+ * linked by deleting and re-recording the strike, or by raising the cap.
+ */
+export async function linkableReports(
+  actorPersonId: string
+): Promise<Array<{ id: string; label: string }>> {
+  if (!(await can(actorPersonId, "incidents.manage"))) throw new IncidentForbiddenError();
+
+  const zone = await getDisplayTimeZone();
+  const reports = await prisma.incidentReport.findMany({
+    select: { id: true, number: true, concernTypes: true, createdAt: true },
+    orderBy: { createdAt: "desc" },
+    take: LINKABLE_REPORT_LIMIT,
+  });
+
+  return reports.map((r) => {
+    const concerns = r.concernTypes.map((c) => CONCERN_LABELS[c] ?? c).join(", ");
+    const date = formatDateOnly(r.createdAt, zone, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+    return { id: r.id, label: `#${r.number} -- ${concerns} -- ${date}` };
+  });
 }
 
 /**

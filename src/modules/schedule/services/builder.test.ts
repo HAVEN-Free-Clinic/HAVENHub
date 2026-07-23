@@ -1207,6 +1207,29 @@ describe("builderView", () => {
     expect(entry!.person.spanishVerified).toBe(true);
   });
 
+  // #59: a departed assignee's ShiftAssignment survives offboarding/removeMembership,
+  // so without a status filter they inflate the day's headcount and hide the
+  // "patients to reschedule" gap. Only current members count toward capacity.
+  it("capacity math: excludes an assignee whose membership is REMOVED", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const dept = await createDepartment("PCAR", { idealHeadcount: 4 });
+    const director = await createPerson("Director");
+    const activeVol = await createPerson("Active");
+    const departedVol = await createPerson("Departed");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(activeVol.id, term.id, dept.id, "VOLUNTEER");
+    await createMembership(departedVol.id, term.id, dept.id, "VOLUNTEER", { status: "REMOVED" });
+
+    // Both still have a shift on the date (the removed member's was never cleaned up).
+    await createShift(term.id, dept.id, activeVol.id, dates[0], "VOLUNTEER");
+    await createShift(term.id, dept.id, departedVol.id, dates[0], "VOLUNTEER");
+
+    const view = await builderView(director.id, { departmentId: dept.id, dateKey: isoDateKey(dates[0]), termId: term.id });
+    // Only the active volunteer counts; the departed one is not headcount.
+    expect(view.capacity.headcount).toBe(1);
+  });
+
   it("capacity math: counts spanish-speaking assignees correctly", async () => {
     const dates = sixSaturdays();
     const term = await createTerm(dates);

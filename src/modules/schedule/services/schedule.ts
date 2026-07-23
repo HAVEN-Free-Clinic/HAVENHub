@@ -239,7 +239,7 @@ export async function fullSchedule(
   const selectedKey = isoDateKey(selectedDate);
 
   // Load all shift assignments for the term in one query.
-  const allAssignments = await prisma.shiftAssignment.findMany({
+  const rawAssignments = await prisma.shiftAssignment.findMany({
     where: { termId: term.id },
     select: {
       personId: true,
@@ -254,6 +254,22 @@ export async function fullSchedule(
       department: { select: { id: true, name: true, code: true } },
     },
   });
+
+  // Offboarding and removeMembership flip a TermMembership to REMOVED but leave
+  // the ShiftAssignment rows (by design). This clinic-wide master schedule shows
+  // "who is actually working", so drop assignments whose (person, department) is
+  // no longer an ACTIVE member of the term, matching who the shift-reminders cron
+  // actually notifies. Otherwise a departed person appears as ordinary staff and
+  // inflates the hero totals and conflict maps.
+  const activeMemberPairs = new Set(
+    (await prisma.termMembership.findMany({
+      where: { termId: term.id, status: "ACTIVE" },
+      select: { personId: true, departmentId: true },
+    })).map((m) => `${m.personId}|${m.departmentId}`),
+  );
+  const allAssignments = rawAssignments.filter((a) =>
+    activeMemberPairs.has(`${a.personId}|${a.departmentId}`),
+  );
 
   // Build engine entries for conflict computation.
   const engineRows = allAssignments.map((a) => ({

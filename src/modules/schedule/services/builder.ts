@@ -841,10 +841,19 @@ export async function builderView(
   // Capacity for the selected date.
   const selectedAssignments = selectedDateKey ? allAssignments.filter((a) => isoDateKey(a.clinicDate) === selectedDateKey) : [];
 
+  // Offboarding / removeMembership leave the ShiftAssignment row behind, so a
+  // departed person would still inflate the day's capacity metrics (onShift,
+  // spanish, triage/walkin/cc, shadow), pushing maxPatientCapacity up and hiding
+  // the "Patients to reschedule" warning. Count only current members of this
+  // department (the ACTIVE `members` set) toward capacity; the stranded
+  // assignment still renders in the grid so a director can reassign it.
+  const activeMemberIds = new Set(members.map((m) => m.person.id));
+  const capacityAssignments = selectedAssignments.filter((a) => activeMemberIds.has(a.personId));
+
   // Build a set of person details for spanish/RN counts.
   const personById = new Map(members.map((m) => [m.person.id, m.person]));
 
-  const onShiftPeople = selectedAssignments.filter((a) => a.role === "VOLUNTEER" || a.role === "DIRECTOR");
+  const onShiftPeople = capacityAssignments.filter((a) => a.role === "VOLUNTEER" || a.role === "DIRECTOR");
   const spanishCount = onShiftPeople.filter((a) => {
     const p = personById.get(a.personId) ?? a.person;
     return p.spanishVerified;
@@ -853,10 +862,10 @@ export async function builderView(
   const capacity = computeDayMetrics(
     {
       onShift: onShiftPeople.length,
-      triage: selectedAssignments.filter((a) => a.triage).length,
-      walkin: selectedAssignments.filter((a) => a.walkin).length,
-      cc: selectedAssignments.filter((a) => a.cc).length,
-      shadow: selectedAssignments.filter((a) => a.role === "SHADOW").length,
+      triage: capacityAssignments.filter((a) => a.triage).length,
+      walkin: capacityAssignments.filter((a) => a.walkin).length,
+      cc: capacityAssignments.filter((a) => a.cc).length,
+      shadow: capacityAssignments.filter((a) => a.role === "SHADOW").length,
       spanish: spanishCount,
       patientsBooked: scheduleDay?.patientsBooked ?? null,
     },

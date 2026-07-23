@@ -7,8 +7,8 @@ import { getPersonTerms } from "@/platform/terms/person-terms";
 import { effectiveComplianceStatus } from "@/platform/compliance/rules";
 import { listMyCertificates } from "@/modules/my-info/services/my-info";
 import { requiredTrainingTracks, resolveTrainingProgress } from "@/modules/recruitment/services/training";
-import { getMyCourses, type MyCourseRow } from "@/modules/learning/services/enrollment";
-import { getMyEhsStatus, type MyEhsItem } from "@/platform/ehs/services/my-ehs";
+import { getMyCourses } from "@/modules/learning/services/enrollment";
+import { getMyEhsStatus } from "@/platform/ehs/services/my-ehs";
 import {
   deriveProfileTaskState,
   deriveHipaaTaskState,
@@ -57,27 +57,27 @@ type Entry = { task: OnboardingTask; order: number };
  * term's effective onboarding-step config (built-in defaults merged with any
  * per-term overrides). A step whose config is disabled is dropped entirely.
  *
- * `isLiveTerm` must be true only for the globally-active term. `learning`
- * (getMyCourses) and `ehs` (getMyEhsStatus) both resolve the active term
- * INTERNALLY rather than accepting `term`, so they cannot yet be scoped to an
- * arbitrary (e.g. next/PLANNING) term. Making them genuinely term-aware is a
- * deferred follow-up; until then those two tasks are only computed and shown
- * for the live-term entry, and omitted entirely elsewhere rather than risk
- * silently showing the live term's data under a different term's heading.
+ * Every task, including `learning` (getMyCourses) and `ehs` (getMyEhsStatus), is
+ * computed for the passed `term`. Those two used to resolve the active term
+ * internally and were therefore omitted for a non-live term, which left this
+ * member-facing checklist out of step with the schedule builder's "not cleared"
+ * banner (loadClearanceMap), which has always computed them for the working
+ * term. They now accept the term id, so the two agree for a next term. The
+ * live-vs-next presentation is the caller's concern (by term order); this
+ * function does not distinguish.
  */
 export async function computeOnboardingForTerm(
   personId: string,
   term: Term,
   exempt: boolean,
-  isLiveTerm: boolean,
 ): Promise<OnboardingStatus> {
   const [person, certs, tracks, steps, courses, ehsItems] = await Promise.all([
     prisma.person.findUniqueOrThrow({ where: { id: personId }, select: { contactEmail: true, phone: true } }),
     listMyCertificates(personId),
     requiredTrainingTracks(personId, term.id),
     loadEffectiveSteps(term.id),
-    isLiveTerm ? getMyCourses(personId) : Promise.resolve<MyCourseRow[]>([]),
-    isLiveTerm ? getMyEhsStatus(personId) : Promise.resolve<MyEhsItem[]>([]),
+    getMyCourses(personId, term.id),
+    getMyEhsStatus(personId, term.id),
   ]);
 
   // Build one entry per applicable, enabled step, carrying its (possibly
@@ -117,11 +117,10 @@ export async function computeOnboardingForTerm(
     // agree. See effectiveComplianceStatus.
     buildTask("hipaa", deriveHipaaTaskState(effectiveComplianceStatus(certs, term.endDate))),
     ...trainingEntries,
-    // learning/ehs are active-term-scoped internally (see doc comment above); only
-    // include them for the live-term entry.
-    ...(isLiveTerm
-      ? [buildTask("learning", deriveLearningTaskState(courses)), buildTask("ehs", deriveEhsTaskState(ehsItems))]
-      : []),
+    // learning/ehs are now computed for `term` (see doc comment above), so they
+    // are included for every term the member is on, live or next.
+    buildTask("learning", deriveLearningTaskState(courses)),
+    buildTask("ehs", deriveEhsTaskState(ehsItems)),
   ].filter((e): e is Entry => e !== null);
 
   entries.sort((a, b) => a.order - b.order);
@@ -149,7 +148,7 @@ export const getOnboardingStatus = cache(async function getOnboardingStatus(
     return { hasActiveTerm: false, exempt, tasks: [], completedCount: 0, totalCount: 0, onboarded: true, cleared: true };
   }
 
-  return computeOnboardingForTerm(personId, term, exempt, true);
+  return computeOnboardingForTerm(personId, term, exempt);
 });
 
 export type TermOnboarding = { term: { id: string; name: string }; status: OnboardingStatus };
@@ -157,10 +156,12 @@ export type TermOnboarding = { term: { id: string; name: string }; status: Onboa
 /** The merged onboarding checklist across every term the member belongs to (live first). */
 export const getMyOnboarding = cache(async function getMyOnboarding(personId: string): Promise<TermOnboarding[]> {
   const exempt = await can(personId, EXEMPT_PERMISSION);
-  const [live, terms] = await Promise.all([getActiveTerm(), getPersonTerms(personId)]);
+  // getPersonTerms already returns the working set live-term first, so the caller
+  // can tag presentation from order; the status is computed the same way per term.
+  const terms = await getPersonTerms(personId);
   const out: TermOnboarding[] = [];
   for (const term of terms) {
-    const status = await computeOnboardingForTerm(personId, term, exempt, term.id === live?.id);
+    const status = await computeOnboardingForTerm(personId, term, exempt);
     out.push({ term: { id: term.id, name: term.name }, status });
   }
   return out;

@@ -13,12 +13,14 @@ export type MyEhsItem = {
   completedAt: Date | null;
 };
 
-export async function getMyEhsStatus(personId: string): Promise<MyEhsItem[]> {
-  const activeTerm = await getActiveTerm();
-  if (!activeTerm) return [];
+export async function getMyEhsStatus(personId: string, termIdOverride?: string): Promise<MyEhsItem[]> {
+  // Defaults to the active term; pass a termId to compute EHS for a next term so
+  // the member's own checklist matches the schedule builder's cleared banner.
+  const termId = termIdOverride ?? (await getActiveTerm())?.id;
+  if (!termId) return [];
 
   const memberships = await prisma.termMembership.findMany({
-    where: { personId, termId: activeTerm.id, status: "ACTIVE" },
+    where: { personId, termId, status: "ACTIVE" },
     select: { departmentId: true },
   });
   const memberDepartmentIds = memberships.map((m) => m.departmentId);

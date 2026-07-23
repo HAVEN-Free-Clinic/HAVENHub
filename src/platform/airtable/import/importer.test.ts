@@ -241,4 +241,32 @@ describe("runImport", () => {
     expect(report.people.skipped).toHaveLength(1);
     expect(report.people.skipped[0].reason).toMatch(/unique constraint conflict/);
   });
+
+  // ARCHIVED is terminal everywhere else, and archiveTerm explicitly permits
+  // leaving zero ACTIVE terms, so "nothing else is active" does not mean "fresh
+  // cutover". A re-run in that state used to resurrect the archived term as the
+  // app-wide active one.
+  it("never re-activates an ARCHIVED term, even with no other term active", async () => {
+    await runImport(fakeReader(), { ...OPTS, dryRun: false });
+    await prisma.term.updateMany({ where: { code: "SU26" }, data: { status: "ARCHIVED" } });
+
+    await runImport(fakeReader(), { ...OPTS, dryRun: false });
+
+    expect((await prisma.term.findUniqueOrThrow({ where: { code: "SU26" } })).status).toBe("ARCHIVED");
+    expect(await prisma.term.count({ where: { status: "ACTIVE" } })).toBe(0);
+  });
+
+  it("still auto-activates a PLANNING term on a fresh cutover", async () => {
+    await runImport(fakeReader(), { ...OPTS, dryRun: false });
+    expect((await prisma.term.findUniqueOrThrow({ where: { code: "SU26" } })).status).toBe("ACTIVE");
+  });
+
+  it("leaves a PLANNING term alone when another term is already ACTIVE", async () => {
+    await prisma.term.create({
+      data: { code: "FA26", name: "Fall 2026", startDate: new Date("2026-09-01"), endDate: new Date("2026-12-20"), status: "ACTIVE" },
+    });
+    await runImport(fakeReader(), { ...OPTS, dryRun: false });
+    expect((await prisma.term.findUniqueOrThrow({ where: { code: "SU26" } })).status).toBe("PLANNING");
+  });
+
 });

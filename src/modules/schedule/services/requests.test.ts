@@ -53,7 +53,10 @@ async function createTerm(
 ) {
   return prisma.term.create({
     data: {
-      code: `SU26-${Date.now()}`,
+      // Date.now() alone collides when two terms are created in the same
+      // millisecond (several tests create a live and a next term back to back),
+      // tripping the Term.code unique constraint. Matches builder.test.ts.
+      code: `SU26-${Date.now()}-${Math.random()}`,
       name: "Summer 2026",
       startDate: new Date("2026-05-30T12:00:00Z"),
       endDate: new Date("2026-09-26T12:00:00Z"),

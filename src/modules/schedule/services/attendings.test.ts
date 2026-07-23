@@ -16,7 +16,7 @@ async function rhdManager() {
   await prisma.department.upsert({ where: { code: "SCTS" }, update: {}, create: { code: "SCTS", name: "SCTS Dept" } });
   // schedule.edit_all makes every department manageable, including SCTS.
   const role = await prisma.role.create({
-    data: { name: `r-${Date.now()}`, isSystem: false, grants: { create: [{ permission: "schedule.edit_all" }] } },
+    data: { name: `r-${Date.now()}-${Math.random()}`, isSystem: false, grants: { create: [{ permission: "schedule.edit_all" }] } },
   });
   await prisma.roleAssignment.create({ data: { roleId: role.id, personId: ACTOR, termId: null } });
 }

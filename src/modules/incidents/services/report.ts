@@ -1032,10 +1032,22 @@ export async function decideStrike(
       const issuedDate = formatDateOnly(new Date(), zone, {
         month: "long", day: "numeric", year: "numeric",
       });
+      // The subject-facing email must never carry the reporter's verbatim
+      // narrative when they asked to stay anonymous: a first-person account
+      // ("I was working triage with him on Saturday when he...") identifies the
+      // reporter to anyone who knows that shift's roster, defeating the promise
+      // made on the reporting form. Prefer the reviewer's decision notes, which
+      // were authored as a record the subject may see. Fall back to the
+      // narrative only when the reporter did not ask for anonymity.
+      const subjectFacingDetails =
+        input.notes?.trim() ||
+        (report.anonymous
+          ? "Contact your department directors or the HAVEN Executive Directors for the details of this decision."
+          : (report.description ?? ""));
       const rendered = await renderEmail("incidents.strike_issued", {
         subjectName: volunteer.name?.split(" ")[0] ?? volunteer.name ?? "",
         category,
-        description: report.description ?? "",
+        description: subjectFacingDetails,
         issuedBy: issuer?.name ?? "HAVEN Directors",
         issuedDate,
       });

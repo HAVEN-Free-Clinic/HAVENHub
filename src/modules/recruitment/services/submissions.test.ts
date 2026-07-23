@@ -559,6 +559,56 @@ async function makeVolunteer(deptCode: string) {
 
 const RENEWAL_ANSWERS = { first_name: "Reed", last_name: "Renew", email: "tampered@evil.com", continue_reason: "I want to keep volunteering." };
 
+// Every separation-of-duties guard in recruitment keys on applicantPersonId and
+// short-circuits on `applicantPersonId && ...`. A NEW application from a
+// signed-in person used to store null there, so a sitting director could pick
+// "New applicant" in the wizard and then score and accept their own application.
+it("links a NEW submission to the signed-in person so the self-dealing guards can fire", async () => {
+  await openVolunteerCycle();
+  const person = await makeVolunteer("SRHD");
+  const app = await submitApplication("apply-v", {
+    applicantType: "NEW",
+    answers: { first_name: "Reed", last_name: "Renew", email: "reed@yale.edu", "1st_choice_department": "SRHD", srhd_essay: "because" },
+    files: {},
+    sessionPersonId: person.id,
+    identityEmail: "reed@yale.edu",
+  });
+  const applicant = await prisma.applicant.findFirstOrThrow({ where: { id: app.applicantId } });
+  expect(app.applicantType).toBe("NEW");
+  expect(applicant.applicantPersonId).toBe(person.id);
+});
+
+it("leaves applicantPersonId null for a NEW submission with no session (a true outside applicant)", async () => {
+  await openVolunteerCycle();
+  const app = await submitApplication("apply-v", {
+    applicantType: "NEW",
+    answers: { first_name: "Ann", last_name: "Lee", email: "ann@yale.edu", "1st_choice_department": "SRHD", srhd_essay: "because" },
+    files: {},
+  });
+  const applicant = await prisma.applicant.findFirstOrThrow({ where: { id: app.applicantId } });
+  expect(applicant.applicantPersonId).toBeNull();
+});
+
+it("does not erase a link the draft already established", async () => {
+  const { cycle } = await openVolunteerCycle();
+  const person = await makeVolunteer("SRHD");
+  // A draft saved while signed in already carries the link (drafts.ts).
+  await prisma.applicant.create({
+    data: {
+      cycleId: cycle.id, applicantPersonId: person.id,
+      firstName: "Reed", lastName: "Renew", email: "reed@yale.edu", emailLower: "reed@yale.edu",
+    },
+  });
+  const app = await submitApplication("apply-v", {
+    applicantType: "NEW",
+    answers: { first_name: "Reed", last_name: "Renew", email: "reed@yale.edu", "1st_choice_department": "SRHD", srhd_essay: "because" },
+    files: {},
+    identityEmail: "reed@yale.edu",
+  });
+  const applicant = await prisma.applicant.findFirstOrThrow({ where: { id: app.applicantId } });
+  expect(applicant.applicantPersonId).toBe(person.id);
+});
+
 it("rejects a renewal submit with no session", async () => {
   await openVolunteerCycle();
   await expect(

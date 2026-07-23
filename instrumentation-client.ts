@@ -1,6 +1,7 @@
 import posthog from "posthog-js";
 import { isNextControlFlowEvent } from "@/platform/posthog/next-control-flow";
 import { isServerRenderEchoEvent } from "@/platform/posthog/server-render-echo";
+import { scrubProperties } from "@/platform/posthog/scrub-url";
 
 posthog.init(process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN!, {
   api_host: "/ingest",
@@ -17,4 +18,8 @@ posthog.init(process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN!, {
       ? null
       : event,
   debug: process.env.NODE_ENV === "development",
+  // /login/verify, /apply/verify and /onboard/<token> render a page while the
+  // token in their URL is still live, so an unfiltered $current_url would ship
+  // a replayable credential to PostHog. Redact before anything is sent.
+  sanitize_properties: scrubProperties,
 });

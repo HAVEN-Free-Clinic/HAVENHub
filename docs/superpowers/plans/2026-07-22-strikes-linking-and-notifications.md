@@ -673,13 +673,12 @@ describe("notifyStrikeIssued", () => {
     ).resolves.toBeUndefined();
     expect(await prisma.notification.count()).toBe(0);
   });
+});
 ```
 
 Note this case exercises the early `if (!subject) return;` guard, not the outer
 `catch`. The `catch` is defensive against a render or queue failure and has no
 cheap deterministic trigger; leave it untested rather than contriving one.
-});
-```
 
 - [ ] **Step 2: Run the tests to verify they fail**
 

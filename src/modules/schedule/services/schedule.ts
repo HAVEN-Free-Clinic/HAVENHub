@@ -18,6 +18,8 @@ import { getActiveTerm } from "@/platform/terms/active-term";
 import { getPersonTerms } from "@/platform/terms/person-terms";
 import { resolveAvailability } from "../engine/availability";
 import { isoDateKey, toScheduleEntries } from "../engine/map";
+import { formatForDateInput } from "@/platform/dates/format";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { computeConflicts } from "../engine/conflicts";
 import { publishedDepartmentIds } from "./publication";
 
@@ -225,7 +227,12 @@ export async function fullSchedule(
     selectedDate = clinicDates.find((d) => isoDateKey(d) === dateKey) ?? null;
   }
   if (!selectedDate) {
-    const nowKey = isoDateKey(now);
+    // "Today" must be the display-zone (ET) calendar day, not UTC. Clinic dates
+    // are stored at noon UTC so isoDateKey gives their intended calendar day, but
+    // a raw isoDateKey(new Date()) rolls over at UTC midnight (~8pm ET), which for
+    // the last few hours of every day pushes the default past the current clinic
+    // date to the following one. Same fix the dashboard already carries.
+    const nowKey = formatForDateInput(now, await getDisplayTimeZone());
     selectedDate = clinicDates.find((d) => isoDateKey(d) >= nowKey) ?? clinicDates[clinicDates.length - 1];
   }
 

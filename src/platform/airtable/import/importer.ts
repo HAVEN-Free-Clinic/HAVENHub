@@ -162,7 +162,14 @@ export async function runImport(reader: AirtableReader, options: ImportOptions):
     },
   });
 
-  if (term.status !== "ACTIVE") {
+  // ARCHIVED is terminal everywhere else in the app: no service offers a
+  // transition out of it. archiveTerm also explicitly permits leaving ZERO
+  // ACTIVE terms, so "no other term is active" is not the fresh-cutover signal
+  // it was taken for. Without this an ordinary re-run in that state took an
+  // archived SU26 and silently made it the app-wide active term again, changing
+  // which term every roster, schedule and compliance surface resolves to.
+  // Only a term still in PLANNING is a candidate for auto-activation.
+  if (term.status === "PLANNING") {
     const otherActive = await prisma.term.findFirst({
       where: { status: "ACTIVE", id: { not: term.id } },
     });

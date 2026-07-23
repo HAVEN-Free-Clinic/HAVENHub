@@ -22,9 +22,14 @@ async function memberMemberships(personId: string, termId: string): Promise<Memb
   return memberships.map((m) => ({ departmentId: m.departmentId, kind: m.kind }));
 }
 
-/** Resolve the active-course ids assigned to this person right now. */
-async function assignedCourseIds(personId: string): Promise<string[]> {
-  const termId = await activeTermId();
+/**
+ * Resolve the active-course ids assigned to this person in a term. Defaults to
+ * the active term; pass a termId to compute assignment for a next term, so a
+ * member's own next-term clearance checklist and the schedule builder's
+ * "not cleared" banner agree about learning requirements.
+ */
+async function assignedCourseIds(personId: string, termIdOverride?: string): Promise<string[]> {
+  const termId = termIdOverride ?? (await activeTermId());
   if (!termId) return [];
   const memberships = await memberMemberships(personId, termId);
   const courses = await prisma.course.findMany({
@@ -102,8 +107,8 @@ export type MyCourseRow = {
   status: LearnerStatus;
 };
 
-export async function getMyCourses(personId: string): Promise<MyCourseRow[]> {
-  const ids = await assignedCourseIds(personId);
+export async function getMyCourses(personId: string, termId?: string): Promise<MyCourseRow[]> {
+  const ids = await assignedCourseIds(personId, termId);
   if (ids.length === 0) return [];
   const courses = await prisma.course.findMany({
     where: { id: { in: ids } },

@@ -423,6 +423,22 @@ describe("listTerms", () => {
     expect(terms[0].code).toBe("SU26");
     expect(terms[0]._count.memberships).toBe(0);
   });
+
+  // Memberships are soft-deleted (REMOVED, never deleted). The count must reflect
+  // the ACTIVE roster shown on the detail page, not everyone ever removed.
+  it("counts only ACTIVE memberships, not REMOVED ones", async () => {
+    const term = await prisma.term.create({
+      data: { code: "SU26", name: "Summer 2026", startDate: new Date("2026-05-30T12:00:00Z"), endDate: new Date("2026-09-26T12:00:00Z"), status: "ACTIVE" },
+    });
+    const dept = await prisma.department.create({ data: { code: "SRHD", name: "SRHD" } });
+    const active = await prisma.person.create({ data: { name: "Active" } });
+    const gone = await prisma.person.create({ data: { name: "Gone" } });
+    await prisma.termMembership.create({ data: { personId: active.id, termId: term.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" } });
+    await prisma.termMembership.create({ data: { personId: gone.id, termId: term.id, departmentId: dept.id, kind: "VOLUNTEER", status: "REMOVED" } });
+
+    const terms = await listTerms();
+    expect(terms[0]._count.memberships).toBe(1);
+  });
 });
 
 // ---------------------------------------------------------------------------

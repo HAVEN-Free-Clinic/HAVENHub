@@ -44,10 +44,11 @@ export default async function TermDetailPage({ params, searchParams }: PageProps
   const { id } = await params;
   const { error, saved, addq, copied, skipped, rosterError, stepsSaved } = await searchParams;
 
-  // Fetch the term with membership count.
+  // Fetch the term with membership count. Scope to ACTIVE so the header number
+  // matches the ACTIVE-only roster rendered below it (memberships are soft-deleted).
   const term = await prisma.term.findUnique({
     where: { id },
-    include: { _count: { select: { memberships: true } } },
+    include: { _count: { select: { memberships: { where: { status: "ACTIVE" } } } } },
   });
   if (!term) notFound();
 

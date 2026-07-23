@@ -19,7 +19,7 @@ import { getOnboardingStatus } from "@/modules/onboarding/services/onboarding";
 import { listMyCertificates } from "@/modules/my-info/services/my-info";
 import { getMyEhsStatus } from "@/platform/ehs/services/my-ehs";
 import { getMyCourses } from "@/modules/learning/services/enrollment";
-import { complianceStatus, certExpiresAt } from "@/platform/compliance/rules";
+import { effectiveComplianceStatus, certExpiresAt } from "@/platform/compliance/rules";
 import {
   ClearanceCard,
   certRequirement,
@@ -56,8 +56,13 @@ export default async function PersonCompliancePage({ params }: PageProps) {
     getMyCourses(personId),
   ]);
 
+  // The newest cert drives the DOCUMENT panel below (its date/file/expiry).
   const newestCert = certificates[0] ?? null;
-  const status = complianceStatus(newestCert, activeTerm?.endDate ?? null);
+  // The clearance ROW, however, uses the effective status (full history,
+  // verified-fallback) so it matches the onboarding.cleared banner, same as
+  // /my-info. complianceStatus(newest) made the row read PENDING_VERIFICATION
+  // during an early renewal while the clearance beside it read cleared.
+  const status = effectiveComplianceStatus(certificates, activeTerm?.endDate ?? null);
 
   // Drive the checklist from the same source as /my-info: onboarding tasks, with the
   // HIPAA row rendered from the live compliance status.

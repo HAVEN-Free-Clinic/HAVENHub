@@ -76,4 +76,19 @@ describe("loadComplianceStatusMap", () => {
     const map = await loadComplianceStatusMap(termEnd, NOW);
     expect(map.get(p.id)).toBe("PENDING_VERIFICATION");
   });
+
+  // #125/#129: campaign audiences used newest-cert-only, so a person mid-renewal
+  // was classified differently here than everywhere else. Use the full-history
+  // verified-fallback, matching clearance/dashboard/reminders.
+  it("applies the verified-fallback: an unverified renewal over a still-valid verified cert reads COMPLIANT", async () => {
+    const termEnd = new Date(NOW.getTime() + 10 * DAY);
+    const p = await person("Renewing");
+    // Older verified cert is still valid (COMPLIANT).
+    await cert(p.id, new Date(NOW.getTime() - 200 * DAY), new Date(NOW.getTime() - 50 * DAY));
+    // Newest cert is an unverified early renewal (would be PENDING_VERIFICATION alone).
+    await cert(p.id, new Date(NOW.getTime() - 5 * DAY), new Date(NOW.getTime() - 1 * DAY), null);
+
+    const map = await loadComplianceStatusMap(termEnd, NOW);
+    expect(map.get(p.id)).toBe("COMPLIANT");
+  });
 });

@@ -20,3 +20,19 @@ export function safeLoginPath(raw: string | null | undefined): string {
   }
   return "/";
 }
+
+/**
+ * The /login URL to bounce a signed-out visitor to, carrying where they were
+ * headed so sign-in resumes there instead of dumping them on the dashboard.
+ * Every emailed deep link (review queue, compliance master view, shift
+ * reminders) depends on this.
+ *
+ * The destination is run through safeLoginPath first, so a hostile or malformed
+ * path degrades to a bare /login rather than being echoed into the query string.
+ * "/" and a missing path both yield a bare /login: there is nothing to resume.
+ */
+export function loginRedirectPath(pathname: string | null | undefined): string {
+  const target = safeLoginPath(pathname);
+  if (target === "/") return "/login";
+  return `/login?callbackUrl=${encodeURIComponent(target)}`;
+}

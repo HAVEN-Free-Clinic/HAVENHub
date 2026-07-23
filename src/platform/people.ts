@@ -167,27 +167,31 @@ export async function updatePersonFields(
     "licensedRN",
   ];
 
-  for (const key of fields) {
-    if (key in input) {
-      const newVal = data[key] ?? null;
-      const oldVal = (existing as Record<string, unknown>)[key] ?? null;
-      if (newVal !== oldVal) {
-        changedKeys.push(key);
-      }
-    }
-  }
-
-  // No-op: nothing changed, skip write and audit.
-  if (changedKeys.length === 0) {
-    return existing;
-  }
-
-  const beforeSnapshot = Object.fromEntries(
-    changedKeys.map((k) => [k, (existing as Record<string, unknown>)[k] ?? null])
-  );
-
   try {
-    const updated = await prisma.$transaction(async (tx) => {
+    const txResult = await prisma.$transaction(async (tx) => {
+      const current = await tx.person.findUnique({ where: { id: personId } });
+      if (!current) throw new Error("Person not found");
+
+      const changedKeys: (keyof typeof data)[] = [];
+      for (const key of fields) {
+        if (key in input) {
+          const newVal = data[key] ?? null;
+          const oldVal = (current as Record<string, unknown>)[key] ?? null;
+          if (newVal !== oldVal) {
+            changedKeys.push(key);
+          }
+        }
+      }
+
+      // No-op: nothing changed, skip write and audit.
+      if (changedKeys.length === 0) {
+        return { updated: current, changedKeys, beforeSnapshot: {} as Record<string, unknown> };
+      }
+
+      const beforeSnapshot = Object.fromEntries(
+        changedKeys.map((k) => [k, (current as Record<string, unknown>)[k] ?? null])
+      );
+
       const updateData: Record<string, unknown> = {};
       for (const key of changedKeys) {
         updateData[key] = data[key] ?? null;
@@ -204,13 +208,16 @@ export async function updatePersonFields(
         }
       }
 
-      const result = await tx.person.update({ where: { id: personId }, data: updateData });
-
-      return result;
+      const updated = await tx.person.update({ where: { id: personId }, data: updateData });
+      return { updated, changedKeys, beforeSnapshot };
     });
 
+    if (txResult.changedKeys.length === 0) {
+      return txResult.updated;
+    }
+
     const afterSnapshot = Object.fromEntries(
-      changedKeys.map((k) => [k, (updated as Record<string, unknown>)[k] ?? null])
+      txResult.changedKeys.map((k) => [k, (txResult.updated as Record<string, unknown>)[k] ?? null])
     );
 
     // Await audit after the transaction commits. recordAudit never throws.
@@ -219,11 +226,11 @@ export async function updatePersonFields(
       action: "person.update",
       entityType: "Person",
       entityId: personId,
-      before: beforeSnapshot,
+      before: txResult.beforeSnapshot,
       after: afterSnapshot,
     });
 
-    return updated;
+    return txResult.updated;
   } catch (err) {
     return toConflictError(err);
   }

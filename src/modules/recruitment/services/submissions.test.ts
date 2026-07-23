@@ -159,6 +159,47 @@ it("preserves a RENEWAL answer for a field conditioned on the department (server
   expect((app.answers as Record<string, unknown>).srhd_renewal_note).toBe("kept");
 });
 
+// #57: a FILE field can gate another field via visibleWhen, but the file lands in
+// `files`, not `answers`. Without marking uploaded file keys present, the server
+// evaluated the gate as unanswered and silently dropped the dependent's answer.
+it("keeps a field gated on an uploaded FILE controller", async () => {
+  const lead = await prisma.person.create({ data: { name: "Lead", status: "ACTIVE" } });
+  const term = await prisma.term.create({ data: { code: "FA26", name: "Fall 2026", startDate: new Date(), endDate: new Date() } });
+  const cycle = await createCycle({ track: "VOLUNTEER", termId: term.id, title: "V", publicSlug: "apply-fc", departments: ["SRHD"], acceptsRenewals: false, createdById: lead.id });
+  const idSection = await prisma.formSection.findFirstOrThrow({ where: { cycleId: cycle.id }, orderBy: { order: "asc" } });
+  await addField(idSection.id, { label: "1st choice department", type: "DEPARTMENT_CHOICE", required: true });
+  const resume = await addField(idSection.id, { label: "Resume", type: "FILE", required: false });
+  const afterUpload = await addField(idSection.id, { label: "Why this resume", type: "SHORT_TEXT", required: false });
+  await prisma.formField.update({ where: { id: afterUpload.id }, data: { visibleWhen: { field: resume.key, op: "isAnswered" } } });
+  await publishCycle(cycle.id, lead.id);
+
+  const app = await submitApplication("apply-fc", {
+    applicantType: "NEW",
+    answers: { first_name: "F", last_name: "C", email: "fc@yale.edu", "1st_choice_department": "SRHD", why_this_resume: "kept" },
+    files: { resume: { fileName: "r.pdf", mimeType: "application/pdf", bytes: Buffer.from("pdf") } },
+  });
+  expect((app.answers as Record<string, unknown>).why_this_resume).toBe("kept");
+});
+
+it("drops a FILE-gated answer when no file was provided (gate correctly unanswered)", async () => {
+  const lead = await prisma.person.create({ data: { name: "Lead", status: "ACTIVE" } });
+  const term = await prisma.term.create({ data: { code: "FA26", name: "Fall 2026", startDate: new Date(), endDate: new Date() } });
+  const cycle = await createCycle({ track: "VOLUNTEER", termId: term.id, title: "V", publicSlug: "apply-fc2", departments: ["SRHD"], acceptsRenewals: false, createdById: lead.id });
+  const idSection = await prisma.formSection.findFirstOrThrow({ where: { cycleId: cycle.id }, orderBy: { order: "asc" } });
+  await addField(idSection.id, { label: "1st choice department", type: "DEPARTMENT_CHOICE", required: true });
+  const resume = await addField(idSection.id, { label: "Resume", type: "FILE", required: false });
+  const afterUpload = await addField(idSection.id, { label: "Why this resume", type: "SHORT_TEXT", required: false });
+  await prisma.formField.update({ where: { id: afterUpload.id }, data: { visibleWhen: { field: resume.key, op: "isAnswered" } } });
+  await publishCycle(cycle.id, lead.id);
+
+  const app = await submitApplication("apply-fc2", {
+    applicantType: "NEW",
+    answers: { first_name: "F", last_name: "C", email: "fc2@yale.edu", "1st_choice_department": "SRHD", why_this_resume: "should drop" },
+    files: {},
+  });
+  expect((app.answers as Record<string, unknown>).why_this_resume).toBeUndefined();
+});
+
 it("rejects a missing required answer", async () => {
   await openVolunteerCycle();
   await expect(

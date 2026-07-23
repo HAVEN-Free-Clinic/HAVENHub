@@ -37,6 +37,7 @@ export function SignaturePad({
   defaultName = "",
   error,
   onChange,
+  onValueChange,
 }: {
   name: string;
   label: string;
@@ -51,6 +52,12 @@ export function SignaturePad({
   defaultName?: string;
   error?: string;
   onChange?: () => void;
+  // Fired with the committed value (a PNG data URL, or "" when cleared) so an
+  // owner that gates other fields on this signature's presence can react. Every
+  // other control reports its value this way; without it a visibleWhen condition
+  // keyed on a SIGNATURE field never updates client-side, so the server enforced
+  // a required field the applicant was shown as hidden.
+  onValueChange?: (value: string) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const padRef = useRef<SignaturePadLib | null>(null);
@@ -64,15 +71,19 @@ export function SignaturePad({
   // the current values without re-binding. Updated in effects, never during render
   // (react-hooks/refs forbids mutating a ref in the render body).
   const onChangeRef = useRef(onChange);
+  const onValueChangeRef = useRef(onValueChange);
   const valueRef = useRef(value);
   useEffect(() => { onChangeRef.current = onChange; });
+  useEffect(() => { onValueChangeRef.current = onValueChange; });
   useEffect(() => { valueRef.current = value; });
 
   // Push the current PNG (or "") into React state -> the controlled hidden input,
-  // and notify the owner so autosave can pick it up.
+  // notify the owner so autosave can pick it up, and report the value so an owner
+  // gating other fields on this signature can update its visibility map.
   function commit(dataUrl: string) {
     setValue(dataUrl);
     onChangeRef.current?.();
+    onValueChangeRef.current?.(dataUrl);
   }
 
   // Refit the canvas backing store to its CSS box, preserving the current image.

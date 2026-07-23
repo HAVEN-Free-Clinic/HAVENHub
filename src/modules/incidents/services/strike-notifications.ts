@@ -33,8 +33,7 @@ import { strikeIssuedDirectorsContext } from "@/platform/email/templates/inciden
 import { getSetting } from "@/platform/settings/service";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { departmentDirectorPersonIds } from "@/platform/departments";
-import { getDisplayTimeZone } from "@/platform/dates/resolve";
-import { formatDateOnly } from "@/platform/dates";
+import { formatCalendarDate } from "@/platform/dates";
 import { visibleStrikeCount } from "./disciplinary";
 
 export type StrikeNotificationInput = {
@@ -92,19 +91,20 @@ async function directorRecipients(
 export async function notifyStrikeIssued(input: StrikeNotificationInput): Promise<void> {
   const { action, actorPersonId } = input;
   try {
-    const [subject, issuer, baseUrl, zone] = await Promise.all([
+    const [subject, issuer, baseUrl] = await Promise.all([
       prisma.person.findUnique({
         where: { id: action.personId },
         select: { id: true, name: true, entraObjectId: true, contactEmail: true },
       }),
       prisma.person.findUnique({ where: { id: actorPersonId }, select: { name: true } }),
       getSetting<string>("app.baseUrl"),
-      getDisplayTimeZone(),
     ]);
     if (!subject) return;
 
     const issuedBy = issuer?.name ?? "HAVEN Directors";
-    const issuedDate = formatDateOnly(action.occurredAt, zone, {
+    // A calendar-day marker (see occurredAt's doc comment): always UTC, never
+    // zone-shifted, so it matches what the strikes ledger shows for the same row.
+    const occurredDate = formatCalendarDate(action.occurredAt, {
       month: "long",
       day: "numeric",
       year: "numeric",
@@ -116,7 +116,7 @@ export async function notifyStrikeIssued(input: StrikeNotificationInput): Promis
       category: action.category,
       description: action.description,
       issuedBy,
-      issuedDate,
+      occurredDate,
     });
     await notify(prisma, {
       type: "incidents.strike_issued",
@@ -124,7 +124,7 @@ export async function notifyStrikeIssued(input: StrikeNotificationInput): Promis
       email: { subject: subjectRendered.subject, html: subjectRendered.html },
       teams: {
         title: "A disciplinary action has been recorded against you",
-        summary: `A ${action.category} disciplinary action dated ${issuedDate} was recorded against you by ${issuedBy}.`,
+        summary: `A ${action.category} disciplinary action dated ${occurredDate} was recorded against you by ${issuedBy}.`,
       },
       triggeredById: actorPersonId,
     });
@@ -149,7 +149,7 @@ export async function notifyStrikeIssued(input: StrikeNotificationInput): Promis
           directorName: director.name,
           subjectName: subject.name,
           category: action.category,
-          issuedDate,
+          occurredDate,
           issuedBy,
           strikeCount: strikeLabel,
           ledgerLink,
@@ -161,7 +161,7 @@ export async function notifyStrikeIssued(input: StrikeNotificationInput): Promis
         email: { subject: rendered.subject, html: rendered.html },
         teams: {
           title: `Disciplinary action recorded for ${subject.name}`,
-          summary: `A ${action.category} disciplinary action dated ${issuedDate} was recorded against ${subject.name} by ${issuedBy}. They now have ${strikeLabel} on file.`,
+          summary: `A ${action.category} disciplinary action dated ${occurredDate} was recorded against ${subject.name} by ${issuedBy}. They now have ${strikeLabel} on file.`,
           link: ledgerLink,
         },
         triggeredById: actorPersonId,

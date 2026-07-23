@@ -52,8 +52,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import type { DisciplinaryAction } from "@prisma/client";
 import { StrikeRow } from "./strike-row";
-import { getDisplayTimeZone } from "@/platform/dates/resolve";
-import { formatDateOnly } from "@/platform/dates";
+import { formatCalendarDate } from "@/platform/dates";
 
 // ---------------------------------------------------------------------------
 // Error codes
@@ -116,8 +115,6 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
     isCentral ? strikeablePeople(viewer.personId) : Promise.resolve([]),
     isCentral ? linkableReports(viewer.personId) : Promise.resolve([]),
   ]);
-
-  const displayZone = await getDisplayTimeZone();
 
   // Load actions; catch Forbidden to render a friendly empty state.
   let listResult: Awaited<ReturnType<typeof listActions>> | null = null;
@@ -546,7 +543,7 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
                     key={action.id}
                     action={{
                       id: action.id,
-                      occurredLabel: formatDateOnly(action.occurredAt, displayZone, {
+                      occurredLabel: formatCalendarDate(action.occurredAt, {
                         month: "short",
                         day: "numeric",
                         year: "numeric",

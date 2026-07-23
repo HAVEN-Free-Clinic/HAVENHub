@@ -1565,9 +1565,17 @@ Swap the `issuable.all` branch of the person picker (currently an `<Input name="
               {issuable.all ? (
                 <div className="w-72">
                   <Field label="Person" required>
+                    {/* CORRECTION (applied during execution, commit a44db9f9): `required`
+                        was missing, and Combobox had no rest-spread, so Field's injected
+                        aria-required was silently dropped. Screen-reader users got no
+                        required cue (the visual asterisk is aria-hidden) and the native
+                        empty-submit guard the old <Input required> provided was lost, while
+                        the director <Select ... required> branch kept both. Combobox now
+                        accepts `required` and forwards aria-describedby. */}
                     <Combobox
                       name="personId"
                       ariaLabel="Person"
+                      required
                       placeholder="Search by name..."
                       options={searchablePeople.map((p) => ({
                         value: p.id,

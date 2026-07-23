@@ -6,7 +6,7 @@ import { can } from "@/platform/rbac/engine";
 import { getSetting } from "@/platform/settings/service";
 import { putObject, deleteObject } from "@/platform/storage";
 import { decodeSignaturePng, SignatureError } from "./signature";
-import type { SignatureInput, StoredSignature } from "../contract/signatures";
+import { isStoredSignature, type SignatureInput, type StoredSignature } from "../contract/signatures";
 import { queueEmail } from "@/platform/email/send";
 import { recordAudit } from "@/platform/audit";
 import { parseCompletionDate, CompletionDateError } from "@/platform/compliance/completion-date";
@@ -539,6 +539,58 @@ export async function submitContract(
     entityId: contract.id,
   });
   return prisma.onboardingContract.findUniqueOrThrow({ where: { id: contract.id } });
+}
+
+/**
+ * Tear down a not-yet-promoted onboarding contract so its acceptance can be
+ * rescinded, re-routed, or re-decided. Five services (revokeAcceptance and the
+ * routing/interview-decision guards) refuse to touch an acceptance once a
+ * contract row exists and tell the operator to remove it first, but nothing
+ * deleted an OnboardingContract, so the instruction pointed at a path that did
+ * not exist and those decisions were permanently stuck.
+ *
+ * Deletes the contract row (leaving the acceptance intact and re-decidable) and
+ * best-effort removes its private signature and HIPAA blobs. A PROMOTED contract
+ * is refused: that person is on the roster, so the reversal is offboarding, not
+ * a withdraw. SRR-only.
+ */
+export async function withdrawContract(contractId: string, actorId: string): Promise<void> {
+  if (!(await can(actorId, "recruitment.review_all"))) {
+    throw new RecruitmentAuthError("Only SRR can withdraw onboarding contracts.");
+  }
+  const contract = await prisma.onboardingContract.findUnique({
+    where: { id: contractId },
+    select: { id: true, status: true, hipaaStoredName: true, signatures: true },
+  });
+  if (!contract) throw new ContractError("Onboarding contract not found.");
+  if (contract.status === "PROMOTED") {
+    throw new ContractError("This applicant is already on the roster. Offboard them instead of withdrawing the contract.");
+  }
+
+  // Collect the private blobs to clean up: each signature's stored image plus the
+  // HIPAA certificate (keyed under onboarding/<contractId>/, per submitContract).
+  const blobKeys: string[] = [];
+  const sigs = contract.signatures as Record<string, unknown> | null;
+  if (sigs) {
+    for (const v of Object.values(sigs)) {
+      if (isStoredSignature(v) && v.imageKey) blobKeys.push(v.imageKey);
+    }
+  }
+  if (contract.hipaaStoredName) blobKeys.push(`onboarding/${contract.id}/${contract.hipaaStoredName}`);
+
+  // Delete the row first (the authoritative action). Blob cleanup is best-effort:
+  // a leaked blob is a minor storage cost, whereas deleting blobs before a failed
+  // row delete would leave a live contract pointing at missing signatures.
+  await prisma.onboardingContract.delete({ where: { id: contractId } });
+  for (const key of blobKeys) await deleteObject(key);
+
+  await recordAudit({
+    actorPersonId: actorId,
+    action: "recruitment.onboarding_withdraw",
+    entityType: "OnboardingContract",
+    entityId: contractId,
+    before: { status: contract.status },
+  });
 }
 
 export async function listOnboarding(cycleId: string) {

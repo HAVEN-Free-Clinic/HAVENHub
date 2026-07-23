@@ -5,7 +5,7 @@ import { requirePersonSession } from "@/platform/auth/session";
 import { captureEvent } from "@/platform/posthog/capture";
 import { termGroupForCycle } from "@/platform/posthog/groups";
 import { getSetting } from "@/platform/settings/service";
-import { createOrResendContract, ContractError } from "@/modules/recruitment/services/onboarding";
+import { createOrResendContract, withdrawContract, ContractError } from "@/modules/recruitment/services/onboarding";
 import { promoteContracts } from "@/modules/recruitment/services/promotion";
 import { RecruitmentAuthError } from "@/modules/recruitment/services/review";
 
@@ -41,6 +41,26 @@ export async function sendLinksAction(cycleId: string, formData: FormData) {
     });
   }
   redirect(bounce(cycleId, failed > 0 ? { msg: `Sent ${sent} onboarding link(s).`, err: `${failed} could not be sent.` } : { msg: `Sent ${sent} onboarding link(s).` }));
+}
+
+export async function withdrawContractAction(cycleId: string, formData: FormData) {
+  const person = await requirePersonSession();
+  const contractId = String(formData.get("contractId") ?? "");
+  // Scope to this cycle: only withdraw a contract that belongs here.
+  const owned = await prisma.onboardingContract.findFirst({
+    where: { id: contractId, acceptance: { application: { cycleId } } },
+    select: { id: true },
+  });
+  if (!owned) redirect(bounce(cycleId, { err: "Onboarding contract not found." }));
+  try {
+    await withdrawContract(contractId, person.personId);
+  } catch (err) {
+    if (err instanceof RecruitmentAuthError || err instanceof ContractError) {
+      redirect(bounce(cycleId, { err: (err as Error).message }));
+    }
+    throw err;
+  }
+  redirect(bounce(cycleId, { msg: "Onboarding contract withdrawn. You can now change the decision or resend a fresh link." }));
 }
 
 export async function promoteAction(cycleId: string, formData: FormData) {

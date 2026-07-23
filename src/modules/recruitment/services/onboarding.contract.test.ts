@@ -2,9 +2,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import {
-  createOrResendContract, submitContract, lookupStoredEpicId,
-  ContractValidationError, type ContractSubmission,
+  createOrResendContract, submitContract, lookupStoredEpicId, withdrawContract,
+  ContractValidationError, ContractError, type ContractSubmission,
 } from "./onboarding";
+import { revokeAcceptance, RecruitmentAuthError } from "./review";
 import type { ContractLayout } from "../contract/layout";
 import type { SignatureInput } from "../contract/signatures";
 
@@ -60,7 +61,7 @@ async function seedPending(opts: {
   const acceptance = await prisma.acceptance.create({ data: { applicationId: application.id, departmentCode: deptCode, approvedById: srr.id } });
   const contract = await createOrResendContract(acceptance.id, srr.id, "http://test");
   await prisma.onboardingContract.update({ where: { id: contract.id }, data: { templateSnapshot: layoutFor() as object } });
-  return { token: contract.token, contractId: contract.id };
+  return { token: contract.token, contractId: contract.id, srrId: srr.id, acceptanceId: acceptance.id };
 }
 
 const base: Omit<ContractSubmission, "signatures" | "customAnswers" | "confirmations"> = {
@@ -466,5 +467,52 @@ describe("submitContract Epic section visibility from a stored Epic ID", () => {
 
     const ok = await submitContract(token, { ...base, signatures: {}, customAnswers: {}, confirmations: { epic_ack: true } });
     expect(ok.status).toBe("SUBMITTED");
+  });
+});
+
+describe("withdrawContract", () => {
+  it("deletes a PENDING contract so its acceptance becomes re-decidable", async () => {
+    const { contractId, srrId, acceptanceId } = await seedPending({ deptCode: "SRHD" });
+
+    await withdrawContract(contractId, srrId);
+
+    expect(await prisma.onboardingContract.findUnique({ where: { id: contractId } })).toBeNull();
+    // The acceptance survives and, with no contract, can now be revoked -- the
+    // exact recovery the guard's message promised but nothing could perform.
+    await expect(revokeAcceptance(acceptanceId, srrId)).resolves.toBeUndefined();
+    expect(await prisma.acceptance.findUnique({ where: { id: acceptanceId } })).toBeNull();
+  });
+
+  it("deletes a SUBMITTED contract and its stored blobs", async () => {
+    const { token, contractId, srrId } = await seedPending({ deptCode: "BVHD", requiresEpicVolunteer: "ALL" });
+    await submitContract(token, { ...base, signatures: {}, customAnswers: {}, confirmations: { dept_bvhd: true } });
+    const submitted = await prisma.onboardingContract.findUniqueOrThrow({ where: { id: contractId } });
+    expect(submitted.status).toBe("SUBMITTED");
+    expect(submitted.hipaaStoredName).not.toBeNull();
+
+    await withdrawContract(contractId, srrId);
+
+    expect(await prisma.onboardingContract.findUnique({ where: { id: contractId } })).toBeNull();
+  });
+
+  it("refuses to withdraw a PROMOTED contract (offboard instead)", async () => {
+    const { contractId, srrId } = await seedPending({ deptCode: "SRHD" });
+    await prisma.onboardingContract.update({ where: { id: contractId }, data: { status: "PROMOTED" } });
+
+    await expect(withdrawContract(contractId, srrId)).rejects.toBeInstanceOf(ContractError);
+    // Still there: a promoted contract is a real member and must not be deleted.
+    expect(await prisma.onboardingContract.findUnique({ where: { id: contractId } })).not.toBeNull();
+  });
+
+  it("refuses a non-SRR actor", async () => {
+    const { contractId } = await seedPending({ deptCode: "SRHD" });
+    const outsider = await prisma.person.create({ data: { name: "Nobody", status: "ACTIVE" } });
+    await expect(withdrawContract(contractId, outsider.id)).rejects.toBeInstanceOf(RecruitmentAuthError);
+    expect(await prisma.onboardingContract.findUnique({ where: { id: contractId } })).not.toBeNull();
+  });
+
+  it("errors on an unknown contract id", async () => {
+    const { srrId } = await seedPending({ deptCode: "SRHD" });
+    await expect(withdrawContract("nope", srrId)).rejects.toBeInstanceOf(ContractError);
   });
 });

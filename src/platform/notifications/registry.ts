@@ -33,6 +33,8 @@ export const NOTIFICATION_TYPES: NotificationType[] = [
   { key: "incidents.strike_requested", label: "Incident: strike requested (reviewers)", defaultChannel: "email" },
   { key: "incidents.strike_decided", label: "Incident: strike decision (reporter)", defaultChannel: "email" },
   { key: "incidents.report_resolved", label: "Incident: report resolved (reporter)", defaultChannel: "email" },
+  { key: "incidents.strike_issued", label: "Incident: strike issued (subject)", defaultChannel: "email" },
+  { key: "incidents.strike_issued_directors", label: "Incident: strike issued (directors)", defaultChannel: "email" },
 ];
 
 /** The settings-registry key that stores a type's channel override. */

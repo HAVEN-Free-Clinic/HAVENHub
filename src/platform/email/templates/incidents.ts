@@ -59,6 +59,20 @@ export type ReportResolvedParams = {
   reportLink: string;
 };
 
+export type StrikeIssuedDirectorsParams = {
+  directorName: string;
+  /** Full name of the person the strike was issued against. */
+  subjectName: string;
+  category: string;
+  /** Preformatted date string in the configured display zone. */
+  issuedDate: string;
+  issuedBy: string;
+  /** The subject's running strike total, preformatted. */
+  strikeCount: string;
+  /** Absolute link to the strikes ledger. */
+  ledgerLink: string;
+};
+
 // ---------------------------------------------------------------------------
 // Context builders
 // ---------------------------------------------------------------------------
@@ -100,6 +114,21 @@ export function reportResolvedContext(p: ReportResolvedParams): Record<string, u
     reportNumber: String(p.reportNumber),
     outcome: p.approved ? "resolved" : "dismissed",
     reportLink: p.reportLink,
+  };
+}
+
+/** Build the flat render-engine context for incidents.strike_issued_directors. */
+export function strikeIssuedDirectorsContext(
+  p: StrikeIssuedDirectorsParams
+): Record<string, unknown> {
+  return {
+    directorName: p.directorName,
+    subjectName: p.subjectName,
+    category: p.category,
+    issuedDate: p.issuedDate,
+    issuedBy: p.issuedBy,
+    strikeCount: p.strikeCount,
+    ledgerLink: p.ledgerLink,
   };
 }
 
@@ -198,5 +227,30 @@ export const incidentsDescriptors: TemplateDescriptor[] = [
 </table>
 <p><strong>Details:</strong><br>{{ description }}</p>
 <p>If you have questions or believe this was issued in error, please reach out to your department directors or the HAVEN Executive Directors at <a href="mailto:haven.free.clinic@yale.edu">haven.free.clinic@yale.edu</a>.</p>`,
+  },
+  {
+    key: "incidents.strike_issued_directors",
+    name: "Incident: strike issued (directors)",
+    category: "transactional",
+    group: "incidents",
+    variables: [
+      { name: "directorName", label: "Director name", sampleValue: "Dr. Smith" },
+      { name: "subjectName", label: "Name of the person the strike is against", sampleValue: "Alex Rivera" },
+      { name: "category", label: "Strike category", sampleValue: "Attendance" },
+      { name: "issuedDate", label: "Date issued", sampleValue: "July 15, 2026" },
+      { name: "issuedBy", label: "Issued by name", sampleValue: "Caprice Culkin" },
+      { name: "strikeCount", label: "The person's running strike total", sampleValue: "2" },
+      { name: "ledgerLink", label: "Link to the strikes ledger", sampleValue: "https://hub.havenfreeclinic.org/incidents/strikes" },
+    ],
+    defaultSubject: "Disciplinary action recorded for {{ subjectName }}",
+    defaultBody: `<p>Hello {{ directorName }},</p>
+<p>A disciplinary action was recorded against {{ subjectName }}, a member of a department you direct. They now have {{ strikeCount }} on file.</p>
+<table role="presentation" style="border-collapse:collapse;margin:16px 0">
+  <tr><td style="font-weight:600;padding-right:12px">Category</td><td>{{ category }}</td></tr>
+  <tr><td style="font-weight:600;padding-right:12px">Date</td><td>{{ issuedDate }}</td></tr>
+  <tr><td style="font-weight:600;padding-right:12px">Issued by</td><td>{{ issuedBy }}</td></tr>
+</table>
+<p><a href="{{ ledgerLink }}">Open the strikes ledger</a></p>
+<p>Thank you,<br>HAVEN Free Clinic</p>`,
   },
 ];

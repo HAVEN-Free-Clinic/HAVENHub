@@ -15,6 +15,7 @@ export type ScheduleTemplateKey =
   | "schedule-request-approved"
   | "schedule-request-approved-partner"
   | "schedule-request-denied"
+  | "schedule-request-denied-partner"
   | "schedule-request-cancelled-partner"
   | "schedule-request-submitted-director";
 

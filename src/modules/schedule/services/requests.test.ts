@@ -21,6 +21,7 @@ import {
   eligibleSwapPartners,
   remindDirectors,
   requestApproverRecipients,
+  countPendingApprovals,
   RequestForbiddenError,
   RequestNotFoundError,
   RequestValidationError,
@@ -1516,5 +1517,44 @@ describe("remindDirectors throttle (F15)", () => {
     });
     await remindDirectors(requester.id, req.id);
     expect(await count()).toBe(2);
+  });
+});
+
+describe("countPendingApprovals cross-term", () => {
+  // A director managing a department via a live-term directorship. createRequest
+  // lets a member raise a drop/swap against a published next (PLANNING) term, and
+  // the cron emails this director about it, so the count must include it too.
+  // A (requesterId, requesterDate, departmentId) unique constraint means each
+  // request needs a distinct date; sixSaturdays gives six clinic dates to pick from.
+  async function pendingRequest(termId: string, deptId: string, requesterId: string, dateIdx: number) {
+    return prisma.shiftRequest.create({
+      data: { termId, departmentId: deptId, requesterId, requesterDate: sixSaturdays()[dateIdx], status: "PENDING" },
+    });
+  }
+
+  it("counts PENDING requests on the live AND the next term", async () => {
+    const live = await createTerm("ACTIVE", []);
+    const next = await createTerm("PLANNING", []);
+    const dept = await createDepartment("AABB");
+    const director = await createPerson("Director");
+    const vol = await createPerson("Volunteer");
+    await createMembership(director.id, live.id, dept.id, "DIRECTOR");
+    await pendingRequest(live.id, dept.id, vol.id, 0);
+    await pendingRequest(next.id, dept.id, vol.id, 1);
+
+    expect(await countPendingApprovals(director.id)).toBe(2);
+  });
+
+  it("excludes PENDING requests on an ARCHIVED term", async () => {
+    const live = await createTerm("ACTIVE", []);
+    const archived = await createTerm("ARCHIVED", []);
+    const dept = await createDepartment("AABB");
+    const director = await createPerson("Director");
+    const vol = await createPerson("Volunteer");
+    await createMembership(director.id, live.id, dept.id, "DIRECTOR");
+    await pendingRequest(live.id, dept.id, vol.id, 0);
+    await pendingRequest(archived.id, dept.id, vol.id, 1);
+
+    expect(await countPendingApprovals(director.id)).toBe(1);
   });
 });

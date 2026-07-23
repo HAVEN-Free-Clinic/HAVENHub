@@ -27,7 +27,6 @@ import {
   planApply,
 } from "../engine/requests";
 import type { ScheduleRowForValidation } from "../engine/requests";
-import { getActiveTerm } from "@/platform/terms/active-term";
 import { getPersonTerms } from "@/platform/terms/person-terms";
 import { isPublished } from "./publication";
 import { queueEmail } from "@/platform/email/send";
@@ -138,9 +137,6 @@ export async function canManageRequestsForDept(
  * as the approve/deny path.
  */
 export async function countPendingApprovals(personId: string): Promise<number> {
-  const term = await getActiveTerm();
-  if (!term) return 0;
-
   // Every department the person can approve/deny requests for. The dashboard
   // Approvals card links to the dedicated /schedule/requests page, which is
   // reachable by any approver (including schedule.manage_requests holders who are
@@ -149,8 +145,20 @@ export async function countPendingApprovals(personId: string): Promise<number> {
   const departmentIds = await manageableRequestDepartmentIds(personId);
   if (departmentIds.length === 0) return 0;
 
+  // Span the working set, not just the live term. createRequest lets a member
+  // raise a drop/swap against a published NEXT (PLANNING) term, so pinning the
+  // count to the ACTIVE term hid those from the dashboard badge while the cron
+  // kept emailing approvers about them. ARCHIVED-term requests are excluded: they
+  // can no longer be decided anywhere. This matches the widened /schedule/requests
+  // page. (The manageable-department set is still live-term-derived, so a
+  // brand-new director who exists ONLY next term is not yet counted; that needs
+  // threading the term through the shared scope helper and is left for later.)
   return prisma.shiftRequest.count({
-    where: { termId: term.id, departmentId: { in: departmentIds }, status: "PENDING" },
+    where: {
+      departmentId: { in: departmentIds },
+      status: "PENDING",
+      term: { status: { in: ["ACTIVE", "PLANNING"] } },
+    },
   });
 }
 

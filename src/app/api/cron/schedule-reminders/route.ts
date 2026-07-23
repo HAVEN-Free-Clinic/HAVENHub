@@ -59,6 +59,12 @@ export async function GET(req: Request): Promise<Response> {
     where: {
       status: "PENDING",
       createdAt: { lt: cutoff },
+      // A request whose term has been archived can no longer be decided anywhere
+      // in the app (the approval surfaces span ACTIVE + published PLANNING), so
+      // reminding approvers about it is a dead-end nag that recurs forever. Skip
+      // archived-term requests; the live and next terms are still reminded.
+      // status is a non-nullable enum, so `not` drops no rows unexpectedly.
+      term: { status: { not: "ARCHIVED" } },
     },
     include: {
       requester: { select: { name: true } },

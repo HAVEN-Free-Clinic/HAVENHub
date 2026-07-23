@@ -29,8 +29,6 @@ import { getSetting } from "@/platform/settings/service";
 import { putObject, deleteObject } from "@/platform/storage";
 import { validateUploadedFile } from "@/modules/recruitment/services/upload";
 import { peopleWithAnyPermission } from "@/platform/rbac/holders";
-import { getDisplayTimeZone } from "@/platform/dates/resolve";
-import { formatDateOnly } from "@/platform/dates";
 import { notify } from "@/platform/notifications/notify";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
 import {
@@ -40,7 +38,7 @@ import {
   reportResolvedContext,
 } from "@/platform/email/templates/incidents";
 import { issueAction, DISCIPLINARY_CATEGORIES } from "./disciplinary";
-import { queueEmail } from "@/platform/email/send";
+import { notifyStrikeIssued } from "./strike-notifications";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -1011,46 +1009,9 @@ export async function decideStrike(
 
   await notifyReporterOfStrikeDecision(report, actorPersonId, true);
 
-  // Notify the subject that a strike has been officially issued against them.
-  // Route through renderEmail so the message gets the shared branded layout and
-  // honors any admin template override, matching the other four incident emails
-  // (a direct renderTemplate call shipped a bare, unstyled fragment and ignored
-  // /admin/email/templates edits).
-  try {
-    const [volunteer, issuer] = await Promise.all([
-      prisma.person.findUnique({
-        where: { id: subject.personId },
-        select: { name: true, contactEmail: true },
-      }),
-      prisma.person.findUnique({
-        where: { id: actorPersonId },
-        select: { name: true },
-      }),
-    ]);
-    if (volunteer?.contactEmail) {
-      const zone = await getDisplayTimeZone();
-      const issuedDate = formatDateOnly(new Date(), zone, {
-        month: "long", day: "numeric", year: "numeric",
-      });
-      const rendered = await renderEmail("incidents.strike_issued", {
-        subjectName: volunteer.name?.split(" ")[0] ?? volunteer.name ?? "",
-        category,
-        description: report.description ?? "",
-        issuedBy: issuer?.name ?? "HAVEN Directors",
-        issuedDate,
-      });
-      await queueEmail(prisma, {
-        to: volunteer.contactEmail,
-        subject: rendered.subject,
-        html: rendered.html,
-        template: "incidents.strike_issued",
-        personId: subject.personId,
-        triggeredById: actorPersonId,
-      });
-    }
-  } catch {
-    // Best-effort notifications.
-  }
+  // The subject, and their directors unless the strike is confidential. Runs
+  // after the transaction commits, so a rollback never mails anyone.
+  await notifyStrikeIssued({ action: strikeAction, actorPersonId });
 
   return approved;
 }

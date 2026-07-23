@@ -175,11 +175,15 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
       if (!personKey) {
         redirect("/incidents/strikes?error=person-not-found");
       }
+      // NetIDs are stored lowercase (people.ts normalize), and every other NetID
+      // lookup in the repo is case-insensitive. A case-sensitive match here failed
+      // for a NetID typed with any uppercase, e.g. an Airtable-imported "JC123".
+      const personKeyTrimmed = personKey.trim();
       const person = await prisma.person.findFirst({
         where: {
           OR: [
-            { netId: personKey },
-            { contactEmail: { equals: personKey, mode: "insensitive" } },
+            { netId: { equals: personKeyTrimmed, mode: "insensitive" } },
+            { contactEmail: { equals: personKeyTrimmed, mode: "insensitive" } },
           ],
         },
         select: { id: true },

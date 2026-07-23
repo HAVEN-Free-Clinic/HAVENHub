@@ -25,6 +25,31 @@ describe("createPersonRecord", () => {
     expect(person.contactEmail).toBe("jack@example.com");
   });
 
+  // A value pasted from a roster/email carries whitespace all the way to the DB.
+  // Login compares case-insensitively but whitespace-SENSITIVELY, so " jdc239 "
+  // would never match at sign-in and would not collide with the clean value.
+  it("trims netId, contactEmail, and name (empty trims to null)", async () => {
+    const person = await createPersonRecord(ACTOR, {
+      name: "  Jack Carney  ",
+      netId: "  JDC239 ",
+      contactEmail: " JACK@EXAMPLE.COM ",
+    });
+    expect(person.netId).toBe("jdc239");
+    expect(person.contactEmail).toBe("jack@example.com");
+    expect(person.name).toBe("Jack Carney");
+
+    const blank = await createPersonRecord(ACTOR, { name: "No Ids", netId: "   ", contactEmail: "  " });
+    expect(blank.netId).toBeNull();
+    expect(blank.contactEmail).toBeNull();
+  });
+
+  it("a whitespace-padded netId still collides with the clean value (unique index holds)", async () => {
+    await createPersonRecord(ACTOR, { name: "First", netId: "dup2" });
+    await expect(
+      createPersonRecord(ACTOR, { name: "Second", netId: "  DUP2  " })
+    ).rejects.toThrow();
+  });
+
   it("throws PersonConflictError on duplicate netId", async () => {
     await createPersonRecord(ACTOR, { name: "First", netId: "dup1" });
 

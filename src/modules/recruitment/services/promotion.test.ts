@@ -34,6 +34,27 @@ async function seedSubmitted(opts: { netId?: string; email?: string; epicNeeded?
 beforeEach(async () => { await resetDb(); });
 afterEach(async () => { await resetDb(); });
 
+// #110: promotion creates the Person directly (bypassing people.ts normalize),
+// so the applicant's raw typed netId/email must be lowercased + trimmed here to
+// keep the codebase-wide lowercase-NetID invariant and stay loginable.
+it("stores a NEW person's netId lowercased and trimmed", async () => {
+  const { srr, contract } = await seedSubmitted({ netId: "  JDC-42 ", email: " Applicant@Yale.EDU " });
+  await promoteContracts([contract.id], srr.id);
+  const person = await prisma.person.findFirstOrThrow({ where: { netId: "jdc-42" } });
+  expect(person.netId).toBe("jdc-42");
+  expect(person.contactEmail).toBe("applicant@yale.edu");
+});
+
+it("matches an existing person despite whitespace/case in the contract netId (no duplicate)", async () => {
+  const existing = await prisma.person.create({ data: { name: "Ada Lovelace", netId: "al99", status: "ACTIVE" } });
+  const { srr, contract } = await seedSubmitted({ netId: "  AL99 " });
+  const res = await promoteContracts([contract.id], srr.id);
+  expect(res.reactivated).toBe(1);
+  expect(res.created).toBe(0);
+  expect(await prisma.person.count({ where: { netId: "al99" } })).toBe(1);
+  expect((await prisma.person.findUniqueOrThrow({ where: { id: existing.id } })).status).toBe("ACTIVE");
+});
+
 it("creates a new ACTIVE person + membership + hipaa cert + epic request when epicNeeded", async () => {
   const { term, srhd, srr, contract } = await seedSubmitted({ epicNeeded: true });
   const res = await promoteContracts([contract.id], srr.id);

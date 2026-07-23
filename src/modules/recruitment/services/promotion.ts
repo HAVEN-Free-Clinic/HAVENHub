@@ -102,11 +102,22 @@ export async function promoteContracts(
         });
         if (claimed.count === 0) throw new ContractAlreadyClaimedError(contract.id);
 
-        let person = contract.netId
-          ? await tx.person.findFirst({ where: { netId: { equals: contract.netId, mode: "insensitive" } } })
+        // Normalize the applicant-typed identity to the codebase-wide invariant
+        // (trimmed + lowercase, empty -> null) before matching OR writing. Every
+        // other Person write goes through people.ts normalize(); promotion creates
+        // the Person directly, so a raw " JC123 " would be stored with casing and
+        // whitespace that no login lookup (case-insensitive but whitespace-sensitive)
+        // could match, and would defeat the lower(netId) unique index. Trimming the
+        // match key also stops a whitespace-padded contract value from missing an
+        // existing person and minting a duplicate.
+        const normNetId = contract.netId?.trim().toLowerCase() || null;
+        const normEmail = contract.email?.trim().toLowerCase() || null;
+
+        let person = normNetId
+          ? await tx.person.findFirst({ where: { netId: { equals: normNetId, mode: "insensitive" } } })
           : null;
-        if (!person && contract.email) {
-          person = await tx.person.findFirst({ where: { contactEmail: { equals: contract.email, mode: "insensitive" } } });
+        if (!person && normEmail) {
+          person = await tx.person.findFirst({ where: { contactEmail: { equals: normEmail, mode: "insensitive" } } });
         }
         let isNew = false;
         if (person) {
@@ -144,7 +155,7 @@ export async function promoteContracts(
           person = await tx.person.create({
             data: {
               name: `${contract.firstName} ${contract.lastName}`.trim(),
-              netId: contract.netId, contactEmail: contract.email, phone: contract.phone,
+              netId: normNetId, contactEmail: normEmail, phone: contract.phone,
               yaleAffiliation: contract.yaleAffiliation, gradYear: contract.gradYear,
               epicId: contract.existingEpicId, status: "ACTIVE",
               spanishSelfReported: contract.spanishSelfReported,

@@ -68,7 +68,11 @@ export async function searchPeople(q: PeopleQuery): Promise<{
   const [rows, total] = await Promise.all([
     prisma.person.findMany({
       where,
-      orderBy: { name: "asc" },
+      // Total order: name is non-unique with no index, so two people with the
+      // same name tie on the whole sort key and Postgres may order them
+      // differently across page boundaries, dropping one and repeating the other.
+      // The id tiebreaker makes paging stable.
+      orderBy: [{ name: "asc" }, { id: "asc" }],
       skip,
       take: pageSize,
     }),

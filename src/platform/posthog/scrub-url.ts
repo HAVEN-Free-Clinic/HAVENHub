@@ -99,11 +99,12 @@ const URL_PROPERTIES = [
  * untouched.
  */
 export function scrubProperties<T extends Record<string, unknown>>(properties: T): T {
+  const sanitized: Record<string, unknown> = { ...properties };
   for (const key of URL_PROPERTIES) {
-    const value = properties[key];
+    const value = sanitized[key];
     if (typeof value === "string" && value) {
-      (properties as Record<string, unknown>)[key] = scrubUrl(value);
+      sanitized[key] = scrubUrl(value);
     }
   }
-  return properties;
+  return sanitized as T;
 }

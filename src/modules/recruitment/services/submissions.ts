@@ -171,6 +171,16 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
   if (!isReturning && input.sessionPersonId) {
     const rec = await prisma.person.findUnique({ where: { id: input.sessionPersonId }, select: { netId: true } });
     matchedRecordNetId = rec?.netId ?? null;
+    // Link a NEW application to its submitter's Person record too, not just a
+    // returning one. Every separation-of-duties guard in recruitment keys on
+    // applicantPersonId (committee-scoring.ts:33, routing.ts:116/179,
+    // interview-decisions.ts:25, evaluations.ts:21, and the "never queue your
+    // own application" filter), and each short-circuits on the `&&` truthiness
+    // test when it is null. Leaving it unset let a sitting director pick "New
+    // applicant" in the wizard and then score and accept their own application.
+    // saveDraft already stores this link (drafts.ts:135); without this the
+    // finalisation update below erased it.
+    applicantPersonId = input.sessionPersonId;
   }
 
   const resolvedSections = resolveAvailabilityOptions(cycle.sections, cycle.term.clinicDates);
@@ -418,7 +428,12 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
         // Finalize the existing draft applicant: fill in identity fields from answers.
         await tx.applicant.update({
           where: { id: applicantId },
-          data: { applicantPersonId, firstName, lastName, email, emailLower, netId: identityNetId, phone: identityPhone },
+          data: {
+            // Never downgrade a link the draft already established: erasing it
+            // would silently disable the self-dealing guards that key on it.
+            applicantPersonId: applicantPersonId ?? existingApplicant?.applicantPersonId ?? null,
+            firstName, lastName, email, emailLower, netId: identityNetId, phone: identityPhone,
+          },
         });
       } else {
         const created = await tx.applicant.create({

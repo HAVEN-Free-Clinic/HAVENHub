@@ -1284,7 +1284,12 @@ export async function linkableReports(
   const zone = await getDisplayTimeZone();
   const reports = await prisma.incidentReport.findMany({
     select: { id: true, number: true, concernTypes: true, createdAt: true },
-    orderBy: { createdAt: "desc" },
+    // CORRECTION (applied during execution, commit 311e9cc0): the secondary
+    // `number` key was missing here. createdAt has millisecond precision, so
+    // same-millisecond inserts ordered nondeterministically, and the newest-first
+    // test creates two reports back to back. listReviewQueue in this same file
+    // already documents and uses this tiebreaker; number is @unique autoincrement.
+    orderBy: [{ createdAt: "desc" }, { number: "desc" }],
     take: LINKABLE_REPORT_LIMIT,
   });
 

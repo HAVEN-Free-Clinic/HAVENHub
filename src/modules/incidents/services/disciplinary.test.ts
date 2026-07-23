@@ -401,6 +401,84 @@ describe("deleteAction", () => {
       DisciplinaryNotFoundError
     );
   });
+
+  it("leaves a non-APPROVED subject row untouched when deleting a strike linked to its report", async () => {
+    const central = await createPerson("Central", "del-scope-c");
+    const subject = await createPerson("Subject", "del-scope-s");
+    const reporter = await createPerson("Reporter", "del-scope-r");
+    await grantPermission(central.id, "incidents.manage");
+
+    const report = await prisma.incidentReport.create({
+      data: {
+        number: 9001,
+        reporterId: reporter.id,
+        concernTypes: ["OTHER"],
+        description: "Report with a declined strike request.",
+      },
+    });
+    // The subject's request was DECLINED -- deleting a strike must not revive it.
+    const subjectRow = await prisma.incidentReportSubject.create({
+      data: { reportId: report.id, personId: subject.id, strikeDecision: "DECLINED" },
+    });
+
+    const action = await issueAction(central.id, {
+      personId: subject.id,
+      occurredAt: new Date("2026-07-01"),
+      category: "Attendance",
+      description: "Separately recorded strike, later linked to the report.",
+      reportId: report.id,
+    });
+
+    await deleteAction(central.id, action.id);
+
+    const after = await prisma.incidentReportSubject.findUniqueOrThrow({
+      where: { id: subjectRow.id },
+    });
+    expect(after.strikeDecision).toBe("DECLINED");
+    expect(after.strikeDecidedById).toBeNull();
+  });
+
+  it("still resets an APPROVED subject row to PENDING so the strike can be re-approved", async () => {
+    const central = await createPerson("Central", "del-appr-c");
+    const subject = await createPerson("Subject", "del-appr-s");
+    const reporter = await createPerson("Reporter", "del-appr-r");
+    await grantPermission(central.id, "incidents.manage");
+
+    const report = await prisma.incidentReport.create({
+      data: {
+        number: 9002,
+        reporterId: reporter.id,
+        concernTypes: ["OTHER"],
+        description: "Report with an approved strike.",
+      },
+    });
+    const subjectRow = await prisma.incidentReportSubject.create({
+      data: {
+        reportId: report.id,
+        personId: subject.id,
+        strikeDecision: "APPROVED",
+        strikeDecidedById: central.id,
+        strikeDecidedAt: new Date(),
+      },
+    });
+
+    const action = await issueAction(central.id, {
+      personId: subject.id,
+      occurredAt: new Date("2026-07-01"),
+      category: "Attendance",
+      description: "Approved off the report.",
+      reportId: report.id,
+    });
+
+    await deleteAction(central.id, action.id);
+
+    const after = await prisma.incidentReportSubject.findUniqueOrThrow({
+      where: { id: subjectRow.id },
+    });
+    expect(after.strikeDecision).toBe("PENDING");
+    expect(after.strikeDecidedById).toBeNull();
+    expect(after.strikeDecidedAt).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------

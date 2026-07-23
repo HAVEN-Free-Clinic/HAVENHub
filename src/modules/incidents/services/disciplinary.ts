@@ -231,7 +231,11 @@ export async function deleteAction(actorPersonId: string, id: string): Promise<v
     // nulls action.reportId when the *report* is deleted -- it does not touch the subject.
     if (row.reportId) {
       await tx.incidentReportSubject.updateMany({
-        where: { reportId: row.reportId, personId: row.personId },
+        // Only an APPROVED row is reverted. A strike can be linked to an
+        // arbitrary report after the fact (linkActionToReport), so an
+        // unqualified match would resurrect a DECLINED request, or flip a
+        // PENDING one, on deleting a strike that never came from that decision.
+        where: { reportId: row.reportId, personId: row.personId, strikeDecision: "APPROVED" },
         data: { strikeDecision: "PENDING", strikeDecidedById: null, strikeDecidedAt: null },
       });
     }

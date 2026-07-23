@@ -35,7 +35,7 @@ import { getActiveTerm } from "@/platform/terms/active-term";
 import { departmentDirectorPersonIds } from "@/platform/departments";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { formatDateOnly } from "@/platform/dates";
-import { strikeCount } from "./disciplinary";
+import { visibleStrikeCount } from "./disciplinary";
 
 export type StrikeNotificationInput = {
   /** The committed strike. */
@@ -136,10 +136,13 @@ export async function notifyStrikeIssued(input: StrikeNotificationInput): Promis
     if (directors.length === 0) return;
 
     const ledgerLink = `${baseUrl}/incidents/strikes`;
-    const total = await strikeCount(action.personId);
-    const strikeLabel = `${total} strike${total === 1 ? "" : "s"}`;
 
     for (const director of directors) {
+      // Scoped to what this director may see: mirrors directorVisibility, so a
+      // confidential strike issued by someone else never inflates the count in
+      // their notification (each director's visible total can differ).
+      const total = await visibleStrikeCount(action.personId, director.id);
+      const strikeLabel = `${total} strike${total === 1 ? "" : "s"}`;
       const rendered = await renderEmail(
         "incidents.strike_issued_directors",
         strikeIssuedDirectorsContext({

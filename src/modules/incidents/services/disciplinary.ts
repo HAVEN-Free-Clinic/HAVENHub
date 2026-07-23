@@ -577,3 +577,21 @@ export async function issuablePeople(actorPersonId: string): Promise<{
 export async function strikeCount(personId: string): Promise<number> {
   return prisma.disciplinaryAction.count({ where: { personId } });
 }
+
+/**
+ * Counts a person's strikes as `viewerPersonId` is permitted to see them:
+ * non-confidential rows, plus confidential rows the viewer issued. Mirrors
+ * directorVisibility, the same predicate the ledger's Strikes column uses, so a
+ * count shown to a director never reveals a confidential row they cannot open.
+ *
+ * Use this for anything director-facing. strikeCount is the unscoped total and
+ * is only correct for central viewers.
+ */
+export async function visibleStrikeCount(
+  personId: string,
+  viewerPersonId: string
+): Promise<number> {
+  return prisma.disciplinaryAction.count({
+    where: { personId, ...directorVisibility(viewerPersonId) },
+  });
+}

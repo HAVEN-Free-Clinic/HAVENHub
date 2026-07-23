@@ -187,6 +187,35 @@ describe("notifyStrikeIssued", () => {
     ).toBe(0);
   });
 
+  it("scopes the director's strike count to what that director may see, excluding a confidential strike issued by someone else", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("VISM");
+    const central = await createPerson("Central", "sn-vis-c");
+    const subject = await createPerson("Subject", "sn-vis-s");
+    const director = await createPerson("Director", "sn-vis-d");
+    await grantPermission(central.id, "incidents.manage");
+    await createMembership(subject.id, term.id, dept.id, "VOLUNTEER");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+
+    // An earlier confidential strike issued by central: the director did not
+    // issue it, so directorVisibility hides it from them.
+    await strike(central.id, subject.id, { confidential: true });
+
+    // A new, non-confidential strike: this is what triggers the notification.
+    const action = await strike(central.id, subject.id);
+    await notifyStrikeIssued({ action, actorPersonId: central.id });
+
+    const directorNotes = await prisma.notification.findMany({
+      where: { personId: director.id, type: "incidents.strike_issued_directors" },
+    });
+    expect(directorNotes).toHaveLength(1);
+    // The ledger's total is 2, but this director may only see 1 (the
+    // confidential row belongs to someone else). The notification must match
+    // what the director can actually see, not the unscoped total.
+    expect(directorNotes[0].body).toContain("1 strike");
+    expect(directorNotes[0].body).not.toContain("2 strikes");
+  });
+
   it("is a no-op, not a throw, when the subject no longer exists", async () => {
     const central = await createPerson("Central", "sn-throw-c");
     const subject = await createPerson("Subject", "sn-throw-s");

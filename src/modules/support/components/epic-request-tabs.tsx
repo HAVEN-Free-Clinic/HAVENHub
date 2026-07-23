@@ -596,6 +596,7 @@ export function EpicRequestTabs({
       ) : activeTab === "term-batch" ? (
         rollup ? (
           <TermBatchTab
+            key={rollup.term.id}
             rollup={rollup}
             authorizers={authorizers}
             termOptions={termOptions}

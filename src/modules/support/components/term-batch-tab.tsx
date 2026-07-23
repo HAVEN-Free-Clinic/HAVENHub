@@ -18,6 +18,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
@@ -69,6 +70,7 @@ export function TermBatchTab({
   termOptions: TermOption[];
   liveTermId: string | null;
 }) {
+  const router = useRouter();
   const [authorizerId, setAuthorizerId] = useState(authorizers[0]?.id ?? "");
   const [endDate, setEndDate] = useState(rollup.term.endDateIso);
   const [selection, setSelection] = useState<Selection>(() => defaultSelection(rollup));
@@ -118,6 +120,11 @@ export function TermBatchTab({
       });
       setDraft({ group, subject: result.subject, body: result.body });
       if (result.trackingWarning) setWarning(result.trackingWarning);
+      // The people just submitted are now SUBMITTED-and-ticketed server-side; drop
+      // them from the local selection and ask the server to re-render the rollup so
+      // their rows come back non-selectable instead of staying checked and re-clickable.
+      setSelection((prev) => ({ ...prev, [group]: new Set() }));
+      router.refresh();
     } catch (e) {
       setError((e as Error).message);
     } finally {

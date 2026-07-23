@@ -121,13 +121,20 @@ describe("text operators", () => {
     });
   });
 
-  it("isEmpty / isNotEmpty -> null-or-blank checks", () => {
+  it("isEmpty / isNotEmpty -> null-or-blank checks (nullable column)", () => {
     expect(personFieldWhere({ field: "epicId", op: "isEmpty" }, ctx)).toEqual({
       OR: [{ epicId: null }, { epicId: "" }],
     });
     expect(personFieldWhere({ field: "epicId", op: "isNotEmpty" }, ctx)).toEqual({
       AND: [{ epicId: { not: null } }, { epicId: { not: "" } }],
     });
+  });
+
+  // #128: Person.name is NOT NULL, so a `{ name: null }` filter throws
+  // PrismaClientValidationError. The empty check must omit the null half.
+  it("isEmpty / isNotEmpty on the NOT NULL name column omits the null filter", () => {
+    expect(personFieldWhere({ field: "name", op: "isEmpty" }, ctx)).toEqual({ name: "" });
+    expect(personFieldWhere({ field: "name", op: "isNotEmpty" }, ctx)).toEqual({ name: { not: "" } });
   });
 
   it("safety: a blank value operator matches nobody", () => {
@@ -150,12 +157,14 @@ describe("booleans and relations", () => {
     expect(personFieldWhere({ field: "licensedRN", op: "isFalse" }, ctx)).toEqual({ licensedRN: false });
   });
 
-  it("hasOpenEpicRequest -> some/none PENDING epic request", () => {
+  // #68: "open" is PENDING or SUBMITTED everywhere else in the app; matching only
+  // PENDING classified an already-SUBMITTED request as "no open request".
+  it("hasOpenEpicRequest -> some/none PENDING-or-SUBMITTED epic request", () => {
     expect(personFieldWhere({ field: "hasOpenEpicRequest", op: "isTrue" }, ctx)).toEqual({
-      epicRequests: { some: { status: "PENDING" } },
+      epicRequests: { some: { status: { in: ["PENDING", "SUBMITTED"] } } },
     });
     expect(personFieldWhere({ field: "hasOpenEpicRequest", op: "isFalse" }, ctx)).toEqual({
-      epicRequests: { none: { status: "PENDING" } },
+      epicRequests: { none: { status: { in: ["PENDING", "SUBMITTED"] } } },
     });
   });
 
@@ -247,5 +256,16 @@ describe("relation-backed conditions (compliance program additions)", () => {
     expect(personFieldWhere({ field: "flaggedForOffboarding", op: "isFalse" }, ctx)).toEqual({
       offboardFlags: { none: { termId: "term1" } },
     });
+  });
+
+  // #69: with no active term, the negated (isFalse) branch used to compile to
+  // `none: { termId: "" }`, which is TRUE for every Person row -> a campaign would
+  // email the entire database. Both operators must match nobody.
+  it("term-scoped fields match nobody when there is no active term", () => {
+    const noTerm = { activeTermId: null };
+    for (const field of ["completedVolunteerTraining", "flaggedForOffboarding"] as const) {
+      expect(personFieldWhere({ field, op: "isTrue" }, noTerm)).toEqual({ id: { in: [] } });
+      expect(personFieldWhere({ field, op: "isFalse" }, noTerm)).toEqual({ id: { in: [] } });
+    }
   });
 });

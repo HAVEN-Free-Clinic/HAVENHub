@@ -241,7 +241,14 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
   async function cancelAction() {
     "use server";
     const actor = await requirePermission("admin.send_email_campaign");
-    await cancelCampaign(actor.personId, id);
+    try {
+      await cancelCampaign(actor.personId, id);
+    } catch (err) {
+      if (err instanceof CampaignValidationError) {
+        redirect(`/admin/email/campaigns/${id}?error=${encodeURIComponent(err.problems.join("; "))}`);
+      }
+      throw err;
+    }
     revalidatePath(`/admin/email/campaigns/${id}`);
     redirect(`/admin/email/campaigns/${id}?cancelled=1`);
   }

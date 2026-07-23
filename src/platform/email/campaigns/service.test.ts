@@ -90,7 +90,7 @@ describe("campaign service", () => {
     const c = await createDraft(null, "Once");
     await updateCampaign(null, c.id, { subject: "s", body: "<p>hi</p>", audience: ALL_ACTIVE });
     await sendCampaignNow(null, c.id, {});
-    await expect(sendCampaignNow(null, c.id, {})).rejects.toThrow(/already sent/i);
+    await expect(sendCampaignNow(null, c.id, {})).rejects.toBeInstanceOf(CampaignValidationError);
   });
 
   it("rejects editing a campaign that has already been sent", async () => {
@@ -100,7 +100,7 @@ describe("campaign service", () => {
     await sendCampaignNow(null, c.id, {});
     await expect(
       updateCampaign(null, c.id, { subject: "s2", body: "<p>x</p>", audience: ALL_ACTIVE }),
-    ).rejects.toThrow(/cannot edit/i);
+    ).rejects.toBeInstanceOf(CampaignValidationError);
   });
 
   it("refuses to send a campaign with a blank subject", async () => {
@@ -203,7 +203,7 @@ describe("campaign service", () => {
     const c = await createDraft(null, "Sent3");
     await updateCampaign(null, c.id, { subject: "s", body: "<p>hi</p>", audience: ALL_ACTIVE });
     await sendCampaignNow(null, c.id, {}); // SENT
-    await expect(cancelCampaign(null, c.id)).rejects.toThrow(/scheduled or recurring/i);
+    await expect(cancelCampaign(null, c.id)).rejects.toBeInstanceOf(CampaignValidationError);
   });
 });
 

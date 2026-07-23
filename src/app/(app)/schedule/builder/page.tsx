@@ -53,7 +53,7 @@ import { activeTermGroup } from "@/platform/posthog/groups";
 import { getWorkingTerm } from "@/platform/terms/working-term";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { buildTermOptions } from "@/platform/terms/term-options";
-import { TermSwitcher } from "@/modules/schedule/components/term-switcher";
+import { TermSwitcher } from "@/platform/ui/term-switcher";
 import { prisma } from "@/platform/db";
 import { BuilderCell } from "@/modules/schedule/components/builder-cell";
 import { BuilderGrid } from "@/modules/schedule/components/builder-grid";

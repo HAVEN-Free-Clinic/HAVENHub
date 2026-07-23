@@ -21,10 +21,8 @@ import { can } from "@/platform/rbac/engine";
 import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { PageHeader } from "@/platform/ui/page-header";
-import { Badge } from "@/platform/ui/badge";
-import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
+import { Table, THead, TR, TH } from "@/platform/ui/table";
 import { Pagination } from "@/platform/ui/pagination";
-import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Field, Input, Textarea } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Button, buttonClasses } from "@/platform/ui/button";
@@ -51,9 +49,11 @@ import { linkableReports } from "@/modules/incidents/services/report";
 import { notifyStrikeIssued } from "@/modules/incidents/services/strike-notifications";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { CalendarDate } from "@/platform/dates/display";
 import Link from "next/link";
 import type { DisciplinaryAction } from "@prisma/client";
+import { StrikeRow } from "./strike-row";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
+import { formatDateOnly } from "@/platform/dates";
 
 // ---------------------------------------------------------------------------
 // Error codes
@@ -117,6 +117,8 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
     isCentral ? linkableReports(viewer.personId) : Promise.resolve([]),
   ]);
 
+  const displayZone = await getDisplayTimeZone();
+
   // Load actions; catch Forbidden to render a friendly empty state.
   let listResult: Awaited<ReturnType<typeof listActions>> | null = null;
   let accessForbidden = false;
@@ -151,6 +153,16 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
   const total = listResult?.total ?? 0;
   const canManageAll = listResult?.canManageAll ?? false;
   const pageCount = Math.max(1, Math.ceil(total / 25));
+
+  // Label any report a visible strike is linked to. One query, no N+1.
+  const linkedReportIds = [...new Set(rows.map((r) => r.action.reportId).filter(Boolean))] as string[];
+  const linkedReports = linkedReportIds.length
+    ? await prisma.incidentReport.findMany({
+        where: { id: { in: linkedReportIds } },
+        select: { id: true, number: true },
+      })
+    : [];
+  const reportLabelById = new Map(linkedReports.map((r) => [r.id, `Incident report #${r.number}`]));
 
   function buildHref(targetPage: number): string {
     const params = new URLSearchParams();
@@ -235,9 +247,7 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
     redirect("/incidents/strikes");
   }
 
-  // Consumed as a prop by the report-link UI landing in the next task; not yet
-  // rendered on this page, hence the disable below.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  // Consumed as a prop by StrikeRow's link/unlink control below.
   async function linkReportForm(formData: FormData) {
     "use server";
     const actor = await requirePermission("incidents.manage");
@@ -529,45 +539,35 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
               </THead>
               <tbody>
                 {rows.map(({ action, personName, issuedByName, strikes }) => (
-                  <TR key={action.id}>
-                    <TD className="tabular-nums text-sm text-foreground-soft whitespace-nowrap">
-                      <CalendarDate value={action.occurredAt} />
-                    </TD>
-                    <TD className="font-medium">{personName}</TD>
-                    <TD>
-                      <Badge tone="default">{action.category}</Badge>
-                    </TD>
-                    <TD className="max-w-xs text-sm text-foreground-soft">
-                      <span title={action.description} aria-label={action.description} className="line-clamp-2">
-                        {action.description}
-                      </span>
-                    </TD>
-                    <TD className="text-sm text-foreground-soft">{issuedByName}</TD>
-                    <TD>
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        {action.confidential && (
-                          <Badge tone="warning">Confidential</Badge>
-                        )}
-                        {action.patientInvolved && (
-                          <Badge tone="critical">Patient</Badge>
-                        )}
-                      </div>
-                    </TD>
-                    <TD className="tabular-nums text-sm font-medium text-foreground-soft">
-                      {strikes}
-                    </TD>
-                    {canManageAll && (
-                      <TD>
-                        <form action={deleteActionForm}>
-                          <input type="hidden" name="actionId" value={action.id} />
-                          <ConfirmButton
-                            label="Delete"
-                            confirmLabel="Delete this disciplinary action? This cannot be undone."
-                          />
-                        </form>
-                      </TD>
-                    )}
-                  </TR>
+                  <StrikeRow
+                    key={action.id}
+                    action={{
+                      id: action.id,
+                      occurredLabel: formatDateOnly(action.occurredAt, displayZone, {
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                      }),
+                      category: action.category,
+                      description: action.description,
+                      followUpActions: action.followUpActions,
+                      policyReference: action.policyReference,
+                      notes: action.notes,
+                      confidential: action.confidential,
+                      patientInvolved: action.patientInvolved,
+                      reportId: action.reportId,
+                      reportLabel: action.reportId
+                        ? (reportLabelById.get(action.reportId) ?? null)
+                        : null,
+                    }}
+                    personName={personName}
+                    issuedByName={issuedByName}
+                    strikes={strikes}
+                    canManageAll={canManageAll}
+                    reportOptions={reportOptions.map((r) => ({ value: r.id, label: r.label }))}
+                    deleteAction={deleteActionForm}
+                    linkReport={linkReportForm}
+                  />
                 ))}
               </tbody>
             </Table>

@@ -38,12 +38,13 @@ export function Combobox({
   onValueChange?: (value: string) => void;
   /**
    * Marks the visible text input required (native + aria-required), so it
-   * matches `Field required`'s aria-required/asterisk contract. Honest limit:
-   * the text input holds the search query, not the selected id, so this only
-   * catches a completely empty box. Someone who types text without picking an
-   * option still submits an empty hidden value; the server must still guard
-   * against that (this is existing behavior, not a regression from adding
-   * `required` here).
+   * matches `Field required`'s aria-required/asterisk contract. The text input
+   * holds the search query, not the selected id, but blur clears the query
+   * whenever no option was picked (see onBlur below), so typed-then-abandoned
+   * text can't leave the box looking filled while the hidden value is empty --
+   * native validation still blocks the submit. The server must still guard
+   * against a missing value independently; this is defense in depth, not a
+   * substitute for that check.
    */
   required?: boolean;
   "aria-describedby"?: string;
@@ -116,7 +117,7 @@ export function Combobox({
         aria-activedescendant={open && filtered.length > 0 ? `${listId}-opt-${active}` : undefined}
         aria-label={ariaLabel}
         aria-describedby={ariaDescribedBy}
-        aria-required={required}
+        aria-required={required || undefined}
         required={required}
         autoComplete="off"
         className={controlBase}
@@ -132,7 +133,13 @@ export function Combobox({
         // Close when focus leaves the whole combobox (e.g. Tab away). Option clicks
         // use onMouseDown+preventDefault, so they never blur the input first.
         onBlur={(e) => {
-          if (!rootRef.current?.contains(e.relatedTarget as Node | null)) setOpen(false);
+          if (rootRef.current?.contains(e.relatedTarget as Node | null)) return;
+          setOpen(false);
+          // Typed text that was never turned into a selection carries no value
+          // for the hidden input. Clearing it here means `required` (which
+          // checks this visible box) fires natively instead of the form
+          // submitting with an empty hidden value and losing every other field.
+          if (!value) setQuery("");
         }}
         onKeyDown={onKeyDown}
       />

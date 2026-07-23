@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseFieldCondition, isFieldVisible, mergeDepartmentAnswer } from "./field-visibility";
+import { parseFieldCondition, isFieldVisible, mergeDepartmentAnswer, answersForConditions } from "./field-visibility";
 
 describe("parseFieldCondition", () => {
   it("parses a valid is-condition", () => {
@@ -76,5 +76,34 @@ describe("mergeDepartmentAnswer", () => {
     const answers = { dept: "OLD" };
     mergeDepartmentAnswer(answers, "dept", ["NEW"]);
     expect(answers).toEqual({ dept: "OLD" });
+  });
+});
+
+describe("answersForConditions", () => {
+  it("passes strings and string arrays through unchanged", () => {
+    expect(answersForConditions({ a: "yes", b: ["x", "y"] })).toEqual({ a: "yes", b: ["x", "y"] });
+  });
+  it("normalizes a stored CHECKBOX boolean to on/empty (so review matches submit)", () => {
+    expect(answersForConditions({ agree: true, decline: false })).toEqual({ agree: "on", decline: "" });
+  });
+  it("marks a stored file/signature ref as attached", () => {
+    expect(answersForConditions({ resume: { storedName: "abc.pdf", fileName: "r.pdf" } })).toEqual({ resume: "attached" });
+  });
+  it("drops values that cannot match a string condition", () => {
+    expect(answersForConditions({ n: 3, o: { notAFile: true } })).toEqual({});
+  });
+  it("marks out-of-band file keys present (submit-time uploads live outside answers)", () => {
+    expect(answersForConditions({ a: "x" }, ["resume", "transcript"])).toEqual({ a: "x", resume: "attached", transcript: "attached" });
+  });
+  it("a checkbox-gated field is visible when the stored answer is normalized", () => {
+    const cond = { field: "agree", op: "is", value: "on" };
+    // Raw stored form (boolean) would fail isFieldVisible; normalized it passes.
+    expect(isFieldVisible(cond, answersForConditions({ agree: true }))).toBe(true);
+    expect(isFieldVisible(cond, answersForConditions({ agree: false }))).toBe(false);
+  });
+  it("a file-gated field is visible once its file key is marked present", () => {
+    const cond = { field: "resume", op: "isAnswered" };
+    expect(isFieldVisible(cond, answersForConditions({}, ["resume"]))).toBe(true);
+    expect(isFieldVisible(cond, answersForConditions({}))).toBe(false);
   });
 });

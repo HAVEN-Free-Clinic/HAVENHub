@@ -3,7 +3,7 @@ import { can } from "@/platform/rbac/engine";
 import { getApplication } from "./submissions";
 import { reviewScope, canViewApplication } from "./review";
 import { visibleSections, applicantTypeLabel } from "../engine/visibility";
-import { isFieldVisible } from "../engine/field-visibility";
+import { isFieldVisible, mergeDepartmentAnswer, answersForConditions } from "../engine/field-visibility";
 import { isInlinePreviewable } from "./file-preview";
 
 export type ReviewFieldView = {
@@ -55,11 +55,20 @@ export async function loadReviewApplication(
   }
 
   const answers = (app.answers ?? {}) as Record<string, unknown>;
-  const condAnswers: Record<string, string | string[] | undefined> = {};
-  for (const [k, v] of Object.entries(answers)) {
-    if (typeof v === "string") condAnswers[k] = v;
-    else if (Array.isArray(v) && v.every((x) => typeof x === "string")) condAnswers[k] = v as string[];
-  }
+  // Build the condition map exactly as submitApplication does, or the reviewer
+  // sees a differently-filtered application than the applicant submitted:
+  //  - answersForConditions normalizes a stored CHECKBOX (boolean) to "on" and a
+  //    stored FILE/SIGNATURE ref to "attached"; the old loop copied only strings
+  //    and string[], so checkbox- and file-gated questions were silently dropped.
+  //  - mergeDepartmentAnswer supplies the authoritative department under the
+  //    DEPARTMENT_CHOICE key, which a RENEWAL never submits, so department-gated
+  //    questions were hidden for returning applicants.
+  const deptChoiceKey = app.cycle.sections.flatMap((s) => s.fields).find((f) => f.type === "DEPARTMENT_CHOICE")?.key;
+  const condAnswers = mergeDepartmentAnswer(
+    answersForConditions(answers),
+    deptChoiceKey,
+    app.departmentChoices,
+  );
 
   const shown = visibleSections(app.cycle.sections, {
     applicantType: app.applicantType,

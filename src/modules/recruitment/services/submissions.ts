@@ -12,7 +12,7 @@ import {
   type SectionDef, type FieldDef,
 } from "../engine/schema-builder";
 import { visibleSections, type ApplicantType } from "../engine/visibility";
-import { isFieldVisible, mergeDepartmentAnswer } from "../engine/field-visibility";
+import { isFieldVisible, mergeDepartmentAnswer, answersForConditions } from "../engine/field-visibility";
 import { getRenewalContext } from "./renewal";
 import { renderCycleEmail } from "../email/render";
 import { decodeSignaturePng, SignatureError } from "./signature";
@@ -213,21 +213,37 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
     }
   }
 
-  // Cast is safe: isFieldVisible (via asArray) only ever compares string values;
-  // an answer that is not a plain string/string[] (e.g. a file ref, a checkbox
-  // boolean) is simply not string-comparable, so a condition targeting it
-  // resolves the same way it would for any other unmatched value.
-  //
-  // Merge the authoritative department under the DEPARTMENT_CHOICE field key so a
-  // field-level visibleWhen condition keyed on that field is evaluated exactly as
-  // the client rendered it (apply-wizard uses the same mergeDepartmentAnswer). A
-  // RENEWAL declares its department via renewalDepartment and never submits the
-  // department-choice field, so without this merge every such condition would be
-  // evaluated against an empty value here, silently dropping (or hard-blocking) an
-  // answer the applicant actually saw and gave.
+  // Resolve the dedup identity and any resumed-draft file refs BEFORE building the
+  // visibility context. A FILE field can gate other fields, but its "answer" lives
+  // out of band -- in this submit's uploads (input.files) or in a prior draft's
+  // stored refs (draftFileKeys) -- never in input.answers. Marking those keys
+  // present lets a condition keyed on a FILE evaluate here exactly as the wizard
+  // rendered it, instead of always resolving to unanswered (which silently dropped
+  // dependent answers, or hard-blocked a field the applicant was shown).
+  const email = (isReturning ? input.sessionEmail! : String(input.answers.email ?? "")).trim();
+  const emailLower = email.toLowerCase();
+  const existingApplicant = await prisma.applicant.findUnique({
+    where: { cycleId_emailLower: { cycleId: cycle.id, emailLower } },
+    include: { applications: true },
+  });
+  const existingApp = existingApplicant?.applications[0];
+  if (existingApp && existingApp.status === "SUBMITTED") throw new DuplicateApplicationError();
+  // Files uploaded during the draft live in the draft answers as refs; treat
+  // them as already-present so a resumed applicant need not re-pick them.
+  const draftAnswers = (existingApp?.answers as Record<string, unknown>) ?? {};
+  const draftFileKeys = Object.keys(draftAnswers).filter((k) => {
+    const v = draftAnswers[k];
+    return v != null && typeof v === "object" && "storedName" in (v as object);
+  });
+
+  // answersForConditions normalizes a CHECKBOX ("on"/"") and a file/signature ref
+  // ("attached"), and the file-key markers cover the out-of-band uploads above, so
+  // this map matches what the wizard evaluated. mergeDepartmentAnswer then supplies
+  // the authoritative department under the DEPARTMENT_CHOICE key, which a RENEWAL
+  // never submits, so a department-gated condition sees the real selection.
   const deptChoiceKey = resolvedSections.flatMap((s) => s.fields).find((f) => f.type === DEPT_CHOICE_KEY_TYPE)?.key;
   const answersForVisibility = mergeDepartmentAnswer(
-    input.answers as Record<string, string | string[]>,
+    answersForConditions(input.answers as Record<string, unknown>, [...Object.keys(input.files), ...draftFileKeys]),
     deptChoiceKey,
     selectedDepartmentCodes,
   ) as Record<string, string | string[] | undefined>;
@@ -262,10 +278,9 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
     throw new SubmissionValidationError("Please fix the highlighted fields.", fieldErrors);
   }
 
-  // For returning applicants the email is the verified session address (also the dedup key);
-  // the client-submitted value is ignored so it cannot be spoofed.
-  const email = (isReturning ? input.sessionEmail! : String(input.answers.email ?? "")).trim();
-  const emailLower = email.toLowerCase();
+  // email/emailLower and the existing-applicant + draft-file lookup are resolved
+  // above (needed to build the visibility context). For returning applicants the
+  // email is the verified session address; the client value is ignored.
   // Returning applicants: split the matched record's name (the identity fields are
   // NEW-only, so answers.first_name/last_name are absent for them). New applicants:
   // read the form. The template key is net_id (snake_case, like first_name), not
@@ -288,20 +303,6 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
   const identityPhone = isReturning
     ? returningIdentity?.phone ?? null
     : typeof input.answers.phone === "string" ? input.answers.phone : null;
-
-  const existingApplicant = await prisma.applicant.findUnique({
-    where: { cycleId_emailLower: { cycleId: cycle.id, emailLower } },
-    include: { applications: true },
-  });
-  const existingApp = existingApplicant?.applications[0];
-  if (existingApp && existingApp.status === "SUBMITTED") throw new DuplicateApplicationError();
-  // Files uploaded during the draft live in the draft answers as refs; treat
-  // them as already-present so a resumed applicant need not re-pick them.
-  const draftAnswers = (existingApp?.answers as Record<string, unknown>) ?? {};
-  const draftFileKeys = Object.keys(draftAnswers).filter((k) => {
-    const v = draftAnswers[k];
-    return v != null && typeof v === "object" && "storedName" in (v as object);
-  });
 
   const needFiles = requiredFileKeys(sectionDefs, ctx);
   const missingFile = needFiles.find((k) => !input.files[k] && !draftFileKeys.includes(k));

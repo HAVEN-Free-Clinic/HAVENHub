@@ -18,7 +18,7 @@ import { HipaaPanel } from "@/modules/my-info/components/hipaa-panel";
 import { EhsPanel } from "@/modules/my-info/components/ehs-panel";
 import { ClearanceCard, certRequirement, taskRequirement } from "@/modules/my-info/components/clearance-card";
 import { getMyEhsStatus } from "@/platform/ehs/services/my-ehs";
-import { complianceStatus } from "@/platform/compliance/rules";
+import { effectiveComplianceStatus } from "@/platform/compliance/rules";
 import { getOnboardingStatus } from "@/modules/onboarding/services/onboarding";
 
 type PageProps = {
@@ -101,10 +101,12 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
     redirect("/my-info?certSaved=1");
   }
 
-  // Compute compliance status for the newest cert
-  const newestCert = certificates[0] ?? null;
-  const status = complianceStatus(
-    newestCert,
+  // Drive the HIPAA requirement row from the SAME rule as the clearance banner
+  // beside it (effectiveComplianceStatus over the full cert history, with the
+  // verified-fallback). Using complianceStatus(newestCert) here made the row show
+  // PENDING_VERIFICATION for an early renewal while the banner showed "Cleared".
+  const status = effectiveComplianceStatus(
+    certificates,
     activeTerm?.endDate ?? null
   );
 

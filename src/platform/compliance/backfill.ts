@@ -75,7 +75,11 @@ function noonUtc(year: number, month0: number, day: number): Date | null {
 
 function inSanityWindow(d: Date): boolean {
   const now = new Date();
-  if (d.getTime() > now.getTime()) return false;
+  // Calendar-day ceiling, not a raw instant: a same-day cert is noon-UTC and
+  // would be "future" for a morning (pre-12:00 UTC) run. Matches parser.ts and
+  // parseCompletionDate.
+  const endOfTodayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999);
+  if (d.getTime() > endOfTodayUtc) return false;
   const cutoff = new Date(Date.UTC(
     now.getUTCFullYear() - MAX_AGE_YEARS,
     now.getUTCMonth(),

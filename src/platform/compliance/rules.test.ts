@@ -255,6 +255,31 @@ describe("effectiveComplianceStatus - early-renewal fallback (audit #17)", () =>
     const certs = [{ completionDate: noon(2026, 7, 10), verifiedAt: noon(2026, 7, 11) }];
     expect(effectiveComplianceStatus(certs, null, now)).toBe("COMPLIANT");
   });
+
+  // #11: a dateless (UNKNOWN_DATE) renewal upload must also fall back to the
+  // older still-valid verified cert, not un-clear the volunteer. UNKNOWN_DATE,
+  // like PENDING_VERIFICATION, means the newest upload is not yet usable and a
+  // manager must act on it, NOT that the prior cert stopped being valid.
+  it("stays compliant when the newest cert has no readable date but an older verified cert is valid", () => {
+    const certs = [
+      { completionDate: null, verifiedAt: null }, // newest: PDF date unreadable -> UNKNOWN_DATE
+      { completionDate: noon(2026, 6, 1), verifiedAt: noon(2026, 6, 2) }, // still-valid verified cert
+    ];
+    expect(effectiveComplianceStatus(certs, null, now)).toBe("COMPLIANT");
+  });
+
+  it("is UNKNOWN_DATE when a dateless cert is the only one", () => {
+    const certs = [{ completionDate: null, verifiedAt: null }];
+    expect(effectiveComplianceStatus(certs, null, now)).toBe("UNKNOWN_DATE");
+  });
+
+  it("does not fall back to an expired verified cert for a dateless newest cert", () => {
+    const certs = [
+      { completionDate: null, verifiedAt: null },
+      { completionDate: noon(2024, 1, 1), verifiedAt: noon(2024, 1, 2) }, // verified but expired
+    ];
+    expect(effectiveComplianceStatus(certs, null, now)).toBe("UNKNOWN_DATE");
+  });
 });
 
 describe("hipaaNeedsTrainingLink", () => {

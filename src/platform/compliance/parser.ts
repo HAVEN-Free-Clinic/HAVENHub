@@ -87,7 +87,13 @@ function noonUtc(year: number, month0: number, day: number): Date | null {
 /** Returns true if the date is within the sanity window (not future, not > 5y old). */
 function inSanityWindow(d: Date): boolean {
   const now = new Date();
-  if (d.getTime() > now.getTime()) return false;
+  // Compare calendar days, not instants. Parsed dates are anchored at noon UTC
+  // (noonUtc), so a certificate completed TODAY is <today>T12:00:00Z, which is a
+  // future instant for any upload before 12:00 UTC (before ~08:00 ET). Comparing
+  // against the raw instant wrongly rejected same-day certs uploaded in the
+  // morning. Use the end-of-today-UTC ceiling, matching parseCompletionDate.
+  const endOfTodayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999);
+  if (d.getTime() > endOfTodayUtc) return false;
   // Cutoff is exactly MAX_AGE_YEARS ago at NOON UTC, matching the noon-UTC
   // dates produced by noonUtc(). Computing the cutoff at noon UTC (rather than
   // "now minus 5 years" at the current wall-clock time) avoids a sub-day skew

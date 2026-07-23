@@ -112,6 +112,14 @@ export function complianceStatus(
  * the most recent still-valid VERIFIED cert. Uploading a fresh cert before the old
  * one expires must not revoke clearance while the new upload awaits verification.
  * `certs` must be newest-first (uploadedAt desc).
+ *
+ * The fallback triggers for BOTH PENDING_VERIFICATION and UNKNOWN_DATE: each means
+ * "the newest upload is not yet a usable clearance and a manager must act on it"
+ * (unverified, or its completion date could not be read), NOT that the older
+ * verified cert stopped being valid. Without UNKNOWN_DATE in the fallback, a
+ * dateless renewal upload short-circuited and returned UNKNOWN_DATE, un-clearing a
+ * volunteer whose prior verified cert was still valid and locking them out of the
+ * hub (deriveHipaaTaskState treats UNKNOWN_DATE as an incomplete blocking task).
  */
 export function effectiveComplianceStatus(
   certs: Array<{ completionDate: Date | null; verifiedAt: Date | null }>,
@@ -120,7 +128,7 @@ export function effectiveComplianceStatus(
 ): ComplianceStatus {
   if (certs.length === 0) return complianceStatus(null, termEnd, now);
   const newestStatus = complianceStatus(certs[0], termEnd, now);
-  if (newestStatus !== "PENDING_VERIFICATION") return newestStatus;
+  if (newestStatus !== "PENDING_VERIFICATION" && newestStatus !== "UNKNOWN_DATE") return newestStatus;
   for (const cert of certs) {
     if (cert.verifiedAt === null) continue;
     const status = complianceStatus(cert, termEnd, now);

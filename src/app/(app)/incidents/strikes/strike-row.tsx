@@ -105,80 +105,78 @@ export function StrikeRow({
         )}
       </TR>
 
-      {open && (
-        <TR id={detailId}>
-          <TD colSpan={columnCount} className="bg-muted/40">
-            <dl className="grid gap-4 py-2 text-sm sm:grid-cols-2">
-              <div className="sm:col-span-2">
-                <dt className="font-medium text-foreground">Description</dt>
+      <TR id={detailId} hidden={!open}>
+        <TD colSpan={columnCount} className="bg-muted/40">
+          <dl className="grid gap-4 py-2 text-sm sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <dt className="font-medium text-foreground">Description</dt>
+              <dd className="mt-1 whitespace-pre-wrap text-foreground-soft">
+                {action.description}
+              </dd>
+            </div>
+
+            {action.followUpActions && (
+              <div>
+                <dt className="font-medium text-foreground">Follow-up actions</dt>
                 <dd className="mt-1 whitespace-pre-wrap text-foreground-soft">
-                  {action.description}
+                  {action.followUpActions}
                 </dd>
               </div>
+            )}
 
-              {action.followUpActions && (
-                <div>
-                  <dt className="font-medium text-foreground">Follow-up actions</dt>
-                  <dd className="mt-1 whitespace-pre-wrap text-foreground-soft">
-                    {action.followUpActions}
-                  </dd>
-                </div>
-              )}
+            {action.policyReference && (
+              <div>
+                <dt className="font-medium text-foreground">Policy reference</dt>
+                <dd className="mt-1 text-foreground-soft">{action.policyReference}</dd>
+              </div>
+            )}
 
-              {action.policyReference && (
-                <div>
-                  <dt className="font-medium text-foreground">Policy reference</dt>
-                  <dd className="mt-1 text-foreground-soft">{action.policyReference}</dd>
-                </div>
-              )}
-
-              {action.notes && (
-                <div className="sm:col-span-2">
-                  <dt className="font-medium text-foreground">Internal notes</dt>
-                  <dd className="mt-1 whitespace-pre-wrap text-foreground-soft">{action.notes}</dd>
-                </div>
-              )}
-
+            {action.notes && (
               <div className="sm:col-span-2">
-                <dt className="font-medium text-foreground">Incident report</dt>
-                <dd className="mt-1 text-foreground-soft">
-                  {action.reportLabel ?? "Not linked to a report."}
-                </dd>
-
-                {canManageAll && (
-                  <dd className="mt-2">
-                    {action.reportId ? (
-                      <form action={linkReport}>
-                        <input type="hidden" name="actionId" value={action.id} />
-                        <input type="hidden" name="reportId" value="" />
-                        <Button type="submit" variant="outline" size="sm">
-                          Unlink report
-                        </Button>
-                      </form>
-                    ) : (
-                      <form action={linkReport} className="flex flex-wrap items-end gap-2">
-                        <input type="hidden" name="actionId" value={action.id} />
-                        <div className="w-72">
-                          <Combobox
-                            name="reportId"
-                            ariaLabel={`Link ${personName}'s strike to an incident report`}
-                            placeholder="Search reports..."
-                            emptyLabel="No matching reports"
-                            options={reportOptions}
-                          />
-                        </div>
-                        <Button type="submit" variant="outline" size="sm">
-                          Link report
-                        </Button>
-                      </form>
-                    )}
-                  </dd>
-                )}
+                <dt className="font-medium text-foreground">Internal notes</dt>
+                <dd className="mt-1 whitespace-pre-wrap text-foreground-soft">{action.notes}</dd>
               </div>
-            </dl>
-          </TD>
-        </TR>
-      )}
+            )}
+
+            <div className="sm:col-span-2">
+              <dt className="font-medium text-foreground">Incident report</dt>
+              <dd className="mt-1 text-foreground-soft">
+                {action.reportLabel ?? "Not linked to a report."}
+              </dd>
+
+              {canManageAll && (
+                <dd className="mt-2">
+                  {action.reportId ? (
+                    <form action={linkReport}>
+                      <input type="hidden" name="actionId" value={action.id} />
+                      <input type="hidden" name="reportId" value="" />
+                      <Button type="submit" variant="outline" size="sm">
+                        Unlink report
+                      </Button>
+                    </form>
+                  ) : (
+                    <form action={linkReport} className="flex flex-wrap items-end gap-2">
+                      <input type="hidden" name="actionId" value={action.id} />
+                      <div className="w-72">
+                        <Combobox
+                          name="reportId"
+                          ariaLabel={`Link ${personName}'s strike to an incident report`}
+                          placeholder="Search reports..."
+                          emptyLabel="No matching reports"
+                          options={reportOptions}
+                        />
+                      </div>
+                      <Button type="submit" variant="outline" size="sm">
+                        Link report
+                      </Button>
+                    </form>
+                  )}
+                </dd>
+              )}
+            </div>
+          </dl>
+        </TD>
+      </TR>
     </>
   );
 }

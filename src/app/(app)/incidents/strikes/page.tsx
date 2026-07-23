@@ -173,6 +173,9 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
     return `/incidents/strikes?${params.toString()}`;
   }
 
+  // Compute report options once for all strike rows.
+  const reportComboOptions = reportOptions.map((r) => ({ value: r.id, label: r.label }));
+
   // ---------------------------------------------------------------------------
   // Server actions
   // ---------------------------------------------------------------------------
@@ -564,7 +567,7 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
                     issuedByName={issuedByName}
                     strikes={strikes}
                     canManageAll={canManageAll}
-                    reportOptions={reportOptions.map((r) => ({ value: r.id, label: r.label }))}
+                    reportOptions={reportComboOptions}
                     deleteAction={deleteActionForm}
                     linkReport={linkReportForm}
                   />

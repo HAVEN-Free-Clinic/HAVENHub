@@ -794,6 +794,8 @@ const LINKABLE_REPORT_LIMIT = 200;
  * LINKABLE_REPORT_LIMIT: the Combobox filters client-side over whatever it is
  * given, so this deliberately does not ship the full history. Older reports are
  * linked by deleting and re-recording the strike, or by raising the cap.
+ * Ordered by number (a monotonic autoincrement) as a secondary key so
+ * same-millisecond inserts still order deterministically.
  */
 export async function linkableReports(
   actorPersonId: string
@@ -803,7 +805,7 @@ export async function linkableReports(
   const zone = await getDisplayTimeZone();
   const reports = await prisma.incidentReport.findMany({
     select: { id: true, number: true, concernTypes: true, createdAt: true },
-    orderBy: { createdAt: "desc" },
+    orderBy: [{ createdAt: "desc" }, { number: "desc" }],
     take: LINKABLE_REPORT_LIMIT,
   });
 

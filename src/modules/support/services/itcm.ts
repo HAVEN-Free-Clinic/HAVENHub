@@ -685,13 +685,19 @@ export async function submitEpicRequests(
       data: { submittedById: actorPersonId, description: ticketDescription, status: "OPEN" },
     });
 
-    // Adopted rows (the minority) still need their own updateMany: each has its
-    // own claim precondition (status PENDING + ticketId null) that a batched insert
-    // can't express. Everything else is collected and inserted with one createMany
-    // below instead of one create per person, since the headline use of this
-    // function is a whole term's roster (100-250 people) in one click, and a
-    // sequential per-row create risks the transaction's timeout at hosted-Postgres
-    // latency.
+    // Adopted rows still need their own updateMany: each has its own claim
+    // precondition (status PENDING + ticketId null) that a batched insert can't
+    // express. Everything else is collected and inserted with one createMany below
+    // instead of one create per person. The headline use of this function is a
+    // whole term's roster (100-250 people) in one click, and a sequential per-row
+    // create risks the transaction timeout at hosted-Postgres latency.
+    //
+    // How much this batching helps depends on the group: a start-of-term NEW batch
+    // is mostly adoptions (promotion raises a PENDING NEW for every promoted
+    // volunteer who needs Epic), so it stays largely sequential and it is the
+    // explicit timeout on the $transaction below that keeps it safe. MODIFY and
+    // RENEW batches, which have no promotion-raised rows, collapse into the single
+    // createMany.
     const toCreate: { personId: string; mirrorEpicId: string | null }[] = [];
     for (const r of requests) {
       const existingId = adoptable.get(r.personId);

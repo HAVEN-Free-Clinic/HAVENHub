@@ -173,6 +173,25 @@ export async function runImport(reader: AirtableReader, options: ImportOptions):
     }
   }
 
+  // Offboard convergence, create-branch half. The `update: {}` below is
+  // deliberately a no-op so a re-import never resurrects an offboarded member,
+  // but the `create` branch omits `status` and therefore takes the schema
+  // default (ACTIVE). Whenever the Airtable roster lists an offboarded person in
+  // a department or kind they do not already hold, no row matches the compound
+  // key, upsert takes `create`, and it mints a brand-new ACTIVE membership on an
+  // OFFBOARDED person: the exact resurrection the update-branch comment exists
+  // to prevent, through the door next to it. The importer never writes
+  // Person.status, so nothing downstream would heal it.
+  const membershipPersonIds = [...new Set(roster.memberships
+    .map((m) => importedByRecordId.get(m.personRecordId))
+    .filter((id): id is string => Boolean(id)))];
+  const activePersonIds = new Set(
+    (await prisma.person.findMany({
+      where: { id: { in: membershipPersonIds }, status: "ACTIVE" },
+      select: { id: true },
+    })).map((p) => p.id)
+  );
+
   let membershipCount = 0;
   for (const membership of roster.memberships) {
     const personId = importedByRecordId.get(membership.personRecordId);
@@ -180,6 +199,18 @@ export async function runImport(reader: AirtableReader, options: ImportOptions):
     const department = await prisma.department.findUniqueOrThrow({
       where: { code: membership.departmentCode },
     });
+    // Only guard the create: an existing row is left untouched either way.
+    if (!activePersonIds.has(personId)) {
+      const existingRow = await prisma.termMembership.findUnique({
+        where: {
+          personId_termId_departmentId_kind: {
+            personId, termId: term.id, departmentId: department.id, kind: membership.kind,
+          },
+        },
+        select: { id: true },
+      });
+      if (!existingRow) continue;
+    }
     await prisma.termMembership.upsert({
       where: {
         personId_termId_departmentId_kind: {

@@ -229,6 +229,38 @@ export async function updatePersonFields(
   }
 }
 
+/**
+ * Cancel every open (PENDING/SUBMITTED) DEACTIVATE EpicRequest for a person,
+ * because they are back: a returning person no longer owes a revocation.
+ *
+ * This is the reactivation half of the offboard convergence, extracted so every
+ * writer that brings a Person back to ACTIVE can apply it inside its own
+ * transaction. `setPersonStatusField` is one such writer; `promoteContracts`
+ * (recruitment re-onboarding an offboarded person) is the other, and it used to
+ * flip the status with a bare update, leaving the queued deactivation live so
+ * IT later revoked Epic access from somebody who had just re-joined.
+ *
+ * Takes a transaction client so the cancellation and the status flip commit
+ * together. Returns the ids it cancelled, for audit snapshots.
+ */
+export async function cancelOpenDeactivationRequestsTx(
+  tx: Prisma.TransactionClient,
+  personId: string
+): Promise<string[]> {
+  const openDeact = await tx.epicRequest.findMany({
+    where: { personId, status: { in: ["PENDING", "SUBMITTED"] }, kind: "DEACTIVATE" },
+    select: { id: true, notes: true },
+  });
+  for (const r of openDeact) {
+    const line = "Cancelled: person reactivated";
+    await tx.epicRequest.update({
+      where: { id: r.id },
+      data: { status: "CANCELLED", notes: r.notes ? `${r.notes}\n${line}` : line },
+    });
+  }
+  return openDeact.map((r) => r.id);
+}
+
 export async function setPersonStatusField(
   actorPersonId: string,
   personId: string,
@@ -308,19 +340,9 @@ export async function setPersonStatusField(
         }
       }
     } else if (status === "ACTIVE") {
-      // Reactivation: a returning person no longer owes a revocation.
-      const openDeact = await tx.epicRequest.findMany({
-        where: { personId, status: { in: ["PENDING", "SUBMITTED"] }, kind: "DEACTIVATE" },
-        select: { id: true, notes: true },
-      });
-      for (const r of openDeact) {
-        const line = "Cancelled: person reactivated";
-        await tx.epicRequest.update({
-          where: { id: r.id },
-          data: { status: "CANCELLED", notes: r.notes ? `${r.notes}\n${line}` : line },
-        });
-      }
-      cancelledDeactivationRequestIds = openDeact.map((r) => r.id);
+      // Reactivation: a returning person no longer owes a revocation. Shared with
+      // promoteContracts so the two reactivation paths cannot drift again.
+      cancelledDeactivationRequestIds = await cancelOpenDeactivationRequestsTx(tx, personId);
     }
 
     return tx.person.update({

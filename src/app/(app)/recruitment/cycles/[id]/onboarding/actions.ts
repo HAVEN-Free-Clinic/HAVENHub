@@ -54,10 +54,20 @@ export async function promoteAction(cycleId: string, formData: FormData) {
     await captureEvent({
       distinctId: person.personId,
       event: "volunteers_promoted",
-      properties: { cycle_id: cycleId, created: res.created, reactivated: res.reactivated, skipped: res.skipped },
+      properties: { cycle_id: cycleId, created: res.created, reactivated: res.reactivated, skipped: res.skipped, failed: res.failed },
       groups: await termGroupForCycle(cycleId),
     });
-    redirect(bounce(cycleId, { msg: `Promoted: ${res.created} new, ${res.reactivated} returning, ${res.skipped} skipped.` }));
+    const summary = `Promoted: ${res.created} new, ${res.reactivated} returning, ${res.skipped} skipped.`;
+    // A contract that errored out is NOT a benign skip: that person was never
+    // created and holds no membership, so they are absent from every roster for
+    // the term. Surface it as an error so the SRR retries rather than reading a
+    // green banner and moving on.
+    if (res.failed > 0) {
+      redirect(bounce(cycleId, {
+        err: `${summary} ${res.failed} failed to promote and must be retried.`,
+      }));
+    }
+    redirect(bounce(cycleId, { msg: summary }));
   } catch (err) {
     if (err instanceof RecruitmentAuthError) redirect(bounce(cycleId, { err: (err as Error).message }));
     throw err;

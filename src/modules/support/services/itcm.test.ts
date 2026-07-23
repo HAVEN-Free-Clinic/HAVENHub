@@ -160,6 +160,22 @@ describe("listPendingDeactivations", () => {
     expect(rows.map((r) => r.name)).toEqual(["Alice"]);
     expect(rows[0].epicId).toBe("EA");
   });
+
+  // A DEACTIVATE is a revocation task for somebody who has left. If they are
+  // ACTIVE again, IT must not see it: this query is the last point before the
+  // revocation becomes real YNHH paperwork, and it should not depend on every
+  // writer having remembered to cancel the request on reactivation.
+  it("excludes a person who is ACTIVE again despite a still-open DEACTIVATE", async () => {
+    const actor = await prisma.person.create({ data: { name: "Actor" } });
+    const rejoined = await prisma.person.create({
+      data: { name: "Rejoined", epicId: "ER", status: "ACTIVE" },
+    });
+    await prisma.epicRequest.create({
+      data: { personId: rejoined.id, kind: "DEACTIVATE", status: "PENDING", requestedById: actor.id },
+    });
+
+    expect(await listPendingDeactivations()).toEqual([]);
+  });
 });
 
 describe("listPendingEpicRequests", () => {

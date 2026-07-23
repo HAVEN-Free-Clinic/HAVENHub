@@ -495,7 +495,14 @@ export type PendingDeactivation = {
  */
 export async function listPendingDeactivations(): Promise<PendingDeactivation[]> {
   const requests = await prisma.epicRequest.findMany({
-    where: { kind: "DEACTIVATE", status: "PENDING" },
+    // Defence in depth for offboard convergence. A DEACTIVATE is a revocation
+    // task for somebody who has left, so a person who is ACTIVE again does not
+    // belong in IT's outstanding-work list no matter how their request came to
+    // still be open. The writers are supposed to cancel it on reactivation
+    // (setPersonStatusField and promoteContracts both call
+    // cancelOpenDeactivationRequestsTx), but this query is the last point before
+    // a revocation becomes real YNHH paperwork, so it does not rely on that.
+    where: { kind: "DEACTIVATE", status: "PENDING", person: { status: { not: "ACTIVE" } } },
     include: {
       person: {
         select: {

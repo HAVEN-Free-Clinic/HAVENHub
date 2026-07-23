@@ -4,6 +4,7 @@ import { recordAudit } from "@/platform/audit";
 import { log, errorAttrs } from "@/platform/logging";
 import { aliasPerson, flushEvents } from "@/platform/posthog/capture";
 import { isoDateKey } from "@/platform/dates";
+import { cancelOpenDeactivationRequestsTx } from "@/platform/people";
 import { findAcceptanceConflicts } from "../engine/conflicts";
 import { RecruitmentAuthError } from "./review";
 
@@ -33,9 +34,20 @@ export function parseAvailabilityDates(answer: unknown): Date[] {
   return out;
 }
 
-export async function promoteContracts(contractIds: string[], actorId: string): Promise<{ created: number; reactivated: number; skipped: number }> {
+/** Thrown when another promote claimed the contract first. Benign: counted as skipped. */
+class ContractAlreadyClaimedError extends Error {
+  constructor(public contractId: string) {
+    super(`Onboarding contract ${contractId} was already promoted`);
+    this.name = "ContractAlreadyClaimedError";
+  }
+}
+
+export async function promoteContracts(
+  contractIds: string[],
+  actorId: string
+): Promise<{ created: number; reactivated: number; skipped: number; failed: number }> {
   if (!(await can(actorId, "recruitment.review_all"))) throw new RecruitmentAuthError("Only SRR can promote onboarding contracts.");
-  let created = 0, reactivated = 0, skipped = 0;
+  let created = 0, reactivated = 0, skipped = 0, failed = 0;
   // Pre-conversion apply-portal events were keyed by the applicant email; alias
   // each into the resolved person id so those events join the person timeline.
   let aliasedAny = false;
@@ -72,8 +84,24 @@ export async function promoteContracts(contractIds: string[], actorId: string): 
     );
     const availabilityDates = parsedAvailabilityDates.filter((d) => clinicDateKeys.has(isoDateKey(d)));
 
+    let wasReactivated = false;
+    let cancelledDeactivations: string[] = [];
     try {
       const result = await prisma.$transaction(async (tx) => {
+        // Claim the contract before doing any work. The SUBMITTED guard above is
+        // a read outside this transaction, and the terminal write used to carry
+        // no precondition, so two SRRs promoting the same contract at once could
+        // both proceed: for a returning applicant whose membership already exists
+        // neither hits a unique key, and both then create a HipaaCertificate and
+        // an EpicRequest (neither table constrains duplicates). Claiming first
+        // makes the loser roll back before creating anything. Mirrors the
+        // updateMany claim used by the other terminal transitions in this module.
+        const claimed = await tx.onboardingContract.updateMany({
+          where: { id: contract.id, status: "SUBMITTED" },
+          data: { status: "PROMOTED", promotedAt: new Date(), promotedById: actorId },
+        });
+        if (claimed.count === 0) throw new ContractAlreadyClaimedError(contract.id);
+
         let person = contract.netId
           ? await tx.person.findFirst({ where: { netId: { equals: contract.netId, mode: "insensitive" } } })
           : null;
@@ -82,6 +110,18 @@ export async function promoteContracts(contractIds: string[], actorId: string): 
         }
         let isNew = false;
         if (person) {
+          // Offboard convergence: this is a reactivation path for anyone whose
+          // Person.status was OFFBOARDED (offboarded people fail the Entra match
+          // at sign-in, so they return as a NEW applicant and land here). Flipping
+          // the status alone left the PENDING DEACTIVATE EpicRequest that
+          // offboarding queued still open, so the person stayed in IT's
+          // deactivation queue and had their Epic access revoked days after
+          // re-joining. Mirror setPersonStatusField's ACTIVE branch, in the same
+          // transaction, via the helper both paths now share.
+          if (person.status !== "ACTIVE") {
+            cancelledDeactivations = await cancelOpenDeactivationRequestsTx(tx, person.id);
+            wasReactivated = true;
+          }
           await tx.person.update({
             where: { id: person.id },
             data: {
@@ -117,6 +157,25 @@ export async function promoteContracts(contractIds: string[], actorId: string): 
           });
         }
         const effectiveEpicId = person.epicId ?? contract.existingEpicId ?? null;
+
+        // One ACTIVE membership per (person, term, department) is the intended
+        // state: changeMembershipKind soft-removes the old row when swapping
+        // kinds. Promotion used to scope its lookup by `kind` too, so promoting
+        // someone through a DIRECTOR cycle who already held an ACTIVE VOLUNTEER
+        // row in the same department created a parallel ACTIVE row. That renders
+        // them as two rows in the schedule builder grid (sharing one personId, so
+        // both toggle the same assignment) and double-counts them in department
+        // compliance. Retire any ACTIVE row of the other kind first.
+        const otherKindActive = await tx.termMembership.findMany({
+          where: {
+            personId: person.id, termId: cycle.termId, departmentId: dept.id,
+            status: "ACTIVE", kind: { not: kind },
+          },
+          select: { id: true },
+        });
+        for (const m of otherKindActive) {
+          await tx.termMembership.update({ where: { id: m.id }, data: { status: "REMOVED" } });
+        }
 
         const existingMembership = await tx.termMembership.findFirst({ where: { personId: person.id, termId: cycle.termId, departmentId: dept.id, kind } });
         if (!existingMembership) {
@@ -172,20 +231,46 @@ export async function promoteContracts(contractIds: string[], actorId: string): 
           }
         }
 
-        await tx.onboardingContract.update({ where: { id: contract.id }, data: { status: "PROMOTED", promotedAt: new Date(), promotedById: actorId, promotedPersonId: person.id } });
+        // The status/promotedAt/promotedById half was written by the claim above.
+        await tx.onboardingContract.update({ where: { id: contract.id }, data: { promotedPersonId: person.id } });
         return { isNew, personId: person.id };
       });
       if (result.isNew) created += 1; else reactivated += 1;
       await recordAudit({ actorPersonId: actorId, action: "recruitment.promote", entityType: "OnboardingContract", entityId: id });
+      // Bringing a Person back to ACTIVE is auditable wherever it happens. The
+      // recruitment.promote row above is against the contract, so without this a
+      // reactivation via re-onboarding left no trace on the Person, unlike the
+      // same change made from /admin/people. Same action name and shape as
+      // setPersonStatusField's reactivate branch.
+      if (wasReactivated) {
+        await recordAudit({
+          actorPersonId: actorId,
+          action: "person.reactivate",
+          entityType: "Person",
+          entityId: result.personId,
+          before: { status: "OFFBOARDED" },
+          after: { status: "ACTIVE", cancelledDeactivationRequestIds: cancelledDeactivations },
+        });
+      }
       if (contract.email) {
         await aliasPerson({ personId: result.personId, previousDistinctId: contract.email, flush: false });
         aliasedAny = true;
       }
     } catch (err) {
-      log.error("[promotion] skipping contract", errorAttrs(err, { contractId: id }));
-      skipped += 1;
+      if (err instanceof ContractAlreadyClaimedError) {
+        // Another promote won the race. Benign, and the winner did the work.
+        skipped += 1;
+        continue;
+      }
+      // Anything else is a real failure (transaction timeout, constraint
+      // violation, dropped connection) and must NOT be folded into `skipped`,
+      // which the SRR reads as "conflicted or not yet submitted" and dismisses.
+      // Those people would otherwise never be created, never get a membership,
+      // and be absent from every roster for the term with nobody aware.
+      log.error("[promotion] contract failed to promote", errorAttrs(err, { contractId: id }));
+      failed += 1;
     }
   }
   if (aliasedAny) await flushEvents();
-  return { created, reactivated, skipped };
+  return { created, reactivated, skipped, failed };
 }

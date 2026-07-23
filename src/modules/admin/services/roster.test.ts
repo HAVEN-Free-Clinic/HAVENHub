@@ -24,6 +24,7 @@ import {
   MembershipNotFoundError,
   MembershipForeignKeyError,
   DirectorHasShiftAssignmentsError,
+  OffboardedPersonError,
   RosterCopyError,
 } from "./roster";
 import { TermNotFoundError } from "./terms";
@@ -174,6 +175,49 @@ describe("addMembership", () => {
     const logs = await prisma.auditLog.findMany({ where: { action: "roster.add" } });
     expect(logs).toHaveLength(1);
     expect(logs[0].actorPersonId).toBe(ACTOR);
+  });
+
+  // Offboard convergence: Person.status OFFBOARDED implies zero ACTIVE
+  // memberships. setPersonStatusField holds one direction; this holds the other.
+  it("refuses to add a membership to an OFFBOARDED person", async () => {
+    const term = await seedTerm("SU26", "ACTIVE");
+    const dept = await seedDepartment("DEPT");
+    const person = await prisma.person.create({ data: { name: "Gone", status: "OFFBOARDED" } });
+
+    await expect(
+      addMembership(ACTOR, { personId: person.id, termId: term.id, departmentId: dept.id, kind: "VOLUNTEER" })
+    ).rejects.toBeInstanceOf(OffboardedPersonError);
+
+    expect(await prisma.termMembership.count({ where: { personId: person.id } })).toBe(0);
+    expect(await prisma.auditLog.count({ where: { action: "roster.add" } })).toBe(0);
+  });
+
+  it("refuses to swap the kind of an OFFBOARDED person's membership", async () => {
+    // changeMembershipKind writes an ACTIVE row of the target kind, so for an
+    // offboarded person (all rows REMOVED) it would resurrect them onto the
+    // roster. membershipId arrives from FormData, so the guard belongs here.
+    const term = await seedTerm("SU26", "ACTIVE");
+    const dept = await seedDepartment("DEPT");
+    const person = await prisma.person.create({ data: { name: "Gone", status: "OFFBOARDED" } });
+    const m = await seedMembership({
+      personId: person.id, termId: term.id, departmentId: dept.id, kind: "VOLUNTEER", status: "REMOVED",
+    });
+
+    await expect(
+      changeMembershipKind(ACTOR, { membershipId: m.id, toKind: "DIRECTOR" })
+    ).rejects.toBeInstanceOf(OffboardedPersonError);
+
+    expect(await prisma.termMembership.count({ where: { personId: person.id, status: "ACTIVE" } })).toBe(0);
+  });
+
+  it("still adds a membership for an ACTIVE person", async () => {
+    const term = await seedTerm("SU26", "ACTIVE");
+    const dept = await seedDepartment("DEPT");
+    const person = await prisma.person.create({ data: { name: "Here", status: "ACTIVE" } });
+    await expect(
+      addMembership(ACTOR, { personId: person.id, termId: term.id, departmentId: dept.id, kind: "VOLUNTEER" })
+    ).resolves.not.toThrow();
+    expect(await prisma.termMembership.count({ where: { personId: person.id, status: "ACTIVE" } })).toBe(1);
   });
 
   it("revives a REMOVED membership instead of throwing a unique violation", async () => {

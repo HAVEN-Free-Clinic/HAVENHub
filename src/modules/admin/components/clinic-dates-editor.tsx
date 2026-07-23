@@ -69,7 +69,7 @@ export function ClinicDatesEditor({
                 <HiddenDatesField dates={remaining} />
                 <ConfirmButton
                   label="Remove"
-                  confirmLabel="Confirm remove?"
+                  confirmLabel="Remove this date? Any shifts and pending requests on it are cleared."
                 />
               </form>
             </div>

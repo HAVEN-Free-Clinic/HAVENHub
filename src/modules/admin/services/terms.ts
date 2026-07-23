@@ -101,7 +101,12 @@ function toNoonUtc(iso: string): Date {
 
 export async function listTerms(): Promise<(Term & { _count: { memberships: number } })[]> {
   return prisma.term.findMany({
-    include: { _count: { select: { memberships: true } } },
+    // TermMembership is soft-deleted (status flips to REMOVED, rows are never
+    // deleted) and changeMembershipKind leaves a REMOVED row behind when swapping
+    // kinds. An unscoped count therefore includes everyone ever removed, so it
+    // overstated the roster and disagreed with the ACTIVE-only list on the detail
+    // page. Scope to live rows, mirroring listDepartments.
+    include: { _count: { select: { memberships: { where: { status: "ACTIVE" } } } } },
     orderBy: { startDate: "desc" },
   });
 }

@@ -51,6 +51,7 @@ import {
   deleteAction,
   listActions,
   issuablePeople,
+  strikeablePeople,
   strikeCount,
   DISCIPLINARY_CATEGORIES,
   DisciplinaryForbiddenError,
@@ -971,5 +972,55 @@ describe("issuablePeople", () => {
     const result = await issuablePeople(actor.id);
     expect(result.all).toBe(false);
     expect(result.people).toHaveLength(0);
+  });
+});
+
+describe("strikeablePeople", () => {
+  it("returns an empty list for a non-central actor", async () => {
+    const director = await createPerson("Director", "sp-nc-d");
+    expect(await strikeablePeople(director.id)).toEqual([]);
+  });
+
+  it("includes offboarded people so a strike can still be recorded against them", async () => {
+    const central = await createPerson("Central", "sp-inact-c");
+    await grantPermission(central.id, "incidents.manage");
+    const gone = await prisma.person.create({
+      data: { name: "Departed Volunteer", netId: "sp-gone", status: "OFFBOARDED" },
+    });
+
+    const people = await strikeablePeople(central.id);
+    const row = people.find((p) => p.id === gone.id);
+    expect(row).toBeDefined();
+    expect(row!.hint).toContain("offboarded");
+  });
+
+  it("sorts active people before offboarded ones, then by name", async () => {
+    const central = await createPerson("Central", "sp-sort-c");
+    await grantPermission(central.id, "incidents.manage");
+    await prisma.person.create({
+      data: { name: "Aaron Inactive", netId: "sp-sort-a", status: "OFFBOARDED" },
+    });
+    const zoe = await prisma.person.create({
+      data: { name: "Zoe Active", netId: "sp-sort-z", status: "ACTIVE" },
+    });
+
+    const people = await strikeablePeople(central.id);
+    const zoeIdx = people.findIndex((p) => p.id === zoe.id);
+    const aaronIdx = people.findIndex((p) => p.name === "Aaron Inactive");
+    expect(zoeIdx).toBeLessThan(aaronIdx);
+  });
+
+  it("hints the active-term department and kind so same-named people are distinguishable", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("SCTM");
+    const central = await createPerson("Central", "sp-hint-c");
+    await grantPermission(central.id, "incidents.manage");
+    const vol = await createPerson("Hinted Volunteer", "sp-hint-v");
+    await createMembership(vol.id, term.id, dept.id, "VOLUNTEER");
+
+    const people = await strikeablePeople(central.id);
+    const row = people.find((p) => p.id === vol.id);
+    expect(row!.hint).toContain("SCTM");
+    expect(row!.hint).toContain("volunteer");
   });
 });

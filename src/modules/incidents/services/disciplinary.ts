@@ -595,3 +595,60 @@ export async function visibleStrikeCount(
     where: { personId, ...directorVisibility(viewerPersonId) },
   });
 }
+
+/**
+ * The people a central reviewer may pick in the Record Disciplinary Action
+ * combobox. Central (incidents.manage) only; returns [] otherwise, since
+ * directors use the scoped issuablePeople select instead.
+ *
+ * Returns EVERY person, not just ACTIVE ones. The free-text NetID/email lookup
+ * this replaces had no status filter, so restricting to ACTIVE would silently
+ * remove the ability to record a strike against someone who has since
+ * offboarded. OFFBOARDED people sort last and carry an "offboarded" hint.
+ *
+ * `hint` mirrors listSubjectOptions' convention (active-term department codes
+ * plus volunteer/director) so same-named people are distinguishable.
+ */
+export async function strikeablePeople(actorPersonId: string): Promise<
+  Array<{ id: string; name: string; hint: string | null }>
+> {
+  if (!(await can(actorPersonId, "incidents.manage"))) return [];
+
+  const activeTerm = await getActiveTerm();
+  const [persons, memberships] = await Promise.all([
+    prisma.person.findMany({
+      select: { id: true, name: true, status: true },
+      orderBy: { name: "asc" },
+    }),
+    activeTerm
+      ? prisma.termMembership.findMany({
+          where: { termId: activeTerm.id, status: "ACTIVE" },
+          select: { personId: true, kind: true, department: { select: { code: true } } },
+        })
+      : [],
+  ]);
+
+  const hints = new Map<string, { depts: Set<string>; kinds: Set<string> }>();
+  for (const m of memberships) {
+    const entry = hints.get(m.personId) ?? { depts: new Set<string>(), kinds: new Set<string>() };
+    if (m.department?.code) entry.depts.add(m.department.code);
+    if (m.kind) entry.kinds.add(m.kind === "DIRECTOR" ? "director" : "volunteer");
+    hints.set(m.personId, entry);
+  }
+
+  return persons
+    .map((p) => {
+      const h = hints.get(p.id);
+      const parts = h
+        ? [[...h.depts].sort().join(", "), [...h.kinds].sort().join("/")].filter(Boolean)
+        : [];
+      // PersonStatus is ACTIVE | OFFBOARDED -- there is no INACTIVE value.
+      if (p.status !== "ACTIVE") parts.push("offboarded");
+      return { id: p.id, name: p.name, hint: parts.join(" ") || null, active: p.status === "ACTIVE" };
+    })
+    .sort((a, b) => {
+      if (a.active !== b.active) return a.active ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    })
+    .map(({ id, name, hint }) => ({ id, name, hint }));
+}

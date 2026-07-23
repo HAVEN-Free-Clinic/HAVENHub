@@ -1852,8 +1852,14 @@ export function StrikeRow({
         )}
       </TR>
 
-      {open && (
-        <TR id={detailId}>
+      {/* CORRECTION (applied during execution, commit c579f8d3): this row was
+          conditionally rendered as `{open && (<TR id={detailId}>`, which left the
+          button's aria-controls pointing at a non-existent element whenever the row
+          was collapsed, its default state. Render it unconditionally and toggle
+          `hidden` instead, so the relationship resolves in both states. TR spreads
+          rest props onto the <tr> and adds no display class, so `hidden` works. */}
+      {(
+        <TR id={detailId} hidden={!open}>
           <TD colSpan={columnCount} className="bg-muted/40">
             <dl className="grid gap-4 py-2 text-sm sm:grid-cols-2">
               <div className="sm:col-span-2">

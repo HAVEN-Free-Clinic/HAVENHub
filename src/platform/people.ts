@@ -314,6 +314,7 @@ export async function setPersonStatusField(
   let cancelledEpicRequestIds: string[] = [];
   let deactivationRequestId: string | null = null;
   let cancelledDeactivationRequestIds: string[] = [];
+  let cancelledShiftRequestCount = 0;
 
   const updated = await prisma.$transaction(async (tx) => {
     if (status === "OFFBOARDED") {
@@ -347,6 +348,22 @@ export async function setPersonStatusField(
         });
       }
       cancelledEpicRequestIds = openGrants.map((r) => r.id);
+
+      // Cancel the departing person's PENDING shift requests too (as requester or
+      // swap target). Nothing else touched them, so they lingered in every approver
+      // surface forever: counted in the Approvals badge, pinned atop the department
+      // approvals list, and re-nagged to approvers ~every 3 days by the
+      // schedule-reminders cron -- and could never be approved anyway, since a
+      // departed participant fails the active-member check. (#134) System cancel:
+      // status + note only, no decidedBy (not an approver decision).
+      const cancelledShiftRequests = await tx.shiftRequest.updateMany({
+        where: {
+          status: "PENDING",
+          OR: [{ requesterId: personId }, { targetId: personId }],
+        },
+        data: { status: "CANCELLED", note: "Cancelled: a participant was offboarded." },
+      });
+      cancelledShiftRequestCount = cancelledShiftRequests.count;
 
       // Enqueue a deactivation task when there is recorded Epic access to
       // revoke and no open DEACTIVATE request already exists (idempotent).
@@ -395,7 +412,7 @@ export async function setPersonStatusField(
     after: {
       status: updated.status,
       ...(status === "OFFBOARDED"
-        ? { removedMemberships, cancelledEpicRequestIds, deactivationRequestId }
+        ? { removedMemberships, cancelledEpicRequestIds, deactivationRequestId, cancelledShiftRequestCount }
         : { cancelledDeactivationRequestIds }),
     },
   });

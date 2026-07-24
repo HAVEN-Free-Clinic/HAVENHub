@@ -265,6 +265,41 @@ describe("setPersonStatusField", () => {
     expect((logs[0].after as Record<string, unknown>).removedMemberships).toBe(2);
   });
 
+  it("offboarding cancels the person's PENDING shift requests (as requester or swap target) (#134)", async () => {
+    const person = await createPersonRecord(ACTOR, { name: "Leaver", netId: "lv1" });
+    const other = await createPersonRecord(ACTOR, { name: "Other", netId: "ot1" });
+    const dept = await prisma.department.create({ data: { code: "PCAR", name: "PCAR" } });
+    const term = await prisma.term.create({
+      data: { code: "SU26", name: "Summer", startDate: new Date("2026-05-01"), endDate: new Date("2026-09-01"), status: "ACTIVE" },
+    });
+    await prisma.termMembership.create({ data: { personId: person.id, termId: term.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" } });
+
+    const asRequester = await prisma.shiftRequest.create({
+      data: { termId: term.id, requesterId: person.id, requesterDate: new Date("2026-08-15"), departmentId: dept.id, status: "PENDING" },
+    });
+    const asTarget = await prisma.shiftRequest.create({
+      data: { termId: term.id, requesterId: other.id, requesterDate: new Date("2026-08-15"), departmentId: dept.id, targetId: person.id, targetDate: new Date("2026-08-22"), status: "PENDING" },
+    });
+    const unrelated = await prisma.shiftRequest.create({
+      data: { termId: term.id, requesterId: other.id, requesterDate: new Date("2026-08-29"), departmentId: dept.id, status: "PENDING" },
+    });
+    const alreadyDenied = await prisma.shiftRequest.create({
+      data: { termId: term.id, requesterId: person.id, requesterDate: new Date("2026-08-01"), departmentId: dept.id, status: "DENIED" },
+    });
+    await prisma.auditLog.deleteMany();
+
+    await setPersonStatusField(ACTOR, person.id, "OFFBOARDED");
+
+    expect((await prisma.shiftRequest.findUniqueOrThrow({ where: { id: asRequester.id } })).status).toBe("CANCELLED");
+    expect((await prisma.shiftRequest.findUniqueOrThrow({ where: { id: asTarget.id } })).status).toBe("CANCELLED");
+    // A request the departing person is not part of, and an already-decided one, are untouched.
+    expect((await prisma.shiftRequest.findUniqueOrThrow({ where: { id: unrelated.id } })).status).toBe("PENDING");
+    expect((await prisma.shiftRequest.findUniqueOrThrow({ where: { id: alreadyDenied.id } })).status).toBe("DENIED");
+
+    const log = await prisma.auditLog.findFirstOrThrow({ where: { entityId: person.id, action: "person.offboard" } });
+    expect((log.after as Record<string, unknown>).cancelledShiftRequestCount).toBe(2);
+  });
+
   it("reactivating never restores or touches memberships and records no removal count", async () => {
     const person = await createPersonRecord(ACTOR, { name: "Reactivate", netId: "rea1" });
     const dept = await prisma.department.create({ data: { code: "ITCM", name: "IT" } });

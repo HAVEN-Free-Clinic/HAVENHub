@@ -176,8 +176,9 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
     "use server";
     const actor = await requireModuleAccess("schedule");
     const requestId = (formData.get("requestId") as string | null) ?? "";
+    let sent = 0;
     try {
-      await remindDirectors(actor.personId, requestId);
+      sent = await remindDirectors(actor.personId, requestId);
     } catch (err) {
       if (err instanceof RequestValidationError || err instanceof RequestForbiddenError || err instanceof RequestNotFoundError) {
         redirect(`/schedule?error=validation&message=${encodeURIComponent((err as Error).message)}`);
@@ -185,7 +186,9 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
       throw err;
     }
     revalidatePath("/schedule");
-    redirect("/schedule?message=reminded");
+    // Tell the truth: when every approver was throttled (e.g. the daily cron or a
+    // recent reminder already emailed them), nothing was enqueued (#113).
+    redirect(sent > 0 ? "/schedule?message=reminded" : "/schedule?message=already_reminded");
   }
 
   return (
@@ -222,6 +225,11 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
       {sp.message === "reminded" && (
         <Alert tone="success" className="mb-6 font-medium">
           Reminder sent to your department directors.
+        </Alert>
+      )}
+      {sp.message === "already_reminded" && (
+        <Alert tone="info" className="mb-6 font-medium">
+          Your department directors were already reminded recently, so no new email was sent.
         </Alert>
       )}
 

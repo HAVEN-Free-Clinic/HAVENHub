@@ -1126,7 +1126,7 @@ const REMINDER_THROTTLE_MS = 3 * 24 * 60 * 60 * 1000;
 export async function remindDirectors(
   actorPersonId: string,
   requestId: string,
-): Promise<void> {
+): Promise<number> {
   const req = await prisma.shiftRequest.findUnique({
     where: { id: requestId },
     include: {
@@ -1154,9 +1154,13 @@ export async function remindDirectors(
   const approvers = await requestApproverRecipients(req.departmentId, req.termId);
   const throttleCutoff = new Date(Date.now() - REMINDER_THROTTLE_MS);
 
-  await Promise.all(
-    approvers.map(async (approver) => {
-      if (!approver.contactEmail) return;
+  // Return the number actually enqueued so the caller can tell the requester the
+  // truth: when the cron (or a recent reminder for another request) has throttled
+  // every approver, nothing is sent and "Reminder sent" would be a false
+  // confirmation (#113).
+  const enqueued = await Promise.all(
+    approvers.map(async (approver): Promise<number> => {
+      if (!approver.contactEmail) return 0;
       // Throttle: skip an approver already notified with this template inside the
       // window (a prior reminder or the original submission notice), so repeated
       // clicks are a no-op rather than an email flood (audit F15).
@@ -1164,7 +1168,7 @@ export async function remindDirectors(
         where: { personId: approver.id, template: REMINDER_TEMPLATE, createdAt: { gte: throttleCutoff } },
         select: { id: true },
       });
-      if (already) return;
+      if (already) return 0;
       // Shared render path: branded layout + admin override, not a bare fragment.
       const { subject, html } = await renderEmail(REMINDER_TEMPLATE, {
         directorName: approver.name?.split(" ")[0] ?? approver.name ?? "",
@@ -1183,6 +1187,8 @@ export async function remindDirectors(
         personId: approver.id,
         triggeredById: actorPersonId,
       });
+      return 1;
     })
   );
+  return enqueued.reduce((sum, n) => sum + n, 0);
 }

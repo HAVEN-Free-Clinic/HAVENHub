@@ -1518,6 +1518,33 @@ describe("remindDirectors throttle (F15)", () => {
     await remindDirectors(requester.id, req.id);
     expect(await count()).toBe(2);
   });
+
+  it("returns the number of reminders enqueued so a fully-throttled remind reports 0 (#113)", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("AABB");
+    const director = await createPersonWithEmail("Dir", "dir@example.org");
+    const requester = await createPerson("Vol");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(requester.id, term.id, dept.id, "VOLUNTEER");
+    await createShift(term.id, dept.id, requester.id, dates[0], "VOLUNTEER");
+    const req = await createRequest(requester.id, {
+      termId: term.id,
+      requesterDateKey: isoDateKey(dates[0]),
+      departmentId: dept.id,
+    });
+    await prisma.shiftRequest.update({
+      where: { id: req.id },
+      data: { createdAt: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000) },
+    });
+    await prisma.emailLog.deleteMany({});
+
+    // First remind: the director is not throttled -> one reminder enqueued.
+    expect(await remindDirectors(requester.id, req.id)).toBe(1);
+    // Second remind: the director is now throttled -> zero enqueued, so the action
+    // can tell the requester nothing was sent instead of a false "Reminder sent".
+    expect(await remindDirectors(requester.id, req.id)).toBe(0);
+  });
 });
 
 describe("countPendingApprovals cross-term", () => {

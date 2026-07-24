@@ -1,6 +1,26 @@
 import type { Metadata } from "next";
 import { getSetting } from "@/platform/settings/service";
 import { getModule } from "@/platform/modules/registry";
+import { config } from "@/platform/config";
+
+/**
+ * Parse the metadataBase URL defensively. This runs inside the root layout's
+ * generateMetadata, i.e. on EVERY route including /login and /admin/settings, so
+ * an unparseable base URL would 500 the entire app with no in-app recovery.
+ * Fall back to the (now url-validated) env default, then to undefined -- Next
+ * treats a missing metadataBase as "resolve relative URLs at request time",
+ * which is degraded but never fatal (#67).
+ */
+function safeMetadataBase(baseUrl: string): URL | undefined {
+  for (const candidate of [baseUrl, config.APP_BASE_URL]) {
+    try {
+      return new URL(candidate);
+    } catch {
+      // try the next candidate
+    }
+  }
+  return undefined;
+}
 
 const OG_IMAGE_PATH = "/brand/og-image.jpg";
 const OG_IMAGE_WIDTH = 1200;
@@ -49,7 +69,7 @@ export async function buildPageMetadata(
   }
 
   return {
-    metadataBase: new URL(baseUrl),
+    metadataBase: safeMetadataBase(baseUrl),
     title,
     description,
     openGraph: {

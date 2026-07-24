@@ -10,13 +10,11 @@
  * The value arrives as a plain string OR an object { state, value, isStale }.
  * We handle both and return the text string or null.
  */
-import * as fs from "fs/promises";
-import * as path from "path";
-
 import { config } from "@/platform/config";
 import { AirtableClient } from "@/platform/airtable/client";
 import { extractCompletionDate } from "@/platform/compliance/parser";
 import { backfillCompletionDates } from "@/platform/compliance/backfill";
+import { getObject } from "@/platform/storage";
 
 // ---------------------------------------------------------------------------
 // Field ID for "HIPAA Last Completed Date" on the All People table
@@ -26,20 +24,6 @@ const HIPAA_DATE_FIELD_ID = "fldpQ3GY24wqJQ4Md";
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/**
- * Read a stored cert file from UPLOAD_DIR by storedName.
- * Returns null if the file does not exist or cannot be read.
- */
-async function readFileFromUploadDir(storedName: string): Promise<Buffer | null> {
-  const uploadDir = config.UPLOAD_DIR;
-  const filePath = path.join(uploadDir, storedName);
-  try {
-    return await fs.readFile(filePath);
-  } catch {
-    return null;
-  }
-}
 
 /**
  * Extract the AI-generated date text from an Airtable record's HIPAA date field.
@@ -88,7 +72,12 @@ async function main() {
   const result = await backfillCompletionDates(
     {
       parse: extractCompletionDate,
-      readFile: readFileFromUploadDir,
+      // Read cert bytes through the storage layer (Vercel Blob in prod, disk
+      // locally) -- the SAME layer the certificates importer wrote them through.
+      // The old code read config.UPLOAD_DIR directly, so in production (bytes in
+      // Blob) every read returned null and the PDF-parse strategy was silently
+      // skipped for every certificate. (#2)
+      readFile: (storedName: string) => getObject(storedName),
       fetchAirtableDate: async (airtableRecordId: string): Promise<string | null> => {
         try {
           const record = await client.getRecord(baseId, tableId, airtableRecordId);

@@ -12,6 +12,7 @@ import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import { config } from "@/platform/config";
 import { ALL_PEOPLE_ATTACHMENT_FIELDS as AF } from "@/platform/airtable/fields";
+import * as storage from "@/platform/storage";
 import { backfillCertificates, type AttachmentDownloader } from "./certificates";
 import type { AirtableReader } from "./importer";
 
@@ -130,6 +131,32 @@ describe("backfillCertificates", () => {
     // Downloader was called with the newest attachment's URL
     expect(downloader).toHaveBeenCalledWith(newerAtt.url);
     expect(downloader).toHaveBeenCalledTimes(1);
+  });
+
+  it("writes the certificate bytes to storage BEFORE creating the DB row (#119)", async () => {
+    // The old order committed the row, then wrote storage; an interruption between
+    // the two orphaned the row forever (the count>0 re-run guard skips it). Writing
+    // the blob first means a crash leaves only a harmless, re-runnable blob. Assert
+    // the invariant directly: no row exists at the moment the bytes are written.
+    const person = await createPerson({ airtableRecordId: "recRace" });
+    const reader: AirtableReader = {
+      async listAll() {
+        return [{ id: "recRace", fields: { [AF.hipaaCertificate]: [fakeAttachment()] } }];
+      },
+    };
+
+    let rowCountWhenBytesWritten = -1;
+    const spy = vi.spyOn(storage, "putObject").mockImplementation(async () => {
+      rowCountWhenBytesWritten = await prisma.hipaaCertificate.count({ where: { personId: person.id } });
+    });
+    try {
+      await backfillCertificates(reader, makeDownloader(), OPTS);
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(rowCountWhenBytesWritten).toBe(0); // bytes written before any row -> no orphan
+    expect(await prisma.hipaaCertificate.count({ where: { personId: person.id } })).toBe(1);
   });
 
   it("skips a person who already has ANY HipaaCertificate row", async () => {

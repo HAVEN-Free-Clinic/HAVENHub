@@ -109,19 +109,34 @@ export async function saveDraft(
   const cleanAnswers = stripFileAnswers(input.answers);
 
   const existing = applicant?.applications[0];
-  if (existing && existing.status === "SUBMITTED") {
-    throw new DraftError("Your application has already been submitted.");
-  }
 
   if (existing) {
-    const answers = mergeDraftAnswers(existing.answers as Record<string, unknown> | null, cleanAnswers);
-    await prisma.application.update({
-      where: { id: existing.id },
-      data: {
-        answers: answers as never,
-        ...(input.applicantType ? { applicantType: input.applicantType } : {}),
-        ...(input.renewalDepartment !== undefined ? { renewalDepartment: input.renewalDepartment } : {}),
-      },
+    // Merge and write under a row lock, re-reading `answers`/`status` inside the
+    // transaction. The old code checked `status === "SUBMITTED"` against the stale
+    // findRow read and then issued an UNCONDITIONAL update, so a submitApplication
+    // that flipped DRAFT->SUBMITTED between the read and the write silently
+    // overwrote the server-built submitted answers with the raw draft snapshot
+    // (reverting signature blob refs to data URLs, restoring stripped hidden
+    // answers) with no recovery path. FOR UPDATE serializes this against submit and
+    // against a concurrent uploadDraftFile, and re-reading means the file-ref
+    // overlay uses live refs (a file uploaded during this autosave is not dropped).
+    await prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<{ status: string; answers: unknown }[]>`
+        SELECT "status", "answers" FROM "Application" WHERE "id" = ${existing.id} FOR UPDATE
+      `;
+      const fresh = locked[0];
+      if (!fresh || fresh.status !== "DRAFT") {
+        throw new DraftError("Your application has already been submitted.");
+      }
+      const answers = mergeDraftAnswers(fresh.answers as Record<string, unknown> | null, cleanAnswers);
+      await tx.application.update({
+        where: { id: existing.id },
+        data: {
+          answers: answers as never,
+          ...(input.applicantType ? { applicantType: input.applicantType } : {}),
+          ...(input.renewalDepartment !== undefined ? { renewalDepartment: input.renewalDepartment } : {}),
+        },
+      });
     });
     return;
   }
@@ -238,14 +253,37 @@ export async function uploadDraftFile(
   if (problem) throw new DraftError(problem.message);
 
   const { answerPatch, storageKeys } = await persistFiles(cycle.id, { [fieldKey]: file });
-  const prior = (app.answers as Record<string, unknown>)[fieldKey] as { storedName?: string } | undefined;
+
+  // Merge the file ref under a row lock, re-reading `answers`/`status` INSIDE the
+  // transaction. persistFiles is a full object-storage round trip; the old code
+  // snapshotted app.answers before it and wrote `{ ...staleAnswers, ...answerPatch }`
+  // afterward, so any autosave, sibling upload, or DRAFT->SUBMITTED claim that
+  // committed during the upload was silently reverted (typed answers lost, other
+  // file refs dropped and orphaned, or the file ref written onto a now-SUBMITTED
+  // row). FOR UPDATE serializes the write and re-reads live answers, so only this
+  // field is added and everything committed during the upload survives.
+  let priorStoredName: string | undefined;
   try {
-    await prisma.application.update({ where: { id: app.id }, data: { answers: { ...(app.answers as Record<string, unknown>), ...answerPatch } as never } });
+    await prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<{ status: string; answers: unknown }[]>`
+        SELECT "status", "answers" FROM "Application" WHERE "id" = ${app.id} FOR UPDATE
+      `;
+      const fresh = locked[0];
+      if (!fresh || fresh.status !== "DRAFT") {
+        throw new DraftError("No editable draft.");
+      }
+      const freshAnswers = (fresh.answers as Record<string, unknown> | null) ?? {};
+      priorStoredName = (freshAnswers[fieldKey] as { storedName?: string } | undefined)?.storedName;
+      await tx.application.update({
+        where: { id: app.id },
+        data: { answers: { ...freshAnswers, ...answerPatch } as never },
+      });
+    });
   } catch (err) {
     await cleanupFiles(storageKeys);
     throw err;
   }
   // Best-effort delete of the file this one replaced.
-  if (prior?.storedName) await cleanupFiles([`recruitment/${cycle.id}/${prior.storedName}`]);
+  if (priorStoredName) await cleanupFiles([`recruitment/${cycle.id}/${priorStoredName}`]);
   return { fileName: file.fileName };
 }

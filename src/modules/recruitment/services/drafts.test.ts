@@ -1,7 +1,8 @@
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import { getDraft, saveDraft, DraftError, uploadDraftFile, sweepAbandonedDrafts } from "./drafts";
+import * as uploadModule from "./upload";
 import { setApplicationWindow } from "./cycles";
 
 beforeEach(async () => { await resetDb(); });
@@ -152,6 +153,66 @@ it("preserves an uploaded file reference when a later autosave omits it", async 
   expect((d?.answers.resume as { fileName: string } | undefined)?.fileName).toBe("cv.pdf");
   expect(d?.answers.first_name).toBe("Reed");
   expect(d?.answers.last_name).toBe("R");
+});
+
+it("uploadDraftFile does not overwrite an application submitted during the blob upload (#103)", async () => {
+  // The submit lands in the window between findRow and the answers write. persistFiles
+  // is that window (a slow object-storage round trip); the spy flips the row to
+  // SUBMITTED with server-built answers before returning, exactly as submitApplication
+  // would. The transactional re-read must see SUBMITTED and refuse, not clobber it.
+  const cycle = await fileFieldCycle("race-submit", null);
+  const draft = await getDraft("race-submit", ID);
+  const spy = vi
+    .spyOn(uploadModule, "persistFiles")
+    .mockImplementation(async (cycleId: string) => {
+      await prisma.application.update({
+        where: { id: draft!.applicationId },
+        data: { status: "SUBMITTED", submittedAt: new Date(), answers: { server: "authoritative" } as never },
+      });
+      return {
+        answerPatch: { resume: { storedName: "resume-x.pdf", fileName: "cv.pdf", mimeType: "application/pdf", size: 2 } },
+        storageKeys: [`recruitment/${cycleId}/resume-x.pdf`],
+      };
+    });
+  try {
+    await expect(
+      uploadDraftFile("race-submit", ID, "resume", { fileName: "cv.pdf", mimeType: "application/pdf", bytes: Buffer.from("hi") }),
+    ).rejects.toBeInstanceOf(DraftError);
+  } finally {
+    spy.mockRestore();
+  }
+  // The submitted answers were NOT clobbered with the stale draft + file ref.
+  const app = await prisma.application.findFirstOrThrow({ where: { cycleId: cycle.id } });
+  expect(app.status).toBe("SUBMITTED");
+  expect(app.answers).toEqual({ server: "authoritative" });
+});
+
+it("uploadDraftFile preserves an answer written by a concurrent autosave during the upload (#101/#103)", async () => {
+  // A debounced saveDraft commits typed answers while the blob upload is in flight.
+  // The old whole-object write merged the file ref onto a pre-upload snapshot and
+  // reverted the typing; the transactional re-read must keep both.
+  await fileFieldCycle("race-sibling", null);
+  const draft = await getDraft("race-sibling", ID);
+  const spy = vi
+    .spyOn(uploadModule, "persistFiles")
+    .mockImplementation(async () => {
+      await prisma.application.update({
+        where: { id: draft!.applicationId },
+        data: { answers: { typed: "during-upload" } as never },
+      });
+      return {
+        answerPatch: { resume: { storedName: "resume-y.pdf", fileName: "cv.pdf", mimeType: "application/pdf", size: 2 } },
+        storageKeys: [],
+      };
+    });
+  try {
+    await uploadDraftFile("race-sibling", ID, "resume", { fileName: "cv.pdf", mimeType: "application/pdf", bytes: Buffer.from("hi") });
+  } finally {
+    spy.mockRestore();
+  }
+  const d = await getDraft("race-sibling", ID);
+  expect(d?.answers.typed).toBe("during-upload"); // concurrent autosave not lost
+  expect((d?.answers.resume as { fileName: string }).fileName).toBe("cv.pdf"); // file ref added
 });
 
 it("does not resurrect a non-file answer that a later save clears", async () => {

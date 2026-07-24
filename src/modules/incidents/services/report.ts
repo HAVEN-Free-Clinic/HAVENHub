@@ -30,6 +30,7 @@ import { putObject, deleteObject } from "@/platform/storage";
 import { validateUploadedFile } from "@/modules/recruitment/services/upload";
 import { peopleWithAnyPermission } from "@/platform/rbac/holders";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
+import { formatForDateInput } from "@/platform/dates/format";
 import { formatDateOnly } from "@/platform/dates";
 import { notify } from "@/platform/notifications/notify";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
@@ -955,6 +956,16 @@ export async function decideStrike(
     throw new IncidentValidationError(`Choose a strike category. One of: ${DISCIPLINARY_CATEGORIES.join(", ")}.`);
   }
 
+  // #96: DisciplinaryAction.occurredAt is a calendar-day column -- every other
+  // write stores a UTC-midnight marker parsed from an <input type="date"> and every
+  // read renders it with <CalendarDate timeZone:"UTC">. A raw `new Date()` fallback
+  // stores a live instant, so an approval at (say) 21:15 ET is 01:15Z the next day
+  // and the register shows the strike one day late. Fall back to today's calendar
+  // day in the display zone, anchored at UTC midnight, consistent with the column.
+  const occurredFallback = new Date(
+    `${formatForDateInput(new Date(), await getDisplayTimeZone())}T00:00:00.000Z`,
+  );
+
   // The PENDING->APPROVED claim and the issueAction strike create share one
   // interactive transaction: the claim runs first, so a lost race (count === 0)
   // throws before any strike is created, and any later failure rolls the claim
@@ -974,7 +985,7 @@ export async function decideStrike(
         actorPersonId,
         {
           personId: subject.personId,
-          occurredAt: input.occurredAt ?? report.occurredAt ?? new Date(),
+          occurredAt: input.occurredAt ?? report.occurredAt ?? occurredFallback,
           category,
           description: report.description,
           followUpActions: input.followUpActions ?? null,

@@ -146,6 +146,23 @@ it("sendAcceptanceEmail returns not_found when there is no such acceptance", asy
   expect(await sendAcceptanceEmail(clean.id, "SRHD")).toEqual({ sent: false, reason: "not_found" });
 });
 
+it("resolves the department NAME in the acceptance email even when the code was removed from the cycle (#100)", async () => {
+  const { srr, cycle, clean } = await seed();
+  await accept(clean.id, "SRHD", srr.id); // accepted to SRHD ("Student Run Health Dept")
+  // SRR removes SRHD from the cycle after routing already produced SRHD acceptances
+  // (setCycleDepartments allows this and only warns). The acceptance's departmentCode
+  // now falls outside cycle.departments.
+  await prisma.recruitmentCycle.update({ where: { id: cycle.id }, data: { departments: ["MDIC"] } });
+  await prisma.recruitmentCycleEmail.create({
+    data: { cycleId: cycle.id, key: "recruitment.acceptance", subject: "Accept", body: "<p>Joined {{ departmentName }}</p>" },
+  });
+
+  await releaseDecisions(cycle.id, srr.id);
+
+  const mail = await prisma.emailLog.findFirstOrThrow({ where: { template: "recruitment.acceptance" } });
+  expect(mail.html).toContain("Student Run Health Dept"); // the name, not the bare "SRHD" code
+});
+
 it("uses the cycle's acceptance email override when present", async () => {
   const { srr, cycle, clean } = await seed();
   await accept(clean.id, "SRHD", srr.id);

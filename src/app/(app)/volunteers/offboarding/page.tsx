@@ -16,6 +16,7 @@ import {
   OffboardForbiddenError,
   OffboardNotFoundError,
 } from "@/modules/volunteers/services/offboarding";
+import { LastAdminError } from "@/platform/rbac/last-admin";
 import { revalidatePath } from "next/cache";
 import { DateOnly } from "@/platform/dates/display";
 import { redirect } from "next/navigation";
@@ -92,7 +93,10 @@ export default async function OffboardingPage({ searchParams }: PageProps) {
         groups: await activeTermGroup(),
       });
     } catch (err) {
-      if (err instanceof OffboardForbiddenError) {
+      // #92: executeOffboard's last-admin guard throws LastAdminError; without this
+      // it escaped to the error boundary as a 500 instead of the page's inline
+      // amber alert. Mirror admin/people/[id]/page.tsx, which already catches it.
+      if (err instanceof OffboardForbiddenError || err instanceof LastAdminError) {
         redirect(`/volunteers/offboarding?error=${encodeURIComponent(err.message)}`);
       }
       throw err;

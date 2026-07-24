@@ -426,17 +426,19 @@ export default async function EmailPage({ searchParams }: PageProps) {
         <StatCard label="Sent today" value={counts.sentToday} />
       </div>
 
-      {/* Bulk recovery: re-queue every FAILED row at once (e.g. after a
-          transient transport outage exhausted retries on many rows). */}
-      {counts.failed > 0 && (
+      {/* Bulk recovery: re-queue recent FAILED rows at once (e.g. after a
+          transient transport outage exhausted retries on many rows). Scoped to
+          retryableFailed (last 7 days) so it never re-blasts stale historical
+          mail; the "Failed" stat above still shows every failure. */}
+      {counts.retryableFailed > 0 && (
         <div className="flex justify-end">
           <form action={retryAllAction}>
             <ConfirmButton
               size="sm"
-              label={`Retry all failed (${counts.failed})`}
-              confirmLabel={`Re-queue all ${counts.failed} failed ${
-                counts.failed === 1 ? "email" : "emails"
-              }?`}
+              label={`Retry all recent failed (${counts.retryableFailed})`}
+              confirmLabel={`Re-queue the ${counts.retryableFailed} failed ${
+                counts.retryableFailed === 1 ? "email" : "emails"
+              } from the last 7 days?`}
             />
           </form>
         </div>

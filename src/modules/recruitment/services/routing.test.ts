@@ -1,7 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import { RecruitmentAuthError, AcceptanceError } from "./review";
+import * as review from "./review";
 import { routeApplication, decideRoutedApplication, rejectApplication, reopenDecision, applyTierRoutes, applyTierRejects, RoutingError } from "./routing";
 
 async function seed() {
@@ -114,6 +115,26 @@ describe("decideRoutedApplication", () => {
     await decideRoutedApplication(application.id, "ACCEPT", lead.id, null);
     await decideRoutedApplication(application.id, "REJECT", lead.id, null);
     expect(await prisma.acceptance.findMany({ where: { applicationId: application.id } })).toHaveLength(0);
+  });
+
+  it("aborts a decide whose read decision changed concurrently, leaving the winner intact (#106)", async () => {
+    const { lead, application } = await seed();
+    await routeApplication(application.id, "EDUC", lead.id);
+    // Simulate a concurrent decide committing between the initial read and the
+    // terminal write: flip the decision to ACCEPT during the decide's reviewScope.
+    const spy = vi.spyOn(review, "reviewScope").mockImplementation(async () => {
+      await prisma.application.update({
+        where: { id: application.id },
+        data: { decision: "ACCEPT", decidedById: lead.id, decidedAt: new Date() },
+      });
+      return { all: true, departmentCodes: [] };
+    });
+    try {
+      await expect(decideRoutedApplication(application.id, "REJECT", lead.id, "no")).rejects.toBeInstanceOf(RoutingError);
+    } finally {
+      spy.mockRestore();
+    }
+    expect((await prisma.application.findUniqueOrThrow({ where: { id: application.id } })).decision).toBe("ACCEPT");
   });
 
   it("rejects deciding an application that hasn't been routed", async () => {

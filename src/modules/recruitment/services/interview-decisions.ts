@@ -68,10 +68,28 @@ export async function decideInterview(
         }
       }
     }
-    return tx.interview.update({
-      where: { id: interviewId },
-      data: { decision: outcome, decidedById: deciderId, decidedAt: new Date(), notes },
+    // #106: gate the terminal write on the decision we read. Without it, a REJECT
+    // whose acceptance-teardown read missed a concurrent ACCEPT (committed after
+    // that read, in this READ COMMITTED tx) could still write decision=REJECT over
+    // it, leaving a live Acceptance releaseDecisions would email to a rejected
+    // applicant. The claim fails when another decide moved the row first.
+    const claimed = await tx.interview.updateMany({
+      where: { id: interviewId, decision: iv.decision },
+      data: {
+        decision: outcome,
+        decidedById: deciderId,
+        decidedAt: new Date(),
+        // #105: Interview.notes is a single column shared with the Schedule card.
+        // The Decision card's Notes box has no default and posts empty, so writing
+        // it unconditionally nulled the department's scheduling notes on every
+        // decision. Only write notes when the caller actually sent some.
+        ...(notes === null ? {} : { notes }),
+      },
     });
+    if (claimed.count === 0) {
+      throw new InterviewError("This interview was just decided by someone else. Refresh and try again.");
+    }
+    return tx.interview.findUniqueOrThrow({ where: { id: interviewId } });
   });
   await recordAudit({ actorPersonId: deciderId, action: "recruitment.interview_decide", entityType: "Interview", entityId: interviewId, after: { decision: outcome } });
   return updated;

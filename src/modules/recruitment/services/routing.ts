@@ -101,6 +101,7 @@ export async function decideRoutedApplication(
     where: { id: applicationId },
     select: {
       status: true,
+      decision: true,
       routedDepartmentCode: true,
       cycle: { select: { track: true } },
       applicant: { select: { applicantPersonId: true } },
@@ -142,10 +143,16 @@ export async function decideRoutedApplication(
         }
       }
     }
-    return tx.application.update({
-      where: { id: applicationId },
+    // #106: gate on the decision we read, mirroring decideInterview -- a concurrent
+    // ACCEPT/REJECT must not leave the decision disagreeing with the Acceptance row.
+    const claimed = await tx.application.updateMany({
+      where: { id: applicationId, decision: app.decision },
       data: { decision: outcome, decidedById: deciderId, decidedAt: new Date(), decisionNotes: notes },
     });
+    if (claimed.count === 0) {
+      throw new RoutingError("This application was just decided by someone else. Refresh and try again.");
+    }
+    return tx.application.findUniqueOrThrow({ where: { id: applicationId } });
   });
   await recordAudit({ actorPersonId: deciderId, action: "recruitment.application_decide", entityType: "Application", entityId: applicationId, after: { decision: outcome, departmentCode } });
   return updated;

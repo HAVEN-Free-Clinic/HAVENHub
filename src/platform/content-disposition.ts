@@ -20,9 +20,12 @@ export function contentDisposition(
   { inline = false, fallbackName = "file" }: { inline?: boolean; fallbackName?: string } = {},
 ): string {
   const disposition = inline ? "inline" : "attachment";
-  // Keep only printable ASCII minus the double-quote, dropping control chars and
-  // any non-ASCII code point so the header value stays Latin-1-safe (see above).
-  const safeFileName = fileName.replace(/[^\x20-\x7e]|"/g, "").trim() || fallbackName;
+  // Keep only printable ASCII minus the two RFC 6266 quoted-string metacharacters
+  // (double-quote AND backslash), dropping control chars and any non-ASCII code
+  // point so the header value stays Latin-1-safe (see above). A trailing backslash
+  // left in `filename="…\"` escapes the closing quote and malforms the whole
+  // parameter list (#126).
+  const safeFileName = fileName.replace(/[^\x20-\x7e]|["\\]/g, "").trim() || fallbackName;
   const encodedFileName = encodeURIComponent(fileName);
   return `${disposition}; filename="${safeFileName}"; filename*=UTF-8''${encodedFileName}`;
 }

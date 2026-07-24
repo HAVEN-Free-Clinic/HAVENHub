@@ -1,5 +1,12 @@
-import { describe, it, expect, vi } from "vitest";
-import { GraphTeamsTransport, LogTeamsTransport } from "./teams-transport";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
+import {
+  GraphTeamsTransport,
+  LogTeamsTransport,
+  resolveTeamsTransport,
+} from "./teams-transport";
+import { prisma } from "@/platform/db";
+import { resetDb } from "@/platform/test/db";
+import { _resetSettingsCache } from "@/platform/settings/service";
 
 describe("LogTeamsTransport", () => {
   it("returns a synthetic chat id, flags logged, and never calls the network", async () => {
@@ -86,5 +93,57 @@ describe("GraphTeamsTransport", () => {
     await expect(
       transport.send({ recipientUserId: "r", chatId: null, bodyHtml: "<p>x</p>" })
     ).rejects.toThrow(/403/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveTeamsTransport (#133): a graph-selected-but-unconnected mailer must not
+// silently degrade to the log transport in production, because drainTeamsQueue
+// then records the row LOGGED (terminal success) and never fires the email
+// fallback. Mirrors resolveEmailTransport's production refusal.
+// ---------------------------------------------------------------------------
+
+describe("resolveTeamsTransport", () => {
+  beforeEach(async () => {
+    await resetDb();
+    _resetSettingsCache();
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    _resetSettingsCache();
+  });
+
+  async function setTransport(value: "log" | "graph") {
+    await prisma.setting.create({ data: { key: "email.transport", value } });
+    _resetSettingsCache();
+  }
+
+  it("returns the log transport when email.transport is not graph", async () => {
+    await setTransport("log");
+    vi.stubEnv("NODE_ENV", "production"); // even in prod, log mode is fine
+    const t = await resolveTeamsTransport();
+    expect(t).toBeInstanceOf(LogTeamsTransport);
+  });
+
+  it("falls back to the log transport in dev/CI when graph is selected but the mailer is not connected", async () => {
+    await setTransport("graph");
+    // No MailCredential row -> mailConnectionStatus() reports not connected.
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("VERCEL_ENV", "");
+    const t = await resolveTeamsTransport();
+    expect(t).toBeInstanceOf(LogTeamsTransport);
+  });
+
+  it("throws in production when graph is selected but the mailer is not connected", async () => {
+    await setTransport("graph");
+    vi.stubEnv("NODE_ENV", "production");
+    await expect(resolveTeamsTransport()).rejects.toThrow(/no mailer account is connected/);
+  });
+
+  it("throws when VERCEL_ENV is production even if NODE_ENV is not", async () => {
+    await setTransport("graph");
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("VERCEL_ENV", "production");
+    await expect(resolveTeamsTransport()).rejects.toThrow(/refusing to route Teams DMs/);
   });
 });

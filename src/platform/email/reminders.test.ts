@@ -12,11 +12,18 @@
  * All assertions use EmailLog.template to distinguish reminder vs escalation rows.
  */
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import { runComplianceReminders } from "./reminders";
 import * as channel from "@/platform/notifications/channel";
+
+// resolveChannel is spied per-test (the Teams-routing cases). runComplianceReminders
+// now reads the channel itself, so a leaked spy would mis-route later tests. Restore
+// after every test to keep them isolated.
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 // ---------------------------------------------------------------------------
 // Reference "now" for all tests
@@ -596,6 +603,53 @@ describe("Teams channel routing", () => {
     const teams = await prisma.teamsMessage.findFirst({ where: { type: "compliance-reminder" } });
     expect(teams).not.toBeNull();
     expect(teams?.title).toBe("Compliance reminder");
+  });
+
+  // #132: under the shipped default channel ("email"), notify() queues nothing
+  // for a Teams-only member (entraObjectId set, contactEmail null). The old guard
+  // still admitted, claimed, counted, and escalated them -- a member contacted on
+  // no channel looked "reminded". They must now be skipped instead.
+  it("skips a Teams-only member (no contactEmail) when the channel is email, without claiming or counting", async () => {
+    vi.spyOn(channel, "resolveChannel").mockResolvedValue("email");
+
+    const term = await createTerm();
+    const dept = await createDepartment("PCAR");
+    const person = await createPerson("Teams-only Volunteer", null); // no contactEmail
+    await prisma.person.update({
+      where: { id: person.id },
+      data: { entraObjectId: "e-teamsonly" },
+    });
+    await addMembership(person.id, term.id, dept.id, "VOLUNTEER");
+    await addCert(person.id, EXPIRED_COMPLETION);
+
+    const result = await runComplianceReminders(NOW);
+
+    expect(result.skipped).toBeGreaterThanOrEqual(1);
+    expect(result.remindersSent).toBe(0);
+    // Nothing was queued on any channel, and no reminder-state row was created.
+    expect(await emailLogCount("compliance-reminder")).toBe(0);
+    expect(await prisma.teamsMessage.count({ where: { type: "compliance-reminder" } })).toBe(0);
+    expect(await getReminderRow(person.id)).toBeNull();
+  });
+
+  it("reminds a Teams-only member (no contactEmail) when the channel is teams", async () => {
+    vi.spyOn(channel, "resolveChannel").mockResolvedValue("teams");
+
+    const term = await createTerm();
+    const dept = await createDepartment("PCAR");
+    const person = await createPerson("Teams-only Reachable", null); // no contactEmail
+    await prisma.person.update({
+      where: { id: person.id },
+      data: { entraObjectId: "e-reachable" },
+    });
+    await addMembership(person.id, term.id, dept.id, "VOLUNTEER");
+    await addCert(person.id, EXPIRED_COMPLETION);
+
+    const result = await runComplianceReminders(NOW);
+
+    expect(result.remindersSent).toBe(1);
+    const teams = await prisma.teamsMessage.findFirst({ where: { type: "compliance-reminder" } });
+    expect(teams).not.toBeNull();
   });
 });
 

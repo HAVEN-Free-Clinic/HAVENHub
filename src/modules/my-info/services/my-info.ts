@@ -20,8 +20,10 @@
 
 import { cache } from "react";
 import type { HipaaCertificate } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
+import { isEffectiveActiveAdmin, assertActiveAdminRemainsTx } from "@/platform/rbac/last-admin";
 import { recordAudit } from "@/platform/audit";
 import { log, errorAttrs } from "@/platform/logging";
 import { updatePersonFields } from "@/platform/people";
@@ -176,17 +178,35 @@ export async function withdrawFromTerm(personId: string): Promise<number> {
 
   if (!activeTerm) return 0;
 
-  const result = await prisma.termMembership.updateMany({
-    where: {
-      personId,
-      termId: activeTerm.id,
-      kind: "VOLUNTEER",
-      status: "ACTIVE",
-    },
-    data: { status: "REMOVED" },
-  });
+  const where = {
+    personId,
+    termId: activeTerm.id,
+    kind: "VOLUNTEER" as const,
+    status: "ACTIVE" as const,
+  };
 
-  const count = result.count;
+  // Last-admin guard (#97): dept/kind-scoped admin grants resolve through ACTIVE
+  // memberships, so a self-leave can strip the last admin path exactly like an
+  // admin-initiated removeMembership -- which guards this and self-leave did not,
+  // letting the last admin lock everyone out of the admin module with one click.
+  // Fast-path non-admins; for an effective admin, remove and recompute inside one
+  // Serializable tx so the withdrawal rolls back (LastAdminError) if it would leave
+  // zero effective admins (mirrors roster.ts removeMembership).
+  let count: number;
+  if (await isEffectiveActiveAdmin(personId)) {
+    count = await prisma.$transaction(
+      async (tx) => {
+        const removed = await tx.termMembership.updateMany({ where, data: { status: "REMOVED" } });
+        await assertActiveAdminRemainsTx(tx);
+        return removed.count;
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+  } else {
+    const removed = await prisma.termMembership.updateMany({ where, data: { status: "REMOVED" } });
+    count = removed.count;
+  }
+
   if (count === 0) return 0;
 
   await recordAudit({

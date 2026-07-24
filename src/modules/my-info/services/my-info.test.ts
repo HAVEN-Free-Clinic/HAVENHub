@@ -12,6 +12,7 @@ import fs from "node:fs/promises";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import { config } from "@/platform/config";
+import { LastAdminError } from "@/platform/rbac/last-admin";
 import {
   getMyInfo,
   updateMyInfo,
@@ -283,6 +284,43 @@ describe("withdrawFromTerm", () => {
       where: { action: "my-info.withdraw", actorPersonId: person.id },
     });
     expect(audit).toBeNull();
+  });
+
+  it("refuses a self-withdrawal that would strip the last admin, leaving the membership ACTIVE (#97)", async () => {
+    const person = await createPerson();
+    const term = await createTerm({ status: "ACTIVE" });
+    const dept = await createDepartment("ADMINDEPT");
+    // A dept-scoped admin.access grant makes every ACTIVE member of the dept an
+    // effective admin; this person is the only one, via a VOLUNTEER membership.
+    const role = await prisma.role.create({
+      data: { name: "Dept Admin", grants: { create: [{ permission: "admin.access" }] } },
+    });
+    await prisma.roleAssignment.create({ data: { roleId: role.id, departmentId: dept.id, termId: term.id } });
+    const membership = await createMembership(person.id, term.id, dept.id, "VOLUNTEER", "ACTIVE");
+
+    await expect(withdrawFromTerm(person.id)).rejects.toBeInstanceOf(LastAdminError);
+
+    // The guard rolls the soft-remove back; the membership stays ACTIVE and nothing is audited.
+    expect((await prisma.termMembership.findUnique({ where: { id: membership.id } }))?.status).toBe("ACTIVE");
+    expect(await prisma.auditLog.findFirst({ where: { action: "my-info.withdraw" } })).toBeNull();
+  });
+
+  it("allows a self-withdrawal when another member still confers admin access (#97)", async () => {
+    const p1 = await createPerson();
+    const p2 = await createPerson();
+    const term = await createTerm({ status: "ACTIVE" });
+    const dept = await createDepartment("ADMINDEPT");
+    const role = await prisma.role.create({
+      data: { name: "Dept Admin", grants: { create: [{ permission: "admin.access" }] } },
+    });
+    await prisma.roleAssignment.create({ data: { roleId: role.id, departmentId: dept.id, termId: term.id } });
+    const m1 = await createMembership(p1.id, term.id, dept.id, "VOLUNTEER", "ACTIVE");
+    await createMembership(p2.id, term.id, dept.id, "VOLUNTEER", "ACTIVE"); // another admin remains
+
+    const count = await withdrawFromTerm(p1.id);
+
+    expect(count).toBe(1);
+    expect((await prisma.termMembership.findUnique({ where: { id: m1.id } }))?.status).toBe("REMOVED");
   });
 });
 

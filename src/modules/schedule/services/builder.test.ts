@@ -476,6 +476,37 @@ describe("setAssignment", () => {
     expect((audit!.before as Record<string, unknown>)?.reason).toBe("schedule conflict");
   });
 
+  it("unassigns an assignment stranded on a clinic date that was later removed (#58)", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const dept = await createDepartment("PCAR");
+    const director = await createPerson("Director");
+    const volunteer = await createPerson("Volunteer");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(volunteer.id, term.id, dept.id, "VOLUNTEER");
+    const stranded = dates[0];
+    await createShift(term.id, dept.id, volunteer.id, stranded, "VOLUNTEER");
+
+    // Ops cancels that clinic: updateClinicDates removes the date from the term but
+    // never touches the ShiftAssignment, so it is now off-calendar and invisible in
+    // the Builder grid.
+    await prisma.term.update({ where: { id: term.id }, data: { clinicDates: dates.slice(1) } });
+
+    // The director must still be able to clear the stranded shift -- previously the
+    // clinic-date check above the unassign branch made this throw, leaving the row
+    // unremovable by anyone.
+    await setAssignment(director.id, {
+      termId: term.id,
+      departmentId: dept.id,
+      dateKey: isoDateKey(stranded),
+      personId: volunteer.id,
+      role: null,
+      reason: "clinic cancelled",
+    });
+
+    expect(await prisma.shiftAssignment.findFirst({ where: { termId: term.id, personId: volunteer.id } })).toBeNull();
+  });
+
   it("audits assign action", async () => {
     const dates = sixSaturdays();
     const term = await createTerm(dates);

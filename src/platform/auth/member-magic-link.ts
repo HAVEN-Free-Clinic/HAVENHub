@@ -1,9 +1,11 @@
 import { randomBytes, createHash } from "node:crypto";
+import { headers } from "next/headers";
 import { prisma } from "@/platform/db";
 import { getSetting } from "@/platform/settings/service";
 import { queueEmail } from "@/platform/email/send";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
 import { safeLoginPath } from "@/platform/auth/safe-next";
+import { log } from "@/platform/logging";
 
 const TOKEN_TTL_MS = 30 * 60 * 1000; // 30 minutes
 const YALE_DOMAIN = "@yale.edu";
@@ -32,6 +34,10 @@ export async function issueMemberToken(personId: string, email: string): Promise
  *  for the confirm screen, else null. Peek-then-confirm defeats login-CSRF: a
  *  forwarded link shows whose account it signs into before the user commits. */
 export async function peekMemberToken(rawToken: string): Promise<{ email: string; name: string } | null> {
+  // Honor the kill switch at CONSUME time, not just at issuance (#66). Turning off
+  // "Member email sign-in links" must stop outstanding (already-emailed, still
+  // within the 30-min TTL) links from working, or the switch only blocks new links.
+  if (!(await getSetting<boolean>("auth.memberMagicLinkEnabled"))) return null;
   const token = await prisma.memberLoginToken.findFirst({
     where: { tokenHash: hashToken(rawToken), usedAt: null, expiresAt: { gt: new Date() } },
     select: { personId: true, emailLower: true },
@@ -49,6 +55,9 @@ export async function peekMemberToken(rawToken: string): Promise<{ email: string
  *  member is still ACTIVE, non-Yale, and their contactEmail still matches.
  *  Returns { personId } or null. */
 export async function verifyAndConsumeMemberToken(rawToken: string): Promise<{ personId: string } | null> {
+  // Re-check the kill switch here, not just at issuance (#66): a link emailed
+  // before the admin turned member sign-in off must not still mint a 7-day session.
+  if (!(await getSetting<boolean>("auth.memberMagicLinkEnabled"))) return null;
   const tokenHash = hashToken(rawToken);
   // The WHERE clause matches only an unused, unexpired row; a row-level lock
   // means exactly one concurrent caller flips usedAt, closing the TOCTOU race.
@@ -71,7 +80,34 @@ export async function verifyAndConsumeMemberToken(rawToken: string): Promise<{ p
 }
 
 const RATE_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
-const RATE_MAX = 3;
+const RATE_MAX = 3; // per identical email address
+
+// Coarse abuse backstops for this PUBLIC, unauthenticated send endpoint, mirroring
+// the applicant portal (portal-auth.ts): the per-email limit alone does nothing
+// against a script iterating distinct victim member addresses. (1) a best-effort
+// per-IP sliding window (in-memory, per serverless instance) to blunt a single-
+// source flood; (2) a HARD global daily ceiling so a distributed flood can't
+// exhaust the shared clinic mailbox's Exchange send limits and silently break ALL
+// app email. Both endpoints drain the same mailbox. (#121)
+const IP_RATE_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+const IP_RATE_MAX = 5; // per client IP per window
+const GLOBAL_DAILY_MAX = 800; // member links issued / 24h across all requesters
+const ipHits = new Map<string, number[]>();
+
+function ipRateLimited(ip: string | null): boolean {
+  if (!ip) return false; // no forwarded IP -> rely on per-email + global caps
+  const now = Date.now();
+  // Bound the map so a churn of IPs can't grow it without limit on a warm instance.
+  if (ipHits.size > 5000) ipHits.clear();
+  const recent = (ipHits.get(ip) ?? []).filter((t) => t > now - IP_RATE_WINDOW_MS);
+  if (recent.length >= IP_RATE_MAX) {
+    ipHits.set(ip, recent);
+    return true;
+  }
+  recent.push(now);
+  ipHits.set(ip, recent);
+  return false;
+}
 
 function firstNameFromName(name: string): string {
   const first = name.trim().split(/\s+/)[0];
@@ -91,10 +127,28 @@ export async function requestMemberLoginLink(email: string, next?: string | null
   const emailLower = email.trim().toLowerCase();
   if (emailLower.endsWith(YALE_DOMAIN)) return "use-yale";
 
+  // Per-IP backstop (best-effort, per-instance). x-forwarded-for is a comma list;
+  // the first hop is the client. Silently "sent" when limited -- no membership
+  // oracle to callers. (#121)
+  const forwardedFor = (await headers()).get("x-forwarded-for");
+  const clientIp = forwardedFor ? forwardedFor.split(",")[0]!.trim() : null;
+  if (ipRateLimited(clientIp)) return "sent";
+
   const recent = await prisma.memberLoginToken.count({
     where: { emailLower, createdAt: { gt: new Date(Date.now() - RATE_WINDOW_MS) } },
   });
   if (recent >= RATE_MAX) return "sent";
+
+  // Hard global daily ceiling: bound total member links/24h so a distributed flood
+  // across many addresses can't exhaust the shared mailbox and silently break ALL
+  // app email. Legit clinic volume is far below this. (#121)
+  const globalRecent = await prisma.memberLoginToken.count({
+    where: { createdAt: { gt: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
+  });
+  if (globalRecent >= GLOBAL_DAILY_MAX) {
+    log.warn("[member-magic-link] Global daily member-link ceiling reached; skipping send.", { globalRecent });
+    return "sent";
+  }
 
   const person = await prisma.person.findFirst({
     where: { contactEmail: { equals: emailLower, mode: "insensitive" }, status: "ACTIVE" },

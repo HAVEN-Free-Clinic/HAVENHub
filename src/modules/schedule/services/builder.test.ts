@@ -476,6 +476,41 @@ describe("setAssignment", () => {
     expect((audit!.before as Record<string, unknown>)?.reason).toBe("schedule conflict");
   });
 
+  // #25: a director grants a drop the way directors actually do -- by removing the
+  // volunteer from the grid cell -- instead of clicking Approve. The ShiftAssignment
+  // goes, but the PENDING ShiftRequest would linger with no shift card to render its
+  // Cancel button, so the requester is stuck showing "Pending requests: 1" forever
+  // and the reminder cron keeps nagging approvers. Unassign must cancel it.
+  it("cancels the requester's now-orphaned PENDING request for the unassigned slot (#25)", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const dept = await createDepartment("PCAR");
+    const director = await createPerson("Director");
+    const volunteer = await createPerson("Volunteer");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(volunteer.id, term.id, dept.id, "VOLUNTEER");
+    await createShift(term.id, dept.id, volunteer.id, dates[0], "VOLUNTEER");
+
+    // The volunteer's drop request for that shift.
+    const drop = await prisma.shiftRequest.create({
+      data: { termId: term.id, requesterId: volunteer.id, requesterDate: dates[0], departmentId: dept.id, status: "PENDING" },
+    });
+    // An unrelated pending request on a DIFFERENT date, which must survive untouched.
+    const other = await prisma.shiftRequest.create({
+      data: { termId: term.id, requesterId: volunteer.id, requesterDate: dates[1], departmentId: dept.id, status: "PENDING" },
+    });
+
+    await setAssignment(director.id, {
+      termId: term.id, departmentId: dept.id, dateKey: isoDateKey(dates[0]),
+      personId: volunteer.id, role: null,
+    });
+
+    const droppedAfter = await prisma.shiftRequest.findUniqueOrThrow({ where: { id: drop.id } });
+    const otherAfter = await prisma.shiftRequest.findUniqueOrThrow({ where: { id: other.id } });
+    expect(droppedAfter.status).toBe("CANCELLED"); // orphan cleared -> no longer uncancellable
+    expect(otherAfter.status).toBe("PENDING"); // only the matching-slot request is cancelled
+  });
+
   it("unassigns an assignment stranded on a clinic date that was later removed (#58)", async () => {
     const dates = sixSaturdays();
     const term = await createTerm(dates);

@@ -1179,6 +1179,19 @@ describe("decideStrike (per subject)", () => {
     expect(actions[0].confidential).toBe(true);
   });
 
+  it("stamps occurredAt as a UTC-midnight calendar marker when no date is supplied (#96)", async () => {
+    // The report carried no occurredAt (optional intake field) and the approval
+    // passes none, so decideStrike falls back. DisciplinaryAction.occurredAt is a
+    // calendar-day column read via <CalendarDate timeZone:"UTC">; a raw new Date()
+    // instant would render the strike a day late in the ET evening.
+    const { pending, managed, manager } = await seedPendingStrike();
+
+    await decideStrike(manager.id, pending.id, { approve: true, category: DISCIPLINARY_CATEGORIES[0] });
+
+    const action = await prisma.disciplinaryAction.findFirstOrThrow({ where: { personId: managed.id } });
+    expect(action.occurredAt.toISOString()).toMatch(/T00:00:00\.000Z$/); // a calendar marker, not a live instant
+  });
+
   it("approving one subject leaves another subject's request untouched", async () => {
     const { report, pending, manager } = await seedPendingStrike();
     await decideStrike(manager.id, pending.id, { approve: true, category: DISCIPLINARY_CATEGORIES[0] });

@@ -300,7 +300,11 @@ export async function listActions(
           person: { select: { id: true, name: true } },
           issuedBy: { select: { name: true } },
         },
-        orderBy: { occurredAt: "desc" },
+        // #44: every strike from one incident report shares a UTC-midnight
+        // occurredAt marker, so occurredAt alone is a massive tie group with no
+        // stable Postgres order -- offset pages repeat and drop rows. `id` (a cuid)
+        // is a total order within the tie. Matches the tiebreaker used elsewhere.
+        orderBy: [{ occurredAt: "desc" }, { id: "desc" }],
         skip,
         take: PAGE_SIZE,
       }),
@@ -367,7 +371,9 @@ export async function listActions(
         person: { select: { id: true, name: true } },
         issuedBy: { select: { name: true } },
       },
-      orderBy: { occurredAt: "desc" },
+      // #44: same tie-group hazard as the central path above -- add the `id`
+      // tiebreaker so the director's paginated register is stable.
+      orderBy: [{ occurredAt: "desc" }, { id: "desc" }],
       skip,
       take: PAGE_SIZE,
     }),

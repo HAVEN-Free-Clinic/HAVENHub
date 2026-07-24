@@ -895,3 +895,36 @@ describe("issuablePeople", () => {
     expect(result.people).toHaveLength(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// listActions - pagination (#44): every strike from one incident report shares a
+// UTC-midnight occurredAt, so occurredAt alone is a tie group with no stable order.
+// The id tiebreaker must make offset pages partition the rows.
+// ---------------------------------------------------------------------------
+
+describe("listActions - pagination", () => {
+  it("paginates deterministically when strikes share one occurredAt marker", async () => {
+    const central = await createPerson("Central", "ctr-page");
+    const target = await createPerson("Volunteer", "vol-page");
+    await grantPermission(central.id, "incidents.manage");
+
+    // 30 strikes all on the same calendar-day marker (as one incident report yields).
+    const tie = new Date("2026-04-01T00:00:00.000Z");
+    for (let i = 0; i < 30; i++) {
+      await prisma.disciplinaryAction.create({
+        data: { personId: target.id, issuedById: central.id, occurredAt: tie, category: "Attendance", description: `row ${i}` },
+      });
+    }
+
+    const p1 = await listActions(central.id, { page: 1 });
+    const p2 = await listActions(central.id, { page: 2 });
+    expect(p1.rows).toHaveLength(25);
+    expect(p2.rows).toHaveLength(5);
+
+    const ids = [...p1.rows, ...p2.rows].map((r) => r.action.id);
+    expect(new Set(ids).size).toBe(30); // no row repeated across pages, none dropped
+
+    const idsDesc = [...ids].sort((a, b) => (a < b ? 1 : a > b ? -1 : 0));
+    expect(ids).toEqual(idsDesc); // stable id-desc order within the tie group
+  });
+});

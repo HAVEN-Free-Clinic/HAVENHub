@@ -284,6 +284,28 @@ it("submitContract stores spanishSelfReported and licensedRN", async () => {
   expect(ok.licensedRN).toBe(true);
 });
 
+it("submitContract pins the seeded netId/email and ignores a freely-typed identity (#49)", async () => {
+  // The contract is seeded from the accepted Applicant (netId "al99", ada@yale.edu).
+  // An applicant who types someone else's NetID/email in the form must not be able to
+  // rebind the contract: promoteContracts matches a Person by these keys, so a typed
+  // "vv22"/"victim@yale.edu" would otherwise rewrite that third party's roster row.
+  const { srr, acceptance } = await seed();
+  const c = await createOrResendContract(acceptance.id, srr.id, "http://test");
+  const ok = await submitContract(c.token, {
+    firstName: "Ada", lastName: "Lovelace",
+    email: "victim@yale.edu", netId: "vv22", phone: "203",
+    signatures: { ...allAgreementSignatures("Ada"), initials: sign("AL") },
+    customAnswers: { epic_needed_self: "no" },
+    hasEpic: false, worksWithYnhh: false,
+    hipaaCompletedAt: "2026-01-01", hipaaFile: { fileName: "c.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") },
+  });
+  expect(ok.status).toBe("SUBMITTED");
+  // The stored identity stays the SRR-seeded one, not the freely-typed impersonation.
+  const stored = await prisma.onboardingContract.findUniqueOrThrow({ where: { id: c.id } });
+  expect(stored.email).toBe("ada@yale.edu");
+  expect(stored.netId).toBe("al99");
+});
+
 it("stores agreement signatures and required custom answers from the snapshot layout", async () => {
   const { srr, acceptance } = await seed();
   const c = await createOrResendContract(acceptance.id, srr.id, "http://test");

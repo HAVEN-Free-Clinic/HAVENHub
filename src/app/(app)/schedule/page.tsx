@@ -386,7 +386,7 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                     <p className="text-sm text-subtle-foreground mb-5">
                       {t.availability === null
                         ? ""
-                        : t.availability.tier === "DIRECTOR"
+                        : t.allDepartmentsOverridden
                         ? "Your availability is set by your director."
                         : t.availability.tier === "SELF"
                         ? "Based on your last update."
@@ -403,50 +403,75 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                             <p className="text-sm text-foreground-soft">{t.legacyNote}</p>
                           </div>
                         )}
-                        <form action={saveAvailabilityAction}>
-                          <input type="hidden" name="termId" value={t.term.id} />
-                          <div className="flex flex-col gap-6">
-                            {Object.entries(
-                              t.clinicDates.reduce((acc, d) => {
-                                const month = formatCalendarDate(d, { month: "long", year: "numeric" });
-                                if (!acc[month]) acc[month] = [];
-                                acc[month].push(d);
-                                return acc;
-                              }, {} as Record<string, Date[]>)
-                            ).map(([month, dates]) => (
-                              <div key={month}>
-                                <p className="text-xs font-semibold uppercase tracking-wide text-brand-fg mb-2">{month}</p>
-                                <div className="flex flex-wrap gap-2">
-                                  {dates.map((d) => {
-                                    const key = isoDateKey(d);
-                                    const checked = t.availability!.dates.some((ad) => isoDateKey(ad) === key);
-                                    return (
-                                      <label key={key} className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition-colors whitespace-nowrap min-h-11 ${t.availability!.tier === "DIRECTOR" ? "cursor-default" : "cursor-pointer"} ${checked ? "border-brand bg-brand/5 text-brand-fg font-semibold" : "border-border text-muted-foreground hover:border-brand/40"}`}>
-                                        <Checkbox
-                                          name="dates"
-                                          value={key}
-                                          defaultChecked={checked}
-                                          disabled={t.availability!.tier === "DIRECTOR"}
-                                        />
-                                        {displayDate(key)}
-                                      </label>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            ))}
+                        {/* Per-department director overrides, shown read-only. A pin on
+                            one department must not lock or shadow the member's editable
+                            availability for their other departments (#26 / #61). */}
+                        {t.directorOverrides.length > 0 && (
+                          <div className="mb-4 rounded-xl border border-border bg-muted px-3 py-3">
+                            <p className="mb-2 text-sm font-medium text-foreground">Set by your director</p>
+                            <ul className="flex flex-col gap-1">
+                              {t.directorOverrides.map((o) => (
+                                <li key={o.departmentId} className="text-sm text-foreground-soft">
+                                  <span className="font-semibold text-foreground">{o.departmentCode}</span>:{" "}
+                                  {o.dates.length > 0
+                                    ? o.dates.map((d) => displayDate(isoDateKey(d))).join(", ")
+                                    : "unavailable for all dates"}
+                                </li>
+                              ))}
+                            </ul>
+                            {!t.allDepartmentsOverridden && (
+                              <p className="mt-2 text-xs text-subtle-foreground">
+                                Editing below won&apos;t change {t.directorOverrides.length === 1 ? "that department" : "those departments"}; your edits apply to your other departments. Ask a department director to adjust a pinned schedule.
+                              </p>
+                            )}
                           </div>
-                          {/* A director override wins in resolveAvailability, so a self-save
-                              would be silently shadowed. Show the dates read-only (checkboxes
-                              disabled above) and hide Save so we never report a no-op "saved". */}
-                          {t.availability.tier !== "DIRECTOR" && (
+                        )}
+
+                        {/* When every department is director-managed, a self-save would
+                            move nothing, so withhold the editor rather than report a no-op
+                            "saved" (#61). Otherwise the form is always editable. */}
+                        {t.allDepartmentsOverridden ? (
+                          <p className="text-sm text-subtle-foreground">Your availability is managed by your director, so there is nothing to edit here.</p>
+                        ) : (
+                          <form action={saveAvailabilityAction}>
+                            <input type="hidden" name="termId" value={t.term.id} />
+                            <div className="flex flex-col gap-6">
+                              {Object.entries(
+                                t.clinicDates.reduce((acc, d) => {
+                                  const month = formatCalendarDate(d, { month: "long", year: "numeric" });
+                                  if (!acc[month]) acc[month] = [];
+                                  acc[month].push(d);
+                                  return acc;
+                                }, {} as Record<string, Date[]>)
+                              ).map(([month, dates]) => (
+                                <div key={month}>
+                                  <p className="text-xs font-semibold uppercase tracking-wide text-brand-fg mb-2">{month}</p>
+                                  <div className="flex flex-wrap gap-2">
+                                    {dates.map((d) => {
+                                      const key = isoDateKey(d);
+                                      const checked = t.availability!.dates.some((ad) => isoDateKey(ad) === key);
+                                      return (
+                                        <label key={key} className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition-colors whitespace-nowrap min-h-11 cursor-pointer ${checked ? "border-brand bg-brand/5 text-brand-fg font-semibold" : "border-border text-muted-foreground hover:border-brand/40"}`}>
+                                          <Checkbox
+                                            name="dates"
+                                            value={key}
+                                            defaultChecked={checked}
+                                          />
+                                          {displayDate(key)}
+                                        </label>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
                             <FormActions className="mt-4">
                               <Button type="submit">
                                 Save availability
                               </Button>
                             </FormActions>
-                          )}
-                        </form>
+                          </form>
+                        )}
                       </>
                     )}
                   </section>

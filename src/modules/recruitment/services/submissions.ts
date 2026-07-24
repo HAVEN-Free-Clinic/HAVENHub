@@ -339,7 +339,15 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
 
   // Subcommittee ranking: hoisted into its own column like departmentChoices, and
   // intentionally kept out of stored answers (single source of truth = the column).
-  const rankField = cycle.sections.flatMap((s) => s.fields).find((f) => f.type === SUBCOMMITTEE_RANK_TYPE);
+  // Pick the rank field off the VISIBLE sections + its own visibleWhen, the same
+  // way every other required field is scoped (#56). Scanning cycle.sections
+  // regardless of applicant-type/department scope meant a rank field the applicant
+  // could never see was still required at submit -- dead-ending, e.g., every
+  // renewing director when the rank section is scoped NEW-only, with an error that
+  // maps to no rendered step.
+  const rankField = visibleFields.find(
+    (f) => f.type === SUBCOMMITTEE_RANK_TYPE && isFieldVisible(f.visibleWhen, ctx.answers),
+  );
   let subcommitteeRanking: string[] = [];
   if (rankField) {
     const activeSubs = await prisma.subcommittee.findMany({ where: { isActive: true }, select: { id: true } });

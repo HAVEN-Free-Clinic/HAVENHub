@@ -333,6 +333,32 @@ it("hoists ranked subcommittee IDs into subcommitteeRanking in order", async () 
   expect(stored.subcommittee_preferences).toBeUndefined();
 });
 
+it("does not require a SUBCOMMITTEE_RANK field in a section the applicant cannot see (#56)", async () => {
+  const lead = await prisma.person.create({ data: { name: "Lead", status: "ACTIVE" } });
+  const term = await prisma.term.create({ data: { code: "FA26", name: "Fall 2026", startDate: new Date(), endDate: new Date() } });
+  const cycle = await createCycle({ track: "VOLUNTEER", termId: term.id, title: "V", publicSlug: "apply-rank-scope", departments: ["SRHD", "MDIC"], acceptsRenewals: true, createdById: lead.id });
+  const renew = await addSection(cycle.id, { title: "Renewal", appliesTo: "RENEWAL", departmentCode: null });
+  await addField(renew.id, { label: "Continue reason", type: "LONG_TEXT", required: true });
+  // A REQUIRED subcommittee-rank field in a NEW-only section: a renewing applicant
+  // never sees it, so requiring it dead-ends them with an error on no rendered step.
+  const rankSection = await addSection(cycle.id, { title: "Subcommittee preference", appliesTo: "NEW", departmentCode: null });
+  await addField(rankSection.id, { label: "Subcommittee preferences", type: "SUBCOMMITTEE_RANK", required: true, validation: { rankCount: 3 } });
+  await prisma.subcommittee.create({ data: { name: "Outreach", order: 0 } });
+  await publishCycle(cycle.id, lead.id);
+
+  const person = await makeVolunteer("SRHD");
+  const app = await submitApplication("apply-rank-scope", {
+    applicantType: "RENEWAL",
+    renewalDepartment: "SRHD",
+    answers: { first_name: "Re", last_name: "New", email: "srhd@yale.edu", continue_reason: "yes" },
+    files: {},
+    sessionPersonId: person.id,
+    sessionEmail: "srhd@yale.edu",
+  });
+  // The submit succeeds (previously threw "Please rank at least one subcommittee.")
+  expect(app.subcommitteeRanking).toEqual([]);
+});
+
 it("rejects a required ranking left empty", async () => {
   await openCycleWithRanking();
   await expect(submitApplication("apply-rank", {

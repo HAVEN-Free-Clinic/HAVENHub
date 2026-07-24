@@ -479,8 +479,15 @@ export async function submitContract(
       data: {
         firstName: input.firstName.trim(),
         lastName: input.lastName.trim(),
-        email: input.email.trim(),
-        netId: input.netId?.trim() || null,
+        // Pin the identity keys to the values the SRR-created contract was seeded
+        // with (from the accepted Applicant record); ignore a freely-typed
+        // netId/email in the submission (#49). Otherwise an applicant could type
+        // another member's NetID and promoteContracts -- which binds the contract
+        // to whatever Person those strings match -- would rewrite that third
+        // party's roster/compliance/permissions. Fall back to the submitted value
+        // only when the contract was seeded without one.
+        email: contract.email || input.email.trim(),
+        netId: contract.netId ?? (input.netId?.trim() || null),
         phone: input.phone?.trim() || null,
         dateOfBirth: dateOfBirth ?? null,
         dietaryRestrictions: input.dietaryRestrictions?.trim() || null,

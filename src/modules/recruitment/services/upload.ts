@@ -25,12 +25,26 @@ export function validateUploadedFile(
     const mime = file.mimeType.toLowerCase();
     const ok = accepted.some((t) => {
       const tl = t.toLowerCase();
-      return tl.startsWith(".") ? name.endsWith(tl) : mime === tl || (tl.endsWith("/*") && mime.startsWith(tl.slice(0, -1)));
+      if (tl.startsWith(".")) return name.endsWith(tl);
+      if (tl.endsWith("/*")) return mime.startsWith(tl.slice(0, -1));
+      if (mime === tl) return true;
+      // The form builder's single "Word" choice stores only the legacy .doc MIME
+      // (application/msword), so a .docx -- the default Word format for ~18 years,
+      // MIME application/vnd.openxmlformats-officedocument.wordprocessingml.document
+      // -- was rejected outright, blocking submission of a required resume field.
+      // Treat the two Word MIMEs as equivalent so either is accepted. (#23)
+      return WORD_MIMES.has(tl) && WORD_MIMES.has(mime);
     });
     if (!ok) return { message: "File type not allowed for this field.", detail: `allowed: ${accepted.join(", ")}` };
   }
   return null;
 }
+
+/** The legacy .doc and the OOXML .docx MIME types, treated as one "Word" family. */
+const WORD_MIMES = new Set([
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+]);
 
 /** Store each uploaded file under a path-safe key and return the answer refs
  *  plus the storage keys (for cleanup on failure). */

@@ -187,13 +187,15 @@ export async function setAssignment(
 
   const term = await loadEditableTerm(opts.termId);
 
-  // Validate clinic date.
-  const clinicDate = term.clinicDates.find((d) => isoDateKey(d) === opts.dateKey);
-  if (!clinicDate) {
-    throw new BuilderValidationError(`${opts.dateKey} is not a clinic date in the selected term.`);
-  }
-
   if (opts.role !== null) {
+    // Assign: the date must be an active clinic date of the term. (Unassign
+    // resolves the row by day key below instead, so an assignment left on a date
+    // that updateClinicDates later removed can still be cleared -- #58.)
+    const clinicDate = term.clinicDates.find((d) => isoDateKey(d) === opts.dateKey);
+    if (!clinicDate) {
+      throw new BuilderValidationError(`${opts.dateKey} is not a clinic date in the selected term.`);
+    }
+
     // Validate membership.
     const membership = await prisma.termMembership.findFirst({
       where: {
@@ -247,24 +249,20 @@ export async function setAssignment(
       after: { role: opts.role, dateKey: opts.dateKey, personId: opts.personId },
     });
   } else {
-    // Unassign: capture before state then delete.
-    const existing = await prisma.shiftAssignment.findFirst({
-      where: {
-        termId: term.id,
-        departmentId: opts.departmentId,
-        clinicDate,
-        personId: opts.personId,
-      },
+    // Unassign: resolve the row by its day key rather than requiring the date to
+    // still be an active clinic date (#58). updateClinicDates can drop a clinic
+    // date without deleting ShiftAssignment rows, and the Builder only renders
+    // active clinic dates, so an assignment stranded on a removed date would
+    // otherwise be unremovable by anyone through the UI.
+    const candidates = await prisma.shiftAssignment.findMany({
+      where: { termId: term.id, departmentId: opts.departmentId, personId: opts.personId },
+      select: { id: true, clinicDate: true, role: true },
     });
+    const existing = candidates.find((row) => isoDateKey(row.clinicDate) === opts.dateKey);
 
-    await prisma.shiftAssignment.deleteMany({
-      where: {
-        termId: term.id,
-        departmentId: opts.departmentId,
-        clinicDate,
-        personId: opts.personId,
-      },
-    });
+    if (existing) {
+      await prisma.shiftAssignment.delete({ where: { id: existing.id } });
+    }
 
     await recordAudit({
       actorPersonId: actor,

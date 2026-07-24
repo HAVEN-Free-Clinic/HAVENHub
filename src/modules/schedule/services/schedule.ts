@@ -63,12 +63,27 @@ export type FullScheduleDepartment = {
   conflicts: Map<string, string[]>;
 };
 
+/** A department whose availability a director has pinned for this member. Shown
+ *  read-only so a pin on one department never hides or shadows the member's
+ *  self-availability for their other departments (audit #26 / #61). */
+export type DirectorOverride = { departmentId: string; departmentCode: string; dates: Date[] };
+
 /** One term's worth of a member's schedule context (see mySchedule). */
 export type MyTermSchedule = {
   term: Term;
   isLive: boolean;
   shifts: MyShift[];
+  /** The member's own (self- or baseline-tier) editable availability. Director
+   *  overrides are reported separately in directorOverrides and never fold into
+   *  this value, so a per-department pin cannot read-only-lock the editable form. */
   availability: ResolvedAvailability | null;
+  /** Departments in this term where a director has pinned the member's
+   *  availability, in department-code order. Empty when none. */
+  directorOverrides: DirectorOverride[];
+  /** True when the member holds >= 1 ACTIVE membership and EVERY one is
+   *  director-overridden, i.e. nothing they self-enter affects any department's
+   *  scheduling. The editable form is withheld in that case. */
+  allDepartmentsOverridden: boolean;
   legacyNote: string | null;
   clinicDates: Date[];
   pendingRequests: Map<string, PendingRequest>;
@@ -77,10 +92,14 @@ export type MyTermSchedule = {
 /**
  * Builds one term's schedule context for a person.
  *
- * Availability is resolved from the person's ACTIVE memberships in the term
- * ordered by department code (first wins; in practice a volunteer is in at
- * most one department per term). Shifts are returned even when no membership
- * is found.
+ * The editable `availability` is the member's own SELF/BASELINE resolution
+ * (director overrides excluded); self dates are mirrored across all of the
+ * member's memberships, so the first (dept-code order) is representative. Each
+ * department a director has pinned is reported separately in `directorOverrides`
+ * (read-only), and `allDepartmentsOverridden` marks the case where nothing the
+ * member self-enters would affect scheduling. This keeps a pin on one department
+ * from read-only-locking or silently shadowing the member's other departments
+ * (audit #26 / #61). Shifts are returned even when no membership is found.
  *
  * pendingRequests is keyed by "${isoDateKey(clinicDate)}|${departmentId}" for
  * each of the person's PENDING requests in the term. Cancelled and approved
@@ -141,17 +160,38 @@ async function myScheduleForTerm(personId: string, term: Term, isLive: boolean):
 
   let availability: ResolvedAvailability | null = null;
   let legacyNote: string | null = null;
+  const directorOverrides: DirectorOverride[] = [];
+  let allDepartmentsOverridden = false;
 
   if (memberships.length > 0) {
-    // Use the first membership (ordered by dept code) to build availability tiers.
+    // The member-editable availability is the SELF/BASELINE resolution only; a
+    // director override is NOT folded in here (it is reported separately below),
+    // so a pin on one of a multi-department member's memberships can no longer
+    // make the whole form read-only (#26) or silently shadow the self-save on
+    // their other department (#61). Self dates are mirrored across every
+    // membership by updateMyAvailability, so memberships[0] is representative.
     const first = memberships[0];
     availability = resolveAvailability({
       baseline: first.baselineAvailability,
       selfDates: first.selfAvailabilityDates,
       selfUpdatedAt: first.availabilityUpdatedAt,
-      directorDates: first.directorAvailabilityDates,
-      directorSetAt: first.directorAvailabilitySetAt,
+      directorDates: [],
+      directorSetAt: null,
     });
+
+    // Per-department director overrides, in department-code order (memberships
+    // are already so ordered). Surfaced read-only on the page.
+    for (const m of memberships) {
+      if (m.directorAvailabilitySetAt !== null) {
+        directorOverrides.push({
+          departmentId: m.departmentId,
+          departmentCode: m.department.code,
+          dates: m.directorAvailabilityDates,
+        });
+      }
+    }
+    // Every membership overridden => a self-save would move nothing.
+    allDepartmentsOverridden = directorOverrides.length === memberships.length;
 
     // Legacy free-text note: first non-null across all memberships (dept-code order).
     for (const m of memberships) {
@@ -162,7 +202,7 @@ async function myScheduleForTerm(personId: string, term: Term, isLive: boolean):
     }
   }
 
-  return { term, isLive, shifts, availability, legacyNote, clinicDates: term.clinicDates, pendingRequests };
+  return { term, isLive, shifts, availability, directorOverrides, allDepartmentsOverridden, legacyNote, clinicDates: term.clinicDates, pendingRequests };
 }
 
 /**

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import { _resetSettingsCache, getSetting } from "@/platform/settings/service";
-import { getObject } from "@/platform/storage";
+import { getObject, deleteObject } from "@/platform/storage";
 import {
   saveBrandingAsset,
   removeBrandingAsset,
@@ -10,7 +10,17 @@ import {
   BrandingAssetError,
 } from "./assets";
 
-beforeEach(async () => { await resetDb(); _resetSettingsCache(); });
+beforeEach(async () => {
+  await resetDb();
+  _resetSettingsCache();
+  // resetDb truncates the database but NOT the object store: branding bytes written
+  // under the fixed keys by a prior test (or a prior run of this file) survive and
+  // would fool the "no custom asset set" / "putObject not reached" assertions.
+  await Promise.all([
+    deleteObject("branding/logo").catch(() => undefined),
+    deleteObject("branding/favicon").catch(() => undefined),
+  ]);
+});
 
 const png = (): { name: string; type: string; size: number; bytes: Buffer } => {
   const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47]); // PNG magic-ish
@@ -39,6 +49,29 @@ describe("saveBrandingAsset", () => {
     _resetSettingsCache();
     await saveBrandingAsset("logo", png(), "person-1");
     expect(await getSetting("branding.logo")).toMatchObject({ version: 2 });
+  });
+
+  it("bumps from the committed DB version, not a stale cross-instance cache (#122)", async () => {
+    // First upload: DB version 1. The assertion below then reads it back, warming
+    // THIS process's getSetting cache with version 1.
+    await saveBrandingAsset("logo", png(), null);
+    expect(await getSetting("branding.logo")).toMatchObject({ version: 1 });
+
+    // Another serving instance advances the version (upload/remove cycles) to 5.
+    // This process never saw those writes, so its 30s getSetting cache still holds
+    // version 1 -- the warm-cache staleness the fix must not trust. Deliberately do
+    // NOT reset the cache: getSetting("branding.logo") would still return 1 here.
+    await prisma.setting.update({
+      where: { key: "branding.logo" },
+      data: { value: { contentType: "image/png", version: 5 } },
+    });
+
+    // The bump must read the committed row (5) and land on 6, not the cached 1 -> 2
+    // (which would reuse a version another instance already shipped other bytes under,
+    // leaving browsers pinned to the stale asset for the full Cache-Control TTL).
+    await saveBrandingAsset("logo", png(), null);
+    _resetSettingsCache();
+    expect(await getSetting("branding.logo")).toMatchObject({ version: 6 });
   });
 });
 

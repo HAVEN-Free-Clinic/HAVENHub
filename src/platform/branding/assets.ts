@@ -1,4 +1,5 @@
 import { getSetting, setSetting } from "@/platform/settings/service";
+import { prisma } from "@/platform/db";
 import { putObject, getObject, deleteObject } from "@/platform/storage";
 import { type BrandingAsset, type BrandingAssetName } from "./asset-types";
 
@@ -23,6 +24,26 @@ function assetKey(asset: BrandingAssetName): string {
   return `branding/${asset}`;
 }
 
+/**
+ * Read the asset's current version straight from the Setting row, bypassing the
+ * 30s getSetting cache.
+ *
+ * The version is the ONLY cache-buster in the fixed `/api/branding/<asset>?v=<n>`
+ * URL, and both writers below compute the next version as current+1. `favicon` is
+ * read on every request (root generateMetadata) and `logo` on every page that
+ * renders HavenLogo, so the getSetting cache is warm in essentially every serving
+ * instance at all times, and setSetting only invalidates the cache of the instance
+ * that wrote. Deriving the bump from getSetting therefore lets an instance with a
+ * stale cache reuse a version that already shipped different bytes, pinning
+ * browsers to the old logo/favicon. Reading the row directly makes the increment
+ * see the latest committed version instead (audit #122).
+ */
+async function currentAssetVersion(asset: BrandingAssetName): Promise<number> {
+  const row = await prisma.setting.findUnique({ where: { key: `branding.${asset}` } });
+  const value = (row?.value ?? null) as { version?: unknown } | null;
+  return typeof value?.version === "number" ? value.version : 0;
+}
+
 /** Validate the upload, store the bytes, and bump the descriptor (contentType + version). */
 export async function saveBrandingAsset(
   asset: BrandingAssetName,
@@ -40,7 +61,7 @@ export async function saveBrandingAsset(
   }
 
   await putObject(assetKey(asset), file.bytes, file.type);
-  const current = await getSetting<BrandingAsset>(`branding.${asset}`);
+  const version = (await currentAssetVersion(asset)) + 1;
   try {
     // Bump the descriptor only after the bytes land. If this write fails, the new
     // bytes already sit at the fixed key while the descriptor still records the
@@ -49,7 +70,7 @@ export async function saveBrandingAsset(
     // default instead of serving a mismatched type.
     await setSetting(
       `branding.${asset}`,
-      { contentType: file.type, version: current.version + 1 },
+      { contentType: file.type, version },
       actorPersonId
     );
   } catch (err) {
@@ -68,8 +89,8 @@ export async function removeBrandingAsset(
   // let a later re-upload reuse an old version number, so the cache-busting query
   // param (?v=) repeated and browsers kept serving the stale cached logo/favicon.
   // Empty contentType still makes readBrandingAsset fall back to the bundled default.
-  const current = await getSetting<BrandingAsset>(`branding.${asset}`);
-  await setSetting(`branding.${asset}`, { contentType: "", version: current.version + 1 }, actorPersonId);
+  const version = (await currentAssetVersion(asset)) + 1;
+  await setSetting(`branding.${asset}`, { contentType: "", version }, actorPersonId);
 }
 
 /** For the public route: the descriptor + bytes, or null when no custom asset exists. */

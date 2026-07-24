@@ -1,4 +1,7 @@
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+// requestMemberLoginLink now reads x-forwarded-for for the per-IP backstop (#121);
+// mock the request headers (null IP -> the per-IP window is inert here).
+vi.mock("next/headers", () => ({ headers: vi.fn(async () => ({ get: vi.fn(() => null) })) }));
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import { setSetting } from "@/platform/settings/service";

@@ -531,6 +531,11 @@ describe("fullSchedule", () => {
     const deptM = await createDepartment("MMMM");
 
     const person = await createPerson("Sorter");
+    // A scheduled person is an ACTIVE member of the department (fullSchedule now
+    // filters to current members).
+    await createMembership(person.id, term.id, deptZ.id, "VOLUNTEER");
+    await createMembership(person.id, term.id, deptA.id, "VOLUNTEER");
+    await createMembership(person.id, term.id, deptM.id, "VOLUNTEER");
     // Create one shift per department on the selected date so all three appear.
     await createShift(term.id, deptZ.id, person.id, dates[0], "VOLUNTEER");
     await createShift(term.id, deptA.id, person.id, dates[0], "VOLUNTEER");
@@ -550,6 +555,8 @@ describe("fullSchedule", () => {
     const deptB = await createDepartment("BBCC");
 
     const person = await createPerson("Frank");
+    await createMembership(person.id, term.id, deptA.id, "VOLUNTEER");
+    await createMembership(person.id, term.id, deptB.id, "VOLUNTEER");
 
     // deptA has a shift on dates[0]; deptB only has a shift on dates[1].
     await createShift(term.id, deptA.id, person.id, dates[0], "VOLUNTEER");
@@ -589,6 +596,26 @@ describe("fullSchedule", () => {
     expect(result.clinicDates).toHaveLength(0);
     expect(result.selectedDate).toBeNull();
     expect(result.departments).toHaveLength(0);
+  });
+
+  // #62: offboarding / removeMembership leave the ShiftAssignment row, so the
+  // master schedule must drop people who are no longer ACTIVE members of the
+  // department, matching who the shift-reminders cron notifies.
+  it("excludes an assignee whose department membership is REMOVED", async () => {
+    const dates = saturdays("2026-05-30", 1);
+    const term = await createTerm("ACTIVE", "SU26", dates);
+    const dept = await createDepartment("AABB");
+    const active = await createPerson("Active Vol");
+    const departed = await createPerson("Departed Vol");
+
+    await createMembership(active.id, term.id, dept.id, "VOLUNTEER");
+    await createMembership(departed.id, term.id, dept.id, "VOLUNTEER", { status: "REMOVED" });
+    await createShift(term.id, dept.id, active.id, dates[0], "VOLUNTEER");
+    await createShift(term.id, dept.id, departed.id, dates[0], "VOLUNTEER");
+
+    const result = await fullSchedule(isoDateKey(dates[0]));
+    const names = result.departments.flatMap((d) => d.volunteers.map((v) => v.name));
+    expect(names).toEqual(["Active Vol"]);
   });
 });
 

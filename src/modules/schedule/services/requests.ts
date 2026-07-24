@@ -31,6 +31,7 @@ import { getPersonTerms } from "@/platform/terms/person-terms";
 import { isPublished } from "./publication";
 import { queueEmail } from "@/platform/email/send";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
+import { getSetting } from "@/platform/settings/service";
 
 // ---------------------------------------------------------------------------
 // Typed errors
@@ -260,10 +261,19 @@ async function sendScheduleEmail(
 ): Promise<void> {
   if (!to) return;
   try {
+    // Supply the hub link vars from the configured base URL (every other email
+    // builds links this way), so the schedule templates' {{ scheduleUrl }} /
+    // {{ requestsUrl }} resolve to the deployed host instead of a hardcoded one.
+    const baseUrl = (await getSetting<string>("app.baseUrl")).replace(/\/+$/, "");
+    const withUrls = {
+      scheduleUrl: `${baseUrl}/schedule`,
+      requestsUrl: `${baseUrl}/schedule/requests`,
+      ...vars,
+    };
     // Route through the shared renderEmail path so schedule lifecycle emails get
     // the branded layout AND honor any admin EmailTemplate override, instead of
     // shipping the bare code-default fragment.
-    const { subject, html } = await renderEmail(templateKey, vars);
+    const { subject, html } = await renderEmail(templateKey, withUrls);
     await queueEmail(prisma, {
       to,
       subject,

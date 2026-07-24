@@ -8,6 +8,7 @@ import {
 import {
   LogTransport,
   GraphTransport,
+  TransientEmailError,
   resolveEmailTransport,
   type EmailMessage,
 } from "./transport";
@@ -183,6 +184,52 @@ describe("GraphTransport", () => {
     expect(sent).not.toMatch(/<style[\s>]/i);
     // ...and its rule is inlined onto the <a>, so the rendered look is preserved.
     expect(sent).toMatch(/<a\b[^>]*style="[^"]*color:\s*#00356b/i);
+  });
+
+  // #73: a temporary upstream failure must be TransientEmailError (retried) rather
+  // than a plain Error (which burns the row's permanent attempt budget and would
+  // mass-FAIL the queue's throttled tail on a Graph blip).
+  const graph = (opts: { fetchImpl?: typeof fetch; getAccessToken?: () => Promise<string> }) =>
+    new GraphTransport({
+      getAccessToken: opts.getAccessToken ?? fakeGetAccessToken,
+      sender: "hfc.it@yale.edu",
+      fetchImpl: (opts.fetchImpl ?? (async () => new Response("", { status: 202 }))) as typeof fetch,
+    });
+
+  it.each([429, 500, 502, 503, 504])("classifies sendMail HTTP %s as transient", async (status) => {
+    const t = graph({ fetchImpl: (async () => new Response("upstream", { status })) as typeof fetch });
+    await expect(t.send(msg)).rejects.toBeInstanceOf(TransientEmailError);
+  });
+
+  it.each([400, 401, 403, 404])("keeps sendMail HTTP %s permanent (plain Error)", async (status) => {
+    const t = graph({ fetchImpl: (async () => new Response("bad", { status })) as typeof fetch });
+    const err = await t.send(msg).catch((e) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(TransientEmailError);
+  });
+
+  it("classifies a sendMail request timeout as transient", async () => {
+    const timeout = Object.assign(new Error("The operation timed out"), { name: "TimeoutError" });
+    const t = graph({ fetchImpl: (async () => { throw timeout; }) as typeof fetch });
+    await expect(t.send(msg)).rejects.toBeInstanceOf(TransientEmailError);
+  });
+
+  it("classifies a sendMail network failure as transient", async () => {
+    const netErr = new TypeError("fetch failed");
+    const t = graph({ fetchImpl: (async () => { throw netErr; }) as typeof fetch });
+    await expect(t.send(msg)).rejects.toBeInstanceOf(TransientEmailError);
+  });
+
+  it("classifies a 5xx from the token endpoint as transient", async () => {
+    const t = graph({ getAccessToken: () => Promise.reject(new Error("OAuth refresh failed with status 503: down")) });
+    await expect(t.send(msg)).rejects.toBeInstanceOf(TransientEmailError);
+  });
+
+  it("keeps MailNotConnectedError permanent", async () => {
+    const notConnected = Object.assign(new Error("Mailer is not connected"), { name: "MailNotConnectedError" });
+    const t = graph({ getAccessToken: () => Promise.reject(notConnected) });
+    const err = await t.send(msg).catch((e) => e);
+    expect(err).not.toBeInstanceOf(TransientEmailError);
   });
 });
 

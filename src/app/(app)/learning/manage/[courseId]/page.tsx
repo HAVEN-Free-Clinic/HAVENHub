@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { requirePermission } from "@/platform/auth/session";
-import { prisma } from "@/platform/db";
+import { scopeEditorDepartments } from "@/platform/departments";
 import { PageHeader } from "@/platform/ui/page-header";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { Card } from "@/platform/ui/card";
@@ -23,8 +23,10 @@ export default async function EditCoursePage({ params }: { params: Promise<{ cou
   const course = await getCourseForEdit(courseId);
   if (!course) notFound();
   const zone = await getDisplayTimeZone();
-  const departments = await prisma.department.findMany({ where: { isActive: true }, orderBy: { name: "asc" } });
   const assignedDeptIds = new Set(course.departments.map((d) => d.departmentId));
+  // Include already-assigned departments even if now inactive, so a deactivated
+  // assignment isn't dropped by this replace-set form's next save (#21).
+  const departments = await scopeEditorDepartments([...assignedDeptIds]);
   const isAssigned = course.assignToAll || course.departments.length > 0;
   const hasPackage = course.scormEntryHref != null;
 
@@ -77,6 +79,7 @@ export default async function EditCoursePage({ params }: { params: Promise<{ cou
                 {departments.map((d) => (
                   <label key={d.id} className="flex items-center gap-2">
                     <Checkbox name="departmentIds" value={d.id} defaultChecked={assignedDeptIds.has(d.id)} /> {d.name}
+                    {!d.isActive && <span className="text-muted-foreground"> (inactive)</span>}
                   </label>
                 ))}
               </div>

@@ -1,5 +1,5 @@
 import { requirePermission } from "@/platform/auth/session";
-import { prisma } from "@/platform/db";
+import { scopeEditorDepartments } from "@/platform/departments";
 import { PageHeader } from "@/platform/ui/page-header";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { Card } from "@/platform/ui/card";
@@ -24,11 +24,10 @@ export default async function EditEhsTrainingPage({
   const sp = await searchParams;
   const training = await getTrainingForEdit(trainingId);
   if (!training) notFound();
-  const departments = await prisma.department.findMany({
-    where: { isActive: true },
-    orderBy: { name: "asc" },
-  });
   const assigned = new Set(training.departments.map((d: { departmentId: string }) => d.departmentId));
+  // Include already-assigned departments even if now inactive, so a deactivated
+  // assignment isn't dropped by this replace-set form's next save (#29).
+  const departments = await scopeEditorDepartments([...assigned]);
 
   return (
     <>
@@ -76,6 +75,7 @@ export default async function EditEhsTrainingPage({
                 {departments.map((d) => (
                   <label key={d.id} className="flex items-center gap-2">
                     <Checkbox name="departmentIds" value={d.id} defaultChecked={assigned.has(d.id)} /> {d.name}
+                    {!d.isActive && <span className="text-muted-foreground"> (inactive)</span>}
                   </label>
                 ))}
               </div>

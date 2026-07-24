@@ -15,7 +15,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
-import { manageableDepartmentIds, memberDepartmentIds } from "./departments";
+import { manageableDepartmentIds, memberDepartmentIds, scopeEditorDepartments } from "./departments";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -180,5 +180,33 @@ describe("memberDepartmentIds", () => {
   it("returns [] when there is no active term", async () => {
     const person = await prisma.person.create({ data: { name: "N" } });
     expect(await memberDepartmentIds(person.id)).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// scopeEditorDepartments (#21/#29): a replace-set scope editor must still show a
+// deactivated department it is already assigned to, or the next save drops it.
+// ---------------------------------------------------------------------------
+
+describe("scopeEditorDepartments", () => {
+  it("includes active departments and assigned-but-inactive ones, excludes unassigned-inactive", async () => {
+    const active = await prisma.department.create({ data: { code: "ACT", name: "Active Dept", isActive: true } });
+    const assignedInactive = await prisma.department.create({ data: { code: "OLD", name: "Retired Assigned", isActive: false } });
+    const strandedInactive = await prisma.department.create({ data: { code: "GONE", name: "Retired Unassigned", isActive: false } });
+
+    const result = await scopeEditorDepartments([assignedInactive.id]);
+    const ids = result.map((d) => d.id);
+
+    expect(ids).toContain(active.id); // active always offered
+    expect(ids).toContain(assignedInactive.id); // still shown so the save can't silently drop it
+    expect(ids).not.toContain(strandedInactive.id); // an inactive dept nobody is assigned to stays hidden
+    expect(result.find((d) => d.id === assignedInactive.id)?.isActive).toBe(false); // flagged for the "(inactive)" label
+  });
+
+  it("returns only active departments when nothing is assigned", async () => {
+    const active = await prisma.department.create({ data: { code: "A", name: "A", isActive: true } });
+    await prisma.department.create({ data: { code: "B", name: "B", isActive: false } });
+    const result = await scopeEditorDepartments([]);
+    expect(result.map((d) => d.id)).toEqual([active.id]);
   });
 });

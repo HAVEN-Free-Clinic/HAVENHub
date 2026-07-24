@@ -291,6 +291,13 @@ export async function runRhdImport(
       : [];
 
     let attendingId: string | null = null;
+    // Distinguish "Airtable has no attending" (attendingLinks empty -> attendingId
+    // null, a legitimate clear) from "Airtable links an attending we could not
+    // resolve" (e.g. it was skipped for a blank Schedule Name). Only the former may
+    // null out RhdClinic.attendingId; the latter must leave whatever a director set
+    // in the builder untouched, or every import silently wipes that clinic's
+    // attending back to a value Airtable does not actually hold (#120).
+    let attendingUnresolved = false;
     if (attendingLinks.length > 0) {
       const firstLink = attendingLinks[0];
       const resolvedId = attendingIdByRecordId.get(firstLink);
@@ -301,7 +308,7 @@ export async function runRhdImport(
         if (!report.unresolvedAttendings.includes(firstLink)) {
           report.unresolvedAttendings.push(firstLink);
         }
-        // attendingId stays null
+        attendingUnresolved = true;
       }
     }
 
@@ -330,7 +337,7 @@ export async function runRhdImport(
       }
     } else {
       const changed =
-        existing.attendingId !== attendingId ||
+        (!attendingUnresolved && existing.attendingId !== attendingId) ||
         existing.directorName !== directorName ||
         existing.proceduresBooked !== proceduresBooked;
 
@@ -339,7 +346,14 @@ export async function runRhdImport(
         if (!options.dryRun) {
           await prisma.rhdClinic.update({
             where: { id: existing.id },
-            data: { attendingId, directorName, proceduresBooked },
+            // Omit attendingId entirely when the link was present but unresolved,
+            // preserving a director-set attending. An empty attendingLinks array
+            // still writes null through the resolved path (a real clear).
+            data: {
+              ...(attendingUnresolved ? {} : { attendingId }),
+              directorName,
+              proceduresBooked,
+            },
           });
         }
       } else {

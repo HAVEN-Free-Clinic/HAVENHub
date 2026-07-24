@@ -459,6 +459,42 @@ describe("runRhdImport", () => {
     expect(clinic!.attendingId).toBeNull();
   });
 
+  it("preserves a director-set attendingId when the Airtable link is present but unresolved (#120)", async () => {
+    const term = await seedTerm();
+    // A director already selected Dr Smith for the June 6 clinic in the builder.
+    const smith = await prisma.rhdAttending.create({ data: { scheduleName: "Smith", fullName: "Dr Smith" } });
+    await prisma.rhdClinic.create({ data: { termId: term.id, clinicDate: CLINIC_DATE_1, attendingId: smith.id } });
+
+    // Airtable links June 6 to an attending the import cannot resolve (e.g. it was
+    // skipped for a blank Schedule Name), so it never enters the resolve map.
+    const reader = makeReader(
+      [], // REC_DR_JONES absent -> unresolved
+      [{ id: "clinicRow1", fields: { [FLD_DATE]: "2026-06-06", [FLD_ATTENDING_LINK]: [REC_DR_JONES] } }]
+    );
+
+    const report = await runRhdImport(reader, { ...BASE_OPTS, dryRun: false });
+    expect(report.unresolvedAttendings).toContain(REC_DR_JONES);
+
+    // The director's attending survives: an unresolved link must not null it out.
+    const clinic = await prisma.rhdClinic.findFirst({ where: { termId: term.id } });
+    expect(clinic!.attendingId).toBe(smith.id);
+  });
+
+  it("still clears attendingId when Airtable genuinely has no attending link", async () => {
+    const term = await seedTerm();
+    const smith = await prisma.rhdAttending.create({ data: { scheduleName: "Smith", fullName: "Dr Smith" } });
+    await prisma.rhdClinic.create({ data: { termId: term.id, clinicDate: CLINIC_DATE_1, attendingId: smith.id } });
+
+    // No attending link at all -> a real "Airtable has no attending", which should
+    // still clear the field (this is the case the preserve guard must NOT swallow).
+    const reader = makeReader([], [{ id: "clinicRow1", fields: { [FLD_DATE]: "2026-06-06" } }]);
+
+    await runRhdImport(reader, { ...BASE_OPTS, dryRun: false });
+
+    const clinic = await prisma.rhdClinic.findFirst({ where: { termId: term.id } });
+    expect(clinic!.attendingId).toBeNull();
+  });
+
   // -------------------------------------------------------------------------
   // Clinic: upsert idempotency
   // -------------------------------------------------------------------------

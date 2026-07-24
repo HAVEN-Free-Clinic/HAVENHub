@@ -129,6 +129,28 @@ it("latches completion: a SCO reverting to incomplete on review does not downgra
   expect(after.completedAt?.getTime()).toBe(done.completedAt?.getTime());
 });
 
+it("preserves a saved SCO score/suspend/location when a later commit omits them (#19)", async () => {
+  const { learner, course } = await seed();
+  // The learner passes the quiz SCO, persisting a score and resume state.
+  await persistScoCmi(learner.id, course.id, "ITEM-A", {
+    lessonStatus: "passed", scoreRaw: 90, suspendData: "q=done", lessonLocation: "3",
+  });
+  // They revisit the SCO; its SCORM API is re-seeded blank from the stale server
+  // snapshot, so on leave LMSFinish fires a commit with null score/suspend/location.
+  await persistScoCmi(learner.id, course.id, "ITEM-A", {
+    lessonStatus: "incomplete", scoreRaw: null, suspendData: null, lessonLocation: null,
+  });
+
+  const row = await getCourseForLearner(learner.id, course.id);
+  const itemA = row.scos.find((s) => s.id === "ITEM-A")!;
+  expect(itemA.cmi.scoreRaw).toBe(90); // score not wiped by the absent-value commit
+  expect(itemA.cmi.suspendData).toBe("q=done"); // resume state preserved
+  expect(itemA.cmi.lessonLocation).toBe("3");
+  // The course rollup (the score a director sees on /learning/dashboard) keeps the 90.
+  const cp = await prisma.courseProgress.findFirstOrThrow({ where: { personId: learner.id, courseId: course.id } });
+  expect(cp.scoreRaw).toBe(90);
+});
+
 it("rounds a fractional SCO score to fit the Int column", async () => {
   const { learner, course } = await seed();
   await persistScoCmi(learner.id, course.id, "ITEM-A", {

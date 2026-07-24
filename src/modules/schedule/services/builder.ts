@@ -264,6 +264,35 @@ export async function setAssignment(
       await prisma.shiftAssignment.delete({ where: { id: existing.id } });
     }
 
+    // Auto-cancel any PENDING drop/swap request the person raised for THIS slot.
+    // Once their assignment here is gone the request is orphaned: /schedule only
+    // renders (and offers Cancel for) a request that still has a matching shift
+    // card, so without this the requester is stuck showing "Pending requests: 1"
+    // with no card and no Cancel control, approveRequest would fail validation
+    // ("Not assigned to that shift"), and the schedule-reminders cron keeps
+    // nagging the department's approvers every few days (#25). Matching is by UTC
+    // day key so a request on a clinic date updateClinicDates later removed is
+    // still cleared. The status: "PENDING" precondition on the write makes this a
+    // no-op against a request an approver is concurrently deciding.
+    const openRequests = await prisma.shiftRequest.findMany({
+      where: {
+        termId: term.id,
+        departmentId: opts.departmentId,
+        requesterId: opts.personId,
+        status: "PENDING",
+      },
+      select: { id: true, requesterDate: true },
+    });
+    const strandedIds = openRequests
+      .filter((r) => isoDateKey(r.requesterDate) === opts.dateKey)
+      .map((r) => r.id);
+    if (strandedIds.length > 0) {
+      await prisma.shiftRequest.updateMany({
+        where: { id: { in: strandedIds }, status: "PENDING" },
+        data: { status: "CANCELLED" },
+      });
+    }
+
     await recordAudit({
       actorPersonId: actor,
       action: "schedule.unassign",

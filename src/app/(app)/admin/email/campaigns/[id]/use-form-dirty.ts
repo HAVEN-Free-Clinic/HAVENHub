@@ -11,7 +11,10 @@ import { useEffect, useState } from "react";
  * database -- preview, test, send, schedule, recurring -- must gate on this so it
  * cannot silently act on the last-saved version while the compose form is dirty.
  *
- * Resets to clean on remount: a successful save reloads the page.
+ * Resets to clean on remount. A successful save is a soft nav (revalidate + redirect
+ * ?saved=1), which RECONCILES rather than remounts, so the consuming component must be
+ * keyed on the campaign's updatedAt by its parent to force the remount (#14) -- this
+ * hook has no path back to false on its own.
  */
 export function useFormDirty(formId: string): boolean {
   const [dirty, setDirty] = useState(false);

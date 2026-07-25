@@ -79,9 +79,14 @@ export const SETTINGS: SettingDef<unknown>[] = [
     key: "uploads.maxMb",
     category: "Operations",
     label: "Max upload size (MB)",
-    help: "Largest allowed file upload, in megabytes. Applies to all file uploads across the app.",
-    input: { type: "number", min: 1 },
-    schema: z.number().int().positive(),
+    // Capped at 4: every upload path except SCORM packages goes through a Server
+    // Action, which the platform hard-limits to ~4.5 MB (FUNCTION_PAYLOAD_TOO_LARGE)
+    // regardless of the app's own limit. A larger value is accepted here but every
+    // upload over the platform cap still fails opaquely at the edge, before any app
+    // code runs -- so the setting must never promise more than the platform allows (#75).
+    help: "Largest allowed file upload, in megabytes (max 4 -- the platform request-body cap for uploads). Applies to all file uploads across the app.",
+    input: { type: "number", min: 1, max: 4 },
+    schema: z.number().int().min(1).max(4),
     envDefault: () => config.MAX_UPLOAD_MB,
     secret: false,
   }),

@@ -77,10 +77,10 @@ describe("loadConfig", () => {
 
   // --- Upload config ---
 
-  it("defaults UPLOAD_DIR to ./uploads and MAX_UPLOAD_MB to 5 (Airtable content-upload cap)", () => {
+  it("defaults UPLOAD_DIR to ./uploads and MAX_UPLOAD_MB to 4 (server-action body cap)", () => {
     const config = loadConfig(base);
     expect(config.UPLOAD_DIR).toBe("./uploads");
-    expect(config.MAX_UPLOAD_MB).toBe(5);
+    expect(config.MAX_UPLOAD_MB).toBe(4);
   });
 
   it("accepts a custom UPLOAD_DIR", () => {

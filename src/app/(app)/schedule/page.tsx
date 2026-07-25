@@ -103,7 +103,7 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
       await updateMyAvailability(actor.personId, { termId, dates });
     } catch (err) {
       if (err instanceof AvailabilityValidationError) {
-        redirect(`/schedule?error=${encodeURIComponent(err.message)}`);
+        redirect("/schedule?error=availability_validation_failed");
       }
       throw err;
     }

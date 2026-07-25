@@ -442,7 +442,14 @@ async function sendEscalations(
       teams: {
         title: "Compliance escalation",
         summary: `${volunteer.name} in ${director.departmentName} has outstanding compliance requirements.`,
-        link: `${await getSetting<string>("app.baseUrl")}/admin`,
+        // Deep-link the director to the compliance list they can actually open.
+        // /admin gates on admin.access, which the seeded Director baseline does not
+        // hold, so it resolved to /no-access for this notification's entire intended
+        // audience (both the Teams card and the in-app Notification row, which notify()
+        // stores this link into). /volunteers gates on volunteers.view, which Director
+        // holds -- and it is the compliance surface itself (#70). (Not the per-person
+        // /volunteers/compliance/[personId], which requires volunteers.manage_compliance.)
+        link: `${await getSetting<string>("app.baseUrl")}/volunteers`,
       },
     });
 

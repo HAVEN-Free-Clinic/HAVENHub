@@ -290,6 +290,31 @@ describe("escalation at threshold", () => {
     const row4 = await getReminderRow(volunteer.id);
     expect(row4!.remindersSent).toBe(4);
   });
+
+  it("deep-links the escalation notification to /volunteers, a page directors can open, not /admin (#70)", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("PCAR");
+    const volunteer = await createPerson("Alice", "alice@example.com");
+    const director = await createPerson("Director Bob", "bob@example.com");
+    await addMembership(volunteer.id, term.id, dept.id, "VOLUNTEER");
+    await addMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await addCert(volunteer.id, EXPIRED_COMPLETION);
+    await addCert(director.id, COMPLIANT_COMPLETION);
+
+    // Three runs reach the escalation threshold and notify the director.
+    await runComplianceReminders(NOW);
+    await runComplianceReminders(advanceNow(ADVANCE_DAYS));
+    await runComplianceReminders(advanceNow(ADVANCE_DAYS * 2));
+
+    const notif = await prisma.notification.findFirstOrThrow({
+      where: { personId: director.id, type: "compliance-escalation" },
+    });
+    // The seeded Director baseline holds volunteers.view (the /volunteers compliance
+    // surface) but NOT admin.access, so the old /admin link resolved to /no-access
+    // for the escalation's entire intended audience.
+    expect(notif.link).toMatch(/\/volunteers$/);
+    expect(notif.link).not.toContain("/admin");
+  });
 });
 
 describe("COMPLIANT reset", () => {

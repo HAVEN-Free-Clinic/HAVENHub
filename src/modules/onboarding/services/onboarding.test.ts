@@ -51,11 +51,15 @@ it("getOnboardingStatus (the gate) reflects only the live term", async () => {
 });
 
 it("getMyOnboarding returns one entry per term the member belongs to, live first", async () => {
-  const { vol } = await seed();
+  const { vol, live, next } = await seed();
   const mine = await getMyOnboarding(vol.id);
   expect(mine.map((m) => m.term.name)).toEqual(["Summer", "Fall"]);
   // Each term carries its own training requirement (both have a designated cycle).
   expect(mine.every((m) => m.status.tasks.some((t) => t.key === "training"))).toBe(true);
+  // Each entry carries its OWN term endDate, so the dashboard can compute HIPAA /
+  // compliance copy per term rather than reusing the live term's (#87).
+  expect(mine[0].term.endDate.getTime()).toBe(live.endDate.getTime());
+  expect(mine[1].term.endDate.getTime()).toBe(next.endDate.getTime());
 });
 
 it("a next-term-only recruit is not gated (live gate empty) but sees next-term onboarding", async () => {

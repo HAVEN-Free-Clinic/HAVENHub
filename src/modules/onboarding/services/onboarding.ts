@@ -151,7 +151,7 @@ export const getOnboardingStatus = cache(async function getOnboardingStatus(
   return computeOnboardingForTerm(personId, term, exempt);
 });
 
-export type TermOnboarding = { term: { id: string; name: string }; status: OnboardingStatus };
+export type TermOnboarding = { term: { id: string; name: string; endDate: Date }; status: OnboardingStatus };
 
 /** The merged onboarding checklist across every term the member belongs to (live first). */
 export const getMyOnboarding = cache(async function getMyOnboarding(personId: string): Promise<TermOnboarding[]> {
@@ -162,7 +162,10 @@ export const getMyOnboarding = cache(async function getMyOnboarding(personId: st
   const out: TermOnboarding[] = [];
   for (const term of terms) {
     const status = await computeOnboardingForTerm(personId, term, exempt);
-    out.push({ term: { id: term.id, name: term.name }, status });
+    // endDate is returned so the dashboard can compute HIPAA/compliance copy PER
+    // term: COMPLIANT requires expiresAt >= termEnd + 30d, so a cert that clears the
+    // live term but not a next term must read "Renew before ..." under that term (#87).
+    out.push({ term: { id: term.id, name: term.name, endDate: term.endDate }, status });
   }
   return out;
 });

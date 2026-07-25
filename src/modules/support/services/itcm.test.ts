@@ -13,6 +13,7 @@ import {
   resolveIncident,
   getEpicRequestHistory,
   listIncidentPeople,
+  resolveMirrorsByPerson,
 } from "./itcm";
 import { persistAttachment } from "./attachments";
 import { createTechRequest, SupportConflictError, SupportForbiddenError, SupportNotFoundError, SupportStateError } from "./tech-request";
@@ -621,5 +622,45 @@ describe("closeTicket", () => {
     const closed = await closeTicket(actor.id, ticket.id);
     expect(closed.status).toBe("CLOSED");
     expect(closed.closedAt).not.toBeNull();
+  });
+});
+
+describe("resolveMirrorsByPerson (#32)", () => {
+  beforeEach(async () => { await resetDb(); });
+
+  async function makeTermAndDepts() {
+    const term = await prisma.term.create({ data: { code: "SU26", name: "Summer", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
+    const itcm = await prisma.department.create({ data: { code: "ITCM", name: "ITCM" } });
+    const educ = await prisma.department.create({ data: { code: "EDUC", name: "EDUC" } });
+    return { term, itcm, educ };
+  }
+
+  it("mirrors the DIRECTOR role's Epic access and never overwrites it with a null from another membership", async () => {
+    const { term, itcm, educ } = await makeTermAndDepts();
+    // Sam holds BOTH a DIRECTOR membership in ITCM and a VOLUNTEER membership in EDUC.
+    const sam = await createPerson("Sam");
+    await prisma.termMembership.create({ data: { personId: sam.id, termId: term.id, departmentId: itcm.id, kind: "DIRECTOR", status: "ACTIVE" } });
+    await prisma.termMembership.create({ data: { personId: sam.id, termId: term.id, departmentId: educ.id, kind: "VOLUNTEER", status: "ACTIVE" } });
+    // A director-level mirror exists in ITCM; EDUC has no volunteer with an Epic ID.
+    const itcmDir = await createPerson("Dana Director", { epicId: "DIR-EPIC" });
+    await prisma.termMembership.create({ data: { personId: itcmDir.id, termId: term.id, departmentId: itcm.id, kind: "DIRECTOR", status: "ACTIVE" } });
+
+    const mirrors = await resolveMirrorsByPerson([sam.id], term.id);
+    // Sam's request must mirror the director's Epic ID, not a null from the EDUC row.
+    expect(mirrors.get(sam.id)?.epicId).toBe("DIR-EPIC");
+  });
+
+  it("prefers the DIRECTOR mirror over a VOLUNTEER mirror when both memberships resolve one", async () => {
+    const { term, itcm, educ } = await makeTermAndDepts();
+    const sam = await createPerson("Sam");
+    await prisma.termMembership.create({ data: { personId: sam.id, termId: term.id, departmentId: itcm.id, kind: "DIRECTOR", status: "ACTIVE" } });
+    await prisma.termMembership.create({ data: { personId: sam.id, termId: term.id, departmentId: educ.id, kind: "VOLUNTEER", status: "ACTIVE" } });
+    const itcmDir = await createPerson("Dana Director", { epicId: "DIR-EPIC" });
+    await prisma.termMembership.create({ data: { personId: itcmDir.id, termId: term.id, departmentId: itcm.id, kind: "DIRECTOR", status: "ACTIVE" } });
+    const educVol = await createPerson("Vera Volunteer", { epicId: "VOL-EPIC" });
+    await prisma.termMembership.create({ data: { personId: educVol.id, termId: term.id, departmentId: educ.id, kind: "VOLUNTEER", status: "ACTIVE" } });
+
+    const mirrors = await resolveMirrorsByPerson([sam.id], term.id);
+    expect(mirrors.get(sam.id)?.epicId).toBe("DIR-EPIC");
   });
 });

@@ -215,6 +215,45 @@ export async function findMirrorPerson(
 }
 
 /**
+ * Resolve the "Epic ID to Mirror" for each person from THEIR OWN department and
+ * role in the term, for bulk/individual Epic requests.
+ *
+ * A person can hold more than one ACTIVE membership in a term (e.g. DIRECTOR in one
+ * department, VOLUNTEER in another). The memberships are read in a deterministic,
+ * DIRECTOR-first order and the FIRST non-null mirror per person wins, so a
+ * director's request mirrors director-level Epic access -- and a null result from
+ * the preferred membership never overwrites a mirror found from a fallback one, as
+ * an unordered query's last-row-wins behavior did (which could ship a volunteer's
+ * Epic ID for a director, or blank the field entirely) (#32). Returns a map of
+ * personId -> mirror (or null when none of the person's memberships resolves one).
+ */
+export async function resolveMirrorsByPerson(
+  personIds: string[],
+  termId: string,
+): Promise<Map<string, { name: string; epicId: string } | null>> {
+  const out = new Map<string, { name: string; epicId: string } | null>();
+  if (personIds.length === 0) return out;
+  const memberships = await prisma.termMembership.findMany({
+    where: { personId: { in: personIds }, termId, status: "ACTIVE" },
+    include: { department: { select: { code: true } } },
+  });
+  // DIRECTOR-first, then department code -- a deterministic order. Sorted in JS
+  // rather than via orderBy: a Prisma orderBy on the `kind` enum sorts by the enum's
+  // Postgres DECLARATION order, not our DIRECTOR-preference, so it would not reliably
+  // put DIRECTOR first.
+  memberships.sort((a, b) => {
+    if (a.kind !== b.kind) return a.kind === "DIRECTOR" ? -1 : 1;
+    return a.department.code.localeCompare(b.department.code);
+  });
+  for (const m of memberships) {
+    if (out.get(m.personId)) continue; // already have a non-null mirror (DIRECTOR wins by order)
+    const mirror = await findMirrorPerson(m.departmentId, m.kind, { excludePersonIds: personIds, termId });
+    out.set(m.personId, mirror);
+  }
+  return out;
+}
+
+/**
  * Returns full person records for a set of person ids.
  *
  * Used to build spreadsheet rows for bulk requests; the page collects

@@ -23,13 +23,12 @@ import * as path from "path";
 import { auth } from "@/platform/auth/auth";
 import { getActivePerson } from "@/platform/auth/match-person";
 import { can } from "@/platform/rbac/engine";
-import { findMirrorPerson, getPeopleByIds, listEpicAuthorizers, reconcileDeactivationRequests, submitEpicRequests } from "@/modules/support/services/itcm";
+import { resolveMirrorsByPerson, getPeopleByIds, listEpicAuthorizers, reconcileDeactivationRequests, submitEpicRequests } from "@/modules/support/services/itcm";
 import { SupportConflictError, SupportStateError, SupportNotFoundError } from "@/modules/support/services/tech-request";
 import {
   generatePdf,
   type RequestType,
 } from "@/modules/support/services/itcm-pdf";
-import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { formatDateOnly } from "@/platform/dates";
@@ -260,23 +259,9 @@ export async function POST(req: Request) {
   // Find a mirror Epic ID per selected person, based on THEIR OWN department
   // and role; bulk requests can now span multiple departments, so there is
   // no single global mirror; each spreadsheet row gets its own.
-  const mirrorByPersonId = new Map<string, { name: string; epicId: string } | null>();
-  if (activeTerm) {
-    const memberships = await prisma.termMembership.findMany({
-      where: {
-        personId: { in: people.map((p) => p.id) },
-        termId: activeTerm.id,
-        status: "ACTIVE",
-      },
-    });
-    for (const m of memberships) {
-      const mirror = await findMirrorPerson(m.departmentId, m.kind, {
-        excludePersonIds: people.map((p) => p.id),
-        termId: activeTerm.id,
-      });
-      mirrorByPersonId.set(m.personId, mirror);
-    }
-  }
+  const mirrorByPersonId = activeTerm
+    ? await resolveMirrorsByPerson(people.map((p) => p.id), activeTerm.id)
+    : new Map<string, { name: string; epicId: string } | null>();
 
   // For individual requests there's exactly one person, so this is their mirror.
   const singleMirrorPerson = mirrorByPersonId.get(people[0].id) ?? null;

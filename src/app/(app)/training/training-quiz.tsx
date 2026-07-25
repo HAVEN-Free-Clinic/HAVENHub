@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition, type FormEvent } from "react";
+import { useEffect, useRef, useState, useTransition, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Check, FileText, RotateCcw, ClipboardList } from "lucide-react";
 import type { Track } from "@prisma/client";
@@ -38,6 +38,9 @@ export function TrainingQuiz({
 }) {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
+  // Focus target for the fail result, so a screen-reader user is not left on <body>
+  // with no announcement after grading this mandatory clearance step (#28).
+  const resultHeadingRef = useRef<HTMLParagraphElement>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [graded, setGraded] = useState<Graded | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -48,6 +51,14 @@ export function TrainingQuiz({
   const allAnswered = answeredCount === questions.length;
   const attemptsLeft = Math.max(0, maxAttempts - attemptsUsed);
   const reviewing = graded != null;
+
+  // After a failed attempt renders its result card, move focus to the score heading
+  // (a persistent aria-live status line below also announces the transition), so the
+  // reviewer hears the outcome and their next Tab starts at the result, not the top of
+  // the document (#28). Pass/lock take the router.refresh path and re-render the page.
+  useEffect(() => {
+    if (graded && !graded.passed) resultHeadingRef.current?.focus();
+  }, [graded]);
 
   // A track's makeup quiz can have zero questions (e.g. still being authored). With
   // none, there is nothing to grade: the progress bar would divide by zero (NaN width),
@@ -113,12 +124,12 @@ export function TrainingQuiz({
     <form ref={formRef} onSubmit={handleSubmit}>
       {/* Fail result banner (pass/lock refresh the page instead) */}
       {graded && !graded.passed && (
-        <Card className="mb-5 flex items-center gap-4">
+        <Card role="status" className="mb-5 flex items-center gap-4">
           <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-warning text-white">
             <RotateCcw aria-hidden className="h-5 w-5" />
           </span>
           <div>
-            <p className="text-base font-bold text-foreground">You scored {graded.percent}%</p>
+            <p ref={resultHeadingRef} tabIndex={-1} className="text-base font-bold text-foreground outline-none">You scored {graded.percent}%</p>
             <p className="mt-0.5 text-sm text-foreground-soft">
               You need {passPercent}% to pass. {attemptsLeft} attempt{attemptsLeft === 1 ? "" : "s"} left. Review the
               highlighted answers and try again.
@@ -198,7 +209,10 @@ export function TrainingQuiz({
         </div>
 
         <div className="flex items-center justify-between gap-4 border-t border-border bg-muted px-5 py-4">
-          <span className="text-xs text-muted-foreground">
+          {/* Persistent live region: it is always in the DOM, so a screen reader
+              announces each transition ("Grading your answers…" -> "Review the
+              highlighted answers below.") without relying on a freshly-mounted node (#28). */}
+          <span role="status" aria-live="polite" className="text-xs text-muted-foreground">
             {pending
               ? "Grading your answers…"
               : reviewing

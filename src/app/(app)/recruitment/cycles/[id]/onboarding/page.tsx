@@ -72,12 +72,13 @@ export default async function OnboardingPage({ params, searchParams }: { params:
                     {(() => {
                       // Surface any per-cycle custom onboarding answers so they are
                       // readable here instead of being collected and never seen.
-                      const ca = (r.contract?.customAnswers ?? {}) as Record<string, unknown>;
-                      const entries = Object.entries(ca).filter(([, v]) => v != null && v !== "");
-                      if (entries.length === 0) return null;
-                      // Resolve each answer's field key to its human question label from
-                      // the contract snapshot (fall back to the raw key), so reviewers see
-                      // "T-shirt size", not "tshirt_size".
+                      // Resolve the human label for each REAL custom question in the
+                      // contract snapshot, then show ONLY those answers. customAnswers
+                      // also holds internal confirm__<agreementId> checkbox-agreement keys
+                      // (submitContract stores them there) and can carry a stale answer to a
+                      // question this contract never showed; keying off the snapshot's
+                      // custom_question blocks drops both, so reviewers see "T-shirt size",
+                      // not junk rows like "confirm__strike_policy: on" (#88).
                       const labels: Record<string, string> = {};
                       try {
                         if (r.contract?.templateSnapshot) {
@@ -86,8 +87,11 @@ export default async function OnboardingPage({ params, searchParams }: { params:
                           }
                         }
                       } catch {
-                        /* invalid snapshot -> fall back to raw keys */
+                        /* invalid snapshot -> show no custom answers */
                       }
+                      const ca = (r.contract?.customAnswers ?? {}) as Record<string, unknown>;
+                      const entries = Object.entries(ca).filter(([k, v]) => k in labels && v != null && v !== "");
+                      if (entries.length === 0) return null;
                       return (
                         <dl className="mt-1 space-y-0.5 text-xs font-normal text-subtle-foreground">
                           {entries.map(([k, v]) => (

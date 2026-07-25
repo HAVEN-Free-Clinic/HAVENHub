@@ -354,6 +354,13 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
           {/* Preview / Test / Send. These operate on the last-saved campaign, so
               ReviewActions disables them while the compose form has unsaved edits. */}
           <ReviewActions
+            // Key on updatedAt so a successful save (revalidatePath + redirect ?saved=1)
+            // really REMOUNTS this, resetting the useFormDirty guard. A same-page soft
+            // nav that only changes search params reconciles rather than remounts, so
+            // useState(false) otherwise kept `dirty` true forever and Preview/Test/Send
+            // stayed disabled -- telling the admin to "save your changes" right after
+            // they saved (#14).
+            key={campaign.updatedAt.toISOString()}
             formId="campaign-compose"
             previewAction={previewAction}
             testAction={testAction}
@@ -412,6 +419,8 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
         <div className="space-y-5 border-t border-border pt-6">
           <h2 className="text-base font-semibold text-foreground">Timing</h2>
           <TimingActions
+            // Remount on save so the useFormDirty guard resets -- see ReviewActions (#14).
+            key={campaign.updatedAt.toISOString()}
             formId="campaign-compose"
             scheduleLaterAction={scheduleLaterAction}
             scheduleRecurringAction={scheduleRecurringAction}

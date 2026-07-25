@@ -93,7 +93,11 @@ export default async function ApplyPage({ params, searchParams }: { params: Prom
   if (session?.personId) {
     signedIn = true;
     signedInName = session.user?.name ?? null;
-    const ctx = await getRenewalContext(session.personId, session.user?.email ?? null, cycle.track);
+    // Resolve the renewal email from the portal identity (Person.contactEmail for a
+    // magic-link member, whose session.user.email is always undefined), so the email
+    // field prefills/locks correctly and the eligibility the wizard shows matches what
+    // submitApplication will accept (#55).
+    const ctx = await getRenewalContext(session.personId, session.user?.email ?? identity.email, cycle.track);
     currentDepartments = ctx.currentDepartments.filter((d) => cycle.departments.includes(d));
     // Renewal needs a current department offered by this cycle. Transfer only
     // needs an active membership in the track (their department may be elsewhere).

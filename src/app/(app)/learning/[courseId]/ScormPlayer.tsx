@@ -158,7 +158,13 @@ export function ScormPlayer({ courseId, scos }: Props) {
   }
 
   const single = scos.length <= 1;
-  const allComplete = scos.length > 0 && scos.every((s) => deriveStatus(live[s.id]?.lessonStatus).completed);
+  const allComplete =
+    scos.length > 0 &&
+    scos.every((s) => {
+      const liveCompleted = deriveStatus(live[s.id]?.lessonStatus).completed;
+      const persistedCompleted = deriveStatus(s.lessonStatus).completed;
+      return liveCompleted || persistedCompleted;
+    });
 
   return (
     <div className="space-y-4">

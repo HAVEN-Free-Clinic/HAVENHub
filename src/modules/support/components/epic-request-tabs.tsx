@@ -427,7 +427,19 @@ function TrackerTable({
 
 function HistoryTable({ history }: { history: EpicRequestHistoryRow[] }) {
   const zone = useTimeZone();
-  const closedTickets = history.filter((h) => h.ticket.status === "CLOSED");
+  // getEpicRequestHistory returns rows by submittedAt desc, but the History tab
+  // groups by CLOSED month and relies on Map insertion order for both the month
+  // headings and the rows within each. Re-sort by closedAt (fall back to
+  // submittedAt) desc so a ticket submitted earlier but closed later doesn't push
+  // its month above a newer one -- otherwise months render out of chronological
+  // order, contradicting every other newest-first list in the module (#116).
+  const closedTickets = history
+    .filter((h) => h.ticket.status === "CLOSED")
+    .sort(
+      (a, b) =>
+        new Date(b.ticket.closedAt ?? b.ticket.submittedAt).getTime() -
+        new Date(a.ticket.closedAt ?? a.ticket.submittedAt).getTime(),
+    );
 
   if (closedTickets.length === 0) {
     return <p className="text-sm text-muted-foreground">No completed Epic requests yet.</p>;

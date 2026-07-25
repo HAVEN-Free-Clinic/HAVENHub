@@ -55,6 +55,13 @@ describe("POST /api/learning/persist-cmi", () => {
     expect(persistScoCmi).not.toHaveBeenCalled();
   });
 
+  it("400s and does not persist when courseId/scoId are missing", async () => {
+    authed();
+    const res = await POST(req({ cmi: CMI }));
+    expect(res.status).toBe(400);
+    expect(persistScoCmi).not.toHaveBeenCalled();
+  });
+
   it("persists with the SESSION personId (never the body's) and returns 204", async () => {
     authed();
     const res = await POST(

@@ -7,10 +7,14 @@ import {
   getContractLayoutForEdit,
   resetCycleContractLayout,
   saveCycleContractLayout,
+  getGlobalContractLayout,
+  saveGlobalContractLayout,
+  resetGlobalContractLayout,
   type BlockPatch,
 } from "./template";
-import { DEFAULT_CONTRACT_LAYOUT } from "./system-fields";
-import { ContractLayoutError, type AgreementBlock, type CustomQuestionBlock } from "./layout";
+import { DEFAULT_CONTRACT_LAYOUT, defaultContractLayout } from "./system-fields";
+import { _resetSettingsCache } from "@/platform/settings/service";
+import { ContractLayoutError, type AgreementBlock, type CustomQuestionBlock, type ContractLayout } from "./layout";
 
 describe("applyBlockOp", () => {
   it("adds an agreement with a unique id", () => {
@@ -204,5 +208,46 @@ describe("DB: getContractLayoutForEdit / saveCycleContractLayout / resetCycleCon
     await expect(resetCycleContractLayout(cycle.id)).rejects.toBeInstanceOf(ContractLayoutError);
     const row = await prisma.recruitmentCycleContract.findUnique({ where: { cycleId: cycle.id } });
     expect(row).not.toBeNull();
+  });
+});
+
+describe("DB: per-track global master template (#3)", () => {
+  beforeEach(async () => { await resetDb(); _resetSettingsCache(); });
+  afterEach(async () => { await resetDb(); _resetSettingsCache(); });
+
+  // A two-tier-valid master template (the track default keeps every core system
+  // field so saveGlobalContractLayout's assertTwoTier passes) plus a marker
+  // agreement so we can tell one track's saved template from the other's.
+  const withMarker = (track: "VOLUNTEER" | "DIRECTOR", id: string): ContractLayout =>
+    ({ blocks: [...defaultContractLayout(track).blocks, { kind: "agreement", id, title: id, body: "", signatureLabel: "sign" }] });
+  const hasMarker = (l: ContractLayout, id: string) =>
+    l.blocks.some((b): b is AgreementBlock => b.kind === "agreement" && b.id === id);
+
+  it("saving the volunteer master template leaves the director default untouched", async () => {
+    await saveGlobalContractLayout("VOLUNTEER", withMarker("VOLUNTEER", "vol_master"), null);
+
+    const vol = await getGlobalContractLayout("VOLUNTEER");
+    expect(vol.hasOverride).toBe(true);
+    expect(hasMarker(vol.layout, "vol_master")).toBe(true);
+
+    // The director template is unaffected -- still the built-in director default,
+    // NOT the volunteer save (the #3 defect).
+    const dir = await getGlobalContractLayout("DIRECTOR");
+    expect(dir.hasOverride).toBe(false);
+    expect(dir.layout.blocks).toEqual(defaultContractLayout("DIRECTOR").blocks);
+  });
+
+  it("stores each track independently; resetting one falls back to its default and leaves the other", async () => {
+    await saveGlobalContractLayout("VOLUNTEER", withMarker("VOLUNTEER", "vol_master"), null);
+    await saveGlobalContractLayout("DIRECTOR", withMarker("DIRECTOR", "dir_master"), null);
+    expect(hasMarker((await getGlobalContractLayout("VOLUNTEER")).layout, "vol_master")).toBe(true);
+    expect(hasMarker((await getGlobalContractLayout("DIRECTOR")).layout, "dir_master")).toBe(true);
+
+    await resetGlobalContractLayout("DIRECTOR", null);
+    const dir = await getGlobalContractLayout("DIRECTOR");
+    expect(dir.hasOverride).toBe(false);
+    expect(dir.layout.blocks).toEqual(defaultContractLayout("DIRECTOR").blocks);
+    // The volunteer template survives the director reset.
+    expect((await getGlobalContractLayout("VOLUNTEER")).hasOverride).toBe(true);
   });
 });

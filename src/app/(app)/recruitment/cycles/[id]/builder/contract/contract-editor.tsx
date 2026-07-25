@@ -6,8 +6,9 @@ import type { FieldType } from "@prisma/client";
 import { applyBlockOp } from "@/modules/recruitment/contract/block-ops";
 import type { BlockPatch } from "@/modules/recruitment/contract/block-ops";
 import type { ContractBlock, ContractLayout } from "@/modules/recruitment/contract/layout";
+import type { Track } from "@prisma/client";
 import { saveContractAction, resetContractAction } from "./actions";
-import { saveGlobalContractAction } from "@/app/(app)/admin/contract/actions";
+import { saveGlobalContractAction, resetGlobalContractAction } from "@/app/(app)/admin/contract/actions";
 import { SortableList } from "../sortable-list";
 import { TypePicker } from "../type-picker";
 import { SystemFieldCard } from "./system-field-card";
@@ -42,6 +43,7 @@ export function ContractEditor({
   initialLayout,
   hasOverride,
   mode = "cycle",
+  globalTrack,
   status,
   preview,
 }: {
@@ -49,6 +51,8 @@ export function ContractEditor({
   initialLayout: ContractLayout;
   hasOverride: boolean;
   mode?: "cycle" | "global";
+  /** In global mode, the track whose master template this editor edits. */
+  globalTrack?: Track;
   status?: string;
   preview: OnboardingPreviewContext;
 }) {
@@ -115,7 +119,7 @@ export function ContractEditor({
     setError(null);
     startTransition(async () => {
       const res =
-        mode === "global" ? await saveGlobalContractAction(layout) : await saveContractAction(cycleId, layout);
+        mode === "global" ? await saveGlobalContractAction(globalTrack!, layout) : await saveContractAction(cycleId, layout);
       if (res.ok) {
         setSaved(true);
         router.refresh();
@@ -134,7 +138,8 @@ export function ContractEditor({
     setConfirmReset(false);
     setError(null);
     startTransition(async () => {
-      const res = await resetContractAction(cycleId);
+      const res =
+        mode === "global" ? await resetGlobalContractAction(globalTrack!) : await resetContractAction(cycleId);
       if (res.ok) router.refresh();
       else setError(res.error);
     });
@@ -233,7 +238,7 @@ export function ContractEditor({
             <Check className="h-4 w-4" aria-hidden /> Saved
           </span>
         )}
-        {mode === "cycle" && hasOverride && (
+        {hasOverride && (
           <Button
             type="button"
             variant={confirmReset ? "danger" : "ghost"}
@@ -242,7 +247,7 @@ export function ContractEditor({
             disabled={pending || !editable}
             onBlur={() => setConfirmReset(false)}
           >
-            {confirmReset ? "Confirm reset to default?" : "Reset to default"}
+            {confirmReset ? "Confirm reset to built-in default?" : "Reset to built-in default"}
           </Button>
         )}
       </div>

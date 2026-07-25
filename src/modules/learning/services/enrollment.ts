@@ -276,7 +276,7 @@ export async function persistScoCmi(
     // 1. Upsert this SCO's state (untrusted TEXT fields bounded before they hit the row).
     const existingSco = await tx.scoProgress.findUnique({
       where: { personId_courseId_scoId: { personId, courseId, scoId } },
-      select: { completedAt: true },
+      select: { completedAt: true, scoreRaw: true, suspendData: true, lessonLocation: true },
     });
     // Latch completion: once a SCO has completed (completedAt set), a later commit --
     // a review re-open reporting "incomplete"/"browsed", or the 30s autocommit --
@@ -285,12 +285,21 @@ export async function persistScoCmi(
     // un-clearing a volunteer who already finished (standard LMS behavior).
     const scoComplete = sco.completed || existingSco?.completedAt != null;
     const scoCompletedAt = scoComplete ? (existingSco?.completedAt ?? new Date()) : null;
+    // Preserve a saved score / resume point / suspend_data when the incoming
+    // snapshot omits it (null), instead of overwriting it. Revisiting an
+    // already-scored SCO in the same session re-seeds its SCORM API from the stale
+    // server snapshot, so on leave LMSFinish fires with null score/suspend/
+    // location; the client's snapshot() maps the blank API fields to null. Those
+    // are ABSENT values, not intentional clears -- overwriting them dropped the
+    // learner's quiz score (and the director-visible rollup) and their in-page
+    // resume position (#19). A real numeric score (including 0) or a non-null
+    // string still updates as before; lessonStatus is already latched above.
     const scoData = {
       completedAt: scoCompletedAt,
       lessonStatus: scoComplete ? "completed" : capText(cmi.lessonStatus, MAX_LESSON_STATUS),
-      scoreRaw: sanitizeScore(cmi.scoreRaw),
-      suspendData: capText(cmi.suspendData, MAX_SUSPEND_DATA),
-      lessonLocation: capText(cmi.lessonLocation, MAX_LESSON_LOCATION),
+      scoreRaw: sanitizeScore(cmi.scoreRaw) ?? existingSco?.scoreRaw ?? null,
+      suspendData: capText(cmi.suspendData, MAX_SUSPEND_DATA) ?? existingSco?.suspendData ?? null,
+      lessonLocation: capText(cmi.lessonLocation, MAX_LESSON_LOCATION) ?? existingSco?.lessonLocation ?? null,
     };
     await tx.scoProgress.upsert({
       where: { personId_courseId_scoId: { personId, courseId, scoId } },

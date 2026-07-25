@@ -69,9 +69,15 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
   const answers = (app.answers ?? {}) as Record<string, unknown>;
   const val = answers[key];
   const file: StoredFile | null = val && typeof val === "object" ? (val as StoredFile) : null;
-  if (!file?.storedName || !file.mimeType) {
+  if (!file?.storedName) {
     return Response.json({ error: "Not found" }, { status: 404 });
   }
+  // The browser sometimes reports an empty File.type (a file with no extension, or an
+  // extension its MIME table doesn't know -- e.g. a Mac .pages resume). That empty
+  // string was stored verbatim and used to 404 the download here, making a file the
+  // applicant successfully submitted permanently unreadable by every reviewer. Serve
+  // it as a generic binary download instead (inline preview stays gated below) (#31).
+  const mimeType = file.mimeType || "application/octet-stream";
 
   // Defense in depth: persistFiles generates storedName as `<fieldKey>-<uuid>[.ext]`.
   // Reject anything that doesn't match so a malformed/injected value can never escape
@@ -98,13 +104,13 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
   // Inline rendering is additionally gated to a safe mime allowlist so a
   // maliciously-typed stored file can never execute script in our origin.
   const inline = new URL(request.url).searchParams.get("inline") === "1";
-  const renderInline = inline && INLINE_SAFE_MIME_TYPES.has(file.mimeType);
+  const renderInline = inline && INLINE_SAFE_MIME_TYPES.has(mimeType);
   const rawName = file.fileName ?? "file";
 
   return new Response(fileBytes, {
     status: 200,
     headers: {
-      "Content-Type": file.mimeType,
+      "Content-Type": mimeType,
       "Content-Disposition": contentDisposition(rawName, { inline: renderInline }),
       "Content-Length": String(fileByteLength),
       // Defense-in-depth: never sniff a different type than declared, and deny the

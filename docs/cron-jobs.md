@@ -25,6 +25,7 @@ the job below silently stops running with no in-repo error.
 | `/api/cron/shift-reminders` | External (cron-job.org) | weekly (Mon) | `0 13 * * 1` | Enqueues weekly shift reminders to everyone scheduled for the upcoming Saturday clinic day (delivered by the enqueue flush after it runs, backstopped by the email tick). | Volunteers stop receiving their Saturday shift reminders. |
 | `/api/cron/recruitment-drafts` | External (cron-job.org) | daily | `0 4 * * *` | Sweeps abandoned onboarding drafts older than 30 days. | Stale draft rows accumulate. |
 | `/api/cron/recruitment-review-digest` | External (cron-job.org) | daily | `0 14 * * *` | Notifies each active department director who has applications awaiting review (volunteer routed-undecided + director-track undecided) in their department(s). Enqueue-only; skips directors with nothing to review. | Directors get no daily reminder of applications waiting on their review (they can still reach them via the roster). |
+| `/api/cron/schedule-reminders` | External (cron-job.org) | daily | `0 15 * * *` | Reminds a department's shift-request approvers (`schedule.manage_requests` holders) of drop/swap requests still pending, throttled so the same approver is not re-notified every day. Enqueue-only. | Pending shift drop/swap requests are never chased; approvers may never notice a request awaiting their decision. |
 
 Notes:
 

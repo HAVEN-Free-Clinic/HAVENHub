@@ -41,7 +41,13 @@ export default async function MemberVerifyPage({
     } catch (error) {
       // signIn throws NEXT_REDIRECT on success (re-throw it); only translate auth failures.
       if (error instanceof AuthError) {
-        redirect(`/login?error=${error.type}&callbackUrl=${encodeURIComponent(confirmedNext)}`);
+        // This action only ever calls signIn("member-magic-link"), so a
+        // CredentialsSignin here means verifyAndConsumeMemberToken returned null --
+        // the token expired (30-min TTL) or was already consumed between the GET peek
+        // and this POST. Map it to a dedicated, actionable code so the member is told
+        // to request a fresh link, not that their account "isn't active" (#94).
+        const code = error.type === "CredentialsSignin" ? "MemberLinkExpired" : error.type;
+        redirect(`/login?error=${code}&callbackUrl=${encodeURIComponent(confirmedNext)}`);
       }
       throw error;
     }

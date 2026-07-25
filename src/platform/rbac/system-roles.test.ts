@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SYSTEM_ROLES } from "./system-roles";
+import { MODULES } from "@/platform/modules/registry";
 
 function grantsFor(name: string): string[] {
   const role = SYSTEM_ROLES.find((r) => r.name === name);
@@ -32,5 +33,27 @@ describe("system roles", () => {
     const volOps = SYSTEM_ROLES.find((r) => r.name === "Volunteer Operations Manager");
     expect(volOps).toBeDefined();
     expect(volOps!.grants).toContain("admin.manage_roster");
+  });
+
+  // #136: my-info.access was retired from the registry (my-info is open access,
+  // permissions: []), but the Director/Volunteer grant lists still referenced it,
+  // so the seed created RoleGrant rows for a permission no gate checks, that the
+  // roles editor cannot represent, and that its replace-set silently deletes on the
+  // next edit. This guard would have caught it at the moment the manifest changed:
+  // every grant must be "*" or a permission some module manifest actually declares.
+  it("only grants permissions a module manifest declares (or the wildcard)", () => {
+    const declared = new Set(MODULES.flatMap((m) => m.permissions));
+    const offenders = SYSTEM_ROLES.flatMap((role) =>
+      role.grants
+        .filter((grant) => grant !== "*" && !declared.has(grant))
+        .map((grant) => `${role.name}: ${grant}`),
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  it("does not grant the retired my-info.access permission (#136)", () => {
+    for (const role of SYSTEM_ROLES) {
+      expect(role.grants).not.toContain("my-info.access");
+    }
   });
 });

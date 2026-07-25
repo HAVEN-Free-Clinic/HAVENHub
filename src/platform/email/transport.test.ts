@@ -14,7 +14,7 @@ import {
 } from "./transport";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
-import { _resetSettingsCache } from "@/platform/settings/service";
+import { _resetSettingsCache, getSetting } from "@/platform/settings/service";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -256,6 +256,25 @@ describe("resolveEmailTransport", () => {
     await prisma.setting.create({ data: { key: "email.transport", value: "graph" } });
     await prisma.setting.create({ data: { key: "email.sender", value: "noreply@example.com" } });
     _resetSettingsCache();
+    const t = await resolveEmailTransport();
+    expect(t).toBeInstanceOf(GraphTransport);
+  });
+
+  it("reads the current transport at drain time, ignoring a stale 'log' left in the cache (#76)", async () => {
+    // The clinic is mid-switch to Graph: the row is now "graph" (+ sender), but
+    // THIS instance's 30s settings cache still holds the pre-switch "log" because
+    // setSetting only invalidated the writing instance's cache. A cached read here
+    // would drain real mail through LogTransport and mark it SENT unrecoverably.
+    await prisma.setting.create({ data: { key: "email.transport", value: "log" } });
+    await prisma.setting.create({ data: { key: "email.sender", value: "noreply@example.com" } });
+    _resetSettingsCache();
+    // Warm this process's cache with the stale "log".
+    expect(await getSetting("email.transport")).toBe("log");
+    // Another instance completes the switch: the committed row is now "graph".
+    await prisma.setting.update({ where: { key: "email.transport" }, data: { value: "graph" } });
+    // (cache intentionally NOT reset -- getSetting("email.transport") still returns "log")
+
+    // The drain must resolve the committed "graph", not the stale cached "log".
     const t = await resolveEmailTransport();
     expect(t).toBeInstanceOf(GraphTransport);
   });

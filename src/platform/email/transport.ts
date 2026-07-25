@@ -1,6 +1,6 @@
 import { getAccessToken } from "./oauth";
 import { inlineEmailHtml } from "./render/inline";
-import { getSetting } from "@/platform/settings/service";
+import { getSettingUncached } from "@/platform/settings/service";
 import { log } from "@/platform/logging";
 
 /** A single outbound email message. */
@@ -186,9 +186,13 @@ export class GraphTransport implements EmailTransport {
  * Resolve the email transport from admin settings (DB override -> env default).
  */
 export async function resolveEmailTransport(): Promise<EmailTransport> {
-  const transport = await getSetting<"log" | "graph">("email.transport");
+  // Read UNcached. This runs once per drain (a cron path, not per render), and a
+  // 30s-stale "log" during a transport switch would drain real mail through
+  // LogTransport and mark it SENT with no retry path (#76). The fresh value
+  // routes correctly, or fails loudly below when graph has no sender.
+  const transport = await getSettingUncached<"log" | "graph">("email.transport");
   if (transport === "graph") {
-    const sender = await getSetting<string>("email.sender");
+    const sender = await getSettingUncached<string>("email.sender");
     // The write guard blocks enabling graph without a sender, but a later reset of
     // email.sender could leave graph active with no sender. In production this must
     // NOT silently fall back to the log transport: LogTransport resolves successfully,

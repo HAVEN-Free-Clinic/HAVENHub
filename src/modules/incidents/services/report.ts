@@ -27,11 +27,11 @@ import { getActiveTerm } from "@/platform/terms/active-term";
 import { can } from "@/platform/rbac/engine";
 import { getSetting } from "@/platform/settings/service";
 import { putObject, deleteObject } from "@/platform/storage";
-import { validateUploadedFile } from "@/modules/recruitment/services/upload";
-import { peopleWithAnyPermission } from "@/platform/rbac/holders";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { formatForDateInput } from "@/platform/dates/format";
 import { formatDateOnly } from "@/platform/dates";
+import { validateUploadedFile } from "@/modules/recruitment/services/upload";
+import { peopleWithAnyPermission } from "@/platform/rbac/holders";
 import { notify } from "@/platform/notifications/notify";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
 import {
@@ -41,7 +41,7 @@ import {
   reportResolvedContext,
 } from "@/platform/email/templates/incidents";
 import { issueAction, DISCIPLINARY_CATEGORIES } from "./disciplinary";
-import { queueEmail } from "@/platform/email/send";
+import { notifyStrikeIssued } from "./strike-notifications";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -780,6 +780,47 @@ export async function listReviewQueue(
   };
 }
 
+// ---------------------------------------------------------------------------
+// Strike-linking (report picker for the Strikes page)
+// ---------------------------------------------------------------------------
+
+/** How many reports the strike-linking picker offers. */
+const LINKABLE_REPORT_LIMIT = 200;
+
+/**
+ * Reports a central reviewer may link a strike to, newest first, for the
+ * Combobox on the Strikes page.
+ *
+ * Requires incidents.manage -> IncidentForbiddenError. Capped at
+ * LINKABLE_REPORT_LIMIT: the Combobox filters client-side over whatever it is
+ * given, so this deliberately does not ship the full history. Older reports are
+ * linked by deleting and re-recording the strike, or by raising the cap.
+ * Ordered by number (a monotonic autoincrement) as a secondary key so
+ * same-millisecond inserts still order deterministically.
+ */
+export async function linkableReports(
+  actorPersonId: string
+): Promise<Array<{ id: string; label: string }>> {
+  if (!(await can(actorPersonId, "incidents.manage"))) throw new IncidentForbiddenError();
+
+  const zone = await getDisplayTimeZone();
+  const reports = await prisma.incidentReport.findMany({
+    select: { id: true, number: true, concernTypes: true, createdAt: true },
+    orderBy: [{ createdAt: "desc" }, { number: "desc" }],
+    take: LINKABLE_REPORT_LIMIT,
+  });
+
+  return reports.map((r) => {
+    const concerns = r.concernTypes.map((c) => CONCERN_LABELS[c] ?? c).join(", ");
+    const date = formatDateOnly(r.createdAt, zone, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+    return { id: r.id, label: `#${r.number} -- ${concerns} -- ${date}` };
+  });
+}
+
 /**
  * Sets a report's status and reviewer notes. Requires incidents.manage
  * (else IncidentForbiddenError), and a reviewer who is a linked subject of the
@@ -1022,58 +1063,12 @@ export async function decideStrike(
 
   await notifyReporterOfStrikeDecision(report, actorPersonId, true);
 
-  // Notify the subject that a strike has been officially issued against them.
-  // Route through renderEmail so the message gets the shared branded layout and
-  // honors any admin template override, matching the other four incident emails
-  // (a direct renderTemplate call shipped a bare, unstyled fragment and ignored
-  // /admin/email/templates edits).
-  try {
-    const [volunteer, issuer] = await Promise.all([
-      prisma.person.findUnique({
-        where: { id: subject.personId },
-        select: { name: true, contactEmail: true },
-      }),
-      prisma.person.findUnique({
-        where: { id: actorPersonId },
-        select: { name: true },
-      }),
-    ]);
-    if (volunteer?.contactEmail) {
-      const zone = await getDisplayTimeZone();
-      const issuedDate = formatDateOnly(new Date(), zone, {
-        month: "long", day: "numeric", year: "numeric",
-      });
-      // The subject-facing email must never carry the reporter's verbatim
-      // narrative when they asked to stay anonymous: a first-person account
-      // ("I was working triage with him on Saturday when he...") identifies the
-      // reporter to anyone who knows that shift's roster, defeating the promise
-      // made on the reporting form. Prefer the reviewer's decision notes, which
-      // were authored as a record the subject may see. Fall back to the
-      // narrative only when the reporter did not ask for anonymity.
-      const subjectFacingDetails =
-        input.notes?.trim() ||
-        (report.anonymous
-          ? "Contact your department directors or the HAVEN Executive Directors for the details of this decision."
-          : (report.description ?? ""));
-      const rendered = await renderEmail("incidents.strike_issued", {
-        subjectName: volunteer.name?.split(" ")[0] ?? volunteer.name ?? "",
-        category,
-        description: subjectFacingDetails,
-        issuedBy: issuer?.name ?? "HAVEN Directors",
-        issuedDate,
-      });
-      await queueEmail(prisma, {
-        to: volunteer.contactEmail,
-        subject: rendered.subject,
-        html: rendered.html,
-        template: "incidents.strike_issued",
-        personId: subject.personId,
-        triggeredById: actorPersonId,
-      });
-    }
-  } catch {
-    // Best-effort notifications.
-  }
+  // The subject, and their directors unless the strike is confidential. Runs
+  // after the transaction commits, so a rollback never mails anyone. The subject
+  // email's anonymity protection (#45 -- never send an anonymous reporter's verbatim
+  // narrative to the subject) lives inside notifyStrikeIssued, driven by the strike's
+  // notes/confidential fields, so both the report path and the ledger path get it.
+  await notifyStrikeIssued({ action: strikeAction, actorPersonId });
 
   return approved;
 }

@@ -42,6 +42,9 @@ import {
 import type { EpicTemplateKey } from "@/platform/email/templates/epic";
 import { PageHeader } from "@/platform/ui/page-header";
 import { EpicRequestTabs } from "@/modules/support/components/epic-request-tabs";
+import { getActiveTerm } from "@/platform/terms/active-term";
+import { getWorkingTerm } from "@/platform/terms/working-term";
+import { listBatchTermOptions, loadTermEpicRollup } from "@/modules/support/services/epic-rollup";
 
 const EPIC_EMAIL_TEMPLATES: EpicTemplateKey[] = ["epic-onboarding", "epic-activation", "epic-password-reset"];
 
@@ -247,16 +250,24 @@ async function linkEpicRequestAction(formData: FormData) {
 type PageProps = {
   // `error` carries Tracker/Pending row-action failures; `incidentError` is scoped to
   // the "Log a YNHH incident" form so a tracker-action error no longer surfaces inside
-  // that unrelated card (#115).
-  searchParams: Promise<{ tab?: string; error?: string; incidentError?: string }>;
+  // that unrelated card (#115). `term` selects the Term batch tab's target term.
+  searchParams: Promise<{ tab?: string; error?: string; incidentError?: string; term?: string }>;
 };
 
 export default async function EpicRequestsPage({ searchParams }: PageProps) {
   await requirePermission("support.manage_requests");
 
-  const { tab, error, incidentError } = await searchParams;
+  const { tab, error, incidentError, term } = await searchParams;
   const activeTab =
-    tab === "pending" ? "pending" : tab === "tracker" ? "tracker" : tab === "history" ? "history" : "generate";
+    tab === "pending"
+      ? "pending"
+      : tab === "tracker"
+        ? "tracker"
+        : tab === "history"
+          ? "history"
+          : tab === "term-batch"
+            ? "term-batch"
+            : "generate";
 
   // Load data for both tabs in parallel.
   const [departments, history, pendingDeactivations, authorizers, incidentPeople, pending] = await Promise.all([
@@ -267,6 +278,21 @@ export default async function EpicRequestsPage({ searchParams }: PageProps) {
     listIncidentPeople(),
     listPendingEpicRequests(),
   ]);
+
+  // The Term batch tab can target a term before it goes active, so resolve the
+  // working term from ?term= (falling back to the live term) rather than assuming
+  // the active one.
+  const [workingTerm, liveTerm, termOptions] = await Promise.all([
+    getWorkingTerm(term),
+    getActiveTerm(),
+    listBatchTermOptions(),
+  ]);
+  // The roll-up is six queries plus loadClearanceMap (roughly twelve more over the
+  // full roster); only the Term batch tab renders it (EpicRequestTabs), so skip the
+  // work on every other tab visit instead of paying for it on the default Generate
+  // tab too.
+  const rollup =
+    activeTab === "term-batch" && workingTerm ? await loadTermEpicRollup(workingTerm.id) : null;
 
   return (
     <div className="space-y-6">
@@ -282,6 +308,9 @@ export default async function EpicRequestsPage({ searchParams }: PageProps) {
         authorizers={authorizers}
         incidentPeople={incidentPeople}
         pending={pending}
+        rollup={rollup}
+        termOptions={termOptions}
+        liveTermId={liveTerm?.id ?? null}
         error={error ?? undefined}
         incidentError={incidentError ?? undefined}
         closeTicketAction={closeTicketAction}

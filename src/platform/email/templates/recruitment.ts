@@ -35,10 +35,11 @@ export const recruitmentDescriptors: TemplateDescriptor[] = [
       { name: "departmentName", label: "Department name", sampleValue: "Student Run Health Department" },
       { name: "interviewTime", label: "Interview date and time", sampleValue: "Monday, April 15, 2026 at 6:30 PM" },
       { name: "joinLink", label: "Join link (HTML)", sampleValue: '<a href="https://zoom.us/j/123">https://zoom.us/j/123</a>' },
+      { name: "applicantNote", label: "Note to applicant (optional)", sampleValue: "Please bring a copy of your CV." },
     ],
     defaultSubject: "HAVEN {{ departmentName }} director interview",
     defaultBody:
-      "<p>Hi {{ firstName }},</p><p>You're invited to a director interview for <strong>{{ departmentName }}</strong> at HAVEN Free Clinic.</p><p>Time: {{ interviewTime }}<br/>Join: {{{ joinLink }}}</p><p>Please reply if you need to reschedule.</p>",
+      "<p>Hi {{ firstName }},</p><p>You're invited to a director interview for <strong>{{ departmentName }}</strong> at HAVEN Free Clinic.</p><p>Time: {{ interviewTime }}<br/>Join: {{{ joinLink }}}</p>{{#if applicantNote}}<p>{{ applicantNote }}</p>{{/if}}<p>Please reply if you need to reschedule.</p>",
   },
   {
     key: "recruitment.interview_assignment",

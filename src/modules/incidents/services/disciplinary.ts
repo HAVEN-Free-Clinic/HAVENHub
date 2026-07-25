@@ -18,7 +18,7 @@
  */
 
 import type { DisciplinaryAction, Prisma } from "@prisma/client";
-import { prisma } from "@/platform/db";
+import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { can } from "@/platform/rbac/engine";
 import { manageableDepartmentIds } from "@/platform/departments";
@@ -128,6 +128,10 @@ async function actorCanManageTarget(
  *   - category must be in DISCIPLINARY_CATEGORIES
  *   - description must be non-blank
  *   - occurredAt must not be in the future
+ *   - input.reportId, if given, must not already carry a strike for this
+ *     person (the composite unique on [reportId, personId])
+ *
+ * input.reportId not found -> DisciplinaryNotFoundError.
  *
  * Audits disciplinary.issue (entityType "DisciplinaryAction", after:
  * { personId, category, confidential }).
@@ -160,6 +164,19 @@ export async function issueAction(
   const person = await client.person.findUnique({ where: { id: input.personId } });
   if (!person) throw new DisciplinaryNotFoundError(`Person ${input.personId} not found.`);
 
+  // --- Report existence check (only when a reportId is supplied) ---
+  // Mirrors linkActionToReport's own check, so a stale id surfaces as a
+  // readable DisciplinaryNotFoundError instead of a raw P2003 foreign-key
+  // error out of the create below. Uses `client`, not the module-level
+  // prisma, so this still works when called inside decideStrike's transaction.
+  if (input.reportId) {
+    const report = await client.incidentReport.findUnique({
+      where: { id: input.reportId },
+      select: { id: true },
+    });
+    if (!report) throw new DisciplinaryNotFoundError(`Incident report ${input.reportId} not found.`);
+  }
+
   // --- Scope check ---
   // Central permission bypasses the active-term requirement.
   const isCentral = await can(actorPersonId, "incidents.manage");
@@ -174,21 +191,34 @@ export async function issueAction(
   }
 
   // --- Create the record ---
-  const action = await client.disciplinaryAction.create({
-    data: {
-      personId: input.personId,
-      issuedById: actorPersonId,
-      occurredAt: input.occurredAt,
-      category: input.category,
-      description: input.description,
-      followUpActions: input.followUpActions ?? null,
-      policyReference: input.policyReference ?? null,
-      notes: input.notes ?? null,
-      confidential: input.confidential ?? false,
-      patientInvolved: input.patientInvolved ?? false,
-      reportId: input.reportId ?? null,
-    },
-  });
+  // DisciplinaryAction is unique per (reportId, personId), so a reportId that
+  // already carries a strike for this person surfaces as a readable
+  // DisciplinaryValidationError rather than a raw 500 (mirrors linkActionToReport).
+  let action: DisciplinaryAction;
+  try {
+    action = await client.disciplinaryAction.create({
+      data: {
+        personId: input.personId,
+        issuedById: actorPersonId,
+        occurredAt: input.occurredAt,
+        category: input.category,
+        description: input.description,
+        followUpActions: input.followUpActions ?? null,
+        policyReference: input.policyReference ?? null,
+        notes: input.notes ?? null,
+        confidential: input.confidential ?? false,
+        patientInvolved: input.patientInvolved ?? false,
+        reportId: input.reportId ?? null,
+      },
+    });
+  } catch (err) {
+    if (isUniqueConstraintError(err)) {
+      throw new DisciplinaryValidationError(
+        "That incident report already has a strike for this person."
+      );
+    }
+    throw err;
+  }
 
   await recordAudit({
     actorPersonId,
@@ -231,7 +261,11 @@ export async function deleteAction(actorPersonId: string, id: string): Promise<v
     // nulls action.reportId when the *report* is deleted -- it does not touch the subject.
     if (row.reportId) {
       await tx.incidentReportSubject.updateMany({
-        where: { reportId: row.reportId, personId: row.personId },
+        // Only an APPROVED row is reverted. A strike can be linked to an
+        // arbitrary report after the fact (linkActionToReport), so an
+        // unqualified match would resurrect a DECLINED request, or flip a
+        // PENDING one, on deleting a strike that never came from that decision.
+        where: { reportId: row.reportId, personId: row.personId, strikeDecision: "APPROVED" },
         data: { strikeDecision: "PENDING", strikeDecidedById: null, strikeDecidedAt: null },
       });
     }
@@ -578,4 +612,166 @@ export async function issuablePeople(actorPersonId: string): Promise<{
  */
 export async function strikeCount(personId: string): Promise<number> {
   return prisma.disciplinaryAction.count({ where: { personId } });
+}
+
+/**
+ * Counts a person's strikes as `viewerPersonId` is permitted to see them:
+ * non-confidential rows, plus confidential rows the viewer issued. Mirrors
+ * directorVisibility, the same predicate the ledger's Strikes column uses, so a
+ * count shown to a director never reveals a confidential row they cannot open.
+ *
+ * Use this for anything director-facing. strikeCount is the unscoped total and
+ * is only correct for central viewers.
+ */
+export async function visibleStrikeCount(
+  personId: string,
+  viewerPersonId: string
+): Promise<number> {
+  return prisma.disciplinaryAction.count({
+    where: { personId, ...directorVisibility(viewerPersonId) },
+  });
+}
+
+/**
+ * The people a central reviewer may pick in the Record Disciplinary Action
+ * combobox. Central (incidents.manage) only; returns [] otherwise, since
+ * directors use the scoped issuablePeople select instead.
+ *
+ * Returns EVERY person, not just ACTIVE ones. The free-text NetID/email lookup
+ * this replaces had no status filter, so restricting to ACTIVE would silently
+ * remove the ability to record a strike against someone who has since
+ * offboarded. OFFBOARDED people sort last and carry an "offboarded" hint.
+ *
+ * `hint` mirrors listSubjectOptions' convention (active-term department codes
+ * plus volunteer/director) so same-named people are distinguishable.
+ */
+export async function strikeablePeople(actorPersonId: string): Promise<
+  Array<{ id: string; name: string; hint: string | null }>
+> {
+  if (!(await can(actorPersonId, "incidents.manage"))) return [];
+
+  const activeTerm = await getActiveTerm();
+  const [persons, memberships] = await Promise.all([
+    prisma.person.findMany({
+      select: { id: true, name: true, status: true },
+      orderBy: { name: "asc" },
+    }),
+    activeTerm
+      ? prisma.termMembership.findMany({
+          where: { termId: activeTerm.id, status: "ACTIVE" },
+          select: { personId: true, kind: true, department: { select: { code: true } } },
+        })
+      : [],
+  ]);
+
+  const hints = new Map<string, { depts: Set<string>; kinds: Set<string> }>();
+  for (const m of memberships) {
+    const entry = hints.get(m.personId) ?? { depts: new Set<string>(), kinds: new Set<string>() };
+    if (m.department?.code) entry.depts.add(m.department.code);
+    if (m.kind) entry.kinds.add(m.kind === "DIRECTOR" ? "director" : "volunteer");
+    hints.set(m.personId, entry);
+  }
+
+  return persons
+    .map((p) => {
+      const h = hints.get(p.id);
+      const parts = h
+        ? [[...h.depts].sort().join(", "), [...h.kinds].sort().join("/")].filter(Boolean)
+        : [];
+      // PersonStatus is ACTIVE | OFFBOARDED -- there is no INACTIVE value.
+      if (p.status !== "ACTIVE") parts.push("offboarded");
+      return { id: p.id, name: p.name, hint: parts.join(" ") || null, active: p.status === "ACTIVE" };
+    })
+    .sort((a, b) => {
+      if (a.active !== b.active) return a.active ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    })
+    .map(({ id, name, hint }) => ({ id, name, hint }));
+}
+
+/**
+ * Attaches a strike to an incident report, or detaches it when reportId is null.
+ * The only field on an existing strike this module lets a reviewer change.
+ *
+ * Requires incidents.manage -> DisciplinaryForbiddenError. Directors may not
+ * relink, mirroring deleteAction.
+ *
+ * DisciplinaryAction is unique per (reportId, personId), so a report that
+ * already carries a strike for this person surfaces as a readable
+ * DisciplinaryValidationError rather than a raw 500.
+ *
+ * When this moves the action off a previously-linked report (unlink, or
+ * relink to a different report), the old report's subject row is reverted the
+ * same way deleteAction does, in the same transaction as the update -- see
+ * that function's comment for why the revert is scoped to APPROVED rows only.
+ *
+ * Audits disciplinary.link_report with the before/after reportId.
+ */
+export async function linkActionToReport(
+  actorPersonId: string,
+  actionId: string,
+  reportId: string | null
+): Promise<DisciplinaryAction> {
+  if (!(await can(actorPersonId, "incidents.manage"))) {
+    throw new DisciplinaryForbiddenError(
+      "incidents.manage is required to link a disciplinary action to a report."
+    );
+  }
+
+  const row = await prisma.disciplinaryAction.findUnique({ where: { id: actionId } });
+  if (!row) throw new DisciplinaryNotFoundError();
+
+  if (reportId) {
+    const report = await prisma.incidentReport.findUnique({
+      where: { id: reportId },
+      select: { id: true },
+    });
+    if (!report) throw new DisciplinaryNotFoundError(`Incident report ${reportId} not found.`);
+  }
+
+  let updated: DisciplinaryAction;
+  try {
+    updated = await prisma.$transaction(async (tx) => {
+      const next = await tx.disciplinaryAction.update({
+        where: { id: actionId },
+        data: { reportId },
+      });
+
+      // This action is being moved off a previously-linked report (unlinked,
+      // or relinked to a different one): revert that report's subject the same
+      // way deleteAction does, in the same transaction, so the two can never
+      // diverge. Otherwise the old report keeps showing "Strike issued" with no
+      // matching ledger row, and it can never be re-decided (decideStrike
+      // requires PENDING, not APPROVED).
+      if (row.reportId && row.reportId !== reportId) {
+        await tx.incidentReportSubject.updateMany({
+          // Only an APPROVED row is reverted, for the same reason deleteAction
+          // scopes it: a strike can be linked to an arbitrary report after the
+          // fact, so an unqualified match would resurrect a DECLINED request.
+          where: { reportId: row.reportId, personId: row.personId, strikeDecision: "APPROVED" },
+          data: { strikeDecision: "PENDING", strikeDecidedById: null, strikeDecidedAt: null },
+        });
+      }
+
+      return next;
+    });
+  } catch (err) {
+    if (isUniqueConstraintError(err)) {
+      throw new DisciplinaryValidationError(
+        "That incident report already has a strike for this person."
+      );
+    }
+    throw err;
+  }
+
+  await recordAudit({
+    actorPersonId,
+    action: "disciplinary.link_report",
+    entityType: "DisciplinaryAction",
+    entityId: actionId,
+    before: { reportId: row.reportId },
+    after: { reportId },
+  });
+
+  return updated;
 }

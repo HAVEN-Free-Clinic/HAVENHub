@@ -33,16 +33,22 @@ test("admin searches people and sees Jack Carney", async ({ page }) => {
 
 test("admin can view all statuses and description does not say 'active'", async ({ page }) => {
   await devLogin(page, "j.carney@yale.edu");
-  await page.goto("/admin/people?q=&status=");
-  // Page must render without crashing.
+  await page.goto("/admin/people");
   await expect(page.getByRole("heading", { name: "People" })).toBeVisible();
-  // The description <p> must contain "people" but not "active" when all statuses are shown.
+  // Select "All statuses" and submit the filter through the NavForm, exercising the
+  // real UI path #16 fixes: the empty-value option used to be stripped from the
+  // querystring by NavForm and read back as first-load, snapping to Active. The ALL
+  // sentinel survives, so all statuses are actually shown.
+  await page.locator('select[name="status"]').selectOption("ALL");
+  await page.getByRole("button", { name: "Search" }).click();
+  await page.waitForURL((url) => url.searchParams.get("status") === "ALL");
+  // The description <p> must contain "people" but not "active" when all statuses show.
   // PageHeader renders the description as p.text-muted-foreground (not text-slate-500).
   const description = page.locator("p.text-muted-foreground").filter({ hasText: /people/ }).first();
   await expect(description).toBeVisible();
   await expect(description).not.toContainText(/\bactive\b/i);
-  // Confirm "All statuses" option is selected.
-  await expect(page.locator('select[name="status"]')).toHaveValue("");
+  // The dropdown reflects the chosen (surviving) All-statuses value.
+  await expect(page.locator('select[name="status"]')).toHaveValue("ALL");
 });
 
 test("admin visits /admin/terms and sees the SU26 ACTIVE row", async ({ page }) => {

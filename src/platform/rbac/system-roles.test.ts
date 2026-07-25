@@ -28,9 +28,15 @@ describe("system roles", () => {
     expect(grantsFor("Director")).not.toContain("schedule.edit_own_dept");
   });
 
-  it("grants admin.manage_roster to Volunteer Operations Manager", () => {
+  // #135: admin.manage_roster is only honored by routes under the admin.access
+  // module gate, which the VOM role does not grant -- so the permission was
+  // unreachable for its entire intended audience (the holder was bounced to
+  // /no-access before any manage_roster-aware code ran). Roster editing was not a
+  // designed capability for this role, so the grant is dropped rather than the
+  // whole admin surface opened up. This asserts it stays dropped.
+  it("does not grant the unreachable admin.manage_roster to Volunteer Operations Manager (#135)", () => {
     const volOps = SYSTEM_ROLES.find((r) => r.name === "Volunteer Operations Manager");
     expect(volOps).toBeDefined();
-    expect(volOps!.grants).toContain("admin.manage_roster");
+    expect(volOps!.grants).not.toContain("admin.manage_roster");
   });
 });

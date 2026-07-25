@@ -962,7 +962,13 @@ export default async function BuilderPage({ searchParams }: PageProps) {
             {/* Column 3: Sidebar */}
             <div className="flex flex-col gap-4">
               {editable && selectedDateKey && data.hasCapacityConfig && (
+                // Key on the selected date so a date-strip soft nav (search-params-only,
+                // which Next reconciles rather than remounts) actually REMOUNTS the panel
+                // and re-reads its uncontrolled defaultValue inputs. Without this the
+                // Patients-booked field kept the prior date's typed value and Save wrote
+                // it onto the new date's clinic (#9).
                 <CapacityPanel
+                  key={selectedDateKey}
                   metrics={data.capacity}
                   deptCode={dept.code}
                   patientsBookedAction={patientsBookedAction}
@@ -971,7 +977,11 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                 />
               )}
               {editable && data.rhd != null && selectedDateKey && (
+                // Same remount-on-date fix (#9): the Attending <select> and Procedures
+                // input otherwise kept the prior date's selection, silently overwriting
+                // the new date's real attending on Save.
                 <ReadinessPanel
+                  key={selectedDateKey}
                   rhd={data.rhd!}
                   clinicAction={rhdClinicAction}
                   addAttendingAction={addAttendingAction}
@@ -1098,7 +1108,17 @@ function AvailabilityView({
             <IntakeNotes intake={member.intake} className="mb-3" />
             {editable ? (
               <>
-                <form action={saveOverrideAction} className="mb-2">
+                {/* Key on the server availability signature (tier + dates) so a
+                    save/clear soft nav REMOUNTS the form and the uncontrolled
+                    defaultChecked boxes re-read the new state -- otherwise "Clear
+                    override" left the director's old ticks showing (#9). The key is
+                    stable while they tick boxes pre-save (availKeys is server state),
+                    so in-progress edits are not lost. */}
+                <form
+                  key={`${member.availability.tier}:${[...availKeys].sort().join(",")}`}
+                  action={saveOverrideAction}
+                  className="mb-2"
+                >
                   <input type="hidden" name="membershipId" value={member.membershipId} />
                   <div className="flex flex-wrap gap-2 mb-3">
                     {clinicDates.map((d) => {

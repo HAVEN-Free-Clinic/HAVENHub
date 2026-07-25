@@ -68,12 +68,21 @@ export function SpeedScoreModal({ open, onClose, items, onScore, onLoad }: Speed
     async (applicationId: string, isCurrent: boolean) => {
       if (loadedRef.current.has(applicationId)) return;
       loadedRef.current.add(applicationId); // mark in flight so current + prefetch don't double-load
-      const res = await onLoad(applicationId);
-      if ("view" in res) {
-        setViews((prev) => ({ ...prev, [applicationId]: res.view }));
-      } else {
-        loadedRef.current.delete(applicationId); // failed: allow a later retry
-        if (isCurrent) setViewError(res.error);
+      try {
+        const res = await onLoad(applicationId);
+        if ("view" in res) {
+          setViews((prev) => ({ ...prev, [applicationId]: res.view }));
+        } else {
+          loadedRef.current.delete(applicationId); // failed: allow a later retry
+          if (isCurrent) setViewError(res.error);
+        }
+      } catch {
+        // onLoad returns {error} only for handled cases; a Prisma failure in
+        // getApplication/reviewScope/can, or a dropped request, REJECTS. Without this
+        // the id stays marked loaded (no retry), views[id] is never set, and the
+        // Spinner renders forever with no error banner (#48).
+        loadedRef.current.delete(applicationId);
+        if (isCurrent) setViewError("Could not load this application. Try again.");
       }
     },
     [onLoad],
@@ -99,7 +108,10 @@ export function SpeedScoreModal({ open, onClose, items, onScore, onLoad }: Speed
 
   const handleScore = useCallback(
     (value: number) => {
-      if (!current || isSaving) return;
+      // Refuse to score an application whose body never rendered (currentView unset --
+      // e.g. its load failed): the 1-5 keys and the footer buttons must not commit a
+      // committee score for content the reviewer never saw (#48).
+      if (!current || isSaving || !currentView) return;
       const target = current.applicationId;
       const note = comment.trim() ? comment.trim() : null;
       setSaveError(null);
@@ -113,7 +125,7 @@ export function SpeedScoreModal({ open, onClose, items, onScore, onLoad }: Speed
         setIndex((i) => i + 1);
       });
     },
-    [current, isSaving, comment, onScore],
+    [current, isSaving, currentView, comment, onScore],
   );
 
   // Global keyboard: 1-5 scores + advances; arrows navigate. Suppressed while a
@@ -180,7 +192,7 @@ export function SpeedScoreModal({ open, onClose, items, onScore, onLoad }: Speed
                   type="button"
                   size="sm"
                   variant={currentScore === n ? "primary" : "outline"}
-                  disabled={isSaving}
+                  disabled={isSaving || !currentView}
                   onClick={() => handleScore(n)}
                   aria-label={`Score ${n}`}
                 >

@@ -91,7 +91,7 @@ export function SpeedScoreModal({ open, onClose, items, onScore, onLoad }: Speed
   // Load current + prefetch next whenever the position changes.
   useEffect(() => {
     if (!open || !current) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- clears stale error/comment when position changes, before the async prefetch below
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentionally reset both viewError and comment synchronously on position change, before async prefetch
     setViewError(null);
     setComment("");
     void ensureLoaded(current.applicationId, true);

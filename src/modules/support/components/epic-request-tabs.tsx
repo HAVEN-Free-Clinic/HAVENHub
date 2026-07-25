@@ -47,8 +47,11 @@ import type {
 } from "@/modules/support/services/itcm";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { TicketNumberField } from "./ticket-number-field";
+import { TermBatchTab } from "./term-batch-tab";
+import type { EpicRollup } from "@/modules/support/services/epic-rollup";
+import type { TermOption } from "@/platform/terms/term-options";
 
-type Tab = "generate" | "pending" | "tracker" | "history";
+type Tab = "generate" | "term-batch" | "pending" | "tracker" | "history";
 
 type IncidentPerson = { id: string; name: string };
 
@@ -60,6 +63,9 @@ type Props = {
   authorizers: EpicAuthorizer[];
   incidentPeople: IncidentPerson[];
   pending: PendingEpicRequestRow[];
+  rollup: EpicRollup | null;
+  termOptions: TermOption[];
+  liveTermId: string | null;
   /** Tracker/Pending row-action failures (complete, link, cancel, resolve, ...). */
   error?: string;
   /** Failures from the "Log a YNHH incident" form only (#115). */
@@ -91,6 +97,7 @@ function TabNav({ activeTab }: { activeTab: Tab }) {
 
   const labels: Record<Tab, string> = {
     generate: "Generate",
+    "term-batch": "Term batch",
     pending: "Pending",
     tracker: "Tracker",
     history: "History",
@@ -98,7 +105,7 @@ function TabNav({ activeTab }: { activeTab: Tab }) {
 
   return (
     <div className="flex gap-4 border-b border-border mb-8">
-      {(["generate", "pending", "tracker", "history"] as Tab[]).map((tab) => (
+      {(["generate", "term-batch", "pending", "tracker", "history"] as Tab[]).map((tab) => (
         <Fragment key={tab}>
           {/* eslint-disable-next-line no-restricted-syntax -- tab control with border-b-2 active-state indicator; segmented toggle pattern */}
           <button onClick={() => goTo(tab)} aria-current={activeTab === tab ? "page" : undefined} className={`pb-3 text-sm font-semibold border-b-2 transition-colors ${activeTab === tab ? "border-brand text-brand-fg" : "border-transparent text-muted-foreground hover:text-foreground-soft"}`}>{labels[tab]}</button>
@@ -602,6 +609,9 @@ export function EpicRequestTabs({
   authorizers,
   incidentPeople,
   pending,
+  rollup,
+  termOptions,
+  liveTermId,
   error,
   incidentError,
   closeTicketAction,
@@ -621,6 +631,20 @@ export function EpicRequestTabs({
       </Suspense>
       {activeTab === "generate" ? (
         <EpicRequestForm departments={departments} pendingDeactivations={pendingDeactivations} authorizers={authorizers} />
+      ) : activeTab === "term-batch" ? (
+        rollup ? (
+          <TermBatchTab
+            key={rollup.term.id}
+            rollup={rollup}
+            authorizers={authorizers}
+            termOptions={termOptions}
+            liveTermId={liveTermId}
+          />
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            No term is active yet. Activate a term, or create one in planning, to build a batch.
+          </p>
+        )
       ) : activeTab === "pending" ? (
         <PendingTab pending={pending} action={createTicketFromPendingAction} cancelAction={cancelEpicRequestAction} error={error} />
       ) : activeTab === "tracker" ? (

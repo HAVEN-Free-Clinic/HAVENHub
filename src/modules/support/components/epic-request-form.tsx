@@ -20,6 +20,8 @@
 import { useState, useMemo } from "react";
 import Link from "next/link";
 import type { DepartmentWithMembers, EpicAuthorizer, MemberLite, PendingDeactivation } from "@/modules/support/services/itcm";
+import type { EpicRequestType as RequestType } from "@/modules/support/epic-request-types";
+import { runEpicGeneration } from "./epic-generate-client";
 import { Button } from "@/platform/ui/button";
 import { Select } from "@/platform/ui/select";
 import { Input, Field } from "@/platform/ui/input";
@@ -28,30 +30,6 @@ import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { SectionHeader } from "@/platform/ui/section-header";
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-type RequestType =
-  | "new_individual"
-  | "mod_individual"
-  | "renew_individual"
-  | "bulk_new"
-  | "bulk_mod"
-  | "deactivate_individual"
-  | "bulk_deactivate";
-
-
-const EMAIL_SUBJECTS: Record<RequestType, (initials: string, date: string) => string> = {
-  new_individual: (i, d) => `[HAVEN] New Epic Account Request ${i} ${d}`,
-  mod_individual: (i, d) => `[HAVEN] Modify Epic Access for One User ${d} ${i}`,
-  renew_individual: (i, d) => `[HAVEN] Renew Epic Access for One User ${d} ${i}`,
-  bulk_mod: (i, d) => `[HAVEN] Reactivate/Extend and Modify Epic Access for Multiple Users ${d} ${i}`,
-  bulk_new: (i, d) => `[HAVEN] Multiple New Epic Account Request ${d} ${i}`,
-  deactivate_individual: (i, d) => `[HAVEN] Deactivate Epic Access for One User ${d} ${i}`,
-  bulk_deactivate: (i, d) => `[HAVEN] Deactivate Epic Access for Multiple Users ${d} ${i}`,
-};
 
 // ---------------------------------------------------------------------------
 // Props
@@ -158,56 +136,17 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
     setEmailDraft(null);
 
     try {
-      // endDate is guaranteed non-empty by the guard above. It is held as an ISO
-      // YYYY-MM-DD string from the date input; the server and PDF expect MM/DD/YYYY.
-      // Convert by slicing (not via Date) so the calendar day the admin picked is
-      // preserved regardless of timezone.
-      const endDateFormatted = `${endDate.slice(5, 7)}/${endDate.slice(8, 10)}/${endDate.slice(0, 4)}`;
-
-      const res = await fetch("/api/support/epic/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          requestType,
-          authorizerId: selectedAuthorizer.id,
-          personIds: [...selectedPeopleIds],
-          endDate: endDateFormatted,
-        }),
+      const result = await runEpicGeneration({
+        requestType,
+        authorizer: selectedAuthorizer,
+        personIds: [...selectedPeopleIds],
+        endDate,
       });
-
-      if (!res.ok) {
-        const { error: msg } = await res.json();
-        throw new Error(msg ?? "Generation failed");
-      }
-
-      const data = await res.json();
-
-      // Trigger PDF download.
-      const pdfBlob = base64ToBlob(data.pdfBase64, "application/pdf");
-      triggerDownload(pdfBlob, data.pdfFilename);
-
-      // Trigger spreadsheet download if present (bulk only).
-      if (data.xlsxBase64) {
-        const xlBlob = base64ToBlob(
-          data.xlsxBase64,
-          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        );
-        triggerDownload(xlBlob, data.xlsxFilename);
-      }
-
-      // Build email draft from returned data. The subject carries the authorizer's
-      // initials (derived server-side) and the server's ET-formatted date, so the
-      // subject matches the PDF filename/dates instead of the browser's local clock
-      // (which can be a day ahead late-evening Eastern).
-      const subject = EMAIL_SUBJECTS[requestType](selectedAuthorizer.initials, data.date);
-      setEmailDraft({ subject, body: data.emailBody });
-
-      // Generation can succeed while tracking is skipped because an open request
-      // already exists. The artifacts above are still valid; surface the warning
-      // (with a Tracker link, rendered below) rather than silently dropping it.
-      if (data.trackingWarning) {
-        setTrackingWarning(data.trackingWarning);
-      }
+      setEmailDraft({ subject: result.subject, body: result.body });
+      // Generation can succeed while tracking is skipped because a conflicting
+      // request already exists. The artifacts are still valid, so surface the
+      // warning (with its Tracker link, rendered below) rather than dropping it.
+      if (result.trackingWarning) setTrackingWarning(result.trackingWarning);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -260,8 +199,7 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
               onChange={(e) => {
                 const base = e.target.value as "new" | "mod" | "renew" | "deactivate";
                 const raw = isBulk ? `bulk_${base}` : `${base}_individual`;
-                const safe = raw === "bulk_renew" ? "bulk_mod" : raw;
-                setRequestType(safe as RequestType);
+                setRequestType(raw as RequestType);
                 setSelectedPeopleIds(new Set());
                 setSelectedPeopleMap(new Map());
                 setError(null);
@@ -270,7 +208,7 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
             >
               <option value="new">New</option>
               <option value="mod">Modify</option>
-              {!isBulk && <option value="renew">Renew</option>}
+              <option value="renew">Renew</option>
               <option value="deactivate">Deactivate</option>
             </Select>
           </Field>
@@ -282,8 +220,7 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
                 const bulk = e.target.value === "bulk";
                 const base = requestType.replace("_individual", "").replace("bulk_", "");
                 const raw = bulk ? `bulk_${base}` : `${base}_individual`;
-                const safe = raw === "bulk_renew" ? "bulk_mod" : raw;
-                setRequestType(safe as RequestType);
+                setRequestType(raw as RequestType);
                 setSelectedPeopleIds(new Set());
                 setSelectedPeopleMap(new Map());
                 setError(null);
@@ -590,26 +527,4 @@ function PersonRow({
       )}
     </label>
   );
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function base64ToBlob(base64: string, mimeType: string): Blob {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return new Blob([bytes], { type: mimeType });
-}
-
-function triggerDownload(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
 }

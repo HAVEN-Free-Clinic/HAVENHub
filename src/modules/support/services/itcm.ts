@@ -627,8 +627,9 @@ export async function reconcileDeactivationRequests(
       if (open && open.status === "SUBMITTED" && open.ticketId) continue;
       toAttach.push({ personId, existingId: open?.id ?? null });
     }
-    // Nothing new to submit: don't create an empty (orphan) ticket. Mirrors the
-    // duplicate rejection submitEpicRequests already performs on the grant path.
+    // Nothing new to submit: an empty-batch guard that avoids creating an orphan
+    // ticket with zero requests attached, the same failure mode F18 guards against
+    // for a mid-batch write failure below.
     if (toAttach.length === 0) {
       throw new SupportStateError(
         "Every selected person already has a submitted deactivation request. Refresh to see current status."
@@ -664,20 +665,27 @@ export async function reconcileDeactivationRequests(
 
 /**
  * Creates the YNHH ticket and its SUBMITTED access-granting (NEW/MODIFY/RENEW)
- * Epic requests for the generate route's non-deactivate path, enforcing the
- * same invariants createEpicRequest guarantees so this bulk/PDF path cannot
- * manufacture a duplicate open request or a NEW request for someone who
- * already has an Epic ID.
+ * Epic requests for a batch, enforcing the same invariants createEpicRequest
+ * guarantees so this bulk/PDF path cannot manufacture a NEW request for someone
+ * who already has an Epic ID.
  *
- * Mirrors reconcileDeactivationRequests (the DEACTIVATE path) but rejects
- * duplicates instead of reusing them. Validation and both writes run in one
- * transaction, so any violation throws before the ticket is committed (no
- * orphan ticket, no partially-created batch):
+ * Validation and all writes run in one transaction, so any violation throws
+ * before the ticket is committed (no orphan ticket, no partially-created batch):
  *   - every person must still exist and be ACTIVE (SupportNotFoundError /
  *     SupportStateError);
- *   - NEW requires no epicId, MODIFY/RENEW requires an epicId (SupportStateError);
- *   - no person may already have an open (PENDING/SUBMITTED) request
- *     (SupportStateError).
+ *   - NEW requires no epicId, MODIFY/RENEW requires an epicId (SupportStateError).
+ *
+ * Open-request handling: an existing PENDING request of the SAME kind that is not
+ * yet on a ticket is ADOPTED onto this ticket rather than rejected. That row is
+ * exactly what this batch is submitting (promotion raises one for every volunteer
+ * who needs Epic), and rejecting it used to strand it as an orphan while the batch
+ * went to YNHH untracked. The claim is an atomic updateMany scoped to
+ * status PENDING + ticketId null, so a concurrent submit from the other surface
+ * matches zero rows and throws instead of re-pointing a request already claimed.
+ *
+ * Anything else is a real conflict a human must resolve, and raises
+ * SupportConflictError naming the people: a request of a DIFFERENT kind, or one
+ * already SUBMITTED onto a ticket.
  *
  * Trusts its caller for permissions: the generate route gates on
  * support.manage_requests. Returns the created ticket.
@@ -715,11 +723,21 @@ export async function submitEpicRequests(
       where: { personId: { in: personIds }, status: { in: ["PENDING", "SUBMITTED"] } },
       include: { person: { select: { name: true } } },
     });
-    if (open.length > 0) {
-      const uniqueNames = [...new Set(open.map((r) => r.person.name))];
-      const names = uniqueNames.join(", ");
+
+    // Partition open requests into ones this batch can absorb and ones it cannot.
+    const adoptable = new Map<string, string>(); // personId -> requestId
+    const conflicting: string[] = [];
+    for (const r of open) {
+      if (r.status === "PENDING" && r.ticketId === null && r.kind === kind) {
+        adoptable.set(r.personId, r.id);
+      } else {
+        conflicting.push(r.person.name);
+      }
+    }
+    if (conflicting.length > 0) {
+      const uniqueNames = [...new Set(conflicting)];
       throw new SupportConflictError(
-        `An open Epic request already exists for: ${names}. Cancel or complete it in the Tracker before submitting another.`,
+        `An open Epic request already exists for: ${uniqueNames.join(", ")}. Cancel or complete it in the Tracker before submitting another.`,
         uniqueNames
       );
     }
@@ -727,19 +745,53 @@ export async function submitEpicRequests(
     const ticket = await tx.ynhhTicket.create({
       data: { submittedById: actorPersonId, description: ticketDescription, status: "OPEN" },
     });
-    await tx.epicRequest.createMany({
-      data: requests.map((r) => ({
-        personId: r.personId,
-        kind,
-        status: "SUBMITTED",
-        mirrorEpicId: r.mirrorEpicId,
-        requestedById: actorPersonId,
-        ticketId: ticket.id,
-      })),
-    });
+
+    // Adopted rows still need their own updateMany: each has its own claim
+    // precondition (status PENDING + ticketId null) that a batched insert can't
+    // express. Everything else is collected and inserted with one createMany below
+    // instead of one create per person. The headline use of this function is a
+    // whole term's roster (100-250 people) in one click, and a sequential per-row
+    // create risks the transaction timeout at hosted-Postgres latency.
+    //
+    // How much this batching helps depends on the group: a start-of-term NEW batch
+    // is mostly adoptions (promotion raises a PENDING NEW for every promoted
+    // volunteer who needs Epic), so it stays largely sequential and it is the
+    // explicit timeout on the $transaction below that keeps it safe. MODIFY and
+    // RENEW batches, which have no promotion-raised rows, collapse into the single
+    // createMany.
+    const toCreate: { personId: string; mirrorEpicId: string | null }[] = [];
+    for (const r of requests) {
+      const existingId = adoptable.get(r.personId);
+      if (existingId) {
+        const claimed = await tx.epicRequest.updateMany({
+          where: { id: existingId, status: "PENDING", ticketId: null },
+          data: { status: "SUBMITTED", ticketId: ticket.id, mirrorEpicId: r.mirrorEpicId },
+        });
+        if (claimed.count !== 1) {
+          throw new SupportStateError(
+            "One or more of these requests were just submitted by a concurrent action. Refresh and try again."
+          );
+        }
+      } else {
+        toCreate.push(r);
+      }
+    }
+
+    if (toCreate.length > 0) {
+      await tx.epicRequest.createMany({
+        data: toCreate.map((r) => ({
+          personId: r.personId,
+          kind,
+          status: "SUBMITTED",
+          mirrorEpicId: r.mirrorEpicId,
+          requestedById: actorPersonId,
+          ticketId: ticket.id,
+        })),
+      });
+    }
 
     return ticket;
-  });
+  }, { timeout: 30_000, maxWait: 10_000 });
 }
 
 // ---------------------------------------------------------------------------

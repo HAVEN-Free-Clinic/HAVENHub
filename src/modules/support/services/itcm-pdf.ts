@@ -47,6 +47,7 @@ import {
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { formatDateOnly } from "@/platform/dates";
 import { log } from "@/platform/logging";
+import { isNewAccountRequest, type EpicRequestType } from "@/modules/support/epic-request-types";
 
 /**
  * Section I authorizer details. Resolved by the caller from the current term's
@@ -55,14 +56,7 @@ import { log } from "@/platform/logging";
  */
 export type Authorizer = { name: string; phone: string; email: string };
 
-export type RequestType =
-  | "new_individual"
-  | "mod_individual"
-  | "renew_individual"
-  | "bulk_new"
-  | "bulk_mod"
-  | "deactivate_individual"
-  | "bulk_deactivate";
+export type RequestType = EpicRequestType;
 
 const SECTION_IX: Record<RequestType, string> = {
   new_individual:
@@ -74,6 +68,12 @@ const SECTION_IX: Record<RequestType, string> = {
   bulk_new:
     "These individuals require NEW Epic accounts, and require access to the department YM HAVEN FREE CLINIC. Their accounts should have similar functions of the aforementioned Epic ID to mirror within the department YM HAVEN FREE CLINIC. Please see the attached spreadsheet for the multiple user information.",
   bulk_mod:
+    "These individuals already have Epic accounts, but they require extended access to the department YM HAVEN FREE CLINIC. Their accounts should also have similar functions of the aforementioned Epic ID to mirror within the department YM HAVEN FREE CLINIC. Please see the attached spreadsheet for the multiple user information.",
+  // Deliberately identical to bulk_mod: YNHH treats a renewal as a MOD/REACT
+  // request. Kept as its own entry (not a shared constant) so the wording of one
+  // flavour can change without touching the other, matching how mod_individual
+  // and renew_individual are already carried separately above.
+  bulk_renew:
     "These individuals already have Epic accounts, but they require extended access to the department YM HAVEN FREE CLINIC. Their accounts should also have similar functions of the aforementioned Epic ID to mirror within the department YM HAVEN FREE CLINIC. Please see the attached spreadsheet for the multiple user information.",
   deactivate_individual:
     "This individual is leaving the YM HAVEN FREE CLINIC. Please DEACTIVATE their Epic access for the department YM HAVEN FREE CLINIC effective on the listed date.",
@@ -212,7 +212,7 @@ export async function generatePdf(args: {
   // "Check Box60" is the "Delete Access (Systems: ... Date: ...)" box in Section V.
   const TERMINATION_CHECKBOX: string | null = "Check Box60";
   const isBulk = requestType.startsWith("bulk");
-  const isNew = requestType === "new_individual" || requestType === "bulk_new";
+  const isNew = isNewAccountRequest(requestType);
   const isDeactivate = requestType === "deactivate_individual" || requestType === "bulk_deactivate";
 
   const pdfDoc = await PDFDocument.load(templateBytes);

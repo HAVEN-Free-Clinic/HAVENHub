@@ -1,7 +1,7 @@
 /**
  * Incident Reports email templates for HAVEN Hub.
  *
- * Four templates cover the incident-report lifecycle:
+ * Six templates cover the incident-report lifecycle:
  *   - incidents.report_submitted: sent to reviewers (incidents.manage) when a
  *     new report is filed.
  *   - incidents.strike_requested: sent to reviewers when a director-filed
@@ -10,6 +10,10 @@
  *     or declines a pending strike request on their report.
  *   - incidents.report_resolved: sent to the reporter once a reviewer marks
  *     their report RESOLVED or DISMISSED.
+ *   - incidents.strike_issued: sent to the subject once a disciplinary action
+ *     is recorded against them.
+ *   - incidents.strike_issued_directors: sent to the directors of the
+ *     subject's active departments, unless the strike is confidential.
  *
  * Each template is expressed as a TemplateDescriptor (for the registry + admin
  * UI) plus a typed context-builder function that maps the caller's params into
@@ -59,6 +63,20 @@ export type ReportResolvedParams = {
   reportLink: string;
 };
 
+export type StrikeIssuedDirectorsParams = {
+  directorName: string;
+  /** Full name of the person the strike was issued against. */
+  subjectName: string;
+  category: string;
+  /** The incident's date: a preformatted UTC calendar-day marker, never zone-shifted. */
+  occurredDate: string;
+  issuedBy: string;
+  /** The subject's running strike total, preformatted. */
+  strikeCount: string;
+  /** Absolute link to the strikes ledger. */
+  ledgerLink: string;
+};
+
 // ---------------------------------------------------------------------------
 // Context builders
 // ---------------------------------------------------------------------------
@@ -100,6 +118,21 @@ export function reportResolvedContext(p: ReportResolvedParams): Record<string, u
     reportNumber: String(p.reportNumber),
     outcome: p.approved ? "resolved" : "dismissed",
     reportLink: p.reportLink,
+  };
+}
+
+/** Build the flat render-engine context for incidents.strike_issued_directors. */
+export function strikeIssuedDirectorsContext(
+  p: StrikeIssuedDirectorsParams
+): Record<string, unknown> {
+  return {
+    directorName: p.directorName,
+    subjectName: p.subjectName,
+    category: p.category,
+    occurredDate: p.occurredDate,
+    issuedBy: p.issuedBy,
+    strikeCount: p.strikeCount,
+    ledgerLink: p.ledgerLink,
   };
 }
 
@@ -186,17 +219,42 @@ export const incidentsDescriptors: TemplateDescriptor[] = [
       { name: "category", label: "Strike category", sampleValue: "Attendance" },
       { name: "description", label: "Strike description", sampleValue: "No-show to assigned clinic shift on July 15, 2026." },
       { name: "issuedBy", label: "Issued by name", sampleValue: "Caprice Culkin" },
-      { name: "issuedDate", label: "Date issued", sampleValue: "July 15, 2026" },
+      { name: "occurredDate", label: "Date of incident", sampleValue: "July 15, 2026" },
     ],
     defaultSubject: "A disciplinary action has been recorded against you",
     defaultBody: `<p>Hi {{ subjectName }},</p>
 <p>A disciplinary action has been officially recorded against you.</p>
 <table role="presentation" style="border-collapse:collapse;margin:16px 0">
   <tr><td style="font-weight:600;padding-right:12px">Category</td><td>{{ category }}</td></tr>
-  <tr><td style="font-weight:600;padding-right:12px">Date</td><td>{{ issuedDate }}</td></tr>
+  <tr><td style="font-weight:600;padding-right:12px">Date of incident</td><td>{{ occurredDate }}</td></tr>
   <tr><td style="font-weight:600;padding-right:12px">Issued by</td><td>{{ issuedBy }}</td></tr>
 </table>
 <p><strong>Details:</strong><br>{{ description }}</p>
 <p>If you have questions or believe this was issued in error, please reach out to your department directors or the HAVEN Executive Directors at <a href="mailto:haven.free.clinic@yale.edu">haven.free.clinic@yale.edu</a>.</p>`,
+  },
+  {
+    key: "incidents.strike_issued_directors",
+    name: "Incident: strike issued (directors)",
+    category: "transactional",
+    group: "incidents",
+    variables: [
+      { name: "directorName", label: "Director name", sampleValue: "Dr. Smith" },
+      { name: "subjectName", label: "Name of the person the strike is against", sampleValue: "Alex Rivera" },
+      { name: "category", label: "Strike category", sampleValue: "Attendance" },
+      { name: "occurredDate", label: "Date of incident", sampleValue: "July 15, 2026" },
+      { name: "issuedBy", label: "Issued by name", sampleValue: "Caprice Culkin" },
+      { name: "strikeCount", label: "The person's running strike total", sampleValue: "2" },
+      { name: "ledgerLink", label: "Link to the strikes ledger", sampleValue: "https://hub.havenfreeclinic.org/incidents/strikes" },
+    ],
+    defaultSubject: "Disciplinary action recorded for {{ subjectName }}",
+    defaultBody: `<p>Hello {{ directorName }},</p>
+<p>A disciplinary action was recorded against {{ subjectName }}, a member of a department you direct. They now have {{ strikeCount }} on file.</p>
+<table role="presentation" style="border-collapse:collapse;margin:16px 0">
+  <tr><td style="font-weight:600;padding-right:12px">Category</td><td>{{ category }}</td></tr>
+  <tr><td style="font-weight:600;padding-right:12px">Date of incident</td><td>{{ occurredDate }}</td></tr>
+  <tr><td style="font-weight:600;padding-right:12px">Issued by</td><td>{{ issuedBy }}</td></tr>
+</table>
+<p><a href="{{ ledgerLink }}">Open the strikes ledger</a></p>
+<p>Thank you,<br>HAVEN Free Clinic</p>`,
   },
 ];

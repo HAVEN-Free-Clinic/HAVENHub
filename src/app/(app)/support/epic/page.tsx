@@ -28,7 +28,7 @@ import {
   resolveIncident,
 } from "@/modules/support/services/itcm";
 import { persistAttachment } from "@/modules/support/services/attachments";
-import { SupportForbiddenError, SupportStateError } from "@/modules/support/services/tech-request";
+import { SupportForbiddenError, SupportNotFoundError, SupportStateError } from "@/modules/support/services/tech-request";
 import {
   createTicket,
   completeRequest,
@@ -62,7 +62,18 @@ async function closeTicketAction(ticketId: string) {
 async function updateServiceRequestNumberAction(ticketId: string, value: string) {
   "use server";
   const session = await requirePermission("support.manage_requests");
-  await updateServiceRequestNumber(session.personId, ticketId, value);
+  try {
+    await updateServiceRequestNumber(session.personId, ticketId, value);
+  } catch (err) {
+    if (
+      err instanceof SupportStateError ||
+      err instanceof SupportForbiddenError ||
+      err instanceof SupportNotFoundError
+    ) {
+      redirect(`/support/epic?tab=tracker&error=${encodeURIComponent(err.message)}`);
+    }
+    throw err;
+  }
   revalidatePath("/support/epic");
 }
 
@@ -119,7 +130,23 @@ async function logIncidentAction(formData: FormData) {
 async function resolveIncidentAction(ticketId: string, resolution: string) {
   "use server";
   const session = await requirePermission("support.manage_requests");
-  await resolveIncident(session.personId, ticketId, resolution);
+  try {
+    await resolveIncident(session.personId, ticketId, resolution);
+  } catch (err) {
+    // resolveIncident throws user-facing SupportStateError for the two ordinary,
+    // reachable states -- the incident was already resolved by another manager, and
+    // a whitespace-only resolution -- plus SupportNotFoundError on a concurrent
+    // delete. Surface those inline instead of falling through to the (app) error
+    // boundary, which discards the message (#91).
+    if (
+      err instanceof SupportStateError ||
+      err instanceof SupportForbiddenError ||
+      err instanceof SupportNotFoundError
+    ) {
+      redirect(`/support/epic?tab=tracker&error=${encodeURIComponent(err.message)}`);
+    }
+    throw err;
+  }
   revalidatePath("/support/epic");
 }
 

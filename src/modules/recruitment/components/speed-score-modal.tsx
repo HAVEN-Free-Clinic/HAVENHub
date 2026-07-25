@@ -101,7 +101,8 @@ export function SpeedScoreModal({ open, onClose, items, onScore, onLoad }: Speed
 
   const goTo = useCallback(
     (nextIndex: number) => {
-      setIndex((_i) => Math.min(Math.max(0, nextIndex), queue.length));
+      const maxIndex = Math.max(0, queue.length - 1);
+      setIndex(() => Math.min(Math.max(0, nextIndex), maxIndex));
     },
     [queue.length],
   );

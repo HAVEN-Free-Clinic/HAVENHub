@@ -16,8 +16,8 @@ import { loadLayoutSource } from "@/platform/email/templates/renderEmail";
 import { getSetting } from "@/platform/settings/service";
 import { PERSON_FIELD_VIEWS } from "@/platform/email/audience/person-fields";
 import { PERSON_VARIABLES } from "@/platform/email/audience/variables";
-import { isAudience } from "@/platform/email/audience/types";
-import type { Audience } from "@/platform/email/audience/types";
+import { isAudience, isAudienceGroup } from "@/platform/email/audience/types";
+import type { Audience, AudienceNode } from "@/platform/email/audience/types";
 import { prisma } from "@/platform/db";
 import { DateTime } from "@/platform/dates/display";
 import { parseZonedInput } from "@/platform/dates";
@@ -82,6 +82,43 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
   const parsedAudience: Audience = isAudience(campaign.audienceJson)
     ? campaign.audienceJson
     : EMPTY_AUDIENCE;
+
+  // A saved `department` condition whose code was later deactivated (or the
+  // department deleted) has no option in the active-only list, so it renders as
+  // neither checked nor uncheckable while still serialising into every save and
+  // emailing that department forever. Union the active list with every department
+  // code referenced anywhere in the stored audience so each stored value stays
+  // representable and removable, labelling the retired ones (#82).
+  const referencedDeptCodes = new Set<string>();
+  (function collect(nodes: AudienceNode[]) {
+    for (const node of nodes) {
+      if (isAudienceGroup(node)) {
+        collect(node.children);
+      } else if (node.field === "department") {
+        const v = node.value;
+        if (Array.isArray(v)) v.forEach((c) => c && referencedDeptCodes.add(c));
+        else if (typeof v === "string" && v) referencedDeptCodes.add(v);
+      }
+    }
+  })(parsedAudience.conditions);
+
+  const activeCodes = new Set(departments.map((d) => d.code));
+  const missingCodes = [...referencedDeptCodes].filter((c) => !activeCodes.has(c));
+  const inactiveReferenced = missingCodes.length
+    ? await prisma.department.findMany({
+        where: { code: { in: missingCodes } },
+        select: { code: true, name: true },
+        orderBy: { code: "asc" },
+      })
+    : [];
+  const foundCodes = new Set(inactiveReferenced.map((d) => d.code));
+  const audienceDepartments = [
+    ...departments,
+    ...inactiveReferenced.map((d) => ({ code: d.code, name: `${d.name} (inactive)` })),
+    // Codes with no surviving Department row at all (department fully deleted):
+    // still render them so the admin can uncheck the dead value.
+    ...missingCodes.filter((c) => !foundCodes.has(c)).map((c) => ({ code: c, name: `${c} (removed)` })),
+  ];
 
   const zone = await getDisplayTimeZone();
 
@@ -324,7 +361,7 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
             <h2 className="text-base font-semibold text-foreground">2. Audience</h2>
             <AudienceBuilder
               fields={PERSON_FIELD_VIEWS}
-              departments={departments}
+              departments={audienceDepartments}
               initial={parsedAudience}
             />
           </div>

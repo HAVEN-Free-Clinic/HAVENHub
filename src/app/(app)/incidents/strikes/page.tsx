@@ -18,6 +18,7 @@
 
 import { requirePermission } from "@/platform/auth/session";
 import { can } from "@/platform/rbac/engine";
+import { manageableDepartmentIds } from "@/platform/departments";
 import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { PageHeader } from "@/platform/ui/page-header";
@@ -104,9 +105,13 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
   // Load issuable people for the issue form.
   const issuable = await issuablePeople(viewer.personId);
 
-  // Load actions; catch Forbidden to render a friendly empty state.
+  // Load actions; catch Forbidden to render a friendly empty state. Keep the
+  // specific message: listActions throws two distinct Forbidden cases -- a true
+  // module denial (no manageable departments) and a scope error ("You can only
+  // filter by a department you manage."). Flattening both to one blanket string
+  // told a director filtering their own ledger they had no access at all (#84).
   let listResult: Awaited<ReturnType<typeof listActions>> | null = null;
-  let accessForbidden = false;
+  let forbiddenMessage: string | null = null;
   try {
     listResult = await listActions(viewer.personId, {
       q: qSearch,
@@ -116,22 +121,30 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
     });
   } catch (err) {
     if (err instanceof DisciplinaryForbiddenError) {
-      accessForbidden = true;
+      forbiddenMessage = err.message;
     } else {
       throw err;
     }
   }
+  const accessForbidden = forbiddenMessage !== null;
 
-  // Load active departments for the filter bar.
+  // Load active departments for the filter bar, scoped to what the viewer can
+  // actually filter by: a non-central director may only filter departments they
+  // manage (listActions rejects anything else), so offering all ~15 departments
+  // made most choices throw the scope error above. Central reviewers see all.
   const activeTerm = await getActiveTerm();
+  const isCentral = await can(viewer.personId, "incidents.manage");
+  const manageableIds = isCentral ? null : new Set(await manageableDepartmentIds(viewer.personId));
 
   const departments = activeTerm
-    ? await prisma.department.findMany({
-        where: {
-          memberships: { some: { termId: activeTerm.id, status: "ACTIVE" } },
-        },
-        orderBy: { code: "asc" },
-      })
+    ? (
+        await prisma.department.findMany({
+          where: {
+            memberships: { some: { termId: activeTerm.id, status: "ACTIVE" } },
+          },
+          orderBy: { code: "asc" },
+        })
+      ).filter((d) => manageableIds === null || manageableIds.has(d.id))
     : [];
 
   const rows = listResult?.rows ?? [];
@@ -449,7 +462,7 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
       <section className="mt-6">
         {accessForbidden ? (
           <div className="mt-12 flex flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground">
-            <p>You do not have access to disciplinary records.</p>
+            <p>{forbiddenMessage ?? "You do not have access to disciplinary records."}</p>
           </div>
         ) : rows.length === 0 ? (
           <div className="mt-12 flex flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground">

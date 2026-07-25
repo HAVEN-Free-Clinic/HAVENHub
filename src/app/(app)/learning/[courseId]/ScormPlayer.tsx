@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Check } from "lucide-react";
 import { Scorm12API } from "scorm-again";
 import { persistCmiAction } from "../actions";
@@ -55,7 +55,7 @@ export function ScormPlayer({ courseId, scos }: Props) {
 
   // Build a fresh API for one SCO: seed saved state, mirror live writes into React
   // state, wire commit/finish persistence (tagged with this SCO's id), install as window.API.
-  function installApi(sco: LearnerSco) {
+  const installApi = useCallback((sco: LearnerSco) => {
     const api = new Scorm12API({ autocommit: true, autocommitSeconds: 30, logLevel: 4 });
     if (sco.cmi.lessonStatus) api.cmi.core.lesson_status = sco.cmi.lessonStatus;
     if (sco.cmi.lessonLocation) api.cmi.core.lesson_location = sco.cmi.lessonLocation;
@@ -98,7 +98,7 @@ export function ScormPlayer({ courseId, scos }: Props) {
     activeScoIdRef.current = sco.id;
     snapshotRef.current = snapshot;
     return save;
-  }
+  }, [courseId]);
 
   // Initial mount: install the first SCO's API before paint, so the iframe (which
   // renders with the first SCO's src) finds window.API on load. Unmount: persist + remove.
@@ -109,9 +109,7 @@ export function ScormPlayer({ courseId, scos }: Props) {
       delete (window as unknown as { API?: unknown }).API;
       apiRef.current = null;
     };
-    // scos is a stable server-rendered snapshot for the life of this page.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [installApi, scos]);
 
   // Durability backstop for tab close / bfcache: the server-action save() fetch is
   // cancelled as the document unloads, so a completion the learner just earned on the

@@ -432,6 +432,11 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                             "saved" (#61). Otherwise the form is always editable. */}
                         {t.allDepartmentsOverridden ? (
                           <p className="text-sm text-subtle-foreground">Your availability is managed by your director, so there is nothing to edit here.</p>
+                        ) : t.clinicDates.length === 0 ? (
+                          // No clinic calendar yet: the checkbox grid would be empty and
+                          // an empty save would wipe the application baseline to an empty
+                          // SELF tier (#90). Explain instead of offering a destructive Save.
+                          <p className="text-sm text-subtle-foreground">Clinic dates for this term haven&apos;t been set yet &mdash; check back once the calendar is published.</p>
                         ) : (
                           <form action={saveAvailabilityAction}>
                             <input type="hidden" name="termId" value={t.term.id} />
@@ -486,18 +491,25 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                         <span className="text-sm text-foreground-soft">Total shifts</span>
                         <span className="text-sm font-bold text-foreground">{t.shifts.length}</span>
                       </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-foreground-soft">Role</span>
-                        <span className="text-sm font-bold text-foreground">
+                      {/* Distinct roles/departments across ALL of this term's shifts, not
+                          just shifts[0] -- a member scheduled in two departments (or two
+                          roles) was mis-summarised as a single one, contradicting the hero (#89). */}
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-sm text-foreground-soft">{t.shifts.some((s, _i, a) => s.role !== a[0].role) ? "Roles" : "Role"}</span>
+                        <span className="text-sm font-bold text-foreground text-right">
                           {t.shifts.length > 0
-                            ? t.shifts[0].role.charAt(0) + t.shifts[0].role.slice(1).toLowerCase()
+                            ? [...new Set(t.shifts.map((s) => s.role))]
+                                .map((r) => r.charAt(0) + r.slice(1).toLowerCase())
+                                .join(", ")
                             : "-"}
                         </span>
                       </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-foreground-soft">Department</span>
-                        <span className="text-sm font-bold text-foreground">
-                          {t.shifts.length > 0 ? t.shifts[0].department.code : "-"}
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-sm text-foreground-soft">{new Set(t.shifts.map((s) => s.department.code)).size > 1 ? "Departments" : "Department"}</span>
+                        <span className="text-sm font-bold text-foreground text-right">
+                          {t.shifts.length > 0
+                            ? [...new Set(t.shifts.map((s) => s.department.code))].join(", ")
+                            : "-"}
                         </span>
                       </div>
                       <div className="flex items-center justify-between">

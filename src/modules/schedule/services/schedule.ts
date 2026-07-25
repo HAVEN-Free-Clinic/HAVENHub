@@ -446,6 +446,17 @@ export async function updateMyAvailability(
     throw new AvailabilityValidationError("You are not on that term's roster.");
   }
 
+  // A term with no clinic dates has no availability to record. Refuse rather than
+  // accept the empty submission the page would post from an empty checkbox grid:
+  // writing selfAvailabilityDates: [] + availabilityUpdatedAt promotes an empty
+  // SELF tier over the application BASELINE, so once the calendar is repopulated
+  // the member reads as available on no date and their application answers are
+  // unrecoverable (#90). The page suppresses the form in this state; this is the
+  // server-side backstop against a stale tab or crafted post.
+  if (term.clinicDates.length === 0) {
+    throw new AvailabilityValidationError("Clinic dates for this term have not been set yet.");
+  }
+
   // Build a map from day key -> canonical clinic date.
   const canonicalByKey = new Map<string, Date>();
   for (const cd of term.clinicDates) {

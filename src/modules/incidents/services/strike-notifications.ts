@@ -124,7 +124,7 @@ export async function notifyStrikeIssued(input: StrikeNotificationInput): Promis
         ? "Contact your department directors or the HAVEN Executive Directors for the details of this decision."
         : (action.description ?? ""));
     const subjectRendered = await renderEmail("incidents.strike_issued", {
-      subjectName: subject.name.split(" ")[0] || subject.name,
+      subjectName: subject.name?.trim().split(/\s+/)[0] || subject.name || "there",
       category: action.category,
       description: subjectFacingDetails,
       issuedBy,

@@ -1,11 +1,13 @@
 "use client";
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Check } from "lucide-react";
 import { Scorm12API } from "scorm-again";
 import { persistCmiAction } from "../actions";
 import { Alert } from "@/platform/ui/alert";
 import { deriveStatus, parseScore } from "@/modules/learning/engine/status";
-import type { LearnerSco } from "@/modules/learning/services/enrollment";
+import type { CmiSnapshot, LearnerSco } from "@/modules/learning/services/enrollment";
+
+const EMPTY_SNAPSHOT: CmiSnapshot = { lessonStatus: null, scoreRaw: null, suspendData: null, lessonLocation: null };
 
 type Props = {
   courseId: string;
@@ -46,6 +48,10 @@ export function ScormPlayer({ courseId, scos }: Props) {
   const pendingSaveRef = useRef<Promise<void>>(Promise.resolve());
   const switchingRef = useRef(false);
   const saveActiveRef = useRef<() => Promise<void>>(() => Promise.resolve());
+  // The active SCO id and a getter for its live CMI, so the unload beacon below can
+  // flush the current SCO without going through the (unload-cancellable) server action.
+  const activeScoIdRef = useRef<string>(scos[0]?.id ?? "");
+  const snapshotRef = useRef<() => CmiSnapshot>(() => EMPTY_SNAPSHOT);
 
   // Build a fresh API for one SCO: seed saved state, mirror live writes into React
   // state, wire commit/finish persistence (tagged with this SCO's id), install as window.API.
@@ -76,8 +82,12 @@ export function ScormPlayer({ courseId, scos }: Props) {
       pendingSaveRef.current = p;
       return p;
     };
-    // Fire the instant eXe writes status/score (e.g. a quiz submit), before any commit.
-    api.on("LMSSetValue.cmi.core.lesson_status", sync);
+    // Persist the moment a page/quiz writes lesson_status -- that is the completion
+    // signal that unblocks onboarding, and snapshot() also captures the score written
+    // alongside it -- so a completion is durable within a round-trip instead of waiting
+    // up to the 30s autocommit (or a never-fired LMSCommit) (#18). Score-only writes
+    // still just mirror to the UI; the next lesson_status/commit persists them.
+    api.on("LMSSetValue.cmi.core.lesson_status", save);
     api.on("LMSSetValue.cmi.core.score.raw", sync);
     api.on("LMSCommit", save);
     api.on("LMSFinish", save);
@@ -85,6 +95,8 @@ export function ScormPlayer({ courseId, scos }: Props) {
     (window as unknown as { API: typeof api }).API = api;
     apiRef.current = api;
     saveActiveRef.current = save;
+    activeScoIdRef.current = sco.id;
+    snapshotRef.current = snapshot;
     return save;
   }
 
@@ -100,6 +112,32 @@ export function ScormPlayer({ courseId, scos }: Props) {
     // scos is a stable server-rendered snapshot for the life of this page.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Durability backstop for tab close / bfcache: the server-action save() fetch is
+  // cancelled as the document unloads, so a completion the learner just earned on the
+  // final SCO can be lost. pagehide / visibilitychange(hidden) flush the current SCO's
+  // live CMI via navigator.sendBeacon, which is delivered by the browser even during
+  // unload. The iframe's own unload fires first (writing lesson_status="completed" on
+  // window.API), so the snapshot we read here already reflects it (#18).
+  useEffect(() => {
+    function flush() {
+      const payload = JSON.stringify({
+        courseId,
+        scoId: activeScoIdRef.current,
+        cmi: snapshotRef.current(),
+      });
+      navigator.sendBeacon?.("/api/learning/persist-cmi", new Blob([payload], { type: "application/json" }));
+    }
+    function onVisibility() {
+      if (document.visibilityState === "hidden") flush();
+    }
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [courseId]);
 
   async function goTo(index: number) {
     if (index === activeIndex || switchingRef.current) return;

@@ -150,6 +150,16 @@ describe("setSetting", () => {
     expect(await prisma.setting.findUnique({ where: { key: "rhd.maxProcedures" } })).toBeNull();
   });
 
+  it("caps uploads.maxMb at the 4 MB server-action body limit (#75)", async () => {
+    // A larger value is unusable: uploads over the platform's ~4.5 MB cap fail at
+    // the edge before app code runs, so the setting must not promise more than 4.
+    await expect(setSetting("uploads.maxMb", 20, null)).rejects.toBeInstanceOf(SettingValidationError);
+    expect(await prisma.setting.findUnique({ where: { key: "uploads.maxMb" } })).toBeNull();
+    // The deployable range still saves.
+    await setSetting("uploads.maxMb", 4, null);
+    expect(await getSetting<number>("uploads.maxMb")).toBe(4);
+  });
+
   it("writes the override and an audit row", async () => {
     await setSetting("rhd.maxProcedures", 9, "person-1");
     const row = await prisma.setting.findUnique({ where: { key: "rhd.maxProcedures" } });
@@ -187,10 +197,10 @@ describe("resetSetting", () => {
 
 describe("phase 1 operations scalars", () => {
   it("resolves uploads.maxMb from env default then DB override", async () => {
-    expect(await getSetting<number>("uploads.maxMb")).toBe(5); // MAX_UPLOAD_MB default
-    await prisma.setting.create({ data: { key: "uploads.maxMb", value: 12 } });
+    expect(await getSetting<number>("uploads.maxMb")).toBe(4); // MAX_UPLOAD_MB default
+    await prisma.setting.create({ data: { key: "uploads.maxMb", value: 3 } });
     _resetSettingsCache();
-    expect(await getSetting<number>("uploads.maxMb")).toBe(12);
+    expect(await getSetting<number>("uploads.maxMb")).toBe(3);
   });
 
   it("resolves the compliance scalars from env defaults", async () => {

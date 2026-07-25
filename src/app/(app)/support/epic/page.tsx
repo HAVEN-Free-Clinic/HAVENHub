@@ -250,7 +250,7 @@ export default async function EpicRequestsPage({ searchParams }: PageProps) {
         authorizers={authorizers}
         incidentPeople={incidentPeople}
         pending={pending}
-        error={error ? decodeURIComponent(error) : undefined}
+        error={error ?? undefined}
         closeTicketAction={closeTicketAction}
         updateServiceRequestNumberAction={updateServiceRequestNumberAction}
         logIncidentAction={logIncidentAction}

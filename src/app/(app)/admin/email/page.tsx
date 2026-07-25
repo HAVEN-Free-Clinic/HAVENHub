@@ -120,7 +120,7 @@ export default async function EmailPage({ searchParams }: PageProps) {
   const errorCode = sp.error ?? null;
   const errorMessage = errorCode
     ? errorCode === "validation" && sp.message
-      ? decodeURIComponent(sp.message)
+      ? sp.message
       : "An unexpected error occurred."
     : null;
 
@@ -131,7 +131,7 @@ export default async function EmailPage({ searchParams }: PageProps) {
 
   const senderSavedSuccess = sp.senderSaved === "1";
   const senderTestedSuccess = sp.senderTested === "1";
-  const senderErrorMessage = sp.senderError ? decodeURIComponent(sp.senderError) : null;
+  const senderErrorMessage = sp.senderError ?? null;
 
   const [
     { rows, total, counts },

@@ -65,7 +65,7 @@ export default async function ReportConcernPage({ searchParams }: PageProps) {
   // All other unknown codes fall back to a generic string.
   const errorMessage = errorCode
     ? errorCode === "validation" && sp.message
-      ? decodeURIComponent(sp.message)
+      ? sp.message
       : (ERROR_MESSAGES[errorCode] ?? "An unexpected error occurred.")
     : null;
 

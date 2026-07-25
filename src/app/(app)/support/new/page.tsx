@@ -87,7 +87,7 @@ export default async function SubmitPage({ searchParams }: PageProps) {
         description="Tell IT what you need. You can track it under My requests."
       />
       <div className="mt-8">
-        <SubmitForm action={submitAction} error={sp.error ? decodeURIComponent(sp.error) : undefined} />
+        <SubmitForm action={submitAction} error={sp.error ?? undefined} />
       </div>
     </>
   );

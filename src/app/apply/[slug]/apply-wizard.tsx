@@ -277,15 +277,23 @@ export function ApplyWizard({
         if (k.startsWith("__") || v instanceof File) continue;
         draftAnswers[k] = draftAnswers[k] === undefined ? v : ([] as unknown[]).concat(draftAnswers[k], v);
       }
-      const res = await saveDraftAction(def.slug, {
-        answers: draftAnswers,
-        applicantType,
-        renewalDepartment: applicantType === "RENEWAL" ? renewalDept : null,
-      });
       // A failed draft save must not silently collapse to "idle" (visually identical
       // to never-having-saved) -- surface it so the applicant knows their answers may
-      // not be persisted before they close the tab.
-      setSaveState(res.ok ? "saved" : "error");
+      // not be persisted before they close the tab. saveDraftAction returns {ok:false}
+      // only for a missing identity / DraftError; a transport failure (offline, 502) or
+      // a non-DraftError (e.g. Prisma) REJECTS, which without this catch would leave the
+      // indicator stuck on "Saving…" forever -- exactly the case the "check your
+      // connection" copy was written for but could never reach (#34).
+      try {
+        const res = await saveDraftAction(def.slug, {
+          answers: draftAnswers,
+          applicantType,
+          renewalDepartment: applicantType === "RENEWAL" ? renewalDept : null,
+        });
+        setSaveState(res.ok ? "saved" : "error");
+      } catch {
+        setSaveState("error");
+      }
     }, 800);
   }
 
@@ -302,8 +310,15 @@ export function ApplyWizard({
     setFileStatus((prev) => ({ ...prev, [fieldKey]: "Uploading..." }));
     const fd = new FormData();
     fd.set("file", file);
-    const res = await uploadDraftFileAction(def.slug, fieldKey, fd);
-    setFileStatus((prev) => ({ ...prev, [fieldKey]: res.ok && res.fileName ? `Attached: ${res.fileName}` : res.error ?? "Upload failed." }));
+    // Same hazard as scheduleSave: a Blob putObject / transport failure REJECTS rather
+    // than returning {ok:false}, which without this catch leaves the field stuck on
+    // "Uploading..." forever (#34).
+    try {
+      const res = await uploadDraftFileAction(def.slug, fieldKey, fd);
+      setFileStatus((prev) => ({ ...prev, [fieldKey]: res.ok && res.fileName ? `Attached: ${res.fileName}` : res.error ?? "Upload failed." }));
+    } catch {
+      setFileStatus((prev) => ({ ...prev, [fieldKey]: "Upload failed. Try again." }));
+    }
   }
 
   // Serialize the form to a { key: string | string[] } map, marking attached
@@ -536,7 +551,7 @@ export function ApplyWizard({
                         label={f.label}
                         required={f.required}
                         helpText={f.helpText}
-                        personName={[prefill?.values.first_name ?? initialAnswers.first_name, prefill?.values.last_name ?? initialAnswers.last_name].filter(Boolean).join(" ")}
+                        personName={[initialAnswers.first_name ?? prefill?.values.first_name, initialAnswers.last_name ?? prefill?.values.last_name].filter(Boolean).join(" ")}
                         defaultValue={typeof initialAnswers[f.key] === "string" ? (initialAnswers[f.key] as string) : ""}
                         defaultMethod={initialAnswers[`${f.key}__method`] === "type" ? "type" : "draw"}
                         defaultName={typeof initialAnswers[`${f.key}__name`] === "string" ? (initialAnswers[`${f.key}__name`] as string) : ""}
@@ -561,7 +576,11 @@ export function ApplyWizard({
                       <FieldPreview key={f.key} f={f} departments={def.departments} subcommittees={def.subcommittees}
                         fieldError={fieldErrors[f.key]}
                         onValueChange={handleValueChange}
-                        prefill={prefill?.values[f.key] ?? initialAnswers[f.key]} locked={lockedKeys.has(f.key)} />
+                        // Prefill (the Person record) wins only for LOCKED keys (email, net_id).
+                        // For editable keys (first_name, last_name, phone) a saved draft answer is
+                        // an explicit applicant edit and must win, or resuming the form silently
+                        // reverts their correction back to the stale record value (#93).
+                        prefill={lockedKeys.has(f.key) ? prefill?.values[f.key] : (initialAnswers[f.key] ?? prefill?.values[f.key])} locked={lockedKeys.has(f.key)} />
                     ),
                   )}
                 </FormSection>

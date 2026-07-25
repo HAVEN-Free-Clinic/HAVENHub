@@ -34,7 +34,7 @@ export default async function EditEhsTrainingPage({
       <PageHeader title={`Edit: ${training.name}`} description="Edit this EHS training requirement." />
       <div className="mt-6 grid max-w-3xl gap-8">
         {sp.error && (
-          <Alert tone="error">{decodeURIComponent(sp.error)}</Alert>
+          <Alert tone="error">{sp.error}</Alert>
         )}
         <Card>
           <form action={updateTrainingAction}>

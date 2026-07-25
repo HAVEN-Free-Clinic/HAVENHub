@@ -278,7 +278,7 @@ export default async function TicketPage({ params, searchParams }: PageProps) {
         <Alert tone="success">Request submitted. We will keep you posted here.</Alert>
       )}
       {attachmentError && (
-        <Alert tone="error">{decodeURIComponent(attachmentError)}</Alert>
+        <Alert tone="error">{attachmentError}</Alert>
       )}
       <TicketDetail
         detail={detail}
@@ -291,14 +291,14 @@ export default async function TicketPage({ params, searchParams }: PageProps) {
         resolveAction={resolveAction}
         cancelAction={cancelAction}
         cancelOwnAction={cancelOwnAction}
-        manageError={manageError ? decodeURIComponent(manageError) : undefined}
+        manageError={manageError ?? undefined}
         comments={comments}
         commentAction={commentAction}
-        commentError={commentError ? decodeURIComponent(commentError) : undefined}
+        commentError={commentError ?? undefined}
         attachEpicAction={attachEpicAction}
         cancelEpicAction={cancelEpicAction}
         departments={departments}
-        epicError={epicError ? decodeURIComponent(epicError) : undefined}
+        epicError={epicError ?? undefined}
       />
     </div>
   );

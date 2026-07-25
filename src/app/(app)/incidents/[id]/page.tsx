@@ -147,7 +147,7 @@ export default async function IncidentReportDetailPage({ params, searchParams }:
   // encoded content that could confuse users or leak internals).
   const errorMessage = errorCode
     ? errorCode === "validation" && sp.message
-      ? decodeURIComponent(sp.message)
+      ? sp.message
       : (ERROR_MESSAGES[errorCode] ?? "An unexpected error occurred.")
     : null;
 

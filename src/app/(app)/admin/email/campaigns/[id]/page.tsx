@@ -253,7 +253,7 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
     redirect(`/admin/email/campaigns/${id}?cancelled=1`);
   }
 
-  const errorMessage = sp.error ? decodeURIComponent(sp.error) : null;
+  const errorMessage = sp.error ?? null;
 
   return (
     <div className="space-y-6">

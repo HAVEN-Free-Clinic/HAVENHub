@@ -60,7 +60,10 @@ type Props = {
   authorizers: EpicAuthorizer[];
   incidentPeople: IncidentPerson[];
   pending: PendingEpicRequestRow[];
+  /** Tracker/Pending row-action failures (complete, link, cancel, resolve, ...). */
   error?: string;
+  /** Failures from the "Log a YNHH incident" form only (#115). */
+  incidentError?: string;
   closeTicketAction: (ticketId: string) => Promise<void>;
   updateServiceRequestNumberAction: (ticketId: string, value: string) => Promise<void>;
   logIncidentAction: (formData: FormData) => Promise<void>;
@@ -600,6 +603,7 @@ export function EpicRequestTabs({
   incidentPeople,
   pending,
   error,
+  incidentError,
   closeTicketAction,
   updateServiceRequestNumberAction,
   logIncidentAction,
@@ -621,7 +625,10 @@ export function EpicRequestTabs({
         <PendingTab pending={pending} action={createTicketFromPendingAction} cancelAction={cancelEpicRequestAction} error={error} />
       ) : activeTab === "tracker" ? (
         <div className="space-y-8">
-          <LogIncidentForm incidentPeople={incidentPeople} logIncidentAction={logIncidentAction} error={error} />
+          <LogIncidentForm incidentPeople={incidentPeople} logIncidentAction={logIncidentAction} error={incidentError} />
+          {/* Tracker ROW-action errors (complete, link, cancel, resolve, SR number)
+              belong with the table, not inside the incident form above (#115). */}
+          {error && <Alert tone="error">{error}</Alert>}
           <TrackerTable
             history={history}
             closeTicketAction={closeTicketAction}

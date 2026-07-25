@@ -96,7 +96,9 @@ async function logIncidentAction(formData: FormData) {
     });
   } catch (err) {
     if (err instanceof SupportStateError || err instanceof SupportForbiddenError) {
-      redirect(`/support/epic?tab=tracker&error=${encodeURIComponent(err.message)}`);
+      // Scope this to the incident form's own error slot so it renders in the "Log a
+      // YNHH incident" card, not attributed to a Tracker row action (#115).
+      redirect(`/support/epic?tab=tracker&incidentError=${encodeURIComponent(err.message)}`);
     }
     throw err;
   }
@@ -117,7 +119,7 @@ async function logIncidentAction(formData: FormData) {
     if (err instanceof SupportStateError || err instanceof SupportForbiddenError) {
       revalidatePath("/support/epic");
       redirect(
-        `/support/epic?tab=tracker&error=${encodeURIComponent(`The incident was logged, but an attachment could not be saved: ${err.message}`)}`,
+        `/support/epic?tab=tracker&incidentError=${encodeURIComponent(`The incident was logged, but an attachment could not be saved: ${err.message}`)}`,
       );
     }
     throw err;
@@ -243,13 +245,16 @@ async function linkEpicRequestAction(formData: FormData) {
 }
 
 type PageProps = {
-  searchParams: Promise<{ tab?: string; error?: string }>;
+  // `error` carries Tracker/Pending row-action failures; `incidentError` is scoped to
+  // the "Log a YNHH incident" form so a tracker-action error no longer surfaces inside
+  // that unrelated card (#115).
+  searchParams: Promise<{ tab?: string; error?: string; incidentError?: string }>;
 };
 
 export default async function EpicRequestsPage({ searchParams }: PageProps) {
   await requirePermission("support.manage_requests");
 
-  const { tab, error } = await searchParams;
+  const { tab, error, incidentError } = await searchParams;
   const activeTab =
     tab === "pending" ? "pending" : tab === "tracker" ? "tracker" : tab === "history" ? "history" : "generate";
 
@@ -278,6 +283,7 @@ export default async function EpicRequestsPage({ searchParams }: PageProps) {
         incidentPeople={incidentPeople}
         pending={pending}
         error={error ?? undefined}
+        incidentError={incidentError ?? undefined}
         closeTicketAction={closeTicketAction}
         updateServiceRequestNumberAction={updateServiceRequestNumberAction}
         logIncidentAction={logIncidentAction}

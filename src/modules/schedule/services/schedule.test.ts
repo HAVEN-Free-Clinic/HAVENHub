@@ -826,6 +826,22 @@ describe("updateMyAvailability", () => {
     expect(updated.availabilityAcknowledgedAt).toBeNull();
   });
 
+  it("rejects an availability save for a term with no clinic dates, so an empty grid can't wipe the baseline (#90)", async () => {
+    const term = await createTerm("ACTIVE", "SU26", []); // calendar not set yet
+    const dept = await createDepartment("ITCM");
+    const person = await createPerson("Zoe");
+    const mem = await createMembership(person.id, term.id, dept.id, "VOLUNTEER");
+
+    await expect(
+      updateMyAvailability(person.id, { termId: term.id, dates: [] }),
+    ).rejects.toBeInstanceOf(AvailabilityValidationError);
+
+    // No SELF tier written: availabilityUpdatedAt stays null so resolveAvailability
+    // keeps returning BASELINE (the application answers), not an empty SELF tier.
+    const after = await prisma.termMembership.findUniqueOrThrow({ where: { id: mem.id } });
+    expect(after.availabilityUpdatedAt).toBeNull();
+  });
+
   it("updateMyAvailability writes the passed (next) term while a different term is live", async () => {
     // live term + next term, member active in BOTH; next term has clinic dates
     const live = await prisma.term.create({ data: { code: "SU26", name: "Summer", startDate: new Date("2026-05-30"), endDate: new Date("2026-09-26"), status: "ACTIVE", clinicDates: [] } });

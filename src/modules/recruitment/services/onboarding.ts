@@ -39,6 +39,25 @@ function safeParseLayout(value: unknown): ContractLayout {
   try { return parseContractLayout(value); } catch { return DEFAULT_CONTRACT_LAYOUT; }
 }
 
+/** Parse the frozen review context stored at submit, or null when the row predates
+ *  the column or the stored value is malformed (caller falls back to a live
+ *  derivation in that case). Validates only the shape this module writes. */
+function parseReviewContext(value: unknown): ContractContext | null {
+  if (value == null || typeof value !== "object" || Array.isArray(value)) return null;
+  const v = value as Record<string, unknown>;
+  const { department, track, epicRequirement, storedEpicId } = v;
+  if (typeof track !== "string") return null;
+  if (typeof epicRequirement !== "string") return null;
+  if (department !== null && typeof department !== "string") return null;
+  if (storedEpicId !== null && typeof storedEpicId !== "string") return null;
+  return {
+    department: department as string | null,
+    track: track as ContractContext["track"],
+    epicRequirement: epicRequirement as ContractContext["epicRequirement"],
+    storedEpicId: storedEpicId as string | null,
+  };
+}
+
 /**
  * Validate a YYYY-MM-DD date of birth from the date input: it must be a real
  * calendar date and not in the future. Returns the date normalized to noon UTC
@@ -524,6 +543,13 @@ export async function submitContract(
         licensedRN: input.licensedRN ?? false,
         hipaaCompletedAt: hipaaCompletedAt ?? null,
         ...fileRef,
+        // Freeze the visibility context used to decide what the applicant saw --
+        // department/track/Epic-requirement and the storedEpicId resolved at submit
+        // -- so the signed-contract review renders exactly those blocks even after
+        // the department's Epic requirement changes or a matching Person later gets
+        // an epicId (which promotion itself causes). getContractForReview reads this
+        // and only re-derives live for pre-column rows (#107/#108/#109).
+        reviewContext: { department: departmentCode, track, epicRequirement: requirement, storedEpicId } as object,
         status: "SUBMITTED",
         submittedAt: new Date(),
       },
@@ -638,24 +664,32 @@ export async function getContractForReview(contractId: string) {
     },
   });
   if (!contract) return null;
-  const departmentCode = contract.acceptance.departmentCode;
-  const track = contract.acceptance.application.cycle?.track ?? "VOLUNTEER";
-  const dept = departmentCode
-    ? await prisma.department.findUnique({
-        where: { code: departmentCode },
-        select: { requiresEpicDirector: true, requiresEpicVolunteer: true },
-      })
-    : null;
-  // Resolve the Epic ID already on file the same way the fill-out page and
-  // submit validator do, so the review's Epic-section visibility matches what
-  // the applicant was shown (a stored id hides the "do you need Epic?" ask).
-  const storedEpicId = await lookupStoredEpicId(contract.netId, contract.email);
-  const ctx: ContractContext = {
-    department: departmentCode,
-    track,
-    epicRequirement: epicRequirementFor(dept, track),
-    storedEpicId,
-  };
+  // Prefer the context frozen at submit: it is what actually decided the blocks the
+  // applicant was shown. Re-deriving it live drifts the signed record after the
+  // department's Epic requirement changes or a matching Person gains an epicId --
+  // which promotion itself causes -- silently adding or removing answered blocks
+  // from the permanent review (#107/#108/#109). Only rows submitted before this
+  // column existed fall back to the live derivation.
+  const frozen = parseReviewContext(contract.reviewContext);
+  let ctx: ContractContext;
+  if (frozen) {
+    ctx = frozen;
+  } else {
+    const departmentCode = contract.acceptance.departmentCode;
+    const track = contract.acceptance.application.cycle?.track ?? "VOLUNTEER";
+    const dept = departmentCode
+      ? await prisma.department.findUnique({
+          where: { code: departmentCode },
+          select: { requiresEpicDirector: true, requiresEpicVolunteer: true },
+        })
+      : null;
+    ctx = {
+      department: departmentCode,
+      track,
+      epicRequirement: epicRequirementFor(dept, track),
+      storedEpicId: await lookupStoredEpicId(contract.netId, contract.email),
+    };
+  }
   return { contract, cycleId: contract.acceptance.application.cycleId, ctx };
 }
 

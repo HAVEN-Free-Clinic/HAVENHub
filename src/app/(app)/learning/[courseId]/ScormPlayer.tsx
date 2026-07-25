@@ -190,10 +190,10 @@ export function ScormPlayer({ courseId, scos }: Props) {
                         {done ? <Check className="h-4 w-4" /> : i + 1}
                       </span>
                       <span className="truncate">{s.title}</span>
-                      {/* Only show a score once it is actually meaningful. A 0 usually means
-                          no score was reported (e.g. eXe's Padlock game never commits one), so
-                          showing "0%" reads like a real grade of zero. */}
-                      {st?.scoreRaw ? (
+                      {/* Show a score whenever one is present, including 0.
+                          We intentionally hide only null/undefined until the data model can
+                          distinguish "no score reported" from "reported score of zero". */}
+                      {st?.scoreRaw != null ? (
                         <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">{st.scoreRaw}%</span>
                       ) : null}
                     </button>

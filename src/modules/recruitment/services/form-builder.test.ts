@@ -3,7 +3,7 @@ import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import { createCycle, publishCycle, closeCycle, archiveCycle } from "./cycles";
 import {
-  addSection, addField, updateField, deleteField, FormEditError,
+  addSection, addField, updateField, deleteField, reorderSections, reorderFields, FormEditError,
 } from "./form-builder";
 
 async function draftCycle(acceptsRenewals = false) {
@@ -15,6 +15,46 @@ async function draftCycle(acceptsRenewals = false) {
 
 beforeEach(async () => { await resetDb(); });
 afterEach(async () => { await resetDb(); });
+
+describe("reorder splices the visible subset into the full set (#104)", () => {
+  it("reorderSections keeps a hidden (unsupplied) section at a distinct, non-colliding order", async () => {
+    const { cycle } = await draftCycle();
+    const a = await addSection(cycle.id, { title: "A", appliesTo: "BOTH", departmentCode: null }); // order 0
+    const b = await addSection(cycle.id, { title: "B hidden", appliesTo: "BOTH", departmentCode: null }); // order 1
+    const c = await addSection(cycle.id, { title: "C", appliesTo: "BOTH", departmentCode: null }); // order 2
+
+    // The builder hides B (e.g. the availability section when the clinic calendar
+    // is empty), so the drag supplies only the visible ids -- C moved above A.
+    await reorderSections(cycle.id, [c.id, a.id]);
+
+    const after = await prisma.formSection.findMany({ where: { cycleId: cycle.id }, select: { id: true, order: true } });
+    // No collision: every section (including the hidden B) has a distinct order.
+    expect(new Set(after.map((s) => s.order)).size).toBe(after.length);
+    const orderOf = new Map(after.map((s) => [s.id, s.order]));
+    // Visible sections took their new relative order (C above A), and the hidden B
+    // stays anchored between them (its original slot), not left at a stale/colliding
+    // order. c < b < a captures both.
+    expect(orderOf.get(c.id)!).toBeLessThan(orderOf.get(b.id)!);
+    expect(orderOf.get(b.id)!).toBeLessThan(orderOf.get(a.id)!);
+  });
+
+  it("reorderFields keeps a hidden (unsupplied) field at a distinct, non-colliding order", async () => {
+    const { cycle } = await draftCycle();
+    const section = await addSection(cycle.id, { title: "S", appliesTo: "BOTH", departmentCode: null });
+    const f1 = await addField(section.id, { label: "F1", type: "SHORT_TEXT", required: false }); // order 0
+    const f2 = await addField(section.id, { label: "F2 hidden", type: "SHORT_TEXT", required: false }); // order 1
+    const f3 = await addField(section.id, { label: "F3", type: "SHORT_TEXT", required: false }); // order 2
+
+    await reorderFields(section.id, [f3.id, f1.id]); // f2 hidden
+
+    const after = await prisma.formField.findMany({ where: { sectionId: section.id }, select: { id: true, order: true } });
+    expect(new Set(after.map((f) => f.order)).size).toBe(after.length);
+    const orderOf = new Map(after.map((f) => [f.id, f.order]));
+    // F3 above F1 (the new visible order), hidden F2 anchored between them.
+    expect(orderOf.get(f3.id)!).toBeLessThan(orderOf.get(f2.id)!);
+    expect(orderOf.get(f2.id)!).toBeLessThan(orderOf.get(f1.id)!);
+  });
+});
 
 it("adds a section and a field with a generated unique key", async () => {
   const { cycle } = await draftCycle();

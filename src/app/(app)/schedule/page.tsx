@@ -304,7 +304,7 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                                       {pendingReq.targetId
                                         ? `swap with ${pendingReq.target?.name ?? "unknown"} (${pendingReq.targetDate ? displayDate(isoDateKey(pendingReq.targetDate)) : "?"})`
                                         : "drop"}{" "}
-                                      — pending director review
+                                      (pending director review)
                                     </p>
                                     <div className="flex items-center gap-2">
                                       {Math.floor((now.getTime() - new Date(pendingReq.createdAt).getTime()) / (1000 * 60 * 60 * 24)) >= 5 && (

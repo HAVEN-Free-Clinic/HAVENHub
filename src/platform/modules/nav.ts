@@ -8,8 +8,22 @@
  * which is only imported by server components.
  */
 
+/** A module sub-page link, stripped of its permission (already applied server-side). */
+export type NavSubItem = { label: string; href: string };
+
 /** A module reduced to what the global nav needs (serializable, no icon). */
-export type NavModule = { id: string; title: string; href: string };
+export type NavModule = {
+  id: string;
+  title: string;
+  href: string;
+  /**
+   * The module's sub-pages the viewer may actually open, already
+   * permission-filtered server-side. `permission` is deliberately stripped: the
+   * global nav is a client component, and shipping permission strings to the
+   * browser would leak the RBAC vocabulary for no benefit.
+   */
+  nav: NavSubItem[];
+};
 
 /**
  * Active-state test for a module link given the current pathname.

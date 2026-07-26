@@ -42,19 +42,84 @@ describe("canAccessModule", () => {
 describe("filterAccessibleModules", () => {
   it("maps active accessible modules to nav items and drops coming-soon", () => {
     const modules = [
-      mod({ id: "schedule", title: "Clinic Schedule", accessPermission: "schedule.view" }),
+      mod({ id: "schedule", title: "Schedule", accessPermission: "schedule.view" }),
       mod({ id: "my-info", title: "My Info", accessPermission: undefined }),
       mod({ id: "triage", title: "Triage", accessPermission: "triage.access", status: "coming-soon" }),
     ];
     const result = filterAccessibleModules(modules, new Set(["schedule.view"]));
     expect(result).toEqual<NavModule[]>([
-      { id: "schedule", title: "Clinic Schedule", href: "/schedule" },
-      { id: "my-info", title: "My Info", href: "/my-info" },
+      { id: "schedule", title: "Schedule", href: "/schedule", nav: [] },
+      { id: "my-info", title: "My Info", href: "/my-info", nav: [] },
     ]);
   });
+
   it("drops active modules the user cannot access", () => {
     const modules = [mod({ id: "admin", title: "Admin", accessPermission: "admin.access" })];
     expect(filterAccessibleModules(modules, new Set())).toEqual([]);
+  });
+
+  it("populates nav with only the sub-items the viewer may open", () => {
+    const modules = [
+      mod({
+        id: "admin",
+        title: "Admin",
+        accessPermission: "admin.access",
+        permissions: ["admin.access", "admin.manage_people", "admin.manage_terms"],
+        nav: [
+          { label: "Overview", href: "/admin" },
+          { label: "People", href: "/admin/people", permission: "admin.manage_people" },
+          { label: "Terms", href: "/admin/terms", permission: "admin.manage_terms" },
+        ],
+      }),
+    ];
+    const result = filterAccessibleModules(modules, new Set(["admin.access", "admin.manage_people"]));
+    expect(result[0].nav).toEqual([
+      { label: "Overview", href: "/admin" },
+      { label: "People", href: "/admin/people" },
+    ]);
+  });
+
+  it("strips the permission field from nav items so the client bundle carries no permission strings", () => {
+    const modules = [
+      mod({
+        id: "admin",
+        title: "Admin",
+        accessPermission: "admin.access",
+        permissions: ["admin.access", "admin.manage_people"],
+        nav: [{ label: "People", href: "/admin/people", permission: "admin.manage_people" }],
+      }),
+    ];
+    const result = filterAccessibleModules(modules, new Set(["*"]));
+    expect(result[0].nav[0]).not.toHaveProperty("permission");
+  });
+
+  it("appends extraNavItems after the permission-filtered items, preserving staff order", () => {
+    const modules = [
+      mod({
+        id: "recruitment",
+        title: "Recruitment",
+        accessPermission: "recruitment.access",
+        permissions: ["recruitment.access"],
+        nav: [{ label: "Cycles", href: "/recruitment" }],
+      }),
+    ];
+    const result = filterAccessibleModules(modules, new Set(["recruitment.access"]), new Set(), {
+      recruitment: [{ label: "My interviews", href: "/recruitment/interviews" }],
+    });
+    expect(result[0].nav).toEqual([
+      { label: "Cycles", href: "/recruitment" },
+      { label: "My interviews", href: "/recruitment/interviews" },
+    ]);
+  });
+
+  it("admits a module reached only via extraNavItems when the viewer also has module access", () => {
+    const modules = [
+      mod({ id: "recruitment", title: "Recruitment", accessPermission: "recruitment.access", permissions: ["recruitment.access"] }),
+    ];
+    const result = filterAccessibleModules(modules, new Set(), new Set(["recruitment"]), {
+      recruitment: [{ label: "My interviews", href: "/recruitment/interviews" }],
+    });
+    expect(result[0].nav).toEqual([{ label: "My interviews", href: "/recruitment/interviews" }]);
   });
 });
 

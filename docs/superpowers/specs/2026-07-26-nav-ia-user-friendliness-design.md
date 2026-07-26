@@ -146,6 +146,10 @@ permission-based `filterNavItems`. It is resolved today in
 dropdown to show it, `src/app/(app)/layout.tsx` must additionally call
 `isInterviewPanelist` (alongside the `reviewScope` call it already makes) and
 pass the result through `AppShell` as an `extraNavItems` map keyed by module id.
+`isInterviewPanelist` is a single indexed `count` and is currently uncached, so
+it is wrapped in React `cache()` in the same change: the dashboard and the
+recruitment layout already call it, and deduping makes the added shell call free
+on those routes.
 `getAccessibleModules` merges it after the permission-filtered staff nav, so the
 staff ordering is preserved exactly as `recruitmentNavItems` does now.
 
@@ -155,7 +159,7 @@ New client component `src/platform/ui/account-menu.tsx`, replacing the static
 avatar span at `app-shell.tsx:102-114`. The avatar becomes a disclosure button
 opening a `glass-panel` containing:
 
-- The person's name, and a term plus clearance line.
+- The person's name and current term.
 - **My Info** (`/my-info`)
 - **Training** (`/training`)
 - The theme control, moved here from the toolbar.
@@ -164,6 +168,15 @@ opening a `glass-panel` containing:
 
 This is where `/training` finally gets a permanent home, and it frees two slots
 in the module row (My Info and the theme toggle).
+
+**No clearance line in the menu.** An earlier draft showed a "Cleared / Not yet
+cleared" line here. That is rejected on cost: `getOnboardingStatus` runs roughly
+9 DB queries, which is exactly why `src/platform/auth/onboarding-gate-cache.ts`
+exists to cache cleared gate decisions for 5 minutes. Rendering clearance in
+`AppShell` would call it on every page for every user and defeat that cache
+app-wide. The menu shows the term, which `AppShell` already receives for free as
+the `termLabel` prop. Clearance stays where it already is and costs nothing
+extra: the dashboard "Your status" card and My Info.
 
 Training is listed unconditionally. `/training` already renders a sensible state
 for a member with nothing assigned, and a conditional entry would make the menu
@@ -288,8 +301,12 @@ Unit (vitest):
   `permission` is declared in its module's `permissions`.
 - New `cycle-nav.test.ts`: tab visibility across `canManage` x `canReviewAll` x
   track.
-- Existing `breadcrumb-trail.test.ts` and `help-context.test.ts` carry module
-  titles in local fixtures and need the renamed values.
+Note on which tests break and why: `breadcrumb-trail.test.ts`,
+`help-context.test.ts`, and `access.test.ts` all build their own local fixtures
+rather than reading `MODULES`, so the title rename does not touch them. What does
+break is `access.test.ts:50-53`, which asserts the exact `NavModule` shape with
+`toEqual`; it needs the new `nav` field. `registry.test.ts` reads `MODULES` but
+asserts only on ids and permissions, so it is unaffected by the rename.
 
 E2E (Playwright, CI only, cannot be run locally against Neon):
 
@@ -343,6 +360,8 @@ Accessibility:
   "Clinic Schedule", which is precisely the inconsistency this pass removes.
 - **Notifications inside the account menu.** Initially selected, then reversed:
   it costs the ambient unread badge and saves no space that matters.
+- **A clearance line in the account menu.** Rejected on cost; see 1c. It would
+  defeat `onboarding-gate-cache.ts` on every page render.
 - **Entity search in v1 of the palette.** Deferred as its own PR; needs a
   permission-scoped API route.
 

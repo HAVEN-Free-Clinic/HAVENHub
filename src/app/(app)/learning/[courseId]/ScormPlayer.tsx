@@ -160,7 +160,7 @@ export function ScormPlayer({ courseId, scos }: Props) {
     scos.length > 0 &&
     scos.every((s) => {
       const liveCompleted = deriveStatus(live[s.id]?.lessonStatus).completed;
-      const persistedCompleted = deriveStatus(s.lessonStatus).completed;
+      const persistedCompleted = deriveStatus(s.cmi.lessonStatus).completed;
       return liveCompleted || persistedCompleted;
     });
 

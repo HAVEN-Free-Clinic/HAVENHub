@@ -162,12 +162,19 @@ opening a `glass-panel` containing:
 - The person's name and current term.
 - **My Info** (`/my-info`)
 - **Training** (`/training`)
-- The theme control, moved here from the toolbar.
 - **Sign out**, which stays a server-action `<form>` exactly as at
   `app-shell.tsx:115-131`.
 
-This is where `/training` finally gets a permanent home, and it frees two slots
-in the module row (My Info and the theme toggle).
+This is where `/training` finally gets a permanent home, and it frees a slot in
+the module row (My Info).
+
+**The theme toggle stays in the toolbar.** An earlier draft moved it in here.
+Rejected: it lives in the right-hand control cluster, not the module row, so it
+never competed for the space this pass is reclaiming, and the row already fits at
+64 characters without it. Moving it would duplicate `applyToDocument` out of
+`theme-toggle.tsx`, leave that component dead, turn a one-click action into two,
+and break `e2e/theme.spec.ts:9,63`, which selects it by its `Current theme: ...`
+aria-label.
 
 **No clearance line in the menu.** An earlier draft showed a "Cleared / Not yet
 cleared" line here. That is rejected on cost: `getOnboardingStatus` runs roughly
@@ -362,6 +369,9 @@ Accessibility:
   it costs the ambient unread badge and saves no space that matters.
 - **A clearance line in the account menu.** Rejected on cost; see 1c. It would
   defeat `onboarding-gate-cache.ts` on every page render.
+- **Moving the theme toggle into the account menu.** Rejected in pre-flight; see
+  1c. It solves nothing this pass is about and costs a dead component, a
+  duplicated helper, a broken e2e spec, and an extra click.
 - **Entity search in v1 of the palette.** Deferred as its own PR; needs a
   permission-scoped API route.
 

@@ -576,7 +576,15 @@ git commit -m "feat(nav): disclose module sub-pages from the global nav"
 
 ### Task 4: Account menu, and move My Info out of the module row
 
-Adds the `personal` flag, builds `AccountMenu`, and folds My Info, Training, and the theme control into it.
+Adds the `personal` flag, builds `AccountMenu`, and folds My Info and Training into it.
+
+**The theme control stays in the toolbar.** An earlier draft moved it into this
+menu. Rejected during pre-flight: it never competed for module-row space (it
+lives in the right-hand cluster, and the row already fits at 64 characters), and
+moving it would duplicate `applyToDocument` out of `theme-toggle.tsx`, leave that
+component dead, make theme a two-click action, and break
+`e2e/theme.spec.ts:9,63`, which selects it by its `Current theme: ...`
+aria-label. `ThemeToggle` is left exactly as it is.
 
 **Files:**
 - Modify: `src/platform/modules/types.ts:18-36`
@@ -595,7 +603,6 @@ Adds the `personal` flag, builds `AccountMenu`, and folds My Info, Training, and
 export function AccountMenu(props: {
   userName: string | null;
   termLabel: string | null;
-  themeInitial: ThemePreference;
   /** Passed in, not imported, so this client component never pulls the auth
    *  module into the browser bundle. */
   signOutAction: () => Promise<void>;
@@ -683,15 +690,7 @@ Create `src/platform/ui/account-menu.tsx`:
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { UserRoundPen, GraduationCap, LogOut, Sun, Moon, Monitor } from "lucide-react";
-import { THEME_ATTR, THEME_COOKIE, effectiveClass, type ThemePreference } from "./theme";
-import { setThemePreference } from "./theme-actions";
-
-const THEMES: { value: ThemePreference; label: string; Icon: typeof Sun }[] = [
-  { value: "light", label: "Light", Icon: Sun },
-  { value: "dark", label: "Dark", Icon: Moon },
-  { value: "system", label: "System", Icon: Monitor },
-];
+import { UserRoundPen, GraduationCap, LogOut } from "lucide-react";
 
 /** First letters of the first and last name parts, e.g. "Maya Chen" -> "MC". */
 function toInitials(name: string | null): string {
@@ -703,18 +702,11 @@ function toInitials(name: string | null): string {
   return (first + last).toUpperCase();
 }
 
-function applyToDocument(pref: ThemePreference) {
-  const root = document.documentElement;
-  root.setAttribute(THEME_ATTR, pref);
-  // Live OS-scheme changes while in "system" mode are handled by ThemeListener.
-  const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-  root.classList.toggle("dark", effectiveClass(pref, prefersDark) === "dark");
-  document.cookie = `${THEME_COOKIE}=${pref};path=/;max-age=${60 * 60 * 24 * 365};samesite=lax`;
-}
-
 /**
- * The account disclosure in the toolbar: personal pages (My Info, Training),
- * the theme control, and sign-out.
+ * The account disclosure in the toolbar: personal pages (My Info, Training) and
+ * sign-out. Theme deliberately stays in its own toolbar button (ThemeToggle):
+ * it never competed for module-row space, and burying it would make a one-click
+ * action two.
  *
  * Deliberately shows no clearance status. getOnboardingStatus costs roughly 9 DB
  * queries, which is why onboarding-gate-cache.ts caches cleared gate decisions;
@@ -727,16 +719,13 @@ function applyToDocument(pref: ThemePreference) {
 export function AccountMenu({
   userName,
   termLabel,
-  themeInitial,
   signOutAction,
 }: {
   userName: string | null;
   termLabel: string | null;
-  themeInitial: ThemePreference;
   signOutAction: () => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
-  const [pref, setPref] = useState<ThemePreference>(themeInitial);
   const ref = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
@@ -758,12 +747,6 @@ export function AccountMenu({
       document.removeEventListener("keydown", onKey);
     };
   }, [open]);
-
-  function pickTheme(next: ThemePreference) {
-    setPref(next);
-    applyToDocument(next); // optimistic, instant
-    void setThemePreference(next);
-  }
 
   const itemClasses =
     "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium text-foreground-soft transition-colors hover:bg-muted hover:text-foreground";
@@ -805,31 +788,6 @@ export function AccountMenu({
             </Link>
           </div>
 
-          <div className="border-t border-border-subtle px-2.5 py-2">
-            <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-subtle-foreground">
-              Theme
-            </p>
-            <div role="radiogroup" aria-label="Theme" className="flex gap-1">
-              {THEMES.map(({ value, label, Icon }) => (
-                <button
-                  key={value}
-                  type="button"
-                  role="radio"
-                  aria-checked={pref === value}
-                  onClick={() => pickTheme(value)}
-                  className={`flex flex-1 flex-col items-center gap-1 rounded-lg border px-2 py-1.5 text-[11px] font-medium transition-colors ${
-                    pref === value
-                      ? "border-brand bg-brand-faint text-brand-fg"
-                      : "border-border text-muted-foreground hover:bg-muted hover:text-foreground"
-                  }`}
-                >
-                  <Icon aria-hidden className="h-3.5 w-3.5" />
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-
           <form action={signOutAction} className="border-t border-border-subtle pt-1.5">
             <button type="submit" className={`w-full ${itemClasses}`}>
               <LogOut aria-hidden className="h-4 w-4" />
@@ -849,11 +807,11 @@ In `src/platform/ui/app-shell.tsx`, replace the right-hand controls block (lines
 
 ```tsx
           <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+            <ThemeToggle initial={resolvedTheme} />
             <NotificationBell />
             <AccountMenu
               userName={userName}
               termLabel={termLabel ?? null}
-              themeInitial={resolvedTheme}
               signOutAction={async () => {
                 "use server";
                 await signOut({ redirectTo: "/login" });
@@ -862,7 +820,9 @@ In `src/platform/ui/app-shell.tsx`, replace the right-hand controls block (lines
           </div>
 ```
 
-Update the imports at the top of the file: replace `import { ThemeToggle } from "./theme-toggle";` with `import { AccountMenu } from "./account-menu";`, and delete the now-unused `Button` (line 12) and `LogOut` (line 4) imports. Keep `resolvePreference` (line 19): it still computes `resolvedTheme`.
+`ThemeToggle` stays exactly as it was, so `e2e/theme.spec.ts` is untouched.
+
+Update the imports at the top of the file: add `import { AccountMenu } from "./account-menu";`, keep the existing `ThemeToggle` and `resolvePreference` imports, and delete the now-unused `Button` (line 12) and `LogOut` (line 4) imports.
 
 Delete the now-unused `toInitials` helper at lines 23-31 and the `initials` const at line 68; `AccountMenu` owns that logic.
 
@@ -1132,7 +1092,7 @@ Before opening the PR, confirm each of these with actual command output, not ass
 - [ ] Manual: at 1280px width, an admin sees all 8 modules inline with no "More".
 - [ ] Manual: the Admin chevron lists all 11 sub-pages including Onboarding contract.
 - [ ] Manual: Escape closes an open dropdown and focus returns to its chevron.
-- [ ] Manual: the account menu reaches My Info and Training, theme switching still persists across a reload, and sign out works.
+- [ ] Manual: the account menu reaches My Info and Training, and sign out works. Theme switching is unchanged (still its own toolbar button).
 - [ ] Manual: My Info still has a tile on the hub and no longer appears in the module row.
 
 ## Not in this plan

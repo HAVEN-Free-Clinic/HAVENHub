@@ -51,6 +51,43 @@ test("a full admin sees every module inline, with nothing pushed behind More", a
   await expect(nav.getByRole("button", { name: "More" })).toHaveCount(0);
 });
 
+// TEMPORARY DIAGNOSTIC. Dumps the real width budget from CI so the overflow fix
+// is computed from measurements rather than estimates. Remove once the fix lands.
+test("DIAGNOSTIC: nav width budget", async ({ page }) => {
+  await devSignIn(page);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  // Web fonts change text metrics after first paint; GlobalNav remeasures on
+  // fonts.ready, so wait for that before reading any width.
+  await page.evaluate(() => document.fonts.ready);
+  await page.waitForTimeout(500);
+  const data = await page.evaluate(() => {
+    const nav = document.querySelector('nav[aria-label="Modules"]') as HTMLElement | null;
+    const items = Array.from(document.querySelectorAll("[data-measure-item]")).map((el) => ({
+      text: (el as HTMLElement).innerText.trim().replace(/\s+/g, " "),
+      w: (el as HTMLElement).offsetWidth,
+    }));
+    const more = document.querySelector("[data-measure-more]") as HTMLElement | null;
+    const pill = nav?.closest(".glass-bar") as HTMLElement | null;
+    const termLabel = pill?.querySelector("span.hidden.whitespace-nowrap") as HTMLElement | null;
+    return {
+      viewport: window.innerWidth,
+      pillClientWidth: pill?.clientWidth ?? -1,
+      navClientWidth: nav?.clientWidth ?? -1,
+      termLabelText: termLabel?.innerText ?? "(none)",
+      termLabelWidth: termLabel?.offsetWidth ?? 0,
+      items,
+      moreWidth: more?.offsetWidth ?? -1,
+      totalWithGaps: items.reduce((s, it, i) => s + it.w + (i > 0 ? 4 : 0), 0),
+      renderedInlineLinks: Array.from(nav?.querySelectorAll(":scope > div > a") ?? []).map((a) =>
+        (a as HTMLElement).innerText.trim(),
+      ),
+    };
+  });
+  console.log("NAVDIAG_START");
+  console.log(JSON.stringify(data, null, 2));
+  console.log("NAVDIAG_END");
+});
+
 test("Escape closes an open dropdown and returns focus to its chevron", async ({ page }) => {
   // Not unit-testable: vitest runs in node with no jsdom, so GlobalNav's
   // interaction lives here. See src/platform/ui/global-nav.test.tsx.

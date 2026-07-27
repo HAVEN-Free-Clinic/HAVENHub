@@ -225,7 +225,7 @@ scope; see Follow-ups.
 | `src/platform/modules/access.ts` | Populate `nav`; honour `personal`; accept `extraNavItems` |
 | `src/platform/ui/global-nav.tsx` | Per-module dropdowns |
 | `src/platform/ui/account-menu.tsx` | New |
-| `src/platform/ui/app-shell.tsx` | Mount `AccountMenu`; drop the standalone `ThemeToggle`; thread `extraNavItems` |
+| `src/platform/ui/app-shell.tsx` | Mount `AccountMenu`; keep the standalone `ThemeToggle` (see 1c); thread `extraNavItems` |
 | `src/app/(app)/layout.tsx` | Resolve `isInterviewPanelist`; pass `extraNavItems` |
 | `src/app/(app)/admin/page.tsx` | Remove `quickLinks` |
 | `e2e/login.spec.ts` | Tile aria-labels at lines 12-13 |

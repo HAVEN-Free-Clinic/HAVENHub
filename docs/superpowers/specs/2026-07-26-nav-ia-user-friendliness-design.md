@@ -264,6 +264,22 @@ A new client component mounted in `AppShell`, opened by `Cmd+K` / `Ctrl+K` **and
 by a visible Search affordance in the pill. The visible trigger is not optional:
 a keyboard-only shortcut is just another buried feature.
 
+### Paying for the trigger
+
+The toolbar has no spare width. Measured after Stage 1, the nav row uses 727px of
+736px, so a search button (roughly 48px with its gap) would push modules back
+behind "More" and undo Stage 1.
+
+It is funded by removing the pill's active-term label, which measures 96px. Net
+change is +56px, taking headroom from 9px to roughly 65px, so Stage 2 leaves the
+row more robust than Stage 1 did rather than less.
+
+The term stays visible in two places that cost nothing: the account menu already
+renders `termLabel` under the user's name, and the dashboard greeting's eyebrow
+already reads `[term.name, dept]`. The loss is the always-on-every-page glance,
+which matters most when ops are running two terms at once (see the cross-term
+model spec), so revisit this if that becomes a complaint.
+
 **v1 indexes navigation targets only:** every accessible module, every one of its
 permission-filtered sub-items, and the personal pages. That data is already
 computed server-side for the Stage 1 dropdowns, so the palette costs no new query
@@ -274,10 +290,45 @@ Matching is a simple subsequence match over `label` plus the owning module title
 so "spdrt" finds "Speed route" and "cyc" finds "Recruitment / Cycles". Results
 group by module. Arrow keys move, Enter navigates, Escape closes.
 
-**Entity search is explicitly deferred.** Searching people, cycles, and support
-requests needs a new `/api/search` route with per-entity permission scoping done
-server-side, which is a materially larger and riskier piece of work than the nav
-index. It ships as its own follow-up PR rather than being bolted onto this one.
+### Entity search
+
+Originally deferred, then pulled into scope. Pages alone do not answer "where is
+that person / cycle / ticket", which is the question people actually have.
+
+One `GET /api/search?q=` route, following `api/notifications/route.ts`: `auth()`,
+then `getActivePerson` inside the try block as the revocation check. Every result
+is permission-filtered **server-side in the route**. The client never filters and
+never receives a row it may not open.
+
+Each entity reuses the destination page's own gate, so no result can dead-end at
+`/no-access`. The gates below were read off the pages, not assumed:
+
+| Entity | Gate (verified) | Result links to |
+|---|---|---|
+| Cycles | `requireRecruitmentStaff`'s predicate: `recruitment.access` OR `recruitment.score` OR `reviewScope` all/dept | `/recruitment/cycles/[id]` |
+| Support requests | own requests always; all when `isManager` (`support.manage_requests`). Row scoping via the same path `getTechRequest` uses | `/support/[id]` |
+| People, tier 1 | `admin.manage_people` | `/admin/people/[id]` |
+| People, tier 2 | `volunteers.manage_compliance` | `/volunteers/compliance/[personId]` |
+| People, neither | no people results at all | n/a |
+
+Note the people tier-2 gate is `volunteers.manage_compliance`, NOT
+`volunteers.view`. The compliance detail page enforces `manage_compliance`
+(`volunteers/compliance/[personId]/page.tsx:42`); linking `volunteers.view`
+holders there would recreate the dead-end class Stage 1 exists to remove.
+
+**Deliberately excluded, and this is a security decision, not an oversight:**
+
+- **Incidents and strikes.** Confidential, and this repo has already leaked here
+  once: #165 exposed strike counts to directors through a missing
+  `directorVisibility` filter. A fuzzy search box is the worst place to
+  re-litigate that boundary.
+- **Applications and applicants.** They carry personal essays and signatures.
+  Cycles are indexed; the applications inside them are not.
+
+**Limits:** minimum 2 characters, 200ms debounce, `LIMIT 5` per group, no
+unbounded scans. Page results resolve locally and instantly from the data the
+Stage 1 dropdowns already hold; entity results stream in after the debounce, so
+the palette is never blocked on the network.
 
 ---
 

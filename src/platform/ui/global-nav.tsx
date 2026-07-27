@@ -28,7 +28,10 @@ function linkClasses(active: boolean): string {
 export function GlobalNav({ items }: { items: NavModule[] }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
-  const [moreOpen, setMoreOpen] = useState(false);
+  // Which panel is open: a module id, "more", or null. A single value guarantees
+  // opening one panel closes any other.
+  const [openPanel, setOpenPanel] = useState<string | null>(null);
+  const moreOpen = openPanel === "more";
   // Start by assuming everything fits; the layout effect trims before paint.
   const [visibleCount, setVisibleCount] = useState(items.length);
 
@@ -122,35 +125,34 @@ export function GlobalNav({ items }: { items: NavModule[] }) {
     };
   }, [recompute]);
 
-  // Escape closes whichever menu is open and restores focus to the toggle.
+  // Escape closes whichever panel is open and restores focus to its trigger.
   useEffect(() => {
-    if (!open && !moreOpen) return;
+    if (!open && openPanel === null) return;
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        // Restore focus to whichever trigger was open. buttonRef is the mobile
-        // hamburger (sm:hidden on desktop, so focusing it there is a no-op), so the
-        // desktop "More" menu must restore focus to its own button.
-        if (moreOpen) moreButtonRef.current?.focus();
-        else buttonRef.current?.focus();
-        setOpen(false);
-        setMoreOpen(false);
-      }
+      if (e.key !== "Escape") return;
+      // buttonRef is the mobile hamburger (sm:hidden on desktop, so focusing it
+      // there is a no-op), so the desktop "More" menu restores focus itself.
+      if (openPanel === "more") moreButtonRef.current?.focus();
+      else if (openPanel === null) buttonRef.current?.focus();
+      setOpen(false);
+      setOpenPanel(null);
     }
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [open, moreOpen]);
+  }, [open, openPanel]);
 
-  // Click outside the "More" dropdown closes it.
+  // A pointer press anywhere outside the desktop nav closes any open panel.
   useEffect(() => {
-    if (!moreOpen) return;
+    if (openPanel === null) return;
     function handlePointerDown(e: MouseEvent) {
-      if (moreRef.current && !moreRef.current.contains(e.target as Node)) {
-        setMoreOpen(false);
-      }
+      const target = e.target as Node;
+      if (moreRef.current?.contains(target)) return;
+      if (navRef.current?.contains(target)) return;
+      setOpenPanel(null);
     }
     document.addEventListener("mousedown", handlePointerDown);
     return () => document.removeEventListener("mousedown", handlePointerDown);
-  }, [moreOpen]);
+  }, [openPanel]);
 
   if (items.length === 0) return null;
 
@@ -168,15 +170,54 @@ export function GlobalNav({ items }: { items: NavModule[] }) {
       >
         {visible.map((m) => {
           const active = isModuleActive(pathname, m.href);
+          // One sub-page is not worth a dropdown: the module link already goes
+          // there or somewhere adjacent. Two or more earns the disclosure.
+          const hasMenu = m.nav.length >= 2;
+          const menuOpen = openPanel === m.id;
           return (
-            <Link
-              key={m.id}
-              href={m.href}
-              aria-current={active ? "page" : undefined}
-              className={linkClasses(active)}
-            >
-              {m.title}
-            </Link>
+            <div key={m.id} className="relative flex items-center">
+              <Link
+                href={m.href}
+                aria-current={active ? "page" : undefined}
+                className={linkClasses(active)}
+              >
+                {m.title}
+              </Link>
+              {hasMenu && (
+                <button
+                  type="button"
+                  aria-haspopup="true"
+                  aria-expanded={menuOpen}
+                  aria-label={`${m.title} sub-pages`}
+                  onClick={() => setOpenPanel((v) => (v === m.id ? null : m.id))}
+                  className="ml-0.5 inline-flex h-6 w-5 items-center justify-center rounded text-foreground-soft transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                >
+                  <ChevronDown
+                    aria-hidden
+                    className={`h-3.5 w-3.5 transition-transform ${menuOpen ? "rotate-180" : ""}`}
+                  />
+                </button>
+              )}
+              {menuOpen && (
+                // A labelled container of navigation links, not an APG menu widget
+                // (we implement only Tab + Escape, not arrow-key roving focus).
+                <nav
+                  aria-label={`${m.title} sub-pages`}
+                  className="absolute left-0 top-full z-20 mt-1 flex min-w-44 flex-col gap-1 rounded-xl border border-border bg-surface p-1.5 shadow-lg"
+                >
+                  {m.nav.map((item) => (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      onClick={() => setOpenPanel(null)}
+                      className={`block ${linkClasses(pathname === item.href)}`}
+                    >
+                      {item.label}
+                    </Link>
+                  ))}
+                </nav>
+              )}
+            </div>
           );
         })}
 
@@ -187,7 +228,7 @@ export function GlobalNav({ items }: { items: NavModule[] }) {
               type="button"
               aria-haspopup="true"
               aria-expanded={moreOpen}
-              onClick={() => setMoreOpen((v) => !v)}
+              onClick={() => setOpenPanel((v) => (v === "more" ? null : "more"))}
               className={`inline-flex items-center gap-1 ${linkClasses(overflowHasActive)}`}
             >
               More
@@ -208,7 +249,7 @@ export function GlobalNav({ items }: { items: NavModule[] }) {
                       key={m.id}
                       href={m.href}
                       aria-current={active ? "page" : undefined}
-                      onClick={() => setMoreOpen(false)}
+                      onClick={() => setOpenPanel(null)}
                       className={`block ${linkClasses(active)}`}
                     >
                       {m.title}
@@ -228,8 +269,13 @@ export function GlobalNav({ items }: { items: NavModule[] }) {
         className="pointer-events-none absolute left-0 top-0 hidden h-0 items-center gap-1 overflow-hidden whitespace-nowrap opacity-0 sm:flex"
       >
         {items.map((m) => (
-          <span key={m.id} data-measure-item className={linkClasses(false)}>
-            {m.title}
+          <span key={m.id} data-measure-item className="inline-flex items-center">
+            <span className={linkClasses(false)}>{m.title}</span>
+            {m.nav.length >= 2 && (
+              <span className="ml-0.5 inline-flex h-6 w-5 items-center justify-center">
+                <ChevronDown aria-hidden className="h-3.5 w-3.5" />
+              </span>
+            )}
           </span>
         ))}
         <span

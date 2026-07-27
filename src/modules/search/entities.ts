@@ -18,14 +18,12 @@
 import { cache } from "react";
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
+import type { EntityHit } from "@/platform/search/types";
 
-export type EntityHit = {
-  id: string;
-  label: string;
-  sub: string | null;
-  href: string;
-  group: "People" | "Cycles" | "Requests";
-};
+// The wire type lives in platform so the client that renders this response can
+// import it too (platform is the only side both ends of the boundary reach).
+// Re-exported here so existing consumers of this module keep working.
+export type { EntityHit };
 
 /** Per-group cap. Keeps every query bounded. */
 const LIMIT = 5;

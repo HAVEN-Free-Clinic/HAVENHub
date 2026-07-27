@@ -8,24 +8,8 @@ import { useRouter } from "next/navigation";
 import { Search } from "lucide-react";
 import { cx } from "@/platform/ui/cx";
 import { matchPages, type PageHit } from "@/platform/search/match";
+import { ENTITY_GROUPS, type EntityHit } from "@/platform/search/types";
 import type { NavModule } from "@/platform/modules/nav";
-
-/**
- * One entity result as `GET /api/search` returns it.
- *
- * Structurally mirrors `EntityHit` in src/modules/search/entities.ts. It is
- * redeclared rather than imported because platform code may not import module
- * code (the eslint import boundary), and because this is a wire shape: the
- * server owns the permission filtering, the client only draws what it is sent.
- * Keep the two in sync.
- */
-type EntityHit = {
-  id: string;
-  label: string;
-  sub: string | null;
-  href: string;
-  group: "People" | "Cycles" | "Requests";
-};
 
 /** One rendered result. `index` is its position in the flat keyboard list. */
 export type PaletteRow = {
@@ -38,9 +22,6 @@ export type PaletteRow = {
 
 /** A headed run of rows: one module title, or one entity group. */
 export type PaletteSection = { heading: string; rows: PaletteRow[] };
-
-/** Entity groups in the order they are shown. Mirrors EntityHit["group"]. */
-const ENTITY_GROUPS = ["People", "Cycles", "Requests"] as const;
 
 /**
  * The server refuses to search entities below this length (see
@@ -154,16 +135,20 @@ export function CommandPalette({ items }: { items: NavModule[] }) {
   // flight. Derived, so there is no third piece of state to keep in step.
   const searching = trimmed.length >= MIN_ENTITY_QUERY && entities.q !== trimmed;
 
-  // Global shortcut. Ignored while the user is typing somewhere else, so a
-  // Cmd+K inside a form field never yanks them out of it, and preventDefault
-  // only fires once we are certain we are handling the key.
+  // Global shortcut, a toggle. Ignored while the user is typing somewhere else,
+  // so a Cmd+K inside a form field never yanks them out of it, and
+  // preventDefault only fires once we are certain we are handling the key.
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key.toLowerCase() !== "k") return;
       if (!e.metaKey && !e.ctrlKey) return;
-      if (isTypingTarget(e.target)) return;
+      // The typing-target guard must NOT apply to the palette's own input,
+      // which is focused the whole time the palette is open. Bailing there
+      // would leave the browser default unsuppressed, and Firefox's Ctrl+K
+      // (focus the browser search bar) would pull focus out of the open dialog.
+      if (e.target !== inputRef.current && isTypingTarget(e.target)) return;
       e.preventDefault();
-      setOpen(true);
+      setOpen((v) => !v);
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
@@ -299,24 +284,22 @@ export function CommandPalette({ items }: { items: NavModule[] }) {
 
   return (
     <>
+      {/* Icon-only, and the same h-9 w-9 square as ThemeToggle and
+          NotificationBell beside it. The toolbar has no width for a labelled
+          button (see the Stage 2 section of the nav IA spec): the word and the
+          shortcut badge would cost roughly 115px against a budget of about 48.
+          The magnifier carries the affordance, the title reveals the shortcut
+          on hover, and the palette repeats it beside its own input. */}
       <button
         ref={triggerRef}
         type="button"
         onClick={() => setOpen(true)}
         aria-label="Search"
+        title="Search (Cmd K)"
         aria-keyshortcuts="Meta+K Control+K"
-        className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+        className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
       >
-        <Search aria-hidden className="h-4 w-4 shrink-0" />
-        {/* Word and shortcut appear from sm up only: below that the toolbar has
-            no width to spare and the icon alone carries the affordance. */}
-        <span className="hidden text-sm sm:inline">Search</span>
-        <kbd
-          aria-hidden
-          className="hidden rounded border border-border-strong px-1 py-px font-sans text-[10px] font-medium text-subtle-foreground sm:inline-block"
-        >
-          ⌘K
-        </kbd>
+        <Search aria-hidden className="h-4 w-4" />
       </button>
 
       {open &&
@@ -356,6 +339,14 @@ export function CommandPalette({ items }: { items: NavModule[] }) {
                   }}
                   onKeyDown={onInputKeyDown}
                 />
+                {/* The shortcut lives here rather than on the toolbar trigger,
+                    where it would cost width the nav row does not have. */}
+                <kbd
+                  aria-hidden
+                  className="shrink-0 rounded border border-border-strong px-1.5 py-0.5 font-sans text-[10px] font-medium text-subtle-foreground"
+                >
+                  ⌘K
+                </kbd>
               </div>
 
               <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
@@ -415,7 +406,8 @@ export function CommandPalette({ items }: { items: NavModule[] }) {
               </div>
 
               <div className="border-t border-border px-4 py-2 text-[11px] text-subtle-foreground">
-                Up and Down to move, Enter to open, Esc to close.
+                Cmd K or Ctrl K opens this anywhere. Up and Down to move, Enter to open, Esc to
+                close.
               </div>
             </div>
           </div>,

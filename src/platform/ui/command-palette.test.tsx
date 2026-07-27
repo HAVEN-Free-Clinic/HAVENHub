@@ -11,15 +11,18 @@ const ITEMS: NavModule[] = [
 ];
 
 describe("CommandPalette", () => {
-  it("renders a visible trigger labelled for search", () => {
+  // The trigger is icon-only: the toolbar has no width for a labelled button
+  // (see the Stage 2 section of the nav IA spec), so its name and its shortcut
+  // are carried by aria-label and title rather than by visible text.
+  it("renders a visible trigger named for search", () => {
     const out = renderToStaticMarkup(<CommandPalette items={ITEMS} />);
-    expect(out).toContain("Search");
     expect(out).toContain('aria-label="Search"');
   });
 
   it("advertises the keyboard shortcut on the trigger, so it is discoverable", () => {
     const out = renderToStaticMarkup(<CommandPalette items={ITEMS} />);
-    expect(out).toMatch(/⌘K|Ctrl/);
+    expect(out).toContain('title="Search (Cmd K)"');
+    expect(out).toContain('aria-keyshortcuts="Meta+K Control+K"');
   });
 
   it("renders the dialog closed, so no results are in the initial markup", () => {

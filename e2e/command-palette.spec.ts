@@ -7,13 +7,17 @@ async function devSignIn(page: import("@playwright/test").Page) {
   await page.waitForURL((url) => url.pathname === "/");
 }
 
-// The toolbar trigger and the palette's own dialog both carry aria-label="Search",
-// but on different roles (button vs dialog), so a role-scoped lookup never
-// collides between them. As in e2e/global-nav.spec.ts, every lookup here is
-// role-scoped rather than text-scoped: Playwright strict mode throws the
-// moment a selector matches more than one element.
+// The trigger's accessible name is "Search the hub", not a bare "Search":
+// several pages (e.g. /admin/people) have their own filter-submit button
+// named exactly "Search", and a bare name here collided with those in CI
+// (fix round 1). The palette's dialog keeps aria-label="Search" -- role
+// "dialog" can never collide with a role "button" lookup, so it did not need
+// the same treatment. exact:true on top of the distinct name is belt and
+// suspenders: as in e2e/global-nav.spec.ts, every lookup here is role-scoped
+// rather than text-scoped, since Playwright strict mode throws the moment a
+// selector matches more than one element.
 function trigger(page: import("@playwright/test").Page) {
-  return page.getByRole("button", { name: "Search" });
+  return page.getByRole("button", { name: "Search the hub", exact: true });
 }
 
 function dialog(page: import("@playwright/test").Page) {
@@ -30,6 +34,12 @@ test("Control+K opens the palette from an arbitrary page", async ({ page }) => {
   // either modifier.
   await devSignIn(page);
   await page.goto("/schedule");
+  // A client-side keyboard shortcut cannot fire before React hydrates and
+  // attaches the palette's global keydown listener, and devSignIn's
+  // waitForURL resolves as soon as the URL changes, which can be before that
+  // happens. The visible trigger is the mount signal: wait for it before
+  // pressing the shortcut, rather than relying on goto's incidental delay.
+  await expect(trigger(page)).toBeVisible();
   await page.keyboard.press("Control+k");
   await expect(dialog(page)).toBeVisible();
   await expect(combobox(page)).toBeFocused();
@@ -71,6 +81,12 @@ test("pressing the shortcut again while open closes the palette and restores foc
   // that carve-out, the second Control+K would be swallowed as "the user is
   // typing somewhere" and never reach the toggle.
   await devSignIn(page);
+  // Fix round 1: this test pressed Control+k immediately after devSignIn
+  // resolved, with nothing in between to guarantee hydration had finished
+  // attaching the global keydown listener, so the dialog sometimes never
+  // appeared. Waiting for the visible trigger proves the component mounted
+  // before the shortcut is pressed, rather than relying on timing luck.
+  await expect(trigger(page)).toBeVisible();
   await page.keyboard.press("Control+k");
   await expect(dialog(page)).toBeVisible();
   await page.keyboard.press("Control+k");

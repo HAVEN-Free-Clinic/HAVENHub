@@ -16,7 +16,9 @@ describe("CommandPalette", () => {
   // are carried by aria-label and title rather than by visible text.
   it("renders a visible trigger named for search", () => {
     const out = renderToStaticMarkup(<CommandPalette items={ITEMS} />);
-    expect(out).toContain('aria-label="Search"');
+    // Qualified rather than a bare "Search": several pages have their own
+    // filter-submit button with that exact accessible name.
+    expect(out).toContain('aria-label="Search the hub"');
   });
 
   it("advertises the keyboard shortcut on the trigger, so it is discoverable", () => {

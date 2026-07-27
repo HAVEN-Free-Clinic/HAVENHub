@@ -294,7 +294,12 @@ export function CommandPalette({ items }: { items: NavModule[] }) {
         ref={triggerRef}
         type="button"
         onClick={() => setOpen(true)}
-        aria-label="Search"
+        // Qualified rather than a bare "Search": several pages carry their own
+        // filter-submit button whose accessible name is exactly "Search"
+        // (e.g. /admin/people), and a bare "Search" here would be ambiguous
+        // both to screen-reader users (two same-named controls that do
+        // different things) and to role-based test selectors.
+        aria-label="Search the hub"
         title="Search (Cmd K)"
         aria-keyshortcuts="Meta+K Control+K"
         className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"

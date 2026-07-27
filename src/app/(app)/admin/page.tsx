@@ -10,10 +10,10 @@ import { getCronHealth } from "@/platform/cron-heartbeat";
 import { Alert } from "@/platform/ui/alert";
 
 // requirePermission already ran in the admin layout; this page is reachable by
-// any admin.access holder. Each quick-link / stat card below targets a page with
-// its OWN sub-permission, so we filter them to what the viewer can actually open
+// any admin.access holder. Each stat card below targets a page with its OWN
+// sub-permission, so we filter them to what the viewer can actually open
 // (mirroring the nav filtering in the layout) -- otherwise a scoped admin sees
-// links and cards that dead-end at /no-access.
+// cards that dead-end at /no-access.
 
 export default async function AdminOverviewPage() {
   const { personId } = await requirePersonSession();

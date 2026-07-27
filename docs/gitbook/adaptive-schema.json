@@ -62,7 +62,7 @@
         },
         "clinic": {
           "type": "object",
-          "description": "Whether the visitor can access the Clinic Tools area and its actions in HAVEN Hub.",
+          "description": "Whether the visitor can access the Clinic area and its actions in HAVEN Hub.",
           "properties": {
             "access": {
               "type": "boolean",
@@ -73,7 +73,7 @@
         },
         "incidents": {
           "type": "object",
-          "description": "Whether the visitor can access the Incident Reports area and its actions in HAVEN Hub.",
+          "description": "Whether the visitor can access the Incidents area and its actions in HAVEN Hub.",
           "properties": {
             "manage": {
               "type": "boolean",
@@ -130,7 +130,7 @@
         },
         "schedule": {
           "type": "object",
-          "description": "Whether the visitor can access the Clinic Schedule area and its actions in HAVEN Hub.",
+          "description": "Whether the visitor can access the Schedule area and its actions in HAVEN Hub.",
           "properties": {
             "edit_all": {
               "type": "boolean",
@@ -161,7 +161,7 @@
         },
         "support": {
           "type": "object",
-          "description": "Whether the visitor can access the IT Support area and its actions in HAVEN Hub.",
+          "description": "Whether the visitor can access the Support area and its actions in HAVEN Hub.",
           "properties": {
             "manage_requests": {
               "type": "boolean",
@@ -172,7 +172,7 @@
         },
         "volunteers": {
           "type": "object",
-          "description": "Whether the visitor can access the Volunteer Management area and its actions in HAVEN Hub.",
+          "description": "Whether the visitor can access the Volunteers area and its actions in HAVEN Hub.",
           "properties": {
             "manage_compliance": {
               "type": "boolean",

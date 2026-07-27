@@ -18,6 +18,7 @@ import { resolvePreference } from "./theme";
 import { NotificationBell } from "./notification-bell";
 import { AccountMenu } from "./account-menu";
 import { HelpLauncher } from "./help/help-launcher";
+import { CommandPalette } from "./command-palette";
 
 export async function AppShell({
   userName,
@@ -77,11 +78,9 @@ export async function AppShell({
             <Link href="/" aria-label="Go to hub home" className="flex items-center hover:opacity-80 transition-opacity">
               <HavenLogo className="h-8 text-brand-fg" />
             </Link>
-            {termLabel && (
-              <span className="hidden whitespace-nowrap border-l border-border-strong pl-2.5 text-xs font-medium text-foreground-soft sm:inline-block">
-                {termLabel}
-              </span>
-            )}
+            {/* The active-term label used to sit here. It moved to the account menu: the
+                toolbar had 9px of spare width and the search trigger needs roughly 48px.
+                See the Stage 2 section of the nav IA spec. */}
           </div>
 
           <div className="min-w-0 flex-1">
@@ -89,6 +88,7 @@ export async function AppShell({
           </div>
 
           <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+            <CommandPalette items={navModules} />
             <ThemeToggle initial={resolvedTheme} />
             <NotificationBell />
             <AccountMenu

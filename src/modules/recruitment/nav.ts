@@ -25,11 +25,25 @@ export function recruitmentNavItems(opts: {
 }
 
 /**
- * The dynamic nav items the *global* nav needs for recruitment, shaped as the
- * `extraNavItems` map filterAccessibleModules takes. "My interviews" is gated on
- * interview-panel membership, not a permission, so it cannot flow through the
- * registry's permission-based filterNavItems.
+ * The recruitment module id + nav extras the *global* nav needs, both derived
+ * from the same two booleans so they cannot drift out of sync.
+ *
+ * `filterAccessibleModules` decides whether the recruitment module row appears
+ * at all (via `extraModuleIds`) *before* it looks at `extraNavItems` -- so a
+ * bare panelist (on an interview panel but holding neither recruitment.access
+ * nor a review scope, e.g. added via listPanelistCandidates) needs
+ * "recruitment" in extraModuleIds or the "My interviews" item in extraNavItems
+ * is silently discarded because the module row never gets created. Computing
+ * both from isReviewer/isPanelist together in one place is what prevents that:
+ * a caller that only threads isPanelist into extraNavItems (as an earlier
+ * version of this file did) reintroduces the bug.
  */
-export function globalNavExtras(opts: { isPanelist: boolean }): Record<string, ModuleNavItem[]> {
-  return opts.isPanelist ? { recruitment: [MY_INTERVIEWS_NAV_ITEM] } : {};
+export function recruitmentGlobalNav(opts: { isReviewer: boolean; isPanelist: boolean }): {
+  extraModuleIds: string[];
+  extraNavItems: Record<string, ModuleNavItem[]>;
+} {
+  return {
+    extraModuleIds: opts.isReviewer || opts.isPanelist ? ["recruitment"] : [],
+    extraNavItems: opts.isPanelist ? { recruitment: [MY_INTERVIEWS_NAV_ITEM] } : {},
+  };
 }

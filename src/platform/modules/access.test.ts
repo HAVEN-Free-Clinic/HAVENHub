@@ -122,6 +122,31 @@ describe("filterAccessibleModules", () => {
     expect(result[0].nav).toEqual([{ label: "My interviews", href: "/recruitment/interviews" }]);
   });
 
+  it("wires a bare panelist through end-to-end: zero permissions, extraModuleIds and extraNavItems shaped exactly as recruitmentGlobalNav({ isReviewer: false, isPanelist: true }) would produce, still surfaces recruitment with My interviews", () => {
+    // Regression: task 5 fix round 1. A bare panelist (on an interview panel
+    // but holding neither recruitment.access nor a review scope, e.g. added
+    // via listPanelistCandidates) has an EMPTY permission set here -- proving
+    // filterAccessibleModules's own extraIds/extraNavItems contract is not the
+    // gap. The gap was upstream: a caller that forgets to fold isPanelist into
+    // extraModuleIds never gets this far, because the recruitment module row
+    // is decided by extraIds *before* extraNavItems is even consulted.
+    const modules = [
+      mod({
+        id: "recruitment",
+        title: "Recruitment",
+        accessPermission: "recruitment.access",
+        permissions: ["recruitment.access"],
+        nav: [{ label: "Cycles", href: "/recruitment" }],
+      }),
+    ];
+    const result = filterAccessibleModules(modules, new Set(), new Set(["recruitment"]), {
+      recruitment: [{ label: "My interviews", href: "/recruitment/interviews" }],
+    });
+    const recruitment = result.find((m) => m.id === "recruitment");
+    expect(recruitment).toBeDefined();
+    expect(recruitment?.nav).toContainEqual({ label: "My interviews", href: "/recruitment/interviews" });
+  });
+
   it("keeps personal modules out of the nav row", () => {
     const modules = [
       mod({ id: "schedule", title: "Schedule", accessPermission: "schedule.view" }),

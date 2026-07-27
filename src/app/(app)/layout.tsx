@@ -3,7 +3,7 @@ import { requirePersonSession } from "@/platform/auth/session";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { reviewScope } from "@/modules/recruitment/services/review";
 import { isInterviewPanelist } from "@/modules/recruitment/services/interviews";
-import { globalNavExtras } from "@/modules/recruitment/nav";
+import { recruitmentGlobalNav } from "@/modules/recruitment/nav";
 import { AppShell } from "@/platform/ui/app-shell";
 import { PostHogIdentify } from "@/platform/posthog/posthog-identify";
 
@@ -24,9 +24,16 @@ export default async function AppGroupLayout({ children }: { children: ReactNode
   // A department director reviews recruitment by scope (a derived directorship,
   // not a recruitment permission), so surface the Recruitment tab in the top nav
   // for them too -- matching the dashboard tile and the recruitment layout, which
-  // both admit reviewers by scope. Keeps nav and dashboard visibility in sync.
+  // both admit reviewers by scope. Anyone on an interview panel needs the tab
+  // too, even holding neither recruitment.access nor a review scope (a "bare"
+  // panelist added via listPanelistCandidates), or their "My interviews" item
+  // has nowhere to appear. recruitmentGlobalNav derives extraModuleIds and
+  // extraNavItems from the same two booleans so they cannot drift apart.
   const isRecruitmentReviewer = scope.all || scope.departmentCodes.length > 0;
-  const extraModuleIds = isRecruitmentReviewer ? ["recruitment"] : [];
+  const { extraModuleIds, extraNavItems } = recruitmentGlobalNav({
+    isReviewer: isRecruitmentReviewer,
+    isPanelist,
+  });
   return (
     <>
       <PostHogIdentify
@@ -42,7 +49,7 @@ export default async function AppGroupLayout({ children }: { children: ReactNode
         personId={person.personId}
         personThemePreference={person.themePreference}
         extraModuleIds={extraModuleIds}
-        extraNavItems={globalNavExtras({ isPanelist })}
+        extraNavItems={extraNavItems}
       >
         {children}
       </AppShell>

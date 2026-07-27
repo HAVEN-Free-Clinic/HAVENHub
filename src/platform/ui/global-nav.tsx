@@ -37,6 +37,9 @@ export function GlobalNav({ items }: { items: NavModule[] }) {
 
   const buttonRef = useRef<HTMLButtonElement>(null);
   const moreButtonRef = useRef<HTMLButtonElement>(null);
+  // Per-module chevron buttons, keyed by module id, so Escape can restore
+  // focus to whichever module's disclosure was open (mirrors moreButtonRef).
+  const moduleChevronRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const navRef = useRef<HTMLElement>(null);
   const measureRef = useRef<HTMLDivElement>(null);
   const moreRef = useRef<HTMLDivElement>(null);
@@ -131,9 +134,11 @@ export function GlobalNav({ items }: { items: NavModule[] }) {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key !== "Escape") return;
       // buttonRef is the mobile hamburger (sm:hidden on desktop, so focusing it
-      // there is a no-op), so the desktop "More" menu restores focus itself.
+      // there is a no-op), so the desktop "More" menu and per-module panels
+      // restore focus to their own trigger button.
       if (openPanel === "more") moreButtonRef.current?.focus();
-      else if (openPanel === null) buttonRef.current?.focus();
+      else if (openPanel !== null) moduleChevronRefs.current[openPanel]?.focus();
+      else buttonRef.current?.focus();
       setOpen(false);
       setOpenPanel(null);
     }
@@ -185,6 +190,9 @@ export function GlobalNav({ items }: { items: NavModule[] }) {
               </Link>
               {hasMenu && (
                 <button
+                  ref={(el) => {
+                    moduleChevronRefs.current[m.id] = el;
+                  }}
                   type="button"
                   aria-haspopup="true"
                   aria-expanded={menuOpen}

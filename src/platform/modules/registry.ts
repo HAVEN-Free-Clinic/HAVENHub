@@ -15,7 +15,7 @@ import type { ModuleManifest } from "./types";
 export const MODULES: ModuleManifest[] = [
   {
     id: "schedule",
-    title: "Clinic Schedule",
+    title: "Schedule",
     description: "Build and view department schedules, request swaps",
     icon: CalendarDays,
     accessPermission: "schedule.view",
@@ -29,9 +29,20 @@ export const MODULES: ModuleManifest[] = [
     nav: [
       { label: "My schedule", href: "/schedule" },
       { label: "Full schedule", href: "/schedule/full" },
-      { label: "Builder", href: "/schedule/builder" },
-      { label: "Approvals", href: "/schedule/requests", permission: "schedule.manage_requests" },
-      { label: "Attendings", href: "/schedule/attendings" },
+      // Builder, Approvals and Attendings all gate on a data-driven capability
+      // (managing a schedule department / an RHD department / at least one
+      // request department) that no permission string can express, so
+      // schedule/layout.tsx resolves each one and drops the tab itself. The
+      // dynamicGate marker keeps them out of the global nav dropdown, which
+      // cannot run those checks and would otherwise offer links to /no-access.
+      { label: "Builder", href: "/schedule/builder", dynamicGate: true },
+      {
+        label: "Approvals",
+        href: "/schedule/requests",
+        permission: "schedule.manage_requests",
+        dynamicGate: true,
+      },
+      { label: "Attendings", href: "/schedule/attendings", dynamicGate: true },
     ],
   },
   {
@@ -43,11 +54,12 @@ export const MODULES: ModuleManifest[] = [
     // including alumni with no current term (spec decision).
     permissions: [],
     status: "active",
+    personal: true,
     nav: [],
   },
   {
     id: "volunteers",
-    title: "Volunteer Management",
+    title: "Volunteers",
     description: "Compliance, rosters, offboarding",
     icon: Users,
     accessPermission: "volunteers.view",
@@ -75,7 +87,7 @@ export const MODULES: ModuleManifest[] = [
   },
   {
     id: "incidents",
-    title: "Incident Reports",
+    title: "Incidents",
     description: "Report a professional-standards concern; review reports and manage strikes",
     icon: ShieldAlert,
     // No accessPermission: open to any signed-in matched person so anyone can file a report.
@@ -90,7 +102,7 @@ export const MODULES: ModuleManifest[] = [
   },
   {
     id: "clinic",
-    title: "Clinic Tools",
+    title: "Clinic",
     description: "Point-of-care tools for clinical volunteers",
     icon: Stethoscope,
     // Gated on a grantable clinic.access permission: point-of-care tools like
@@ -133,6 +145,7 @@ export const MODULES: ModuleManifest[] = [
       { label: "Roles", href: "/admin/roles", permission: "admin.manage_roles" },
       { label: "Departments", href: "/admin/departments", permission: "admin.manage_departments" },
       { label: "Subcommittees", href: "/admin/subcommittees", permission: "admin.manage_subcommittees" },
+      { label: "Onboarding contract", href: "/admin/contract", permission: "admin.manage_settings" },
       { label: "Audit", href: "/admin/audit", permission: "admin.view_audit" },
       { label: "Email", href: "/admin/email", permission: "admin.manage_sync" },
       { label: "Notifications", href: "/admin/notifications", permission: "admin.manage_sync" },
@@ -176,7 +189,7 @@ export const MODULES: ModuleManifest[] = [
   },
   {
     id: "support",
-    title: "IT Support",
+    title: "Support",
     description: "Submit and track IT and Epic access requests",
     icon: LifeBuoy,
     // No accessPermission: open to any signed-in matched person (like my-info),

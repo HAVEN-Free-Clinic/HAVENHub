@@ -25,15 +25,46 @@ function linkClasses(active: boolean): string {
     : "rounded-lg px-2.5 py-1.5 text-sm font-medium text-foreground-soft hover:text-foreground hover:bg-muted transition-colors";
 }
 
+/**
+ * The desktop module chip. The label and its chevron share ONE rounded surface
+ * (this element carries the colour and the hover state) so the arrow reads as
+ * part of the module rather than a detached second control. The children below
+ * therefore carry padding only, never a background of their own.
+ */
+function chipClasses(active: boolean): string {
+  return active
+    ? "flex items-center rounded-lg text-sm font-medium text-brand-fg bg-brand-faint"
+    : "flex items-center rounded-lg text-sm font-medium text-foreground-soft hover:text-foreground hover:bg-muted transition-colors";
+}
+
+/**
+ * Label padding inside a chip. A chip with a chevron gives up most of its right
+ * padding to the arrow, which supplies its own, so the two sit visually joined
+ * instead of separated by the 15px of dead space the split-chip layout had.
+ */
+function chipLabelClasses(hasMenu: boolean): string {
+  return `rounded-lg py-1.5 pl-2 ${hasMenu ? "pr-0.5" : "pr-2"} focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand`;
+}
+
+/** Chevron padding inside a chip. Mirrored exactly by the measurement layer. */
+const CHIP_CHEVRON_CLASSES =
+  "inline-flex h-6 items-center rounded-lg pl-0 pr-1.5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand";
+
 export function GlobalNav({ items }: { items: NavModule[] }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
-  const [moreOpen, setMoreOpen] = useState(false);
+  // Which panel is open: a module id, "more", or null. A single value guarantees
+  // opening one panel closes any other.
+  const [openPanel, setOpenPanel] = useState<string | null>(null);
+  const moreOpen = openPanel === "more";
   // Start by assuming everything fits; the layout effect trims before paint.
   const [visibleCount, setVisibleCount] = useState(items.length);
 
   const buttonRef = useRef<HTMLButtonElement>(null);
   const moreButtonRef = useRef<HTMLButtonElement>(null);
+  // Per-module chevron buttons, keyed by module id, so Escape can restore
+  // focus to whichever module's disclosure was open (mirrors moreButtonRef).
+  const moduleChevronRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const navRef = useRef<HTMLElement>(null);
   const measureRef = useRef<HTMLDivElement>(null);
   const moreRef = useRef<HTMLDivElement>(null);
@@ -122,35 +153,36 @@ export function GlobalNav({ items }: { items: NavModule[] }) {
     };
   }, [recompute]);
 
-  // Escape closes whichever menu is open and restores focus to the toggle.
+  // Escape closes whichever panel is open and restores focus to its trigger.
   useEffect(() => {
-    if (!open && !moreOpen) return;
+    if (!open && openPanel === null) return;
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        // Restore focus to whichever trigger was open. buttonRef is the mobile
-        // hamburger (sm:hidden on desktop, so focusing it there is a no-op), so the
-        // desktop "More" menu must restore focus to its own button.
-        if (moreOpen) moreButtonRef.current?.focus();
-        else buttonRef.current?.focus();
-        setOpen(false);
-        setMoreOpen(false);
-      }
+      if (e.key !== "Escape") return;
+      // buttonRef is the mobile hamburger (sm:hidden on desktop, so focusing it
+      // there is a no-op), so the desktop "More" menu and per-module panels
+      // restore focus to their own trigger button.
+      if (openPanel === "more") moreButtonRef.current?.focus();
+      else if (openPanel !== null) moduleChevronRefs.current[openPanel]?.focus();
+      else buttonRef.current?.focus();
+      setOpen(false);
+      setOpenPanel(null);
     }
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [open, moreOpen]);
+  }, [open, openPanel]);
 
-  // Click outside the "More" dropdown closes it.
+  // A pointer press anywhere outside the desktop nav closes any open panel.
   useEffect(() => {
-    if (!moreOpen) return;
+    if (openPanel === null) return;
     function handlePointerDown(e: MouseEvent) {
-      if (moreRef.current && !moreRef.current.contains(e.target as Node)) {
-        setMoreOpen(false);
-      }
+      const target = e.target as Node;
+      if (moreRef.current?.contains(target)) return;
+      if (navRef.current?.contains(target)) return;
+      setOpenPanel(null);
     }
     document.addEventListener("mousedown", handlePointerDown);
     return () => document.removeEventListener("mousedown", handlePointerDown);
-  }, [moreOpen]);
+  }, [openPanel]);
 
   if (items.length === 0) return null;
 
@@ -168,15 +200,66 @@ export function GlobalNav({ items }: { items: NavModule[] }) {
       >
         {visible.map((m) => {
           const active = isModuleActive(pathname, m.href);
+          // One sub-page is not worth a dropdown: the module link already goes
+          // there or somewhere adjacent. Two or more earns the disclosure.
+          const hasMenu = m.nav.length >= 2;
+          const menuOpen = openPanel === m.id;
           return (
-            <Link
-              key={m.id}
-              href={m.href}
-              aria-current={active ? "page" : undefined}
-              className={linkClasses(active)}
-            >
-              {m.title}
-            </Link>
+            <div key={m.id} className="relative">
+              <div className={chipClasses(active)}>
+                <Link
+                  href={m.href}
+                  aria-current={active ? "page" : undefined}
+                  // The shell persists across navigation and the outside-click
+                  // handler ignores presses inside the nav, so without this a
+                  // panel opened on a sibling module stays open after the soft nav.
+                  onClick={() => setOpenPanel(null)}
+                  className={chipLabelClasses(hasMenu)}
+                >
+                  {m.title}
+                </Link>
+                {hasMenu && (
+                  <button
+                    ref={(el) => {
+                      moduleChevronRefs.current[m.id] = el;
+                    }}
+                    type="button"
+                    aria-haspopup="true"
+                    aria-expanded={menuOpen}
+                    aria-label={`${m.title} sub-pages`}
+                    onClick={() => setOpenPanel((v) => (v === m.id ? null : m.id))}
+                    className={CHIP_CHEVRON_CLASSES}
+                  >
+                    <ChevronDown
+                      aria-hidden
+                      className={`h-3.5 w-3.5 transition-transform ${menuOpen ? "rotate-180" : ""}`}
+                    />
+                  </button>
+                )}
+              </div>
+              {menuOpen && (
+                // A labelled container of navigation links, not an APG menu widget
+                // (we implement only Tab + Escape, not arrow-key roving focus).
+                // Named distinctly from its trigger button ("<Title> sub-pages")
+                // so a screen-reader user can tell the control from the region
+                // it opens.
+                <nav
+                  aria-label={`${m.title} sub-page links`}
+                  className="absolute left-0 top-full z-20 mt-1 flex min-w-44 flex-col gap-1 rounded-xl border border-border bg-surface p-1.5 shadow-lg"
+                >
+                  {m.nav.map((item) => (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      onClick={() => setOpenPanel(null)}
+                      className={`block ${linkClasses(pathname === item.href)}`}
+                    >
+                      {item.label}
+                    </Link>
+                  ))}
+                </nav>
+              )}
+            </div>
           );
         })}
 
@@ -187,7 +270,7 @@ export function GlobalNav({ items }: { items: NavModule[] }) {
               type="button"
               aria-haspopup="true"
               aria-expanded={moreOpen}
-              onClick={() => setMoreOpen((v) => !v)}
+              onClick={() => setOpenPanel((v) => (v === "more" ? null : "more"))}
               className={`inline-flex items-center gap-1 ${linkClasses(overflowHasActive)}`}
             >
               More
@@ -208,7 +291,7 @@ export function GlobalNav({ items }: { items: NavModule[] }) {
                       key={m.id}
                       href={m.href}
                       aria-current={active ? "page" : undefined}
-                      onClick={() => setMoreOpen(false)}
+                      onClick={() => setOpenPanel(null)}
                       className={`block ${linkClasses(active)}`}
                     >
                       {m.title}
@@ -227,9 +310,17 @@ export function GlobalNav({ items }: { items: NavModule[] }) {
         aria-hidden
         className="pointer-events-none absolute left-0 top-0 hidden h-0 items-center gap-1 overflow-hidden whitespace-nowrap opacity-0 sm:flex"
       >
+        {/* Geometry here MUST mirror the rendered chip above exactly. If it does
+            not, recompute() reserves the wrong width and items clip or the row
+            overflows into "More" for no visible reason. */}
         {items.map((m) => (
-          <span key={m.id} data-measure-item className={linkClasses(false)}>
-            {m.title}
+          <span key={m.id} data-measure-item className={chipClasses(false)}>
+            <span className={chipLabelClasses(m.nav.length >= 2)}>{m.title}</span>
+            {m.nav.length >= 2 && (
+              <span className={CHIP_CHEVRON_CLASSES}>
+                <ChevronDown aria-hidden className="h-3.5 w-3.5" />
+              </span>
+            )}
           </span>
         ))}
         <span

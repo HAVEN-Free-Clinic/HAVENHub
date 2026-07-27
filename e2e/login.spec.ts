@@ -7,10 +7,10 @@ test("dev login reaches the permission-gated hub at the root", async ({ page }) 
   await page.waitForURL((url) => url.pathname === "/");
   // Hub h1 is a time-of-day greeting: "Good morning, Jack." (no "Welcome" heading)
   await expect(page.getByRole("heading", { name: /Good (morning|afternoon|evening)/ })).toBeVisible();
-  // Use the module tile link's unique aria-label to avoid strict-mode violation
-  // (getByText("Clinic Schedule") matches 3 elements: nav link, overflow span, and tile)
-  await expect(page.getByRole("link", { name: "Open Clinic Schedule" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Open Volunteer Management" })).toBeVisible();
+  // Use the module tile link's unique aria-label to avoid a strict-mode violation
+  // (plain text matches the nav link, the hidden measurement span, and the tile).
+  await expect(page.getByRole("link", { name: "Open Schedule" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Open Volunteers" })).toBeVisible();
 });
 
 test("unknown routes render the branded 404 page", async ({ page }) => {

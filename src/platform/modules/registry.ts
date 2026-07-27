@@ -43,6 +43,7 @@ export const MODULES: ModuleManifest[] = [
     // including alumni with no current term (spec decision).
     permissions: [],
     status: "active",
+    personal: true,
     nav: [],
   },
   {

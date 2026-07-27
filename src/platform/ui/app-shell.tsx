@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { LogOut } from "lucide-react";
 import { signOut } from "@/platform/auth/auth";
 import { config } from "@/platform/config";
 import { MODULES } from "@/platform/modules/registry";
@@ -9,7 +8,6 @@ import { getSetting } from "@/platform/settings/service";
 import { getOrgIdentity, formatOrgLine } from "@/platform/branding/org";
 import { TimeZoneProvider } from "@/platform/dates/client";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
-import { Button } from "./button";
 import { HavenLogo } from "./haven-logo";
 import { GlobalNav } from "./global-nav";
 import { Breadcrumbs } from "./breadcrumbs";
@@ -18,17 +16,8 @@ import type { BreadcrumbModule } from "./breadcrumb-trail";
 import { ThemeToggle } from "./theme-toggle";
 import { resolvePreference } from "./theme";
 import { NotificationBell } from "./notification-bell";
+import { AccountMenu } from "./account-menu";
 import { HelpLauncher } from "./help/help-launcher";
-
-/** First letters of the first and last name parts, e.g. "Maya Chen" -> "MC". */
-function toInitials(name: string | null): string {
-  if (!name) return "·";
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "·";
-  const first = parts[0][0] ?? "";
-  const last = parts.length > 1 ? parts[parts.length - 1][0] ?? "" : "";
-  return (first + last).toUpperCase();
-}
 
 export async function AppShell({
   userName,
@@ -64,7 +53,6 @@ export async function AppShell({
   // context seeding. Built here so the client never imports the server registry.
   const moduleLabels = Object.fromEntries(MODULES.map((m) => [m.id, m.title]));
   const gitbookEnabled = Boolean(config.GITBOOK_SITE_URL && config.GITBOOK_JWT_KEY);
-  const initials = toInitials(userName);
 
   return (
     <div className="min-h-screen flex flex-col bg-canvas">
@@ -99,36 +87,14 @@ export async function AppShell({
           <div className="flex shrink-0 items-center gap-2 sm:gap-3">
             <ThemeToggle initial={resolvedTheme} />
             <NotificationBell />
-            <div className="hidden items-center gap-2.5 sm:flex">
-              <span
-                aria-hidden
-                className="grid h-8 w-8 place-items-center rounded-full bg-gradient-to-br from-brand to-brand-deep text-xs font-semibold tracking-wide text-white"
-              >
-                {initials}
-              </span>
-              {userName && (
-                <span className="hidden whitespace-nowrap text-sm font-medium text-foreground-soft lg:inline">
-                  {userName}
-                </span>
-              )}
-            </div>
-            <form
-              action={async () => {
+            <AccountMenu
+              userName={userName}
+              termLabel={termLabel ?? null}
+              signOutAction={async () => {
                 "use server";
                 await signOut({ redirectTo: "/login" });
               }}
-            >
-              <Button
-                type="submit"
-                variant="outline"
-                size="sm"
-                aria-label="Sign out"
-                className="whitespace-nowrap"
-              >
-                <LogOut aria-hidden className="h-4 w-4 sm:hidden" />
-                <span className="hidden sm:inline">Sign out</span>
-              </Button>
-            </form>
+            />
           </div>
         </div>
       </header>

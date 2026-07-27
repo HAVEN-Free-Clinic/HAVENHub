@@ -121,6 +121,21 @@ describe("filterAccessibleModules", () => {
     });
     expect(result[0].nav).toEqual([{ label: "My interviews", href: "/recruitment/interviews" }]);
   });
+
+  it("keeps personal modules out of the nav row", () => {
+    const modules = [
+      mod({ id: "schedule", title: "Schedule", accessPermission: "schedule.view" }),
+      mod({ id: "my-info", title: "My Info", accessPermission: undefined, personal: true }),
+    ];
+    const result = filterAccessibleModules(modules, new Set(["schedule.view"]));
+    expect(result.map((m) => m.id)).toEqual(["schedule"]);
+  });
+
+  it("still reports my-info as a real module so the hub tile survives", () => {
+    // e2e/my-info.spec.ts asserts the hub tile exists. The dashboard reads
+    // MODULES directly, so `personal` must hide it from the nav row only.
+    expect(MODULES.find((m) => m.id === "my-info")?.personal).toBe(true);
+  });
 });
 
 describe("filterNavItems", () => {
@@ -173,7 +188,7 @@ describe("top-nav module filtering (regression for limited roles)", () => {
     const ids = result.map((m) => m.id);
     expect(ids).toContain("schedule");
     expect(ids).toContain("learning");
-    expect(ids).toContain("my-info"); // open module, no accessPermission
+    expect(ids).not.toContain("my-info"); // personal: lives in the account menu
     expect(ids).not.toContain("clinic"); // gated on clinic.access, which this limited role lacks
     expect(ids).not.toContain("admin");
     expect(ids).not.toContain("recruitment");

@@ -33,4 +33,10 @@ export type ModuleManifest = {
   permissions: string[];
   status: ModuleStatus;
   nav: ModuleNavItem[];
+  /**
+   * Personal, single-user surfaces (My Info) render in the account menu instead
+   * of the module row: they are not team modules, and the row is width-limited.
+   * They remain full modules everywhere else, including the hub tile grid.
+   */
+  personal?: boolean;
 };

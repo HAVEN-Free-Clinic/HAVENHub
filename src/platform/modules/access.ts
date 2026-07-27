@@ -50,7 +50,7 @@ export function filterAccessibleModules(
   extraNavItems: Readonly<Record<string, NavSubItem[]>> = {},
 ): NavModule[] {
   return modules
-    .filter((m) => m.status === "active" && (canAccessModule(m, perms) || extraIds.has(m.id)))
+    .filter((m) => m.status === "active" && !m.personal && (canAccessModule(m, perms) || extraIds.has(m.id)))
     .map((m) => ({
       id: m.id,
       title: m.title,

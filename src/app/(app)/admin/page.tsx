@@ -1,11 +1,9 @@
-import Link from "next/link";
 import { prisma } from "@/platform/db";
 import { requirePersonSession } from "@/platform/auth/session";
 import { getEffectivePermissions, hasPermission } from "@/platform/rbac/engine";
 import { getSetting } from "@/platform/settings/service";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { PageHeader } from "@/platform/ui/page-header";
-import { buttonClasses } from "@/platform/ui/button";
 import { StatCard } from "@/platform/ui/stat-card";
 import { emailHealthCounts } from "@/modules/admin/services/email";
 import { getCronHealth } from "@/platform/cron-heartbeat";
@@ -57,15 +55,6 @@ export default async function AdminOverviewPage() {
   const cronHealth = await getCronHealth();
   const staleCrons = cronHealth.filter((c) => c.stale);
 
-  const quickLinks = [
-    { label: "People", href: "/admin/people", permission: "admin.manage_people" },
-    { label: "Terms", href: "/admin/terms", permission: "admin.manage_terms" },
-    { label: "Roles", href: "/admin/roles", permission: "admin.manage_roles" },
-    { label: "Subcommittees", href: "/admin/subcommittees", permission: "admin.manage_subcommittees" },
-    { label: "Onboarding contract", href: "/admin/contract", permission: "admin.manage_settings" },
-    { label: "Audit", href: "/admin/audit", permission: "admin.view_audit" },
-  ].filter((ql) => hasPermission(perms, ql.permission));
-
   const statCards = [
     { label: "Active People", value: activePersonCount, href: "/admin/people", permission: "admin.manage_people" },
     { label: activeTerm ? `${activeTerm.name} Memberships` : "Memberships", value: activeMembershipCount, href: "/admin/terms", permission: "admin.manage_terms" },
@@ -80,21 +69,6 @@ export default async function AdminOverviewPage() {
       <PageHeader
         title="Admin"
         description={`${appName} operations: people, terms, roles, and audit.`}
-        action={
-          quickLinks.length > 0 ? (
-            <div className="flex flex-wrap gap-2">
-              {quickLinks.map((ql) => (
-                <Link
-                  key={ql.href}
-                  href={ql.href}
-                  className={buttonClasses("outline", "sm")}
-                >
-                  {ql.label}
-                </Link>
-              ))}
-            </div>
-          ) : undefined
-        }
       />
 
       {staleCrons.length > 0 && (

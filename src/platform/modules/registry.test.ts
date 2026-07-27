@@ -50,4 +50,23 @@ describe("module registry", () => {
       ].sort()
     );
   });
+
+  it("keeps module titles short enough that the nav row fits without overflow", () => {
+    // GlobalNav collapses overflow into a "More" dropdown, which hides modules
+    // from exactly the users who can access the most. The pill has roughly 820px
+    // after the logo and right-hand controls; at text-sm plus px-2.5 padding a
+    // title costs roughly 7px per character plus 20px. Budget the row at 90
+    // characters total so a full admin never overflows on a laptop.
+    // my-info moves to the account menu in Task 4, which replaces this id check
+    // with the `!m.personal` predicate. Excluded here so the budget is measured
+    // against the same set both before and after that change.
+    const rowTitles = MODULES.filter((m) => m.status === "active" && m.id !== "my-info").map((m) => m.title);
+    const chars = rowTitles.reduce((sum, t) => sum + t.length, 0);
+    expect(chars, `nav row titles total ${chars} chars: ${rowTitles.join(", ")}`).toBeLessThanOrEqual(90);
+  });
+
+  it("gives the onboarding contract editor a nav entry so it is not orphaned", () => {
+    const admin = MODULES.find((m) => m.id === "admin")!;
+    expect(admin.nav.map((n) => n.href)).toContain("/admin/contract");
+  });
 });

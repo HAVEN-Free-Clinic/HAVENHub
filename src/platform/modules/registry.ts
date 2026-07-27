@@ -29,9 +29,20 @@ export const MODULES: ModuleManifest[] = [
     nav: [
       { label: "My schedule", href: "/schedule" },
       { label: "Full schedule", href: "/schedule/full" },
-      { label: "Builder", href: "/schedule/builder" },
-      { label: "Approvals", href: "/schedule/requests", permission: "schedule.manage_requests" },
-      { label: "Attendings", href: "/schedule/attendings" },
+      // Builder, Approvals and Attendings all gate on a data-driven capability
+      // (managing a schedule department / an RHD department / at least one
+      // request department) that no permission string can express, so
+      // schedule/layout.tsx resolves each one and drops the tab itself. The
+      // dynamicGate marker keeps them out of the global nav dropdown, which
+      // cannot run those checks and would otherwise offer links to /no-access.
+      { label: "Builder", href: "/schedule/builder", dynamicGate: true },
+      {
+        label: "Approvals",
+        href: "/schedule/requests",
+        permission: "schedule.manage_requests",
+        dynamicGate: true,
+      },
+      { label: "Attendings", href: "/schedule/attendings", dynamicGate: true },
     ],
   },
   {

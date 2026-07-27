@@ -32,6 +32,32 @@ export function filterNavItems(
 }
 
 /**
+ * Where a module's own top-level link should point.
+ *
+ * Normally the module root. But a module admitted ONLY via `extraIds` was let in
+ * by an out-of-band capability the permission engine cannot see, and its root may
+ * be a page that capability does not open: a bare interview panelist reaches
+ * recruitment through panel membership, yet /recruitment itself is staff-only and
+ * bounces them to /no-access. Land such a viewer on a sub-page instead.
+ *
+ * `extras` is preferred over `registryNav` when present because the caller
+ * resolved it from the very capability that admitted the module, so the caller
+ * has already vouched that the viewer can open it. Otherwise fall back to the
+ * first permission-filtered registry item, which is what the out-of-band
+ * capability unlocks when the caller supplied no extras (a recruitment scope
+ * reviewer: no extras, first item "Cycles" -> /recruitment, i.e. unchanged).
+ */
+function moduleHref(
+  id: string,
+  admittedOnlyByExtraIds: boolean,
+  registryNav: NavSubItem[],
+  extras: NavSubItem[],
+): string {
+  if (!admittedOnlyByExtraIds) return `/${id}`;
+  return extras[0]?.href ?? registryNav[0]?.href ?? `/${id}`;
+}
+
+/**
  * Active modules the user can access, as nav items with their permission-filtered
  * sub-pages.
  *
@@ -42,6 +68,11 @@ export function filterNavItems(
  * rather than permissions (notably recruitment's "My interviews", gated on
  * interview-panel membership). Both are resolved by the caller (see the (app)
  * layout) so this platform helper stays free of any module-service import.
+ *
+ * `dynamicGate` items are dropped here and only here: the global nav cannot
+ * evaluate a data-driven gate, so offering the link would risk a bounce to
+ * /no-access. `filterNavItems` deliberately keeps them, because the module's own
+ * layout (which CAN evaluate the gate) filters the ModuleNav tab row on top of it.
  */
 export function filterAccessibleModules(
   modules: ModuleManifest[],
@@ -51,17 +82,22 @@ export function filterAccessibleModules(
 ): NavModule[] {
   return modules
     .filter((m) => m.status === "active" && !m.personal && (canAccessModule(m, perms) || extraIds.has(m.id)))
-    .map((m) => ({
-      id: m.id,
-      title: m.title,
-      href: `/${m.id}`,
-      nav: [
-        // Strip `permission`: it has already been applied, and the consumer is a
-        // client component.
-        ...filterNavItems(m.nav, perms).map(({ label, href }) => ({ label, href })),
-        ...(extraNavItems[m.id] ?? []),
-      ],
-    }));
+    .map((m) => {
+      // Strip everything but label/href from BOTH sources: permission strings
+      // have already been applied server-side, and the consumer is a client
+      // component that must not carry the RBAC vocabulary.
+      const registryNav: NavSubItem[] = filterNavItems(m.nav, perms)
+        .filter((item) => !item.dynamicGate)
+        .map(({ label, href }) => ({ label, href }));
+      const extras: NavSubItem[] = (extraNavItems[m.id] ?? []).map(({ label, href }) => ({ label, href }));
+      const admittedOnlyByExtraIds = !canAccessModule(m, perms) && extraIds.has(m.id);
+      return {
+        id: m.id,
+        title: m.title,
+        href: moduleHref(m.id, admittedOnlyByExtraIds, registryNav, extras),
+        nav: [...registryNav, ...extras],
+      };
+    });
 }
 
 /** Server entry point: resolve the signed-in user's accessible modules. */

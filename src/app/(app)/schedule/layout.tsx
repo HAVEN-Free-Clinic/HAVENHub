@@ -24,6 +24,10 @@ export function generateMetadata() {
 // who manages no department is still bounced to /no-access). ModuleNav does not
 // enforce per-item permissions, so resolve the page's exact gate here and drop
 // the tab when the viewer can approve nothing.
+//
+// All three carry `dynamicGate: true` in the registry, which keeps them out of
+// the *global* nav's Schedule dropdown (it cannot run these checks). This layout
+// remains the only place that decides whether they appear in the tab row.
 const BUILDER_HREF = "/schedule/builder";
 const ATTENDINGS_HREF = "/schedule/attendings";
 const APPROVALS_HREF = "/schedule/requests";

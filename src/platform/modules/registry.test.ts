@@ -62,6 +62,28 @@ describe("module registry", () => {
     expect(chars, `nav row titles total ${chars} chars: ${rowTitles.join(", ")}`).toBeLessThanOrEqual(90);
   });
 
+  it("marks every schedule tab whose real gate is data-driven with dynamicGate", () => {
+    // Builder, Approvals and Attendings are dropped by schedule/layout.tsx from
+    // the module tab row using capability checks (canManageAnyScheduleDept,
+    // manageableRequestDepartmentIds, canManageAnyRhdDept) that no permission
+    // string can express. Without dynamicGate the global nav's Schedule dropdown
+    // offers all three to any schedule.view holder -- and every seeded volunteer
+    // role holds schedule.view -- so the links bounce to /no-access. Losing the
+    // marker silently reintroduces those dead ends, hence this assertion.
+    const schedule = MODULES.find((m) => m.id === "schedule")!;
+    const gated = schedule.nav.filter((n) => n.dynamicGate).map((n) => n.href);
+    expect(gated.sort()).toEqual(
+      ["/schedule/builder", "/schedule/requests", "/schedule/attendings"].sort(),
+    );
+  });
+
+  it("uses dynamicGate nowhere else, so the global nav stays as complete as it safely can", () => {
+    const gated = MODULES.flatMap((m) =>
+      m.nav.filter((n) => n.dynamicGate).map((n) => `${m.id}:${n.href}`),
+    );
+    expect(gated.every((h) => h.startsWith("schedule:"))).toBe(true);
+  });
+
   it("gives the onboarding contract editor a nav entry so it is not orphaned", () => {
     const admin = MODULES.find((m) => m.id === "admin")!;
     expect(admin.nav.map((n) => n.href)).toContain("/admin/contract");

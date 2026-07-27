@@ -9,6 +9,12 @@ import { isModuleActive } from "./nav";
 import { MODULES } from "./registry";
 import type { ModuleManifest, ModuleNavItem } from "./types";
 
+/**
+ * The panelist-only "My interviews" item, inlined rather than imported from
+ * @/modules/recruitment/nav: src/platform must never import from src/modules.
+ */
+const MY_INTERVIEWS = { label: "My interviews", href: "/recruitment/interviews" };
+
 function mod(overrides: Partial<ModuleManifest>): ModuleManifest {
   return {
     id: "x",
@@ -147,6 +153,62 @@ describe("filterAccessibleModules", () => {
     expect(recruitment?.nav).toContainEqual({ label: "My interviews", href: "/recruitment/interviews" });
   });
 
+  it("omits dynamicGate items from the module nav the global dropdown renders", () => {
+    // The global nav cannot evaluate a data-driven gate (e.g. "manages at least
+    // one schedule department"), so offering the link would risk a bounce to
+    // /no-access. Under-inclusive on purpose: the tab is still one hop away on
+    // the module's own page, where the layout CAN resolve the gate.
+    const modules = [
+      mod({
+        id: "schedule",
+        title: "Schedule",
+        accessPermission: "schedule.view",
+        permissions: ["schedule.view", "schedule.manage_requests"],
+        nav: [
+          { label: "My schedule", href: "/schedule" },
+          { label: "Builder", href: "/schedule/builder", dynamicGate: true },
+          {
+            label: "Approvals",
+            href: "/schedule/requests",
+            permission: "schedule.manage_requests",
+            dynamicGate: true,
+          },
+        ],
+      }),
+    ];
+    // Even a viewer holding every permission does not get the dynamicGate items.
+    const result = filterAccessibleModules(modules, new Set(["*"]));
+    expect(result[0].nav).toEqual([{ label: "My schedule", href: "/schedule" }]);
+  });
+
+  it("lands a module admitted only via extraIds on its first available nav item, not its root", () => {
+    // A bare panelist (interview-panel membership only: no recruitment.access,
+    // no recruitment.score, no review scope) is bounced from /recruitment, so
+    // pointing the module link at the root would dead-end them. The caller
+    // resolved "My interviews" from the very capability that admitted the
+    // module, so that is where the module link goes.
+    const result = filterAccessibleModules(MODULES, new Set(), new Set(["recruitment"]), {
+      recruitment: [MY_INTERVIEWS],
+    });
+    expect(result.find((m) => m.id === "recruitment")?.href).toBe("/recruitment/interviews");
+  });
+
+  it("leaves a scope reviewer's module href at the module root", () => {
+    // The other existing extraIds case: a department director reaches
+    // recruitment by review scope, CAN open /recruitment, and gets no extra nav
+    // items. Their first available item is "Cycles" (href /recruitment), so the
+    // rule above is a no-op for them.
+    const result = filterAccessibleModules(MODULES, new Set(), new Set(["recruitment"]));
+    expect(result.find((m) => m.id === "recruitment")?.href).toBe("/recruitment");
+  });
+
+  it("leaves a normally-accessible module's href at the module root even when it has nav items", () => {
+    const result = filterAccessibleModules(MODULES, new Set(["admin.access", "admin.manage_people"]));
+    const admin = result.find((m) => m.id === "admin");
+    expect(admin?.href).toBe("/admin");
+    expect(admin?.nav.length).toBeGreaterThan(0);
+  });
+
   it("keeps personal modules out of the nav row", () => {
     const modules = [
       mod({ id: "schedule", title: "Schedule", accessPermission: "schedule.view" }),
@@ -186,6 +248,14 @@ describe("filterNavItems", () => {
 
   it("honors the wildcard grant", () => {
     expect(filterNavItems(nav, new Set(["*"]))).toEqual(nav);
+  });
+
+  it("still returns dynamicGate items, so the module tab row is unaffected", () => {
+    // Only the global-nav path (filterAccessibleModules) skips them. The module
+    // layout filters this output further using the real capability check, so
+    // dropping them here would delete the tab from the module's own page too.
+    const builder: ModuleNavItem = { label: "Builder", href: "/schedule/builder", dynamicGate: true };
+    expect(filterNavItems([builder], new Set())).toEqual([builder]);
   });
 });
 

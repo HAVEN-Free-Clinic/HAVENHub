@@ -97,10 +97,27 @@ The row is 104 characters, which is why "More" fires. Renaming in
 | IT Support | Support |
 
 Recruitment, Learning, Admin, and My Info are unchanged. With My Info moving to
-the account menu (1c), the row becomes 8 items totalling 64 characters, roughly
-610px rendered at `text-sm`, inside the roughly 820px the pill has after the logo
-and the right-hand controls. "More" stops firing on a laptop for a full admin.
-It remains implemented as the safety net for narrow viewports.
+the account menu (1c), the row becomes 8 items. "More" stays implemented as the
+safety net for narrow viewports, but stops firing on a laptop for a full admin.
+
+Measured in CI at a 1280px viewport, after the one-chip change in 1b:
+
+| | |
+|---|---|
+| Nav width available | 736px |
+| Row width required | 727px |
+| Headroom | 9px |
+
+That headroom is thin. A ninth module, or a longer active-term name, will push
+the row back into "More". The guard is `e2e/global-nav.spec.ts`, which drives a
+real browser at 1280px and fails when anything lands behind "More".
+
+Do not substitute a character-count budget for that e2e test. An earlier draft
+did exactly that and it passed while the row overflowed: character count does not
+predict width (measured, "Admin" at 5 characters renders 45px while "Clinic" at 6
+renders 38px), and the budget predated the chevrons, which add real width it
+could not see. If more room is needed later, the largest easy win is the pill's
+active-term label at 96px, which the account menu now duplicates.
 
 `title` is changed outright rather than adding a separate `navTitle`. The nav,
 the breadcrumb, the dashboard tile, and the page metadata all read from `title`,
@@ -134,6 +151,15 @@ widget, because only Tab and Escape are implemented, not arrow-key roving focus
 
 The chevron renders only when a module has two or more visible sub-items, so
 My Info and single-tab modules do not get an empty or one-item dropdown.
+
+The label and the chevron share ONE rounded chip, which carries the colour and
+the hover state; the label gives up its right padding to the arrow. They were
+initially two separate chips, which left 15px of dead space between the text and
+the arrow: it read as a detached second control, and it cost 12px per module that
+the row did not have. Children inside a chip therefore carry padding only, never
+a background of their own, and the hidden measurement layer must mirror the
+chip's geometry exactly or `recompute` reserves the wrong width and the row
+overflows for no visible reason.
 
 Only one panel may be open at a time; opening a module dropdown closes "More"
 and vice versa. Escape closes the open panel and restores focus to its trigger,

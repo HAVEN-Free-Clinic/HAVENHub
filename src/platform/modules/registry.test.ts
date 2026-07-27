@@ -51,15 +51,23 @@ describe("module registry", () => {
     );
   });
 
-  it("keeps module titles short enough that the nav row fits without overflow", () => {
-    // GlobalNav collapses overflow into a "More" dropdown, which hides modules
-    // from exactly the users who can access the most. The pill has roughly 820px
-    // after the logo and right-hand controls; at text-sm plus px-2.5 padding a
-    // title costs roughly 7px per character plus 20px. Budget the row at 90
-    // characters total so a full admin never overflows on a laptop.
+  it("keeps every nav-row module title short", () => {
+    // Deliberately a per-title cap, NOT a whole-row width budget.
+    //
+    // An earlier version of this test summed the row's characters against a
+    // pixel budget and passed while the row actually overflowed, because
+    // character count is a poor proxy: measured in CI, "Admin" (5 chars) renders
+    // 45px while "Clinic" (6 chars) renders 38px, and the budget also predated
+    // the per-module chevrons, which add real width the count cannot see.
+    //
+    // The row fitting on a laptop is a layout property, so it is asserted where
+    // layout actually exists: e2e/global-nav.spec.ts drives a real browser at
+    // 1280px and fails if anything is pushed behind "More". This test only
+    // guards the input that test cannot: a single overlong title.
     const rowTitles = MODULES.filter((m) => m.status === "active" && !m.personal).map((m) => m.title);
-    const chars = rowTitles.reduce((sum, t) => sum + t.length, 0);
-    expect(chars, `nav row titles total ${chars} chars: ${rowTitles.join(", ")}`).toBeLessThanOrEqual(90);
+    for (const title of rowTitles) {
+      expect(title.length, `module title "${title}" is too long for the nav row`).toBeLessThanOrEqual(12);
+    }
   });
 
   it("marks every schedule tab whose real gate is data-driven with dynamicGate", () => {

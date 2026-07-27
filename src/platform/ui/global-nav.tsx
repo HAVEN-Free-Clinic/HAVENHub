@@ -25,6 +25,31 @@ function linkClasses(active: boolean): string {
     : "rounded-lg px-2.5 py-1.5 text-sm font-medium text-foreground-soft hover:text-foreground hover:bg-muted transition-colors";
 }
 
+/**
+ * The desktop module chip. The label and its chevron share ONE rounded surface
+ * (this element carries the colour and the hover state) so the arrow reads as
+ * part of the module rather than a detached second control. The children below
+ * therefore carry padding only, never a background of their own.
+ */
+function chipClasses(active: boolean): string {
+  return active
+    ? "flex items-center rounded-lg text-sm font-medium text-brand-fg bg-brand-faint"
+    : "flex items-center rounded-lg text-sm font-medium text-foreground-soft hover:text-foreground hover:bg-muted transition-colors";
+}
+
+/**
+ * Label padding inside a chip. A chip with a chevron gives up most of its right
+ * padding to the arrow, which supplies its own, so the two sit visually joined
+ * instead of separated by the 15px of dead space the split-chip layout had.
+ */
+function chipLabelClasses(hasMenu: boolean): string {
+  return `rounded-lg py-1.5 pl-2 ${hasMenu ? "pr-0.5" : "pr-2"} focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand`;
+}
+
+/** Chevron padding inside a chip. Mirrored exactly by the measurement layer. */
+const CHIP_CHEVRON_CLASSES =
+  "inline-flex h-6 items-center rounded-lg pl-0 pr-1.5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand";
+
 export function GlobalNav({ items }: { items: NavModule[] }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
@@ -180,36 +205,38 @@ export function GlobalNav({ items }: { items: NavModule[] }) {
           const hasMenu = m.nav.length >= 2;
           const menuOpen = openPanel === m.id;
           return (
-            <div key={m.id} className="relative flex items-center">
-              <Link
-                href={m.href}
-                aria-current={active ? "page" : undefined}
-                // The shell persists across navigation and the outside-click
-                // handler ignores presses inside the nav, so without this a
-                // panel opened on a sibling module stays open after the soft nav.
-                onClick={() => setOpenPanel(null)}
-                className={linkClasses(active)}
-              >
-                {m.title}
-              </Link>
-              {hasMenu && (
-                <button
-                  ref={(el) => {
-                    moduleChevronRefs.current[m.id] = el;
-                  }}
-                  type="button"
-                  aria-haspopup="true"
-                  aria-expanded={menuOpen}
-                  aria-label={`${m.title} sub-pages`}
-                  onClick={() => setOpenPanel((v) => (v === m.id ? null : m.id))}
-                  className="ml-0.5 inline-flex h-6 w-5 items-center justify-center rounded text-foreground-soft transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+            <div key={m.id} className="relative">
+              <div className={chipClasses(active)}>
+                <Link
+                  href={m.href}
+                  aria-current={active ? "page" : undefined}
+                  // The shell persists across navigation and the outside-click
+                  // handler ignores presses inside the nav, so without this a
+                  // panel opened on a sibling module stays open after the soft nav.
+                  onClick={() => setOpenPanel(null)}
+                  className={chipLabelClasses(hasMenu)}
                 >
-                  <ChevronDown
-                    aria-hidden
-                    className={`h-3.5 w-3.5 transition-transform ${menuOpen ? "rotate-180" : ""}`}
-                  />
-                </button>
-              )}
+                  {m.title}
+                </Link>
+                {hasMenu && (
+                  <button
+                    ref={(el) => {
+                      moduleChevronRefs.current[m.id] = el;
+                    }}
+                    type="button"
+                    aria-haspopup="true"
+                    aria-expanded={menuOpen}
+                    aria-label={`${m.title} sub-pages`}
+                    onClick={() => setOpenPanel((v) => (v === m.id ? null : m.id))}
+                    className={CHIP_CHEVRON_CLASSES}
+                  >
+                    <ChevronDown
+                      aria-hidden
+                      className={`h-3.5 w-3.5 transition-transform ${menuOpen ? "rotate-180" : ""}`}
+                    />
+                  </button>
+                )}
+              </div>
               {menuOpen && (
                 // A labelled container of navigation links, not an APG menu widget
                 // (we implement only Tab + Escape, not arrow-key roving focus).
@@ -283,11 +310,14 @@ export function GlobalNav({ items }: { items: NavModule[] }) {
         aria-hidden
         className="pointer-events-none absolute left-0 top-0 hidden h-0 items-center gap-1 overflow-hidden whitespace-nowrap opacity-0 sm:flex"
       >
+        {/* Geometry here MUST mirror the rendered chip above exactly. If it does
+            not, recompute() reserves the wrong width and items clip or the row
+            overflows into "More" for no visible reason. */}
         {items.map((m) => (
-          <span key={m.id} data-measure-item className="inline-flex items-center">
-            <span className={linkClasses(false)}>{m.title}</span>
+          <span key={m.id} data-measure-item className={chipClasses(false)}>
+            <span className={chipLabelClasses(m.nav.length >= 2)}>{m.title}</span>
             {m.nav.length >= 2 && (
-              <span className="ml-0.5 inline-flex h-6 w-5 items-center justify-center">
+              <span className={CHIP_CHEVRON_CLASSES}>
                 <ChevronDown aria-hidden className="h-3.5 w-3.5" />
               </span>
             )}

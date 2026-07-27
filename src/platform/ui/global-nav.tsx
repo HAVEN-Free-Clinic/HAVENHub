@@ -184,6 +184,10 @@ export function GlobalNav({ items }: { items: NavModule[] }) {
               <Link
                 href={m.href}
                 aria-current={active ? "page" : undefined}
+                // The shell persists across navigation and the outside-click
+                // handler ignores presses inside the nav, so without this a
+                // panel opened on a sibling module stays open after the soft nav.
+                onClick={() => setOpenPanel(null)}
                 className={linkClasses(active)}
               >
                 {m.title}
@@ -209,8 +213,11 @@ export function GlobalNav({ items }: { items: NavModule[] }) {
               {menuOpen && (
                 // A labelled container of navigation links, not an APG menu widget
                 // (we implement only Tab + Escape, not arrow-key roving focus).
+                // Named distinctly from its trigger button ("<Title> sub-pages")
+                // so a screen-reader user can tell the control from the region
+                // it opens.
                 <nav
-                  aria-label={`${m.title} sub-pages`}
+                  aria-label={`${m.title} sub-page links`}
                   className="absolute left-0 top-full z-20 mt-1 flex min-w-44 flex-col gap-1 rounded-xl border border-border bg-surface p-1.5 shadow-lg"
                 >
                   {m.nav.map((item) => (

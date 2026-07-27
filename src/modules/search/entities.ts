@@ -18,7 +18,6 @@
 import { cache } from "react";
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
-import { reviewScope } from "@/modules/recruitment/services/review";
 
 export type EntityHit = {
   id: string;
@@ -50,20 +49,11 @@ export const searchEntities = cache(async function searchEntities(
   // Resolve every permission ONCE, in parallel, before any group's query
   // runs. Nothing below this point may run a query before its gate has been
   // checked here.
-  const [
-    canManagePeople,
-    canManageCompliance,
-    canManageRequests,
-    canRecruitmentAccess,
-    canRecruitmentScore,
-    scope,
-  ] = await Promise.all([
+  const [canManagePeople, canManageCompliance, canManageRequests, canRecruitmentAccess] = await Promise.all([
     can(personId, "admin.manage_people"),
     can(personId, "volunteers.manage_compliance"),
     can(personId, "support.manage_requests"),
     can(personId, "recruitment.access"),
-    can(personId, "recruitment.score"),
-    reviewScope(personId),
   ]);
 
   const hits: EntityHit[] = [];
@@ -74,6 +64,7 @@ export const searchEntities = cache(async function searchEntities(
   if (canManagePeople || canManageCompliance) {
     const people = await prisma.person.findMany({
       where: { status: "ACTIVE", name: { contains: q, mode: "insensitive" } },
+      select: { id: true, name: true },
       take: LIMIT,
     });
     for (const p of people) {
@@ -87,12 +78,14 @@ export const searchEntities = cache(async function searchEntities(
     }
   }
 
-  // Cycles: gated on a global recruitment capability (access or score) or a
-  // reviewer scope that actually covers something (all cycles, or at least
-  // one department).
-  if (canRecruitmentAccess || canRecruitmentScore || scope.all || scope.departmentCodes.length > 0) {
+  // recruitment.access alone, deliberately narrower than the cycles SUBTREE gate
+  // (which also admits scorers and department-scoped reviewers). The page this
+  // links to, cycles/[id]/page.tsx, requires recruitment.access outright, so a
+  // broader gate here would surface titles that bounce to /no-access on click.
+  if (canRecruitmentAccess) {
     const cycles = await prisma.recruitmentCycle.findMany({
       where: { title: { contains: q, mode: "insensitive" } },
+      select: { id: true, title: true, status: true },
       take: LIMIT,
     });
     for (const c of cycles) {
@@ -107,7 +100,11 @@ export const searchEntities = cache(async function searchEntities(
     subject: { contains: q, mode: "insensitive" },
   };
   if (!canManageRequests) requestWhere.requesterId = personId;
-  const requests = await prisma.techRequest.findMany({ where: requestWhere, take: LIMIT });
+  const requests = await prisma.techRequest.findMany({
+    where: requestWhere,
+    select: { id: true, subject: true, status: true },
+    take: LIMIT,
+  });
   for (const r of requests) {
     hits.push({ id: r.id, label: r.subject, sub: r.status, href: `/support/${r.id}`, group: "Requests" });
   }

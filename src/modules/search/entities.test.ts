@@ -151,6 +151,24 @@ describe("searchEntities permission scoping", () => {
     expect(hits.filter((h) => h.group === "Cycles").length).toBeGreaterThanOrEqual(1);
   });
 
+  it("returns no cycles to a recruitment.score-only viewer (narrower than the subtree gate)", async () => {
+    await grantPermission(admin, "recruitment.score");
+    const term = await createTerm();
+    await prisma.recruitmentCycle.create({
+      data: {
+        title: "Zebra Cycle",
+        publicSlug: `zebra3-${Date.now()}`,
+        status: "OPEN",
+        track: "VOLUNTEER",
+        termId: term.id,
+        createdById: admin,
+        departments: [],
+      },
+    });
+    const hits = await searchEntities(admin, "Zebra");
+    expect(hits.filter((h) => h.group === "Cycles")).toEqual([]);
+  });
+
   it("never returns a group outside People, Cycles, or Requests", async () => {
     await grantPermission(admin, "*");
     const hits = await searchEntities(admin, "ab");

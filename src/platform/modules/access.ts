@@ -46,6 +46,9 @@ export function filterNavItems(
  * first permission-filtered registry item, which is what the out-of-band
  * capability unlocks when the caller supplied no extras (a recruitment scope
  * reviewer: no extras, first item "Cycles" -> /recruitment, i.e. unchanged).
+ * `registryNav` is passed in purely for this fallback: filterAccessibleModules
+ * no longer folds it into such a viewer's `nav` array (see below), but the
+ * href still needs somewhere sensible to land when there are no extras either.
  */
 function moduleHref(
   id: string,
@@ -91,11 +94,23 @@ export function filterAccessibleModules(
         .map(({ label, href }) => ({ label, href }));
       const extras: NavSubItem[] = (extraNavItems[m.id] ?? []).map(({ label, href }) => ({ label, href }));
       const admittedOnlyByExtraIds = !canAccessModule(m, perms) && extraIds.has(m.id);
+      // The registry nav is written for viewers who hold the module's own
+      // permission, and its items can carry data-driven gates the platform
+      // layer cannot evaluate (dynamicGate, filtered above, is one; a nav item
+      // with no `permission` at all -- kept by filterNavItems for everyone --
+      // is another, e.g. recruitment's "Cycles" -> /recruitment). A viewer
+      // admitted only via extraIds was let in by an out-of-band capability the
+      // registry knows nothing about, so registryNav's survivors are not
+      // necessarily reachable by them. The caller that supplied extraNavItems
+      // is the only party that knows which destinations this viewer can
+      // actually open, so for such a viewer its list is authoritative and the
+      // registry nav is dropped entirely, not merged in.
+      const nav = admittedOnlyByExtraIds ? extras : [...registryNav, ...extras];
       return {
         id: m.id,
         title: m.title,
         href: moduleHref(m.id, admittedOnlyByExtraIds, registryNav, extras),
-        nav: [...registryNav, ...extras],
+        nav,
       };
     });
 }

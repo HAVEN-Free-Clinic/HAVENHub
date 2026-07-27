@@ -209,6 +209,50 @@ describe("filterAccessibleModules", () => {
     expect(admin?.nav.length).toBeGreaterThan(0);
   });
 
+  describe("recruitment nav for the four extraIds viewer shapes", () => {
+    // Exercises the real MODULES registry entry for recruitment (accessPermission
+    // "recruitment.access", nav: [{ label: "Cycles", href: "/recruitment" }])
+    // against every shape of viewer the (app) layout can produce via
+    // recruitmentGlobalNav. Guards the fix for the dead "Cycles" link a bare
+    // panelist used to see: a module admitted ONLY via extraIds must build its
+    // nav from extraNavItems alone, not from registryNav + extraNavItems.
+    function recruitmentNav(
+      perms: Set<string>,
+      extraIds: ReadonlySet<string>,
+      extras: { label: string; href: string }[] = [],
+    ) {
+      const result = filterAccessibleModules(MODULES, perms, extraIds, extras.length ? { recruitment: extras } : {});
+      return result.find((m) => m.id === "recruitment");
+    }
+
+    it("1. normal recruitment staff (recruitment.access held): unaffected, nav is the registry item", () => {
+      const recruitment = recruitmentNav(new Set(["recruitment.access"]), new Set());
+      expect(recruitment?.nav).toEqual([{ label: "Cycles", href: "/recruitment" }]);
+      expect(recruitment?.href).toBe("/recruitment");
+    });
+
+    it("2. scope reviewer, not a panelist (admitted via extraIds, no extras): nav is empty, href still falls back to the module root", () => {
+      const recruitment = recruitmentNav(new Set(), new Set(["recruitment"]));
+      expect(recruitment?.nav).toEqual([]);
+      expect(recruitment?.href).toBe("/recruitment");
+    });
+
+    it("3. bare panelist (admitted via extraIds, extras = My interviews): nav is My interviews only, no dead Cycles link", () => {
+      const recruitment = recruitmentNav(new Set(), new Set(["recruitment"]), [MY_INTERVIEWS]);
+      expect(recruitment?.nav).toEqual([MY_INTERVIEWS]);
+      expect(recruitment?.href).toBe("/recruitment/interviews");
+    });
+
+    it("4. staff panelist (holds recruitment.access AND is on a panel): must not regress, both Cycles and My interviews stay reachable", () => {
+      // This is the population the panelist tab was built for. Case 1's rule
+      // applies here (canAccessModule is true), so the registry nav is kept
+      // and extended, not replaced.
+      const recruitment = recruitmentNav(new Set(["recruitment.access"]), new Set(["recruitment"]), [MY_INTERVIEWS]);
+      expect(recruitment?.nav).toEqual([{ label: "Cycles", href: "/recruitment" }, MY_INTERVIEWS]);
+      expect(recruitment?.href).toBe("/recruitment");
+    });
+  });
+
   it("keeps personal modules out of the nav row", () => {
     const modules = [
       mod({ id: "schedule", title: "Schedule", accessPermission: "schedule.view" }),

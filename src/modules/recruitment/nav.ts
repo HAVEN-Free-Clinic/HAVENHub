@@ -23,3 +23,13 @@ export function recruitmentNavItems(opts: {
 }): ModuleNavItem[] {
   return opts.isPanelist ? [...opts.staffNav, MY_INTERVIEWS_NAV_ITEM] : [...opts.staffNav];
 }
+
+/**
+ * The dynamic nav items the *global* nav needs for recruitment, shaped as the
+ * `extraNavItems` map filterAccessibleModules takes. "My interviews" is gated on
+ * interview-panel membership, not a permission, so it cannot flow through the
+ * registry's permission-based filterNavItems.
+ */
+export function globalNavExtras(opts: { isPanelist: boolean }): Record<string, ModuleNavItem[]> {
+  return opts.isPanelist ? { recruitment: [MY_INTERVIEWS_NAV_ITEM] } : {};
+}

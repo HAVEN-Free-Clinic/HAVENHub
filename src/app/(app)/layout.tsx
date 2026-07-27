@@ -2,6 +2,8 @@ import type { ReactNode } from "react";
 import { requirePersonSession } from "@/platform/auth/session";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { reviewScope } from "@/modules/recruitment/services/review";
+import { isInterviewPanelist } from "@/modules/recruitment/services/interviews";
+import { globalNavExtras } from "@/modules/recruitment/nav";
 import { AppShell } from "@/platform/ui/app-shell";
 import { PostHogIdentify } from "@/platform/posthog/posthog-identify";
 
@@ -14,9 +16,10 @@ import { PostHogIdentify } from "@/platform/posthog/posthog-identify";
  */
 export default async function AppGroupLayout({ children }: { children: ReactNode }) {
   const person = await requirePersonSession();
-  const [activeTerm, scope] = await Promise.all([
+  const [activeTerm, scope, isPanelist] = await Promise.all([
     getActiveTerm(),
     reviewScope(person.personId),
+    isInterviewPanelist(person.personId),
   ]);
   // A department director reviews recruitment by scope (a derived directorship,
   // not a recruitment permission), so surface the Recruitment tab in the top nav
@@ -39,6 +42,7 @@ export default async function AppGroupLayout({ children }: { children: ReactNode
         personId={person.personId}
         personThemePreference={person.themePreference}
         extraModuleIds={extraModuleIds}
+        extraNavItems={globalNavExtras({ isPanelist })}
       >
         {children}
       </AppShell>

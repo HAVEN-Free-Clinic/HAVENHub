@@ -1,3 +1,4 @@
+import { cache } from "react";
 import type { Interview, InterviewPanelist } from "@prisma/client";
 import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
@@ -232,10 +233,12 @@ export async function myAssignedInterviews(personId: string) {
 /** True when the person sits on any interview panel. Drives the panelist-only
  *  "My interviews" nav tab and home quick action, which must appear even for
  *  panelists who are not recruitment staff (they hold no recruitment.access). */
-export async function isInterviewPanelist(personId: string): Promise<boolean> {
+export const isInterviewPanelist = cache(async function isInterviewPanelist(
+  personId: string,
+): Promise<boolean> {
   const count = await prisma.interviewPanelist.count({ where: { personId } });
   return count > 0;
-}
+});
 
 export async function getInterview(interviewId: string) {
   return prisma.interview.findUnique({

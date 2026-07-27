@@ -29,3 +29,17 @@ describe("recruitmentNavItems", () => {
     expect(staffNav).toEqual([{ label: "Cycles", href: "/recruitment" }]);
   });
 });
+
+import { globalNavExtras } from "./nav";
+
+describe("globalNavExtras", () => {
+  it("offers the My interviews tab to a panelist", () => {
+    expect(globalNavExtras({ isPanelist: true })).toEqual({
+      recruitment: [{ label: "My interviews", href: "/recruitment/interviews" }],
+    });
+  });
+
+  it("offers nothing to a non-panelist", () => {
+    expect(globalNavExtras({ isPanelist: false })).toEqual({});
+  });
+});

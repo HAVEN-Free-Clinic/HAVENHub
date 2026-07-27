@@ -24,6 +24,7 @@ async function seedEmail(overrides: {
   sentAt?: Date | null;
   attempts?: number;
   lastError?: string | null;
+  createdAt?: Date;
 }) {
   return prisma.emailLog.create({
     data: {
@@ -35,6 +36,7 @@ async function seedEmail(overrides: {
       sentAt: overrides.sentAt ?? null,
       attempts: overrides.attempts ?? 0,
       lastError: overrides.lastError ?? null,
+      ...(overrides.createdAt ? { createdAt: overrides.createdAt } : {}),
     },
   });
 }
@@ -93,6 +95,30 @@ describe("listEmails - pagination and ordering", () => {
     const result = await listEmails({});
     expect(result.rows[0].id).toBe(recent.id);
     expect(result.rows[1].id).toBe(old.id);
+  });
+
+  it("paginates deterministically when every row shares one createdAt (campaign fan-out tie)", async () => {
+    // queueEmails writes a campaign fan-out via chunked createMany, so every row
+    // gets one identical CURRENT_TIMESTAMP. Give 30 rows the exact same createdAt
+    // and page through: with the (createdAt, id) tiebreaker the pages partition
+    // the rows -- no id appears twice, none is dropped -- and each page is sorted
+    // by id descending within the tie group.
+    const tie = new Date("2026-05-01T00:00:00Z");
+    for (let i = 0; i < 30; i++) {
+      await seedEmail({ toEmail: `fanout${i}@example.com`, createdAt: tie });
+    }
+
+    const p1 = await listEmails({ page: 1 });
+    const p2 = await listEmails({ page: 2 });
+    expect(p1.rows).toHaveLength(25);
+    expect(p2.rows).toHaveLength(5);
+
+    const seen = [...p1.rows, ...p2.rows].map((r) => r.id);
+    expect(new Set(seen).size).toBe(30); // no repeats across pages, nothing dropped
+
+    // Within the tie group the order is a stable total order by id desc.
+    const idsDesc = [...seen].sort((a, b) => (a < b ? 1 : a > b ? -1 : 0));
+    expect(seen).toEqual(idsDesc);
   });
 });
 
@@ -224,7 +250,18 @@ describe("emailHealthCounts", () => {
     const counts = await emailHealthCounts(new Date());
     expect(counts.queued).toBe(0);
     expect(counts.failed).toBe(0);
+    expect(counts.retryableFailed).toBe(0);
     expect(counts.sentToday).toBe(0);
+  });
+
+  it("retryableFailed counts only recent failures while failed counts all of them", async () => {
+    const now = new Date("2026-06-10T12:00:00Z");
+    await seedEmail({ status: "FAILED", attempts: 8, createdAt: new Date("2026-06-09T12:00:00Z") }); // recent
+    await seedEmail({ status: "FAILED", attempts: 8, createdAt: new Date("2026-06-01T12:00:00Z") }); // 9 days old
+
+    const counts = await emailHealthCounts(now);
+    expect(counts.failed).toBe(2); // standing health signal: every failure
+    expect(counts.retryableFailed).toBe(1); // only what "Retry all" would send
   });
 });
 
@@ -360,6 +397,27 @@ describe("retryAllFailedEmails", () => {
     const count = await retryAllFailedEmails(ACTOR);
     expect(count).toBe(0);
     expect(await prisma.auditLog.count({ where: { action: "email.retry_all" } })).toBe(0);
+  });
+
+  it("only re-queues FAILED rows from the last 7 days, leaving older failures FAILED", async () => {
+    const now = new Date("2026-06-10T12:00:00Z");
+    const recent = await seedEmail({
+      status: "FAILED",
+      attempts: 8,
+      createdAt: new Date("2026-06-09T12:00:00Z"), // 1 day old -> retried
+    });
+    const stale = await seedEmail({
+      status: "FAILED",
+      attempts: 8,
+      createdAt: new Date("2026-06-01T12:00:00Z"), // 9 days old -> left alone
+    });
+
+    const count = await retryAllFailedEmails(ACTOR, now);
+    expect(count).toBe(1);
+
+    expect((await prisma.emailLog.findUniqueOrThrow({ where: { id: recent.id } })).status).toBe("QUEUED");
+    // A months-late acceptance notice / expired magic link must not be re-blasted.
+    expect((await prisma.emailLog.findUniqueOrThrow({ where: { id: stale.id } })).status).toBe("FAILED");
   });
 });
 

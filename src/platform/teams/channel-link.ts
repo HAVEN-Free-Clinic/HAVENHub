@@ -113,6 +113,11 @@ const MISS_TTL_MS = 5 * 60 * 1000; // retry a missing/failed lookup within 5 min
 
 interface CacheEntry {
   dateStr: string;
+  /** The teams.clinicGroupId this entry was resolved against. Part of the cache
+   *  key so that changing the setting (new academic year, or a corrected wrong
+   *  group id) invalidates a warm entry instead of serving the old team's channel
+   *  for the rest of the clinic week (audit #138). */
+  groupId: string;
   value: ClinicChannelLink | null;
   expiresAt: number;
 }
@@ -170,8 +175,10 @@ export async function getCurrentClinicChannelLink(
   if (!clinicDate) return null;
   const dateStr = formatClinicDate(clinicDate);
 
-  // Serve from cache when the week and TTL still hold (caches null misses too).
-  if (cache && cache.dateStr === dateStr && now.getTime() < cache.expiresAt) {
+  // Serve from cache when the week, group id, and TTL still hold (caches null
+  // misses too). resolvedGroupId is part of the key so a settings change is not
+  // masked by a warm entry for the same clinic week.
+  if (cache && cache.dateStr === dateStr && cache.groupId === resolvedGroupId && now.getTime() < cache.expiresAt) {
     return cache.value;
   }
 
@@ -206,6 +213,6 @@ export async function getCurrentClinicChannelLink(
     value = null;
   }
 
-  cache = { dateStr, value, expiresAt: now.getTime() + (value ? HIT_TTL_MS : MISS_TTL_MS) };
+  cache = { dateStr, groupId: resolvedGroupId, value, expiresAt: now.getTime() + (value ? HIT_TTL_MS : MISS_TTL_MS) };
   return value;
 }

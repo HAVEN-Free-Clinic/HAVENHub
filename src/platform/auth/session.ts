@@ -1,12 +1,13 @@
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { auth } from "./auth";
-import { getActivePerson } from "./match-person";
+import { getActivePerson, resolvePersonForLogin } from "./match-person";
 import { can } from "@/platform/rbac/engine";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { getModule } from "@/platform/modules/registry";
 import { isAllowlistedPath } from "./onboarding-allowlist";
 import { isGateClearedCached, markGateCleared } from "./onboarding-gate-cache";
+import { loginRedirectPath } from "./safe-next";
 // The onboarding gate must run on every page render, including soft (client)
 // navigations -- which re-render the page Server Component but NOT the root
 // layout, so a layout-level gate is bypassable via in-app nav. requirePersonSession
@@ -72,9 +73,35 @@ async function enforceOnboarding(personId: string): Promise<void> {
  */
 export async function requirePersonSession(): Promise<PersonSession> {
   const session = await auth();
-  if (!session) redirect("/login");
-  if (!session.personId) redirect("/welcome");
-  const person = await getActivePerson(session.personId);
+  if (!session) {
+    // Carry the intended destination so an emailed deep link survives the SSO
+    // round trip. proxy.ts stamps x-pathname on every request, including
+    // server-action POSTs (Next posts an action to the current page's URL),
+    // so this resolves to the real page path there too, not just on full
+    // page loads.
+    redirect(loginRedirectPath((await headers()).get("x-pathname")));
+  }
+  let personId = session.personId;
+  if (!personId) {
+    // The JWT stamps personId only at initial sign-in (auth.ts jwt `if (account)`)
+    // and lives 7 days. A Yale-SSO applicant signs in with personId null; when
+    // recruitment later promotes them to a Person, their existing session still
+    // carries null, so they were bounced to /welcome ("contact IT / start an
+    // application") on the designed happy path. Re-resolve the now-existing Person
+    // from the verified applicantEmail sitting in the same token before giving up
+    // (#65). Runs only for a null-personId session reaching a gated hub route (a
+    // pure applicant browses /apply via getApplicantIdentity, not this path), and
+    // matching is the same Yale-asserted resolver sign-in uses.
+    if (session.applicantEmail) {
+      const resolved = await resolvePersonForLogin({
+        upn: session.applicantEmail,
+        email: session.applicantEmail,
+      });
+      personId = resolved?.id ?? null;
+    }
+    if (!personId) redirect("/welcome");
+  }
+  const person = await getActivePerson(personId);
   if (!person) redirect("/welcome");
   const result: PersonSession = {
     personId: person.id,

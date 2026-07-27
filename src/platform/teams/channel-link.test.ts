@@ -219,6 +219,23 @@ describe("getCurrentClinicChannelLink", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
+  it("re-resolves within the same week when the clinic group id changes (#138)", async () => {
+    const fetchImpl = okChannelsFetch();
+    const base = { fetchImpl, getToken: async () => "tok", now, loadClinicDates: async () => clinicDates };
+    // Warm the cache against the original group id for this clinic week.
+    await getCurrentClinicChannelLink({ ...base, groupId });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+
+    // The admin repoints the clinic at a NEW Teams team (same clinic week). The
+    // warm entry must NOT be served: group id is part of the cache key now, so a
+    // fresh Graph call resolves the new team's channel.
+    const newGroupId = "00000000-1111-2222-3333-444444444444";
+    await getCurrentClinicChannelLink({ ...base, groupId: newGroupId });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const secondCall = fetchImpl.mock.calls[1] as unknown as [string, RequestInit];
+    expect(secondCall[0]).toContain(newGroupId);
+  });
+
   it("keeps a found link cached for the week (well past the old 30-min TTL)", async () => {
     const fetchImpl = okChannelsFetch();
     const base = { fetchImpl, getToken: async () => "tok", groupId, loadClinicDates: async () => clinicDates };

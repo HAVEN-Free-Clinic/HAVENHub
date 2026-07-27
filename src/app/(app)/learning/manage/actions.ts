@@ -6,6 +6,7 @@ import { requirePermission } from "@/platform/auth/session";
 import { createCourse, updateCourse, setCourseAssignment } from "@/modules/learning/services/courses";
 import { ingestScormPackage } from "@/modules/learning/services/packages";
 import { LearningValidationError } from "@/modules/learning/services/errors";
+import { runAction } from "@/platform/actions";
 import { getObject, deleteObject } from "@/platform/storage";
 
 /** Upper bound on the COMPRESSED upload size. Bounds the memory a malicious or
@@ -15,26 +16,45 @@ const MAX_UPLOAD_BYTES = 75 * 1024 * 1024; // 75 MB
 
 export async function createCourseAction(formData: FormData): Promise<void> {
   const person = await requirePermission("learning.manage_courses");
-  const course = await createCourse(
-    { title: String(formData.get("title") ?? ""), description: String(formData.get("description") ?? "") },
-    person.personId
-  );
+  // A whitespace-only title passes the input's HTML `required` but fails the
+  // server-side trim in createCourse; surface that as an inline message instead of
+  // letting the thrown LearningValidationError hit the generic error boundary (#85).
+  let course;
+  try {
+    course = await createCourse(
+      { title: String(formData.get("title") ?? ""), description: String(formData.get("description") ?? "") },
+      person.personId
+    );
+  } catch (err) {
+    if (err instanceof LearningValidationError) {
+      redirect(`/learning/manage?error=${encodeURIComponent(err.message)}`);
+    }
+    throw err;
+  }
   redirect(`/learning/manage/${course.id}`);
 }
 
 export async function updateCourseAction(formData: FormData): Promise<void> {
   const person = await requirePermission("learning.manage_courses");
   const id = String(formData.get("courseId"));
-  await updateCourse(
-    id,
-    {
-      title: String(formData.get("title") ?? ""),
-      description: String(formData.get("description") ?? ""),
-      isActive: formData.get("isActive") === "on",
-    },
-    person.personId
-  );
-  revalidatePath(`/learning/manage/${id}`);
+  // A blank/whitespace title throws LearningValidationError from updateCourse. Route
+  // it back to the edit page as ?error= (inline Alert) rather than crashing the page
+  // to the (app) error boundary, which discarded the manager's other edits (#85).
+  await runAction({
+    work: () =>
+      updateCourse(
+        id,
+        {
+          title: String(formData.get("title") ?? ""),
+          description: String(formData.get("description") ?? ""),
+          isActive: formData.get("isActive") === "on",
+        },
+        person.personId
+      ),
+    domainErrors: [LearningValidationError],
+    errorRedirect: (m) => `/learning/manage/${id}?error=${encodeURIComponent(m)}`,
+    revalidate: `/learning/manage/${id}`,
+  });
 }
 
 export async function setAssignmentAction(formData: FormData): Promise<void> {

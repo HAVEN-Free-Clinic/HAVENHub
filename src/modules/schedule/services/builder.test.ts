@@ -476,6 +476,72 @@ describe("setAssignment", () => {
     expect((audit!.before as Record<string, unknown>)?.reason).toBe("schedule conflict");
   });
 
+  // #25: a director grants a drop the way directors actually do -- by removing the
+  // volunteer from the grid cell -- instead of clicking Approve. The ShiftAssignment
+  // goes, but the PENDING ShiftRequest would linger with no shift card to render its
+  // Cancel button, so the requester is stuck showing "Pending requests: 1" forever
+  // and the reminder cron keeps nagging approvers. Unassign must cancel it.
+  it("cancels the requester's now-orphaned PENDING request for the unassigned slot (#25)", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const dept = await createDepartment("PCAR");
+    const director = await createPerson("Director");
+    const volunteer = await createPerson("Volunteer");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(volunteer.id, term.id, dept.id, "VOLUNTEER");
+    await createShift(term.id, dept.id, volunteer.id, dates[0], "VOLUNTEER");
+
+    // The volunteer's drop request for that shift.
+    const drop = await prisma.shiftRequest.create({
+      data: { termId: term.id, requesterId: volunteer.id, requesterDate: dates[0], departmentId: dept.id, status: "PENDING" },
+    });
+    // An unrelated pending request on a DIFFERENT date, which must survive untouched.
+    const other = await prisma.shiftRequest.create({
+      data: { termId: term.id, requesterId: volunteer.id, requesterDate: dates[1], departmentId: dept.id, status: "PENDING" },
+    });
+
+    await setAssignment(director.id, {
+      termId: term.id, departmentId: dept.id, dateKey: isoDateKey(dates[0]),
+      personId: volunteer.id, role: null,
+    });
+
+    const droppedAfter = await prisma.shiftRequest.findUniqueOrThrow({ where: { id: drop.id } });
+    const otherAfter = await prisma.shiftRequest.findUniqueOrThrow({ where: { id: other.id } });
+    expect(droppedAfter.status).toBe("CANCELLED"); // orphan cleared -> no longer uncancellable
+    expect(otherAfter.status).toBe("PENDING"); // only the matching-slot request is cancelled
+  });
+
+  it("unassigns an assignment stranded on a clinic date that was later removed (#58)", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const dept = await createDepartment("PCAR");
+    const director = await createPerson("Director");
+    const volunteer = await createPerson("Volunteer");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(volunteer.id, term.id, dept.id, "VOLUNTEER");
+    const stranded = dates[0];
+    await createShift(term.id, dept.id, volunteer.id, stranded, "VOLUNTEER");
+
+    // Ops cancels that clinic: updateClinicDates removes the date from the term but
+    // never touches the ShiftAssignment, so it is now off-calendar and invisible in
+    // the Builder grid.
+    await prisma.term.update({ where: { id: term.id }, data: { clinicDates: dates.slice(1) } });
+
+    // The director must still be able to clear the stranded shift -- previously the
+    // clinic-date check above the unassign branch made this throw, leaving the row
+    // unremovable by anyone.
+    await setAssignment(director.id, {
+      termId: term.id,
+      departmentId: dept.id,
+      dateKey: isoDateKey(stranded),
+      personId: volunteer.id,
+      role: null,
+      reason: "clinic cancelled",
+    });
+
+    expect(await prisma.shiftAssignment.findFirst({ where: { termId: term.id, personId: volunteer.id } })).toBeNull();
+  });
+
   it("audits assign action", async () => {
     const dates = sixSaturdays();
     const term = await createTerm(dates);
@@ -1205,6 +1271,29 @@ describe("builderView", () => {
     expect(entry).toBeDefined();
     expect(entry!.person.name).toBe("Offboarded Olivia");
     expect(entry!.person.spanishVerified).toBe(true);
+  });
+
+  // #59: a departed assignee's ShiftAssignment survives offboarding/removeMembership,
+  // so without a status filter they inflate the day's headcount and hide the
+  // "patients to reschedule" gap. Only current members count toward capacity.
+  it("capacity math: excludes an assignee whose membership is REMOVED", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const dept = await createDepartment("PCAR", { idealHeadcount: 4 });
+    const director = await createPerson("Director");
+    const activeVol = await createPerson("Active");
+    const departedVol = await createPerson("Departed");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(activeVol.id, term.id, dept.id, "VOLUNTEER");
+    await createMembership(departedVol.id, term.id, dept.id, "VOLUNTEER", { status: "REMOVED" });
+
+    // Both still have a shift on the date (the removed member's was never cleaned up).
+    await createShift(term.id, dept.id, activeVol.id, dates[0], "VOLUNTEER");
+    await createShift(term.id, dept.id, departedVol.id, dates[0], "VOLUNTEER");
+
+    const view = await builderView(director.id, { departmentId: dept.id, dateKey: isoDateKey(dates[0]), termId: term.id });
+    // Only the active volunteer counts; the departed one is not headcount.
+    expect(view.capacity.headcount).toBe(1);
   });
 
   it("capacity math: counts spanish-speaking assignees correctly", async () => {

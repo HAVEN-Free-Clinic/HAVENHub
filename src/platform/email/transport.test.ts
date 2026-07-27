@@ -8,12 +8,13 @@ import {
 import {
   LogTransport,
   GraphTransport,
+  TransientEmailError,
   resolveEmailTransport,
   type EmailMessage,
 } from "./transport";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
-import { _resetSettingsCache } from "@/platform/settings/service";
+import { _resetSettingsCache, getSetting } from "@/platform/settings/service";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -184,6 +185,52 @@ describe("GraphTransport", () => {
     // ...and its rule is inlined onto the <a>, so the rendered look is preserved.
     expect(sent).toMatch(/<a\b[^>]*style="[^"]*color:\s*#00356b/i);
   });
+
+  // #73: a temporary upstream failure must be TransientEmailError (retried) rather
+  // than a plain Error (which burns the row's permanent attempt budget and would
+  // mass-FAIL the queue's throttled tail on a Graph blip).
+  const graph = (opts: { fetchImpl?: typeof fetch; getAccessToken?: () => Promise<string> }) =>
+    new GraphTransport({
+      getAccessToken: opts.getAccessToken ?? fakeGetAccessToken,
+      sender: "hfc.it@yale.edu",
+      fetchImpl: (opts.fetchImpl ?? (async () => new Response("", { status: 202 }))) as typeof fetch,
+    });
+
+  it.each([429, 500, 502, 503, 504])("classifies sendMail HTTP %s as transient", async (status) => {
+    const t = graph({ fetchImpl: (async () => new Response("upstream", { status })) as typeof fetch });
+    await expect(t.send(msg)).rejects.toBeInstanceOf(TransientEmailError);
+  });
+
+  it.each([400, 401, 403, 404])("keeps sendMail HTTP %s permanent (plain Error)", async (status) => {
+    const t = graph({ fetchImpl: (async () => new Response("bad", { status })) as typeof fetch });
+    const err = await t.send(msg).catch((e) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(TransientEmailError);
+  });
+
+  it("classifies a sendMail request timeout as transient", async () => {
+    const timeout = Object.assign(new Error("The operation timed out"), { name: "TimeoutError" });
+    const t = graph({ fetchImpl: (async () => { throw timeout; }) as typeof fetch });
+    await expect(t.send(msg)).rejects.toBeInstanceOf(TransientEmailError);
+  });
+
+  it("classifies a sendMail network failure as transient", async () => {
+    const netErr = new TypeError("fetch failed");
+    const t = graph({ fetchImpl: (async () => { throw netErr; }) as typeof fetch });
+    await expect(t.send(msg)).rejects.toBeInstanceOf(TransientEmailError);
+  });
+
+  it("classifies a 5xx from the token endpoint as transient", async () => {
+    const t = graph({ getAccessToken: () => Promise.reject(new Error("OAuth refresh failed with status 503: down")) });
+    await expect(t.send(msg)).rejects.toBeInstanceOf(TransientEmailError);
+  });
+
+  it("keeps MailNotConnectedError permanent", async () => {
+    const notConnected = Object.assign(new Error("Mailer is not connected"), { name: "MailNotConnectedError" });
+    const t = graph({ getAccessToken: () => Promise.reject(notConnected) });
+    const err = await t.send(msg).catch((e) => e);
+    expect(err).not.toBeInstanceOf(TransientEmailError);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -209,6 +256,25 @@ describe("resolveEmailTransport", () => {
     await prisma.setting.create({ data: { key: "email.transport", value: "graph" } });
     await prisma.setting.create({ data: { key: "email.sender", value: "noreply@example.com" } });
     _resetSettingsCache();
+    const t = await resolveEmailTransport();
+    expect(t).toBeInstanceOf(GraphTransport);
+  });
+
+  it("reads the current transport at drain time, ignoring a stale 'log' left in the cache (#76)", async () => {
+    // The clinic is mid-switch to Graph: the row is now "graph" (+ sender), but
+    // THIS instance's 30s settings cache still holds the pre-switch "log" because
+    // setSetting only invalidated the writing instance's cache. A cached read here
+    // would drain real mail through LogTransport and mark it SENT unrecoverably.
+    await prisma.setting.create({ data: { key: "email.transport", value: "log" } });
+    await prisma.setting.create({ data: { key: "email.sender", value: "noreply@example.com" } });
+    _resetSettingsCache();
+    // Warm this process's cache with the stale "log".
+    expect(await getSetting("email.transport")).toBe("log");
+    // Another instance completes the switch: the committed row is now "graph".
+    await prisma.setting.update({ where: { key: "email.transport" }, data: { value: "graph" } });
+    // (cache intentionally NOT reset -- getSetting("email.transport") still returns "log")
+
+    // The drain must resolve the committed "graph", not the stale cached "log".
     const t = await resolveEmailTransport();
     expect(t).toBeInstanceOf(GraphTransport);
   });

@@ -1,7 +1,8 @@
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import { RecruitmentAuthError, AcceptanceError } from "./review";
+import * as review from "./review";
 import { createInterview, InterviewError } from "./interviews";
 import { decideInterview } from "./interview-decisions";
 
@@ -105,6 +106,48 @@ it("still lets a director decide an interview for a different signed-in applican
 it("throws InterviewError for a missing interview", async () => {
   const { director } = await seedInterview();
   await expect(decideInterview("nope", "ACCEPT", director.id, null)).rejects.toBeInstanceOf(InterviewError);
+});
+
+it("recording a decision with no notes preserves the interview's scheduling notes (#105)", async () => {
+  const { iv, director } = await seedInterview();
+  // A director saved scheduling context on the shared Schedule card.
+  await prisma.interview.update({ where: { id: iv.id }, data: { notes: "moved from Tue; co-lead Sarah joins; needs 45 min" } });
+
+  // The Decision card's Notes box is empty, so decideAction posts notes: null.
+  await decideInterview(iv.id, "ACCEPT", director.id, null);
+
+  const refreshed = await prisma.interview.findUniqueOrThrow({ where: { id: iv.id } });
+  expect(refreshed.decision).toBe("ACCEPT");
+  expect(refreshed.notes).toBe("moved from Tue; co-lead Sarah joins; needs 45 min"); // not wiped
+});
+
+it("recording a decision WITH notes still writes them", async () => {
+  const { iv, director } = await seedInterview();
+  await prisma.interview.update({ where: { id: iv.id }, data: { notes: "sched" } });
+  await decideInterview(iv.id, "REJECT", director.id, "strong, but not this cycle");
+  const refreshed = await prisma.interview.findUniqueOrThrow({ where: { id: iv.id } });
+  expect(refreshed.notes).toBe("strong, but not this cycle");
+});
+
+it("aborts a decide whose read decision was changed concurrently, leaving the winner intact (#106)", async () => {
+  const { iv, director } = await seedInterview();
+  // Simulate a concurrent decide committing between our initial read and our
+  // terminal write: flip the decision to ACCEPT during reviewScope (which runs
+  // after decideInterview's initial findUnique).
+  const spy = vi.spyOn(review, "reviewScope").mockImplementation(async () => {
+    await prisma.interview.update({
+      where: { id: iv.id },
+      data: { decision: "ACCEPT", decidedById: director.id, decidedAt: new Date() },
+    });
+    return { all: true, departmentCodes: ["EDUC"] };
+  });
+  try {
+    await expect(decideInterview(iv.id, "REJECT", director.id, "no")).rejects.toBeInstanceOf(InterviewError);
+  } finally {
+    spy.mockRestore();
+  }
+  // The concurrent ACCEPT stands; the stale REJECT did not overwrite it.
+  expect((await prisma.interview.findUniqueOrThrow({ where: { id: iv.id } })).decision).toBe("ACCEPT");
 });
 
 it("refuses to accept an interview whose application is a DRAFT and mints no Acceptance (audit3 L1)", async () => {

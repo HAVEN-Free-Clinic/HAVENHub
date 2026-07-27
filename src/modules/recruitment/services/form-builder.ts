@@ -116,8 +116,18 @@ export async function reorderFields(sectionId: string, orderedFieldIds: string[]
   // Every supplied id must belong to this section; reject unknown/foreign ids.
   const owned = await prisma.formField.count({ where: { id: { in: orderedFieldIds }, sectionId } });
   if (owned !== orderedFieldIds.length) throw new FormEditError("Invalid field ids for this section.");
+  // Renumber against the FULL field set, not just the supplied (visible) subset:
+  // the builder can hide a field (e.g. the availability field when the term's
+  // clinic calendar is empty), so a dense order=index over the subset would leave
+  // the hidden field at a stale/colliding order and make orderBy non-deterministic
+  // once it reappears (#104). Splice the supplied ids into the visible slots of the
+  // current full order, leaving hidden fields anchored where they are.
+  const finalOrder = spliceIntoFullOrder(
+    (await prisma.formField.findMany({ where: { sectionId }, orderBy: { order: "asc" }, select: { id: true } })).map((f) => f.id),
+    orderedFieldIds,
+  );
   await prisma.$transaction(
-    orderedFieldIds.map((id, index) =>
+    finalOrder.map((id, index) =>
       prisma.formField.updateMany({ where: { id, sectionId }, data: { order: index } })
     )
   );
@@ -128,11 +138,34 @@ export async function reorderSections(cycleId: string, orderedSectionIds: string
   // Every supplied id must belong to this cycle; reject unknown/foreign ids.
   const owned = await prisma.formSection.count({ where: { id: { in: orderedSectionIds }, cycleId } });
   if (owned !== orderedSectionIds.length) throw new FormEditError("Invalid section ids for this cycle.");
+  // Renumber against the FULL section set (see reorderFields): a hidden section --
+  // e.g. the availability section, dropped from the builder when Term.clinicDates is
+  // empty -- must not be left at a colliding order the visible drag never touched (#104).
+  const finalOrder = spliceIntoFullOrder(
+    (await prisma.formSection.findMany({ where: { cycleId }, orderBy: { order: "asc" }, select: { id: true } })).map((s) => s.id),
+    orderedSectionIds,
+  );
   await prisma.$transaction(
-    orderedSectionIds.map((id, index) =>
+    finalOrder.map((id, index) =>
       prisma.formSection.updateMany({ where: { id, cycleId }, data: { order: index } })
     )
   );
+}
+
+/**
+ * Reconcile a reordered VISIBLE subset back into the full ordered id list.
+ *
+ * `fullOrder` is every id (visible + hidden) in current order; `visibleNewOrder`
+ * is the visible ids in their new relative order. Walk the full order and, at each
+ * slot the drag actually touched (a visible id), take the next id from the new
+ * visible sequence; leave every hidden id anchored in its current slot. The result
+ * is a complete, collision-free ordering. When every id is visible it equals
+ * `visibleNewOrder` verbatim (no behavior change for the common case).
+ */
+function spliceIntoFullOrder(fullOrder: string[], visibleNewOrder: string[]): string[] {
+  const visible = new Set(visibleNewOrder);
+  const queue = [...visibleNewOrder];
+  return fullOrder.map((id) => (visible.has(id) ? queue.shift()! : id));
 }
 
 export async function updateSection(

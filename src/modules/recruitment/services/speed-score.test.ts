@@ -115,4 +115,59 @@ describe("loadReviewApplication", () => {
     const res = await loadReviewApplication(outsiderApplication.id, outsider.id);
     expect("error" in res).toBe(true);
   });
+
+  // #52: a CHECKBOX is persisted as a boolean, which the old condition map dropped,
+  // so a question gated on "checkbox is checked" was hidden from the reviewer even
+  // though the applicant saw and answered it.
+  it("shows a question gated on a checked CHECKBOX (boolean answer normalized)", async () => {
+    const { scorer, application, section } = await seed();
+    const consent = await addField(section.id, { label: "Consent", type: "CHECKBOX", required: false });
+    const followUp = await addField(section.id, {
+      label: "Consent detail", type: "SHORT_TEXT", required: false,
+      visibleWhen: { field: consent.key, op: "is", value: "on" },
+    });
+    await prisma.application.update({
+      where: { id: application.id },
+      // CHECKBOX stored as a boolean (z.coerce.boolean at submit time).
+      data: { answers: { [consent.key]: true, [followUp.key]: "the detail" } },
+    });
+
+    const res = await loadReviewApplication(application.id, scorer.id);
+    if (!("view" in res)) throw new Error("expected view");
+    const detail = res.view.sections.flatMap((s) => s.fields).find((f) => f.key === followUp.key);
+    expect(detail?.displayValue).toBe("the detail");
+  });
+
+  // #53/#54: a RENEWAL never submits the DEPARTMENT_CHOICE field (the department comes
+  // from renewalDepartment -> departmentChoices), so a department-gated question was
+  // evaluated against an empty value and dropped from the reviewer's view.
+  it("shows a department-gated question for a renewal whose department lives in departmentChoices", async () => {
+    const term = await prisma.term.create({ data: { code: "SP27", name: "Spring", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
+    const lead = await prisma.person.create({ data: { name: "Lead2", status: "ACTIVE" } });
+    const cycle = await createCycle({ track: "VOLUNTEER", termId: term.id, title: "V2", publicSlug: "v2-speed", departments: ["SRHD", "MDIC"], acceptsRenewals: true, createdById: lead.id });
+    const section = await prisma.formSection.findFirstOrThrow({ where: { cycleId: cycle.id }, orderBy: { order: "asc" } });
+    const deptField = await addField(section.id, { label: "Department", type: "DEPARTMENT_CHOICE", required: true });
+    const srhdQ = await addField(section.id, {
+      label: "SRHD-only question", type: "SHORT_TEXT", required: false,
+      visibleWhen: { field: deptField.key, op: "isAnyOf", value: ["SRHD"] },
+    });
+
+    const scorer = await prisma.person.create({ data: { name: "Scorer2", status: "ACTIVE" } });
+    const role = await prisma.role.create({ data: { name: "Scorer2 role", grants: { create: [{ permission: "recruitment.score" }] } } });
+    await prisma.roleAssignment.create({ data: { personId: scorer.id, roleId: role.id } });
+
+    const applicant = await prisma.applicant.create({ data: { cycleId: cycle.id, firstName: "Reed", lastName: "R", email: "reed@yale.edu", emailLower: "reed@yale.edu" } });
+    const application = await prisma.application.create({
+      data: {
+        cycleId: cycle.id, applicantId: applicant.id, applicantType: "RENEWAL",
+        departmentChoices: ["SRHD"], // the renewal department; the dept-choice field key is NOT in answers
+        answers: { [srhdQ.key]: "my renewal answer" },
+      },
+    });
+
+    const res = await loadReviewApplication(application.id, scorer.id);
+    if (!("view" in res)) throw new Error("expected view");
+    const shown = res.view.sections.flatMap((s) => s.fields).find((f) => f.key === srhdQ.key);
+    expect(shown?.displayValue).toBe("my renewal answer");
+  });
 });

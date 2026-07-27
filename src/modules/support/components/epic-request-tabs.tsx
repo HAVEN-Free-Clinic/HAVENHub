@@ -47,8 +47,11 @@ import type {
 } from "@/modules/support/services/itcm";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { TicketNumberField } from "./ticket-number-field";
+import { TermBatchTab } from "./term-batch-tab";
+import type { EpicRollup } from "@/modules/support/services/epic-rollup";
+import type { TermOption } from "@/platform/terms/term-options";
 
-type Tab = "generate" | "pending" | "tracker" | "history";
+type Tab = "generate" | "term-batch" | "pending" | "tracker" | "history";
 
 type IncidentPerson = { id: string; name: string };
 
@@ -60,7 +63,13 @@ type Props = {
   authorizers: EpicAuthorizer[];
   incidentPeople: IncidentPerson[];
   pending: PendingEpicRequestRow[];
+  rollup: EpicRollup | null;
+  termOptions: TermOption[];
+  liveTermId: string | null;
+  /** Tracker/Pending row-action failures (complete, link, cancel, resolve, ...). */
   error?: string;
+  /** Failures from the "Log a YNHH incident" form only (#115). */
+  incidentError?: string;
   closeTicketAction: (ticketId: string) => Promise<void>;
   updateServiceRequestNumberAction: (ticketId: string, value: string) => Promise<void>;
   logIncidentAction: (formData: FormData) => Promise<void>;
@@ -88,6 +97,7 @@ function TabNav({ activeTab }: { activeTab: Tab }) {
 
   const labels: Record<Tab, string> = {
     generate: "Generate",
+    "term-batch": "Term batch",
     pending: "Pending",
     tracker: "Tracker",
     history: "History",
@@ -95,7 +105,7 @@ function TabNav({ activeTab }: { activeTab: Tab }) {
 
   return (
     <div className="flex gap-4 border-b border-border mb-8">
-      {(["generate", "pending", "tracker", "history"] as Tab[]).map((tab) => (
+      {(["generate", "term-batch", "pending", "tracker", "history"] as Tab[]).map((tab) => (
         <Fragment key={tab}>
           {/* eslint-disable-next-line no-restricted-syntax -- tab control with border-b-2 active-state indicator; segmented toggle pattern */}
           <button onClick={() => goTo(tab)} aria-current={activeTab === tab ? "page" : undefined} className={`pb-3 text-sm font-semibold border-b-2 transition-colors ${activeTab === tab ? "border-brand text-brand-fg" : "border-transparent text-muted-foreground hover:text-foreground-soft"}`}>{labels[tab]}</button>
@@ -427,7 +437,19 @@ function TrackerTable({
 
 function HistoryTable({ history }: { history: EpicRequestHistoryRow[] }) {
   const zone = useTimeZone();
-  const closedTickets = history.filter((h) => h.ticket.status === "CLOSED");
+  // getEpicRequestHistory returns rows by submittedAt desc, but the History tab
+  // groups by CLOSED month and relies on Map insertion order for both the month
+  // headings and the rows within each. Re-sort by closedAt (fall back to
+  // submittedAt) desc so a ticket submitted earlier but closed later doesn't push
+  // its month above a newer one -- otherwise months render out of chronological
+  // order, contradicting every other newest-first list in the module (#116).
+  const closedTickets = history
+    .filter((h) => h.ticket.status === "CLOSED")
+    .sort(
+      (a, b) =>
+        new Date(b.ticket.closedAt ?? b.ticket.submittedAt).getTime() -
+        new Date(a.ticket.closedAt ?? a.ticket.submittedAt).getTime(),
+    );
 
   if (closedTickets.length === 0) {
     return <p className="text-sm text-muted-foreground">No completed Epic requests yet.</p>;
@@ -500,10 +522,12 @@ function HistoryTable({ history }: { history: EpicRequestHistoryRow[] }) {
 function PendingTab({
   pending,
   action,
+  cancelAction,
   error,
 }: {
   pending: PendingEpicRequestRow[];
   action: (formData: FormData) => Promise<void>;
+  cancelAction: (formData: FormData) => Promise<void>;
   error?: string;
 }) {
   if (pending.length === 0) {
@@ -523,6 +547,9 @@ function PendingTab({
 
         {error && <Alert tone="error">{error}</Alert>}
 
+        {/* tab=pending is read by cancelEpicRequestAction so a per-row cancel
+            (formAction below) redirects back to this tab. */}
+        <input type="hidden" name="tab" value="pending" />
         <ul className="space-y-1">
           {pending.map((r) => (
             <li key={r.id} className="flex flex-wrap items-center gap-2 text-sm">
@@ -537,6 +564,23 @@ function PendingTab({
                 <span className="text-xs text-subtle-foreground">Promotion</span>
               )}
               {r.notes && <span className="text-xs text-subtle-foreground">· {r.notes}</span>}
+              {/* Discard a stale pending request (e.g. a promotion-origin one for
+                  someone who already has an Epic ID or withdrew). formAction
+                  submits this row's id to the cancel action within the same form,
+                  so it needs no nested form. Only the clicked button's requestId
+                  enters the FormData, so it does not interfere with the create
+                  checkboxes above. */}
+              <SubmitButton
+                size="sm"
+                variant="ghost"
+                pendingLabel="Cancelling…"
+                formAction={cancelAction}
+                name="requestId"
+                value={r.id}
+                className="ml-auto"
+              >
+                Cancel
+              </SubmitButton>
             </li>
           ))}
         </ul>
@@ -565,7 +609,11 @@ export function EpicRequestTabs({
   authorizers,
   incidentPeople,
   pending,
+  rollup,
+  termOptions,
+  liveTermId,
   error,
+  incidentError,
   closeTicketAction,
   updateServiceRequestNumberAction,
   logIncidentAction,
@@ -583,11 +631,28 @@ export function EpicRequestTabs({
       </Suspense>
       {activeTab === "generate" ? (
         <EpicRequestForm departments={departments} pendingDeactivations={pendingDeactivations} authorizers={authorizers} />
+      ) : activeTab === "term-batch" ? (
+        rollup ? (
+          <TermBatchTab
+            key={rollup.term.id}
+            rollup={rollup}
+            authorizers={authorizers}
+            termOptions={termOptions}
+            liveTermId={liveTermId}
+          />
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            No term is active yet. Activate a term, or create one in planning, to build a batch.
+          </p>
+        )
       ) : activeTab === "pending" ? (
-        <PendingTab pending={pending} action={createTicketFromPendingAction} error={error} />
+        <PendingTab pending={pending} action={createTicketFromPendingAction} cancelAction={cancelEpicRequestAction} error={error} />
       ) : activeTab === "tracker" ? (
         <div className="space-y-8">
-          <LogIncidentForm incidentPeople={incidentPeople} logIncidentAction={logIncidentAction} error={error} />
+          <LogIncidentForm incidentPeople={incidentPeople} logIncidentAction={logIncidentAction} error={incidentError} />
+          {/* Tracker ROW-action errors (complete, link, cancel, resolve, SR number)
+              belong with the table, not inside the incident form above (#115). */}
+          {error && <Alert tone="error">{error}</Alert>}
           <TrackerTable
             history={history}
             closeTicketAction={closeTicketAction}

@@ -159,6 +159,47 @@ it("preserves a RENEWAL answer for a field conditioned on the department (server
   expect((app.answers as Record<string, unknown>).srhd_renewal_note).toBe("kept");
 });
 
+// #57: a FILE field can gate another field via visibleWhen, but the file lands in
+// `files`, not `answers`. Without marking uploaded file keys present, the server
+// evaluated the gate as unanswered and silently dropped the dependent's answer.
+it("keeps a field gated on an uploaded FILE controller", async () => {
+  const lead = await prisma.person.create({ data: { name: "Lead", status: "ACTIVE" } });
+  const term = await prisma.term.create({ data: { code: "FA26", name: "Fall 2026", startDate: new Date(), endDate: new Date() } });
+  const cycle = await createCycle({ track: "VOLUNTEER", termId: term.id, title: "V", publicSlug: "apply-fc", departments: ["SRHD"], acceptsRenewals: false, createdById: lead.id });
+  const idSection = await prisma.formSection.findFirstOrThrow({ where: { cycleId: cycle.id }, orderBy: { order: "asc" } });
+  await addField(idSection.id, { label: "1st choice department", type: "DEPARTMENT_CHOICE", required: true });
+  const resume = await addField(idSection.id, { label: "Resume", type: "FILE", required: false });
+  const afterUpload = await addField(idSection.id, { label: "Why this resume", type: "SHORT_TEXT", required: false });
+  await prisma.formField.update({ where: { id: afterUpload.id }, data: { visibleWhen: { field: resume.key, op: "isAnswered" } } });
+  await publishCycle(cycle.id, lead.id);
+
+  const app = await submitApplication("apply-fc", {
+    applicantType: "NEW",
+    answers: { first_name: "F", last_name: "C", email: "fc@yale.edu", "1st_choice_department": "SRHD", why_this_resume: "kept" },
+    files: { resume: { fileName: "r.pdf", mimeType: "application/pdf", bytes: Buffer.from("pdf") } },
+  });
+  expect((app.answers as Record<string, unknown>).why_this_resume).toBe("kept");
+});
+
+it("drops a FILE-gated answer when no file was provided (gate correctly unanswered)", async () => {
+  const lead = await prisma.person.create({ data: { name: "Lead", status: "ACTIVE" } });
+  const term = await prisma.term.create({ data: { code: "FA26", name: "Fall 2026", startDate: new Date(), endDate: new Date() } });
+  const cycle = await createCycle({ track: "VOLUNTEER", termId: term.id, title: "V", publicSlug: "apply-fc2", departments: ["SRHD"], acceptsRenewals: false, createdById: lead.id });
+  const idSection = await prisma.formSection.findFirstOrThrow({ where: { cycleId: cycle.id }, orderBy: { order: "asc" } });
+  await addField(idSection.id, { label: "1st choice department", type: "DEPARTMENT_CHOICE", required: true });
+  const resume = await addField(idSection.id, { label: "Resume", type: "FILE", required: false });
+  const afterUpload = await addField(idSection.id, { label: "Why this resume", type: "SHORT_TEXT", required: false });
+  await prisma.formField.update({ where: { id: afterUpload.id }, data: { visibleWhen: { field: resume.key, op: "isAnswered" } } });
+  await publishCycle(cycle.id, lead.id);
+
+  const app = await submitApplication("apply-fc2", {
+    applicantType: "NEW",
+    answers: { first_name: "F", last_name: "C", email: "fc2@yale.edu", "1st_choice_department": "SRHD", why_this_resume: "should drop" },
+    files: {},
+  });
+  expect((app.answers as Record<string, unknown>).why_this_resume).toBeUndefined();
+});
+
 it("rejects a missing required answer", async () => {
   await openVolunteerCycle();
   await expect(
@@ -290,6 +331,32 @@ it("hoists ranked subcommittee IDs into subcommitteeRanking in order", async () 
   expect(app.subcommitteeRanking).toEqual([subs.b.id, subs.a.id]);
   const stored = (app.answers ?? {}) as Record<string, unknown>;
   expect(stored.subcommittee_preferences).toBeUndefined();
+});
+
+it("does not require a SUBCOMMITTEE_RANK field in a section the applicant cannot see (#56)", async () => {
+  const lead = await prisma.person.create({ data: { name: "Lead", status: "ACTIVE" } });
+  const term = await prisma.term.create({ data: { code: "FA26", name: "Fall 2026", startDate: new Date(), endDate: new Date() } });
+  const cycle = await createCycle({ track: "VOLUNTEER", termId: term.id, title: "V", publicSlug: "apply-rank-scope", departments: ["SRHD", "MDIC"], acceptsRenewals: true, createdById: lead.id });
+  const renew = await addSection(cycle.id, { title: "Renewal", appliesTo: "RENEWAL", departmentCode: null });
+  await addField(renew.id, { label: "Continue reason", type: "LONG_TEXT", required: true });
+  // A REQUIRED subcommittee-rank field in a NEW-only section: a renewing applicant
+  // never sees it, so requiring it dead-ends them with an error on no rendered step.
+  const rankSection = await addSection(cycle.id, { title: "Subcommittee preference", appliesTo: "NEW", departmentCode: null });
+  await addField(rankSection.id, { label: "Subcommittee preferences", type: "SUBCOMMITTEE_RANK", required: true, validation: { rankCount: 3 } });
+  await prisma.subcommittee.create({ data: { name: "Outreach", order: 0 } });
+  await publishCycle(cycle.id, lead.id);
+
+  const person = await makeVolunteer("SRHD");
+  const app = await submitApplication("apply-rank-scope", {
+    applicantType: "RENEWAL",
+    renewalDepartment: "SRHD",
+    answers: { first_name: "Re", last_name: "New", email: "srhd@yale.edu", continue_reason: "yes" },
+    files: {},
+    sessionPersonId: person.id,
+    sessionEmail: "srhd@yale.edu",
+  });
+  // The submit succeeds (previously threw "Please rank at least one subcommittee.")
+  expect(app.subcommitteeRanking).toEqual([]);
 });
 
 it("rejects a required ranking left empty", async () => {
@@ -558,6 +625,56 @@ async function makeVolunteer(deptCode: string) {
 }
 
 const RENEWAL_ANSWERS = { first_name: "Reed", last_name: "Renew", email: "tampered@evil.com", continue_reason: "I want to keep volunteering." };
+
+// Every separation-of-duties guard in recruitment keys on applicantPersonId and
+// short-circuits on `applicantPersonId && ...`. A NEW application from a
+// signed-in person used to store null there, so a sitting director could pick
+// "New applicant" in the wizard and then score and accept their own application.
+it("links a NEW submission to the signed-in person so the self-dealing guards can fire", async () => {
+  await openVolunteerCycle();
+  const person = await makeVolunteer("SRHD");
+  const app = await submitApplication("apply-v", {
+    applicantType: "NEW",
+    answers: { first_name: "Reed", last_name: "Renew", email: "reed@yale.edu", "1st_choice_department": "SRHD", srhd_essay: "because" },
+    files: {},
+    sessionPersonId: person.id,
+    identityEmail: "reed@yale.edu",
+  });
+  const applicant = await prisma.applicant.findFirstOrThrow({ where: { id: app.applicantId } });
+  expect(app.applicantType).toBe("NEW");
+  expect(applicant.applicantPersonId).toBe(person.id);
+});
+
+it("leaves applicantPersonId null for a NEW submission with no session (a true outside applicant)", async () => {
+  await openVolunteerCycle();
+  const app = await submitApplication("apply-v", {
+    applicantType: "NEW",
+    answers: { first_name: "Ann", last_name: "Lee", email: "ann@yale.edu", "1st_choice_department": "SRHD", srhd_essay: "because" },
+    files: {},
+  });
+  const applicant = await prisma.applicant.findFirstOrThrow({ where: { id: app.applicantId } });
+  expect(applicant.applicantPersonId).toBeNull();
+});
+
+it("does not erase a link the draft already established", async () => {
+  const { cycle } = await openVolunteerCycle();
+  const person = await makeVolunteer("SRHD");
+  // A draft saved while signed in already carries the link (drafts.ts).
+  await prisma.applicant.create({
+    data: {
+      cycleId: cycle.id, applicantPersonId: person.id,
+      firstName: "Reed", lastName: "Renew", email: "reed@yale.edu", emailLower: "reed@yale.edu",
+    },
+  });
+  const app = await submitApplication("apply-v", {
+    applicantType: "NEW",
+    answers: { first_name: "Reed", last_name: "Renew", email: "reed@yale.edu", "1st_choice_department": "SRHD", srhd_essay: "because" },
+    files: {},
+    identityEmail: "reed@yale.edu",
+  });
+  const applicant = await prisma.applicant.findFirstOrThrow({ where: { id: app.applicantId } });
+  expect(applicant.applicantPersonId).toBe(person.id);
+});
 
 it("rejects a renewal submit with no session", async () => {
   await openVolunteerCycle();

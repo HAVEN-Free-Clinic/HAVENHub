@@ -82,6 +82,27 @@ it("schedules, panels, and invites; invite requires a time and stamps invitedAt 
   expect(await prisma.interviewPanelist.count({ where: { interviewId: iv.id } })).toBe(0);
 });
 
+it("includes the applicant note in the invite email only when set", async () => {
+  const { director, application } = await seed();
+  const iv = await createInterview(application.id, "EDUC", director.id);
+
+  // Blank note: the {{#if applicantNote}} block is omitted from the email.
+  await updateInterview(iv.id, { scheduledAt: new Date("2026-04-15T18:30:00Z"), zoomLink: "https://z", notes: null, applicantNote: null }, director.id);
+  await sendInterviewInvite(iv.id, director.id);
+  const afterBlank = await prisma.emailLog.findMany({ where: { template: "recruitment.interview_invite" } });
+  expect(afterBlank).toHaveLength(1);
+  expect(afterBlank[0].html).not.toContain("Bring your CV");
+
+  // Set a note and resend: it now renders in the fresh invite (partial patch
+  // leaves the schedule intact, so the resend still has a time). Assert on the
+  // set of emails rather than createdAt order, which ties between fast inserts.
+  await updateInterview(iv.id, { applicantNote: "Bring your CV" }, director.id);
+  await sendInterviewInvite(iv.id, director.id);
+  const afterNote = await prisma.emailLog.findMany({ where: { template: "recruitment.interview_invite" } });
+  expect(afterNote).toHaveLength(2);
+  expect(afterNote.some((m) => m.html.includes("Bring your CV"))).toBe(true);
+});
+
 it("rejects a director scheduling for a department the applicant did not rank", async () => {
   const { application, term, pcar } = await seed();
   const pcarDir = await prisma.person.create({ data: { name: "PcarDir", status: "ACTIVE" } });

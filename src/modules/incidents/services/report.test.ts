@@ -66,6 +66,7 @@ import {
   listReviewQueue,
   reviewReport,
   decideStrike,
+  linkableReports,
   CONCERN_TYPE_VALUES,
   IncidentValidationError,
   IncidentNotFoundError,
@@ -1106,6 +1107,63 @@ describe("decideStrike (per subject)", () => {
     expect(row?.strikeDecision).toBe("PENDING");
   });
 
+  // The reporting form promises "your name is not shared with the subject", but
+  // the subject-facing email used to carry the reporter's verbatim first-person
+  // narrative, which identifies them to anyone who knows that shift's roster.
+  async function seedAnonymousStrikeWithEmail(narrative: string, anonymous = true) {
+    const term = await createTerm();
+    const dept = await createDepartment("ITCM");
+    const director = await createPerson("Director", "ds-anon-dir");
+    const managed = await prisma.person.create({
+      data: { name: "Managed Subject", netId: "ds-anon-vol", contactEmail: "subject@yale.edu" },
+    });
+    const manager = await createPerson("Manager", "ds-anon-mgr");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(managed.id, term.id, dept.id, "VOLUNTEER");
+    await grantPermission(manager.id, "incidents.manage");
+    const report = await submitReport(director.id, {
+      concernTypes: ["ATTENDANCE_RELIABILITY"],
+      description: narrative,
+      anonymous,
+      subjects: [{ personId: managed.id, requestStrike: true }],
+    });
+    const pending = await prisma.incidentReportSubject.findFirstOrThrow({
+      where: { reportId: report.id, strikeDecision: "PENDING" },
+    });
+    return { pending, manager };
+  }
+
+  const NARRATIVE = "I was working triage with him on Saturday when he walked out.";
+
+  it("never sends the anonymous reporter's narrative to the subject: uses the reviewer's notes", async () => {
+    const { pending, manager } = await seedAnonymousStrikeWithEmail(NARRATIVE);
+    await decideStrike(manager.id, pending.id, {
+      approve: true,
+      category: DISCIPLINARY_CATEGORIES[0],
+      notes: "Missed an assigned shift without notice.",
+    });
+    const [mail] = await prisma.emailLog.findMany({ where: { template: "incidents.strike_issued" } });
+    expect(mail.toEmail).toBe("subject@yale.edu");
+    expect(mail.html).not.toContain(NARRATIVE);
+    expect(mail.html).not.toContain("working triage");
+    expect(mail.html).toContain("Missed an assigned shift without notice.");
+  });
+
+  it("omits the narrative entirely when an anonymous strike is approved with no reviewer notes", async () => {
+    const { pending, manager } = await seedAnonymousStrikeWithEmail(NARRATIVE);
+    await decideStrike(manager.id, pending.id, { approve: true, category: DISCIPLINARY_CATEGORIES[0] });
+    const [mail] = await prisma.emailLog.findMany({ where: { template: "incidents.strike_issued" } });
+    expect(mail.html).not.toContain(NARRATIVE);
+    expect(mail.html).toContain("Executive Directors");
+  });
+
+  it("still sends the narrative for a non-anonymous report with no reviewer notes", async () => {
+    const { pending, manager } = await seedAnonymousStrikeWithEmail(NARRATIVE, false);
+    await decideStrike(manager.id, pending.id, { approve: true, category: DISCIPLINARY_CATEGORIES[0] });
+    const [mail] = await prisma.emailLog.findMany({ where: { template: "incidents.strike_issued" } });
+    expect(mail.html).toContain(NARRATIVE);
+  });
+
   it("approve issues one DisciplinaryAction for that person, mirrors anonymous->confidential, sets APPROVED", async () => {
     const { pending, managed, manager } = await seedPendingStrike();
 
@@ -1120,6 +1178,19 @@ describe("decideStrike (per subject)", () => {
     expect(actions).toHaveLength(1);
     expect(actions[0].reportId).toBe(pending.reportId);
     expect(actions[0].confidential).toBe(true);
+  });
+
+  it("stamps occurredAt as a UTC-midnight calendar marker when no date is supplied (#96)", async () => {
+    // The report carried no occurredAt (optional intake field) and the approval
+    // passes none, so decideStrike falls back. DisciplinaryAction.occurredAt is a
+    // calendar-day column read via <CalendarDate timeZone:"UTC">; a raw new Date()
+    // instant would render the strike a day late in the ET evening.
+    const { pending, managed, manager } = await seedPendingStrike();
+
+    await decideStrike(manager.id, pending.id, { approve: true, category: DISCIPLINARY_CATEGORIES[0] });
+
+    const action = await prisma.disciplinaryAction.findFirstOrThrow({ where: { personId: managed.id } });
+    expect(action.occurredAt.toISOString()).toMatch(/T00:00:00\.000Z$/); // a calendar marker, not a live instant
   });
 
   it("approving one subject leaves another subject's request untouched", async () => {
@@ -1215,5 +1286,129 @@ describe("decideStrike (per subject)", () => {
     const row = await prisma.incidentReportSubject.findUnique({ where: { id: pending.id } });
     expect(row?.strikeDecision).toBe("APPROVED");
     expect(await prisma.disciplinaryAction.count({ where: { personId: managed.id } })).toBe(1);
+  });
+
+  it("notifies the subject and their directors when a strike is approved", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("SCTM");
+    const central = await createPerson("Central", "ds-notif-c");
+    const director = await createPerson("Dept Director", "ds-notif-d");
+    const subject = await createPerson("Struck Volunteer", "ds-notif-s");
+    const reporter = await createPerson("Reporter", "ds-notif-r");
+    await grantPermission(central.id, "incidents.manage");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(subject.id, term.id, dept.id, "VOLUNTEER");
+
+    const report = await submitReport(reporter.id, {
+      concernTypes: ["ATTENDANCE_RELIABILITY"],
+      description: "No-call/no-show for a Saturday clinic.",
+      subjects: [{ personId: subject.id }],
+    });
+    const row = await prisma.incidentReportSubject.findFirstOrThrow({
+      where: { reportId: report.id, personId: subject.id },
+    });
+    await prisma.incidentReportSubject.update({
+      where: { id: row.id },
+      data: { strikeDecision: "PENDING" },
+    });
+
+    await decideStrike(central.id, row.id, { approve: true, category: "Attendance" });
+
+    expect(
+      await prisma.notification.count({
+        where: { personId: subject.id, type: "incidents.strike_issued" },
+      })
+    ).toBe(1);
+    expect(
+      await prisma.notification.count({
+        where: { personId: director.id, type: "incidents.strike_issued_directors" },
+      })
+    ).toBe(1);
+  });
+
+  it("notifies no director when the report was anonymous, since the strike is confidential", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("JCTM");
+    const central = await createPerson("Central", "ds-anon-c");
+    const director = await createPerson("Dept Director", "ds-anon-d");
+    const subject = await createPerson("Struck Volunteer", "ds-anon-s");
+    const reporter = await createPerson("Reporter", "ds-anon-r");
+    await grantPermission(central.id, "incidents.manage");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(subject.id, term.id, dept.id, "VOLUNTEER");
+
+    const report = await submitReport(reporter.id, {
+      concernTypes: ["PROFESSIONAL_CONDUCT"],
+      description: "Anonymous concern.",
+      anonymous: true,
+      subjects: [{ personId: subject.id }],
+    });
+    const row = await prisma.incidentReportSubject.findFirstOrThrow({
+      where: { reportId: report.id, personId: subject.id },
+    });
+    await prisma.incidentReportSubject.update({
+      where: { id: row.id },
+      data: { strikeDecision: "PENDING" },
+    });
+
+    await decideStrike(central.id, row.id, { approve: true, category: "Professionalism" });
+
+    expect(
+      await prisma.notification.count({
+        where: { personId: subject.id, type: "incidents.strike_issued" },
+      })
+    ).toBe(1);
+    expect(
+      await prisma.notification.count({ where: { type: "incidents.strike_issued_directors" } })
+    ).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// linkableReports
+// ---------------------------------------------------------------------------
+
+describe("linkableReports", () => {
+  it("rejects an actor without incidents.manage", async () => {
+    const nobody = await createPerson("Nobody", "lr-nc");
+    await expect(linkableReports(nobody.id)).rejects.toBeInstanceOf(IncidentForbiddenError);
+  });
+
+  it("labels a report with its number, concern types, and date, newest first", async () => {
+    const central = await createPerson("Central", "lr-c");
+    const reporter = await createPerson("Reporter", "lr-r");
+    await grantPermission(central.id, "incidents.manage");
+
+    const older = await submitReport(reporter.id, {
+      concernTypes: ["PROFESSIONAL_CONDUCT"],
+      description: "Older report.",
+    });
+    const newer = await submitReport(reporter.id, {
+      concernTypes: ["PATIENT_SAFETY", "PRIVACY_HIPAA"],
+      description: "Newer report.",
+    });
+
+    const rows = await linkableReports(central.id);
+    expect(rows[0].id).toBe(newer.id);
+    expect(rows[0].label).toContain(`#${newer.number}`);
+    expect(rows[0].label).toContain("Patient Safety");
+    expect(rows[1].id).toBe(older.id);
+  });
+
+  it("caps the list at 200 reports", async () => {
+    const central = await createPerson("Central", "lr-cap-c");
+    const reporter = await createPerson("Reporter", "lr-cap-r");
+    await grantPermission(central.id, "incidents.manage");
+
+    await prisma.incidentReport.createMany({
+      data: Array.from({ length: 205 }, (_, i) => ({
+        number: 5000 + i,
+        reporterId: reporter.id,
+        concernTypes: ["OTHER"],
+        description: `Bulk report ${i}.`,
+      })),
+    });
+
+    expect(await linkableReports(central.id)).toHaveLength(200);
   });
 });

@@ -13,6 +13,8 @@ import type { RhdClinic, Term } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { isoDateKey } from "@/platform/dates";
+import { formatForDateInput } from "@/platform/dates/format";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { manageableDepartmentIds, memberDepartmentIds } from "@/platform/departments";
 import { can } from "@/platform/rbac/engine";
 import { loadClearanceMap } from "@/platform/clearance";
@@ -185,13 +187,15 @@ export async function setAssignment(
 
   const term = await loadEditableTerm(opts.termId);
 
-  // Validate clinic date.
-  const clinicDate = term.clinicDates.find((d) => isoDateKey(d) === opts.dateKey);
-  if (!clinicDate) {
-    throw new BuilderValidationError(`${opts.dateKey} is not a clinic date in the selected term.`);
-  }
-
   if (opts.role !== null) {
+    // Assign: the date must be an active clinic date of the term. (Unassign
+    // resolves the row by day key below instead, so an assignment left on a date
+    // that updateClinicDates later removed can still be cleared -- #58.)
+    const clinicDate = term.clinicDates.find((d) => isoDateKey(d) === opts.dateKey);
+    if (!clinicDate) {
+      throw new BuilderValidationError(`${opts.dateKey} is not a clinic date in the selected term.`);
+    }
+
     // Validate membership.
     const membership = await prisma.termMembership.findFirst({
       where: {
@@ -245,24 +249,49 @@ export async function setAssignment(
       after: { role: opts.role, dateKey: opts.dateKey, personId: opts.personId },
     });
   } else {
-    // Unassign: capture before state then delete.
-    const existing = await prisma.shiftAssignment.findFirst({
-      where: {
-        termId: term.id,
-        departmentId: opts.departmentId,
-        clinicDate,
-        personId: opts.personId,
-      },
+    // Unassign: resolve the row by its day key rather than requiring the date to
+    // still be an active clinic date (#58). updateClinicDates can drop a clinic
+    // date without deleting ShiftAssignment rows, and the Builder only renders
+    // active clinic dates, so an assignment stranded on a removed date would
+    // otherwise be unremovable by anyone through the UI.
+    const candidates = await prisma.shiftAssignment.findMany({
+      where: { termId: term.id, departmentId: opts.departmentId, personId: opts.personId },
+      select: { id: true, clinicDate: true, role: true },
     });
+    const existing = candidates.find((row) => isoDateKey(row.clinicDate) === opts.dateKey);
 
-    await prisma.shiftAssignment.deleteMany({
+    if (existing) {
+      await prisma.shiftAssignment.delete({ where: { id: existing.id } });
+    }
+
+    // Auto-cancel any PENDING drop/swap request the person raised for THIS slot.
+    // Once their assignment here is gone the request is orphaned: /schedule only
+    // renders (and offers Cancel for) a request that still has a matching shift
+    // card, so without this the requester is stuck showing "Pending requests: 1"
+    // with no card and no Cancel control, approveRequest would fail validation
+    // ("Not assigned to that shift"), and the schedule-reminders cron keeps
+    // nagging the department's approvers every few days (#25). Matching is by UTC
+    // day key so a request on a clinic date updateClinicDates later removed is
+    // still cleared. The status: "PENDING" precondition on the write makes this a
+    // no-op against a request an approver is concurrently deciding.
+    const openRequests = await prisma.shiftRequest.findMany({
       where: {
         termId: term.id,
         departmentId: opts.departmentId,
-        clinicDate,
-        personId: opts.personId,
+        requesterId: opts.personId,
+        status: "PENDING",
       },
+      select: { id: true, requesterDate: true },
     });
+    const strandedIds = openRequests
+      .filter((r) => isoDateKey(r.requesterDate) === opts.dateKey)
+      .map((r) => r.id);
+    if (strandedIds.length > 0) {
+      await prisma.shiftRequest.updateMany({
+        where: { id: { in: strandedIds }, status: "PENDING" },
+        data: { status: "CANCELLED" },
+      });
+    }
 
     await recordAudit({
       actorPersonId: actor,
@@ -726,7 +755,10 @@ export async function builderView(
   // The current week's clinic Saturday: the first clinic date on or after today
   // (clinic dates are weekly Saturdays). Used as a fixed wayfinding highlight in
   // the grid view, independent of which date is selected for editing.
-  const nowKey = isoDateKey(now);
+  // "Today" is the display-zone (ET) calendar day: a raw isoDateKey(new Date())
+  // is a UTC day key that rolls over at ~8pm ET, so for the last few hours of a
+  // clinic day it would highlight next week instead of today.
+  const nowKey = formatForDateInput(now, await getDisplayTimeZone());
   const currentClinicDate =
     clinicDates.find((d) => isoDateKey(d) >= nowKey) ?? null;
   const currentClinicDateKey = currentClinicDate ? isoDateKey(currentClinicDate) : null;
@@ -836,10 +868,19 @@ export async function builderView(
   // Capacity for the selected date.
   const selectedAssignments = selectedDateKey ? allAssignments.filter((a) => isoDateKey(a.clinicDate) === selectedDateKey) : [];
 
+  // Offboarding / removeMembership leave the ShiftAssignment row behind, so a
+  // departed person would still inflate the day's capacity metrics (onShift,
+  // spanish, triage/walkin/cc, shadow), pushing maxPatientCapacity up and hiding
+  // the "Patients to reschedule" warning. Count only current members of this
+  // department (the ACTIVE `members` set) toward capacity; the stranded
+  // assignment still renders in the grid so a director can reassign it.
+  const activeMemberIds = new Set(members.map((m) => m.person.id));
+  const capacityAssignments = selectedAssignments.filter((a) => activeMemberIds.has(a.personId));
+
   // Build a set of person details for spanish/RN counts.
   const personById = new Map(members.map((m) => [m.person.id, m.person]));
 
-  const onShiftPeople = selectedAssignments.filter((a) => a.role === "VOLUNTEER" || a.role === "DIRECTOR");
+  const onShiftPeople = capacityAssignments.filter((a) => a.role === "VOLUNTEER" || a.role === "DIRECTOR");
   const spanishCount = onShiftPeople.filter((a) => {
     const p = personById.get(a.personId) ?? a.person;
     return p.spanishVerified;
@@ -848,10 +889,10 @@ export async function builderView(
   const capacity = computeDayMetrics(
     {
       onShift: onShiftPeople.length,
-      triage: selectedAssignments.filter((a) => a.triage).length,
-      walkin: selectedAssignments.filter((a) => a.walkin).length,
-      cc: selectedAssignments.filter((a) => a.cc).length,
-      shadow: selectedAssignments.filter((a) => a.role === "SHADOW").length,
+      triage: capacityAssignments.filter((a) => a.triage).length,
+      walkin: capacityAssignments.filter((a) => a.walkin).length,
+      cc: capacityAssignments.filter((a) => a.cc).length,
+      shadow: capacityAssignments.filter((a) => a.role === "SHADOW").length,
       spanish: spanishCount,
       patientsBooked: scheduleDay?.patientsBooked ?? null,
     },

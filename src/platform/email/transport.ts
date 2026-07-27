@@ -1,6 +1,6 @@
 import { getAccessToken } from "./oauth";
 import { inlineEmailHtml } from "./render/inline";
-import { getSetting } from "@/platform/settings/service";
+import { getSettingUncached } from "@/platform/settings/service";
 import { log } from "@/platform/logging";
 
 /** A single outbound email message. */
@@ -28,6 +28,32 @@ export class TransientEmailError extends Error {
     super(message);
     this.name = "TransientEmailError";
   }
+}
+
+/**
+ * Whether a thrown error from token acquisition or the sendMail request is
+ * transient (a temporary upstream problem that should be retried without burning
+ * the row's permanent attempt budget). Covers:
+ *   - the 8s AbortSignal.timeout on either fetch (DOMException "TimeoutError")
+ *     and a manual abort ("AbortError"),
+ *   - network-level fetch rejections (undici throws a TypeError "fetch failed"),
+ *   - a 429 or 5xx from the Entra token endpoint (oauth.ts throws
+ *     `Error("OAuth ... failed with status <n>")`).
+ * MailNotConnectedError and 4xx (other than 429) stay permanent: those need an
+ * operator to reconnect or fix the request, and retrying wastes the budget.
+ */
+export function isTransientSendCause(err: unknown): boolean {
+  if (err instanceof TransientEmailError) return true;
+  if (!(err instanceof Error)) return false;
+  if (err.name === "MailNotConnectedError") return false;
+  if (err.name === "TimeoutError" || err.name === "AbortError") return true;
+  if (err.name === "TypeError") return true; // fetch network failure
+  const m = err.message.match(/status (\d{3})/);
+  if (m) {
+    const status = Number(m[1]);
+    return status === 429 || status >= 500;
+  }
+  return false;
 }
 
 /** Cap a single Graph request so a hung/black-holing endpoint can't consume the
@@ -79,7 +105,17 @@ export class GraphTransport implements EmailTransport {
   }
 
   async send(message: EmailMessage): Promise<void> {
-    const token = await this.getToken();
+    // A 429/5xx/timeout/network failure from the Entra token endpoint is transient:
+    // the recipient is fine, so retry rather than burn the row's attempt budget.
+    let token: string;
+    try {
+      token = await this.getToken();
+    } catch (err) {
+      if (isTransientSendCause(err)) {
+        throw new TransientEmailError(`Graph token acquisition failed transiently: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      throw err;
+    }
     const sender = message.from?.trim() || this.sender;
     const url = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(sender)}/sendMail`;
 
@@ -103,26 +139,38 @@ export class GraphTransport implements EmailTransport {
       };
     }
 
-    const res = await this.fetchImpl(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ message: graphMessage, saveToSentItems: true }),
-      signal: AbortSignal.timeout(GRAPH_REQUEST_TIMEOUT_MS),
-    });
+    let res: Response;
+    try {
+      res = await this.fetchImpl(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ message: graphMessage, saveToSentItems: true }),
+        signal: AbortSignal.timeout(GRAPH_REQUEST_TIMEOUT_MS),
+      });
+    } catch (err) {
+      // The request itself failed to complete: the 8s timeout fired, or the
+      // network dropped. Both are transient; the recipient row is untouched.
+      if (isTransientSendCause(err)) {
+        throw new TransientEmailError(`Graph sendMail request failed transiently: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      throw err;
+    }
 
     if (!res.ok) {
       const text = await res.text().catch(() => "");
-      // 429 (throttled) and 503 (service unavailable) are transient: a single shared
-      // mailbox throttles at ~30 msg/min, so a large blast WILL hit 429s mid-run.
-      // Signal transient so the queue retries without burning the row's permanent
-      // attempt budget (see TransientEmailError).
-      if (res.status === 429 || res.status === 503) {
+      // 429 (throttled) and any 5xx (service unavailable / gateway) are transient:
+      // a single shared mailbox throttles at ~30 msg/min, so a large blast WILL hit
+      // 429s mid-run, and a Graph 500/502/503/504 is an upstream blip, not a bad
+      // recipient. Signal transient so the queue retries without burning the row's
+      // permanent attempt budget (see TransientEmailError). 4xx (bad request, auth)
+      // stays permanent.
+      if (res.status === 429 || res.status >= 500) {
         const retryAfter = res.headers.get("retry-after");
         throw new TransientEmailError(
-          `Graph sendMail throttled: ${res.status}${retryAfter ? ` retry-after=${retryAfter}` : ""} ${text}`,
+          `Graph sendMail transient failure: ${res.status}${retryAfter ? ` retry-after=${retryAfter}` : ""} ${text}`,
         );
       }
       throw new Error(`Graph sendMail failed: ${res.status} ${text}`);
@@ -138,9 +186,13 @@ export class GraphTransport implements EmailTransport {
  * Resolve the email transport from admin settings (DB override -> env default).
  */
 export async function resolveEmailTransport(): Promise<EmailTransport> {
-  const transport = await getSetting<"log" | "graph">("email.transport");
+  // Read UNcached. This runs once per drain (a cron path, not per render), and a
+  // 30s-stale "log" during a transport switch would drain real mail through
+  // LogTransport and mark it SENT with no retry path (#76). The fresh value
+  // routes correctly, or fails loudly below when graph has no sender.
+  const transport = await getSettingUncached<"log" | "graph">("email.transport");
   if (transport === "graph") {
-    const sender = await getSetting<string>("email.sender");
+    const sender = await getSettingUncached<string>("email.sender");
     // The write guard blocks enabling graph without a sender, but a later reset of
     // email.sender could leave graph active with no sender. In production this must
     // NOT silently fall back to the log transport: LogTransport resolves successfully,

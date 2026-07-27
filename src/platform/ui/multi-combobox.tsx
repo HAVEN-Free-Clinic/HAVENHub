@@ -99,14 +99,25 @@ export function MultiCombobox({
   function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setOpen(true);
-      setActive((i) => Math.min(i + 1, filtered.length - 1));
+      if (!open) {
+        // ArrowDown that OPENS a closed list highlights the first option. After
+        // add() the list is closed with active===0 and the query cleared, so
+        // advancing unconditionally opened the list AND jumped to the second option,
+        // adding the wrong department (#139).
+        setOpen(true);
+        setActive(0);
+      } else {
+        setActive((i) => Math.min(i + 1, filtered.length - 1));
+      }
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setActive((i) => Math.max(i - 1, 0));
-    } else if (e.key === "Enter" && open && filtered[active]) {
+    } else if (e.key === "Enter") {
+      // Always swallow Enter so it can never fall through to implicit submission of
+      // the surrounding (server-action) form -- after add() the list is closed but
+      // the input keeps focus, and a second Enter used to submit the form (#77).
       e.preventDefault();
-      add(filtered[active].value);
+      if (open && filtered[active]) add(filtered[active].value);
     } else if (e.key === "Backspace" && query === "" && selected.length > 0) {
       remove(selected[selected.length - 1]);
     } else if (e.key === "Escape") {

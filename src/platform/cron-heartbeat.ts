@@ -17,6 +17,13 @@ import { prisma } from "@/platform/db";
  */
 
 const KEY_PREFIX = "cron.lastSuccess.";
+// When getCronHealth first observes a job, it stamps a firstSeenAt marker so a job
+// that has NEVER succeeded still has a start-of-watch anchor to age against. This
+// lets us flag a never-provisioned job (or one with a wrong URL/secret, so every
+// call 401s and no heartbeat is ever written) once it has been silent for longer
+// than its own staleness window -- without false-alarming in the grace period right
+// after a fresh deploy (#127). Setting-backed, so no schema change.
+const FIRST_SEEN_PREFIX = "cron.firstSeen.";
 
 /** The externally-scheduled jobs, with how stale a successful run may get before the
  *  dashboard flags it (~2x the job's cadence). Ids match the recordCronHeartbeat
@@ -42,25 +49,51 @@ export async function recordCronHeartbeat(jobId: string): Promise<void> {
   }
 }
 
-export type CronHealth = { id: string; label: string; lastSuccessAt: Date | null; stale: boolean };
+export type CronHealth = { id: string; label: string; lastSuccessAt: Date | null; stale: boolean; neverRun: boolean };
 
 /**
- * Health of every tracked cron job. `stale` is true only when a job has succeeded
- * before but its last success is older than its threshold -- i.e. a schedule that
- * was firing and then stopped, the real failure mode. A job that has never run
- * (lastSuccessAt null, e.g. right after a fresh deploy) is reported but NOT flagged
- * stale, so a new deployment does not raise a false alarm before each job's first run.
+ * Health of every tracked cron job. `stale` flags a job that is not running as
+ * expected, covering BOTH failure modes:
+ *   - it succeeded before but its last success is older than its threshold (a
+ *     schedule that was firing and then stopped), and
+ *   - it has NEVER succeeded and has been silent longer than its threshold since we
+ *     first started watching it -- a job that was never provisioned on the external
+ *     scheduler, or is provisioned with a wrong URL/secret so every request 401s
+ *     (#127). `neverRun` distinguishes this case for the caller.
+ *
+ * The firstSeenAt anchor gives a grace period equal to the job's own staleness
+ * window right after a fresh deploy, so a brand-new deployment does not false-alarm
+ * before each job's first run.
  */
 export async function getCronHealth(now: Date = new Date()): Promise<CronHealth[]> {
-  const rows = await prisma.setting.findMany({ where: { key: { startsWith: KEY_PREFIX } } });
-  const byId = new Map<string, Date>();
+  const rows = await prisma.setting.findMany({
+    where: { OR: [{ key: { startsWith: KEY_PREFIX } }, { key: { startsWith: FIRST_SEEN_PREFIX } }] },
+  });
+  const lastById = new Map<string, Date>();
+  const firstSeenById = new Map<string, Date>();
   for (const r of rows) {
     const at = (r.value as { at?: string } | null)?.at;
-    if (at) byId.set(r.key.slice(KEY_PREFIX.length), new Date(at));
+    if (!at) continue;
+    if (r.key.startsWith(KEY_PREFIX)) lastById.set(r.key.slice(KEY_PREFIX.length), new Date(at));
+    else if (r.key.startsWith(FIRST_SEEN_PREFIX)) firstSeenById.set(r.key.slice(FIRST_SEEN_PREFIX.length), new Date(at));
+  }
+  // Stamp firstSeenAt for any job we're seeing for the first time. Best-effort: a
+  // concurrent create or a DB blip is fine, since we use the in-memory `now` anchor
+  // for this call regardless. This never throws (observability must not break the page).
+  for (const j of CRON_JOBS) {
+    if (firstSeenById.has(j.id)) continue;
+    firstSeenById.set(j.id, now);
+    try {
+      await prisma.setting.create({ data: { key: `${FIRST_SEEN_PREFIX}${j.id}`, value: { at: now.toISOString() } } });
+    } catch {
+      // already created by a concurrent view, or DB unavailable -- ignore.
+    }
   }
   return CRON_JOBS.map((j) => {
-    const lastSuccessAt = byId.get(j.id) ?? null;
-    const stale = lastSuccessAt != null && now.getTime() - lastSuccessAt.getTime() > j.maxStaleMs;
-    return { id: j.id, label: j.label, lastSuccessAt, stale };
+    const lastSuccessAt = lastById.get(j.id) ?? null;
+    const neverRun = lastSuccessAt == null;
+    const anchor = lastSuccessAt ?? firstSeenById.get(j.id) ?? now;
+    const stale = now.getTime() - anchor.getTime() > j.maxStaleMs;
+    return { id: j.id, label: j.label, lastSuccessAt, stale, neverRun };
   });
 }

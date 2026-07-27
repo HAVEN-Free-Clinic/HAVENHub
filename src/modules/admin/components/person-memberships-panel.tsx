@@ -18,6 +18,7 @@ import {
   changeMembershipKind,
   membershipHasDirectorShifts,
   MembershipForeignKeyError,
+  OffboardedPersonError,
   MembershipNotFoundError,
   DirectorHasShiftAssignmentsError,
 } from "@/modules/admin/services/roster";
@@ -45,7 +46,7 @@ export async function PersonMembershipsPanel({
   baseHref,
   rosterError,
 }: Props): Promise<ReactNode> {
-  const [activeTerm, memberships, departments] = await Promise.all([
+  const [activeTerm, memberships, departments, subject] = await Promise.all([
     getActiveTerm(),
     prisma.termMembership.findMany({
       where: { personId },
@@ -53,7 +54,15 @@ export async function PersonMembershipsPanel({
       orderBy: [{ term: { startDate: "desc" } }, { department: { code: "asc" } }],
     }),
     prisma.department.findMany({ where: { isActive: true }, orderBy: { code: "asc" } }),
+    prisma.person.findUnique({ where: { id: personId }, select: { status: true } }),
   ]);
+
+  // Offboard convergence: an OFFBOARDED person must hold zero ACTIVE memberships.
+  // Adding one here would put somebody who cannot log in back onto the term
+  // roster, the compliance and training rosters, the schedule builder's
+  // assignable list, and the Monday shift-reminder cron. addMembership rejects
+  // it server-side; hide the form so the admin is told why, and where to go.
+  const subjectOffboarded = subject !== null && subject.status !== "ACTIVE";
 
   const activeMembers = activeTerm
     ? memberships.filter((m) => m.termId === activeTerm.id && m.status === "ACTIVE")
@@ -75,6 +84,9 @@ export async function PersonMembershipsPanel({
     } catch (err) {
       if (err instanceof MembershipForeignKeyError) {
         redirect(`${baseHref}?rosterError=${encodeURIComponent(`Invalid reference: ${err.field}`)}`);
+      }
+      if (err instanceof OffboardedPersonError) {
+        redirect(`${baseHref}?rosterError=${encodeURIComponent("Reactivate this person before adding them to a roster.")}`);
       }
       redirect(`${baseHref}?rosterError=${encodeURIComponent("Failed to add assignment.")}`);
     }
@@ -173,7 +185,14 @@ export async function PersonMembershipsPanel({
             </div>
           )}
 
-          {canManage && (
+          {canManage && subjectOffboarded && (
+            <p className="border-t border-border-subtle pt-4 text-sm text-subtle-foreground">
+              This person is offboarded. Reactivate them in the Status section below before adding
+              a term assignment.
+            </p>
+          )}
+
+          {canManage && !subjectOffboarded && (
             <form action={addAction} className="flex flex-wrap items-end gap-3 border-t border-border-subtle pt-4">
               <Field label="Department">
                 <Select name="departmentId" className="w-56">

@@ -6,7 +6,7 @@
  * downstream expiry arithmetic.
  */
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { extractDateFromText } from "./parser";
 
 // ---------------------------------------------------------------------------
@@ -218,6 +218,8 @@ describe("extractDateFromText - additional date formats", () => {
 // ---------------------------------------------------------------------------
 
 describe("extractDateFromText - sanity window", () => {
+  afterEach(() => { vi.useRealTimers(); });
+
   it("returns null for a future date near completion context", () => {
     // Build a date clearly in the future
     const futureYear = new Date().getUTCFullYear() + 2;
@@ -249,6 +251,24 @@ describe("extractDateFromText - sanity window", () => {
     const text = `Date of Completion ${y}-${m}-${d}`;
     const result = extractDateFromText(text);
     expect(result).not.toBeNull();
+  });
+
+  // #123/#124: a certificate completed TODAY parses to <today>T12:00:00Z, which
+  // is a future INSTANT for any upload before 12:00 UTC (before ~08:00 ET). The
+  // window must compare calendar days, not instants, or a morning upload of a
+  // same-day cert silently drops its date.
+  it("accepts a same-day completion date when the clock is before noon UTC", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-15T06:00:00Z")); // 06:00 UTC, before the noon-anchored cert
+    const result = extractDateFromText("Date of Completion 2026-07-15");
+    expect(result).not.toBeNull();
+    expect(result?.date.toISOString()).toBe("2026-07-15T12:00:00.000Z");
+  });
+
+  it("still rejects tomorrow's date", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-15T06:00:00Z"));
+    expect(extractDateFromText("Date of Completion 2026-07-16")).toBeNull();
   });
 
   it("rejects a date one day outside the 5-year boundary", () => {

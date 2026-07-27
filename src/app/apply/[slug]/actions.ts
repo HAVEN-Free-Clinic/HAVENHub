@@ -48,8 +48,15 @@ export async function submitPublicApplication(slug: string, formData: FormData):
     await submitApplication(slug, {
       applicantType, renewalDepartment, answers, files,
       sessionPersonId: session?.personId ?? null,
-      sessionEmail: session?.user?.email ?? null,
-      identityEmail: identity?.email ?? null,
+      // Use the resolved portal identity's verified email, not the raw OAuth claim.
+      // The member magic-link provider returns only { id: personId }, so
+      // session.user.email is permanently undefined for every non-Yale member -- and
+      // the returning-applicant path in submitApplication requires sessionEmail, so a
+      // member the wizard told was eligible to renew hit "Please sign in with Yale"
+      // (#55). identity.email is the address Person.contactEmail for magic-link, the
+      // verified Entra claim otherwise, and is guaranteed present past the gate above.
+      sessionEmail: session?.user?.email ?? identity.email,
+      identityEmail: identity.email,
     });
     const distinctId = session?.personId ?? identity?.email ?? slug;
     await captureEvent({

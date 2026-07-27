@@ -24,9 +24,19 @@ export function SpeedRouteModal({ open, onClose, rows, departments, onRoute, onR
   const [snapshot] = useState(() => rows);
   const [includeDecided, setIncludeDecided] = useState(false);
   const [index, setIndex] = useState(0);
-  // Ids acted on this session (routed or rejected); they stay in the queue and we
-  // advance past them by index, mirroring speed-score's liveScores.
-  const [acted, setActed] = useState<Record<string, true>>({});
+  // Ids acted on (routed or rejected). Seeded from rows ALREADY handled before the
+  // modal opened so handledCount and total ("You handled X of Y") are measured over
+  // the same population -- previously acted started empty while total counted the
+  // whole snapshot, so clearing the remaining N of M read "handled N of M" and kept
+  // the "Review handled" button visible as if some were outstanding (#99). Mirrors
+  // speed-score-modal, which seeds its counter from pre-existing per-row state.
+  const [acted, setActed] = useState<Record<string, true>>(() =>
+    Object.fromEntries(
+      snapshot
+        .filter((r) => r.decision !== "PENDING" || r.routedDepartmentCode != null)
+        .map((r) => [r.applicationId, true] as const),
+    ),
+  );
   const [error, setError] = useState<string | null>(null);
   const [isSaving, startSave] = useTransition();
   // Applicant to keep in view across a show-decided toggle.

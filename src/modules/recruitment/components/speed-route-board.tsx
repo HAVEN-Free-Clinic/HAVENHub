@@ -177,7 +177,14 @@ export function SpeedRouteBoard({ board, onRoute, onReject, onReopen, onApplyTop
     });
   }
 
-  const topPending = board.top.filter((r) => r.decision === "PENDING" && r.routedDepartmentCode == null).length;
+  // The button/confirm count must match what applyTop actually routes: it drops any
+  // row with no department (proposedDepartmentCode null -- e.g. the first choice was a
+  // department later removed from the cycle -- and no manual override). Counting the
+  // unfiltered set made "Apply top tier (12)" route only the 9 with a department and
+  // silently leave 3 unrouted with no explanation (#98).
+  const topPending = board.top.filter((r) => r.decision === "PENDING" && r.routedDepartmentCode == null);
+  const topRoutable = topPending.filter((r) => deptFor(r) !== "").length;
+  const topMissingDept = topPending.length - topRoutable;
   const bottomPending = board.bottom.filter((r) => r.decision === "PENDING" && r.routedDepartmentCode == null).length;
 
   return (
@@ -191,16 +198,24 @@ export function SpeedRouteBoard({ board, onRoute, onReject, onReopen, onApplyTop
         kind="top"
         h={h}
         action={
-          topPending > 0 ? (
+          topRoutable > 0 ? (
             confirm === "top" ? (
               <div className="flex items-center gap-2 text-sm">
-                <span>Route {topPending} to their selected department?</span>
+                <span>
+                  Route {topRoutable} to their selected department?
+                  {topMissingDept > 0 && <span className="text-subtle-foreground"> ({topMissingDept} still need a department)</span>}
+                </span>
                 <Button type="button" size="sm" variant="primary" disabled={busy} onClick={applyTop}>Confirm</Button>
                 <Button type="button" size="sm" variant="ghost" onClick={() => setConfirm(null)}>Cancel</Button>
               </div>
             ) : (
-              <Button type="button" size="sm" variant="primary" disabled={busy} onClick={() => setConfirm("top")}>Apply top tier ({topPending})</Button>
+              <div className="flex items-center gap-2">
+                <Button type="button" size="sm" variant="primary" disabled={busy} onClick={() => setConfirm("top")}>Apply top tier ({topRoutable})</Button>
+                {topMissingDept > 0 && <span className="text-xs text-subtle-foreground">{topMissingDept} need a department first</span>}
+              </div>
             )
+          ) : topMissingDept > 0 ? (
+            <span className="text-xs text-subtle-foreground">{topMissingDept} top-tier applicant{topMissingDept === 1 ? "" : "s"} need a department before routing</span>
           ) : null
         }
       />

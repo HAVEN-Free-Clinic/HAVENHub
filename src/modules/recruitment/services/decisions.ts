@@ -102,13 +102,19 @@ export async function releaseDecisions(cycleId: string, actorId: string): Promis
     throw new AcceptanceError("Decisions can only be released for an open or closed cycle.");
   }
 
-  const depts = await prisma.department.findMany({ where: { code: { in: cycle.departments } }, select: { code: true, name: true } });
-  const deptName = new Map(depts.map((d) => [d.code, d.name]));
-
   const acceptances = await prisma.acceptance.findMany({
     where: { application: { cycleId } },
     include: { application: { include: { applicant: true } } },
   });
+
+  // Key the dept-name map off the acceptances actually being emailed, not just
+  // cycle.departments (#100): setCycleDepartments allows removing a department that
+  // still has applicants (it only warns), so an Acceptance.departmentCode can fall
+  // outside cycle.departments -- and then the map missed and the applicant-facing
+  // acceptance email interpolated the bare CODE instead of the department name.
+  const deptCodes = [...new Set([...cycle.departments, ...acceptances.map((a) => a.departmentCode)])];
+  const depts = await prisma.department.findMany({ where: { code: { in: deptCodes } }, select: { code: true, name: true } });
+  const deptName = new Map(depts.map((d) => [d.code, d.name]));
   const conflictIds = findAcceptanceConflicts(acceptances.map((a) => ({ applicationId: a.applicationId, departmentCode: a.departmentCode })));
 
   // Resolve the acceptance email sources once for the whole cycle.

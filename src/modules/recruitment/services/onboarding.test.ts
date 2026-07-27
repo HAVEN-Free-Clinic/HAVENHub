@@ -284,6 +284,76 @@ it("submitContract stores spanishSelfReported and licensedRN", async () => {
   expect(ok.licensedRN).toBe(true);
 });
 
+it("submitContract pins the seeded netId/email and ignores a freely-typed identity (#49)", async () => {
+  // The contract is seeded from the accepted Applicant (netId "al99", ada@yale.edu).
+  // An applicant who types someone else's NetID/email in the form must not be able to
+  // rebind the contract: promoteContracts matches a Person by these keys, so a typed
+  // "vv22"/"victim@yale.edu" would otherwise rewrite that third party's roster row.
+  const { srr, acceptance } = await seed();
+  const c = await createOrResendContract(acceptance.id, srr.id, "http://test");
+  const ok = await submitContract(c.token, {
+    firstName: "Ada", lastName: "Lovelace",
+    email: "victim@yale.edu", netId: "vv22", phone: "203",
+    signatures: { ...allAgreementSignatures("Ada"), initials: sign("AL") },
+    customAnswers: { epic_needed_self: "no" },
+    hasEpic: false, worksWithYnhh: false,
+    hipaaCompletedAt: "2026-01-01", hipaaFile: { fileName: "c.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") },
+  });
+  expect(ok.status).toBe("SUBMITTED");
+  // The stored identity stays the SRR-seeded one, not the freely-typed impersonation.
+  const stored = await prisma.onboardingContract.findUniqueOrThrow({ where: { id: c.id } });
+  expect(stored.email).toBe("ada@yale.edu");
+  expect(stored.netId).toBe("al99");
+});
+
+it("freezes the review context at submit so a later Person.epicId or requirement change can't alter the signed record (#107/#108/#109)", async () => {
+  const { srr, acceptance } = await seed(); // SRHD requiresEpicVolunteer: SOME
+  const c = await createOrResendContract(acceptance.id, srr.id, "http://test");
+  // Brand-new applicant: no Person yet, so storedEpicId is null at submit and the
+  // epic_needed_self question is shown and answered.
+  await submitContract(c.token, {
+    firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu", netId: "al99", phone: "203",
+    signatures: { ...allAgreementSignatures("Ada"), initials: sign("AL") },
+    customAnswers: { epic_needed_self: "yes" },
+    hasEpic: false, worksWithYnhh: false,
+    hipaaCompletedAt: "2026-01-01", hipaaFile: { fileName: "c.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") },
+  });
+
+  const before = await getContractForReview(c.id);
+  expect(before!.ctx.storedEpicId).toBeNull();
+  expect(before!.ctx.epicRequirement).toBe("SOME");
+
+  // Promotion / IT later create a matching Person WITH an epicId, and an admin flips
+  // the department's Epic requirement to NONE. A live re-derivation would flip the
+  // Epic-section visibility and drop the applicant's stored answer from the review.
+  await prisma.person.create({ data: { name: "Ada Lovelace", netId: "al99", epicId: "E12345", status: "ACTIVE" } });
+  await prisma.department.update({ where: { code: "SRHD" }, data: { requiresEpicVolunteer: "NONE" } });
+
+  const after = await getContractForReview(c.id);
+  // The frozen context is unchanged: it reflects what the applicant was actually shown.
+  expect(after!.ctx.storedEpicId).toBeNull();
+  expect(after!.ctx.epicRequirement).toBe("SOME");
+});
+
+it("falls back to the live context for a pre-column contract with no frozen reviewContext", async () => {
+  const { srr, acceptance } = await seed();
+  const c = await createOrResendContract(acceptance.id, srr.id, "http://test");
+  await submitContract(c.token, {
+    firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu", netId: "al99", phone: "203",
+    signatures: { ...allAgreementSignatures("Ada"), initials: sign("AL") },
+    customAnswers: { epic_needed_self: "yes" },
+    hasEpic: false, worksWithYnhh: false,
+    hipaaCompletedAt: "2026-01-01", hipaaFile: { fileName: "c.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") },
+  });
+  // Simulate a row submitted before the reviewContext column existed.
+  await prisma.onboardingContract.update({ where: { id: c.id }, data: { reviewContext: Prisma.DbNull } });
+
+  const review = await getContractForReview(c.id);
+  // Live derivation still runs: SRHD is SOME and no Person matches, so storedEpicId is null.
+  expect(review!.ctx.epicRequirement).toBe("SOME");
+  expect(review!.ctx.storedEpicId).toBeNull();
+});
+
 it("stores agreement signatures and required custom answers from the snapshot layout", async () => {
   const { srr, acceptance } = await seed();
   const c = await createOrResendContract(acceptance.id, srr.id, "http://test");

@@ -201,6 +201,76 @@ describe("mySchedule", () => {
     expect(live.availability?.dates).toHaveLength(2);
   });
 
+  // #26 / #61: a director override on ONE of a multi-department member's
+  // memberships must NOT fold into the editable availability (which would make
+  // the whole form read-only and silently shadow the self-save on their other
+  // department). The override is surfaced separately instead.
+  it("surfaces a per-department director override without shadowing the member's editable availability elsewhere", async () => {
+    const dates = saturdays("2026-05-30", 4); // [May30, Jun6, Jun13, Jun20]
+    const term = await createTerm("ACTIVE", "SU26", dates);
+    // The OVERRIDDEN department sorts first (memberships[0]); the old single-
+    // membership read would return its DIRECTOR tier and lock the whole form.
+    const deptC = await createDepartment("CCRH"); // 'C' sorts before 'S' -> memberships[0]
+    const deptS = await createDepartment("SRR");
+    const person = await createPerson("Dan");
+
+    // Self dates are mirrored across both memberships (updateMyAvailability writes all rows).
+    const self = [dates[0], dates[1]];
+    const memC = await createMembership(person.id, term.id, deptC.id, "VOLUNTEER", {
+      selfAvailabilityDates: self,
+      availabilityUpdatedAt: utc(2026, 6, 1),
+    });
+    await createMembership(person.id, term.id, deptS.id, "VOLUNTEER", {
+      selfAvailabilityDates: self,
+      availabilityUpdatedAt: utc(2026, 6, 1),
+    });
+    // The CCRH director pins him to a single, different date.
+    await prisma.termMembership.update({
+      where: { id: memC.id },
+      data: { directorAvailabilityDates: [dates[2]], directorAvailabilitySetAt: utc(2026, 6, 2) },
+    });
+
+    const result = await mySchedule(person.id);
+    const live = result.terms.find((t) => t.isLive)!;
+
+    // Editable availability is his own SELF tier (2 dates), NOT the CCRH director
+    // pin -- even though CCRH is the first-sorted membership. (This is the assertion
+    // the old memberships[0] read fails: it would return tier DIRECTOR here.)
+    expect(live.availability?.tier).toBe("SELF");
+    expect(live.availability?.dates.map((d) => isoDateKey(d))).toEqual(self.map((d) => isoDateKey(d)));
+    // The form stays editable because his SRR membership is not overridden.
+    expect(live.allDepartmentsOverridden).toBe(false);
+    // The CCRH override is surfaced read-only, with its pinned date.
+    expect(live.directorOverrides).toHaveLength(1);
+    expect(live.directorOverrides[0].departmentCode).toBe("CCRH");
+    expect(live.directorOverrides[0].dates.map((d) => isoDateKey(d))).toEqual([isoDateKey(dates[2])]);
+  });
+
+  // The single-department (or fully-overridden) case still hides the editor:
+  // a self-save would move nothing when every department is director-managed.
+  it("marks a fully director-managed member allDepartmentsOverridden", async () => {
+    const dates = saturdays("2026-05-30", 3);
+    const term = await createTerm("ACTIVE", "SU26", dates);
+    const dept = await createDepartment("CCRH");
+    const person = await createPerson("Dan");
+
+    const mem = await createMembership(person.id, term.id, dept.id, "VOLUNTEER");
+    await prisma.termMembership.update({
+      where: { id: mem.id },
+      data: { directorAvailabilityDates: [dates[0]], directorAvailabilitySetAt: utc(2026, 6, 2) },
+    });
+
+    const result = await mySchedule(person.id);
+    const live = result.terms.find((t) => t.isLive)!;
+
+    expect(live.allDepartmentsOverridden).toBe(true);
+    expect(live.directorOverrides).toHaveLength(1);
+    expect(live.directorOverrides[0].departmentCode).toBe("CCRH");
+    // The editable availability is still exposed (self/baseline), but the page
+    // withholds the Save form based on allDepartmentsOverridden.
+    expect(live.availability).not.toBeNull();
+  });
+
   it("surfaces legacyNote from selfUpdatedAvailability", async () => {
     const dates = saturdays("2026-05-30", 2);
     const term = await createTerm("ACTIVE", "SU26", dates);
@@ -531,6 +601,11 @@ describe("fullSchedule", () => {
     const deptM = await createDepartment("MMMM");
 
     const person = await createPerson("Sorter");
+    // A scheduled person is an ACTIVE member of the department (fullSchedule now
+    // filters to current members).
+    await createMembership(person.id, term.id, deptZ.id, "VOLUNTEER");
+    await createMembership(person.id, term.id, deptA.id, "VOLUNTEER");
+    await createMembership(person.id, term.id, deptM.id, "VOLUNTEER");
     // Create one shift per department on the selected date so all three appear.
     await createShift(term.id, deptZ.id, person.id, dates[0], "VOLUNTEER");
     await createShift(term.id, deptA.id, person.id, dates[0], "VOLUNTEER");
@@ -550,6 +625,8 @@ describe("fullSchedule", () => {
     const deptB = await createDepartment("BBCC");
 
     const person = await createPerson("Frank");
+    await createMembership(person.id, term.id, deptA.id, "VOLUNTEER");
+    await createMembership(person.id, term.id, deptB.id, "VOLUNTEER");
 
     // deptA has a shift on dates[0]; deptB only has a shift on dates[1].
     await createShift(term.id, deptA.id, person.id, dates[0], "VOLUNTEER");
@@ -589,6 +666,26 @@ describe("fullSchedule", () => {
     expect(result.clinicDates).toHaveLength(0);
     expect(result.selectedDate).toBeNull();
     expect(result.departments).toHaveLength(0);
+  });
+
+  // #62: offboarding / removeMembership leave the ShiftAssignment row, so the
+  // master schedule must drop people who are no longer ACTIVE members of the
+  // department, matching who the shift-reminders cron notifies.
+  it("excludes an assignee whose department membership is REMOVED", async () => {
+    const dates = saturdays("2026-05-30", 1);
+    const term = await createTerm("ACTIVE", "SU26", dates);
+    const dept = await createDepartment("AABB");
+    const active = await createPerson("Active Vol");
+    const departed = await createPerson("Departed Vol");
+
+    await createMembership(active.id, term.id, dept.id, "VOLUNTEER");
+    await createMembership(departed.id, term.id, dept.id, "VOLUNTEER", { status: "REMOVED" });
+    await createShift(term.id, dept.id, active.id, dates[0], "VOLUNTEER");
+    await createShift(term.id, dept.id, departed.id, dates[0], "VOLUNTEER");
+
+    const result = await fullSchedule(isoDateKey(dates[0]));
+    const names = result.departments.flatMap((d) => d.volunteers.map((v) => v.name));
+    expect(names).toEqual(["Active Vol"]);
   });
 });
 
@@ -727,6 +824,22 @@ describe("updateMyAvailability", () => {
     expect(updated.selfAvailabilityDates).toHaveLength(0);
     expect(updated.availabilityUpdatedAt).not.toBeNull();
     expect(updated.availabilityAcknowledgedAt).toBeNull();
+  });
+
+  it("rejects an availability save for a term with no clinic dates, so an empty grid can't wipe the baseline (#90)", async () => {
+    const term = await createTerm("ACTIVE", "SU26", []); // calendar not set yet
+    const dept = await createDepartment("ITCM");
+    const person = await createPerson("Zoe");
+    const mem = await createMembership(person.id, term.id, dept.id, "VOLUNTEER");
+
+    await expect(
+      updateMyAvailability(person.id, { termId: term.id, dates: [] }),
+    ).rejects.toBeInstanceOf(AvailabilityValidationError);
+
+    // No SELF tier written: availabilityUpdatedAt stays null so resolveAvailability
+    // keeps returning BASELINE (the application answers), not an empty SELF tier.
+    const after = await prisma.termMembership.findUniqueOrThrow({ where: { id: mem.id } });
+    expect(after.availabilityUpdatedAt).toBeNull();
   });
 
   it("updateMyAvailability writes the passed (next) term while a different term is live", async () => {

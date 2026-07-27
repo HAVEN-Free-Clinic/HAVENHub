@@ -6,7 +6,7 @@ import { can } from "@/platform/rbac/engine";
 import { getSetting } from "@/platform/settings/service";
 import { putObject, deleteObject } from "@/platform/storage";
 import { decodeSignaturePng, SignatureError } from "./signature";
-import type { SignatureInput, StoredSignature } from "../contract/signatures";
+import { isStoredSignature, type SignatureInput, type StoredSignature } from "../contract/signatures";
 import { queueEmail } from "@/platform/email/send";
 import { recordAudit } from "@/platform/audit";
 import { parseCompletionDate, CompletionDateError } from "@/platform/compliance/completion-date";
@@ -37,6 +37,25 @@ function isContractExpired(contract: { expiresAt: Date | null }): boolean {
 function safeParseLayout(value: unknown): ContractLayout {
   if (value == null) return DEFAULT_CONTRACT_LAYOUT;
   try { return parseContractLayout(value); } catch { return DEFAULT_CONTRACT_LAYOUT; }
+}
+
+/** Parse the frozen review context stored at submit, or null when the row predates
+ *  the column or the stored value is malformed (caller falls back to a live
+ *  derivation in that case). Validates only the shape this module writes. */
+function parseReviewContext(value: unknown): ContractContext | null {
+  if (value == null || typeof value !== "object" || Array.isArray(value)) return null;
+  const v = value as Record<string, unknown>;
+  const { department, track, epicRequirement, storedEpicId } = v;
+  if (typeof track !== "string") return null;
+  if (typeof epicRequirement !== "string") return null;
+  if (department !== null && typeof department !== "string") return null;
+  if (storedEpicId !== null && typeof storedEpicId !== "string") return null;
+  return {
+    department: department as string | null,
+    track: track as ContractContext["track"],
+    epicRequirement: epicRequirement as ContractContext["epicRequirement"],
+    storedEpicId: storedEpicId as string | null,
+  };
 }
 
 /**
@@ -479,8 +498,15 @@ export async function submitContract(
       data: {
         firstName: input.firstName.trim(),
         lastName: input.lastName.trim(),
-        email: input.email.trim(),
-        netId: input.netId?.trim() || null,
+        // Pin the identity keys to the values the SRR-created contract was seeded
+        // with (from the accepted Applicant record); ignore a freely-typed
+        // netId/email in the submission (#49). Otherwise an applicant could type
+        // another member's NetID and promoteContracts -- which binds the contract
+        // to whatever Person those strings match -- would rewrite that third
+        // party's roster/compliance/permissions. Fall back to the submitted value
+        // only when the contract was seeded without one.
+        email: contract.email || input.email.trim(),
+        netId: contract.netId ?? (input.netId?.trim() || null),
         phone: input.phone?.trim() || null,
         dateOfBirth: dateOfBirth ?? null,
         dietaryRestrictions: input.dietaryRestrictions?.trim() || null,
@@ -517,6 +543,13 @@ export async function submitContract(
         licensedRN: input.licensedRN ?? false,
         hipaaCompletedAt: hipaaCompletedAt ?? null,
         ...fileRef,
+        // Freeze the visibility context used to decide what the applicant saw --
+        // department/track/Epic-requirement and the storedEpicId resolved at submit
+        // -- so the signed-contract review renders exactly those blocks even after
+        // the department's Epic requirement changes or a matching Person later gets
+        // an epicId (which promotion itself causes). getContractForReview reads this
+        // and only re-derives live for pre-column rows (#107/#108/#109).
+        reviewContext: { department: departmentCode, track, epicRequirement: requirement, storedEpicId } as object,
         status: "SUBMITTED",
         submittedAt: new Date(),
       },
@@ -539,6 +572,58 @@ export async function submitContract(
     entityId: contract.id,
   });
   return prisma.onboardingContract.findUniqueOrThrow({ where: { id: contract.id } });
+}
+
+/**
+ * Tear down a not-yet-promoted onboarding contract so its acceptance can be
+ * rescinded, re-routed, or re-decided. Five services (revokeAcceptance and the
+ * routing/interview-decision guards) refuse to touch an acceptance once a
+ * contract row exists and tell the operator to remove it first, but nothing
+ * deleted an OnboardingContract, so the instruction pointed at a path that did
+ * not exist and those decisions were permanently stuck.
+ *
+ * Deletes the contract row (leaving the acceptance intact and re-decidable) and
+ * best-effort removes its private signature and HIPAA blobs. A PROMOTED contract
+ * is refused: that person is on the roster, so the reversal is offboarding, not
+ * a withdraw. SRR-only.
+ */
+export async function withdrawContract(contractId: string, actorId: string): Promise<void> {
+  if (!(await can(actorId, "recruitment.review_all"))) {
+    throw new RecruitmentAuthError("Only SRR can withdraw onboarding contracts.");
+  }
+  const contract = await prisma.onboardingContract.findUnique({
+    where: { id: contractId },
+    select: { id: true, status: true, hipaaStoredName: true, signatures: true },
+  });
+  if (!contract) throw new ContractError("Onboarding contract not found.");
+  if (contract.status === "PROMOTED") {
+    throw new ContractError("This applicant is already on the roster. Offboard them instead of withdrawing the contract.");
+  }
+
+  // Collect the private blobs to clean up: each signature's stored image plus the
+  // HIPAA certificate (keyed under onboarding/<contractId>/, per submitContract).
+  const blobKeys: string[] = [];
+  const sigs = contract.signatures as Record<string, unknown> | null;
+  if (sigs) {
+    for (const v of Object.values(sigs)) {
+      if (isStoredSignature(v) && v.imageKey) blobKeys.push(v.imageKey);
+    }
+  }
+  if (contract.hipaaStoredName) blobKeys.push(`onboarding/${contract.id}/${contract.hipaaStoredName}`);
+
+  // Delete the row first (the authoritative action). Blob cleanup is best-effort:
+  // a leaked blob is a minor storage cost, whereas deleting blobs before a failed
+  // row delete would leave a live contract pointing at missing signatures.
+  await prisma.onboardingContract.delete({ where: { id: contractId } });
+  for (const key of blobKeys) await deleteObject(key);
+
+  await recordAudit({
+    actorPersonId: actorId,
+    action: "recruitment.onboarding_withdraw",
+    entityType: "OnboardingContract",
+    entityId: contractId,
+    before: { status: contract.status },
+  });
 }
 
 export async function listOnboarding(cycleId: string) {
@@ -579,24 +664,32 @@ export async function getContractForReview(contractId: string) {
     },
   });
   if (!contract) return null;
-  const departmentCode = contract.acceptance.departmentCode;
-  const track = contract.acceptance.application.cycle?.track ?? "VOLUNTEER";
-  const dept = departmentCode
-    ? await prisma.department.findUnique({
-        where: { code: departmentCode },
-        select: { requiresEpicDirector: true, requiresEpicVolunteer: true },
-      })
-    : null;
-  // Resolve the Epic ID already on file the same way the fill-out page and
-  // submit validator do, so the review's Epic-section visibility matches what
-  // the applicant was shown (a stored id hides the "do you need Epic?" ask).
-  const storedEpicId = await lookupStoredEpicId(contract.netId, contract.email);
-  const ctx: ContractContext = {
-    department: departmentCode,
-    track,
-    epicRequirement: epicRequirementFor(dept, track),
-    storedEpicId,
-  };
+  // Prefer the context frozen at submit: it is what actually decided the blocks the
+  // applicant was shown. Re-deriving it live drifts the signed record after the
+  // department's Epic requirement changes or a matching Person gains an epicId --
+  // which promotion itself causes -- silently adding or removing answered blocks
+  // from the permanent review (#107/#108/#109). Only rows submitted before this
+  // column existed fall back to the live derivation.
+  const frozen = parseReviewContext(contract.reviewContext);
+  let ctx: ContractContext;
+  if (frozen) {
+    ctx = frozen;
+  } else {
+    const departmentCode = contract.acceptance.departmentCode;
+    const track = contract.acceptance.application.cycle?.track ?? "VOLUNTEER";
+    const dept = departmentCode
+      ? await prisma.department.findUnique({
+          where: { code: departmentCode },
+          select: { requiresEpicDirector: true, requiresEpicVolunteer: true },
+        })
+      : null;
+    ctx = {
+      department: departmentCode,
+      track,
+      epicRequirement: epicRequirementFor(dept, track),
+      storedEpicId: await lookupStoredEpicId(contract.netId, contract.email),
+    };
+  }
   return { contract, cycleId: contract.acceptance.application.cycleId, ctx };
 }
 

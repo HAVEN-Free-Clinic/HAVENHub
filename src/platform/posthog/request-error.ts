@@ -11,6 +11,8 @@
  * runtime bundle never pulls in a node-only module.
  */
 
+import { scrubPath } from "@/platform/posthog/scrub-url";
+
 /**
  * Pull the visitor's distinct id out of the posthog-js cookie
  * (`ph_<token>_posthog`), so a server error attributes to the same person as
@@ -56,7 +58,9 @@ export async function onRequestError(
     );
     const client = getPostHogClient();
     client.captureException(error, distinctIdFromCookie(request.headers?.cookie), {
-      path: request.path,
+      // Same redaction as the client hook: an error thrown while rendering
+      // /onboard/<token> or /login/verify?token=... must not carry the credential.
+      path: request.path ? scrubPath(request.path) : request.path,
       method: request.method,
       router_kind: context.routerKind,
       route_path: context.routePath,

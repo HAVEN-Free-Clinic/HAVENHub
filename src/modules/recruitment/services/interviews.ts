@@ -55,7 +55,7 @@ export async function createInterview(applicationId: string, departmentCode: str
 
 export async function updateInterview(
   interviewId: string,
-  patch: { scheduledAt?: Date | null; zoomLink?: string | null; notes?: string | null },
+  patch: { scheduledAt?: Date | null; zoomLink?: string | null; notes?: string | null; applicantNote?: string | null },
   actorId: string
 ): Promise<Interview> {
   const iv = await prisma.interview.findUnique({ where: { id: interviewId } });
@@ -67,6 +67,7 @@ export async function updateInterview(
       scheduledAt: patch.scheduledAt === undefined ? undefined : patch.scheduledAt,
       zoomLink: patch.zoomLink === undefined ? undefined : patch.zoomLink,
       notes: patch.notes === undefined ? undefined : patch.notes,
+      applicantNote: patch.applicantNote === undefined ? undefined : patch.applicantNote,
     },
   });
 }
@@ -191,6 +192,7 @@ export async function sendInterviewInvite(interviewId: string, actorId: string):
     departmentName: dept?.name ?? iv.departmentCode,
     interviewTime,
     joinLink,
+    applicantNote: iv.applicantNote ?? "",
   });
   await prisma.$transaction(async (tx) => {
     await queueEmail(tx, { to: applicant.email, subject: email.subject, html: email.html, template: "recruitment.interview_invite" });

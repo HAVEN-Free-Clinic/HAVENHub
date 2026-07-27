@@ -27,11 +27,11 @@ import {
   planApply,
 } from "../engine/requests";
 import type { ScheduleRowForValidation } from "../engine/requests";
-import { getActiveTerm } from "@/platform/terms/active-term";
 import { getPersonTerms } from "@/platform/terms/person-terms";
 import { isPublished } from "./publication";
 import { queueEmail } from "@/platform/email/send";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
+import { getSetting } from "@/platform/settings/service";
 
 // ---------------------------------------------------------------------------
 // Typed errors
@@ -138,9 +138,6 @@ export async function canManageRequestsForDept(
  * as the approve/deny path.
  */
 export async function countPendingApprovals(personId: string): Promise<number> {
-  const term = await getActiveTerm();
-  if (!term) return 0;
-
   // Every department the person can approve/deny requests for. The dashboard
   // Approvals card links to the dedicated /schedule/requests page, which is
   // reachable by any approver (including schedule.manage_requests holders who are
@@ -149,8 +146,20 @@ export async function countPendingApprovals(personId: string): Promise<number> {
   const departmentIds = await manageableRequestDepartmentIds(personId);
   if (departmentIds.length === 0) return 0;
 
+  // Span the working set, not just the live term. createRequest lets a member
+  // raise a drop/swap against a published NEXT (PLANNING) term, so pinning the
+  // count to the ACTIVE term hid those from the dashboard badge while the cron
+  // kept emailing approvers about them. ARCHIVED-term requests are excluded: they
+  // can no longer be decided anywhere. This matches the widened /schedule/requests
+  // page. (The manageable-department set is still live-term-derived, so a
+  // brand-new director who exists ONLY next term is not yet counted; that needs
+  // threading the term through the shared scope helper and is left for later.)
   return prisma.shiftRequest.count({
-    where: { termId: term.id, departmentId: { in: departmentIds }, status: "PENDING" },
+    where: {
+      departmentId: { in: departmentIds },
+      status: "PENDING",
+      term: { status: { in: ["ACTIVE", "PLANNING"] } },
+    },
   });
 }
 
@@ -252,10 +261,19 @@ async function sendScheduleEmail(
 ): Promise<void> {
   if (!to) return;
   try {
+    // Supply the hub link vars from the configured base URL (every other email
+    // builds links this way), so the schedule templates' {{ scheduleUrl }} /
+    // {{ requestsUrl }} resolve to the deployed host instead of a hardcoded one.
+    const baseUrl = (await getSetting<string>("app.baseUrl")).replace(/\/+$/, "");
+    const withUrls = {
+      scheduleUrl: `${baseUrl}/schedule`,
+      requestsUrl: `${baseUrl}/schedule/requests`,
+      ...vars,
+    };
     // Route through the shared renderEmail path so schedule lifecycle emails get
     // the branded layout AND honor any admin EmailTemplate override, instead of
     // shipping the bare code-default fragment.
-    const { subject, html } = await renderEmail(templateKey, vars);
+    const { subject, html } = await renderEmail(templateKey, withUrls);
     await queueEmail(prisma, {
       to,
       subject,
@@ -1108,7 +1126,7 @@ const REMINDER_THROTTLE_MS = 3 * 24 * 60 * 60 * 1000;
 export async function remindDirectors(
   actorPersonId: string,
   requestId: string,
-): Promise<void> {
+): Promise<number> {
   const req = await prisma.shiftRequest.findUnique({
     where: { id: requestId },
     include: {
@@ -1136,9 +1154,13 @@ export async function remindDirectors(
   const approvers = await requestApproverRecipients(req.departmentId, req.termId);
   const throttleCutoff = new Date(Date.now() - REMINDER_THROTTLE_MS);
 
-  await Promise.all(
-    approvers.map(async (approver) => {
-      if (!approver.contactEmail) return;
+  // Return the number actually enqueued so the caller can tell the requester the
+  // truth: when the cron (or a recent reminder for another request) has throttled
+  // every approver, nothing is sent and "Reminder sent" would be a false
+  // confirmation (#113).
+  const enqueued = await Promise.all(
+    approvers.map(async (approver): Promise<number> => {
+      if (!approver.contactEmail) return 0;
       // Throttle: skip an approver already notified with this template inside the
       // window (a prior reminder or the original submission notice), so repeated
       // clicks are a no-op rather than an email flood (audit F15).
@@ -1146,7 +1168,7 @@ export async function remindDirectors(
         where: { personId: approver.id, template: REMINDER_TEMPLATE, createdAt: { gte: throttleCutoff } },
         select: { id: true },
       });
-      if (already) return;
+      if (already) return 0;
       // Shared render path: branded layout + admin override, not a bare fragment.
       const { subject, html } = await renderEmail(REMINDER_TEMPLATE, {
         directorName: approver.name?.split(" ")[0] ?? approver.name ?? "",
@@ -1165,6 +1187,8 @@ export async function remindDirectors(
         personId: approver.id,
         triggeredById: actorPersonId,
       });
+      return 1;
     })
   );
+  return enqueued.reduce((sum, n) => sum + n, 0);
 }

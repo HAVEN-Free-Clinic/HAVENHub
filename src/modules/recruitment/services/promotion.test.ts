@@ -34,10 +34,31 @@ async function seedSubmitted(opts: { netId?: string; email?: string; epicNeeded?
 beforeEach(async () => { await resetDb(); });
 afterEach(async () => { await resetDb(); });
 
+// #110: promotion creates the Person directly (bypassing people.ts normalize),
+// so the applicant's raw typed netId/email must be lowercased + trimmed here to
+// keep the codebase-wide lowercase-NetID invariant and stay loginable.
+it("stores a NEW person's netId lowercased and trimmed", async () => {
+  const { srr, contract } = await seedSubmitted({ netId: "  JDC-42 ", email: " Applicant@Yale.EDU " });
+  await promoteContracts([contract.id], srr.id);
+  const person = await prisma.person.findFirstOrThrow({ where: { netId: "jdc-42" } });
+  expect(person.netId).toBe("jdc-42");
+  expect(person.contactEmail).toBe("applicant@yale.edu");
+});
+
+it("matches an existing person despite whitespace/case in the contract netId (no duplicate)", async () => {
+  const existing = await prisma.person.create({ data: { name: "Ada Lovelace", netId: "al99", status: "ACTIVE" } });
+  const { srr, contract } = await seedSubmitted({ netId: "  AL99 " });
+  const res = await promoteContracts([contract.id], srr.id);
+  expect(res.reactivated).toBe(1);
+  expect(res.created).toBe(0);
+  expect(await prisma.person.count({ where: { netId: "al99" } })).toBe(1);
+  expect((await prisma.person.findUniqueOrThrow({ where: { id: existing.id } })).status).toBe("ACTIVE");
+});
+
 it("creates a new ACTIVE person + membership + hipaa cert + epic request when epicNeeded", async () => {
   const { term, srhd, srr, contract } = await seedSubmitted({ epicNeeded: true });
   const res = await promoteContracts([contract.id], srr.id);
-  expect(res).toEqual({ created: 1, reactivated: 0, skipped: 0 });
+  expect(res).toEqual({ created: 1, reactivated: 0, skipped: 0, failed: 0 });
   const person = await prisma.person.findFirstOrThrow({ where: { netId: "al99" } });
   expect(person.status).toBe("ACTIVE");
   expect(await prisma.termMembership.count({ where: { personId: person.id, termId: term.id, departmentId: srhd.id, kind: "VOLUNTEER" } })).toBe(1);
@@ -48,11 +69,132 @@ it("creates a new ACTIVE person + membership + hipaa cert + epic request when ep
   expect(after.promotedPersonId).toBe(person.id);
 });
 
+describe("offboard convergence", () => {
+  // Offboarding queues a PENDING DEACTIVATE EpicRequest. Promotion is the other
+  // path that brings a Person back to ACTIVE, and it used to flip the status
+  // with a bare update, so the deactivation stayed open and IT revoked Epic
+  // access from somebody who had just re-joined.
+  it("cancels the open DEACTIVATE request when re-onboarding an offboarded person", async () => {
+    const existing = await prisma.person.create({
+      data: { name: "Ada Lovelace", netId: "al99", status: "OFFBOARDED", epicId: "ABC123" },
+    });
+    const { srr, contract } = await seedSubmitted({ netId: "al99" });
+    const deact = await prisma.epicRequest.create({
+      data: { personId: existing.id, kind: "DEACTIVATE", status: "PENDING", requestedById: srr.id },
+    });
+
+    await promoteContracts([contract.id], srr.id);
+
+    const after = await prisma.epicRequest.findUniqueOrThrow({ where: { id: deact.id } });
+    expect(after.status).toBe("CANCELLED");
+    expect(after.notes ?? "").toContain("reactivated");
+    expect((await prisma.person.findUniqueOrThrow({ where: { id: existing.id } })).status).toBe("ACTIVE");
+
+    // Reactivation is auditable wherever it happens, not just from /admin/people.
+    const audits = await prisma.auditLog.findMany({
+      where: { action: "person.reactivate", entityId: existing.id },
+    });
+    expect(audits).toHaveLength(1);
+  });
+
+  it("writes no reactivate audit when the person was already ACTIVE", async () => {
+    const existing = await prisma.person.create({ data: { name: "Ada Lovelace", netId: "al99", status: "ACTIVE" } });
+    const { srr, contract } = await seedSubmitted({ netId: "al99" });
+    await promoteContracts([contract.id], srr.id);
+    expect(await prisma.auditLog.count({ where: { action: "person.reactivate", entityId: existing.id } })).toBe(0);
+  });
+
+  it("leaves a SUBMITTED deactivation of an already-ACTIVE person alone", async () => {
+    // Not a reactivation: no status change, so nothing to converge.
+    const existing = await prisma.person.create({
+      data: { name: "Ada Lovelace", netId: "al99", status: "ACTIVE", epicId: "ABC123" },
+    });
+    const { srr, contract } = await seedSubmitted({ netId: "al99" });
+    const deact = await prisma.epicRequest.create({
+      data: { personId: existing.id, kind: "DEACTIVATE", status: "SUBMITTED", requestedById: srr.id },
+    });
+    await promoteContracts([contract.id], srr.id);
+    expect((await prisma.epicRequest.findUniqueOrThrow({ where: { id: deact.id } })).status).toBe("SUBMITTED");
+  });
+
+  // One ACTIVE membership per (person, term, department). changeMembershipKind
+  // soft-removes the old row when swapping kinds; promotion used to scope its
+  // lookup by kind and create a parallel ACTIVE row, which renders the person
+  // twice in the schedule builder grid and double-counts them in compliance.
+  it("retires an ACTIVE membership of the other kind instead of creating a second one", async () => {
+    const existing = await prisma.person.create({ data: { name: "Ada Lovelace", netId: "al99", status: "ACTIVE" } });
+    const { term, srhd, srr, contract } = await seedSubmitted({ netId: "al99" });
+    const volunteer = await prisma.termMembership.create({
+      data: { personId: existing.id, termId: term.id, departmentId: srhd.id, kind: "VOLUNTEER", status: "ACTIVE" },
+    });
+    // Promote through a DIRECTOR-track cycle for the same term and department.
+    await prisma.recruitmentCycle.updateMany({ where: {}, data: { track: "DIRECTOR" } });
+
+    await promoteContracts([contract.id], srr.id);
+
+    const active = await prisma.termMembership.findMany({
+      where: { personId: existing.id, termId: term.id, departmentId: srhd.id, status: "ACTIVE" },
+    });
+    expect(active).toHaveLength(1);
+    expect(active[0].kind).toBe("DIRECTOR");
+    expect((await prisma.termMembership.findUniqueOrThrow({ where: { id: volunteer.id } })).status).toBe("REMOVED");
+  });
+});
+
+describe("promote result reporting", () => {
+  // `skipped` means "conflicted or not yet submitted", which an SRR reads and
+  // dismisses. A contract that errored out must not hide in that number: that
+  // person holds no membership and is absent from every roster for the term.
+  // The three intentional skips (not SUBMITTED, conflicted acceptance,
+  // unresolvable department) must stay in `skipped` and never inflate `failed`,
+  // which the action now renders as an error banner.
+  it("keeps the benign skips in `skipped` and leaves `failed` at zero", async () => {
+    const { srr, contract } = await seedSubmitted();
+    // Unresolvable department: the lookup happens before the transaction.
+    await prisma.department.deleteMany({});
+
+    const res = await promoteContracts([contract.id], srr.id);
+    expect(res).toEqual({ created: 0, reactivated: 0, skipped: 1, failed: 0 });
+    expect(await prisma.person.count({ where: { netId: "al99" } })).toBe(0);
+  });
+
+  it("reports a second promote of the same contract as skipped, not failed", async () => {
+    const { srr, contract } = await seedSubmitted();
+    const first = await promoteContracts([contract.id], srr.id);
+    expect(first).toEqual({ created: 1, reactivated: 0, skipped: 0, failed: 0 });
+    const second = await promoteContracts([contract.id], srr.id);
+    expect(second).toEqual({ created: 0, reactivated: 0, skipped: 1, failed: 0 });
+  });
+
+  // The claim is what makes a concurrent double-promote safe: without it both
+  // transactions proceed and each creates a HipaaCertificate and an EpicRequest.
+  it("does not duplicate certificates or Epic requests under a concurrent promote", async () => {
+    const existing = await prisma.person.create({ data: { name: "Ada Lovelace", netId: "al99", status: "ACTIVE" } });
+    const { term, srhd, srr, contract } = await seedSubmitted({ netId: "al99", epicNeeded: true });
+    // Membership already exists, so neither racer trips the unique key that
+    // protects the new-person path.
+    await prisma.termMembership.create({
+      data: { personId: existing.id, termId: term.id, departmentId: srhd.id, kind: "VOLUNTEER", status: "ACTIVE" },
+    });
+
+    const [a, b] = await Promise.all([
+      promoteContracts([contract.id], srr.id),
+      promoteContracts([contract.id], srr.id),
+    ]);
+
+    expect(a.reactivated + b.reactivated).toBe(1);
+    expect(a.skipped + b.skipped).toBe(1);
+    expect(a.failed + b.failed).toBe(0);
+    expect(await prisma.hipaaCertificate.count({ where: { personId: existing.id } })).toBe(1);
+    expect(await prisma.epicRequest.count({ where: { personId: existing.id, kind: "NEW" } })).toBe(1);
+  });
+});
+
 it("reactivates a returning person matched by netId without duplicating", async () => {
   const existing = await prisma.person.create({ data: { name: "Ada Lovelace", netId: "al99", status: "OFFBOARDED" } });
   const { srr, contract } = await seedSubmitted({ netId: "al99", epicNeeded: false });
   const res = await promoteContracts([contract.id], srr.id);
-  expect(res).toEqual({ created: 0, reactivated: 1, skipped: 0 });
+  expect(res).toEqual({ created: 0, reactivated: 1, skipped: 0, failed: 0 });
   expect(await prisma.person.count({ where: { netId: "al99" } })).toBe(1);
   expect((await prisma.person.findUniqueOrThrow({ where: { id: existing.id } })).status).toBe("ACTIVE");
 });
@@ -74,7 +216,7 @@ it("skips a conflicted (multi-department) contract and creates no person or memb
   await prisma.acceptance.create({ data: { applicationId: acc.applicationId, departmentCode: "MDIC", approvedById: srr.id } });
 
   const res = await promoteContracts([contract.id], srr.id);
-  expect(res).toEqual({ created: 0, reactivated: 0, skipped: 1 });
+  expect(res).toEqual({ created: 0, reactivated: 0, skipped: 1, failed: 0 });
   expect(await prisma.person.count({ where: { netId: "al99" } })).toBe(0);
   expect(await prisma.termMembership.count({ where: { termId: cycle.termId } })).toBe(0);
   expect((await prisma.onboardingContract.findUniqueOrThrow({ where: { id: contract.id } })).status).toBe("SUBMITTED");
@@ -84,7 +226,7 @@ it("skips a non-SUBMITTED contract (idempotent re-run)", async () => {
   const { srr, contract } = await seedSubmitted({ epicNeeded: false });
   await promoteContracts([contract.id], srr.id);
   const res2 = await promoteContracts([contract.id], srr.id);
-  expect(res2).toEqual({ created: 0, reactivated: 0, skipped: 1 });
+  expect(res2).toEqual({ created: 0, reactivated: 0, skipped: 1, failed: 0 });
 });
 
 it("requires review_all", async () => {
@@ -99,7 +241,7 @@ it("reactivates a returning person matched by email when the contract has no net
   // clear the contract netId so matching falls through to contactEmail
   await prisma.onboardingContract.update({ where: { id: contract.id }, data: { netId: null } });
   const res = await promoteContracts([contract.id], srr.id);
-  expect(res).toEqual({ created: 0, reactivated: 1, skipped: 0 });
+  expect(res).toEqual({ created: 0, reactivated: 1, skipped: 0, failed: 0 });
   expect(await prisma.person.count({ where: { contactEmail: "mary@yale.edu" } })).toBe(1);
   expect((await prisma.person.findUniqueOrThrow({ where: { id: existing.id } })).status).toBe("ACTIVE");
 });
@@ -126,7 +268,7 @@ it("maps spanishSelfReported + licensedRN onto the Person, leaves verified false
 it("promotes a TRANSFER applicant into the accepted department, not their prior one", async () => {
   const { term, srhd, srr, contract } = await seedSubmitted({ applicantType: "TRANSFER", transferFromDepartments: ["MDIC"] });
   const res = await promoteContracts([contract.id], srr.id);
-  expect(res).toEqual({ created: 1, reactivated: 0, skipped: 0 });
+  expect(res).toEqual({ created: 1, reactivated: 0, skipped: 0, failed: 0 });
   const person = await prisma.person.findFirstOrThrow({ where: { netId: "al99" } });
   expect(await prisma.termMembership.count({ where: { personId: person.id, termId: term.id, departmentId: srhd.id, kind: "VOLUNTEER" } })).toBe(1);
 });
@@ -141,7 +283,7 @@ it("reactivates a REMOVED membership for the same term/dept/kind rather than lea
   const removed = await prisma.termMembership.create({ data: { personId: existing.id, termId: term.id, departmentId: srhd.id, kind: "VOLUNTEER", status: "REMOVED" } });
 
   const res = await promoteContracts([contract.id], srr.id);
-  expect(res).toEqual({ created: 0, reactivated: 1, skipped: 0 });
+  expect(res).toEqual({ created: 0, reactivated: 1, skipped: 0, failed: 0 });
 
   // No duplicate membership; the existing row is flipped back to ACTIVE.
   const memberships = await prisma.termMembership.findMany({ where: { personId: existing.id, termId: term.id, departmentId: srhd.id, kind: "VOLUNTEER" } });
@@ -156,7 +298,7 @@ it("leaves an already-ACTIVE membership untouched on re-promotion (audit3 M1)", 
   const active = await prisma.termMembership.create({ data: { personId: existing.id, termId: term.id, departmentId: srhd.id, kind: "VOLUNTEER", status: "ACTIVE" } });
 
   const res = await promoteContracts([contract.id], srr.id);
-  expect(res).toEqual({ created: 0, reactivated: 1, skipped: 0 });
+  expect(res).toEqual({ created: 0, reactivated: 1, skipped: 0, failed: 0 });
 
   const memberships = await prisma.termMembership.findMany({ where: { personId: existing.id, termId: term.id, departmentId: srhd.id, kind: "VOLUNTEER" } });
   expect(memberships).toHaveLength(1);
@@ -167,7 +309,7 @@ it("leaves an already-ACTIVE membership untouched on re-promotion (audit3 M1)", 
 it("carries the application's availability answer into TermMembership.baselineAvailability", async () => {
   const { term, srhd, srr, contract } = await seedSubmitted({ availability: ["2026-05-30", "2026-06-06", "2026-06-13"] });
   const res = await promoteContracts([contract.id], srr.id);
-  expect(res).toEqual({ created: 1, reactivated: 0, skipped: 0 });
+  expect(res).toEqual({ created: 1, reactivated: 0, skipped: 0, failed: 0 });
   const person = await prisma.person.findFirstOrThrow({ where: { netId: "al99" } });
   const membership = await prisma.termMembership.findFirstOrThrow({
     where: { personId: person.id, termId: term.id, departmentId: srhd.id, kind: "VOLUNTEER" },
@@ -219,7 +361,7 @@ it("clears a REMOVED membership's stale baselineAvailability when the reactivati
   });
 
   const res = await promoteContracts([contract.id], srr.id);
-  expect(res).toEqual({ created: 0, reactivated: 1, skipped: 0 });
+  expect(res).toEqual({ created: 0, reactivated: 1, skipped: 0, failed: 0 });
 
   const membership = await prisma.termMembership.findFirstOrThrow({
     where: { personId: existing.id, termId: term.id, departmentId: srhd.id, kind: "VOLUNTEER" },
@@ -239,7 +381,7 @@ it("keeps a REMOVED membership's existing baselineAvailability when the reactiva
   });
 
   const res = await promoteContracts([contract.id], srr.id);
-  expect(res).toEqual({ created: 0, reactivated: 1, skipped: 0 });
+  expect(res).toEqual({ created: 0, reactivated: 1, skipped: 0, failed: 0 });
 
   const membership = await prisma.termMembership.findFirstOrThrow({
     where: { personId: existing.id, termId: term.id, departmentId: srhd.id, kind: "VOLUNTEER" },

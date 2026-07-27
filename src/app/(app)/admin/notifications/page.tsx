@@ -94,7 +94,7 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
   const errorCode = sp.error ?? null;
   const errorMessage = errorCode
     ? errorCode === "validation" && sp.message
-      ? decodeURIComponent(sp.message)
+      ? sp.message
       : "An unexpected error occurred."
     : null;
 

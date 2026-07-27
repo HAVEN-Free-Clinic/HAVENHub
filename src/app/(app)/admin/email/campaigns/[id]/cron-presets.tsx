@@ -3,10 +3,15 @@
 import { useState } from "react";
 import { Input } from "@/platform/ui/input";
 
+// The cron field is evaluated in UTC (see the helper text under the input), so
+// present the presets as their UTC value while labelling the Eastern time an admin
+// actually means. 13:00 UTC is ~9:00 AM ET (9 AM EDT in summer, 8 AM EST in winter --
+// a fixed cron cannot track DST). Previously these emitted 0 9 * * * ("09:00" label)
+// which fired at 05:00/04:00 ET, contradicting the label and the helper text (#80).
 const PRESETS = [
-  { label: "Weekly (Mon 09:00)", value: "0 9 * * 1" },
-  { label: "Daily (09:00)", value: "0 9 * * *" },
-  { label: "Weekdays (09:00)", value: "0 9 * * 1-5" },
+  { label: "Weekly (Mon ~9 AM ET)", value: "0 13 * * 1" },
+  { label: "Daily (~9 AM ET)", value: "0 13 * * *" },
+  { label: "Weekdays (~9 AM ET)", value: "0 13 * * 1-5" },
 ] as const;
 
 export function CronPresets() {

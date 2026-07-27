@@ -8,10 +8,12 @@ import {
   listPendingEpicRequests,
   reconcileDeactivationRequests,
   submitEpicRequests,
+  closeTicket,
   logYnhhIncident,
   resolveIncident,
   getEpicRequestHistory,
   listIncidentPeople,
+  resolveMirrorsByPerson,
 } from "./itcm";
 import { persistAttachment } from "./attachments";
 import { createTechRequest, SupportConflictError, SupportForbiddenError, SupportNotFoundError, SupportStateError } from "./tech-request";
@@ -159,6 +161,22 @@ describe("listPendingDeactivations", () => {
     const rows = await listPendingDeactivations();
     expect(rows.map((r) => r.name)).toEqual(["Alice"]);
     expect(rows[0].epicId).toBe("EA");
+  });
+
+  // A DEACTIVATE is a revocation task for somebody who has left. If they are
+  // ACTIVE again, IT must not see it: this query is the last point before the
+  // revocation becomes real YNHH paperwork, and it should not depend on every
+  // writer having remembered to cancel the request on reactivation.
+  it("excludes a person who is ACTIVE again despite a still-open DEACTIVATE", async () => {
+    const actor = await prisma.person.create({ data: { name: "Actor" } });
+    const rejoined = await prisma.person.create({
+      data: { name: "Rejoined", epicId: "ER", status: "ACTIVE" },
+    });
+    await prisma.epicRequest.create({
+      data: { personId: rejoined.id, kind: "DEACTIVATE", status: "PENDING", requestedById: actor.id },
+    });
+
+    expect(await listPendingDeactivations()).toEqual([]);
   });
 });
 
@@ -349,28 +367,90 @@ describe("submitEpicRequests", () => {
     expect(reqs.find((r) => r.personId === b.id)?.mirrorEpicId).toBeNull();
   });
 
-  it("rejects a duplicate open request and creates no ticket", async () => {
+  it("adopts a same-kind un-ticketed PENDING request instead of creating a second one", async () => {
     const actor = await createPerson("Manager");
     await grantPermission(actor.id, "support.manage_requests");
     const person = await createPerson("Alice");
-    // An existing open (PENDING) request already tracks this person.
-    await prisma.epicRequest.create({
+    // Exactly what promotion raises for a promoted volunteer who needs Epic.
+    const promoted = await prisma.epicRequest.create({
       data: { personId: person.id, kind: "NEW", status: "PENDING", requestedById: actor.id },
     });
 
-    // The open-request block is a recoverable conflict: a SupportConflictError
-    // (a SupportStateError subclass) carrying the blocked person's name so the
-    // caller can keep the generated artifacts and point at the Tracker.
+    const ticket = await submitEpicRequests(actor.id, "NEW", "New - Individual - Alice", [
+      { personId: person.id, mirrorEpicId: "MIRROR-A" },
+    ]);
+
+    // The promotion row itself moved onto the ticket: no second request exists.
+    const all = await prisma.epicRequest.findMany({ where: { personId: person.id } });
+    expect(all).toHaveLength(1);
+    expect(all[0].id).toBe(promoted.id);
+    expect(all[0].status).toBe("SUBMITTED");
+    expect(all[0].ticketId).toBe(ticket.id);
+    expect(all[0].mirrorEpicId).toBe("MIRROR-A");
+  });
+
+  it("rejects an open request of a different kind and creates no ticket", async () => {
+    const actor = await createPerson("Manager");
+    await grantPermission(actor.id, "support.manage_requests");
+    const person = await createPerson("Alice", { epicId: "E1" });
+    await prisma.epicRequest.create({
+      data: { personId: person.id, kind: "MODIFY", status: "PENDING", requestedById: actor.id },
+    });
+
+    const err = await submitEpicRequests(actor.id, "RENEW", "Renew - Individual - Alice", [
+      { personId: person.id, mirrorEpicId: null },
+    ]).catch((e) => e);
+    expect(err).toBeInstanceOf(SupportConflictError);
+    expect((err as SupportConflictError).personNames).toEqual(["Alice"]);
+
+    expect(await prisma.ynhhTicket.count()).toBe(0);
+    expect(await prisma.epicRequest.count({ where: { personId: person.id } })).toBe(1);
+  });
+
+  it("rejects a request already submitted onto another ticket", async () => {
+    const actor = await createPerson("Manager");
+    await grantPermission(actor.id, "support.manage_requests");
+    const person = await createPerson("Alice");
+    const oldTicket = await prisma.ynhhTicket.create({
+      data: { submittedById: actor.id, status: "OPEN" },
+    });
+    await prisma.epicRequest.create({
+      data: {
+        personId: person.id, kind: "NEW", status: "SUBMITTED",
+        requestedById: actor.id, ticketId: oldTicket.id,
+      },
+    });
+
     const err = await submitEpicRequests(actor.id, "NEW", "New - Individual - Alice", [
       { personId: person.id, mirrorEpicId: null },
     ]).catch((e) => e);
     expect(err).toBeInstanceOf(SupportConflictError);
-    expect(err).toBeInstanceOf(SupportStateError);
-    expect((err as SupportConflictError).personNames).toEqual(["Alice"]);
 
-    // The whole transaction rolls back: no new ticket, no second request.
-    expect(await prisma.ynhhTicket.count()).toBe(0);
-    expect(await prisma.epicRequest.count({ where: { personId: person.id } })).toBe(1);
+    // Only the original ticket survives; the request stays on it.
+    expect(await prisma.ynhhTicket.count()).toBe(1);
+    const reqs = await prisma.epicRequest.findMany({ where: { personId: person.id } });
+    expect(reqs).toHaveLength(1);
+    expect(reqs[0].ticketId).toBe(oldTicket.id);
+  });
+
+  it("adopts one person while creating a fresh request for another in the same batch", async () => {
+    const actor = await createPerson("Manager");
+    await grantPermission(actor.id, "support.manage_requests");
+    const a = await createPerson("Alice");
+    const b = await createPerson("Bob");
+    const promoted = await prisma.epicRequest.create({
+      data: { personId: a.id, kind: "NEW", status: "PENDING", requestedById: actor.id },
+    });
+
+    const ticket = await submitEpicRequests(actor.id, "NEW", "New - Bulk - Alice, Bob", [
+      { personId: a.id, mirrorEpicId: null },
+      { personId: b.id, mirrorEpicId: null },
+    ]);
+
+    const reqs = await prisma.epicRequest.findMany({ where: { ticketId: ticket.id } });
+    expect(reqs).toHaveLength(2);
+    expect(reqs.every((r) => r.status === "SUBMITTED" && r.kind === "NEW")).toBe(true);
+    expect(reqs.map((r) => r.id)).toContain(promoted.id);
   });
 
   it("rejects a NEW request for a person who already has an Epic ID, and creates no ticket", async () => {
@@ -574,5 +654,75 @@ describe("listIncidentPeople", () => {
 
     const rows = await listIncidentPeople();
     expect(rows.map((r) => r.name)).toEqual(["Amy Active", "Zed Active"]);
+  });
+});
+
+describe("closeTicket", () => {
+  beforeEach(resetDb);
+
+  // A CLOSED ticket vanishes from every actionable view, so closing it while a
+  // request is still open would strand that request with nothing able to complete
+  // or cancel it.
+  it("refuses to close a ticket that still has open requests", async () => {
+    const actor = await createPerson("Manager");
+    await grantPermission(actor.id, "support.manage_requests");
+    const alice = await createPerson("Alice");
+    const ticket = await submitEpicRequests(actor.id, "NEW", "New - Alice", [{ personId: alice.id, mirrorEpicId: null }]);
+
+    await expect(closeTicket(actor.id, ticket.id)).rejects.toBeInstanceOf(SupportStateError);
+    // Still OPEN, so the request remains actionable on the Tracker.
+    expect((await prisma.ynhhTicket.findUniqueOrThrow({ where: { id: ticket.id } })).status).toBe("OPEN");
+  });
+
+  it("closes a ticket once all its requests are completed or cancelled", async () => {
+    const actor = await createPerson("Manager");
+    await grantPermission(actor.id, "support.manage_requests");
+    const alice = await createPerson("Alice");
+    const ticket = await submitEpicRequests(actor.id, "NEW", "New - Alice", [{ personId: alice.id, mirrorEpicId: null }]);
+    await prisma.epicRequest.updateMany({ where: { ticketId: ticket.id }, data: { status: "COMPLETED" } });
+
+    const closed = await closeTicket(actor.id, ticket.id);
+    expect(closed.status).toBe("CLOSED");
+    expect(closed.closedAt).not.toBeNull();
+  });
+});
+
+describe("resolveMirrorsByPerson (#32)", () => {
+  beforeEach(async () => { await resetDb(); });
+
+  async function makeTermAndDepts() {
+    const term = await prisma.term.create({ data: { code: "SU26", name: "Summer", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
+    const itcm = await prisma.department.create({ data: { code: "ITCM", name: "ITCM" } });
+    const educ = await prisma.department.create({ data: { code: "EDUC", name: "EDUC" } });
+    return { term, itcm, educ };
+  }
+
+  it("mirrors the DIRECTOR role's Epic access and never overwrites it with a null from another membership", async () => {
+    const { term, itcm, educ } = await makeTermAndDepts();
+    // Sam holds BOTH a DIRECTOR membership in ITCM and a VOLUNTEER membership in EDUC.
+    const sam = await createPerson("Sam");
+    await prisma.termMembership.create({ data: { personId: sam.id, termId: term.id, departmentId: itcm.id, kind: "DIRECTOR", status: "ACTIVE" } });
+    await prisma.termMembership.create({ data: { personId: sam.id, termId: term.id, departmentId: educ.id, kind: "VOLUNTEER", status: "ACTIVE" } });
+    // A director-level mirror exists in ITCM; EDUC has no volunteer with an Epic ID.
+    const itcmDir = await createPerson("Dana Director", { epicId: "DIR-EPIC" });
+    await prisma.termMembership.create({ data: { personId: itcmDir.id, termId: term.id, departmentId: itcm.id, kind: "DIRECTOR", status: "ACTIVE" } });
+
+    const mirrors = await resolveMirrorsByPerson([sam.id], term.id);
+    // Sam's request must mirror the director's Epic ID, not a null from the EDUC row.
+    expect(mirrors.get(sam.id)?.epicId).toBe("DIR-EPIC");
+  });
+
+  it("prefers the DIRECTOR mirror over a VOLUNTEER mirror when both memberships resolve one", async () => {
+    const { term, itcm, educ } = await makeTermAndDepts();
+    const sam = await createPerson("Sam");
+    await prisma.termMembership.create({ data: { personId: sam.id, termId: term.id, departmentId: itcm.id, kind: "DIRECTOR", status: "ACTIVE" } });
+    await prisma.termMembership.create({ data: { personId: sam.id, termId: term.id, departmentId: educ.id, kind: "VOLUNTEER", status: "ACTIVE" } });
+    const itcmDir = await createPerson("Dana Director", { epicId: "DIR-EPIC" });
+    await prisma.termMembership.create({ data: { personId: itcmDir.id, termId: term.id, departmentId: itcm.id, kind: "DIRECTOR", status: "ACTIVE" } });
+    const educVol = await createPerson("Vera Volunteer", { epicId: "VOL-EPIC" });
+    await prisma.termMembership.create({ data: { personId: educVol.id, termId: term.id, departmentId: educ.id, kind: "VOLUNTEER", status: "ACTIVE" } });
+
+    const mirrors = await resolveMirrorsByPerson([sam.id], term.id);
+    expect(mirrors.get(sam.id)?.epicId).toBe("DIR-EPIC");
   });
 });

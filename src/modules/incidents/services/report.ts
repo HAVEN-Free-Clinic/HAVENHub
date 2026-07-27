@@ -27,10 +27,11 @@ import { getActiveTerm } from "@/platform/terms/active-term";
 import { can } from "@/platform/rbac/engine";
 import { getSetting } from "@/platform/settings/service";
 import { putObject, deleteObject } from "@/platform/storage";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
+import { formatForDateInput } from "@/platform/dates/format";
+import { formatDateOnly } from "@/platform/dates";
 import { validateUploadedFile } from "@/modules/recruitment/services/upload";
 import { peopleWithAnyPermission } from "@/platform/rbac/holders";
-import { getDisplayTimeZone } from "@/platform/dates/resolve";
-import { formatDateOnly } from "@/platform/dates";
 import { notify } from "@/platform/notifications/notify";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
 import {
@@ -40,7 +41,7 @@ import {
   reportResolvedContext,
 } from "@/platform/email/templates/incidents";
 import { issueAction, DISCIPLINARY_CATEGORIES } from "./disciplinary";
-import { queueEmail } from "@/platform/email/send";
+import { notifyStrikeIssued } from "./strike-notifications";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -779,6 +780,47 @@ export async function listReviewQueue(
   };
 }
 
+// ---------------------------------------------------------------------------
+// Strike-linking (report picker for the Strikes page)
+// ---------------------------------------------------------------------------
+
+/** How many reports the strike-linking picker offers. */
+const LINKABLE_REPORT_LIMIT = 200;
+
+/**
+ * Reports a central reviewer may link a strike to, newest first, for the
+ * Combobox on the Strikes page.
+ *
+ * Requires incidents.manage -> IncidentForbiddenError. Capped at
+ * LINKABLE_REPORT_LIMIT: the Combobox filters client-side over whatever it is
+ * given, so this deliberately does not ship the full history. Older reports are
+ * linked by deleting and re-recording the strike, or by raising the cap.
+ * Ordered by number (a monotonic autoincrement) as a secondary key so
+ * same-millisecond inserts still order deterministically.
+ */
+export async function linkableReports(
+  actorPersonId: string
+): Promise<Array<{ id: string; label: string }>> {
+  if (!(await can(actorPersonId, "incidents.manage"))) throw new IncidentForbiddenError();
+
+  const zone = await getDisplayTimeZone();
+  const reports = await prisma.incidentReport.findMany({
+    select: { id: true, number: true, concernTypes: true, createdAt: true },
+    orderBy: [{ createdAt: "desc" }, { number: "desc" }],
+    take: LINKABLE_REPORT_LIMIT,
+  });
+
+  return reports.map((r) => {
+    const concerns = r.concernTypes.map((c) => CONCERN_LABELS[c] ?? c).join(", ");
+    const date = formatDateOnly(r.createdAt, zone, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+    return { id: r.id, label: `#${r.number} -- ${concerns} -- ${date}` };
+  });
+}
+
 /**
  * Sets a report's status and reviewer notes. Requires incidents.manage
  * (else IncidentForbiddenError), and a reviewer who is a linked subject of the
@@ -955,6 +997,16 @@ export async function decideStrike(
     throw new IncidentValidationError(`Choose a strike category. One of: ${DISCIPLINARY_CATEGORIES.join(", ")}.`);
   }
 
+  // #96: DisciplinaryAction.occurredAt is a calendar-day column -- every other
+  // write stores a UTC-midnight marker parsed from an <input type="date"> and every
+  // read renders it with <CalendarDate timeZone:"UTC">. A raw `new Date()` fallback
+  // stores a live instant, so an approval at (say) 21:15 ET is 01:15Z the next day
+  // and the register shows the strike one day late. Fall back to today's calendar
+  // day in the display zone, anchored at UTC midnight, consistent with the column.
+  const occurredFallback = new Date(
+    `${formatForDateInput(new Date(), await getDisplayTimeZone())}T00:00:00.000Z`,
+  );
+
   // The PENDING->APPROVED claim and the issueAction strike create share one
   // interactive transaction: the claim runs first, so a lost race (count === 0)
   // throws before any strike is created, and any later failure rolls the claim
@@ -974,7 +1026,7 @@ export async function decideStrike(
         actorPersonId,
         {
           personId: subject.personId,
-          occurredAt: input.occurredAt ?? report.occurredAt ?? new Date(),
+          occurredAt: input.occurredAt ?? report.occurredAt ?? occurredFallback,
           category,
           description: report.description,
           followUpActions: input.followUpActions ?? null,
@@ -1011,46 +1063,12 @@ export async function decideStrike(
 
   await notifyReporterOfStrikeDecision(report, actorPersonId, true);
 
-  // Notify the subject that a strike has been officially issued against them.
-  // Route through renderEmail so the message gets the shared branded layout and
-  // honors any admin template override, matching the other four incident emails
-  // (a direct renderTemplate call shipped a bare, unstyled fragment and ignored
-  // /admin/email/templates edits).
-  try {
-    const [volunteer, issuer] = await Promise.all([
-      prisma.person.findUnique({
-        where: { id: subject.personId },
-        select: { name: true, contactEmail: true },
-      }),
-      prisma.person.findUnique({
-        where: { id: actorPersonId },
-        select: { name: true },
-      }),
-    ]);
-    if (volunteer?.contactEmail) {
-      const zone = await getDisplayTimeZone();
-      const issuedDate = formatDateOnly(new Date(), zone, {
-        month: "long", day: "numeric", year: "numeric",
-      });
-      const rendered = await renderEmail("incidents.strike_issued", {
-        subjectName: volunteer.name?.split(" ")[0] ?? volunteer.name ?? "",
-        category,
-        description: report.description ?? "",
-        issuedBy: issuer?.name ?? "HAVEN Directors",
-        issuedDate,
-      });
-      await queueEmail(prisma, {
-        to: volunteer.contactEmail,
-        subject: rendered.subject,
-        html: rendered.html,
-        template: "incidents.strike_issued",
-        personId: subject.personId,
-        triggeredById: actorPersonId,
-      });
-    }
-  } catch {
-    // Best-effort notifications.
-  }
+  // The subject, and their directors unless the strike is confidential. Runs
+  // after the transaction commits, so a rollback never mails anyone. The subject
+  // email's anonymity protection (#45 -- never send an anonymous reporter's verbatim
+  // narrative to the subject) lives inside notifyStrikeIssued, driven by the strike's
+  // notes/confidential fields, so both the report path and the ledger path get it.
+  await notifyStrikeIssued({ action: strikeAction, actorPersonId });
 
   return approved;
 }

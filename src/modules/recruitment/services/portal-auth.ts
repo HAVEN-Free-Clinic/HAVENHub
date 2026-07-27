@@ -121,6 +121,20 @@ export async function getApplicantIdentity(): Promise<ApplicantIdentity | null> 
   if (session?.applicantEmail) {
     return { email: session.applicantEmail, personId: session.personId ?? null, firstName: session.applicantFirstName ?? null };
   }
+  // A member signed in via the member-magic-link provider has personId set but
+  // NEITHER user.email NOR applicantEmail (authorize returns only { id }). Without
+  // this branch they fell through to the cookie and got null -- a fully signed-in
+  // member treated as anonymous, bounced to "Sign in with Yale". Resolve their
+  // email from the Person record instead of downgrading them. (#50)
+  if (session?.personId) {
+    const person = await prisma.person.findFirst({
+      where: { id: session.personId, status: "ACTIVE" },
+      select: { contactEmail: true },
+    });
+    if (person?.contactEmail) {
+      return { email: person.contactEmail.toLowerCase(), personId: session.personId, firstName: session.applicantFirstName ?? null };
+    }
+  }
   const store = await cookies();
   const email = readApplicantCookie(store.get(APPLICANT_COOKIE)?.value);
   return email ? { email, personId: null, firstName: null } : null;

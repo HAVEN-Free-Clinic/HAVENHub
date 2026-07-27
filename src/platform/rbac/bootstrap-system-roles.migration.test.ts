@@ -1,0 +1,93 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { prisma } from "@/platform/db";
+import { resetDb } from "@/platform/test/db";
+import { SYSTEM_ROLES } from "@/platform/rbac/system-roles";
+
+/**
+ * The bootstrap migration is the ONLY thing that seeds the SYSTEM_ROLES on a fresh
+ * production/staging database (prisma/seed.ts refuses non-localhost URLs). This test
+ * applies it to an empty database and asserts the resulting roles, grants, and
+ * kind-target baseline assignments exactly match src/platform/rbac/system-roles.ts,
+ * so a fresh `migrate deploy` yields a working RBAC baseline (#13). Non-vacuous:
+ * dropping a grant from the migration's VALUES list fails the grant-set assertion.
+ */
+const MIGRATION_SQL = join(
+  process.cwd(),
+  "prisma/migrations/20260726000000_bootstrap_system_roles/migration.sql",
+);
+
+// prisma.$executeRawUnsafe uses the extended protocol, which forbids multiple
+// commands per call, so split the file into statements. Strip '--' comment lines
+// FIRST (a comment contains a ';'), then split: outside comments the migration uses
+// ';' only as a statement terminator and has no semicolons in string literals.
+function statementsOf(sql: string): string[] {
+  const withoutComments = sql
+    .split("\n")
+    .filter((line) => !line.trim().startsWith("--"))
+    .join("\n");
+  return withoutComments
+    .split(";")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+async function applyBootstrapMigration() {
+  for (const stmt of statementsOf(readFileSync(MIGRATION_SQL, "utf8"))) {
+    await prisma.$executeRawUnsafe(stmt);
+  }
+}
+
+describe("bootstrap_system_roles migration", () => {
+  beforeAll(async () => {
+    await resetDb(); // Role / RoleGrant / RoleAssignment empty -> the fresh-DB state
+    await applyBootstrapMigration();
+  });
+
+  afterAll(async () => {
+    await resetDb();
+  });
+
+  it("creates every SYSTEM_ROLE as a system role with the exact grant set", async () => {
+    const roles = await prisma.role.findMany({ include: { grants: true } });
+    expect(roles).toHaveLength(SYSTEM_ROLES.length);
+    for (const sr of SYSTEM_ROLES) {
+      const row = roles.find((r) => r.name === sr.name);
+      expect(row, `role "${sr.name}" was not created`).toBeTruthy();
+      expect(row!.isSystem).toBe(true);
+      expect(new Set(row!.grants.map((g) => g.permission))).toEqual(new Set(sr.grants));
+    }
+  });
+
+  it("provisions the Director/Volunteer kind-target baseline assignments (global)", async () => {
+    const assignments = await prisma.roleAssignment.findMany({
+      where: { kind: { not: null } },
+      include: { role: { select: { name: true } } },
+    });
+    expect(assignments).toHaveLength(2);
+    for (const [roleName, kind] of [
+      ["Director", "DIRECTOR"],
+      ["Volunteer", "VOLUNTEER"],
+    ] as const) {
+      const a = assignments.find((x) => x.kind === kind);
+      expect(a, `${kind} baseline assignment missing`).toBeTruthy();
+      expect(a!.role.name).toBe(roleName);
+      expect(a!.termId).toBeNull();
+      expect(a!.personId).toBeNull();
+      expect(a!.departmentId).toBeNull();
+    }
+  });
+
+  it("is idempotent: re-applying the migration inserts nothing new", async () => {
+    await applyBootstrapMigration();
+    const [roles, grants, kindAssignments] = await Promise.all([
+      prisma.role.count(),
+      prisma.roleGrant.count(),
+      prisma.roleAssignment.count({ where: { kind: { not: null } } }),
+    ]);
+    expect(roles).toBe(SYSTEM_ROLES.length);
+    expect(grants).toBe(SYSTEM_ROLES.reduce((n, r) => n + r.grants.length, 0));
+    expect(kindAssignments).toBe(2);
+  });
+});

@@ -16,8 +16,8 @@ import { loadLayoutSource } from "@/platform/email/templates/renderEmail";
 import { getSetting } from "@/platform/settings/service";
 import { PERSON_FIELD_VIEWS } from "@/platform/email/audience/person-fields";
 import { PERSON_VARIABLES } from "@/platform/email/audience/variables";
-import { isAudience } from "@/platform/email/audience/types";
-import type { Audience } from "@/platform/email/audience/types";
+import { isAudience, isAudienceGroup } from "@/platform/email/audience/types";
+import type { Audience, AudienceNode } from "@/platform/email/audience/types";
 import { prisma } from "@/platform/db";
 import { DateTime } from "@/platform/dates/display";
 import { parseZonedInput } from "@/platform/dates";
@@ -82,6 +82,43 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
   const parsedAudience: Audience = isAudience(campaign.audienceJson)
     ? campaign.audienceJson
     : EMPTY_AUDIENCE;
+
+  // A saved `department` condition whose code was later deactivated (or the
+  // department deleted) has no option in the active-only list, so it renders as
+  // neither checked nor uncheckable while still serialising into every save and
+  // emailing that department forever. Union the active list with every department
+  // code referenced anywhere in the stored audience so each stored value stays
+  // representable and removable, labelling the retired ones (#82).
+  const referencedDeptCodes = new Set<string>();
+  (function collect(nodes: AudienceNode[]) {
+    for (const node of nodes) {
+      if (isAudienceGroup(node)) {
+        collect(node.children);
+      } else if (node.field === "department") {
+        const v = node.value;
+        if (Array.isArray(v)) v.forEach((c) => c && referencedDeptCodes.add(c));
+        else if (typeof v === "string" && v) referencedDeptCodes.add(v);
+      }
+    }
+  })(parsedAudience.conditions);
+
+  const activeCodes = new Set(departments.map((d) => d.code));
+  const missingCodes = [...referencedDeptCodes].filter((c) => !activeCodes.has(c));
+  const inactiveReferenced = missingCodes.length
+    ? await prisma.department.findMany({
+        where: { code: { in: missingCodes } },
+        select: { code: true, name: true },
+        orderBy: { code: "asc" },
+      })
+    : [];
+  const foundCodes = new Set(inactiveReferenced.map((d) => d.code));
+  const audienceDepartments = [
+    ...departments,
+    ...inactiveReferenced.map((d) => ({ code: d.code, name: `${d.name} (inactive)` })),
+    // Codes with no surviving Department row at all (department fully deleted):
+    // still render them so the admin can uncheck the dead value.
+    ...missingCodes.filter((c) => !foundCodes.has(c)).map((c) => ({ code: c, name: `${c} (removed)` })),
+  ];
 
   const zone = await getDisplayTimeZone();
 
@@ -241,12 +278,19 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
   async function cancelAction() {
     "use server";
     const actor = await requirePermission("admin.send_email_campaign");
-    await cancelCampaign(actor.personId, id);
+    try {
+      await cancelCampaign(actor.personId, id);
+    } catch (err) {
+      if (err instanceof CampaignValidationError) {
+        redirect(`/admin/email/campaigns/${id}?error=${encodeURIComponent(err.problems.join("; "))}`);
+      }
+      throw err;
+    }
     revalidatePath(`/admin/email/campaigns/${id}`);
     redirect(`/admin/email/campaigns/${id}?cancelled=1`);
   }
 
-  const errorMessage = sp.error ? decodeURIComponent(sp.error) : null;
+  const errorMessage = sp.error ?? null;
 
   return (
     <div className="space-y-6">
@@ -317,7 +361,7 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
             <h2 className="text-base font-semibold text-foreground">2. Audience</h2>
             <AudienceBuilder
               fields={PERSON_FIELD_VIEWS}
-              departments={departments}
+              departments={audienceDepartments}
               initial={parsedAudience}
             />
           </div>
@@ -347,6 +391,13 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
           {/* Preview / Test / Send. These operate on the last-saved campaign, so
               ReviewActions disables them while the compose form has unsaved edits. */}
           <ReviewActions
+            // Key on updatedAt so a successful save (revalidatePath + redirect ?saved=1)
+            // really REMOUNTS this, resetting the useFormDirty guard. A same-page soft
+            // nav that only changes search params reconciles rather than remounts, so
+            // useState(false) otherwise kept `dirty` true forever and Preview/Test/Send
+            // stayed disabled -- telling the admin to "save your changes" right after
+            // they saved (#14).
+            key={campaign.updatedAt.toISOString()}
             formId="campaign-compose"
             previewAction={previewAction}
             testAction={testAction}
@@ -405,6 +456,8 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
         <div className="space-y-5 border-t border-border pt-6">
           <h2 className="text-base font-semibold text-foreground">Timing</h2>
           <TimingActions
+            // Remount on save so the useFormDirty guard resets -- see ReviewActions (#14).
+            key={campaign.updatedAt.toISOString()}
             formId="campaign-compose"
             scheduleLaterAction={scheduleLaterAction}
             scheduleRecurringAction={scheduleRecurringAction}

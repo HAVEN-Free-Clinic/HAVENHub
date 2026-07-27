@@ -25,7 +25,7 @@ export default async function ManageEhsPage({
       />
       <div className="mt-6 max-w-2xl space-y-6">
         {sp.error && (
-          <Alert tone="error">{decodeURIComponent(sp.error)}</Alert>
+          <Alert tone="error">{sp.error}</Alert>
         )}
         <Card>
           <form action={createTrainingAction} className="flex gap-2">

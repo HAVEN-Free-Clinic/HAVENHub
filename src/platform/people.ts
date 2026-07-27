@@ -72,14 +72,24 @@ export type PersonInput = {
   licensedRN?: boolean;
 };
 
-/** Normalize values that must be lowercase (ids, emails). */
+/**
+ * Normalize identity values. netId and contactEmail are trimmed AND lowercased,
+ * and a value that trims to empty becomes null. This is the single point every
+ * caller (admin create/edit, my-info) shares, so it must be complete: login
+ * resolution compares with a case-insensitive but WHITESPACE-sensitive `equals`,
+ * and the ci-unique indexes are on lower(netId)/lower(contactEmail), so an
+ * untrimmed " jc123 " neither matches at login nor collides with the clean value,
+ * silently locking the person out and defeating the unique constraint. name is
+ * trimmed too (never lowercased, never nulled).
+ */
 function normalize(input: PersonInput): PersonInput;
 function normalize(input: Partial<PersonInput>): Partial<PersonInput>;
 function normalize(input: Partial<PersonInput>): Partial<PersonInput> {
   return {
     ...input,
-    ...(input.netId !== undefined && { netId: input.netId?.toLowerCase() ?? input.netId }),
-    ...(input.contactEmail !== undefined && { contactEmail: input.contactEmail?.toLowerCase() ?? input.contactEmail }),
+    ...(input.name !== undefined && { name: input.name?.trim() ?? input.name }),
+    ...(input.netId !== undefined && { netId: input.netId?.trim().toLowerCase() || null }),
+    ...(input.contactEmail !== undefined && { contactEmail: input.contactEmail?.trim().toLowerCase() || null }),
   };
 }
 
@@ -144,15 +154,6 @@ export async function updatePersonFields(
 ): Promise<Person> {
   const data = normalize(input);
 
-  const existingOrNull = await prisma.person.findUnique({ where: { id: personId } });
-  if (!existingOrNull) throw new PersonNotFoundError(personId);
-  const existing = existingOrNull;
-
-  // Compute the diff: only keys explicitly present in `input` that have a
-  // different value from the existing row. Undefined input keys mean "leave
-  // unchanged", null means "clear".
-  const changedKeys: Array<keyof PersonInput> = [];
-
   const fields: Array<keyof PersonInput> = [
     "name",
     "netId",
@@ -167,27 +168,36 @@ export async function updatePersonFields(
     "licensedRN",
   ];
 
-  for (const key of fields) {
-    if (key in input) {
-      const newVal = data[key] ?? null;
-      const oldVal = (existing as Record<string, unknown>)[key] ?? null;
-      if (newVal !== oldVal) {
-        changedKeys.push(key);
-      }
-    }
-  }
-
-  // No-op: nothing changed, skip write and audit.
-  if (changedKeys.length === 0) {
-    return existing;
-  }
-
-  const beforeSnapshot = Object.fromEntries(
-    changedKeys.map((k) => [k, (existing as Record<string, unknown>)[k] ?? null])
-  );
-
   try {
-    const updated = await prisma.$transaction(async (tx) => {
+    const txResult = await prisma.$transaction(async (tx) => {
+      // Read the current row inside the transaction so the diff and the write
+      // are atomic (no lost update between read and write).
+      const current = await tx.person.findUnique({ where: { id: personId } });
+      if (!current) throw new PersonNotFoundError(personId);
+
+      // Compute the diff: only keys explicitly present in `input` that have a
+      // different value from the existing row. Undefined input keys mean "leave
+      // unchanged", null means "clear".
+      const changedKeys: Array<keyof PersonInput> = [];
+      for (const key of fields) {
+        if (key in input) {
+          const newVal = data[key] ?? null;
+          const oldVal = (current as Record<string, unknown>)[key] ?? null;
+          if (newVal !== oldVal) {
+            changedKeys.push(key);
+          }
+        }
+      }
+
+      // No-op: nothing changed, skip write and audit.
+      if (changedKeys.length === 0) {
+        return { updated: current, changedKeys, beforeSnapshot: {} as Prisma.InputJsonObject };
+      }
+
+      const beforeSnapshot: Prisma.InputJsonObject = Object.fromEntries(
+        changedKeys.map((k) => [k, (current as Record<string, unknown>)[k] ?? null])
+      );
+
       const updateData: Record<string, unknown> = {};
       for (const key of changedKeys) {
         updateData[key] = data[key] ?? null;
@@ -204,13 +214,16 @@ export async function updatePersonFields(
         }
       }
 
-      const result = await tx.person.update({ where: { id: personId }, data: updateData });
-
-      return result;
+      const updated = await tx.person.update({ where: { id: personId }, data: updateData });
+      return { updated, changedKeys, beforeSnapshot };
     });
 
-    const afterSnapshot = Object.fromEntries(
-      changedKeys.map((k) => [k, (updated as Record<string, unknown>)[k] ?? null])
+    if (txResult.changedKeys.length === 0) {
+      return txResult.updated;
+    }
+
+    const afterSnapshot: Prisma.InputJsonObject = Object.fromEntries(
+      txResult.changedKeys.map((k) => [k, (txResult.updated as Record<string, unknown>)[k] ?? null])
     );
 
     // Await audit after the transaction commits. recordAudit never throws.
@@ -219,14 +232,57 @@ export async function updatePersonFields(
       action: "person.update",
       entityType: "Person",
       entityId: personId,
-      before: beforeSnapshot,
+      before: txResult.beforeSnapshot,
       after: afterSnapshot,
     });
 
-    return updated;
+    return txResult.updated;
   } catch (err) {
     return toConflictError(err);
   }
+}
+
+/**
+ * Cancel every open (PENDING/SUBMITTED) DEACTIVATE EpicRequest for a person,
+ * because they are back: a returning person no longer owes a revocation.
+ *
+ * This is the reactivation half of the offboard convergence, extracted so every
+ * writer that brings a Person back to ACTIVE can apply it inside its own
+ * transaction. `setPersonStatusField` is one such writer; `promoteContracts`
+ * (recruitment re-onboarding an offboarded person) is the other, and it used to
+ * flip the status with a bare update, leaving the queued deactivation live so
+ * IT later revoked Epic access from somebody who had just re-joined.
+ *
+ * Takes a transaction client so the cancellation and the status flip commit
+ * together. Returns the ids it cancelled, for audit snapshots.
+ */
+export async function cancelOpenDeactivationRequestsTx(
+  tx: Prisma.TransactionClient,
+  personId: string
+): Promise<string[]> {
+  const openDeact = await tx.epicRequest.findMany({
+    where: { personId, status: { in: ["PENDING", "SUBMITTED"] }, kind: "DEACTIVATE" },
+    select: { id: true, notes: true },
+  });
+  if (openDeact.length === 0) return [];
+
+  const line = "Cancelled: person reactivated";
+  const ids = openDeact.map((r) => r.id);
+
+  await tx.epicRequest.updateMany({
+    where: { id: { in: ids } },
+    data: { status: "CANCELLED", notes: line },
+  });
+
+  for (const r of openDeact) {
+    if (!r.notes) continue;
+    await tx.epicRequest.update({
+      where: { id: r.id },
+      data: { notes: `${r.notes}\n${line}` },
+    });
+  }
+
+  return ids;
 }
 
 export async function setPersonStatusField(
@@ -258,6 +314,7 @@ export async function setPersonStatusField(
   let cancelledEpicRequestIds: string[] = [];
   let deactivationRequestId: string | null = null;
   let cancelledDeactivationRequestIds: string[] = [];
+  let cancelledShiftRequestCount = 0;
 
   const updated = await prisma.$transaction(async (tx) => {
     if (status === "OFFBOARDED") {
@@ -292,6 +349,22 @@ export async function setPersonStatusField(
       }
       cancelledEpicRequestIds = openGrants.map((r) => r.id);
 
+      // Cancel the departing person's PENDING shift requests too (as requester or
+      // swap target). Nothing else touched them, so they lingered in every approver
+      // surface forever: counted in the Approvals badge, pinned atop the department
+      // approvals list, and re-nagged to approvers ~every 3 days by the
+      // schedule-reminders cron -- and could never be approved anyway, since a
+      // departed participant fails the active-member check. (#134) System cancel:
+      // status + note only, no decidedBy (not an approver decision).
+      const cancelledShiftRequests = await tx.shiftRequest.updateMany({
+        where: {
+          status: "PENDING",
+          OR: [{ requesterId: personId }, { targetId: personId }],
+        },
+        data: { status: "CANCELLED", note: "Cancelled: a participant was offboarded." },
+      });
+      cancelledShiftRequestCount = cancelledShiftRequests.count;
+
       // Enqueue a deactivation task when there is recorded Epic access to
       // revoke and no open DEACTIVATE request already exists (idempotent).
       if (existing.epicId) {
@@ -308,19 +381,9 @@ export async function setPersonStatusField(
         }
       }
     } else if (status === "ACTIVE") {
-      // Reactivation: a returning person no longer owes a revocation.
-      const openDeact = await tx.epicRequest.findMany({
-        where: { personId, status: { in: ["PENDING", "SUBMITTED"] }, kind: "DEACTIVATE" },
-        select: { id: true, notes: true },
-      });
-      for (const r of openDeact) {
-        const line = "Cancelled: person reactivated";
-        await tx.epicRequest.update({
-          where: { id: r.id },
-          data: { status: "CANCELLED", notes: r.notes ? `${r.notes}\n${line}` : line },
-        });
-      }
-      cancelledDeactivationRequestIds = openDeact.map((r) => r.id);
+      // Reactivation: a returning person no longer owes a revocation. Shared with
+      // promoteContracts so the two reactivation paths cannot drift again.
+      cancelledDeactivationRequestIds = await cancelOpenDeactivationRequestsTx(tx, personId);
     }
 
     return tx.person.update({
@@ -349,7 +412,7 @@ export async function setPersonStatusField(
     after: {
       status: updated.status,
       ...(status === "OFFBOARDED"
-        ? { removedMemberships, cancelledEpicRequestIds, deactivationRequestId }
+        ? { removedMemberships, cancelledEpicRequestIds, deactivationRequestId, cancelledShiftRequestCount }
         : { cancelledDeactivationRequestIds }),
     },
   });

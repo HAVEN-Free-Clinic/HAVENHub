@@ -17,6 +17,8 @@ import { buildPageMetadata } from "@/platform/branding/metadata";
 const ERROR_MESSAGES: Record<string, string> = {
   CredentialsSignin:
     "We couldn't sign you in. That email isn't in our records or the account isn't active.",
+  MemberLinkExpired:
+    "That sign-in link has expired or was already used. Request a new one below.",
 };
 const DEFAULT_ERROR = "Sign-in failed. Please try again, or contact the IT team.";
 

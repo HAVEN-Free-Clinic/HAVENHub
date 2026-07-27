@@ -68,3 +68,38 @@ export function mergeDepartmentAnswer(
 ): Record<string, string | string[]> {
   return { ...answers, ...(departmentChoiceKey ? { [departmentChoiceKey]: selectedDepartmentCodes } : {}) };
 }
+
+/**
+ * Normalize a raw answers map to the single representation every `visibleWhen`
+ * evaluation must agree on, so the apply wizard, the submit path, and the
+ * reviewer view can never disagree about whether a controller is "answered":
+ *
+ *   - string / string[]                       -> unchanged
+ *   - boolean (a stored CHECKBOX answer)       -> "on" (true) / "" (false)
+ *   - a stored file / signature ref (object     -> "attached"
+ *     carrying `storedName`)
+ *
+ * The apply wizard already writes "on" for checkboxes and "attached" for files
+ * into its own answer map; this brings the server-submit and review-time maps
+ * into line. Values that cannot match a string condition (numbers, other
+ * objects) are dropped, exactly as they were before.
+ *
+ * `presentFileKeys` marks keys whose file lives OUT of the answers map (at
+ * submit time, uploads arrive as separate FormData File entries, not answers):
+ * each is set to "attached" so a condition keyed on a FILE field evaluates the
+ * same server-side as it rendered client-side.
+ */
+export function answersForConditions(
+  answers: Record<string, unknown>,
+  presentFileKeys?: Iterable<string>,
+): Record<string, string | string[]> {
+  const out: Record<string, string | string[]> = {};
+  for (const [k, v] of Object.entries(answers)) {
+    if (typeof v === "string") out[k] = v;
+    else if (Array.isArray(v) && v.every((x) => typeof x === "string")) out[k] = v as string[];
+    else if (typeof v === "boolean") out[k] = v ? "on" : "";
+    else if (v && typeof v === "object" && "storedName" in (v as object)) out[k] = "attached";
+  }
+  if (presentFileKeys) for (const k of presentFileKeys) out[k] = "attached";
+  return out;
+}

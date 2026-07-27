@@ -51,11 +51,15 @@ it("getOnboardingStatus (the gate) reflects only the live term", async () => {
 });
 
 it("getMyOnboarding returns one entry per term the member belongs to, live first", async () => {
-  const { vol } = await seed();
+  const { vol, live, next } = await seed();
   const mine = await getMyOnboarding(vol.id);
   expect(mine.map((m) => m.term.name)).toEqual(["Summer", "Fall"]);
   // Each term carries its own training requirement (both have a designated cycle).
   expect(mine.every((m) => m.status.tasks.some((t) => t.key === "training"))).toBe(true);
+  // Each entry carries its OWN term endDate, so the dashboard can compute HIPAA /
+  // compliance copy per term rather than reusing the live term's (#87).
+  expect(mine[0].term.endDate.getTime()).toBe(live.endDate.getTime());
+  expect(mine[1].term.endDate.getTime()).toBe(next.endDate.getTime());
 });
 
 it("a next-term-only recruit is not gated (live gate empty) but sees next-term onboarding", async () => {
@@ -78,18 +82,40 @@ it("a next-term-only recruit is not gated (live gate empty) but sees next-term o
   expect(mine[0].status.onboarded).toBe(false); // their Fall training is still outstanding
 });
 
-it("getMyOnboarding shows learning/EHS tasks only on the live-term entry", async () => {
+it("shows learning and EHS tasks on the next-term entry too, matching the builder banner", async () => {
   const { vol } = await seed();
   const mine = await getMyOnboarding(vol.id);
   const [liveEntry, nextEntry] = mine;
   expect(liveEntry.term.name).toBe("Summer");
   expect(nextEntry.term.name).toBe("Fall");
 
-  // getMyCourses/getMyEhsStatus resolve the globally-active term internally, so they
-  // can only be trusted for the live entry; the next (PLANNING) entry must omit them
-  // entirely rather than silently show the live term's data under the wrong heading.
-  expect(liveEntry.status.tasks.some((t) => t.key === "learning")).toBe(true);
-  expect(liveEntry.status.tasks.some((t) => t.key === "ehs")).toBe(true);
-  expect(nextEntry.status.tasks.some((t) => t.key === "learning")).toBe(false);
-  expect(nextEntry.status.tasks.some((t) => t.key === "ehs")).toBe(false);
+  // learning + ehs are now computed per term, so both entries carry them. The
+  // next-term entry used to omit them, so a member with incomplete next-term
+  // learning saw "cleared" while the schedule builder (which always counted them)
+  // flagged the same person on the same next term.
+  for (const entry of [liveEntry, nextEntry]) {
+    expect(entry.status.tasks.some((t) => t.key === "learning")).toBe(true);
+    expect(entry.status.tasks.some((t) => t.key === "ehs")).toBe(true);
+  }
+});
+
+it("counts an assigned-but-unstarted course as outstanding on the next-term checklist", async () => {
+  const { vol, next } = await seed();
+  const dept = await prisma.department.findUniqueOrThrow({ where: { code: "SRHD" } });
+  // A course assigned to the member's department. With no CourseProgress it is
+  // NOT_STARTED, so the next-term learning task must read not-onboarded, exactly
+  // what the builder's clearance banner would show for this member on this term.
+  await prisma.course.create({
+    data: {
+      title: "HIPAA basics", scormEntryHref: "index.html", scormVersion: "1.2",
+      scormScos: [{ id: "A", title: "a", href: "index.html" }],
+      departments: { create: [{ departmentId: dept.id }] },
+    },
+  });
+
+  const mine = await getMyOnboarding(vol.id);
+  const nextEntry = mine.find((m) => m.term.id === next.id)!;
+  const learning = nextEntry.status.tasks.find((t) => t.key === "learning");
+  expect(learning).toBeDefined();
+  expect(learning!.state).not.toBe("complete");
 });

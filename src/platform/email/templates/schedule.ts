@@ -6,7 +6,11 @@
 
 import type { TemplateDescriptor } from "./types";
 
-const HUB_LINK = `<a href="https://hub.havenfreeclinic.com/schedule">View your schedule in HAVEN Hub</a>`;
+// The href is a template variable ({{ scheduleUrl }}), supplied by sendScheduleEmail
+// from the configured app.baseUrl. It used to hardcode hub.havenfreeclinic.com
+// (wrong TLD; the deployed host is .org, and every other email builds from the
+// setting), so the link went to a domain the clinic does not own.
+const HUB_LINK = `<a href="{{ scheduleUrl }}">View your schedule in HAVEN Hub</a>`;
 
 export type ScheduleTemplateKey =
   | "schedule-swap-submitted-requester"
@@ -15,6 +19,7 @@ export type ScheduleTemplateKey =
   | "schedule-request-approved"
   | "schedule-request-approved-partner"
   | "schedule-request-denied"
+  | "schedule-request-denied-partner"
   | "schedule-request-cancelled-partner"
   | "schedule-request-submitted-director";
 
@@ -25,6 +30,8 @@ export const scheduleDescriptors: TemplateDescriptor[] = [
     category: "transactional",
     group: "shift",
     variables: [
+      { name: "scheduleUrl", label: "Hub schedule link", sampleValue: "https://hub.havenfreeclinic.org/schedule" },
+      { name: "requestsUrl", label: "Hub approvals link", sampleValue: "https://hub.havenfreeclinic.org/schedule/requests" },
       { name: "requesterName", label: "Requester first name", sampleValue: "Alex" },
       { name: "partnerName", label: "Swap partner name", sampleValue: "Jordan" },
       { name: "requesterDate", label: "Requester shift date", sampleValue: "July 15, 2026" },
@@ -43,6 +50,8 @@ export const scheduleDescriptors: TemplateDescriptor[] = [
     category: "transactional",
     group: "shift",
     variables: [
+      { name: "scheduleUrl", label: "Hub schedule link", sampleValue: "https://hub.havenfreeclinic.org/schedule" },
+      { name: "requestsUrl", label: "Hub approvals link", sampleValue: "https://hub.havenfreeclinic.org/schedule/requests" },
       { name: "partnerName", label: "Partner first name", sampleValue: "Jordan" },
       { name: "requesterName", label: "Requester name", sampleValue: "Alex" },
       { name: "requesterDate", label: "Requester shift date", sampleValue: "July 15, 2026" },
@@ -61,6 +70,8 @@ export const scheduleDescriptors: TemplateDescriptor[] = [
     category: "transactional",
     group: "shift",
     variables: [
+      { name: "scheduleUrl", label: "Hub schedule link", sampleValue: "https://hub.havenfreeclinic.org/schedule" },
+      { name: "requestsUrl", label: "Hub approvals link", sampleValue: "https://hub.havenfreeclinic.org/schedule/requests" },
       { name: "requesterName", label: "Requester first name", sampleValue: "Alex" },
       { name: "requesterDate", label: "Shift date", sampleValue: "July 15, 2026" },
       { name: "departmentName", label: "Department name", sampleValue: "Internal Medicine" },
@@ -77,6 +88,8 @@ export const scheduleDescriptors: TemplateDescriptor[] = [
     category: "transactional",
     group: "shift",
     variables: [
+      { name: "scheduleUrl", label: "Hub schedule link", sampleValue: "https://hub.havenfreeclinic.org/schedule" },
+      { name: "requestsUrl", label: "Hub approvals link", sampleValue: "https://hub.havenfreeclinic.org/schedule/requests" },
       { name: "recipientName", label: "Recipient first name", sampleValue: "Alex" },
       { name: "requestType", label: "Request type (swap or drop)", sampleValue: "swap" },
       { name: "requesterDate", label: "Requester shift date", sampleValue: "July 15, 2026" },
@@ -95,6 +108,8 @@ export const scheduleDescriptors: TemplateDescriptor[] = [
     category: "transactional",
     group: "shift",
     variables: [
+      { name: "scheduleUrl", label: "Hub schedule link", sampleValue: "https://hub.havenfreeclinic.org/schedule" },
+      { name: "requestsUrl", label: "Hub approvals link", sampleValue: "https://hub.havenfreeclinic.org/schedule/requests" },
       { name: "partnerName", label: "Partner first name", sampleValue: "Jordan" },
       { name: "requesterDate", label: "Requester shift date", sampleValue: "July 15, 2026" },
       { name: "partnerDate", label: "Partner shift date", sampleValue: "July 22, 2026" },
@@ -112,6 +127,8 @@ export const scheduleDescriptors: TemplateDescriptor[] = [
     category: "transactional",
     group: "shift",
     variables: [
+      { name: "scheduleUrl", label: "Hub schedule link", sampleValue: "https://hub.havenfreeclinic.org/schedule" },
+      { name: "requestsUrl", label: "Hub approvals link", sampleValue: "https://hub.havenfreeclinic.org/schedule/requests" },
       { name: "requesterName", label: "Requester first name", sampleValue: "Alex" },
       { name: "requestType", label: "Request type (swap or drop)", sampleValue: "swap" },
       { name: "requesterDate", label: "Shift date", sampleValue: "July 15, 2026" },
@@ -129,6 +146,8 @@ export const scheduleDescriptors: TemplateDescriptor[] = [
     category: "transactional",
     group: "shift",
     variables: [
+      { name: "scheduleUrl", label: "Hub schedule link", sampleValue: "https://hub.havenfreeclinic.org/schedule" },
+      { name: "requestsUrl", label: "Hub approvals link", sampleValue: "https://hub.havenfreeclinic.org/schedule/requests" },
       { name: "partnerName", label: "Partner first name", sampleValue: "Jordan" },
       { name: "requesterName", label: "Requester name", sampleValue: "Alex" },
       { name: "partnerDate", label: "Partner shift date", sampleValue: "July 22, 2026" },
@@ -146,6 +165,8 @@ export const scheduleDescriptors: TemplateDescriptor[] = [
     category: "transactional",
     group: "shift",
     variables: [
+      { name: "scheduleUrl", label: "Hub schedule link", sampleValue: "https://hub.havenfreeclinic.org/schedule" },
+      { name: "requestsUrl", label: "Hub approvals link", sampleValue: "https://hub.havenfreeclinic.org/schedule/requests" },
       { name: "directorName", label: "Director first name", sampleValue: "Sam" },
       { name: "requesterName", label: "Requester name", sampleValue: "Alex Johnson" },
       { name: "requestType", label: "Request type (swap or drop)", sampleValue: "swap" },
@@ -158,7 +179,7 @@ export const scheduleDescriptors: TemplateDescriptor[] = [
     defaultBody: `<p>Hi {{ directorName }},</p>
 <p><strong>{{ requesterName }}</strong> has submitted a <strong>{{ requestType }} request</strong> for <strong>{{ requesterDate }}</strong>{{#if partnerName}} with <strong>{{ partnerName }}</strong> ({{ partnerDate }}){{/if}} in the <strong>{{ departmentName }}</strong> department.</p>
 <p>Please review and approve or deny the request in HAVEN Hub.</p>
-<p><a href="https://hub.havenfreeclinic.com/schedule/builder">Review pending requests</a></p>`,
+<p><a href="{{ requestsUrl }}">Review pending requests</a></p>`,
   },
   {
     key: "schedule-request-denied-partner",
@@ -166,6 +187,8 @@ export const scheduleDescriptors: TemplateDescriptor[] = [
     category: "transactional",
     group: "shift",
     variables: [
+      { name: "scheduleUrl", label: "Hub schedule link", sampleValue: "https://hub.havenfreeclinic.org/schedule" },
+      { name: "requestsUrl", label: "Hub approvals link", sampleValue: "https://hub.havenfreeclinic.org/schedule/requests" },
       { name: "partnerName", label: "Partner first name", sampleValue: "Jordan" },
       { name: "requesterName", label: "Requester name", sampleValue: "Alex Johnson" },
       { name: "requesterDate", label: "Requester shift date", sampleValue: "July 15, 2026" },

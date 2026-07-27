@@ -16,6 +16,31 @@ import { getActiveTerm } from "@/platform/terms/active-term";
  * schedule.manage_requests. Returns [] when there is no active term or the
  * person has no active membership.
  */
+/**
+ * Departments to offer in a "scope" editor -- a form that replace-sets a
+ * department assignment (learning course assignment, EHS training scope, etc.).
+ *
+ * Returns every ACTIVE department PLUS any already-assigned department that has
+ * since been deactivated, ordered by name. Departments have no hard delete; the
+ * only removal is `isActive=false`, and a deactivated department can still hold
+ * an assignment whose members keep ACTIVE memberships. If the editor listed only
+ * active departments, that deactivated-but-assigned row would be absent from the
+ * form and silently dropped by the next replace-set save -- taking a required
+ * course/training away from those members and flipping them to "cleared" without
+ * completion (#21/#29). Callers render `isActive:false` rows distinctly so the
+ * manager can see (and deliberately uncheck) what they would drop. Mirrors the
+ * guard in admin/departments/[id]/page.tsx.
+ */
+export async function scopeEditorDepartments(
+  assignedIds: string[],
+): Promise<Array<{ id: string; code: string; name: string; isActive: boolean }>> {
+  return prisma.department.findMany({
+    where: { OR: [{ isActive: true }, { id: { in: assignedIds } }] },
+    select: { id: true, code: true, name: true, isActive: true },
+    orderBy: { name: "asc" },
+  });
+}
+
 export async function memberDepartmentIds(personId: string): Promise<string[]> {
   const activeTerm = await getActiveTerm();
   if (!activeTerm) return [];

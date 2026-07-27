@@ -1453,6 +1453,13 @@ model OnboardingContract {
   templateSnapshot         Json?
   customAnswers            Json?
   signatures               Json?
+  /// The visibility context (department/track/epicRequirement/storedEpicId) frozen
+  /// at submit, so the signed-contract review renders exactly the blocks the
+  /// applicant was shown -- not a re-derivation against live department Epic
+  /// requirements or a Person.epicId written after submission. Null on rows
+  /// submitted before this column existed (getContractForReview falls back to a
+  /// live derivation for those).
+  reviewContext            Json?
 
   acceptance     Acceptance @relation(fields: [acceptanceId], references: [id], onDelete: Cascade)
   promotedBy     Person?    @relation("contractPromotedBy", fields: [promotedById], references: [id], onDelete: SetNull)
@@ -1515,6 +1522,7 @@ model Interview {
   decidedById    String?
   decidedAt      DateTime?
   notes          String?
+  applicantNote  String?
   createdById    String
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt

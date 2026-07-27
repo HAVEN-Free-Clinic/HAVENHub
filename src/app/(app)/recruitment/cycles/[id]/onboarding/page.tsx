@@ -4,13 +4,14 @@ import { requirePermission } from "@/platform/auth/session";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { listOnboarding } from "@/modules/recruitment/services/onboarding";
 import { parseContractLayout } from "@/modules/recruitment/contract/layout";
-import { sendLinksAction, promoteAction } from "./actions";
+import { sendLinksAction, promoteAction, withdrawContractAction } from "./actions";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { Badge } from "@/platform/ui/badge";
 import { Checkbox } from "@/platform/ui/checkbox";
+import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Alert } from "@/platform/ui/alert";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { SectionHeader } from "@/platform/ui/section-header";
@@ -65,18 +66,19 @@ export default async function OnboardingPage({ params, searchParams }: { params:
               const s = statusLabel(r.contract);
               return (
                 <TR key={r.id}>
-                  <TD>{!r.contract && !r.conflicted && <Checkbox name="acceptanceId" value={r.id} aria-label={`Select ${r.application.applicant.firstName} ${r.application.applicant.lastName}`} />}</TD>
+                  <TD>{!r.conflicted && r.contract?.status !== "SUBMITTED" && r.contract?.status !== "PROMOTED" && <Checkbox name="acceptanceId" value={r.id} aria-label={`Select ${r.application.applicant.firstName} ${r.application.applicant.lastName}`} />}</TD>
                   <TD className="font-medium text-foreground">
                     {r.application.applicant.firstName} {r.application.applicant.lastName}
                     {(() => {
                       // Surface any per-cycle custom onboarding answers so they are
                       // readable here instead of being collected and never seen.
-                      const ca = (r.contract?.customAnswers ?? {}) as Record<string, unknown>;
-                      const entries = Object.entries(ca).filter(([, v]) => v != null && v !== "");
-                      if (entries.length === 0) return null;
-                      // Resolve each answer's field key to its human question label from
-                      // the contract snapshot (fall back to the raw key), so reviewers see
-                      // "T-shirt size", not "tshirt_size".
+                      // Resolve the human label for each REAL custom question in the
+                      // contract snapshot, then show ONLY those answers. customAnswers
+                      // also holds internal confirm__<agreementId> checkbox-agreement keys
+                      // (submitContract stores them there) and can carry a stale answer to a
+                      // question this contract never showed; keying off the snapshot's
+                      // custom_question blocks drops both, so reviewers see "T-shirt size",
+                      // not junk rows like "confirm__strike_policy: on" (#88).
                       const labels: Record<string, string> = {};
                       try {
                         if (r.contract?.templateSnapshot) {
@@ -85,8 +87,11 @@ export default async function OnboardingPage({ params, searchParams }: { params:
                           }
                         }
                       } catch {
-                        /* invalid snapshot -> fall back to raw keys */
+                        /* invalid snapshot -> show no custom answers */
                       }
+                      const ca = (r.contract?.customAnswers ?? {}) as Record<string, unknown>;
+                      const entries = Object.entries(ca).filter(([k, v]) => k in labels && v != null && v !== "");
+                      if (entries.length === 0) return null;
                       return (
                         <dl className="mt-1 space-y-0.5 text-xs font-normal text-subtle-foreground">
                           {entries.map(([k, v]) => (
@@ -111,6 +116,24 @@ export default async function OnboardingPage({ params, searchParams }: { params:
                             View
                           </Link>
                         )}
+                        {/* Withdraw a not-yet-promoted contract so its acceptance can
+                            be rescinded or re-decided (the Decisions page refuses to
+                            touch an acceptance while a contract exists). PROMOTED is
+                            excluded: that person is on the roster, so the reversal is
+                            offboarding, not a withdraw. formAction submits this one
+                            row's contractId to the withdraw action within the
+                            surrounding send-links form (no nested form). */}
+                        {r.contract && r.contract.status !== "PROMOTED" && (
+                          <ConfirmButton
+                            label="Withdraw"
+                            size="sm"
+                            className="ml-2 inline-flex align-middle"
+                            formAction={withdrawContractAction.bind(null, id)}
+                            name="contractId"
+                            value={r.contract.id}
+                            confirmLabel={`Withdraw${r.contract.status === "SUBMITTED" ? " (deletes the submitted contract + signatures)" : ""}?`}
+                          />
+                        )}
                       </>
                     )}
                   </TD>
@@ -127,8 +150,12 @@ export default async function OnboardingPage({ params, searchParams }: { params:
           </tbody>
         </Table>
         <SubmitButton size="sm" pendingLabel="Sending…">
-          Send onboarding links
+          Send / resend onboarding links
         </SubmitButton>
+        <p className="text-xs text-subtle-foreground">
+          Resending refreshes the 21-day expiry on the same link, so an expired or
+          undelivered link is recoverable without a fresh acceptance.
+        </p>
         {hasConflicts && (
           <p className="text-xs text-subtle-foreground">
             Applicants accepted by more than one department are marked{" "}

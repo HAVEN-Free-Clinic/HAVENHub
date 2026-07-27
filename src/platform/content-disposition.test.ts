@@ -42,6 +42,19 @@ describe("contentDisposition", () => {
     );
   });
 
+  it("strips a backslash so a trailing '\\' cannot escape the closing quote (#126)", () => {
+    // filename="resume\\" would leave the quoted-string unterminated and malform
+    // the whole parameter list; the backslash must be removed like the double-quote.
+    const header = contentDisposition("resume\\.pdf");
+    expect(header).toBe(
+      "attachment; filename=\"resume.pdf\"; filename*=UTF-8''resume%5C.pdf",
+    );
+    // A name that is only a trailing backslash sanitizes to empty -> fallback.
+    expect(contentDisposition("resume\\")).toBe(
+      "attachment; filename=\"resume\"; filename*=UTF-8''resume%5C",
+    );
+  });
+
   it("produces a header value that is a valid HTTP header field (no non-Latin1 code points)", () => {
     // Regression: a raw non-Latin1 char in the header value threw a ByteString
     // TypeError ("value ... greater than 255") when constructing the Response,

@@ -42,11 +42,31 @@ export class EmailStateError extends Error {
 /** Aggregate counts for the email health dashboard header. */
 export type EmailHealthCounts = {
   queued: number;
+  /** Every FAILED row, regardless of age -- the standing health signal. */
   failed: number;
+  /** FAILED rows recent enough that "Retry all" will actually re-queue them
+   *  (see RETRY_MAX_AGE_MS). Drives the bulk-retry button so its label matches
+   *  what the action sends. */
+  retryableFailed: number;
   sentToday: number;
 };
 
 export const EMAIL_PAGE_SIZE = 25;
+
+/**
+ * "Retry all failed" only re-queues FAILED rows from the last 7 days. EmailLog is
+ * never purged, and the drain re-sends each row's FROZEN html verbatim, so an
+ * unbounded bulk retry would re-deliver months-old acceptance/rejection notices,
+ * shift reminders for clinic dates long past, and magic-link / onboarding URLs
+ * that are already past their expiresAt (a dead link). Bound the retry, and drive
+ * the button's count off the same window so the label never over-promises.
+ */
+export const RETRY_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** The oldest createdAt a bulk retry will touch, relative to `now`. */
+function retryableFailedCutoff(now: Date): Date {
+  return new Date(now.getTime() - RETRY_MAX_AGE_MS);
+}
 
 /**
  * Return aggregate status counts across the entire EmailLog table.
@@ -62,9 +82,12 @@ export async function emailHealthCounts(now?: Date): Promise<EmailHealthCounts> 
     parseZonedInput(`${formatForDateInput(d, zone)}T00:00`, zone) ??
     new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
 
-  const [queued, failed, sentToday] = await Promise.all([
+  const [queued, failed, retryableFailed, sentToday] = await Promise.all([
     prisma.emailLog.count({ where: { status: "QUEUED" } }),
     prisma.emailLog.count({ where: { status: "FAILED" } }),
+    prisma.emailLog.count({
+      where: { status: "FAILED", createdAt: { gte: retryableFailedCutoff(d) } },
+    }),
     prisma.emailLog.count({
       where: {
         status: "SENT",
@@ -73,7 +96,7 @@ export async function emailHealthCounts(now?: Date): Promise<EmailHealthCounts> 
     }),
   ]);
 
-  return { queued, failed, sentToday };
+  return { queued, failed, retryableFailed, sentToday };
 }
 
 /** Input shape for listEmails pagination and filtering. */
@@ -119,7 +142,11 @@ export async function listEmails(query: ListEmailsQuery): Promise<{
   const [rows, total, counts] = await Promise.all([
     prisma.emailLog.findMany({
       where,
-      orderBy: { createdAt: "desc" },
+      // `id` (a cuid) breaks createdAt ties: chunked createMany gives every row
+      // in a campaign fan-out the same CURRENT_TIMESTAMP, and Postgres has no
+      // stable order within a tie group, so offset pages would otherwise repeat
+      // and drop rows. Matches listTeamsMessages / listNotifications / the drain.
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       skip,
       take: EMAIL_PAGE_SIZE,
     }),
@@ -191,20 +218,27 @@ export async function retryEmail(actorPersonId: string, emailId: string): Promis
 }
 
 /**
- * Bulk-reset every FAILED email to QUEUED so the next drain pass re-attempts
+ * Bulk-reset recent FAILED emails to QUEUED so the next drain pass re-attempts
  * them. Intended for recovery after a transient transport outage that exhausted
  * the retry budget on many rows at once (issue #63), where clicking per-row
  * Retry is impractical.
+ *
+ * Only rows newer than RETRY_MAX_AGE_MS are touched: EmailLog is never purged and
+ * the drain re-sends the frozen html verbatim, so an unbounded retry would blast
+ * out stale mail (see RETRY_MAX_AGE_MS). The bulk-retry button is driven by
+ * `counts.retryableFailed`, which uses the same window.
  *
  * Resets attempts/lastError exactly like retryEmail. Records a single audit
  * entry carrying the affected count, or none when there is nothing to retry.
  * Returns the number of rows re-queued.
  *
  * @param actorPersonId - The person authorizing the bulk retry (for audit).
+ * @param now - Override the current time (for testability). Defaults to new Date().
  */
-export async function retryAllFailedEmails(actorPersonId: string): Promise<number> {
+export async function retryAllFailedEmails(actorPersonId: string, now?: Date): Promise<number> {
+  const cutoff = retryableFailedCutoff(now ?? new Date());
   const { count } = await prisma.emailLog.updateMany({
-    where: { status: "FAILED" },
+    where: { status: "FAILED", createdAt: { gte: cutoff } },
     data: { status: "QUEUED", attempts: 0, lastError: null, lockedAt: null },
   });
 
@@ -215,7 +249,7 @@ export async function retryAllFailedEmails(actorPersonId: string): Promise<numbe
     action: "email.retry_all",
     entityType: "EmailLog",
     before: { status: "FAILED" },
-    after: { status: "QUEUED", count },
+    after: { status: "QUEUED", count, maxAgeDays: RETRY_MAX_AGE_MS / (24 * 60 * 60 * 1000) },
   });
 
   return count;

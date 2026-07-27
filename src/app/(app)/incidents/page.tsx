@@ -17,6 +17,9 @@
  */
 
 import { requirePersonSession } from "@/platform/auth/session";
+import { getSetting } from "@/platform/settings/service";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
+import { formatForDateInput } from "@/platform/dates/format";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Field, Input, ReadonlyField, Textarea } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
@@ -28,6 +31,7 @@ import { SubmitButton } from "@/platform/ui/submit-button";
 import { FormActions } from "@/platform/ui/form";
 import { CONCERN_TYPES, listSubjectOptions } from "@/modules/incidents/services/report";
 import { ConcernTypesFieldset } from "./concern-types-fieldset";
+import { IncidentAttachmentsField } from "./incident-attachments-field";
 import { SubjectPicker } from "./subject-picker";
 import { submitReportAction } from "./actions";
 
@@ -65,7 +69,7 @@ export default async function ReportConcernPage({ searchParams }: PageProps) {
   // All other unknown codes fall back to a generic string.
   const errorMessage = errorCode
     ? errorCode === "validation" && sp.message
-      ? decodeURIComponent(sp.message)
+      ? sp.message
       : (ERROR_MESSAGES[errorCode] ?? "An unexpected error occurred.")
     : null;
 
@@ -73,6 +77,14 @@ export default async function ReportConcernPage({ searchParams }: PageProps) {
   // actor manages (strike-eligible). Central reviewers get an empty eligible set
   // and issue strikes directly on the ledger rather than via a report request.
   const subject = await listSubjectOptions(actor.personId);
+
+  // Server-stamped mirrors of two submitReport rules that had no client counterpart,
+  // so an oversized attachment or a future date no longer discards the whole report on
+  // a validation redirect (#17): today (in the display zone) as the date `max`, and the
+  // uploads.maxMb cap for the attachments field's browser-side size guard.
+  const zone = await getDisplayTimeZone();
+  const todayIso = formatForDateInput(new Date(), zone);
+  const maxUploadMb = await getSetting<number>("uploads.maxMb");
 
   return (
     <div>
@@ -106,7 +118,7 @@ export default async function ReportConcernPage({ searchParams }: PageProps) {
           {/* Section 3: date + setting */}
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="3. Date of the incident" hint="Leave blank if unknown">
-              <Input type="date" name="occurredAt" />
+              <Input type="date" name="occurredAt" max={todayIso} />
             </Field>
             <Field label="Setting" hint="e.g. exam room, front desk, telehealth">
               <Input name="setting" placeholder="Optional" />
@@ -166,8 +178,7 @@ export default async function ReportConcernPage({ searchParams }: PageProps) {
 
           {/* Section 9: attachments */}
           <Field label="9. Attachments" hint="Optional. Photos, screenshots, or documents that support the report.">
-            {/* eslint-disable-next-line no-restricted-syntax -- native file input, no file primitive exists */}
-            <input type="file" name="attachments" multiple className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground-soft hover:file:bg-muted-strong" />
+            <IncidentAttachmentsField maxMb={maxUploadMb} />
           </Field>
 
           {/* Section 10: name / anonymity / strike request */}

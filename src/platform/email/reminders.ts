@@ -11,9 +11,11 @@
  *   Non-compliant (EXPIRING_SOON | EXPIRED | UNKNOWN_DATE | NO_CERTIFICATE):
  *     1. Dedup window check: if lastRemindedAt is within COMPLIANCE_REMINDER_INTERVAL_DAYS,
  *        the person is skipped entirely (no reminder, no escalation evaluation).
- *     2. If the person has neither a contactEmail nor a Teams identity, they are
- *        skipped (state is not advanced). A Teams-reachable member without a
- *        contactEmail is still reminded, mirroring the escalation path.
+ *     2. If the notification channel cannot reach the person, they are skipped
+ *        (state is not advanced): the "email"/"both" channel needs a contactEmail,
+ *        the "teams"/"both" channel needs a Teams identity. Under the default
+ *        "email" channel a Teams-only member is unreachable and is NOT claimed or
+ *        escalated, since notify() would queue nothing for them.
  *     3. A reminder email is queued; remindersSent is incremented; lastRemindedAt = now.
  *     4. Escalation fires once per non-compliant streak, guarded by escalatedAt:
  *        when the NEW remindersSent >= COMPLIANCE_ESCALATION_THRESHOLD AND escalatedAt
@@ -33,6 +35,7 @@ import { log } from "@/platform/logging";
 import { effectiveComplianceStatus, certExpiresAt } from "@/platform/compliance/rules";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { notify } from "@/platform/notifications/notify";
+import { resolveChannel } from "@/platform/notifications/channel";
 import { renderEmail } from "./templates/renderEmail";
 import {
   complianceReminderContext,
@@ -148,6 +151,15 @@ export async function runComplianceReminders(
   const baseUrl = await getSetting<string>("app.baseUrl");
   const brandColor = await getSetting<string>("branding.brandColor");
 
+  // The channel that will actually carry the reminder (constant per run). The
+  // reachability guard below is relative to it: a reminder only lands when the
+  // channel matches an identifier the member has -- email needs contactEmail,
+  // Teams needs entraObjectId. Under the shipped default ("email"), a Teams-only
+  // member is unreachable and must be skipped, not claimed and escalated.
+  const reminderChannel = await resolveChannel("compliance-reminder");
+  const reminderWantsEmail = reminderChannel === "email" || reminderChannel === "both";
+  const reminderWantsTeams = reminderChannel === "teams" || reminderChannel === "both";
+
   // 5. Load the EHS missing map + full clearance for all candidates once per run.
   //    loadEhsMissingMap gives the EHS names for the template; loadClearanceMap gives
   //    the overall cleared decision plus the non-HIPAA/non-EHS gaps (profile, training,
@@ -211,14 +223,20 @@ export async function runComplianceReminders(
 
     // --- Not cleared: remind (and escalate at threshold) ---
 
-    // a. No way to reach the member: skip without advancing state. A member
-    //    reachable on Teams but without a contactEmail is still reminded --
-    //    notify() delivers via Teams and skips the email leg -- mirroring how
-    //    sendEscalations reaches directors that have only an entraObjectId. This
-    //    check runs BEFORE the claim so an unreachable person never gets a row.
-    if (!person.contactEmail && !person.entraObjectId) {
+    // a. No channel can actually reach the member: skip without advancing state.
+    //    A reminder only lands when the resolved channel matches an identifier the
+    //    member has. The old guard skipped only when BOTH were absent, on the
+    //    assumption that a Teams-reachable member is reminded via Teams -- but with
+    //    the default channel "email", notify() queues nothing for a member with no
+    //    contactEmail, while the row was still claimed, counted, and (at threshold)
+    //    escalated to their directors, so a member never contacted on any channel
+    //    looked "reminded". Gate on the channel that will actually carry the send.
+    //    This check runs BEFORE the claim so an unreachable person never gets a row.
+    const reachableByEmail = reminderWantsEmail && !!person.contactEmail;
+    const reachableByTeams = reminderWantsTeams && !!person.entraObjectId;
+    if (!reachableByEmail && !reachableByTeams) {
       log.info(
-        `[reminders] Skipping person ${person.id} (${person.name}): no contactEmail or Teams identity.`,
+        `[reminders] Skipping person ${person.id} (${person.name}): channel ${reminderChannel} cannot reach them (contactEmail=${person.contactEmail ? "yes" : "no"}, teams=${person.entraObjectId ? "yes" : "no"}).`,
         { personId: person.id },
       );
       result.skipped++;
@@ -424,7 +442,14 @@ async function sendEscalations(
       teams: {
         title: "Compliance escalation",
         summary: `${volunteer.name} in ${director.departmentName} has outstanding compliance requirements.`,
-        link: `${await getSetting<string>("app.baseUrl")}/admin`,
+        // Deep-link the director to the compliance list they can actually open.
+        // /admin gates on admin.access, which the seeded Director baseline does not
+        // hold, so it resolved to /no-access for this notification's entire intended
+        // audience (both the Teams card and the in-app Notification row, which notify()
+        // stores this link into). /volunteers gates on volunteers.view, which Director
+        // holds -- and it is the compliance surface itself (#70). (Not the per-person
+        // /volunteers/compliance/[personId], which requires volunteers.manage_compliance.)
+        link: `${await getSetting<string>("app.baseUrl")}/volunteers`,
       },
     });
 

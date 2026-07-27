@@ -62,6 +62,43 @@ describe("runImport", () => {
     expect(report.memberships).toBe(1); // recA director link only; recB's is dropped
   });
 
+  // Offboard convergence, create-branch half. The `update: {}` no-op protects an
+  // EXISTING membership row from being revived, but the `create` branch omits
+  // `status` and takes the schema default (ACTIVE). So an offboarded person who
+  // is still on the Airtable roster, in a department or kind they do not already
+  // hold a row for, was minted a brand-new ACTIVE membership on every import.
+  it("does not create a membership for an OFFBOARDED person", async () => {
+    await prisma.person.create({
+      data: { name: "Jack Carney", contactEmail: "j.carney@yale.edu", status: "OFFBOARDED" },
+    });
+
+    await runImport(fakeReader(), { ...OPTS, dryRun: false });
+
+    const jack = await prisma.person.findFirstOrThrow({ where: { contactEmail: "j.carney@yale.edu" } });
+    expect(jack.status).toBe("OFFBOARDED");
+    expect(await prisma.termMembership.count({ where: { personId: jack.id } })).toBe(0);
+    // The ACTIVE person on the same roster row is unaffected.
+    const vol = await prisma.person.findFirstOrThrow({ where: { netId: "vo111" } });
+    expect(await prisma.termMembership.count({ where: { personId: vol.id, status: "ACTIVE" } })).toBe(1);
+  });
+
+  it("leaves an offboarded person's existing REMOVED membership untouched", async () => {
+    // The pre-existing no-op path must keep working: not revived, not deleted.
+    const jack = await prisma.person.create({
+      data: { name: "Jack Carney", contactEmail: "j.carney@yale.edu", status: "OFFBOARDED" },
+    });
+    await runImport(fakeReader(), { ...OPTS, dryRun: false });
+    const term = await prisma.term.findFirstOrThrow({});
+    const dept = await prisma.department.findUniqueOrThrow({ where: { code: "ITCM" } });
+    const removed = await prisma.termMembership.create({
+      data: { personId: jack.id, termId: term.id, departmentId: dept.id, kind: "DIRECTOR", status: "REMOVED" },
+    });
+
+    await runImport(fakeReader(), { ...OPTS, dryRun: false });
+
+    expect((await prisma.termMembership.findUniqueOrThrow({ where: { id: removed.id } })).status).toBe("REMOVED");
+  });
+
   it("does not overwrite an existing department's customized name on re-import", async () => {
     // Admin renamed ITCM after the first import; a re-run must preserve that name.
     await prisma.department.create({ data: { code: "ITCM", name: "IT & Case Management" } });
@@ -204,4 +241,32 @@ describe("runImport", () => {
     expect(report.people.skipped).toHaveLength(1);
     expect(report.people.skipped[0].reason).toMatch(/unique constraint conflict/);
   });
+
+  // ARCHIVED is terminal everywhere else, and archiveTerm explicitly permits
+  // leaving zero ACTIVE terms, so "nothing else is active" does not mean "fresh
+  // cutover". A re-run in that state used to resurrect the archived term as the
+  // app-wide active one.
+  it("never re-activates an ARCHIVED term, even with no other term active", async () => {
+    await runImport(fakeReader(), { ...OPTS, dryRun: false });
+    await prisma.term.updateMany({ where: { code: "SU26" }, data: { status: "ARCHIVED" } });
+
+    await runImport(fakeReader(), { ...OPTS, dryRun: false });
+
+    expect((await prisma.term.findUniqueOrThrow({ where: { code: "SU26" } })).status).toBe("ARCHIVED");
+    expect(await prisma.term.count({ where: { status: "ACTIVE" } })).toBe(0);
+  });
+
+  it("still auto-activates a PLANNING term on a fresh cutover", async () => {
+    await runImport(fakeReader(), { ...OPTS, dryRun: false });
+    expect((await prisma.term.findUniqueOrThrow({ where: { code: "SU26" } })).status).toBe("ACTIVE");
+  });
+
+  it("leaves a PLANNING term alone when another term is already ACTIVE", async () => {
+    await prisma.term.create({
+      data: { code: "FA26", name: "Fall 2026", startDate: new Date("2026-09-01"), endDate: new Date("2026-12-20"), status: "ACTIVE" },
+    });
+    await runImport(fakeReader(), { ...OPTS, dryRun: false });
+    expect((await prisma.term.findUniqueOrThrow({ where: { code: "SU26" } })).status).toBe("PLANNING");
+  });
+
 });

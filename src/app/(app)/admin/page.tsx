@@ -74,8 +74,8 @@ export default async function AdminOverviewPage() {
       {staleCrons.length > 0 && (
         <div className="mt-6">
           <Alert tone="error">
-            Scheduled jobs may have stopped running: {staleCrons.map((c) => c.label).join(", ")}. These run
-            on an external scheduler; confirm it is still calling the cron endpoints (see docs/DEPLOY.md).
+            Scheduled jobs may not be running: {staleCrons.map((c) => c.label).join(", ")}. These run
+            on an external scheduler; confirm it is provisioned and still calling the cron endpoints (see docs/DEPLOY.md).
           </Alert>
         </div>
       )}

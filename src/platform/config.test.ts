@@ -18,6 +18,25 @@ describe("loadConfig", () => {
     expect(() => loadConfig(env)).toThrowError(/DATABASE_URL/);
   });
 
+  it("defaults APP_BASE_URL to localhost:3000", () => {
+    const config = loadConfig(base);
+    expect(config.APP_BASE_URL).toBe("http://localhost:3000");
+  });
+
+  it("accepts a valid APP_BASE_URL", () => {
+    const config = loadConfig({ ...base, APP_BASE_URL: "https://hub.havenfreeclinic.org" });
+    expect(config.APP_BASE_URL).toBe("https://hub.havenfreeclinic.org");
+  });
+
+  it("rejects a scheme-less APP_BASE_URL at boot, naming the variable (#67)", () => {
+    // Without .url() this passed z.string() and only blew up later at render, in
+    // new URL() on the universal metadata path -- 500ing every route with no way
+    // to reach /admin/settings to fix it. It must fail loudly at boot instead.
+    expect(() => loadConfig({ ...base, APP_BASE_URL: "staging.havenfreeclinic.org" })).toThrowError(
+      /APP_BASE_URL/
+    );
+  });
+
   it("requires Azure variables in production", () => {
     expect(() => loadConfig({ ...base, NODE_ENV: "production" })).toThrowError(
       /AZURE_AD_CLIENT_ID/
@@ -58,10 +77,10 @@ describe("loadConfig", () => {
 
   // --- Upload config ---
 
-  it("defaults UPLOAD_DIR to ./uploads and MAX_UPLOAD_MB to 5 (Airtable content-upload cap)", () => {
+  it("defaults UPLOAD_DIR to ./uploads and MAX_UPLOAD_MB to 4 (server-action body cap)", () => {
     const config = loadConfig(base);
     expect(config.UPLOAD_DIR).toBe("./uploads");
-    expect(config.MAX_UPLOAD_MB).toBe(5);
+    expect(config.MAX_UPLOAD_MB).toBe(4);
   });
 
   it("accepts a custom UPLOAD_DIR", () => {

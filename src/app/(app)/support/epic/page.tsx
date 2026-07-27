@@ -28,7 +28,7 @@ import {
   resolveIncident,
 } from "@/modules/support/services/itcm";
 import { persistAttachment } from "@/modules/support/services/attachments";
-import { SupportForbiddenError, SupportStateError } from "@/modules/support/services/tech-request";
+import { SupportForbiddenError, SupportNotFoundError, SupportStateError } from "@/modules/support/services/tech-request";
 import {
   createTicket,
   completeRequest,
@@ -42,20 +42,41 @@ import {
 import type { EpicTemplateKey } from "@/platform/email/templates/epic";
 import { PageHeader } from "@/platform/ui/page-header";
 import { EpicRequestTabs } from "@/modules/support/components/epic-request-tabs";
+import { getActiveTerm } from "@/platform/terms/active-term";
+import { getWorkingTerm } from "@/platform/terms/working-term";
+import { listBatchTermOptions, loadTermEpicRollup } from "@/modules/support/services/epic-rollup";
 
 const EPIC_EMAIL_TEMPLATES: EpicTemplateKey[] = ["epic-onboarding", "epic-activation", "epic-password-reset"];
 
 async function closeTicketAction(ticketId: string) {
   "use server";
   const session = await requirePermission("support.manage_requests");
-  await closeTicket(session.personId, ticketId);
+  try {
+    await closeTicket(session.personId, ticketId);
+  } catch (err) {
+    if (err instanceof SupportStateError || err instanceof SupportForbiddenError) {
+      redirect(`/support/epic?tab=tracker&error=${encodeURIComponent(err.message)}`);
+    }
+    throw err;
+  }
   revalidatePath("/support/epic");
 }
 
 async function updateServiceRequestNumberAction(ticketId: string, value: string) {
   "use server";
   const session = await requirePermission("support.manage_requests");
-  await updateServiceRequestNumber(session.personId, ticketId, value);
+  try {
+    await updateServiceRequestNumber(session.personId, ticketId, value);
+  } catch (err) {
+    if (
+      err instanceof SupportStateError ||
+      err instanceof SupportForbiddenError ||
+      err instanceof SupportNotFoundError
+    ) {
+      redirect(`/support/epic?tab=tracker&error=${encodeURIComponent(err.message)}`);
+    }
+    throw err;
+  }
   revalidatePath("/support/epic");
 }
 
@@ -78,7 +99,9 @@ async function logIncidentAction(formData: FormData) {
     });
   } catch (err) {
     if (err instanceof SupportStateError || err instanceof SupportForbiddenError) {
-      redirect(`/support/epic?tab=tracker&error=${encodeURIComponent(err.message)}`);
+      // Scope this to the incident form's own error slot so it renders in the "Log a
+      // YNHH incident" card, not attributed to a Tracker row action (#115).
+      redirect(`/support/epic?tab=tracker&incidentError=${encodeURIComponent(err.message)}`);
     }
     throw err;
   }
@@ -99,7 +122,7 @@ async function logIncidentAction(formData: FormData) {
     if (err instanceof SupportStateError || err instanceof SupportForbiddenError) {
       revalidatePath("/support/epic");
       redirect(
-        `/support/epic?tab=tracker&error=${encodeURIComponent(`The incident was logged, but an attachment could not be saved: ${err.message}`)}`,
+        `/support/epic?tab=tracker&incidentError=${encodeURIComponent(`The incident was logged, but an attachment could not be saved: ${err.message}`)}`,
       );
     }
     throw err;
@@ -112,7 +135,23 @@ async function logIncidentAction(formData: FormData) {
 async function resolveIncidentAction(ticketId: string, resolution: string) {
   "use server";
   const session = await requirePermission("support.manage_requests");
-  await resolveIncident(session.personId, ticketId, resolution);
+  try {
+    await resolveIncident(session.personId, ticketId, resolution);
+  } catch (err) {
+    // resolveIncident throws user-facing SupportStateError for the two ordinary,
+    // reachable states -- the incident was already resolved by another manager, and
+    // a whitespace-only resolution -- plus SupportNotFoundError on a concurrent
+    // delete. Surface those inline instead of falling through to the (app) error
+    // boundary, which discards the message (#91).
+    if (
+      err instanceof SupportStateError ||
+      err instanceof SupportForbiddenError ||
+      err instanceof SupportNotFoundError
+    ) {
+      redirect(`/support/epic?tab=tracker&error=${encodeURIComponent(err.message)}`);
+    }
+    throw err;
+  }
   revalidatePath("/support/epic");
 }
 
@@ -209,15 +248,26 @@ async function linkEpicRequestAction(formData: FormData) {
 }
 
 type PageProps = {
-  searchParams: Promise<{ tab?: string; error?: string }>;
+  // `error` carries Tracker/Pending row-action failures; `incidentError` is scoped to
+  // the "Log a YNHH incident" form so a tracker-action error no longer surfaces inside
+  // that unrelated card (#115). `term` selects the Term batch tab's target term.
+  searchParams: Promise<{ tab?: string; error?: string; incidentError?: string; term?: string }>;
 };
 
 export default async function EpicRequestsPage({ searchParams }: PageProps) {
   await requirePermission("support.manage_requests");
 
-  const { tab, error } = await searchParams;
+  const { tab, error, incidentError, term } = await searchParams;
   const activeTab =
-    tab === "pending" ? "pending" : tab === "tracker" ? "tracker" : tab === "history" ? "history" : "generate";
+    tab === "pending"
+      ? "pending"
+      : tab === "tracker"
+        ? "tracker"
+        : tab === "history"
+          ? "history"
+          : tab === "term-batch"
+            ? "term-batch"
+            : "generate";
 
   // Load data for both tabs in parallel.
   const [departments, history, pendingDeactivations, authorizers, incidentPeople, pending] = await Promise.all([
@@ -228,6 +278,21 @@ export default async function EpicRequestsPage({ searchParams }: PageProps) {
     listIncidentPeople(),
     listPendingEpicRequests(),
   ]);
+
+  // The Term batch tab can target a term before it goes active, so resolve the
+  // working term from ?term= (falling back to the live term) rather than assuming
+  // the active one.
+  const [workingTerm, liveTerm, termOptions] = await Promise.all([
+    getWorkingTerm(term),
+    getActiveTerm(),
+    listBatchTermOptions(),
+  ]);
+  // The roll-up is six queries plus loadClearanceMap (roughly twelve more over the
+  // full roster); only the Term batch tab renders it (EpicRequestTabs), so skip the
+  // work on every other tab visit instead of paying for it on the default Generate
+  // tab too.
+  const rollup =
+    activeTab === "term-batch" && workingTerm ? await loadTermEpicRollup(workingTerm.id) : null;
 
   return (
     <div className="space-y-6">
@@ -243,7 +308,11 @@ export default async function EpicRequestsPage({ searchParams }: PageProps) {
         authorizers={authorizers}
         incidentPeople={incidentPeople}
         pending={pending}
-        error={error ? decodeURIComponent(error) : undefined}
+        rollup={rollup}
+        termOptions={termOptions}
+        liveTermId={liveTerm?.id ?? null}
+        error={error ?? undefined}
+        incidentError={incidentError ?? undefined}
         closeTicketAction={closeTicketAction}
         updateServiceRequestNumberAction={updateServiceRequestNumberAction}
         logIncidentAction={logIncidentAction}

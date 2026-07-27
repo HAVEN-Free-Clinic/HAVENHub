@@ -5,10 +5,11 @@
  * back to Airtable.
  */
 
+import { randomUUID } from "node:crypto";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { log, errorAttrs } from "@/platform/logging";
-import { putObject } from "@/platform/storage";
+import { putObject, deleteObject } from "@/platform/storage";
 import { ALL_PEOPLE_ATTACHMENT_FIELDS as AF } from "@/platform/airtable/fields";
 import type { AirtableReader } from "./importer";
 
@@ -125,46 +126,49 @@ export async function backfillCertificates(
       continue;
     }
     const ext = mimeToExtension(att.type);
+    // storedName is a random key, not `${row.id}.${ext}`, so the bytes can be
+    // written to storage BEFORE the DB row exists. The viewer resolves a cert by
+    // the row's storedName field, so decoupling it from the id is transparent.
+    const storedName = `${randomUUID()}.${ext}`;
 
-    // Write-after-commit pattern: create DB row first, then write storage.
-    const cert = await prisma.$transaction(async (tx) => {
-      const created = await tx.hipaaCertificate.create({
+    // Write bytes FIRST, then create the row (#119). The old order committed the
+    // row and wrote storage afterward, so a process interruption (Ctrl-C, timeout,
+    // OOM) between the two left a row whose bytes never landed. The count>0 re-run
+    // guard then skipped that person forever: My Info shows a certificate the
+    // viewer 404s and no compliance manager can open. Writing the blob first makes
+    // an interruption leave only a harmless, re-runnable orphaned blob.
+    try {
+      await putObject(storedName, bytes, att.type);
+    } catch (err) {
+      report.failures.push({
+        recordId: record.id,
+        reason: err instanceof Error ? err.message.slice(0, 200) : String(err),
+      });
+      continue;
+    }
+
+    // No enqueueMirror: data came FROM Airtable; pushing back duplicates.
+    let cert;
+    try {
+      cert = await prisma.hipaaCertificate.create({
         data: {
           personId: person.id,
           fileName: att.filename,
-          storedName: "pending",
+          storedName,
           size: att.size,
           mimeType: att.type,
           source: "IMPORT",
         },
       });
-
-      const storedName = `${created.id}.${ext}`;
-
-      const updated = await tx.hipaaCertificate.update({
-        where: { id: created.id },
-        data: { storedName },
-      });
-
-      // No enqueueMirror: data came FROM Airtable; pushing back duplicates.
-
-      return updated;
-    });
-
-    // Persist bytes through the storage layer (Vercel Blob in prod, disk locally),
-    // matching how user uploads and the download route resolve the same key.
-    try {
-      await putObject(cert.storedName, bytes, att.type);
     } catch (err) {
-      // Storage write failed: clean up the DB row so the record is not orphaned.
-      try {
-        await prisma.hipaaCertificate.delete({ where: { id: cert.id } });
-      } catch (cleanupErr) {
+      // Row create failed after the blob write: delete the now-orphaned blob so a
+      // failed record does not leave storage litter (harmless, but keep it tidy).
+      await deleteObject(storedName).catch((cleanupErr) =>
         log.error(
-          "[backfill-certs] failed to clean up cert row after disk error",
-          errorAttrs(cleanupErr, { certId: cert.id }),
-        );
-      }
+          "[backfill-certs] failed to clean up blob after row-create error",
+          errorAttrs(cleanupErr, { storedName }),
+        ),
+      );
       report.failures.push({
         recordId: record.id,
         reason: err instanceof Error ? err.message.slice(0, 200) : String(err),

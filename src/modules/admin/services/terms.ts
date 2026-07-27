@@ -13,6 +13,7 @@
  */
 
 import type { Term } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 
@@ -38,6 +39,13 @@ export class TermDateError extends Error {
   constructor(public input: string) {
     super(`Invalid date value: "${input}"`);
     this.name = "TermDateError";
+  }
+}
+
+export class TermNotActivatableError extends Error {
+  constructor(public id: string) {
+    super("An archived term cannot be re-activated. Archiving is terminal; create or use a planning term instead.");
+    this.name = "TermNotActivatableError";
   }
 }
 
@@ -95,13 +103,47 @@ function toNoonUtc(iso: string): Date {
   return d;
 }
 
+/**
+ * Cancel every still-PENDING shift request for a term. Used when a term leaves
+ * the decidable set (archived, or its clinic dates change): a PENDING request
+ * there can no longer be approved or denied on any surface, so leaving it
+ * PENDING is a dead-end the requester and approvers both keep seeing. Optionally
+ * scope to a set of removed clinic-date keys, for the updateClinicDates case
+ * where only requests on the dropped dates are stale. Returns the number cancelled.
+ */
+async function cancelStalePendingRequests(
+  tx: Prisma.TransactionClient,
+  termId: string,
+  removedDateKeys?: Set<number>
+): Promise<number> {
+  const where: Prisma.ShiftRequestWhereInput = { termId, status: "PENDING" };
+  if (removedDateKeys) {
+    const removed = [...removedDateKeys].map((t) => new Date(t));
+    where.OR = [{ requesterDate: { in: removed } }, { targetDate: { in: removed } }];
+  }
+  // Status only. decidedBy is left unset: this is a system cancellation driven by
+  // a term change, not an approve/deny decision, and stamping the actor there
+  // would misrepresent them as having denied the request. Who triggered it and
+  // why is captured in the term.archive / term.dates audit row instead.
+  const { count } = await tx.shiftRequest.updateMany({
+    where,
+    data: { status: "CANCELLED" },
+  });
+  return count;
+}
+
 // ---------------------------------------------------------------------------
 // Queries
 // ---------------------------------------------------------------------------
 
 export async function listTerms(): Promise<(Term & { _count: { memberships: number } })[]> {
   return prisma.term.findMany({
-    include: { _count: { select: { memberships: true } } },
+    // TermMembership is soft-deleted (status flips to REMOVED, rows are never
+    // deleted) and changeMembershipKind leaves a REMOVED row behind when swapping
+    // kinds. An unscoped count therefore includes everyone ever removed, so it
+    // overstated the roster and disagreed with the ACTIVE-only list on the detail
+    // page. Scope to live rows, mirroring listDepartments.
+    include: { _count: { select: { memberships: { where: { status: "ACTIVE" } } } } },
     orderBy: { startDate: "desc" },
   });
 }
@@ -175,6 +217,15 @@ export async function activateTerm(actorPersonId: string, id: string): Promise<T
     return target;
   }
 
+  // ARCHIVED is terminal everywhere else in the app, so re-activating one would
+  // resurrect a term no other transition can produce. A term flipped early by
+  // mistake is now recoverable a different way: the swap below demotes a
+  // displaced future-dated term to PLANNING (not ARCHIVED), so THAT term stays
+  // re-activatable. Genuinely-ended terms stay archived and closed.
+  if (target.status === "ARCHIVED") {
+    throw new TermNotActivatableError(id);
+  }
+
   // Transactional swap: archive the current ACTIVE term (if any), then
   // activate the target. Both status updates happen atomically.
   //
@@ -184,6 +235,8 @@ export async function activateTerm(actorPersonId: string, id: string): Promise<T
   // retry also fails the error is rethrown to the caller.
   // NOTE: No unit test covers the retry path because triggering a genuine
   // serialization conflict requires real concurrent DB sessions.
+  const now = new Date();
+
   async function runSwap() {
     return prisma.$transaction(
       async (tx) => {
@@ -192,12 +245,23 @@ export async function activateTerm(actorPersonId: string, id: string): Promise<T
           orderBy: { startDate: "desc" },
         });
 
-        let archivedTerm: Term | null = null;
+        let displacedTerm: Term | null = null;
+        let displacedStatus: "ARCHIVED" | "PLANNING" | null = null;
+        let cancelledRequests = 0;
         if (currentActive) {
-          archivedTerm = await tx.term.update({
+          // A term whose end date is still in the future is being flipped early
+          // (premature or mistaken activation): demote it to PLANNING so it stays
+          // recoverable and re-activatable. A term already past its end date is a
+          // normal end-of-semester handoff: archive it, and cancel its still-PENDING
+          // shift requests, which can no longer be decided anywhere once archived.
+          displacedStatus = currentActive.endDate.getTime() > now.getTime() ? "PLANNING" : "ARCHIVED";
+          displacedTerm = await tx.term.update({
             where: { id: currentActive.id },
-            data: { status: "ARCHIVED" },
+            data: { status: displacedStatus },
           });
+          if (displacedStatus === "ARCHIVED") {
+            cancelledRequests = await cancelStalePendingRequests(tx, currentActive.id);
+          }
         }
 
         const activatedTerm = await tx.term.update({
@@ -205,13 +269,13 @@ export async function activateTerm(actorPersonId: string, id: string): Promise<T
           data: { status: "ACTIVE" },
         });
 
-        return [archivedTerm, activatedTerm] as [Term | null, Term];
+        return { displacedTerm, displacedStatus, cancelledRequests, activatedTerm };
       },
       { isolationLevel: "Serializable" }
     );
   }
 
-  let swapResult: [Term | null, Term];
+  let swapResult: Awaited<ReturnType<typeof runSwap>>;
   try {
     swapResult = await runSwap();
   } catch (err) {
@@ -228,17 +292,19 @@ export async function activateTerm(actorPersonId: string, id: string): Promise<T
     }
   }
 
-  const [displaced, activated] = swapResult;
+  const { displacedTerm, displacedStatus, cancelledRequests, activatedTerm } = swapResult;
 
-  // Audit AFTER the transaction commits. recordAudit never throws.
-  if (displaced) {
+  // Audit AFTER the transaction commits. recordAudit never throws. The displaced
+  // term's action reflects its real outcome: term.archive when it ended, or
+  // term.deactivate when it was demoted to PLANNING for recovery.
+  if (displacedTerm && displacedStatus) {
     await recordAudit({
       actorPersonId,
-      action: "term.archive",
+      action: displacedStatus === "ARCHIVED" ? "term.archive" : "term.deactivate",
       entityType: "Term",
-      entityId: displaced.id,
+      entityId: displacedTerm.id,
       before: { status: "ACTIVE" },
-      after: { status: "ARCHIVED" },
+      after: { status: displacedStatus, cancelledRequests },
     });
   }
 
@@ -246,12 +312,12 @@ export async function activateTerm(actorPersonId: string, id: string): Promise<T
     actorPersonId,
     action: "term.activate",
     entityType: "Term",
-    entityId: activated.id,
+    entityId: activatedTerm.id,
     before: { status: target.status },
     after: { status: "ACTIVE" },
   });
 
-  return activated;
+  return activatedTerm;
 }
 
 export async function archiveTerm(actorPersonId: string, id: string): Promise<Term> {
@@ -263,20 +329,23 @@ export async function archiveTerm(actorPersonId: string, id: string): Promise<Te
     return existing;
   }
 
-  const updated = await prisma.term.update({
-    where: { id },
-    data: { status: "ARCHIVED" },
+  // Archiving the only ACTIVE term leaves no active term - this is intentional
+  // and allowed. Cancel any still-PENDING shift requests in the same transaction:
+  // once the term is archived they can no longer be decided on any surface, so
+  // leaving them PENDING is a dead-end for requester and approvers alike.
+  const { updated, cancelledRequests } = await prisma.$transaction(async (tx) => {
+    const term = await tx.term.update({ where: { id }, data: { status: "ARCHIVED" } });
+    const cancelled = await cancelStalePendingRequests(tx, id);
+    return { updated: term, cancelledRequests: cancelled };
   });
 
-  // Archiving the only ACTIVE term leaves no active term - this is intentional
-  // and allowed. The engine handles the no-active-term state gracefully.
   await recordAudit({
     actorPersonId,
     action: "term.archive",
     entityType: "Term",
     entityId: id,
     before: { status: existing.status },
-    after: { status: "ARCHIVED" },
+    after: { status: "ARCHIVED", cancelledRequests },
   });
 
   return updated;
@@ -306,19 +375,42 @@ export async function updateClinicDates(
   const countBefore = existing.clinicDates.length;
   const countAfter = normalized.length;
 
-  const updated = await prisma.term.update({
-    where: { id },
-    data: { clinicDates: normalized },
+  // Dates being removed from the calendar. Every write path validates a shift's
+  // date against term.clinicDates, but the reads that render a member's shifts do
+  // not, so a shift left on a removed date is visible yet can no longer be
+  // dropped, swapped, approved, or unassigned. Clean those up in the same
+  // transaction as the date change: delete assignments on the removed dates and
+  // cancel their still-PENDING requests, so the calendar and the shifts stay
+  // consistent. Purely additive edits (no removals) skip all of this.
+  const keptKeys = new Set(normalized.map((d) => d.getTime()));
+  const removedKeys = new Set(
+    existing.clinicDates.map((d) => d.getTime()).filter((t) => !keptKeys.has(t))
+  );
+
+  const { updated, removedAssignments, cancelledRequests } = await prisma.$transaction(async (tx) => {
+    let removedAssignments = 0;
+    let cancelledRequests = 0;
+    if (removedKeys.size > 0) {
+      const removedDates = [...removedKeys].map((t) => new Date(t));
+      const del = await tx.shiftAssignment.deleteMany({
+        where: { termId: id, clinicDate: { in: removedDates } },
+      });
+      removedAssignments = del.count;
+      cancelledRequests = await cancelStalePendingRequests(tx, id, removedKeys);
+    }
+    const term = await tx.term.update({ where: { id }, data: { clinicDates: normalized } });
+    return { updated: term, removedAssignments, cancelledRequests };
   });
 
-  // Audit with before/after COUNTS only (not the full arrays).
+  // Audit with before/after COUNTS only (not the full arrays), plus the cleanup
+  // counts so a date removal that wiped shifts is visible in the log.
   await recordAudit({
     actorPersonId,
     action: "term.dates",
     entityType: "Term",
     entityId: id,
     before: { count: countBefore },
-    after: { count: countAfter },
+    after: { count: countAfter, removedAssignments, cancelledRequests },
   });
 
   return updated;

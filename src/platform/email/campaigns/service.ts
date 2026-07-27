@@ -104,7 +104,7 @@ export async function updateCampaign(
   input: { name?: string; subject?: string; body?: string; audience: Audience },
 ) {
   const existing = await prisma.emailCampaign.findUniqueOrThrow({ where: { id } });
-  if (existing.status !== "DRAFT") throw new Error("Cannot edit a campaign that has been sent");
+  if (existing.status !== "DRAFT") throw new CampaignValidationError(["Cannot edit a campaign that has been sent."]);
 
   if (!isAudience(input.audience)) {
     throw new CampaignValidationError(["Invalid audience"]);
@@ -301,7 +301,7 @@ export async function sendCampaignNow(
   opts: { confirmCount?: number },
 ): Promise<{ runId: string; recipientCount: number }> {
   const campaign = await prisma.emailCampaign.findUniqueOrThrow({ where: { id } });
-  if (campaign.status !== "DRAFT") throw new Error("Campaign already sent");
+  if (campaign.status !== "DRAFT") throw new CampaignValidationError(["This campaign was already sent."]);
   if (campaign.subject.trim() === "") throw new CampaignValidationError(["Add a subject before sending."]);
   if (!isAudience(campaign.audienceJson)) throw new CampaignValidationError(["Stored audience is malformed"]);
 
@@ -344,7 +344,7 @@ export async function scheduleCampaign(
   opts: { confirmCount?: number } = {},
 ): Promise<void> {
   const campaign = await prisma.emailCampaign.findUniqueOrThrow({ where: { id } });
-  if (campaign.status !== "DRAFT") throw new Error("Only a draft can be scheduled");
+  if (campaign.status !== "DRAFT") throw new CampaignValidationError(["Only a draft can be scheduled."]);
   if (campaign.subject.trim() === "") throw new CampaignValidationError(["Add a subject before sending."]);
   if (!isAudience(campaign.audienceJson)) throw new CampaignValidationError(["Stored audience is malformed"]);
 
@@ -400,10 +400,16 @@ export async function scheduleCampaign(
 }
 
 export async function cancelCampaign(actorId: string | null, id: string): Promise<void> {
-  const campaign = await prisma.emailCampaign.findUniqueOrThrow({ where: { id } });
-  if (campaign.status !== "SCHEDULED" && campaign.status !== "ACTIVE") {
-    throw new Error("Only a scheduled or recurring campaign can be cancelled");
+  // Atomic claim, matching executeRun's dispatch guard: read-then-update let a
+  // cancel land AFTER dispatchDueCampaigns had already claimed and sent the
+  // campaign, reporting success for a send that went out. The precondition also
+  // covers wrong-status and not-found in one shot.
+  const { count } = await prisma.emailCampaign.updateMany({
+    where: { id, status: { in: ["SCHEDULED", "ACTIVE"] } },
+    data: { status: "CANCELLED", nextRunAt: null },
+  });
+  if (count === 0) {
+    throw new CampaignValidationError(["This campaign can no longer be cancelled (it may already have been dispatched)."]);
   }
-  await prisma.emailCampaign.update({ where: { id }, data: { status: "CANCELLED", nextRunAt: null } });
   await recordAudit({ actorPersonId: actorId, action: "campaign.cancel", entityType: "EmailCampaign", entityId: id });
 }

@@ -27,6 +27,8 @@ export function Combobox({
   emptyLabel = "No matches",
   ariaLabel,
   onValueChange,
+  required = false,
+  "aria-describedby": ariaDescribedBy,
 }: {
   name: string;
   options: ComboboxOption[];
@@ -34,6 +36,18 @@ export function Combobox({
   emptyLabel?: string;
   ariaLabel?: string;
   onValueChange?: (value: string) => void;
+  /**
+   * Marks the visible text input required (native + aria-required), so it
+   * matches `Field required`'s aria-required/asterisk contract. The text input
+   * holds the search query, not the selected id, but blur clears the query
+   * whenever no option was picked (see onBlur below), so typed-then-abandoned
+   * text can't leave the box looking filled while the hidden value is empty --
+   * native validation still blocks the submit. The server must still guard
+   * against a missing value independently; this is defense in depth, not a
+   * substitute for that check.
+   */
+  required?: boolean;
+  "aria-describedby"?: string;
 }) {
   const [query, setQuery] = useState("");
   const [value, setValue] = useState("");
@@ -78,14 +92,23 @@ export function Combobox({
   function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setOpen(true);
-      setActive((i) => Math.min(i + 1, filtered.length - 1));
+      if (!open) {
+        // ArrowDown that OPENS a closed list highlights the first option; advancing
+        // unconditionally would skip to the second (#139).
+        setOpen(true);
+        setActive(0);
+      } else {
+        setActive((i) => Math.min(i + 1, filtered.length - 1));
+      }
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setActive((i) => Math.max(i - 1, 0));
-    } else if (e.key === "Enter" && open && filtered[active]) {
+    } else if (e.key === "Enter") {
+      // Always swallow Enter: a combobox input's Enter must never fall through to
+      // implicit submission of the surrounding (server-action) form, whether the
+      // list is closed (just picked) or open with no matches (#77).
       e.preventDefault();
-      choose(filtered[active]);
+      if (open && filtered[active]) choose(filtered[active]);
     } else if (e.key === "Escape") {
       setOpen(false);
     }
@@ -102,6 +125,9 @@ export function Combobox({
         aria-autocomplete="list"
         aria-activedescendant={open && filtered.length > 0 ? `${listId}-opt-${active}` : undefined}
         aria-label={ariaLabel}
+        aria-describedby={ariaDescribedBy}
+        aria-required={required || undefined}
+        required={required}
         autoComplete="off"
         className={controlBase}
         placeholder={placeholder}
@@ -116,7 +142,13 @@ export function Combobox({
         // Close when focus leaves the whole combobox (e.g. Tab away). Option clicks
         // use onMouseDown+preventDefault, so they never blur the input first.
         onBlur={(e) => {
-          if (!rootRef.current?.contains(e.relatedTarget as Node | null)) setOpen(false);
+          if (rootRef.current?.contains(e.relatedTarget as Node | null)) return;
+          setOpen(false);
+          // Typed text that was never turned into a selection carries no value
+          // for the hidden input. Clearing it here means `required` (which
+          // checks this visible box) fires natively instead of the form
+          // submitting with an empty hidden value and losing every other field.
+          if (!value) setQuery("");
         }}
         onKeyDown={onKeyDown}
       />

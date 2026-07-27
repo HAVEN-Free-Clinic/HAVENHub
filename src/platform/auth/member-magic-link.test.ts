@@ -1,19 +1,31 @@
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+// requestMemberLoginLink reads x-forwarded-for; mock the request headers (null IP
+// -> the per-IP backstop is inert, so tests exercise the per-email/global caps).
+vi.mock("next/headers", () => ({ headers: vi.fn(async () => ({ get: vi.fn(() => null) })) }));
 import { createHash } from "node:crypto";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
+import { _resetSettingsCache } from "@/platform/settings/service";
 import {
   issueMemberToken,
   peekMemberToken,
   verifyAndConsumeMemberToken,
+  requestMemberLoginLink,
 } from "./member-magic-link";
 
 beforeEach(async () => {
   await resetDb();
+  _resetSettingsCache();
 });
 afterEach(async () => {
   await resetDb();
+  _resetSettingsCache();
 });
+
+async function disableMemberLinks() {
+  await prisma.setting.create({ data: { key: "auth.memberMagicLinkEnabled", value: false } });
+  _resetSettingsCache();
+}
 
 async function seedMember(overrides: { contactEmail: string; status?: "ACTIVE" | "OFFBOARDED"; name?: string }) {
   return prisma.person.create({
@@ -69,4 +81,33 @@ it("rejects when the member's contactEmail changed after issue", async () => {
   const raw = await issueMemberToken(person.id, "casey@example.org");
   await prisma.person.update({ where: { id: person.id }, data: { contactEmail: "new@example.org" } });
   expect(await verifyAndConsumeMemberToken(raw)).toBeNull();
+});
+
+it("rejects an outstanding token once the kill switch is turned off (#66)", async () => {
+  const person = await seedMember({ contactEmail: "casey@example.org" });
+  const raw = await issueMemberToken(person.id, "casey@example.org");
+  // The admin turns off "Member email sign-in links" -- an already-emailed link
+  // (still within its 30-min TTL) must stop working, at peek AND at consume.
+  await disableMemberLinks();
+  expect(await peekMemberToken(raw)).toBeNull();
+  expect(await verifyAndConsumeMemberToken(raw)).toBeNull();
+});
+
+it("stops issuing member links once the global daily ceiling is hit (#121)", async () => {
+  const person = await seedMember({ contactEmail: "flood@example.org" });
+  // Seed the daily ceiling (800) of recent tokens across many addresses.
+  await prisma.memberLoginToken.createMany({
+    data: Array.from({ length: 800 }, (_, i) => ({
+      emailLower: `x${i}@example.org`,
+      personId: person.id,
+      tokenHash: `h${i}`,
+      expiresAt: new Date(Date.now() + 60_000),
+    })),
+  });
+  const before = await prisma.memberLoginToken.count();
+
+  const res = await requestMemberLoginLink("flood@example.org");
+
+  expect(res).toBe("sent"); // never an oracle
+  expect(await prisma.memberLoginToken.count()).toBe(before); // ceiling blocked a new send
 });

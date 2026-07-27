@@ -20,16 +20,15 @@ export default async function PeopleListPage({ searchParams }: PageProps) {
 
   const { q, status, page: pageStr } = await searchParams;
 
-  // Distinguish "no param at all" (first load, default to ACTIVE) from
-  // "param present but empty" (user explicitly chose All statuses).
+  // "All statuses" uses a non-empty ALL sentinel, not "": NavForm strips empty
+  // fields from the querystring, so an empty value read as "no param" (first load)
+  // and snapped back to the ACTIVE default, making the option unreachable (#16).
   const statusFilter: "ACTIVE" | "OFFBOARDED" | undefined =
-    status === undefined
-      ? "ACTIVE" // first load default
+    status === "ALL"
+      ? undefined // user explicitly chose All statuses
       : status === "OFFBOARDED"
         ? "OFFBOARDED"
-        : status === "ACTIVE"
-          ? "ACTIVE"
-          : undefined; // status === "" -> all statuses
+        : "ACTIVE"; // default: first load or explicit Active
   const pageNum = Math.max(1, parseInt(pageStr ?? "1", 10) || 1);
 
   // Get the active term so we can show membership counts.
@@ -79,7 +78,7 @@ export default async function PeopleListPage({ searchParams }: PageProps) {
       <PageHeader
         title="People"
         description={
-          effectiveStatus === ""
+          effectiveStatus === "ALL"
             ? `${total.toLocaleString()} people`
             : `${total.toLocaleString()} ${effectiveStatus === "OFFBOARDED" ? "offboarded" : "active"} people`
         }
@@ -108,7 +107,7 @@ export default async function PeopleListPage({ searchParams }: PageProps) {
           >
             <option value="ACTIVE">Active</option>
             <option value="OFFBOARDED">Offboarded</option>
-            <option value="">All statuses</option>
+            <option value="ALL">All statuses</option>
           </Select>
         </div>
         <Button type="submit" variant="outline" size="sm">

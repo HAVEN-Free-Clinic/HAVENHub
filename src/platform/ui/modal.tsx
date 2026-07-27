@@ -59,6 +59,17 @@ export function Modal({ open, onClose, title, ariaLabel, size = "default", child
       const first = focusables[0];
       const last = focusables[focusables.length - 1];
       const active = document.activeElement;
+      // Focus escaped the panel: the browser blurs to <body> whenever the focused
+      // control is removed or becomes disabled -- which every in-flight action button
+      // in every modal does while its transition runs. Without this, Tab from <body>
+      // walks into the scroll-locked page behind the scrim (Skip-to-content, the roster
+      // behind a Speed score/route or Certificate viewer). Pull it straight back in
+      // before the browser default runs (#79).
+      if (!active || !panelRef.current?.contains(active)) {
+        e.preventDefault();
+        (e.shiftKey ? last : first).focus();
+        return;
+      }
       if (e.shiftKey && (active === first || active === panelRef.current)) {
         e.preventDefault();
         last.focus();

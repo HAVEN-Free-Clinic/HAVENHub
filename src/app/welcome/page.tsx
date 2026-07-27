@@ -1,5 +1,7 @@
 import Link from "next/link";
-import { signOut } from "@/platform/auth/auth";
+import { redirect } from "next/navigation";
+import { auth, signOut } from "@/platform/auth/auth";
+import { resolvePersonForLogin } from "@/platform/auth/match-person";
 import { prisma } from "@/platform/db";
 import { getSetting } from "@/platform/settings/service";
 import { getSupportContact } from "@/platform/branding/support";
@@ -9,6 +11,20 @@ import { Button, buttonClasses } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
 
 export default async function WelcomePage() {
+  // Self-heal the promoted-applicant case (#65): a Yale-SSO applicant whose session
+  // still carries a stale personId:null but who now has a Person (promotion created
+  // one) should not read "we couldn't find you / contact IT". Re-resolve from the
+  // verified applicantEmail in the token and send them into the hub if matched.
+  const session = await auth();
+  if (session?.personId) redirect("/");
+  if (session?.applicantEmail) {
+    const resolved = await resolvePersonForLogin({
+      upn: session.applicantEmail,
+      email: session.applicantEmail,
+    });
+    if (resolved && resolved.status === "ACTIVE") redirect("/");
+  }
+
   const now = new Date();
   const [orgName, support, openCycleCount] = await Promise.all([
     getSetting<string>("branding.orgName"),

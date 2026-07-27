@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { ComponentProps } from "react";
+import { useFormStatus } from "react-dom";
 import { Button } from "./button";
-import { SubmitButton } from "./submit-button";
+import { Spinner } from "./spinner";
 
 type ConfirmButtonProps = Omit<ComponentProps<typeof Button>, "type" | "variant"> & {
   /** Label shown in the idle state (e.g. "Remove"). */
@@ -17,26 +18,38 @@ type ConfirmButtonProps = Omit<ComponentProps<typeof Button>, "type" | "variant"
 /**
  * Destructive-action button that requires two separate clicks.
  *
- * First click: arms the button (switches to danger styling, "Confirm?" label).
- * Second click (within timeout): submits the surrounding form (type="submit").
- * If the timeout elapses without a second click the button resets silently.
+ * First click arms the button (danger styling, "Confirm?" label). A second click
+ * within the timeout submits the surrounding form; otherwise it auto-resets.
  *
- * The armed state is a SubmitButton, so once the confirm click fires it disables
- * and shows a spinner while the server action is in flight -- a rapid second click
- * cannot double-fire the destructive action (a plain submit button stays live
- * during the pending transition because the form remains mounted).
+ * Implemented as ONE stable <Button> whose type/variant/label change between the
+ * idle and armed states, rather than swapping between two different component
+ * types. Two component types at the same position force React to unmount the idle
+ * subtree and mount a new armed one, which destroys the focused DOM node and drops
+ * a keyboard/AT user to <body> with no way back to the confirm step (#12). Keeping
+ * one element means React updates attributes in place, so focus is preserved; the
+ * label lives in an aria-live region so the armed change is announced.
  *
- * Does NOT use window.confirm so it is automation-friendly.
+ * It reads useFormStatus() itself so it can disable BOTH states while the confirmed
+ * action is in flight and cancel the auto-reset timer, rather than reverting the
+ * armed (disabled + spinner) SubmitButton to a live idle button mid-action and
+ * letting a second click double-fire the destructive/email action (#78).
+ *
+ * Must be rendered inside a <form>; useFormStatus reads that form's state. Does NOT
+ * use window.confirm, so it stays automation-friendly.
  */
 export function ConfirmButton({
   label,
   confirmLabel = "Confirm?",
   timeout = 3000,
   className,
+  onClick,
+  disabled,
   ...rest
 }: ConfirmButtonProps) {
   const [armed, setArmed] = useState(false);
+  const { pending } = useFormStatus();
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wasPending = useRef(false);
 
   function clearTimer() {
     if (timerRef.current !== null) {
@@ -57,31 +70,43 @@ export function ConfirmButton({
   // Clean up on unmount.
   useEffect(() => () => clearTimer(), []);
 
-  if (armed) {
-    return (
-      <SubmitButton
-        {...rest}
-        variant="danger"
-        className={className}
-        pendingLabel={confirmLabel}
-      >
-        {confirmLabel}
-      </SubmitButton>
-    );
-  }
+  // While the confirmed action is in flight, cancel the auto-reset so the armed +
+  // disabled state can't revert to a live idle control mid-action (#78); disarm once
+  // it settles (for actions that don't navigate away).
+  useEffect(() => {
+    if (pending) {
+      clearTimer();
+      wasPending.current = true;
+    } else if (wasPending.current) {
+      wasPending.current = false;
+      setArmed(false);
+    }
+  }, [pending]);
 
   return (
     <Button
       {...rest}
-      type="button"
-      variant="outline"
-      onClick={(e) => {
-        e.preventDefault();
-        arm();
-      }}
+      type={armed ? "submit" : "button"}
+      variant={armed ? "danger" : "outline"}
       className={className}
+      disabled={pending || disabled}
+      aria-busy={pending}
+      onClick={(e) => {
+        onClick?.(e);
+        if (armed) {
+          // Confirm click: let the native form submit proceed, but stop the timer
+          // from disarming us before the action's pending state takes over.
+          clearTimer();
+        } else {
+          e.preventDefault();
+          arm();
+        }
+      }}
     >
-      {label}
+      <span aria-live="polite" className="inline-flex items-center gap-2">
+        {pending && <Spinner size="sm" />}
+        {armed ? confirmLabel : label}
+      </span>
     </Button>
   );
 }

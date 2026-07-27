@@ -21,6 +21,7 @@ import {
   eligibleSwapPartners,
   remindDirectors,
   requestApproverRecipients,
+  countPendingApprovals,
   RequestForbiddenError,
   RequestNotFoundError,
   RequestValidationError,
@@ -53,7 +54,10 @@ async function createTerm(
 ) {
   return prisma.term.create({
     data: {
-      code: `SU26-${Date.now()}`,
+      // Date.now() alone collides when two terms are created in the same
+      // millisecond (several tests create a live and a next term back to back),
+      // tripping the Term.code unique constraint. Matches builder.test.ts.
+      code: `SU26-${Date.now()}-${Math.random()}`,
       name: "Summer 2026",
       startDate: new Date("2026-05-30T12:00:00Z"),
       endDate: new Date("2026-09-26T12:00:00Z"),
@@ -1513,5 +1517,71 @@ describe("remindDirectors throttle (F15)", () => {
     });
     await remindDirectors(requester.id, req.id);
     expect(await count()).toBe(2);
+  });
+
+  it("returns the number of reminders enqueued so a fully-throttled remind reports 0 (#113)", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("AABB");
+    const director = await createPersonWithEmail("Dir", "dir@example.org");
+    const requester = await createPerson("Vol");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(requester.id, term.id, dept.id, "VOLUNTEER");
+    await createShift(term.id, dept.id, requester.id, dates[0], "VOLUNTEER");
+    const req = await createRequest(requester.id, {
+      termId: term.id,
+      requesterDateKey: isoDateKey(dates[0]),
+      departmentId: dept.id,
+    });
+    await prisma.shiftRequest.update({
+      where: { id: req.id },
+      data: { createdAt: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000) },
+    });
+    await prisma.emailLog.deleteMany({});
+
+    // First remind: the director is not throttled -> one reminder enqueued.
+    expect(await remindDirectors(requester.id, req.id)).toBe(1);
+    // Second remind: the director is now throttled -> zero enqueued, so the action
+    // can tell the requester nothing was sent instead of a false "Reminder sent".
+    expect(await remindDirectors(requester.id, req.id)).toBe(0);
+  });
+});
+
+describe("countPendingApprovals cross-term", () => {
+  // A director managing a department via a live-term directorship. createRequest
+  // lets a member raise a drop/swap against a published next (PLANNING) term, and
+  // the cron emails this director about it, so the count must include it too.
+  // A (requesterId, requesterDate, departmentId) unique constraint means each
+  // request needs a distinct date; sixSaturdays gives six clinic dates to pick from.
+  async function pendingRequest(termId: string, deptId: string, requesterId: string, dateIdx: number) {
+    return prisma.shiftRequest.create({
+      data: { termId, departmentId: deptId, requesterId, requesterDate: sixSaturdays()[dateIdx], status: "PENDING" },
+    });
+  }
+
+  it("counts PENDING requests on the live AND the next term", async () => {
+    const live = await createTerm("ACTIVE", []);
+    const next = await createTerm("PLANNING", []);
+    const dept = await createDepartment("AABB");
+    const director = await createPerson("Director");
+    const vol = await createPerson("Volunteer");
+    await createMembership(director.id, live.id, dept.id, "DIRECTOR");
+    await pendingRequest(live.id, dept.id, vol.id, 0);
+    await pendingRequest(next.id, dept.id, vol.id, 1);
+
+    expect(await countPendingApprovals(director.id)).toBe(2);
+  });
+
+  it("excludes PENDING requests on an ARCHIVED term", async () => {
+    const live = await createTerm("ACTIVE", []);
+    const archived = await createTerm("ARCHIVED", []);
+    const dept = await createDepartment("AABB");
+    const director = await createPerson("Director");
+    const vol = await createPerson("Volunteer");
+    await createMembership(director.id, live.id, dept.id, "DIRECTOR");
+    await pendingRequest(live.id, dept.id, vol.id, 0);
+    await pendingRequest(archived.id, dept.id, vol.id, 1);
+
+    expect(await countPendingApprovals(director.id)).toBe(1);
   });
 });

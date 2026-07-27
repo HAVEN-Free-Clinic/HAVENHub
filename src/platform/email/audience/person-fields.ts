@@ -1,4 +1,4 @@
-import type { Prisma, TechRequestStatus } from "@prisma/client";
+import type { Prisma, TechRequestStatus, EpicRequestStatus } from "@prisma/client";
 import type { ComplianceStatus } from "@/platform/compliance/rules";
 import type { ClearanceSummary } from "@/platform/clearance";
 import type { AudienceCondition, ConditionOp } from "./types";
@@ -54,6 +54,12 @@ const MATCH_NOBODY: Prisma.PersonWhereInput = { id: { in: [] } };
 /** IT support ticket statuses that count as "open" (not resolved/closed/cancelled). */
 const OPEN_TECH_STATUSES: TechRequestStatus[] = ["SUBMITTED", "IN_PROGRESS", "AWAITING_REQUESTER", "AWAITING_YNHH"];
 
+/** Epic request statuses that count as "open", matching every other code path
+ *  (epic.ts, itcm.ts, people.ts, promotion.ts all use PENDING or SUBMITTED). The
+ *  audience field previously matched only PENDING, so a request already SUBMITTED
+ *  to YNHH read as "no open request". */
+const OPEN_EPIC_STATUSES: EpicRequestStatus[] = ["PENDING", "SUBMITTED"];
+
 const TEXT_OPERATORS: ConditionOp[] = [
   "contains",
   "eq",
@@ -73,14 +79,21 @@ export function parseTextList(value: AudienceCondition["value"]): string[] {
   return parts.map((s) => s.trim()).filter((s) => s.length > 0);
 }
 
-function textCompile(column: string, cond: AudienceCondition): Prisma.PersonWhereInput {
+function textCompile(column: string, cond: AudienceCondition, nullable: boolean): Prisma.PersonWhereInput {
   switch (cond.op) {
     case "isEmpty":
-      return { OR: [{ [column]: null }, { [column]: "" }] } as Prisma.PersonWhereInput;
+      // Prisma rejects a null filter on a NOT NULL scalar (e.g. Person.name) with
+      // a PrismaClientValidationError, so only include the null half for nullable
+      // columns. For a required column, "empty" means the empty string.
+      return (
+        nullable ? { OR: [{ [column]: null }, { [column]: "" }] } : { [column]: "" }
+      ) as Prisma.PersonWhereInput;
     case "isNotEmpty":
-      return {
-        AND: [{ [column]: { not: null } }, { [column]: { not: "" } }],
-      } as Prisma.PersonWhereInput;
+      return (
+        nullable
+          ? { AND: [{ [column]: { not: null } }, { [column]: { not: "" } }] }
+          : { [column]: { not: "" } }
+      ) as Prisma.PersonWhereInput;
     case "in": {
       // "is any of": case-insensitive match against a pasted list. Prisma ignores
       // mode:"insensitive" on `in` for Postgres, so expand to an OR of equals.
@@ -104,14 +117,14 @@ function textCompile(column: string, cond: AudienceCondition): Prisma.PersonWher
   }
 }
 
-function textField(key: string, label: string, column: string): PersonFieldDef {
+function textField(key: string, label: string, column: string, nullable = true): PersonFieldDef {
   return {
     key,
     label,
     group: "Identity",
     kind: "text",
     operators: TEXT_OPERATORS,
-    compile: (cond) => textCompile(column, cond),
+    compile: (cond) => textCompile(column, cond, nullable),
   };
 }
 
@@ -122,7 +135,7 @@ function asArray(value: AudienceCondition["value"]): string[] {
 }
 
 export const PERSON_FIELDS: PersonFieldDef[] = [
-  textField("name", "Full name", "name"),
+  textField("name", "Full name", "name", false), // Person.name is NOT NULL
   textField("netId", "NetID", "netId"),
   textField("contactEmail", "Email", "contactEmail"),
   textField("epicId", "Epic ID", "epicId"),
@@ -250,8 +263,8 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
     operators: ["isTrue", "isFalse"],
     compile: (cond) =>
       cond.op === "isFalse"
-        ? { epicRequests: { none: { status: "PENDING" } } }
-        : { epicRequests: { some: { status: "PENDING" } } },
+        ? { epicRequests: { none: { status: { in: OPEN_EPIC_STATUSES } } } }
+        : { epicRequests: { some: { status: { in: OPEN_EPIC_STATUSES } } } },
   },
   {
     key: "hasDisciplinaryAction",
@@ -312,7 +325,13 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
     kind: "boolean",
     operators: ["isTrue", "isFalse"],
     compile: (cond, ctx) => {
-      const some = { termId: ctx.activeTermId ?? "", track: "VOLUNTEER" as const, status: "COMPLETE" as const };
+      // With no active term there is nothing to have completed. The positive
+      // branch already matches nobody; the negative branch, without this guard,
+      // compiled to `none: { termId: "" }` which is TRUE for every Person in the
+      // table (including alumni and applicant-created rows that were never on a
+      // roster), so "has NOT completed training" would email the whole database.
+      if (!ctx.activeTermId) return MATCH_NOBODY;
+      const some = { termId: ctx.activeTermId, track: "VOLUNTEER" as const, status: "COMPLETE" as const };
       return cond.op === "isFalse"
         ? { trainings: { none: some } }
         : { trainings: { some } };
@@ -325,7 +344,10 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
     kind: "boolean",
     operators: ["isTrue", "isFalse"],
     compile: (cond, ctx) => {
-      const some = { termId: ctx.activeTermId ?? "" };
+      // Same no-active-term guard as completedVolunteerTraining: without it the
+      // negative branch (`none: { termId: "" }`) matches every Person in the table.
+      if (!ctx.activeTermId) return MATCH_NOBODY;
+      const some = { termId: ctx.activeTermId };
       return cond.op === "isFalse"
         ? { offboardFlags: { none: some } }
         : { offboardFlags: { some } };

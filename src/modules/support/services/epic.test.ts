@@ -640,6 +640,25 @@ describe("completeRequest", () => {
     const after = audit?.after as Record<string, unknown>;
     expect(after.epicId).toBe("E77777");
   });
+
+  // The atomic claim (updateMany with a PENDING/SUBMITTED precondition) that
+  // makes completeRequest safe against a concurrent cancel is only observable
+  // under a true read/write interleaving, which this suite cannot stage: a
+  // sequential cancel-then-complete is already caught by the read-time status
+  // guard above. The behaviour is covered by matching the sibling atomic-claim
+  // pattern (cancelEpicRequest / createTicket / reconcileDeactivationRequests).
+  it("refuses to complete an already-cancelled request (read-time guard)", async () => {
+    const actor = await createPerson("Manager", { netId: "mgr001" });
+    await grantPermission(actor.id, "support.manage_requests");
+    const target = await createPerson("Alice", { netId: "aaa001" });
+    const req = await prisma.epicRequest.create({
+      data: { personId: target.id, kind: "NEW", status: "PENDING", requestedById: target.id },
+    });
+    await cancelEpicRequest(actor.id, req.id);
+
+    await expect(completeRequest(actor.id, req.id, "E99999")).rejects.toBeInstanceOf(EpicStateError);
+    expect((await prisma.person.findUniqueOrThrow({ where: { id: target.id } })).epicId).toBeNull();
+  });
 });
 
 describe("sendEpicEmail", () => {

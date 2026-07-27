@@ -68,6 +68,33 @@ export async function getSetting<T = unknown>(key: string): Promise<T> {
   return value as T;
 }
 
+/**
+ * Like getSetting but bypasses the 30s TTL cache: reads the row fresh and does
+ * NOT populate the cache (so it can't be poisoned or serve a poisoned value).
+ *
+ * For the rare caller where a 30s-stale value is unsafe rather than merely
+ * slightly-old, e.g. resolveEmailTransport at drain time: setSetting only
+ * invalidates the writing instance's cache, so for up to 30s after an admin
+ * switches email.transport to "graph", another instance still resolving "log"
+ * would drain real mail through LogTransport and stamp it SENT with no retry
+ * path (#76). This read sees the latest committed value instead. Still degrades
+ * to the env default on a DB blip, exactly like getSetting.
+ */
+export async function getSettingUncached<T = unknown>(key: string): Promise<T> {
+  const def = getSettingDef(key);
+  let row: Awaited<ReturnType<typeof prisma.setting.findUnique>>;
+  try {
+    row = await prisma.setting.findUnique({ where: { key } });
+  } catch (err) {
+    if (isDbUnreachableError(err)) {
+      log.warn(`[settings] database unreachable resolving "${key}"; using default`, errorAttrs(err));
+      return def.envDefault() as T;
+    }
+    throw err;
+  }
+  return (row ? resolveStored(def, row.value).value : def.envDefault()) as T;
+}
+
 export type ResolvedSetting = {
   key: string;
   category: string;

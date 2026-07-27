@@ -238,19 +238,27 @@ export default async function HubPage() {
   const expiry =
     newestCert?.completionDate != null ? fmtMonthYear(certExpiresAt(newestCert.completionDate)) : null;
 
-  // HIPAA sub copy, expiry aware. Reused for the clearance row and the no-term fallback.
-  const hipaaSub =
-    status === "COMPLIANT"
+  // HIPAA sub copy, expiry aware, computed PER TERM: complianceStatus is
+  // term-sensitive (COMPLIANT requires expiresAt >= termEnd + 30d), so a cert that
+  // clears the live term but not a next term must read "Renew before ..." under
+  // that term's heading, not reuse the live term's "Valid through ..." (#87). The
+  // expiry date itself is term-independent (the cert's own expiry), so it closes over.
+  const hipaaSubForTerm = (termEnd: Date | null): string => {
+    const s = complianceStatus(newestCert, termEnd);
+    return s === "COMPLIANT"
       ? (expiry ? `Valid through ${expiry}` : "On file")
-      : status === "EXPIRING_SOON"
+      : s === "EXPIRING_SOON"
         ? (expiry ? `Renew before ${expiry}` : "Renew soon")
-        : status === "EXPIRED"
+        : s === "EXPIRED"
           ? "Upload a current certificate"
-          : status === "UNKNOWN_DATE"
+          : s === "UNKNOWN_DATE"
             ? "Completion date pending review"
-            : status === "PENDING_VERIFICATION"
+            : s === "PENDING_VERIFICATION"
               ? "Awaiting verification"
               : "Required for clinic clearance"; // NO_CERTIFICATE
+  };
+  // The live-term sub copy, reused for the live-term and no-term fallbacks below.
+  const hipaaSub = hipaaSubForTerm(term?.endDate ?? null);
 
   // One clearance group per term the member belongs to (ACTIVE TermMembership).
   // Two fallbacks for viewers with no such membership: if a live term exists,
@@ -263,7 +271,9 @@ export default async function HubPage() {
         termName: entry.term.name,
         cleared: entry.status.cleared,
         hasTasks: entry.status.tasks.filter((t) => t.state !== "NOT_REQUIRED").length > 0,
-        lines: entry.status.tasks.filter((t) => t.state !== "NOT_REQUIRED").map((t) => clearanceRow(t, hipaaSub)),
+        // Per-term HIPAA copy: use this entry's own term end so a next-term cert gap
+        // shows "Renew before ..." on the exact term it applies to (#87).
+        lines: entry.status.tasks.filter((t) => t.state !== "NOT_REQUIRED").map((t) => clearanceRow(t, hipaaSubForTerm(entry.term.endDate))),
       }))
     : onboarding.hasActiveTerm
       ? [{

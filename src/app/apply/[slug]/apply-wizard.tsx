@@ -4,7 +4,7 @@ import { submitPublicApplication, type SubmitResult } from "./actions";
 import { saveDraftAction, uploadDraftFileAction } from "./draft-actions";
 import { deriveSteps, stepIndexForKeys, type WizardSection, type WizardStep } from "./wizard-steps";
 import { missingRequiredKeys } from "./wizard-validation";
-import { mergeDepartmentAnswer, parseFieldCondition, visibleFields } from "@/modules/recruitment/engine/field-visibility";
+import { mergeDepartmentAnswer, parseFieldCondition, visibleFields, isFieldVisible } from "@/modules/recruitment/engine/field-visibility";
 import { WizardProgress } from "./wizard-progress";
 import { WizardReview, formatFieldValue, type ReviewGroup } from "./wizard-review";
 import { applicantTypeLabel, type ApplicantType } from "@/modules/recruitment/engine/visibility";
@@ -193,6 +193,13 @@ export function ApplyWizard({
     for (const s of def.sections) for (const f of s.fields) m.set(f.key, s.id);
     return m;
   }, [def.sections]);
+  // A controller's own visibleWhen, so effectiveAnswers can also drop a controller
+  // that is itself condition-hidden (not only section-hidden).
+  const keyToVisibleWhen = useMemo(() => {
+    const m = new Map<string, unknown>();
+    for (const s of def.sections) for (const f of s.fields) m.set(f.key, f.visibleWhen);
+    return m;
+  }, [def.sections]);
   const visibleSectionIds = useMemo(
     () => new Set(steps.filter((st) => st.kind === "section").map((st) => st.id)),
     [steps],
@@ -212,13 +219,29 @@ export function ApplyWizard({
   // visibility mechanism (deriveSteps/isSectionVisible), which reads
   // selectedDepartmentCodes directly.
   const effectiveAnswers = useMemo(() => {
-    const pruned: Record<string, string | string[]> = {};
+    let current: Record<string, string | string[]> = {};
     for (const [k, v] of Object.entries(answers)) {
       const sid = keyToSectionId.get(k);
-      if (sid === undefined || visibleSectionIds.has(sid)) pruned[k] = v;
+      if (sid === undefined || visibleSectionIds.has(sid)) current[k] = v;
     }
-    return mergeDepartmentAnswer(pruned, departmentChoiceKey, selectedDepartmentCodes);
-  }, [answers, keyToSectionId, visibleSectionIds, departmentChoiceKey, selectedDepartmentCodes]);
+    // Also drop any controller hidden by its OWN visibleWhen. Such a controller is
+    // unmounted, so it is absent from the submitted FormData and the server never
+    // sees it, but its last value survives in React state. Removing one controller
+    // can hide another that is gated on it, so iterate to a fixpoint. Without this
+    // the client can show a question the server will silently discard.
+    for (;;) {
+      const merged = mergeDepartmentAnswer(current, departmentChoiceKey, selectedDepartmentCodes);
+      const next: Record<string, string | string[]> = {};
+      let changed = false;
+      for (const [k, v] of Object.entries(current)) {
+        if (!isFieldVisible(keyToVisibleWhen.get(k), merged)) { changed = true; continue; }
+        next[k] = v;
+      }
+      current = next;
+      if (!changed) break;
+    }
+    return mergeDepartmentAnswer(current, departmentChoiceKey, selectedDepartmentCodes);
+  }, [answers, keyToSectionId, keyToVisibleWhen, visibleSectionIds, departmentChoiceKey, selectedDepartmentCodes]);
   const reviewIndex = steps.length - 1;
 
   // Clamp the pointer if the visible-step set shrinks below the current index.
@@ -254,15 +277,23 @@ export function ApplyWizard({
         if (k.startsWith("__") || v instanceof File) continue;
         draftAnswers[k] = draftAnswers[k] === undefined ? v : ([] as unknown[]).concat(draftAnswers[k], v);
       }
-      const res = await saveDraftAction(def.slug, {
-        answers: draftAnswers,
-        applicantType,
-        renewalDepartment: applicantType === "RENEWAL" ? renewalDept : null,
-      });
       // A failed draft save must not silently collapse to "idle" (visually identical
       // to never-having-saved) -- surface it so the applicant knows their answers may
-      // not be persisted before they close the tab.
-      setSaveState(res.ok ? "saved" : "error");
+      // not be persisted before they close the tab. saveDraftAction returns {ok:false}
+      // only for a missing identity / DraftError; a transport failure (offline, 502) or
+      // a non-DraftError (e.g. Prisma) REJECTS, which without this catch would leave the
+      // indicator stuck on "Saving…" forever -- exactly the case the "check your
+      // connection" copy was written for but could never reach (#34).
+      try {
+        const res = await saveDraftAction(def.slug, {
+          answers: draftAnswers,
+          applicantType,
+          renewalDepartment: applicantType === "RENEWAL" ? renewalDept : null,
+        });
+        setSaveState(res.ok ? "saved" : "error");
+      } catch {
+        setSaveState("error");
+      }
     }, 800);
   }
 
@@ -279,8 +310,15 @@ export function ApplyWizard({
     setFileStatus((prev) => ({ ...prev, [fieldKey]: "Uploading..." }));
     const fd = new FormData();
     fd.set("file", file);
-    const res = await uploadDraftFileAction(def.slug, fieldKey, fd);
-    setFileStatus((prev) => ({ ...prev, [fieldKey]: res.ok && res.fileName ? `Attached: ${res.fileName}` : res.error ?? "Upload failed." }));
+    // Same hazard as scheduleSave: a Blob putObject / transport failure REJECTS rather
+    // than returning {ok:false}, which without this catch leaves the field stuck on
+    // "Uploading..." forever (#34).
+    try {
+      const res = await uploadDraftFileAction(def.slug, fieldKey, fd);
+      setFileStatus((prev) => ({ ...prev, [fieldKey]: res.ok && res.fileName ? `Attached: ${res.fileName}` : res.error ?? "Upload failed." }));
+    } catch {
+      setFileStatus((prev) => ({ ...prev, [fieldKey]: "Upload failed. Try again." }));
+    }
   }
 
   // Serialize the form to a { key: string | string[] } map, marking attached
@@ -513,12 +551,16 @@ export function ApplyWizard({
                         label={f.label}
                         required={f.required}
                         helpText={f.helpText}
-                        personName={[prefill?.values.first_name ?? initialAnswers.first_name, prefill?.values.last_name ?? initialAnswers.last_name].filter(Boolean).join(" ")}
+                        personName={[initialAnswers.first_name ?? prefill?.values.first_name, initialAnswers.last_name ?? prefill?.values.last_name].filter(Boolean).join(" ")}
                         defaultValue={typeof initialAnswers[f.key] === "string" ? (initialAnswers[f.key] as string) : ""}
                         defaultMethod={initialAnswers[`${f.key}__method`] === "type" ? "type" : "draw"}
                         defaultName={typeof initialAnswers[`${f.key}__name`] === "string" ? (initialAnswers[`${f.key}__name`] as string) : ""}
                         error={fieldErrors[f.key]}
                         onChange={scheduleSave}
+                        // Mirror the signature's presence into the visibility map
+                        // (marker, not the large data URL) so a field gated on this
+                        // signature reacts exactly like a FILE-gated one.
+                        onValueChange={(value) => handleValueChange(f.key, value ? "attached" : "")}
                       />
                     ) : f.type === "FILE" ? (
                       <div key={f.key} onChange={(e) => { e.stopPropagation(); handleFileChange(f.key, e as unknown as React.ChangeEvent<HTMLInputElement>); }}>
@@ -534,7 +576,11 @@ export function ApplyWizard({
                       <FieldPreview key={f.key} f={f} departments={def.departments} subcommittees={def.subcommittees}
                         fieldError={fieldErrors[f.key]}
                         onValueChange={handleValueChange}
-                        prefill={prefill?.values[f.key] ?? initialAnswers[f.key]} locked={lockedKeys.has(f.key)} />
+                        // Prefill (the Person record) wins only for LOCKED keys (email, net_id).
+                        // For editable keys (first_name, last_name, phone) a saved draft answer is
+                        // an explicit applicant edit and must win, or resuming the form silently
+                        // reverts their correction back to the stale record value (#93).
+                        prefill={lockedKeys.has(f.key) ? prefill?.values[f.key] : (initialAnswers[f.key] ?? prefill?.values[f.key])} locked={lockedKeys.has(f.key)} />
                     ),
                   )}
                 </FormSection>

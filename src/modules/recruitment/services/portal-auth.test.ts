@@ -183,6 +183,25 @@ it("getApplicantIdentity preserves personId when a member session lacks a user.e
   expect(await getApplicantIdentity()).toEqual({ email: "member@yale.edu", personId: "p9", firstName: null });
 });
 
+it("getApplicantIdentity resolves a magic-link member (personId, no email claim) from their Person record (#50)", async () => {
+  // The member-magic-link provider sets personId but NEITHER user.email NOR
+  // applicantEmail. Without the Person lookup this member was treated as anonymous.
+  const person = await prisma.person.create({
+    data: { name: "Casey Rivera", contactEmail: "Casey@Example.org", status: "ACTIVE" },
+  });
+  vi.mocked(auth).mockResolvedValueOnce({ personId: person.id, user: {} } as never);
+  expect(await getApplicantIdentity()).toEqual({ email: "casey@example.org", personId: person.id, firstName: null });
+});
+
+it("getApplicantIdentity does not resolve a magic-link session whose Person is offboarded", async () => {
+  const person = await prisma.person.create({
+    data: { name: "Gone", contactEmail: "gone@example.org", status: "OFFBOARDED" },
+  });
+  vi.mocked(auth).mockResolvedValueOnce({ personId: person.id, user: {} } as never);
+  vi.mocked(cookies).mockResolvedValueOnce({ get: () => undefined } as never);
+  expect(await getApplicantIdentity()).toBeNull();
+});
+
 it("getApplicantIdentity falls back to the signed cookie when there is no SSO session", async () => {
   vi.mocked(auth).mockResolvedValueOnce(null as never);
   vi.mocked(cookies).mockResolvedValueOnce({

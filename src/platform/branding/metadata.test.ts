@@ -6,6 +6,7 @@ vi.mock("@/platform/settings/service", () => ({
 }));
 
 import { buildPageMetadata, moduleMetadata } from "./metadata";
+import { config } from "@/platform/config";
 
 beforeEach(() => {
   getSetting.mockReset();
@@ -50,6 +51,23 @@ describe("buildPageMetadata", () => {
   it("resolves metadataBase from app.baseUrl", async () => {
     const m = await buildPageMetadata();
     expect(m.metadataBase?.toString()).toBe("https://hub.example.org/");
+  });
+
+  it("falls back to the env base URL when app.baseUrl is malformed instead of throwing (#67)", async () => {
+    // A fresh env whose APP_BASE_URL was set scheme-less seeds a bad app.baseUrl
+    // default. metadataBase runs inside every route's generateMetadata, so a throw
+    // here 500s the whole app (including /login and /admin/settings, so it can't be
+    // fixed from the UI); it must degrade to the valid env default instead.
+    getSetting.mockImplementation((key: string) => {
+      const values: Record<string, unknown> = {
+        "branding.appName": "HAVEN Hub",
+        "branding.orgName": "HAVEN Free Clinic",
+        "app.baseUrl": "staging.havenfreeclinic.org", // no scheme -> new URL() throws
+      };
+      return Promise.resolve(values[key]);
+    });
+    const m = await buildPageMetadata();
+    expect(m.metadataBase?.toString()).toBe(new URL(config.APP_BASE_URL).toString());
   });
 
   it("uses the 1200x630 physicians JPG for OG and Twitter", async () => {

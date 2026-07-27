@@ -5,7 +5,7 @@ import { requirePersonSession } from "@/platform/auth/session";
 import { captureEvent } from "@/platform/posthog/capture";
 import { termGroupForCycle } from "@/platform/posthog/groups";
 import { getSetting } from "@/platform/settings/service";
-import { createOrResendContract, ContractError } from "@/modules/recruitment/services/onboarding";
+import { createOrResendContract, withdrawContract, ContractError } from "@/modules/recruitment/services/onboarding";
 import { promoteContracts } from "@/modules/recruitment/services/promotion";
 import { RecruitmentAuthError } from "@/modules/recruitment/services/review";
 
@@ -43,6 +43,26 @@ export async function sendLinksAction(cycleId: string, formData: FormData) {
   redirect(bounce(cycleId, failed > 0 ? { msg: `Sent ${sent} onboarding link(s).`, err: `${failed} could not be sent.` } : { msg: `Sent ${sent} onboarding link(s).` }));
 }
 
+export async function withdrawContractAction(cycleId: string, formData: FormData) {
+  const person = await requirePersonSession();
+  const contractId = String(formData.get("contractId") ?? "");
+  // Scope to this cycle: only withdraw a contract that belongs here.
+  const owned = await prisma.onboardingContract.findFirst({
+    where: { id: contractId, acceptance: { application: { cycleId } } },
+    select: { id: true },
+  });
+  if (!owned) redirect(bounce(cycleId, { err: "Onboarding contract not found." }));
+  try {
+    await withdrawContract(contractId, person.personId);
+  } catch (err) {
+    if (err instanceof RecruitmentAuthError || err instanceof ContractError) {
+      redirect(bounce(cycleId, { err: (err as Error).message }));
+    }
+    throw err;
+  }
+  redirect(bounce(cycleId, { msg: "Onboarding contract withdrawn. You can now change the decision or resend a fresh link." }));
+}
+
 export async function promoteAction(cycleId: string, formData: FormData) {
   const person = await requirePersonSession();
   const ids = formData.getAll("contractId").map(String);
@@ -54,10 +74,20 @@ export async function promoteAction(cycleId: string, formData: FormData) {
     await captureEvent({
       distinctId: person.personId,
       event: "volunteers_promoted",
-      properties: { cycle_id: cycleId, created: res.created, reactivated: res.reactivated, skipped: res.skipped },
+      properties: { cycle_id: cycleId, created: res.created, reactivated: res.reactivated, skipped: res.skipped, failed: res.failed },
       groups: await termGroupForCycle(cycleId),
     });
-    redirect(bounce(cycleId, { msg: `Promoted: ${res.created} new, ${res.reactivated} returning, ${res.skipped} skipped.` }));
+    const summary = `Promoted: ${res.created} new, ${res.reactivated} returning, ${res.skipped} skipped.`;
+    // A contract that errored out is NOT a benign skip: that person was never
+    // created and holds no membership, so they are absent from every roster for
+    // the term. Surface it as an error so the SRR retries rather than reading a
+    // green banner and moving on.
+    if (res.failed > 0) {
+      redirect(bounce(cycleId, {
+        err: `${summary} ${res.failed} failed to promote and must be retried.`,
+      }));
+    }
+    redirect(bounce(cycleId, { msg: summary }));
   } catch (err) {
     if (err instanceof RecruitmentAuthError) redirect(bounce(cycleId, { err: (err as Error).message }));
     throw err;

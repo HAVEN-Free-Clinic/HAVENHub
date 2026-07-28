@@ -52,6 +52,7 @@ All primitives live under `src/platform/ui/`. Import from the aliased path `@/pl
 |---|---|---|
 | `PageHeader` | `@/platform/ui/page-header` | Top-of-page `<h1>` with optional description and action slot. |
 | `SectionHeader` | `@/platform/ui/section-header` | Subsection heading. `level="eyebrow"` (default) renders the small uppercase label; `level="title"` renders a larger non-uppercase heading. Use `as="h3"` inside an `h2` context. |
+| `TabRow` | `@/platform/ui/tab-row` | Horizontal tab bar. Two variants: `underline` (a bordered row of page-level tabs) and `segmented` (a pill-style row for a tab row nested under another tab row, so two identical underline rows never stack). `ModuleNav` and the `/support/epic` tabs both render through it. |
 
 ### Feedback
 

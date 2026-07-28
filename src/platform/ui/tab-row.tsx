@@ -1,3 +1,4 @@
+import type { Ref } from "react";
 import Link from "next/link";
 
 export type TabItem = { label: string; href: string; badge?: number };
@@ -17,17 +18,26 @@ export function TabRow({
   isActive,
   variant = "underline",
   label,
+  navRef,
 }: {
   items: TabItem[];
   isActive: (item: TabItem) => boolean;
   variant?: "underline" | "segmented";
   label: string;
+  /**
+   * Optional ref to the root `<nav>` element. Lets a client-component caller
+   * (this primitive itself is not "use client") reach into the rendered row,
+   * e.g. to scroll the active tab into view. Nothing here reads or writes it;
+   * it is only ever attached to the DOM node.
+   */
+  navRef?: Ref<HTMLElement>;
 }) {
   if (items.length === 0) return null;
 
   if (variant === "segmented") {
     return (
       <nav
+        ref={navRef}
         aria-label={label}
         className="flex gap-1 overflow-x-auto rounded-lg bg-muted p-1 text-sm [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
@@ -60,6 +70,7 @@ export function TabRow({
 
   return (
     <nav
+      ref={navRef}
       aria-label={label}
       className="flex gap-6 overflow-x-auto border-b border-border text-sm [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >

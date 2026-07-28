@@ -13,8 +13,11 @@ export default async function OnboardingLearningPage() {
   const person = await requirePersonSession();
   const status = await getOnboardingStatus(person.personId);
   if (status.exempt || !status.hasActiveTerm || status.onboarded) redirect("/");
+  // A COMPLETE learning step still renders: the member may be blocked on another
+  // step and want to reopen a finished course, and /learning is no longer
+  // reachable to them. Only an absent or not-applicable step has nothing to show.
   const task = status.tasks.find((t) => t.key === "learning");
-  if (!task || task.state === "COMPLETE" || task.state === "NOT_REQUIRED") redirect("/get-started");
+  if (!task || task.state === "NOT_REQUIRED") redirect("/get-started");
 
   const courses = await getMyCourses(person.personId);
 

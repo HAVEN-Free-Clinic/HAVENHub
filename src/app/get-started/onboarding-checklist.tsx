@@ -72,9 +72,16 @@ function TaskRow({ task }: { task: OnboardingTask }) {
         <p className="mt-0.5 text-[13px] leading-snug text-foreground-soft">{task.description}</p>
       </div>
       {done ? (
-        <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-success text-white">
-          <Check aria-hidden className="h-4 w-4" strokeWidth={3} />
-        </span>
+        <div className="flex shrink-0 items-center gap-2">
+          {task.state === "COMPLETE" && task.reviewable && task.href ? (
+            <Link href={task.href} className={buttonClasses("outline", "sm")}>
+              Review
+            </Link>
+          ) : null}
+          <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-success text-white">
+            <Check aria-hidden className="h-4 w-4" strokeWidth={3} />
+          </span>
+        </div>
       ) : task.href ? (
         <Link href={task.href} className={buttonClasses(task.state === "INCOMPLETE" ? "primary" : "outline", "sm")}>
           {task.ctaLabel}

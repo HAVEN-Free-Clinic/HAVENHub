@@ -7,27 +7,25 @@ export type PageHit = { label: string; href: string; group: string; score: numbe
  * Subsequence match with a tightness score. Returns null when `needle` is not a
  * subsequence of `haystack`; otherwise a score where LOWER is better.
  *
- * The score is the span consumed (last matched index minus first) plus the
- * offset of the first match, so a contiguous prefix beats a scattered match and
- * an early match beats a late one. This is what makes "sch" rank "Schedule"
- * above "Speed check".
+ * The score is the index of the LAST character matched, which prices both
+ * things at once: a match that starts late and a match that scatters each push
+ * that index up, so a contiguous prefix beats both. This is what makes "sch"
+ * rank "Schedule" (last index 2) above "Speed check" (last index 7).
  */
 export function subsequenceScore(haystack: string, needle: string): number | null {
   const h = haystack.toLowerCase();
   const n = needle.toLowerCase();
   if (n.length === 0) return 0;
 
-  let first = -1;
   let last = -1;
   let hi = 0;
   for (const ch of n) {
     const found = h.indexOf(ch, hi);
     if (found === -1) return null;
-    if (first === -1) first = found;
     last = found;
     hi = found + 1;
   }
-  return last - first + first;
+  return last;
 }
 
 /**

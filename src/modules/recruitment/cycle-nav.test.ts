@@ -45,6 +45,21 @@ describe("cycleNavItems", () => {
     expect(items.map((i) => i.label)).not.toContain("Subcommittees");
   });
 
+  it("shows Speed route for a canReviewAll VOLUNTEER cycle", () => {
+    const items = cycleNavItems({ cycleId: CYCLE_ID, track: "VOLUNTEER", canManage: false, canReviewAll: true });
+    expect(items.map((i) => i.label)).toContain("Speed route");
+  });
+
+  it("hides Speed route when canReviewAll is false", () => {
+    const items = cycleNavItems({ cycleId: CYCLE_ID, track: "VOLUNTEER", canManage: true, canReviewAll: false });
+    expect(items.map((i) => i.label)).not.toContain("Speed route");
+  });
+
+  it("hides Speed route on a DIRECTOR cycle even with canReviewAll", () => {
+    const items = cycleNavItems({ cycleId: CYCLE_ID, track: "DIRECTOR", canManage: true, canReviewAll: true });
+    expect(items.map((i) => i.label)).not.toContain("Speed route");
+  });
+
   it("gives every href a path under the cycle's own workspace", () => {
     const items = cycleNavItems({ cycleId: CYCLE_ID, track: "DIRECTOR", canManage: true, canReviewAll: true });
     for (const item of items) {
@@ -88,6 +103,7 @@ describe("cycleNavItems", () => {
       "Form",
       "Contract",
       "Applicants",
+      "Speed route",
       "Waitlist",
       "Decisions",
       "Subcommittees",

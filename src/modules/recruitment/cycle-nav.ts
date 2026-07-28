@@ -8,16 +8,10 @@ import type { TabItem } from "@/platform/ui/tab-row";
  * either dead-end on a page that refuses the viewer or hide a page the
  * viewer is actually allowed to open.
  *
- * Deliberately NOT included: the Speed route sub-page
- * (cycles/[id]/speed-route). It is never linked from cycles/[id]/page.tsx at
- * all; its only entry point is cycles/[id]/applicants/page.tsx, gated on
- * `scope.all && cycle.track === "VOLUNTEER" && apps.some(a =>
- * a.committeeScores.length > 0)`, a dynamic, data-dependent condition this
- * function's static canManage/canReviewAll booleans cannot express. Adding
- * it here as an always-on tab would dead-end DIRECTOR-track cycles,
- * non-scope.all reviewers, and VOLUNTEER cycles with no scored applicants
- * yet on a 404. Whoever wires this into the tab row needs to either thread
- * the real condition through as a third input or leave the tab out.
+ * Speed route (cycles/[id]/speed-route) is not linked from cycles/[id]/page.tsx
+ * at all; it is included here anyway, gated on the page's own real
+ * authorization rather than the applicants-page link's stricter condition.
+ * See the comment on that entry below.
  */
 export function cycleNavItems(opts: {
   cycleId: string;
@@ -30,6 +24,14 @@ export function cycleNavItems(opts: {
   if (opts.canManage) items.push({ label: "Form", href: `${base}/builder` });
   if (opts.canManage) items.push({ label: "Contract", href: `${base}/builder/contract` });
   items.push({ label: "Applicants", href: `${base}/applicants` });
+  // Speed route's real gate is recruitment.review_all (loadSpeedRouteBoard throws
+  // RecruitmentAuthError otherwise, and the page turns that into notFound). The
+  // applicants-page link additionally requires at least one committee score, but
+  // that is a usefulness check, not authorization: a review_all holder with no
+  // scores gets an empty board, which is a normal empty state.
+  if (opts.canReviewAll && opts.track === "VOLUNTEER") {
+    items.push({ label: "Speed route", href: `${base}/speed-route` });
+  }
   items.push({ label: "Waitlist", href: `${base}/waitlist` });
   if (opts.canReviewAll) items.push({ label: "Decisions", href: `${base}/decisions` });
   if (opts.track === "VOLUNTEER" && (opts.canReviewAll || opts.canManage)) {

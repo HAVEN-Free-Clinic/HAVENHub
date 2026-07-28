@@ -305,11 +305,18 @@ Each entity reuses the destination page's own gate, so no result can dead-end at
 
 | Entity | Gate (verified) | Result links to |
 |---|---|---|
-| Cycles | `requireRecruitmentStaff`'s predicate: `recruitment.access` OR `recruitment.score` OR `reviewScope` all/dept | `/recruitment/cycles/[id]` |
+| Cycles | `recruitment.access` alone | `/recruitment/cycles/[id]` |
 | Support requests | own requests always; all when `isManager` (`support.manage_requests`). Row scoping via the same path `getTechRequest` uses | `/support/[id]` |
 | People, tier 1 | `admin.manage_people` | `/admin/people/[id]` |
 | People, tier 2 | `volunteers.manage_compliance` | `/volunteers/compliance/[personId]` |
 | People, neither | no people results at all | n/a |
+
+Note the cycles gate is `recruitment.access` alone, deliberately narrower than
+the cycles SUBTREE gate (`requireRecruitmentStaff`, which also admits
+`recruitment.score` holders and department-scoped reviewers). The cycle detail
+page this links to enforces `recruitment.access` outright
+(`recruitment/cycles/[id]/page.tsx:37`), so the broader subtree gate would
+surface cycle titles that bounce on click.
 
 Note the people tier-2 gate is `volunteers.manage_compliance`, NOT
 `volunteers.view`. The compliance detail page enforces `manage_compliance`

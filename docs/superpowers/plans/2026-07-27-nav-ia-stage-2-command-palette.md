@@ -16,7 +16,7 @@
 
 - **No em-dashes anywhere**, including comments and strings. CI-enforced by the `local/no-em-dash` ESLint rule; this repo writes `--` where prose wants a dash.
 - **Every search result must be permission-filtered server-side, in the route.** The client never filters and must never receive a row the viewer may not open. A leak here is the failure mode that matters.
-- **A result must never dead-end.** Each entity reuses its destination page's own gate. Verified gates: cycles = `recruitment.access` OR `recruitment.score` OR `reviewScope` all/dept; support = own rows always, all rows when `support.manage_requests`; people tier 1 = `admin.manage_people`, tier 2 = `volunteers.manage_compliance` (NOT `volunteers.view`).
+- **A result must never dead-end.** Each entity reuses its destination page's own gate. Verified gates: cycles = `recruitment.access` alone, deliberately narrower than the cycles subtree gate, because the cycle detail page (`recruitment/cycles/[id]/page.tsx:37`) requires `recruitment.access` outright and the broader gate would surface titles that bounce; support = own rows always, all rows when `support.manage_requests`; people tier 1 = `admin.manage_people`, tier 2 = `volunteers.manage_compliance` (NOT `volunteers.view`).
 - **Incidents, strikes, applications, and applicants are excluded.** Security decision, see spec. Do not add them.
 - `src/platform/**` must never import from `src/modules/**`.
 - Client components must not import the server registry, Prisma, the RBAC engine, or the auth module.

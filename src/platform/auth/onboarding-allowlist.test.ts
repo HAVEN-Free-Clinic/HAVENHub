@@ -3,7 +3,7 @@ import { isAllowlistedPath } from "./onboarding-allowlist";
 
 describe("isAllowlistedPath", () => {
   it("matches each allowlisted root exactly", () => {
-    for (const p of ["/get-started", "/learning", "/login", "/welcome"]) {
+    for (const p of ["/get-started", "/login", "/welcome"]) {
       expect(isAllowlistedPath(p)).toBe(true);
     }
   });
@@ -15,9 +15,15 @@ describe("isAllowlistedPath", () => {
     expect(isAllowlistedPath("/get-started/learning")).toBe(true);
   });
 
-  it("matches the SCORM player under /learning", () => {
-    expect(isAllowlistedPath("/learning/abc")).toBe(true);
-    expect(isAllowlistedPath("/learning/play/123/index.html")).toBe(true);
+  it("no longer allowlists the learning module: the course player moved into /get-started", () => {
+    expect(isAllowlistedPath("/learning")).toBe(false);
+    expect(isAllowlistedPath("/learning/abc")).toBe(false);
+    expect(isAllowlistedPath("/learning/play/123/index.html")).toBe(false);
+  });
+
+  it("allowlists the onboarding course player", () => {
+    expect(isAllowlistedPath("/get-started/learning")).toBe(true);
+    expect(isAllowlistedPath("/get-started/learning/abc")).toBe(true);
   });
 
   it("no longer allowlists the live my-info and training pages", () => {

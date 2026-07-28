@@ -21,13 +21,13 @@ export default async function OnboardingLearningPage() {
   return (
     <OnboardingStepShell
       title="Learning modules"
-      description="Complete the courses your department assigned to you. Each opens in the course player; you return here when you are done."
+      description="Complete the courses your department assigned to you. Each one opens here; you return to this list when you are done."
       completedCount={status.completedCount}
       totalCount={status.totalCount}
     >
       <div className="space-y-3">
         {courses.map((c) => (
-          <Link key={c.id} href={`/learning/${c.id}?from=onboarding`} className="block">
+          <Link key={c.id} href={`/get-started/learning/${c.id}`} className="block">
             <Card interactive>
               <div className="flex items-center justify-between gap-3">
                 <span className="font-medium text-foreground">{c.title}</span>

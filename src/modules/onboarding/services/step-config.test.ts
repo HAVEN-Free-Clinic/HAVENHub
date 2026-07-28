@@ -131,7 +131,7 @@ describe("reviewable", () => {
     }
   });
 
-  it("keeps reviewable when a term overrides the step, since it is app routing not config", async () => {
+  it("keeps reviewable when a term override row exists for the step", async () => {
     const term = await activeTerm();
     const admin = await prisma.person.create({
       data: { name: "Term Admin", contactEmail: "term-admin-reviewable@x.edu", status: "ACTIVE" },

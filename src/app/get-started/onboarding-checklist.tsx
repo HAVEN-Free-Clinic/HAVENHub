@@ -74,7 +74,7 @@ function TaskRow({ task }: { task: OnboardingTask }) {
       {done ? (
         <div className="flex shrink-0 items-center gap-2">
           {task.state === "COMPLETE" && task.reviewable && task.href ? (
-            <Link href={task.href} className={buttonClasses("outline", "sm")}>
+            <Link href={task.href} className={buttonClasses("outline", "sm")} aria-label={`Review ${task.label}`}>
               Review
             </Link>
           ) : null}

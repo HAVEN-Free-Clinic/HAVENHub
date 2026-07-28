@@ -165,9 +165,11 @@ export async function seedRhdAttending(
  * assigned to every member of that department, and VADM is where dev.volunteer
  * and dev.director live, so a VADM course would transiently gate them too.
  *
- * The Volunteer system role is assigned explicitly. Since #158 nothing derives
- * a baseline role from the membership kind, and Volunteer is what carries
- * learning.access, without which the course player cannot be opened.
+ * A Volunteer RoleAssignment is created explicitly. It is redundant with the
+ * kind-scoped assignment prisma/seed.ts seeds (kind VOLUNTEER, personId null),
+ * which already grants learning.access to any active-term VOLUNTEER membership;
+ * it is kept so the fixture does not silently depend on that seed row.
+ * It cascades with the person, so cleanupPerson needs no change.
  */
 export async function seedUnclearedVolunteer(opts: { deptCode?: string } = {}) {
   const t = tag();
@@ -180,7 +182,6 @@ export async function seedUnclearedVolunteer(opts: { deptCode?: string } = {}) {
     data: { personId: person.id, termId: term.id, departmentId: department.id, kind: "VOLUNTEER", status: "ACTIVE" },
   });
   const volunteerRole = await prisma.role.findFirstOrThrow({ where: { name: "Volunteer" } });
-  // Cascades with the person, so cleanupPerson needs no change.
   await prisma.roleAssignment.create({
     data: { roleId: volunteerRole.id, personId: person.id, termId: term.id },
   });

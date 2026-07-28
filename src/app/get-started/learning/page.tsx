@@ -24,7 +24,7 @@ export default async function OnboardingLearningPage() {
   return (
     <OnboardingStepShell
       title="Learning modules"
-      description="Complete the courses your department assigned to you. Each one opens here; you return to this list when you are done."
+      description="Complete the courses your department assigned to you. Each one opens in the course player; you return to this list when you are done."
       completedCount={status.completedCount}
       totalCount={status.totalCount}
     >

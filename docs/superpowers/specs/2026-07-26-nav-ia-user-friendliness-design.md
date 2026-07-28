@@ -307,8 +307,8 @@ Each entity reuses the destination page's own gate, so no result can dead-end at
 |---|---|---|
 | Cycles | `recruitment.access` alone | `/recruitment/cycles/[id]` |
 | Support requests | own requests always; all when `isManager` (`support.manage_requests`). Row scoping via the same path `getTechRequest` uses | `/support/[id]` |
-| People, tier 1 | `admin.manage_people` | `/admin/people/[id]` |
-| People, tier 2 | `volunteers.manage_compliance` | `/volunteers/compliance/[personId]` |
+| People, tier 1 | `admin.manage_people` AND admin module access | `/admin/people/[id]` |
+| People, tier 2 | `volunteers.manage_compliance` AND volunteers module access | `/volunteers/compliance/[personId]` |
 | People, neither | no people results at all | n/a |
 
 Note the cycles gate is `recruitment.access` alone, deliberately narrower than
@@ -322,6 +322,15 @@ Note the people tier-2 gate is `volunteers.manage_compliance`, NOT
 `volunteers.view`. The compliance detail page enforces `manage_compliance`
 (`volunteers/compliance/[personId]/page.tsx:42`); linking `volunteers.view`
 holders there would recreate the dead-end class Stage 1 exists to remove.
+
+Both people tiers ALSO require module access, not just the page permission,
+because each destination sits under a module layout that gates first. The
+volunteers module admits `volunteers.view` or `volunteers.verify_spanish`, and
+`volunteers.manage_compliance` is in neither set, so a custom role granting only
+`manage_compliance` would be bounced by the layout before reaching the page it
+is allowed to see. Both gates are resolved through `canAccessModule` against the
+registry rather than hardcoded permission strings, so they cannot drift when the
+registry changes.
 
 **Deliberately excluded, and this is a security decision, not an oversight:**
 

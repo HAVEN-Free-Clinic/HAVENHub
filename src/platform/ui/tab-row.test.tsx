@@ -41,6 +41,23 @@ describe("TabRow", () => {
     expect(out).toContain("3");
   });
 
+  it("hides the badge from the accessible name so it does not corrupt the link's label", () => {
+    const out = renderToStaticMarkup(
+      <TabRow items={[{ label: "Approvals", href: "/a", badge: 3 }]} isActive={() => false} label="X" />,
+    );
+    expect(out).toContain("aria-hidden");
+    expect(out).toContain('aria-label="Approvals, 3"');
+  });
+
+  it("leaves badge-less links without an aria-label override, so their name stays plain visible text", () => {
+    const out = renderToStaticMarkup(
+      <TabRow items={ITEMS} isActive={() => false} label="X" />,
+    );
+    const anchor = out.match(/<a[^>]*href="\/x"[^>]*>/);
+    expect(anchor).not.toBeNull();
+    expect(anchor?.[0]).not.toContain("aria-label");
+  });
+
   it("uses distinct markup for the two variants", () => {
     const underline = renderToStaticMarkup(
       <TabRow items={ITEMS} isActive={(i) => i.href === "/x"} label="X" variant="underline" />,

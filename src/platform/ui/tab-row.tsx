@@ -38,6 +38,7 @@ export function TabRow({
               key={item.href}
               href={item.href}
               aria-current={active ? "page" : undefined}
+              aria-label={item.badge === undefined ? undefined : `${item.label}, ${item.badge}`}
               className={
                 active
                   ? "shrink-0 whitespace-nowrap rounded-lg bg-surface px-3 py-1.5 text-foreground shadow-sm"
@@ -46,7 +47,9 @@ export function TabRow({
             >
               {item.label}
               {item.badge !== undefined && (
-                <span className="ml-1.5 rounded-full bg-border px-1.5 py-0.5 text-xs">{item.badge}</span>
+                <span aria-hidden className="ml-1.5 rounded-full bg-border px-1.5 py-0.5 text-xs">
+                  {item.badge}
+                </span>
               )}
             </Link>
           );
@@ -67,6 +70,7 @@ export function TabRow({
             key={item.href}
             href={item.href}
             aria-current={active ? "page" : undefined}
+            aria-label={item.badge === undefined ? undefined : `${item.label}, ${item.badge}`}
             className={
               active
                 ? "shrink-0 whitespace-nowrap border-b-2 border-brand pb-2 text-brand-fg font-medium"
@@ -75,7 +79,9 @@ export function TabRow({
           >
             {item.label}
             {item.badge !== undefined && (
-              <span className="ml-1.5 rounded-full bg-border px-1.5 py-0.5 text-xs">{item.badge}</span>
+              <span aria-hidden className="ml-1.5 rounded-full bg-border px-1.5 py-0.5 text-xs">
+                {item.badge}
+              </span>
             )}
           </Link>
         );

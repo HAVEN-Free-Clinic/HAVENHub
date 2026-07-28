@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import { TabRow, type TabItem } from "@/platform/ui/tab-row";
 
@@ -32,15 +31,9 @@ import { TabRow, type TabItem } from "@/platform/ui/tab-row";
  *    on every Contract or Quiz page. So a prefix match is suppressed when a
  *    more specific (longer-href) item in the same list also matches the
  *    pathname -- the most specific href always wins.
- *
- * Auto-scroll-to-active on narrow viewports copies module-nav.tsx's approach
- * verbatim: this row carries up to 12 items (more than any module nav), so it
- * overflows far more readily, and the ledger from the ModuleNav refactor
- * records that behaviour as must-preserve wherever TabRow is used.
  */
 export function CycleNavTabs({ items }: { items: TabItem[] }) {
   const pathname = usePathname();
-  const navRef = useRef<HTMLElement>(null);
 
   function isActive(item: TabItem): boolean {
     if (pathname === item.href) return true;
@@ -53,22 +46,5 @@ export function CycleNavTabs({ items }: { items: TabItem[] }) {
     return !isSuppressedBySibling;
   }
 
-  // Keep the active tab in view when the row scrolls horizontally on narrow
-  // screens. `nearest` only scrolls the tab row (never the page) and does
-  // nothing when the tab is already visible.
-  useEffect(() => {
-    navRef.current
-      ?.querySelector<HTMLAnchorElement>('[aria-current="page"]')
-      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, [pathname]);
-
-  return (
-    <TabRow
-      variant="segmented"
-      label="Cycle sections"
-      items={items}
-      isActive={isActive}
-      navRef={navRef}
-    />
-  );
+  return <TabRow variant="segmented" label="Cycle sections" items={items} isActive={isActive} />;
 }

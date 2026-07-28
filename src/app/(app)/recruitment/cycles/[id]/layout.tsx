@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { notFound } from "next/navigation";
 import { requirePersonSession } from "@/platform/auth/session";
 import { can } from "@/platform/rbac/engine";
-import { prisma } from "@/platform/db";
+import { getCycle } from "@/modules/recruitment/services/cycles";
 import { cycleNavItems } from "@/modules/recruitment/cycle-nav";
 import { CycleNavTabs } from "@/modules/recruitment/components/cycle-nav-tabs";
 
@@ -28,13 +28,8 @@ type LayoutProps = {
 export default async function CycleWorkspaceLayout({ children, params }: LayoutProps) {
   const { id } = await params;
   const session = await requirePersonSession();
-  // Deliberately not getCycle(id): every sub-page below this layout already
-  // calls it, and its include (term, all sections, all fields, plus
-  // resolveAvailabilityOptions) is the module's heaviest query. This layout
-  // only needs track, so it selects just that instead of paying for the full
-  // load a second time on every render.
   const [cycle, canAccess, canManage, canReviewAll] = await Promise.all([
-    prisma.recruitmentCycle.findUnique({ where: { id }, select: { track: true } }),
+    getCycle(id),
     can(session.personId, "recruitment.access"),
     can(session.personId, "recruitment.manage_cycles"),
     can(session.personId, "recruitment.review_all"),

@@ -630,7 +630,11 @@ export function EpicRequestTabs({
   cancelEpicRequestAction,
 }: Props) {
   return (
-    <div>
+    // space-y-8 restores the separation TabRow's underline variant deliberately
+    // omits (ModuleNav callers add it via a wrapping div around children instead,
+    // but TabNav and the tab content below are siblings in this component, not a
+    // layout/children split, so the gap is applied here on the shared root).
+    <div className="space-y-8">
       <Suspense>
         <TabNav activeTab={activeTab} />
       </Suspense>

@@ -353,7 +353,7 @@ the palette is never blocked on the network.
 Add `src/app/(app)/recruitment/cycles/[id]/layout.tsx`, which does not exist
 today, rendering a persistent secondary nav across every cycle sub-page:
 
-Overview, Form, Contract, Applicants, Speed route, Waitlist, Decisions,
+Overview, Form, Contract, Quiz, Applicants, Speed route, Waitlist, Decisions,
 Subcommittees or Interviews (by track), Onboarding, Emails, Training.
 
 Visibility is exactly the logic already inlined at `cycles/[id]/page.tsx:93-117`
@@ -366,9 +366,10 @@ track combinations.
 **Visual treatment.** On a cycle page the module tab row ("Cycles", "My
 interviews") is already on screen. Two identical underline tab rows stacked would
 be worse than the current button wall, so the cycle nav renders as a segmented
-pill row beneath the page header, visually subordinate to `ModuleNav`. The
-breadcrumb already supplies `Hub > Recruitment > Cycles > <cycle title>` via
-`cycleTrail`.
+pill row above each page's `PageHeader`, visually subordinate to `ModuleNav`. It
+renders above rather than beneath because a layout cannot reach inside its
+`children` to place anything after the page's own header. The breadcrumb already
+supplies `Hub > Recruitment > Cycles > <cycle title>` via `cycleTrail`.
 
 The overview page then sheds its button wall and becomes an actual overview:
 status, public link, application window, departments, and lifecycle actions.

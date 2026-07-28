@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { LogOut } from "lucide-react";
 import { signOut } from "@/platform/auth/auth";
 import { config } from "@/platform/config";
 import { MODULES } from "@/platform/modules/registry";
@@ -9,7 +8,6 @@ import { getSetting } from "@/platform/settings/service";
 import { getOrgIdentity, formatOrgLine } from "@/platform/branding/org";
 import { TimeZoneProvider } from "@/platform/dates/client";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
-import { Button } from "./button";
 import { HavenLogo } from "./haven-logo";
 import { GlobalNav } from "./global-nav";
 import { Breadcrumbs } from "./breadcrumbs";
@@ -18,17 +16,9 @@ import type { BreadcrumbModule } from "./breadcrumb-trail";
 import { ThemeToggle } from "./theme-toggle";
 import { resolvePreference } from "./theme";
 import { NotificationBell } from "./notification-bell";
+import { AccountMenu } from "./account-menu";
 import { HelpLauncher } from "./help/help-launcher";
-
-/** First letters of the first and last name parts, e.g. "Maya Chen" -> "MC". */
-function toInitials(name: string | null): string {
-  if (!name) return "·";
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "·";
-  const first = parts[0][0] ?? "";
-  const last = parts.length > 1 ? parts[parts.length - 1][0] ?? "" : "";
-  return (first + last).toUpperCase();
-}
+import { CommandPalette } from "./command-palette";
 
 export async function AppShell({
   userName,
@@ -36,6 +26,7 @@ export async function AppShell({
   personId,
   personThemePreference,
   extraModuleIds,
+  extraNavItems,
   children,
 }: {
   userName: string | null;
@@ -46,10 +37,13 @@ export async function AppShell({
   /** Module ids the user reaches by derived access (e.g. recruitment review scope)
    *  rather than a held permission, so the top nav matches the dashboard tiles. */
   extraModuleIds?: string[];
+  /** Nav sub-items gated on dynamic conditions rather than permissions, keyed by
+   *  module id (e.g. recruitment's panelist-only "My interviews"). */
+  extraNavItems?: Record<string, { label: string; href: string }[]>;
   children: ReactNode;
 }) {
   const [navModules, themeDefault, org, displayZone] = await Promise.all([
-    getAccessibleModules(personId, new Set(extraModuleIds ?? [])),
+    getAccessibleModules(personId, new Set(extraModuleIds ?? []), extraNavItems ?? {}),
     getSetting<string>("ui.defaultTheme"),
     getOrgIdentity(),
     getDisplayTimeZone(),
@@ -64,7 +58,6 @@ export async function AppShell({
   // context seeding. Built here so the client never imports the server registry.
   const moduleLabels = Object.fromEntries(MODULES.map((m) => [m.id, m.title]));
   const gitbookEnabled = Boolean(config.GITBOOK_SITE_URL && config.GITBOOK_JWT_KEY);
-  const initials = toInitials(userName);
 
   return (
     <div className="min-h-screen flex flex-col bg-canvas">
@@ -85,11 +78,9 @@ export async function AppShell({
             <Link href="/" aria-label="Go to hub home" className="flex items-center hover:opacity-80 transition-opacity">
               <HavenLogo className="h-8 text-brand-fg" />
             </Link>
-            {termLabel && (
-              <span className="hidden whitespace-nowrap border-l border-border-strong pl-2.5 text-xs font-medium text-foreground-soft sm:inline-block">
-                {termLabel}
-              </span>
-            )}
+            {/* The active-term label used to sit here. It moved to the account menu: the
+                toolbar had 9px of spare width and the search trigger needs roughly 48px.
+                See the Stage 2 section of the nav IA spec. */}
           </div>
 
           <div className="min-w-0 flex-1">
@@ -97,38 +88,17 @@ export async function AppShell({
           </div>
 
           <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+            <CommandPalette items={navModules} />
             <ThemeToggle initial={resolvedTheme} />
             <NotificationBell />
-            <div className="hidden items-center gap-2.5 sm:flex">
-              <span
-                aria-hidden
-                className="grid h-8 w-8 place-items-center rounded-full bg-gradient-to-br from-brand to-brand-deep text-xs font-semibold tracking-wide text-white"
-              >
-                {initials}
-              </span>
-              {userName && (
-                <span className="hidden whitespace-nowrap text-sm font-medium text-foreground-soft lg:inline">
-                  {userName}
-                </span>
-              )}
-            </div>
-            <form
-              action={async () => {
+            <AccountMenu
+              userName={userName}
+              termLabel={termLabel ?? null}
+              signOutAction={async () => {
                 "use server";
                 await signOut({ redirectTo: "/login" });
               }}
-            >
-              <Button
-                type="submit"
-                variant="outline"
-                size="sm"
-                aria-label="Sign out"
-                className="whitespace-nowrap"
-              >
-                <LogOut aria-hidden className="h-4 w-4 sm:hidden" />
-                <span className="hidden sm:inline">Sign out</span>
-              </Button>
-            </form>
+            />
           </div>
         </div>
       </header>

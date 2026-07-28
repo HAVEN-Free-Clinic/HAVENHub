@@ -20,8 +20,8 @@
  */
 
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
-import { Fragment, Suspense, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useState } from "react";
 import { EpicRequestForm } from "./epic-request-form";
 import { businessDaysSince, formatDateOnly } from "@/platform/dates";
 import { useTimeZone } from "@/platform/dates/client";
@@ -32,6 +32,7 @@ import { Input, Textarea, Field } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
+import { TabRow, type TabItem } from "@/platform/ui/tab-row";
 import { EPIC_KIND_LABELS, EPIC_STATUS_LABELS, EPIC_STATUS_TONE } from "@/modules/support/labels";
 import type { EpicRequestStatus } from "@prisma/client";
 import { Alert } from "@/platform/ui/alert";
@@ -86,13 +87,12 @@ type Props = {
 // ---------------------------------------------------------------------------
 
 function TabNav({ activeTab }: { activeTab: Tab }) {
-  const router = useRouter();
   const searchParams = useSearchParams();
 
-  function goTo(tab: Tab) {
+  function hrefFor(tab: Tab): string {
     const params = new URLSearchParams(searchParams.toString());
     params.set("tab", tab);
-    router.push(`?${params.toString()}`);
+    return `?${params.toString()}`;
   }
 
   const labels: Record<Tab, string> = {
@@ -103,16 +103,21 @@ function TabNav({ activeTab }: { activeTab: Tab }) {
     history: "History",
   };
 
-  return (
-    <div className="flex gap-4 border-b border-border mb-8">
-      {(["generate", "term-batch", "pending", "tracker", "history"] as Tab[]).map((tab) => (
-        <Fragment key={tab}>
-          {/* eslint-disable-next-line no-restricted-syntax -- tab control with border-b-2 active-state indicator; segmented toggle pattern */}
-          <button onClick={() => goTo(tab)} aria-current={activeTab === tab ? "page" : undefined} className={`pb-3 text-sm font-semibold border-b-2 transition-colors ${activeTab === tab ? "border-brand text-brand-fg" : "border-transparent text-muted-foreground hover:text-foreground-soft"}`}>{labels[tab]}</button>
-        </Fragment>
-      ))}
-    </div>
-  );
+  const items: TabItem[] = (["generate", "term-batch", "pending", "tracker", "history"] as Tab[]).map((tab) => ({
+    label: labels[tab],
+    href: hrefFor(tab),
+  }));
+
+  // Matches the existing tab by re-parsing its own href's "tab" param, so this
+  // stays correct even if two tabs ever shared a label; compares against the
+  // activeTab prop the component already receives rather than the pathname,
+  // since every Epic tab lives at the same path and differs only by ?tab=.
+  function isActive(item: TabItem): boolean {
+    const [, query = ""] = item.href.split("?");
+    return new URLSearchParams(query).get("tab") === activeTab;
+  }
+
+  return <TabRow variant="underline" label="Epic sections" items={items} isActive={isActive} />;
 }
 
 // ---------------------------------------------------------------------------
@@ -625,7 +630,11 @@ export function EpicRequestTabs({
   cancelEpicRequestAction,
 }: Props) {
   return (
-    <div>
+    // space-y-8 restores the separation TabRow's underline variant deliberately
+    // omits (ModuleNav callers add it via a wrapping div around children instead,
+    // but TabNav and the tab content below are siblings in this component, not a
+    // layout/children split, so the gap is applied here on the shared root).
+    <div className="space-y-8">
       <Suspense>
         <TabNav activeTab={activeTab} />
       </Suspense>

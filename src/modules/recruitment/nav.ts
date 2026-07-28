@@ -23,3 +23,27 @@ export function recruitmentNavItems(opts: {
 }): ModuleNavItem[] {
   return opts.isPanelist ? [...opts.staffNav, MY_INTERVIEWS_NAV_ITEM] : [...opts.staffNav];
 }
+
+/**
+ * The recruitment module id + nav extras the *global* nav needs, both derived
+ * from the same two booleans so they cannot drift out of sync.
+ *
+ * `filterAccessibleModules` decides whether the recruitment module row appears
+ * at all (via `extraModuleIds`) *before* it looks at `extraNavItems` -- so a
+ * bare panelist (on an interview panel but holding neither recruitment.access
+ * nor a review scope, e.g. added via listPanelistCandidates) needs
+ * "recruitment" in extraModuleIds or the "My interviews" item in extraNavItems
+ * is silently discarded because the module row never gets created. Computing
+ * both from isReviewer/isPanelist together in one place is what prevents that:
+ * a caller that only threads isPanelist into extraNavItems (as an earlier
+ * version of this file did) reintroduces the bug.
+ */
+export function recruitmentGlobalNav(opts: { isReviewer: boolean; isPanelist: boolean }): {
+  extraModuleIds: string[];
+  extraNavItems: Record<string, ModuleNavItem[]>;
+} {
+  return {
+    extraModuleIds: opts.isReviewer || opts.isPanelist ? ["recruitment"] : [],
+    extraNavItems: opts.isPanelist ? { recruitment: [MY_INTERVIEWS_NAV_ITEM] } : {},
+  };
+}

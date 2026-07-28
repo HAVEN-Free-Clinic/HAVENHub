@@ -2,9 +2,12 @@
  * TDD tests for the permission-scoped entity search service.
  *
  * searchEntities(personId, query):
- *   - People: no result for a viewer with neither people permission; admin
- *     link for admin.manage_people; compliance link for
- *     volunteers.manage_compliance; admin link preferred when both apply.
+ *   - People: no result for a viewer with neither people permission, and none
+ *     for a viewer holding the fine-grained permission WITHOUT access to the
+ *     module whose layout wraps the destination; admin link for
+ *     admin.access + admin.manage_people; compliance link for
+ *     volunteers.view + volunteers.manage_compliance; admin link preferred
+ *     when both tiers apply.
  *   - Requests: always the viewer's own; every row for a
  *     support.manage_requests holder.
  *   - Cycles: no result without recruitment capability; results for a
@@ -76,19 +79,48 @@ describe("searchEntities permission scoping", () => {
     expect(hits.filter((h) => h.group === "People")).toEqual([]);
   });
 
-  it("links people to the admin page for an admin.manage_people holder", async () => {
+  // Both module-gate tests below describe a role the Roles UI lets an admin
+  // compose: the fine-grained permission on its own, with no access to the
+  // module whose layout wraps the destination page. Every People row such a
+  // viewer got would bounce at that layout, so there must be no row.
+  it("returns no people to an admin.manage_people holder without admin module access", async () => {
+    // admin/layout.tsx requires module access (admin.access), which
+    // admin.manage_people does not imply.
+    const hits = await searchEntities(admin, "Plain");
+    expect(hits.filter((h) => h.group === "People")).toEqual([]);
+  });
+
+  it("returns no people to a volunteers.manage_compliance holder without volunteers module access", async () => {
+    // volunteers/layout.tsx admits volunteers.view OR volunteers.verify_spanish
+    // only; volunteers.manage_compliance is not in that set.
+    const hits = await searchEntities(complianceMgr, "Plain");
+    expect(hits.filter((h) => h.group === "People")).toEqual([]);
+  });
+
+  it("links people to the admin page for an admin.access + admin.manage_people holder", async () => {
+    await grantPermission(admin, "admin.access");
     const hits = await searchEntities(admin, "Plain");
     const person = hits.find((h) => h.group === "People");
     expect(person?.href).toMatch(/^\/admin\/people\//);
   });
 
-  it("links people to the compliance page for a volunteers.manage_compliance holder", async () => {
+  it("links people to the compliance page for a volunteers.view + volunteers.manage_compliance holder", async () => {
+    await grantPermission(complianceMgr, "volunteers.view");
     const hits = await searchEntities(complianceMgr, "Plain");
     const person = hits.find((h) => h.group === "People");
     expect(person?.href).toMatch(/^\/volunteers\/compliance\//);
   });
 
-  it("prefers the admin link when the viewer holds both", async () => {
+  it("links people to the compliance page when volunteers.verify_spanish carries module access", async () => {
+    // The other half of the volunteers module gate: additionalAccessPermissions.
+    await grantPermission(complianceMgr, "volunteers.verify_spanish");
+    const hits = await searchEntities(complianceMgr, "Plain");
+    expect(hits.find((h) => h.group === "People")?.href).toMatch(/^\/volunteers\/compliance\//);
+  });
+
+  it("prefers the admin link when the viewer qualifies for both tiers", async () => {
+    await grantPermission(admin, "admin.access");
+    await grantPermission(admin, "volunteers.view");
     await grantPermission(admin, "volunteers.manage_compliance");
     const hits = await searchEntities(admin, "Plain");
     expect(hits.find((h) => h.group === "People")?.href).toMatch(/^\/admin\/people\//);

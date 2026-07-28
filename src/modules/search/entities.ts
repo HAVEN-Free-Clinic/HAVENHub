@@ -17,15 +17,17 @@
 
 import { cache } from "react";
 import { prisma } from "@/platform/db";
-import { can } from "@/platform/rbac/engine";
+import { getEffectivePermissions, hasPermission } from "@/platform/rbac/engine";
+import { canAccessModule } from "@/platform/modules/access";
+import { getModule } from "@/platform/modules/registry";
 import type { EntityHit } from "@/platform/search/types";
 
-// The wire type lives in platform so the client that renders this response can
-// import it too (platform is the only side both ends of the boundary reach).
-// Re-exported here so existing consumers of this module keep working.
-export type { EntityHit };
-
-/** Per-group cap. Keeps every query bounded. */
+/**
+ * Per-group cap. Keeps every query bounded. Every query below pairs it with an
+ * explicit `orderBy`: with more than LIMIT matches an unordered take is the
+ * database's choice of rows, which can differ between two keystrokes that match
+ * the same set and make the list flicker for no reason the user can see.
+ */
 const LIMIT = 5;
 
 /** Below this, the palette shows pages only: a 1-char entity query scans too much. */
@@ -44,25 +46,42 @@ export const searchEntities = cache(async function searchEntities(
   const q = query.trim();
   if (q.length < MIN_QUERY) return [];
 
-  // Resolve every permission ONCE, in parallel, before any group's query
-  // runs. Nothing below this point may run a query before its gate has been
-  // checked here.
-  const [canManagePeople, canManageCompliance, canManageRequests, canRecruitmentAccess] = await Promise.all([
-    can(personId, "admin.manage_people"),
-    can(personId, "volunteers.manage_compliance"),
-    can(personId, "support.manage_requests"),
-    can(personId, "recruitment.access"),
-  ]);
+  // Resolve the viewer's effective permissions ONCE, then derive every gate
+  // below from that one Set. Nothing below this point may run a query before
+  // its gate has been checked here.
+  const perms = await getEffectivePermissions(personId);
+  const canManageRequests = hasPermission(perms, "support.manage_requests");
+  const canRecruitmentAccess = hasPermission(perms, "recruitment.access");
+
+  // People: each tier needs the destination page's gate AND the module layout
+  // gate that runs above it, because a viewer who fails the layout never
+  // reaches the page. Those two are not the same permission:
+  //   - /admin/people/[id] sits under admin/layout.tsx (module access =
+  //     admin.access), and admin.manage_people does not imply it.
+  //   - /volunteers/compliance/[personId] sits under volunteers/layout.tsx,
+  //     whose access set is volunteers.view OR volunteers.verify_spanish;
+  //     volunteers.manage_compliance is NOT in it.
+  // Shipped system roles happen to pair each permission with module access, so
+  // a mismatch is latent rather than live, but the Roles UI lets an admin
+  // compose a role that grants the fine-grained permission alone and every
+  // People result such a viewer got would bounce at the layout. The module
+  // half reads through canAccessModule so it can never drift from the
+  // registry; only the page half is spelled out here.
+  const adminPeople =
+    hasPermission(perms, "admin.manage_people") && canAccessModule(getModule("admin")!, perms);
+  const compliancePeople =
+    hasPermission(perms, "volunteers.manage_compliance") &&
+    canAccessModule(getModule("volunteers")!, perms);
 
   const hits: EntityHit[] = [];
 
-  // People: gated on admin.manage_people or volunteers.manage_compliance. A
-  // viewer with neither gets no People results at all -- the query below is
-  // never reached for them. When a viewer holds both, the admin link wins.
-  if (canManagePeople || canManageCompliance) {
+  // A viewer who qualifies for neither tier gets no People results at all --
+  // the query below is never reached for them. When both qualify, admin wins.
+  if (adminPeople || compliancePeople) {
     const people = await prisma.person.findMany({
       where: { status: "ACTIVE", name: { contains: q, mode: "insensitive" } },
       select: { id: true, name: true },
+      orderBy: { name: "asc" },
       take: LIMIT,
     });
     for (const p of people) {
@@ -70,7 +89,7 @@ export const searchEntities = cache(async function searchEntities(
         id: p.id,
         label: p.name,
         sub: null,
-        href: canManagePeople ? `/admin/people/${p.id}` : `/volunteers/compliance/${p.id}`,
+        href: adminPeople ? `/admin/people/${p.id}` : `/volunteers/compliance/${p.id}`,
         group: "People",
       });
     }
@@ -84,6 +103,7 @@ export const searchEntities = cache(async function searchEntities(
     const cycles = await prisma.recruitmentCycle.findMany({
       where: { title: { contains: q, mode: "insensitive" } },
       select: { id: true, title: true, status: true },
+      orderBy: { createdAt: "desc" },
       take: LIMIT,
     });
     for (const c of cycles) {
@@ -101,6 +121,7 @@ export const searchEntities = cache(async function searchEntities(
   const requests = await prisma.techRequest.findMany({
     where: requestWhere,
     select: { id: true, subject: true, status: true },
+    orderBy: { createdAt: "desc" },
     take: LIMIT,
   });
   for (const r of requests) {

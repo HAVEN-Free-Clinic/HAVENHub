@@ -157,22 +157,33 @@ export async function seedRhdAttending(
  * CI (where the fields are null) and environments where they are already set.
  */
 /**
- * Seed an uncleared volunteer: ACTIVE person with a @yale.edu contactEmail
- * (so dev login resolves them via the Yale-email step in resolvePersonForLogin)
- * and an ACTIVE VADM TermMembership. No phone, no HIPAA cert, no training, no
- * learning progress -- so the onboarding gate keeps them on /get-started.
+ * An ACTIVE Person with a term membership but no phone and no HIPAA cert, so
+ * the onboarding gate holds them at /get-started.
  *
- * Person.status defaults to ACTIVE in the schema; no explicit field needed.
+ * deptCode defaults to VADM. Pass a department with no seeded dev users (e.g.
+ * FOOD) when the test also seeds a course there: a department-scoped course is
+ * assigned to every member of that department, and VADM is where dev.volunteer
+ * and dev.director live, so a VADM course would transiently gate them too.
+ *
+ * A Volunteer RoleAssignment is created explicitly. It is redundant with the
+ * kind-scoped assignment prisma/seed.ts seeds (kind VOLUNTEER, personId null),
+ * which already grants learning.access to any active-term VOLUNTEER membership;
+ * it is kept so the fixture does not silently depend on that seed row.
+ * It cascades with the person, so cleanupPerson needs no change.
  */
-export async function seedUnclearedVolunteer() {
+export async function seedUnclearedVolunteer(opts: { deptCode?: string } = {}) {
   const t = tag();
   const term = await activeTerm();
-  const department = await dept("VADM");
+  const department = await dept(opts.deptCode ?? "VADM");
   const person = await prisma.person.create({
     data: { name: `E2E Uncleared ${t}`, contactEmail: `uncleared-${t}@yale.edu` },
   });
   await prisma.termMembership.create({
     data: { personId: person.id, termId: term.id, departmentId: department.id, kind: "VOLUNTEER", status: "ACTIVE" },
+  });
+  const volunteerRole = await prisma.role.findFirstOrThrow({ where: { name: "Volunteer" } });
+  await prisma.roleAssignment.create({
+    data: { roleId: volunteerRole.id, personId: person.id, termId: term.id },
   });
   return { person, cleanup: () => cleanupPerson(person.id) };
 }

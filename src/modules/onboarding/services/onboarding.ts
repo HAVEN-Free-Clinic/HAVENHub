@@ -34,6 +34,8 @@ export type OnboardingTask = {
   // checklist row may still render an external CTA (EHS links out to Workday).
   href?: string;
   ctaLabel?: string;
+  /** The checklist offers a "Review" link for a COMPLETE task with this set. */
+  reviewable?: boolean;
   state: OnboardingTaskState;
   blocking: boolean;
 };
@@ -94,6 +96,7 @@ export async function computeOnboardingForTerm(
         description: s.description,
         href: s.href,
         ctaLabel: s.ctaLabel,
+        reviewable: s.reviewable,
       },
       order: s.order,
     };

@@ -19,10 +19,15 @@ export type StepDefault = {
   blocking: boolean;
   href?: string;
   ctaLabel?: string;
+  /** The step's page stays useful after completion, so the checklist offers a
+   *  "Review" link once it is done. Only learning: the profile and HIPAA pages
+   *  redirect away when their step is complete, so a link there would dead-end. */
+  reviewable?: boolean;
 };
 
 /** Built-in defaults for each onboarding step (HAVEN voice; sentence case; no
- *  em-dashes). href/ctaLabel are app-routing and are NOT term-configurable. */
+ *  em-dashes). href/ctaLabel/reviewable are app-routing and are NOT
+ *  term-configurable. */
 export const STEP_DEFAULTS: Record<OnboardingTaskKey, StepDefault> = {
   profile: {
     label: "Profile & agreements",
@@ -63,6 +68,7 @@ export const STEP_DEFAULTS: Record<OnboardingTaskKey, StepDefault> = {
     blocking: true,
     href: "/get-started/learning",
     ctaLabel: "Open courses",
+    reviewable: true,
   },
   ehs: {
     label: "EHS training",
@@ -83,6 +89,7 @@ export type EffectiveStep = {
   order: number;
   href?: string;
   ctaLabel?: string;
+  reviewable?: boolean;
   /** True when a per-term override row exists for this kind. */
   hasOverride: boolean;
 };
@@ -106,6 +113,7 @@ function effective(kind: OnboardingTaskKey, row: OverrideRow | undefined): Effec
     order: row?.order ?? d.order,
     href: d.href,
     ctaLabel: d.ctaLabel,
+    reviewable: d.reviewable,
     hasOverride: row !== undefined,
   };
 }

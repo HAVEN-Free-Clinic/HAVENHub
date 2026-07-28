@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { CommandPalette, buildSections } from "./command-palette";
+import { CommandPalette, buildSections, pageIndex } from "./command-palette";
+import { matchPages } from "@/platform/search/match";
 import type { NavModule } from "@/platform/modules/nav";
 
 // CommandPalette is a client component; useRouter needs a stub under SSR.
@@ -36,6 +37,26 @@ describe("CommandPalette", () => {
     const out = renderToStaticMarkup(<CommandPalette items={ITEMS} />);
     expect(out).not.toContain('role="dialog"');
     expect(out).not.toContain('role="listbox"');
+  });
+});
+
+describe("pageIndex", () => {
+  // /training reaches the palette through neither route the nav uses: it is not
+  // a module, and My Info's manifest is flagged `personal` so it never lands in
+  // `items`. Being unable to find /training is the exact problem this effort
+  // exists to solve, so a query for it has to hit.
+  it("finds Training, which is in no NavModule at all", () => {
+    const hits = matchPages(pageIndex(ITEMS), "training");
+    expect(hits.some((h) => h.href === "/training" && h.group === "Personal")).toBe(true);
+  });
+
+  it("finds My Info, which filterAccessibleModules drops as a personal module", () => {
+    const hits = matchPages(pageIndex(ITEMS), "my info");
+    expect(hits.some((h) => h.href === "/my-info")).toBe(true);
+  });
+
+  it("leaves the caller's permission-filtered modules untouched ahead of them", () => {
+    expect(pageIndex(ITEMS).slice(0, ITEMS.length)).toEqual(ITEMS);
   });
 });
 

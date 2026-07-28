@@ -34,6 +34,44 @@ const MIN_ENTITY_QUERY = 2;
 const DEBOUNCE_MS = 200;
 
 /**
+ * The personal pages, which are exactly the ones the nav ROW leaves out.
+ *
+ * My Info is flagged `personal` in the module registry, so
+ * filterAccessibleModules drops it and it never reaches `items`; Training is
+ * not a module at all and lives only in the account menu. Leaving them out of
+ * the palette too would mean Cmd+K then "training" finds nothing, and /training
+ * being hard to reach is the problem this whole effort exists to solve.
+ *
+ * Hardcoded rather than read from the registry on purpose: this is a "use
+ * client" component and must not pull the server registry (and PrismaClient
+ * behind it) into the browser bundle. Safe to append unconditionally, with no
+ * gate of its own, because both destinations are open to every signed-in
+ * person: My Info's manifest declares no accessPermission, and /training gates
+ * on requirePersonSession() alone.
+ *
+ * The module root doubles as the My Info entry. matchPages only skips a
+ * duplicate href once an earlier candidate for it actually matched, so
+ * "my info" still finds the row below even though the root shares its href.
+ */
+const PERSONAL_PAGES: NavModule = {
+  id: "personal",
+  title: "Personal",
+  href: "/my-info",
+  nav: [
+    { label: "My Info", href: "/my-info" },
+    { label: "Training", href: "/training" },
+  ],
+};
+
+/**
+ * Everything the palette's page index covers: the viewer's permission-filtered
+ * modules first, then the personal pages.
+ */
+export function pageIndex(items: NavModule[]): NavModule[] {
+  return [...items, PERSONAL_PAGES];
+}
+
+/**
  * Lay page hits and entity hits out as headed sections, numbering every row
  * with its position in the flat list Up/Down walks.
  *
@@ -85,13 +123,30 @@ function isTypingTarget(target: EventTarget | null): boolean {
 }
 
 /**
+ * True when a modal dialog other than `own` is open.
+ *
+ * Modal (src/platform/ui/modal.tsx) and this palette are near-twins: both sit
+ * at z-50, both listen on document, both trap Tab, and Escape closes both at
+ * once. Opening the palette over an already-open Modal stacks two Tab traps on
+ * one screen, so the shortcut stands down instead. `own` is excluded so the
+ * palette's own dialog does not block the shortcut from toggling it closed.
+ */
+function otherModalOpen(own: HTMLElement | null): boolean {
+  const dialogs = document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"]');
+  for (const dialog of dialogs) if (dialog !== own) return true;
+  return false;
+}
+
+/**
  * The Cmd+K / Ctrl+K command palette: a jump-to search over the pages the
  * viewer can open plus the people, cycles, and requests they may see.
  *
  * `items` is the same permission-filtered NavModule list the global nav
  * renders, so the page index inherits that filtering and this component
- * performs no access control of its own. Entity results are filtered
- * server-side by /api/search; nothing here re-filters or could widen them.
+ * performs no access control of its own. The one thing it adds is
+ * PERSONAL_PAGES, which needs none: both of those pages are open to every
+ * signed-in person. Entity results are filtered server-side by /api/search;
+ * nothing here re-filters or could widen them.
  *
  * The dialog portals to document.body deliberately. The toolbar carries
  * `.glass-bar`, whose backdrop-filter establishes a containing block that
@@ -126,7 +181,7 @@ export function CommandPalette({ items }: { items: NavModule[] }) {
 
   const trimmed = query.trim();
   const entityHits = entities.q === trimmed ? entities.hits : [];
-  const sections = buildSections(matchPages(items, trimmed), entityHits);
+  const sections = buildSections(matchPages(pageIndex(items), trimmed), entityHits);
   const rows = sections.flatMap((s) => s.rows);
   // Clamped rather than corrected in state: results change under the cursor as
   // entity responses land, and clamping keeps render pure.
@@ -147,6 +202,9 @@ export function CommandPalette({ items }: { items: NavModule[] }) {
       // would leave the browser default unsuppressed, and Firefox's Ctrl+K
       // (focus the browser search bar) would pull focus out of the open dialog.
       if (e.target !== inputRef.current && isTypingTarget(e.target)) return;
+      // Some other modal owns the screen: leave the key to it rather than
+      // stacking a second dialog (and a second Tab trap) on top.
+      if (otherModalOpen(panelRef.current)) return;
       e.preventDefault();
       setOpen((v) => !v);
     }
@@ -234,7 +292,13 @@ export function CommandPalette({ items }: { items: NavModule[] }) {
           const json = (await res.json()) as { results?: EntityHit[] };
           setEntities({ q, hits: json.results ?? [] });
         } catch {
-          // Aborted or offline: keep whatever is on screen.
+          // An abort is the expected path once the query has moved on, and its
+          // result is stale by definition, so leave the stored one alone.
+          // Anything else is a real throw (offline, DNS) and must still SETTLE
+          // this query the way a non-ok response does: `searching` is derived
+          // from "no stored response for the current query", so without this
+          // the empty state reads "Searching..." until the next keystroke.
+          if (!controller.signal.aborted) setEntities({ q, hits: [] });
         }
       }
       void run();

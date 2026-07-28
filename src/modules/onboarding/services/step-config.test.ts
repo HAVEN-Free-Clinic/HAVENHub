@@ -120,3 +120,27 @@ describe("getOnboardingStatus respects step config", () => {
     expect(status.onboarded).toBe(true);
   });
 });
+
+describe("reviewable", () => {
+  it("marks only the learning step reviewable", async () => {
+    const term = await activeTerm();
+    const steps = await loadEffectiveSteps(term.id);
+    expect(steps.get("learning")?.reviewable).toBe(true);
+    for (const kind of ["profile", "hipaa", "training", "directorTraining", "ehs"] as const) {
+      expect(steps.get(kind)?.reviewable).toBeUndefined();
+    }
+  });
+
+  it("keeps reviewable when a term overrides the step, since it is app routing not config", async () => {
+    const term = await activeTerm();
+    const admin = await prisma.person.create({
+      data: { name: "Term Admin", contactEmail: "term-admin-reviewable@x.edu", status: "ACTIVE" },
+    });
+    await grant(admin.id, "admin.manage_terms");
+    await setStepConfig(admin.id, term.id, "learning", { label: "Assigned trainings", order: 1 });
+
+    const steps = await loadEffectiveSteps(term.id);
+    expect(steps.get("learning")?.label).toBe("Assigned trainings");
+    expect(steps.get("learning")?.reviewable).toBe(true);
+  });
+});

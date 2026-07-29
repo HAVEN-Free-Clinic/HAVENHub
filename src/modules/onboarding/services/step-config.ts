@@ -50,7 +50,7 @@ export const STEP_DEFAULTS: Record<OnboardingTaskKey, StepDefault> = {
     blocking: true,
     href: "/get-started/hipaa",
     ctaLabel: "Upload certificate",
-    inProgressDescription: "We have your certificate. A compliance manager is confirming the date.",
+    inProgressDescription: "We have your certificate. A compliance manager is reviewing it.",
     inProgressCtaLabel: "View certificate",
   },
   training: {

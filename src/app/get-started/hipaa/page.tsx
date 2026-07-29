@@ -53,7 +53,7 @@ export default async function OnboardingHipaaPage({
   return (
     <OnboardingStepShell
       title="HIPAA certificate"
-      description="Upload your current HIPAA certificate so we can verify it is valid through the term."
+      description={task.description}
       completedCount={status.completedCount}
       totalCount={status.totalCount}
     >

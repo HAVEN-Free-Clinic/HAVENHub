@@ -142,7 +142,7 @@ it("tells a member with a pending certificate that we have it, not to upload it"
   const status = await getOnboardingStatus(vol.id);
   const hipaa = status.tasks.find((t) => t.key === "hipaa");
   expect(hipaa?.state).toBe("IN_PROGRESS");
-  expect(hipaa?.description).toBe("We have your certificate. A compliance manager is confirming the date.");
+  expect(hipaa?.description).toBe("We have your certificate. A compliance manager is reviewing it.");
   expect(hipaa?.ctaLabel).toBe("View certificate");
   // The gate is unchanged: still not onboarded (live-term training is still outstanding).
   expect(status.onboarded).toBe(false);
@@ -166,7 +166,7 @@ it("the pending-verification copy wins over a term's own override of the HIPAA d
   const status = await getOnboardingStatus(vol.id);
   const hipaa = status.tasks.find((t) => t.key === "hipaa");
   expect(hipaa?.state).toBe("IN_PROGRESS");
-  expect(hipaa?.description).toBe("We have your certificate. A compliance manager is confirming the date.");
+  expect(hipaa?.description).toBe("We have your certificate. A compliance manager is reviewing it.");
   expect(hipaa?.ctaLabel).toBe("View certificate");
   expect(status.onboarded).toBe(false);
 });

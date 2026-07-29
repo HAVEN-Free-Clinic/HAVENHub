@@ -6,7 +6,7 @@
 
 **Architecture:** Bring up a local environment, enrich the seed to reach realistic states, walk ten tier-1 journeys in a browser recording findings into per-task fragment files, code-read tier-2 surfaces into more fragments, then rank and assemble everything into one document. Fragments keep each task independently reviewable and mean a rejected task does not invalidate its neighbors.
 
-**Tech Stack:** Next.js App Router, Prisma, Postgres 16 in Docker on port 5434, NextAuth credentials login for local persona switching, Chrome browser automation for the journey walks.
+**Tech Stack:** Next.js App Router, Prisma, the native Postgres already listening on port 5434, NextAuth credentials login for local persona switching, Playwright MCP for the journey walks.
 
 ## Global Constraints
 
@@ -17,13 +17,15 @@
 - Every finding names an observed consequence and a concrete fix. No "consider improving X".
 - Out of scope: accessibility, contrast, and token-drift classes already burned down in the 2026-07-11 and 2026-07-17 audits.
 - `prisma/seed.ts` is never modified. All fixture state goes in a separate script.
-- Screenshots stay in the scratchpad and are not committed.
-- Scratchpad root for fragments and screenshots: `/private/tmp/claude-501/-Users-jcarney-Documents-Code-Projects-HAVENHub/50998891-9679-4045-b1d6-1284b4bcae24/scratchpad`
+- **Database:** do NOT use Docker. A native Postgres already listens on port 5434 with role `haven` / password `haven_dev`, hosting the repo's per-worktree databases. This audit uses a dedicated database named `havenhub_uxaudit` on that instance. Never point at Neon.
+- **Browser:** journey walks use Playwright MCP (`mcp__plugin_playwright_playwright__*`). The Chrome extension is not connected and must not be relied on.
+- **Findings fragments are committed** to `docs/superpowers/audit-fragments/task-NN.md`, so every task produces a reviewable diff. Task 12 assembles them and deletes the directory in the same commit.
+- Screenshots stay in the scratchpad and are never committed. Scratchpad root: `/private/tmp/claude-501/-Users-jcarney-Documents-Code-Projects-HAVENHub/50998891-9679-4045-b1d6-1284b4bcae24/scratchpad`
 - Lint with `npx eslint src e2e` while iterating. Plain `npm run lint` walks a gitignored design-system directory and produces noise.
 
 ## Finding fragment format
 
-Every journey and code-read task appends findings to its own fragment file as a markdown table row. Task 12 concatenates and ranks them. One row per finding:
+Every journey and code-read task appends findings to its own committed fragment file at `docs/superpowers/audit-fragments/task-NN.md`, as a markdown table row. Task 12 concatenates, ranks, and then deletes the directory. One row per finding:
 
 ```markdown
 | id | surface | lens | severity | reach | what is wrong | concrete fix | effort |
@@ -43,34 +45,52 @@ Findings marked `L` also get a line in the fragment's "Needs its own brainstorm"
 ## File structure
 
 - Create: `scripts/seed-ux-audit-fixtures.ts` (committed, idempotent, dev-only fixture builder)
+- Create: `docs/superpowers/audit-fragments/task-NN.md` (committed per task, deleted by Task 12)
 - Create: `docs/full-app-ux-audit-2026-07-28.md` (the deliverable)
-- Scratchpad only, not committed: `fragments/task-NN.md`, `screenshots/`
+- Scratchpad only, never committed: `screenshots/`
 
 ---
 
 ### Task 1: Bring up the local environment
 
-This is the gate. Every tier-1 task depends on it, and it is the spec's named single point of failure. If it cannot be completed, stop and report rather than silently degrading the audit to code reading.
+This is the gate. Every tier-1 task depends on it. If it cannot be completed, stop and report rather than silently degrading the audit to code reading.
 
-**Files:** none created or modified.
+Docker is NOT used. A native Postgres already listens on 5434 with role `haven` and password `haven_dev`. `npm run db:up` would fail to bind the port and must not be run.
+
+**Files:**
+- Create: `.env.local` entries pointing at the audit database (this file is gitignored)
+- Create: `docs/superpowers/audit-fragments/task-01.md`
 
 **Interfaces:**
-- Produces: a running dev server on `http://localhost:3000`, a seeded database on port 5434, and confirmation that credential login works.
+- Produces: a dev server on `http://localhost:3000` backed by database `havenhub_uxaudit`, and confirmation that credential login works for all three seeded personas.
 
-- [ ] **Step 1: Start Docker and the database**
+- [ ] **Step 1: Create the audit database**
 
 ```bash
-open -a Docker
-# Wait for the daemon, then:
-docker ps
-npm run db:up
+PGPASSWORD=haven_dev createdb -h localhost -p 5434 -U haven havenhub_uxaudit
+PGPASSWORD=haven_dev psql -h localhost -p 5434 -U haven -d havenhub_uxaudit -c "select current_database();"
 ```
 
-Expected: `docker ps` lists a `postgres:16-alpine` container publishing `5434->5432`.
+Expected: prints `havenhub_uxaudit`. If the database already exists, `createdb` errors and that is fine; the `psql` check is what must pass.
 
-If Docker Desktop is not installed or will not start, stop here and report. Do not proceed to Task 2.
+- [ ] **Step 2: Point the app at it**
 
-- [ ] **Step 2: Apply migrations and seed**
+Read the existing `.env.local` first, then set both variables to the audit database. Prisma needs both; the unpooled URL is used by migrations.
+
+```
+DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_uxaudit
+DATABASE_URL_UNPOOLED=postgresql://haven:haven_dev@localhost:5434/havenhub_uxaudit
+```
+
+Verify the app is not pointed at Neon before continuing:
+
+```bash
+grep -E "DATABASE_URL" .env.local
+```
+
+Expected: both lines contain `localhost:5434/havenhub_uxaudit` and neither contains `neon.tech`.
+
+- [ ] **Step 3: Apply migrations and seed**
 
 ```bash
 npx prisma migrate deploy
@@ -81,25 +101,38 @@ Expected: migrations report as applied, seed prints `Seed complete.`
 
 If `migrate deploy` reports drift, do not run `migrate dev`. That folds prior drift into a new migration. Report the drift instead.
 
-- [ ] **Step 3: Start the dev server**
+If the Prisma client is stale (a P2011 or unknown-column error), run `npx prisma generate` and retry once.
+
+- [ ] **Step 4: Start the dev server in the background**
 
 ```bash
 npm run dev
 ```
 
+Run this with `run_in_background: true` so it outlives this task; Tasks 4 through 8 depend on it still serving.
+
 Expected: server ready on `http://localhost:3000`.
 
-- [ ] **Step 4: Verify credential login**
+- [ ] **Step 5: Verify credential login for all three seeded personas**
 
-Navigate to `http://localhost:3000/login`. The page shows a "Local development" form below the SSO button because `NODE_ENV !== "production"`. Sign in as `dev.volunteer@yale.edu`.
+Using Playwright MCP, navigate to `http://localhost:3000/login`. The page shows a "Local development" email form below the SSO button because `NODE_ENV !== "production"`.
 
-Expected: lands on the dashboard, not `/get-started`, because the seed gives every dev person a verified HIPAA cert and a phone.
+Sign in as each of `j.carney@yale.edu`, `dev.director@yale.edu`, and `dev.volunteer@yale.edu` in turn, recording the landing URL for each.
 
-Record the observed landing URL. If it is `/get-started`, the seed did not complete; re-run Step 2.
+Expected: each lands on the dashboard, not `/get-started`, because the seed gives all three a verified HIPAA cert and the director and volunteer a phone.
 
-- [ ] **Step 5: Commit nothing, record state**
+If any lands on `/get-started`, the seed did not complete; re-run Step 3.
 
-No commit. Write the confirmed environment state (container id, migration count, landing URL for each of the three seeded emails) into `scratchpad/fragments/task-01.md` as plain notes. Later tasks read this to know what already exists.
+- [ ] **Step 6: Record the environment state and commit**
+
+Write into `docs/superpowers/audit-fragments/task-01.md`: the database name, the migration count applied, the three landing URLs, and the dev server port. Later tasks read this to know what already exists.
+
+```bash
+git add docs/superpowers/audit-fragments/task-01.md
+git commit -m "docs(audit): record verified local environment state"
+```
+
+`.env.local` is gitignored and must not be committed. Confirm with `git status --short` before committing.
 
 ---
 
@@ -108,7 +141,7 @@ No commit. Write the confirmed environment state (container id, migration count,
 The seed creates three people and almost nothing else. This task establishes exactly what is missing per journey so Task 3 builds only what is needed.
 
 **Files:**
-- Create: `scratchpad/fragments/task-02.md`
+- Create: `docs/superpowers/audit-fragments/task-02.md`
 
 **Interfaces:**
 - Consumes: the running environment from Task 1.
@@ -161,9 +194,14 @@ Three journeys are known in advance to be partially blocked, per the spec. Recor
 - SCORM package upload depends on Blob storage plus a real package zip.
 - Yale SSO does not exist locally. Credential login substitutes.
 
-- [ ] **Step 3: Commit nothing**
+- [ ] **Step 3: Commit the fragment**
 
-The gap table is scratchpad-only input to Task 3.
+```bash
+git add docs/superpowers/audit-fragments/task-02.md
+git commit -m "docs(audit): record task 02 findings"
+```
+
+Screenshots stay in the scratchpad and are never added.
 
 ---
 
@@ -253,7 +291,7 @@ git commit -m "chore: add dev-only fixture builder for the UX audit"
 Covers spec journeys 1 (applicant applies) and 2 (accepted applicant onboards). These are grouped because they share the applicant persona and run back to back in reality.
 
 **Files:**
-- Create: `scratchpad/fragments/task-04.md`
+- Create: `docs/superpowers/audit-fragments/task-04.md`
 
 **Interfaces:**
 - Consumes: fixtures `ux-audit-cycle`, `ux.applicant@yale.edu`, `ux.accepted@yale.edu` from Task 3.
@@ -277,11 +315,16 @@ Sign in as `ux.accepted@yale.edu`. Walk the onboarding contract: blocks, agreeme
 
 - [ ] **Step 4: Record findings**
 
-Write every finding into `scratchpad/fragments/task-04.md` using the fragment format. Include a short "coverage notes" section stating which steps could not be walked and why.
+Write every finding into `docs/superpowers/audit-fragments/task-04.md` using the fragment format. Include a short "coverage notes" section stating which steps could not be walked and why.
 
-- [ ] **Step 5: No commit**
+- [ ] **Step 5: Commit the fragment**
 
-Fragments are scratchpad-only until Task 12.
+```bash
+git add docs/superpowers/audit-fragments/task-04.md
+git commit -m "docs(audit): record task 04 findings"
+```
+
+Screenshots stay in the scratchpad and are never added.
 
 ---
 
@@ -290,7 +333,7 @@ Fragments are scratchpad-only until Task 12.
 Covers spec journeys 3 (first login) and 4 (clear compliance).
 
 **Files:**
-- Create: `scratchpad/fragments/task-05.md`
+- Create: `docs/superpowers/audit-fragments/task-05.md`
 
 **Interfaces:**
 - Consumes: fixtures `ux.fresh@yale.edu` and `ux.pending@yale.edu` from Task 3.
@@ -313,9 +356,16 @@ From the dashboard action card, go to `/my-info` and upload a HIPAA certificate.
 
 Sign in as `ux.pending@yale.edu`. Record whether the user can tell that their certificate is awaiting manager verification, and whether they can tell what happens next or how long it takes.
 
-- [ ] **Step 5: Record findings into `scratchpad/fragments/task-05.md`**
+- [ ] **Step 5: Record findings into `docs/superpowers/audit-fragments/task-05.md`**
 
-- [ ] **Step 6: No commit**
+- [ ] **Step 6: Commit the fragment**
+
+```bash
+git add docs/superpowers/audit-fragments/task-05.md
+git commit -m "docs(audit): record task 05 findings"
+```
+
+Screenshots stay in the scratchpad and are never added.
 
 ---
 
@@ -324,7 +374,7 @@ Sign in as `ux.pending@yale.edu`. Record whether the user can tell that their ce
 Covers spec journey 5.
 
 **Files:**
-- Create: `scratchpad/fragments/task-06.md`
+- Create: `docs/superpowers/audit-fragments/task-06.md`
 
 **Interfaces:**
 - Consumes: fixture course `UX Audit Course` from Task 3.
@@ -341,9 +391,16 @@ Open the fixture course. If Blob storage is unavailable locally, the player will
 
 Go to `/training`. Walk the quiz. Record the failure path specifically: what a user sees when they fail, and whether the makeup gating (which depends on a per-cycle in-person training date) explains itself.
 
-- [ ] **Step 4: Record findings into `scratchpad/fragments/task-06.md`**
+- [ ] **Step 4: Record findings into `docs/superpowers/audit-fragments/task-06.md`**
 
-- [ ] **Step 5: No commit**
+- [ ] **Step 5: Commit the fragment**
+
+```bash
+git add docs/superpowers/audit-fragments/task-06.md
+git commit -m "docs(audit): record task 06 findings"
+```
+
+Screenshots stay in the scratchpad and are never added.
 
 ---
 
@@ -352,7 +409,7 @@ Go to `/training`. Walk the quiz. Record the failure path specifically: what a u
 Covers spec journey 6.
 
 **Files:**
-- Create: `scratchpad/fragments/task-07.md`
+- Create: `docs/superpowers/audit-fragments/task-07.md`
 
 **Interfaces:**
 - Consumes: published shift assignments for `dev.volunteer@yale.edu` from Task 3.
@@ -369,9 +426,16 @@ Go to `/schedule/full`. This is a dense table. Evaluate scannability, and whethe
 
 Go to `/schedule/requests` and submit a request. Record the confirmation behavior and whether the request's state is legible afterward.
 
-- [ ] **Step 4: Record findings into `scratchpad/fragments/task-07.md`**
+- [ ] **Step 4: Record findings into `docs/superpowers/audit-fragments/task-07.md`**
 
-- [ ] **Step 5: No commit**
+- [ ] **Step 5: Commit the fragment**
+
+```bash
+git add docs/superpowers/audit-fragments/task-07.md
+git commit -m "docs(audit): record task 07 findings"
+```
+
+Screenshots stay in the scratchpad and are never added.
 
 ---
 
@@ -380,7 +444,7 @@ Go to `/schedule/requests` and submit a request. Record the confirmation behavio
 Covers spec journeys 7 (incidents), 8 (support), 9 (clinic AVS), and 10 (notifications). Grouped because each is short.
 
 **Files:**
-- Create: `scratchpad/fragments/task-08.md`
+- Create: `docs/superpowers/audit-fragments/task-08.md`
 
 **Interfaces:**
 - Consumes: the incident report, tech request, and notifications fixtures from Task 3.
@@ -405,9 +469,16 @@ Open the bell, then `/notifications`. Record whether read and unread are disting
 
 Sign in as `ux.fresh@yale.edu` and visit `/incidents/mine`, `/support`, and `/notifications` with no rows. Empty states are first-run experience and are in scope.
 
-- [ ] **Step 6: Record findings into `scratchpad/fragments/task-08.md`**
+- [ ] **Step 6: Record findings into `docs/superpowers/audit-fragments/task-08.md`**
 
-- [ ] **Step 7: No commit**
+- [ ] **Step 7: Commit the fragment**
+
+```bash
+git add docs/superpowers/audit-fragments/task-08.md
+git commit -m "docs(audit): record task 08 findings"
+```
+
+Screenshots stay in the scratchpad and are never added.
 
 ---
 
@@ -416,7 +487,7 @@ Sign in as `ux.fresh@yale.edu` and visit `/incidents/mine`, `/support`, and `/no
 Tier 2. Lower depth: structural flow, hierarchy, and IA only. Do not sweep for accessibility or token drift.
 
 **Files:**
-- Create: `scratchpad/fragments/task-09.md`
+- Create: `docs/superpowers/audit-fragments/task-09.md`
 
 - [ ] **Step 1: Read the recruitment management surfaces**
 
@@ -428,16 +499,23 @@ For each, ask: is the primary action on this page obvious from its layout, does 
 
 Read `src/app/(app)/schedule/builder/page.tsx` and `src/app/(app)/schedule/attendings/`. The builder is the largest page in the app; note specifically whether its size reflects genuine complexity or accumulated structure.
 
-- [ ] **Step 3: Record findings into `scratchpad/fragments/task-09.md`, citing `file:line`**
+- [ ] **Step 3: Record findings into `docs/superpowers/audit-fragments/task-09.md`, citing `file:line`**
 
-- [ ] **Step 4: No commit**
+- [ ] **Step 4: Commit the fragment**
+
+```bash
+git add docs/superpowers/audit-fragments/task-09.md
+git commit -m "docs(audit): record task 09 findings"
+```
+
+Screenshots stay in the scratchpad and are never added.
 
 ---
 
 ### Task 10: Code-read volunteers, incidents, support, and learning management
 
 **Files:**
-- Create: `scratchpad/fragments/task-10.md`
+- Create: `docs/superpowers/audit-fragments/task-10.md`
 
 - [ ] **Step 1: Read the volunteers surfaces**
 
@@ -455,16 +533,23 @@ Read `src/app/(app)/schedule/builder/page.tsx` and `src/app/(app)/schedule/atten
 
 `src/app/(app)/learning/manage/` and `src/app/(app)/learning/dashboard/`.
 
-- [ ] **Step 5: Record findings into `scratchpad/fragments/task-10.md`**
+- [ ] **Step 5: Record findings into `docs/superpowers/audit-fragments/task-10.md`**
 
-- [ ] **Step 6: No commit**
+- [ ] **Step 6: Commit the fragment**
+
+```bash
+git add docs/superpowers/audit-fragments/task-10.md
+git commit -m "docs(audit): record task 10 findings"
+```
+
+Screenshots stay in the scratchpad and are never added.
 
 ---
 
 ### Task 11: Code-read the admin module
 
 **Files:**
-- Create: `scratchpad/fragments/task-11.md`
+- Create: `docs/superpowers/audit-fragments/task-11.md`
 
 - [ ] **Step 1: Read all eleven admin pages**
 
@@ -472,9 +557,16 @@ Under `src/app/(app)/admin/`: overview, people, terms, roles, departments, subco
 
 The IA lens matters most here. Eleven flat nav items is a lot; record whether the grouping matches how the work is actually done, and whether any page is findable only by someone who already knows it exists.
 
-- [ ] **Step 2: Record findings into `scratchpad/fragments/task-11.md`**
+- [ ] **Step 2: Record findings into `docs/superpowers/audit-fragments/task-11.md`**
 
-- [ ] **Step 3: No commit**
+- [ ] **Step 3: Commit the fragment**
+
+```bash
+git add docs/superpowers/audit-fragments/task-11.md
+git commit -m "docs(audit): record task 11 findings"
+```
+
+Screenshots stay in the scratchpad and are never added.
 
 ---
 
@@ -482,14 +574,19 @@ The IA lens matters most here. Eleven flat nav items is a lot; record whether th
 
 **Files:**
 - Create: `docs/full-app-ux-audit-2026-07-28.md`
+- Delete: `docs/superpowers/audit-fragments/` (the whole directory, in the same commit)
 
 **Interfaces:**
-- Consumes: fragments `task-04.md` through `task-11.md`.
+- Consumes: `docs/superpowers/audit-fragments/task-04.md` through `task-11.md`, plus the coverage notes in `task-01.md` and `task-02.md`.
 - Produces: the committed deliverable.
 
 - [ ] **Step 1: Concatenate every fragment and de-duplicate**
 
-The same underlying problem will appear in more than one journey. Merge those into one finding whose reach is the union, rather than counting it twice.
+```bash
+ls docs/superpowers/audit-fragments/
+```
+
+Read every fragment. The same underlying problem will appear in more than one journey. Merge those into one finding whose reach is the union, rather than counting it twice.
 
 - [ ] **Step 2: Add the two pre-seeded findings**
 
@@ -523,9 +620,18 @@ Expected: `CLEAN`.
 
 - [ ] **Step 8: Commit**
 
+The fragments are working notes that the assembled document supersedes. Remove them in the same commit so the branch does not ship two overlapping records of the same findings.
+
 ```bash
+git rm -r docs/superpowers/audit-fragments
 git add docs/full-app-ux-audit-2026-07-28.md
 git commit -m "docs: whole-app UX flow-friction audit"
+```
+
+Verify the deliverable survived and the fragments are gone:
+
+```bash
+git status --short && ls docs/full-app-ux-audit-2026-07-28.md
 ```
 
 - [ ] **Step 9: Update the audit history memory**

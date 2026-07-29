@@ -182,10 +182,18 @@ both are visible. This is part of why toasts go bottom-center.
 
 ### Environment
 
-Docker Desktop must be started first; `docker ps` currently fails. Then `npm run db:up`,
-`npx prisma migrate deploy`, `npm run db:seed`, `npm run dev`. Persona switching goes
-through the local dev email form on `/login`, which accepts any seeded Person outside
-production.
+**Amended 2026-07-28 after the pre-flight scan.** This section originally called for
+Docker. That was wrong: a native Postgres already listens on port 5434 with the same
+`haven` role and `haven_dev` password the compose file uses, hosting the repo's
+per-worktree databases, so `npm run db:up` would fail to bind the port. The audit
+instead uses a dedicated `havenhub_uxaudit` database on the running instance. Docker is
+not involved, which removes this spec's named single point of failure.
+
+Persona switching goes through the local dev email form on `/login`, which accepts any
+seeded Person outside production.
+
+The journey walks use Playwright MCP rather than the Chrome extension, which is not
+connected in this environment.
 
 ### Fixture gap
 
@@ -232,9 +240,10 @@ No em-dashes anywhere. That is a CI-enforced lint rule in this repo (`local/no-e
 
 ## Open risks
 
-- **Docker is not currently running.** Everything in tier 1 depends on it. If the local
-  environment cannot be brought up, tier 1 degrades to code reading and the audit loses
-  most of its value over the prior passes. This is the single point of failure.
+- ~~**Docker is not currently running.**~~ Retired 2026-07-28: the audit uses the
+  already-running native Postgres instead, so there is no Docker dependency. The
+  residual risk is smaller: if the dev server or that Postgres instance goes down
+  mid-audit, tier 1 stalls until it is restarted.
 - **The 40-finding cap may bind hard.** Three lenses across ten journeys can plausibly
   generate more than 40 real findings. The cut list is reported rather than hidden, but
   if the cap binds badly it is a signal to split the audit by tier instead of raising it.

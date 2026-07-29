@@ -224,9 +224,15 @@ Screenshots stay in the scratchpad and are never added.
 | Open recruitment cycle, default form | slug `ux-audit-cycle` | Journey 1 (apply) |
 | Applicant with a half-finished draft | `ux.applicant@yale.edu` | Journey 1 (resume draft) |
 | Accepted applicant, onboarding pending | `ux.accepted@yale.edu` | Journey 2 (onboard) |
-| Course assigned to VADM | title `UX Audit Course` | Journey 5 (learning) |
+| Course assigned to VADM, package actually ingested | title `UX Audit Course` | Journey 5 (learning) |
+| Designated training cycle so `/training` renders | per Task 2's gap table | Journey 5 (training quiz) |
 | Published shift assignments for `dev.volunteer@yale.edu` | across SU26 Saturdays | Journey 6 (schedule) |
 | One incident report, one tech request, three notifications for `dev.volunteer@yale.edu` | n/a | Journeys 7, 8, 10 |
+
+Two corrections from Task 2's gap analysis, which supersedes this table where they disagree:
+
+- The course fixture is not satisfied by a bare `Course` row. `coursesForMember` requires `hasPackage`, so a package-less course is excluded from the learner's list and Journey 5 would show an empty state instead of a course. The package must actually be ingested.
+- Blob storage is NOT required locally. `src/platform/storage.ts:22` falls back to disk when `BLOB_READ_WRITE_TOKEN` is unset, and the manage page renders a plain server-action upload form in that case. The only real obstacle to the SCORM journey is sourcing a valid package zip.
 
 - [ ] **Step 1: Read the service entry points before writing any Prisma calls**
 
@@ -235,8 +241,9 @@ Prefer existing service functions over raw Prisma writes, so fixtures go through
 - `src/modules/recruitment/services/cycles.ts` for `createCycle(input: CreateCycleInput, seedDefaultForm = false)`. `CreateCycleInput` is `{ track, termId, title, publicSlug, departments, acceptsRenewals, createdById }`. Pass `seedDefaultForm = true` so the cycle gets the full default template rather than the minimal three-field identity seed.
 - `src/modules/recruitment/services/submissions.ts` for `submitApplication(slug, input)`. Read the `SubmitInput` type at the top of the file.
 - `src/modules/recruitment/services/drafts.ts` for `saveDraft`, used for the half-finished draft fixture.
-- `src/modules/learning/services/courses.ts` for the course creation entry point.
+- `src/modules/learning/services/courses.ts` for the course creation entry point, and `packages.ts` for package ingestion (the course needs `hasPackage` true or the learner list excludes it).
 - `src/modules/schedule/services/builder.ts` and `publication.ts` for creating and publishing shift assignments.
+- The interview-decision and onboarding services for the `ux.accepted@yale.edu` fixture. Task 2's gap table names the exact files; read it first at `docs/superpowers/audit-fragments/task-02.md`, which supersedes this list where they disagree.
 
 Where no service function exists for a fixture, write the Prisma create directly against the model definition in `prisma/schema.prisma`.
 
@@ -468,7 +475,9 @@ Open the bell, then `/notifications`. Record whether read and unread are disting
 
 - [ ] **Step 5: Check the empty states**
 
-Sign in as `ux.fresh@yale.edu` and visit `/incidents/mine`, `/support`, and `/notifications` with no rows. Empty states are first-run experience and are in scope.
+Sign in as `dev.director@yale.edu` and visit `/incidents/mine`, `/support`, and `/notifications` with no rows. Empty states are first-run experience and are in scope.
+
+Do NOT use `ux.fresh@yale.edu` here. Task 2 established that an uncleared person is redirected to `/get-started` from every path outside `ONBOARDING_ALLOWLIST` (`src/platform/auth/onboarding-allowlist.ts:18`), so that persona can never reach these three pages. `dev.director@yale.edu` is cleared and the fixture script gives it no incident, tech request, or notification rows, so its empty states are genuine.
 
 - [ ] **Step 6: Record findings into `docs/superpowers/audit-fragments/task-08.md`**
 

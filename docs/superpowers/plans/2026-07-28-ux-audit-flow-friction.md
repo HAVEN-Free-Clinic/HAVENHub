@@ -19,6 +19,7 @@
 - `prisma/seed.ts` is never modified. All fixture state goes in a separate script.
 - **Database:** do NOT use Docker. A native Postgres already listens on port 5434 with role `haven` / password `haven_dev`, hosting the repo's per-worktree databases. This audit uses a dedicated database named `havenhub_uxaudit` on that instance. Never point at Neon.
 - **Browser:** journey walks use Playwright MCP (`mcp__plugin_playwright_playwright__*`). The Chrome extension is not connected and must not be relied on.
+- **Dev server lifecycle:** the controller session owns `npm run dev`. A subagent's background process does NOT survive its session, so no task can leave a server running for the next one. Before any browser work, verify the server with `curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/login`, expecting `200`. If it is anything else, report NEEDS_CONTEXT and let the controller restart it. Do not start your own long-lived server.
 - **Findings fragments are committed** to `docs/superpowers/audit-fragments/task-NN.md`, so every task produces a reviewable diff. Task 12 assembles them and deletes the directory in the same commit.
 - Screenshots stay in the scratchpad and are never committed. Scratchpad root: `/private/tmp/claude-501/-Users-jcarney-Documents-Code-Projects-HAVENHub/50998891-9679-4045-b1d6-1284b4bcae24/scratchpad`
 - Lint with `npx eslint src e2e` while iterating. Plain `npm run lint` walks a gitignored design-system directory and produces noise.
@@ -103,15 +104,15 @@ If `migrate deploy` reports drift, do not run `migrate dev`. That folds prior dr
 
 If the Prisma client is stale (a P2011 or unknown-column error), run `npx prisma generate` and retry once.
 
-- [ ] **Step 4: Start the dev server in the background**
+- [ ] **Step 4: Confirm the dev server is serving**
+
+The controller session owns the dev server, because a subagent's background process does not survive its session. Do not start a long-lived server yourself.
 
 ```bash
-npm run dev
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:3000/login
 ```
 
-Run this with `run_in_background: true` so it outlives this task; Tasks 4 through 8 depend on it still serving.
-
-Expected: server ready on `http://localhost:3000`.
+Expected: `200`. If it is anything else, report NEEDS_CONTEXT so the controller can start it, then continue once it is up.
 
 - [ ] **Step 5: Verify credential login for all three seeded personas**
 

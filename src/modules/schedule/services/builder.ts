@@ -15,8 +15,8 @@ import { recordAudit } from "@/platform/audit";
 import { isoDateKey } from "@/platform/dates";
 import { formatForDateInput } from "@/platform/dates/format";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
-import { manageableDepartmentIds, memberDepartmentIds } from "@/platform/departments";
-import { can } from "@/platform/rbac/engine";
+import { manageableDepartmentIds } from "@/platform/departments";
+import { can, permissionDepartmentIds } from "@/platform/rbac/engine";
 import { loadClearanceMap } from "@/platform/clearance";
 import { resolveAvailability } from "../engine/availability";
 import type { ResolvedAvailability } from "../engine/availability";
@@ -115,23 +115,26 @@ async function scopeCheck(actorPersonId: string, departmentId: string): Promise<
 
 /**
  * Returns the set of department ids the person may manage for schedule
- * purposes: manageableDepartmentIds(personId) UNION (when
- * can(personId, "schedule.edit_own_dept")) memberDepartmentIds(personId)
- * UNION (when can(personId, "schedule.edit_all")) ALL department ids. Deduped.
+ * purposes: manageableDepartmentIds(personId) UNION
+ * permissionDepartmentIds(personId, "schedule.edit_own_dept") UNION (when
+ * can(personId, "schedule.edit_all")) ALL department ids. Deduped.
+ *
+ * The edit_own_dept branch is scoped to the departments the grant was actually
+ * made through, not to every department the person belongs to: someone who
+ * directs one department and volunteers in another must not edit the schedule of
+ * the one they merely volunteer in.
  */
 export async function manageableScheduleDepartmentIds(personId: string): Promise<string[]> {
-  const [base, editOwnDept, editAll] = await Promise.all([
+  const [base, editOwnDeptIds, editAll] = await Promise.all([
     manageableDepartmentIds(personId),
-    can(personId, "schedule.edit_own_dept"),
+    permissionDepartmentIds(personId, "schedule.edit_own_dept"),
     can(personId, "schedule.edit_all"),
   ]);
 
   const ids = new Set<string>(base);
 
-  // edit_own_dept: extend to departments the person is an active member of.
-  if (editOwnDept) {
-    for (const id of await memberDepartmentIds(personId)) ids.add(id);
-  }
+  // edit_own_dept: extend to the departments that grant reaches.
+  for (const id of editOwnDeptIds) ids.add(id);
 
   // edit_all: union with every department in the DB.
   if (editAll) {

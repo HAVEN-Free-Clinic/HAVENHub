@@ -10,13 +10,6 @@ import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
 
 /**
- * Returns the department ids where the person holds an ACTIVE TermMembership of
- * ANY kind (VOLUNTEER or DIRECTOR) in the ACTIVE term. This is the "own
- * departments" notion used to scope schedule.edit_own_dept and
- * schedule.manage_requests. Returns [] when there is no active term or the
- * person has no active membership.
- */
-/**
  * Departments to offer in a "scope" editor -- a form that replace-sets a
  * department assignment (learning course assignment, EHS training scope, etc.).
  *
@@ -39,18 +32,6 @@ export async function scopeEditorDepartments(
     select: { id: true, code: true, name: true, isActive: true },
     orderBy: { name: "asc" },
   });
-}
-
-export async function memberDepartmentIds(personId: string): Promise<string[]> {
-  const activeTerm = await getActiveTerm();
-  if (!activeTerm) return [];
-
-  const memberships = await prisma.termMembership.findMany({
-    where: { personId, termId: activeTerm.id, status: "ACTIVE" },
-    select: { departmentId: true },
-  });
-
-  return [...new Set(memberships.map((m) => m.departmentId))];
 }
 
 /**

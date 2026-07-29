@@ -18,6 +18,8 @@ import { can } from "@/platform/rbac/engine";
 import { parseCompletionDate, CompletionDateError } from "@/platform/compliance/completion-date";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { loadClearanceMap, type ClearanceSummary } from "@/platform/clearance";
+import { notifyCertVerified } from "@/platform/compliance/review-notifications";
+import { log, errorAttrs } from "@/platform/logging";
 
 export type { ComplianceStatus };
 export type { ClearanceSummary };
@@ -533,6 +535,27 @@ export async function verifyCertificate(
       properties: { verified_by: actorPersonId, via: "verify" },
       groups: await activeTermGroup(),
     });
+
+    // Close the loop back to the member. The certificate is already durably
+    // updated and audited, so a notification failure must not surface to the
+    // manager as a failed verification. Same isolation as saveCertificate's
+    // manager alerts.
+    try {
+      const owner = await prisma.person.findUnique({
+        where: { id: cert.personId },
+        select: { name: true, entraObjectId: true, contactEmail: true },
+      });
+      if (owner) {
+        await notifyCertVerified(prisma, {
+          id: cert.personId,
+          name: owner.name,
+          entraObjectId: owner.entraObjectId,
+          contactEmail: owner.contactEmail,
+        });
+      }
+    } catch (err) {
+      log.error("[compliance] failed to notify member of certificate verification", errorAttrs(err, { certId }));
+    }
   }
 }
 

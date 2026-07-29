@@ -6,6 +6,7 @@ import { renderEmail } from "@/platform/email/templates/renderEmail";
 import {
   complianceDateReviewContext,
   complianceVerificationReviewContext,
+  complianceCertVerifiedContext,
 } from "@/platform/email/templates/compliance";
 import { log } from "@/platform/logging";
 
@@ -119,4 +120,39 @@ export async function notifyCertNeedsVerification(
   }
 
   return recipients.length;
+}
+
+/**
+ * Tell a volunteer their HIPAA certificate has been verified.
+ *
+ * The two helpers above notify managers that something needs their attention.
+ * This one closes the loop back: until a manager verifies, the onboarding gate
+ * blocks the member from every page, and before this existed the only way to
+ * learn they were cleared was to keep signing in and checking.
+ */
+export async function notifyCertVerified(
+  db: Db,
+  volunteer: { id: string; name: string; entraObjectId: string | null; contactEmail: string | null },
+): Promise<void> {
+  const baseUrl = await getSetting<string>("app.baseUrl");
+  const myInfoLink = `${baseUrl}/my-info`;
+  const rendered = await renderEmail(
+    "compliance-cert-verified",
+    complianceCertVerifiedContext({ volunteerName: volunteer.name, myInfoLink }),
+  );
+
+  await notify(db, {
+    type: "compliance-cert-verified",
+    person: {
+      id: volunteer.id,
+      entraObjectId: volunteer.entraObjectId,
+      contactEmail: volunteer.contactEmail,
+    },
+    email: { subject: rendered.subject, html: rendered.html },
+    teams: {
+      title: "Your HIPAA certificate is verified",
+      summary: "A compliance manager confirmed your HIPAA certificate. Nothing further is needed for this requirement.",
+      link: myInfoLink,
+    },
+  });
 }

@@ -502,6 +502,40 @@ describe("verifyCertificate", () => {
     expect(updated.verifiedById).toBe(actor2.id);
   });
 
+  it("notifies the member when their certificate is verified", async () => {
+    const actor = await createPerson("Director", "dir001");
+    await grantPermission(actor.id, "volunteers.manage_compliance");
+    const owner = await prisma.person.update({
+      where: { id: (await createPerson("Volunteer", "vol001")).id },
+      data: { contactEmail: "vol001@x.edu" },
+    });
+    const cert = await createCert(owner.id, noon(2025, 6, 1));
+
+    await verifyCertificate(actor.id, cert.id);
+
+    const logs = await prisma.emailLog.findMany({ where: { template: "compliance-cert-verified" } });
+    expect(logs).toHaveLength(1);
+    expect(logs[0].personId).toBe(owner.id);
+  });
+
+  // The guard is `if (!cert.verifiedAt)`. A second verify must be a no-op for
+  // notifications, or a manager re-clicking spams the member.
+  it("does not notify again when an already-verified certificate is verified", async () => {
+    const actor = await createPerson("Director", "dir001");
+    await grantPermission(actor.id, "volunteers.manage_compliance");
+    const owner = await prisma.person.update({
+      where: { id: (await createPerson("Volunteer", "vol001")).id },
+      data: { contactEmail: "vol001@x.edu" },
+    });
+    const cert = await createCert(owner.id, noon(2025, 6, 1));
+
+    await verifyCertificate(actor.id, cert.id);
+    await verifyCertificate(actor.id, cert.id);
+
+    const logs = await prisma.emailLog.findMany({ where: { template: "compliance-cert-verified" } });
+    expect(logs).toHaveLength(1);
+  });
+
   it("blocks a manager from verifying their own certificate (separation of duties)", async () => {
     const actor = await createPerson("Self Manager", "self01");
     await grantPermission(actor.id, "volunteers.manage_compliance");

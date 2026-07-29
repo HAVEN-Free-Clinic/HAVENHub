@@ -27,7 +27,8 @@
     "import:config:dry": "tsx --env-file=.env scripts/import-schedule-config.ts",
     "import:config:apply": "tsx --env-file=.env scripts/import-schedule-config.ts --apply",
     "import:rhd:dry": "tsx --env-file=.env scripts/import-rhd.ts",
-    "import:rhd:apply": "tsx --env-file=.env scripts/import-rhd.ts --apply"
+    "import:rhd:apply": "tsx --env-file=.env scripts/import-rhd.ts --apply",
+    "fixtures:ux": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/seed-ux-audit-fixtures.ts"
   },
   "prisma": {
     "seed": "npx tsx prisma/seed.ts"

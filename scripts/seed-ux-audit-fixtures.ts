@@ -14,14 +14,18 @@
  * Run with:
  *   npm run fixtures:ux
  *
- * Idempotent: every step upserts or skips, so it is safe to re-run after a
- * journey task has poked at the data.
+ * Idempotent for the HIPAA certificate and the application draft: those two steps
+ * detect a consumed fixture and rebuild it, so it is safe to re-run after a journey
+ * task has poked at that data. The accepted applicant's onboarding contract does NOT
+ * self-heal: a re-run reuses any existing contract regardless of status, so a journey
+ * task that has advanced it past PENDING leaves it that way until the row is deleted
+ * or reset by hand.
  *
  * Prerequisites: `npm run db:seed` has already run against the same database.
  */
 import { zipSync, strToU8 } from "fflate";
 import { prisma } from "@/platform/db";
-import { putObject, deleteObject } from "@/platform/storage";
+import { putObject, deleteObject, usingBlobStorage } from "@/platform/storage";
 import { isoDateKey } from "@/platform/dates";
 import { createNotification } from "@/platform/notifications/inbox";
 import { createCycle, publishCycle } from "@/modules/recruitment/services/cycles";
@@ -120,6 +124,26 @@ function assertAuditDatabase(): void {
     );
   }
   console.log(`Database: ${database} on ${host}:${port}`);
+}
+
+/**
+ * Refuse to run with real Blob storage configured.
+ *
+ * `assertAuditDatabase` only guards the database. `usingBlobStorage` picks Vercel
+ * Blob over local disk based on `BLOB_READ_WRITE_TOKEN` alone, with no per-database
+ * scoping, so a developer with a real token would pass the database guard and then
+ * write fixture PDFs, and on the rebuild path run `deleteObject` against them, in
+ * the shared Blob store rather than a throwaway one.
+ */
+function assertLocalStorage(): void {
+  if (usingBlobStorage) {
+    throw new Error(
+      "Refusing to build audit fixtures with BLOB_READ_WRITE_TOKEN set. This script " +
+        "writes fixture PDFs, and deletes them again on rebuild, under keys that would " +
+        "land in the real Blob store instead of a throwaway one. Unset " +
+        "BLOB_READ_WRITE_TOKEN so storage falls back to local disk.",
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -337,6 +361,7 @@ async function ensureMembership(
 
 async function main(): Promise<void> {
   assertAuditDatabase();
+  assertLocalStorage();
 
   // --- base entities from prisma/seed.ts -----------------------------------
   const term = await prisma.term.findFirst({ where: { status: "ACTIVE" }, orderBy: { startDate: "desc" } });

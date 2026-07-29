@@ -120,6 +120,12 @@ and effort as S (under an hour), M (half a day), or L (multi-day).
 40 findings. If more candidates survive, the lowest-ranked are cut and the document
 states how many were cut and what they were about. No silent truncation.
 
+**Retired, 2026-07-29.** This cap was lifted by explicit user decision before Task 12
+assembled the document. The deliverable (`docs/full-app-ux-audit-2026-07-29.md`) keeps
+every verified finding in one ranked document with a "Ship these first" section
+instead: see its "How the count reconciles" section. Nothing was cut. There is no cut
+list.
+
 ## Pre-seeded findings
 
 Two are already confirmed and go in the document without needing rediscovery.
@@ -216,6 +222,13 @@ storage plus a real package, and Yale SSO does not exist locally. Where a step c
 be walked it gets a code-reading pass and is labeled as such in the finding. Uneven
 coverage stated plainly beats implied coverage that did not happen.
 
+**Correction, 2026-07-29.** The SCORM clause above was wrong: Blob storage is not
+required locally. `src/platform/storage.ts` falls back to local disk when
+`BLOB_READ_WRITE_TOKEN` is unset, which is the case in this environment, so the SCORM
+journey was walkable in the browser rather than code-read-only. The plan records this
+correction at Task 3 (line 247) and Task 6 (line 410). Magic-link login and Yale SSO
+remain unwalked for the reasons stated above.
+
 ### Evidence
 
 Screenshots live in the session scratchpad and are not committed; a few dozen PNGs is
@@ -250,6 +263,8 @@ No em-dashes anywhere. That is a CI-enforced lint rule in this repo (`local/no-e
   already-running native Postgres instead, so there is no Docker dependency. The
   residual risk is smaller: if the dev server or that Postgres instance goes down
   mid-audit, tier 1 stalls until it is restarted.
-- **The 40-finding cap may bind hard.** Three lenses across ten journeys can plausibly
-  generate more than 40 real findings. The cut list is reported rather than hidden, but
-  if the cap binds badly it is a signal to split the audit by tier instead of raising it.
+- ~~**The 40-finding cap may bind hard.**~~ Retired 2026-07-29: the cap did bind, by a
+  wide margin (87 verified findings against a cap of 40), and the user's resolution was
+  to retire the cap rather than split the audit or cut findings. See the "Cap" section
+  above and the deliverable's "How the count reconciles". Nothing was cut. There is no
+  cut list.

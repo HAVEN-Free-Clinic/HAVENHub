@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Produce a ranked, capped, actionable backlog of experience problems in HAVEN Hub, weighted toward volunteers and applicants, ending in a committed audit document and a batch recommendation.
+**Goal:** Produce a ranked, ~~capped,~~ actionable backlog of experience problems in HAVEN Hub, weighted toward volunteers and applicants, ending in a committed audit document and a batch recommendation. *(Cap retired 2026-07-29; see "File structure" below and Task 12 Step 4.)*
 
 **Architecture:** Bring up a local environment, enrich the seed to reach realistic states, walk ten tier-1 journeys in a browser recording findings into per-task fragment files, code-read tier-2 surfaces into more fragments, then rank and assemble everything into one document. Fragments keep each task independently reviewable and mean a rejected task does not invalidate its neighbors.
 
@@ -598,7 +598,7 @@ Screenshots stay in the scratchpad and are never added.
 
 ---
 
-### Task 12: Rank, cap, and write the audit document
+### Task 12: Rank, ~~cap~~, and write the audit document (cap retired 2026-07-29; see Step 4)
 
 **Files:**
 - Create: `docs/full-app-ux-audit-2026-07-29.md`
@@ -646,7 +646,7 @@ Move every `L` finding into a "Needs its own brainstorm" appendix. These are not
 
 - [ ] **Step 6: Write the document**
 
-Structure: purpose and method, coverage table including what could not be walked and why, the ranked findings, the cut list, the brainstorm appendix, and a proposed first batch.
+Structure: purpose and method, coverage table including what could not be walked and why, the ranked findings, ~~the cut list~~ (retired 2026-07-29, see Step 4), the brainstorm appendix, and a proposed first batch.
 
 The proposed first batch should be the highest-ranked items whose combined effort fits one focused piece of work, with the toast system included since it was the originating request.
 
@@ -686,7 +686,7 @@ Append a line to `/Users/jcarney/.claude/projects/-Users-jcarney-Documents-Code-
 
 - [ ] **Step 1: Summarize the audit to the user**
 
-Report: total findings, the split across the three lenses, how many were cut for the cap, which journeys had incomplete coverage and why, and the proposed first batch with its combined effort.
+Report: total findings, the split across the three lenses, ~~how many were cut for the cap~~ (cap retired 2026-07-29; nothing was cut), which journeys had incomplete coverage and why, and the proposed first batch with its combined effort.
 
 - [ ] **Step 2: Ask which batch to ship**
 

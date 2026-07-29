@@ -739,7 +739,7 @@ field so the reporter can re-read the promise later.
 `flow` / tier 1 / every reporter who does not scroll to section 6, on the field that drives
 escalation / **S**
 `src/app/(app)/incidents/page.tsx:152`, `src/app/(app)/incidents/actions.ts:70`,
-`src/modules/incidents/services/report.ts:259-263`
+`src/modules/incidents/services/report.ts:265-268`, `:256`
 
 **What is wrong.** Measured on a clean page load: `input[name=immediateRisk][value=no]` is
 `checked: true` and `value=yes` is `checked: false`, from a `defaultChecked`. The action reads it
@@ -1672,6 +1672,9 @@ does not come from the `STRINGS[lang]` table every other label goes through.
 **Fix.** Add `footerContact` to both language entries in `strings.ts` as a template ("¿Preguntas?
 Comuníquese con {org} en {contact}." / "Questions? Contact {org} at {contact}."), surface it on
 `LocalizedSummary` in `buildSummary`, and interpolate it instead of the literal. Ship with R7.
+R56 changes what `{contact}` resolves to (from the internal IT mailbox to a new patient-facing
+setting); the two can ship in either order, but not blind to each other, since this fix alone
+would bake the wrong address into the new template for R56 to unwind afterward.
 
 #### R56. F-08-8: The patient handout prints the internal IT mailbox as the patient's contact
 
@@ -2133,7 +2136,7 @@ one step, or add help text distinguishing them.
 #### R79. F-04-22: The training acknowledgement is missing the word "at"
 
 `visual` / tier 1 / every accepted volunteer / **S**
-`src/modules/recruitment/contract/training-date.ts:15-18`, `:7`
+`src/app/onboard/[token]/training-date.ts:15-18`, `:7`
 
 The acknowledgement reads "I acknowledge that I can attend the training on Saturday, May 30 Yale
 Physicians Building, 800 Howard Avenue, Room 1A or will otherwise inform my directors". A space does

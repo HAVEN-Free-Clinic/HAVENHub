@@ -21,7 +21,7 @@
  */
 import { zipSync, strToU8 } from "fflate";
 import { prisma } from "@/platform/db";
-import { putObject } from "@/platform/storage";
+import { putObject, deleteObject } from "@/platform/storage";
 import { isoDateKey } from "@/platform/dates";
 import { createNotification } from "@/platform/notifications/inbox";
 import { createCycle, publishCycle } from "@/modules/recruitment/services/cycles";
@@ -73,25 +73,53 @@ function heading(text: string): void {
   console.log(`\n${text}`);
 }
 
+/** The throwaway database this audit runs against. Not configurable on purpose:
+ *  an env override would reintroduce exactly the accident the check below exists
+ *  to prevent (a stale export in a shell). If the audit moves to a differently
+ *  named database, change this constant. */
+const AUDIT_DATABASE = "havenhub_uxaudit";
+
 /**
- * Refuse to run against anything but a local database. This script writes people,
- * applications, acceptances, and shift assignments; pointing it at Neon would
- * corrupt real data. Mirrors prisma/seed.ts's assertSafeToSeed.
+ * Refuse to run against anything but the throwaway audit database.
+ *
+ * The host check alone is not enough. `.env.example` ships
+ * `postgresql://haven:haven_dev@localhost:5434/havenhub`: the same host AND the
+ * same port as the audit database, differing only in the database name. A
+ * developer with a conventional local `.env` would otherwise pass a "looks
+ * local" check and get ~25 fixture rows written into their real working dev
+ * database. So assert the database name too, and print every component that was
+ * actually checked rather than implying more than was.
  */
-function assertLocalDatabase(): void {
-  let host = "";
+function assertAuditDatabase(): void {
+  const raw = process.env.DATABASE_URL ?? "";
+  let url: URL;
   try {
-    host = new URL(process.env.DATABASE_URL ?? "").hostname;
+    url = new URL(raw);
   } catch {
-    host = "";
+    throw new Error(
+      "DATABASE_URL is missing or unparseable. It should be loaded from .env.local " +
+        `and point at ${AUDIT_DATABASE} on localhost.`,
+    );
   }
+  const host = url.hostname;
+  const port = url.port || "5432";
+  const database = url.pathname.replace(/^\//, "");
+
   if (host !== "localhost" && host !== "127.0.0.1" && host !== "::1") {
     throw new Error(
       `Refusing to build audit fixtures against a non-local database (host: ${host || "unknown"}). ` +
         `Expected localhost. Check that DATABASE_URL is loaded from .env.local.`,
     );
   }
-  console.log(`Database host: ${host}`);
+  if (database !== AUDIT_DATABASE) {
+    throw new Error(
+      `Refusing to build audit fixtures against database "${database || "(none)"}" on ${host}:${port}. ` +
+        `This script writes about 25 fixture rows and expects the throwaway audit database ` +
+        `"${AUDIT_DATABASE}". A conventional local .env points at "havenhub", the real working dev ` +
+        `database, on the same host and port. Check that DATABASE_URL is loaded from .env.local.`,
+    );
+  }
+  console.log(`Database: ${database} on ${host}:${port}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -308,7 +336,7 @@ async function ensureMembership(
 // ---------------------------------------------------------------------------
 
 async function main(): Promise<void> {
-  assertLocalDatabase();
+  assertAuditDatabase();
 
   // --- base entities from prisma/seed.ts -----------------------------------
   const term = await prisma.term.findFirst({ where: { status: "ACTIVE" }, orderBy: { startDate: "desc" } });
@@ -340,10 +368,23 @@ async function main(): Promise<void> {
     phone: "203-555-0177",
   });
   await ensureMembership(pendingId, term.id, vadm.id, "VOLUNTEER");
-  const existingCert = await prisma.hipaaCertificate.findFirst({ where: { personId: pendingId } });
-  if (existingCert) {
-    report("skipped", `unverified HIPAA certificate for ${PENDING_EMAIL}`);
+  // Guard on the STATE the journey needs, not on the row existing. Journey 4
+  // ends with a manager verifying this certificate, and PENDING_VERIFICATION is
+  // unrecoverable once verifiedAt is stamped (complianceStatus checks verifiedAt
+  // before any expiry math). Keying on "a certificate exists" would report the
+  // fixture present when the state behind it is gone.
+  const pendingCert = await prisma.hipaaCertificate.findFirst({ where: { personId: pendingId, verifiedAt: null } });
+  if (pendingCert) {
+    report("skipped", `unverified HIPAA certificate for ${PENDING_EMAIL}`, "(still PENDING_VERIFICATION)");
   } else {
+    // Drop any verified certificate first, so the rebuild restores the fixture
+    // exactly (one certificate, unverified) instead of leaving a valid verified
+    // one behind that would keep this persona cleared and past the gate.
+    const consumed = await prisma.hipaaCertificate.findMany({ where: { personId: pendingId } });
+    for (const old of consumed) {
+      await prisma.hipaaCertificate.delete({ where: { id: old.id } });
+      await deleteObject(old.storedName).catch(() => {});
+    }
     const cert = await prisma.hipaaCertificate.create({
       data: {
         personId: pendingId,
@@ -359,7 +400,8 @@ async function main(): Promise<void> {
     const bytes = tinyPdf("HAVEN Hub UX audit fixture HIPAA certificate");
     await prisma.hipaaCertificate.update({ where: { id: cert.id }, data: { storedName: `${cert.id}.pdf`, size: bytes.length } });
     await putObject(`${cert.id}.pdf`, bytes, "application/pdf");
-    report("created", `unverified HIPAA certificate for ${PENDING_EMAIL}`, "(PENDING_VERIFICATION)");
+    const detail = consumed.length > 0 ? "(rebuilt, the previous one had been verified)" : "(PENDING_VERIFICATION)";
+    report("created", `unverified HIPAA certificate for ${PENDING_EMAIL}`, detail);
   }
 
   // --- 3. the open recruitment cycle, which doubles as this term's training -
@@ -431,12 +473,23 @@ async function main(): Promise<void> {
 
   // --- 4. ux.applicant: a half-finished draft to resume --------------------
   heading("4. Half-finished application draft (Journey 1)");
+  // Guard on a live DRAFT, not on the Applicant row. Application.status is only
+  // DRAFT | SUBMITTED and submitApplication flips the same row in place, so once
+  // a journey walks the resume-draft path to completion the DRAFT is gone for
+  // good and an applicant-row check would report a fixture that is not there.
   const draftApplicant = await prisma.applicant.findUnique({
     where: { cycleId_emailLower: { cycleId, emailLower: APPLICANT_EMAIL } },
+    include: { applications: true },
   });
-  if (draftApplicant) {
-    report("skipped", `draft for ${APPLICANT_EMAIL}`);
+  if (draftApplicant?.applications.some((a) => a.status === "DRAFT")) {
+    report("skipped", `draft for ${APPLICANT_EMAIL}`, "(still DRAFT)");
   } else {
+    // Drop the consumed applicant so saveDraft takes its create path (it refuses
+    // to write over a SUBMITTED row). Applications cascade with the applicant.
+    // Nothing else references this persona, whose submitted application is a
+    // by-product of the walk rather than a fixture any journey needs.
+    const rebuild = draftApplicant != null;
+    if (draftApplicant) await prisma.applicant.delete({ where: { id: draftApplicant.id } });
     // Answers stop partway through the wizard on purpose: identity and the
     // language step are filled, everything from the department step onward is
     // blank, so "resume where I left off" has something real to resume.
@@ -459,7 +512,11 @@ async function main(): Promise<void> {
         },
       },
     );
-    report("created", `draft for ${APPLICANT_EMAIL}`, "(stops before the department step)");
+    report(
+      "created",
+      `draft for ${APPLICANT_EMAIL}`,
+      rebuild ? "(rebuilt, the previous draft had been submitted)" : "(stops before the department step)",
+    );
   }
 
   // --- 5. ux.accepted: submitted, routed, accepted, contract sent ----------

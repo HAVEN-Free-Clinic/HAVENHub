@@ -85,6 +85,28 @@ Make it a real anchor. Whether that means widening the `description` type to `Re
 adding a dedicated link affordance is an implementation choice; the requirement is that an
 applicant can click it.
 
+**Known gap (2026-07-29): the director track is fixed for new cycles only.**
+
+The volunteer section carried this sentence as a section `description`, which the apply page reads
+from the database and renders through the linkifier, so the fix reaches every cycle. The director
+section carried it as a field `helpText` instead. The final fix wave moved it to a section
+`description`, mirroring the volunteer side, which is the right shape.
+
+But `materialize.ts` writes a template's `description` into `FormSection` once, at cycle creation.
+So a director cycle materialized before this change still has the old rows: its `FormSection`
+description is null and the sentence is still sitting in `FormField.helpText` as plain text. Those
+applicants see exactly what they see today.
+
+Unlike the section title, there is no render-time rescue available: `resolveSectionTitle` works
+because a generated title encodes its department code and can be pattern-matched, whereas "See
+department descriptions at..." encodes nothing to match on.
+
+**Ruling: parked, not fixed.** It degrades to the pre-branch behavior rather than breaking, and no
+DIRECTOR cycle existed in the audit database when this shipped. If a director cycle is already
+open in production, its applicants keep the unlinked sentence until that cycle closes. Closing it
+properly needs either a one-row data update per affected cycle or a carry-over mechanism, and
+neither belongs in a branch about department names.
+
 **Decision (2026-07-29):** the final whole-branch review found that `havenfreeclinic.com/apply`
 currently 404s behind a coming-soon holding page, so the link this task ships does not resolve
 to a real descriptions page today. This was raised explicitly. Jack decided to ship the link as

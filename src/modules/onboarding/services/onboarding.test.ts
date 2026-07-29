@@ -29,6 +29,21 @@ async function validCert(personId: string) {
   });
 }
 
+async function pendingCert(personId: string) {
+  await prisma.hipaaCertificate.create({
+    data: {
+      personId,
+      fileName: "c.pdf",
+      storedName: `c-${personId}.pdf`,
+      size: 100,
+      mimeType: "application/pdf",
+      completionDate: new Date(), // self-asserted date, not yet verified
+      verifiedAt: null,
+      uploadedAt: new Date(),
+    },
+  });
+}
+
 async function seed() {
   const dept = await prisma.department.create({ data: { code: "SRHD", name: "SRHD" } });
   const srr = await prisma.person.create({ data: { name: "SRR", status: "ACTIVE" } });
@@ -118,4 +133,40 @@ it("counts an assigned-but-unstarted course as outstanding on the next-term chec
   const learning = nextEntry.status.tasks.find((t) => t.key === "learning");
   expect(learning).toBeDefined();
   expect(learning!.state).not.toBe("complete");
+});
+
+it("tells a member with a pending certificate that we have it, not to upload it", async () => {
+  const { vol } = await seed();
+  await pendingCert(vol.id);
+
+  const status = await getOnboardingStatus(vol.id);
+  const hipaa = status.tasks.find((t) => t.key === "hipaa");
+  expect(hipaa?.state).toBe("IN_PROGRESS");
+  expect(hipaa?.description).toBe("We have your certificate. A compliance manager is reviewing it.");
+  expect(hipaa?.ctaLabel).toBe("View certificate");
+  // The gate is unchanged: still not onboarded (live-term training is still outstanding).
+  expect(status.onboarded).toBe(false);
+});
+
+it("the pending-verification copy wins over a term's own override of the HIPAA description", async () => {
+  const { vol, live } = await seed();
+  await pendingCert(vol.id);
+  // An admin override describes what the step IS ("upload your certificate...").
+  // It must not survive into the IN_PROGRESS state, or the checklist reproduces
+  // the exact bug being fixed: asking for a re-upload of a cert already on file.
+  await prisma.termOnboardingStep.create({
+    data: {
+      termId: live.id,
+      kind: "hipaa",
+      description: "Upload your current HIPAA certificate so we can verify it.",
+      order: 1,
+    },
+  });
+
+  const status = await getOnboardingStatus(vol.id);
+  const hipaa = status.tasks.find((t) => t.key === "hipaa");
+  expect(hipaa?.state).toBe("IN_PROGRESS");
+  expect(hipaa?.description).toBe("We have your certificate. A compliance manager is reviewing it.");
+  expect(hipaa?.ctaLabel).toBe("View certificate");
+  expect(status.onboarded).toBe(false);
 });

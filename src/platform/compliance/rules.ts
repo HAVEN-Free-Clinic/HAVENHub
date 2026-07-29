@@ -119,7 +119,9 @@ export function complianceStatus(
  * verified cert stopped being valid. Without UNKNOWN_DATE in the fallback, a
  * dateless renewal upload short-circuited and returned UNKNOWN_DATE, un-clearing a
  * volunteer whose prior verified cert was still valid and locking them out of the
- * hub (deriveHipaaTaskState treats UNKNOWN_DATE as an incomplete blocking task).
+ * hub. deriveHipaaTaskState no longer bundles UNKNOWN_DATE into the same
+ * terminal state as NO_CERTIFICATE, but the task remains unsatisfied and
+ * still blocks onboarding until a manager acts on it.
  */
 export function effectiveComplianceStatus(
   certs: Array<{ completionDate: Date | null; verifiedAt: Date | null }>,

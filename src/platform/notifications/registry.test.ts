@@ -9,6 +9,7 @@ describe("notification registry", () => {
       [
         "compliance-date-review",
         "compliance-verification-review",
+        "compliance-cert-verified",
         "compliance-escalation",
         "compliance-reminder",
         "epic-activation",

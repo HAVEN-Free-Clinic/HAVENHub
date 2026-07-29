@@ -502,6 +502,40 @@ describe("verifyCertificate", () => {
     expect(updated.verifiedById).toBe(actor2.id);
   });
 
+  it("notifies the member when their certificate is verified", async () => {
+    const actor = await createPerson("Director", "dir001");
+    await grantPermission(actor.id, "volunteers.manage_compliance");
+    const owner = await prisma.person.update({
+      where: { id: (await createPerson("Volunteer", "vol001")).id },
+      data: { contactEmail: "vol001@x.edu" },
+    });
+    const cert = await createCert(owner.id, noon(2025, 6, 1));
+
+    await verifyCertificate(actor.id, cert.id);
+
+    const logs = await prisma.emailLog.findMany({ where: { template: "compliance-cert-verified" } });
+    expect(logs).toHaveLength(1);
+    expect(logs[0].personId).toBe(owner.id);
+  });
+
+  // The guard is `if (!cert.verifiedAt)`. A second verify must be a no-op for
+  // notifications, or a manager re-clicking spams the member.
+  it("does not notify again when an already-verified certificate is verified", async () => {
+    const actor = await createPerson("Director", "dir001");
+    await grantPermission(actor.id, "volunteers.manage_compliance");
+    const owner = await prisma.person.update({
+      where: { id: (await createPerson("Volunteer", "vol001")).id },
+      data: { contactEmail: "vol001@x.edu" },
+    });
+    const cert = await createCert(owner.id, noon(2025, 6, 1));
+
+    await verifyCertificate(actor.id, cert.id);
+    await verifyCertificate(actor.id, cert.id);
+
+    const logs = await prisma.emailLog.findMany({ where: { template: "compliance-cert-verified" } });
+    expect(logs).toHaveLength(1);
+  });
+
   it("blocks a manager from verifying their own certificate (separation of duties)", async () => {
     const actor = await createPerson("Self Manager", "self01");
     await grantPermission(actor.id, "volunteers.manage_compliance");
@@ -1234,6 +1268,42 @@ describe("setCompletionDateAsManager", () => {
     expect(unchanged.completionDate?.toISOString()).toBe(
       new Date(Date.UTC(2024, 0, 1, 12, 0, 0, 0)).toISOString()
     );
+  });
+
+  // Dateless certs (UNKNOWN_DATE) clear through this path, not verifyCertificate.
+  // The owner must hear about it exactly like the parsed-date population does.
+  it("notifies the member when their dateless certificate is set and verified", async () => {
+    const actor = await createPerson("Manager", "mgr001");
+    await grantPermission(actor.id, "volunteers.manage_compliance");
+    const owner = await prisma.person.update({
+      where: { id: (await createPerson("Volunteer", "vol001")).id },
+      data: { contactEmail: "vol001@x.edu" },
+    });
+    const cert = await createCert(owner.id, null);
+
+    await setCompletionDateAsManager(actor.id, cert.id, "2025-06-01");
+
+    const logs = await prisma.emailLog.findMany({ where: { template: "compliance-cert-verified" } });
+    expect(logs).toHaveLength(1);
+    expect(logs[0].personId).toBe(owner.id);
+  });
+
+  // The guard is `if (!cert.verifiedAt)`. An admin overwrite on an already-verified
+  // cert must not double-notify.
+  it("does not notify again when an already-verified certificate's date is overwritten", async () => {
+    const actor = await createPerson("Admin", "adm001");
+    await grantPermission(actor.id, "admin.access");
+    const owner = await prisma.person.update({
+      where: { id: (await createPerson("Volunteer", "vol001")).id },
+      data: { contactEmail: "vol001@x.edu" },
+    });
+    const cert = await createCert(owner.id, noon(2024, 1, 1));
+
+    await setCompletionDateAsManager(actor.id, cert.id, "2025-06-01");
+    await setCompletionDateAsManager(actor.id, cert.id, "2025-07-01");
+
+    const logs = await prisma.emailLog.findMany({ where: { template: "compliance-cert-verified" } });
+    expect(logs).toHaveLength(1);
   });
 });
 

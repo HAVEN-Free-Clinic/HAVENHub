@@ -2,9 +2,13 @@
  * HipaaPanel: HIPAA certificate upload, compliance status, and history.
  *
  * - Shows the computed compliance status badge for the latest certificate.
- * - When the latest cert has no completionDate, shows a read-only notice
- *   that a compliance manager will confirm the date (no self-service entry).
- * - Provides a file input (accept="application/pdf") + Upload button.
+ * - While the latest cert is under review (UNKNOWN_DATE or
+ *   PENDING_VERIFICATION), shows a read-only notice explaining the wait; no
+ *   self-service date entry exists. PENDING_VERIFICATION also offers a
+ *   support fallback for a wait that runs long.
+ * - Provides a file input (accept="application/pdf") + Upload button,
+ *   collapsed behind a "Replace this certificate" disclosure while under
+ *   review, since uploading again would not speed anything up.
  * - Shows full history with date, size, and download link.
  *
  * The server action receives the formData, reads the File, converts to Buffer,
@@ -27,6 +31,8 @@ import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { formatCalendarDate, formatDateOnly } from "@/platform/dates";
 import { ExternalLinkButton } from "@/platform/ui/external-link-button";
 import { WORKDAY_LEARNING_URL } from "@/platform/external-links";
+import { getSupportContact } from "@/platform/branding/support";
+import { SupportLink } from "@/platform/branding/support-link";
 
 function formatSize(bytes: number): string {
   const kb = bytes / 1024;
@@ -72,9 +78,41 @@ export async function HipaaPanel({
   certSaved,
   status,
 }: HipaaPanelProps) {
-  const zone = await getDisplayTimeZone();
+  const [zone, support] = await Promise.all([getDisplayTimeZone(), getSupportContact()]);
   const latest = certificates[0] ?? null;
   const history = certificates.slice(1);
+  // While a certificate is under review, re-uploading does nothing: it does not
+  // speed up a manager confirming or setting the date. Collapse the section
+  // behind a disclosure so it stops reading as the obvious next step, without
+  // removing it or gating it behind a permission (a member who uploaded the
+  // wrong file must still be able to fix it).
+  const underReview = status === "PENDING_VERIFICATION" || status === "UNKNOWN_DATE";
+
+  const uploadForm = (
+    <>
+      {hipaaNeedsTrainingLink(status) && (
+        <div className="mb-3 space-y-2">
+          <p className="text-sm text-foreground-soft">
+            Complete or renew your HIPAA training in Workday, then upload the certificate below.
+          </p>
+          <ExternalLinkButton href={WORKDAY_LEARNING_URL} variant="primary">
+            Complete HIPAA training in Workday
+          </ExternalLinkButton>
+        </div>
+      )}
+      <form action={uploadAction}>
+        <Field label="HIPAA certificate (PDF)" hint="PDF only.">
+          {/* eslint-disable-next-line no-restricted-syntax -- native file input with file-button pseudo-element styling (file:* classes); no file primitive exists */}
+          <input type="file" name="certificate" accept="application/pdf" className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground-soft hover:file:bg-muted-strong" />
+        </Field>
+        <FormActions>
+          <SubmitButton variant="outline" size="sm" pendingLabel="Uploading…">
+            Upload certificate
+          </SubmitButton>
+        </FormActions>
+      </form>
+    </>
+  );
 
   return (
     <Card className="space-y-6">
@@ -100,12 +138,36 @@ export async function HipaaPanel({
                 </span>
               )}
             </div>
-            {/* Read-only notice when the completion date could not be parsed.
-                Members cannot set the date themselves, so the copy is reassuring,
-                not imperative (issue #76). */}
-            {latest.completionDate === null && (
+            {/* Read-only notice while a certificate is under review. Members
+                cannot set or confirm the date themselves, so the copy explains
+                the wait instead of asking for action (issue #76). Both branches
+                cover the full IN_PROGRESS range on the checklist; only this
+                panel knows which substate applies.
+
+                The `latest.completionDate === null` half of this condition is
+                load-bearing on its own: `status` is the effective (fallback)
+                status for the whole history, so a returning member's early
+                renewal that fails to parse while their prior verified cert is
+                still valid reads as COMPLIANT overall even though the newest
+                file is dateless and unacknowledged otherwise. */}
+            {(status === "UNKNOWN_DATE" || latest.completionDate === null) && (
               <p className="mt-2 text-sm text-muted-foreground">
-                A compliance manager will verify the completion date. No action is needed from you.
+                We could not read a completion date from this file, so a compliance manager will
+                set it. No action is needed from you.
+              </p>
+            )}
+            {status === "PENDING_VERIFICATION" && (
+              <p className="mt-2 text-sm text-muted-foreground">
+                We have your certificate and read a completion date of{" "}
+                {latest.completionDate ? formatCalendarDate(latest.completionDate) : "the date on the file"}.
+                A compliance manager confirms it before you are cleared. We will let you know when that
+                happens, and you do not need to upload it again.
+              </p>
+            )}
+            {status === "PENDING_VERIFICATION" && support.email && (
+              <p className="mt-1 text-sm text-muted-foreground">
+                If this is taking longer than expected,{" "}
+                <SupportLink email={support.email}>{support.label}</SupportLink>.
               </p>
             )}
           </div>
@@ -114,40 +176,35 @@ export async function HipaaPanel({
         )}
       </div>
 
-      {/* Upload form */}
+      {/* Upload feedback: rendered here, outside the collapsible upload
+          section below, so it is never hidden behind a collapsed disclosure.
+          A member replacing a pending certificate expands "Replace this
+          certificate", submits, and gets redirected back with ?certError=...;
+          the disclosure re-renders collapsed on that redirect, and an alert
+          nested inside it would be invisible at the exact moment it matters
+          most (issue: silent failed re-upload). */}
+      {error && <Alert tone="error">{error}</Alert>}
+      {certSaved && <Alert tone="success">Certificate uploaded successfully.</Alert>}
+
+      {/* Upload form: collapsed behind a disclosure while a certificate is
+          under review (PENDING_VERIFICATION/UNKNOWN_DATE), since it is not the
+          next useful action during that wait. Fully expanded in every other
+          status, including EXPIRED and NO_CERTIFICATE, where uploading is
+          exactly what to do next. */}
       <div>
-        <SectionHeader as="h3" className="mb-2">Upload New Certificate</SectionHeader>
-        {hipaaNeedsTrainingLink(status) && (
-          <div className="mb-3 space-y-2">
-            <p className="text-sm text-foreground-soft">
-              Complete or renew your HIPAA training in Workday, then upload the certificate below.
-            </p>
-            <ExternalLinkButton href={WORKDAY_LEARNING_URL} variant="primary">
-              Complete HIPAA training in Workday
-            </ExternalLinkButton>
-          </div>
+        {underReview ? (
+          <details>
+            <summary className="cursor-pointer text-sm font-medium text-foreground-soft">
+              Replace this certificate
+            </summary>
+            <div className="mt-3">{uploadForm}</div>
+          </details>
+        ) : (
+          <>
+            <SectionHeader as="h3" className="mb-2">Upload New Certificate</SectionHeader>
+            {uploadForm}
+          </>
         )}
-        {error && (
-          <Alert tone="error" className="mb-3">
-            {error}
-          </Alert>
-        )}
-        {certSaved && (
-          <Alert tone="success" className="mb-3">
-            Certificate uploaded successfully.
-          </Alert>
-        )}
-        <form action={uploadAction}>
-          <Field label="HIPAA certificate (PDF)" hint="PDF only.">
-            {/* eslint-disable-next-line no-restricted-syntax -- native file input with file-button pseudo-element styling (file:* classes); no file primitive exists */}
-            <input type="file" name="certificate" accept="application/pdf" className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground-soft hover:file:bg-muted-strong" />
-          </Field>
-          <FormActions>
-            <SubmitButton variant="outline" size="sm" pendingLabel="Uploading…">
-              Upload certificate
-            </SubmitButton>
-          </FormActions>
-        </form>
       </div>
 
       {/* History */}

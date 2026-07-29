@@ -28,11 +28,50 @@ export function FormSection({
   );
 }
 
-// Matches a bare URL ("https://example.com/path") or a bare domain
-// ("example.com/path") glued directly to a 2+ letter TLD, so sentence
-// abbreviations like "e.g." or "U.S." (single-letter "TLD") never match and
-// a space between two sentences never bridges into a false domain.
-const URL_PATTERN = /\b((?:https?:\/\/)?(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}(?:\/[^\s<>"]*)?)/gi;
+// Matches either a scheme URL ("https://example.com/anything") or a bare
+// domain with a mandatory path segment ("example.com/apply"). The mandatory
+// path on the bare-domain branch is deliberate: without it, plain-text
+// mentions of a filename ("policy.pdf", "resume.docx", "node.js") or an email
+// address's domain ("info@example.com") read as false-positive domains, since
+// a filename extension and a TLD are indistinguishable in isolation. A path
+// is the cheapest signal that a bare "word.word" is actually a link and not
+// a file or an email host. This does mean a bare domain with no path never
+// linkifies -- there is no rule here that covers "see example.com" with
+// nothing after it; the task this exists for always has a path
+// ("havenfreeclinic.com/apply"), so that trade-off is deliberately accepted.
+// The leading (?<!@) keeps an emailed URL that does have a path
+// ("user@example.com/reset") from linkifying starting mid-domain.
+const URL_PATTERN =
+  /(?<!@)\b(?:https?:\/\/[^\s<>"]+|(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}\/[^\s<>"]*)/gi;
+
+/**
+ * Splits sentence punctuation trailing a matched URL from the URL itself, so
+ * "...apply." links only "...apply" and leaves the period as plain text.
+ * Trailing ")" is only treated as punctuation (not part of the URL) when it
+ * has no matching "(" earlier in the match, so a Wikipedia-style URL ending
+ * in a real parenthesized path segment ("Foo_(bar)") keeps its balanced
+ * paren intact.
+ */
+function splitTrailingPunctuation(raw: string): { url: string; trailing: string } {
+  let end = raw.length;
+  while (end > 0) {
+    const ch = raw[end - 1];
+    if (".,;:!?".includes(ch)) {
+      end--;
+      continue;
+    }
+    if (ch === ")") {
+      const core = raw.slice(0, end);
+      const opens = (core.match(/\(/g) ?? []).length;
+      const closes = (core.match(/\)/g) ?? []).length;
+      if (closes <= opens) break; // this ")" is balanced by an earlier "(" -- keep it
+      end--;
+      continue;
+    }
+    break;
+  }
+  return { url: raw.slice(0, end), trailing: raw.slice(end) };
+}
 
 /**
  * Turns bare URLs/domains embedded in plain text into safe external links,
@@ -52,11 +91,7 @@ export function linkifyUrls(text: string): ReactNode {
   URL_PATTERN.lastIndex = 0;
   while ((match = URL_PATTERN.exec(text))) {
     const raw = match[0];
-    // Strip sentence punctuation trailing the URL (the period ending "...apply.")
-    // so it renders after the link instead of being swallowed into the href.
-    const trailingMatch = /^(.*?)([.,;:!?)]+)$/.exec(raw);
-    const url = trailingMatch ? trailingMatch[1] : raw;
-    const trailing = trailingMatch ? trailingMatch[2] : "";
+    const { url, trailing } = splitTrailingPunctuation(raw);
     if (!url) continue;
     if (match.index > lastIndex) nodes.push(text.slice(lastIndex, match.index));
     const href = /^https?:\/\//i.test(url) ? url : `https://${url}`;

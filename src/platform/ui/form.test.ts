@@ -37,6 +37,37 @@ describe("linkifyUrls", () => {
     const text = "e.g. this, i.e. that, and the U.S. too.";
     expect(linkifyUrls(text)).toBe(text);
   });
+
+  // Regressions found in review: a bare "word.word" with no path is
+  // indistinguishable from a filename or an email host, so the pattern
+  // requires either a scheme or a path segment before it will linkify.
+  it("does not mistake a filename for a domain (policy.pdf)", () => {
+    const text = "See the policy.pdf on the intranet.";
+    expect(linkifyUrls(text)).toBe(text);
+  });
+
+  it("does not mistake a filename for a domain (resume.docx)", () => {
+    const text = "Please attach your resume.docx to the email.";
+    expect(linkifyUrls(text)).toBe(text);
+  });
+
+  it("does not mistake a filename for a domain (node.js)", () => {
+    const text = "The backend runs on node.js.";
+    expect(linkifyUrls(text)).toBe(text);
+  });
+
+  it("does not split an email address into a false domain link", () => {
+    const text = "Contact us at info@havenfreeclinic.com";
+    expect(linkifyUrls(text)).toBe(text);
+  });
+
+  it("keeps a balanced parenthesis in a scheme URL's path instead of stripping it as punctuation", () => {
+    const text = "https://en.wikipedia.org/wiki/Foo_(bar)";
+    const nodes = linkifyUrls(text) as unknown[];
+    const link = findLink(nodes);
+    expect(link.props.href).toBe("https://en.wikipedia.org/wiki/Foo_(bar)");
+    expect(link.props.children[0]).toBe("https://en.wikipedia.org/wiki/Foo_(bar)");
+  });
 });
 
 describe("FormSection", () => {

@@ -1,6 +1,7 @@
 import { Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Checkbox } from "@/platform/ui/checkbox";
+import { linkifyUrls } from "@/platform/ui/form";
 import { asPrefillList, isPrefillChecked, prefillString } from "./field-prefill";
 import { WordCountTextarea } from "./word-count-textarea";
 import { cx } from "@/platform/ui/cx";
@@ -51,7 +52,7 @@ export function FieldPreview({
   const errorId = fieldError ? `fp-${f.key}-error` : undefined;
   const errorAria = fieldError ? { "aria-invalid": true, "aria-describedby": errorId } : {};
   const req = required ? <span className="text-critical" aria-hidden="true"> *</span> : null;
-  const help = f.helpText ? <span className="mt-1 block text-xs text-muted-foreground">{f.helpText}</span> : null;
+  const help = f.helpText ? <span className="mt-1 block text-xs text-muted-foreground">{linkifyUrls(f.helpText)}</span> : null;
   const err = fieldError ? <span id={errorId} role="alert" className="mt-1 block text-xs text-critical">{fieldError}</span> : null;
 
   // Prefill for text-like inputs: a locked field is read-only (verified value);

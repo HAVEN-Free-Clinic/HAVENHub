@@ -64,6 +64,12 @@ shouting without any new rendering code.
 Then branch the row's copy for that state: description "We have your certificate. A compliance
 manager is confirming the date." and call to action "View certificate".
 
+> **2026-07-29 note (post-implementation):** the description above was superseded during the run.
+> `IN_PROGRESS` covers both `PENDING_VERIFICATION` and `UNKNOWN_DATE`, and for the latter there is
+> no date yet for anyone to confirm. The shipped copy is "We have your certificate. A compliance
+> manager is reviewing it." (`src/modules/onboarding/services/step-config.ts`), which is accurate
+> for both substates. The call to action, "View certificate", shipped as specified.
+
 ### 2. Explain the wait to the person actually waiting
 
 `src/modules/my-info/components/hipaa-panel.tsx`. Widen the reassurance condition from
@@ -73,6 +79,10 @@ certificate, what date we read, who confirms it, roughly how long that takes, th
 them, and that they do not need to upload again. It closes with a support contact for the case
 where the wait runs long, using the existing `SupportLink` and `getSupportContact()` rather than a
 hardcoded address.
+
+> **2026-07-29 note (post-implementation):** "roughly how long that takes" was deliberately
+> omitted from the shipped copy in `hipaa-panel.tsx`; see the Risks note below on the timeframe
+> claim. The rest of this paragraph shipped as specified.
 
 Move the "Upload New Certificate" section behind a "Replace this certificate" disclosure while a
 certificate is awaiting review, so re-uploading stops being the visually obvious next step.
@@ -102,6 +112,17 @@ than discovered during implementation.
 verification. The certificate is already durably updated and audited by that point. Wrap the call
 the way `saveCertificate` wraps its manager alerts: catch, log, continue.
 
+> **2026-07-29 note (post-implementation, gap found in final review):** this section scoped only
+> `verifyCertificate`. That was a gap in this spec, not an implementation miss. A certificate whose
+> PDF does not parse (`UNKNOWN_DATE`) never reaches `verifyCertificate` at all; it clears through
+> `setCompletionDateAsManager`, the other function that can flip a cert from unverified to
+> verified (its own `if (!cert.verifiedAt)` transition block, alongside its own
+> `hipaa_certificate_verified` capture with `via: "set_date"`). That path is wired into three
+> manager UIs and is the live route for the whole dateless-certificate population. Both
+> transitions must notify the owner identically; the implementation extracts the shared
+> owner-lookup-and-notify logic into one local helper (`notifyCertOwnerOfVerification` in
+> `compliance.ts`) called from both places, rather than duplicating the try/catch block.
+
 ## Testing
 
 - `deriveHipaaTaskState` over all five `ComplianceStatus` values, asserting the two that move to
@@ -119,6 +140,11 @@ the way `saveCertificate` wraps its manager alerts: catch, log, continue.
   from the audit's proposals and are meant to be edited in review. The claim "usually within a few
   days" is an operational promise this repo cannot verify; it needs Jack's confirmation or
   softening before merge.
+
+  > **2026-07-29 note (post-implementation):** resolved, not merely confirmed, by removing the
+  > timeframe claim entirely. The shipped copy in `hipaa-panel.tsx` never states or estimates how
+  > long verification takes; it names who verifies, what was read, that no upload is needed, and a
+  > support contact for a wait that runs long. There was no promise left to confirm or soften.
 - **A new notification type is a new outbound email to every affected volunteer.** It defaults to
   email and fires once per verification transition. That is the intent, but it is the first thing
   to check if send volume looks wrong after deploy.

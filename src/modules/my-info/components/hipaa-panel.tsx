@@ -100,16 +100,6 @@ export async function HipaaPanel({
           </ExternalLinkButton>
         </div>
       )}
-      {error && (
-        <Alert tone="error" className="mb-3">
-          {error}
-        </Alert>
-      )}
-      {certSaved && (
-        <Alert tone="success" className="mb-3">
-          Certificate uploaded successfully.
-        </Alert>
-      )}
       <form action={uploadAction}>
         <Field label="HIPAA certificate (PDF)" hint="PDF only.">
           {/* eslint-disable-next-line no-restricted-syntax -- native file input with file-button pseudo-element styling (file:* classes); no file primitive exists */}
@@ -152,8 +142,15 @@ export async function HipaaPanel({
                 cannot set or confirm the date themselves, so the copy explains
                 the wait instead of asking for action (issue #76). Both branches
                 cover the full IN_PROGRESS range on the checklist; only this
-                panel knows which substate applies. */}
-            {status === "UNKNOWN_DATE" && (
+                panel knows which substate applies.
+
+                The `latest.completionDate === null` half of this condition is
+                load-bearing on its own: `status` is the effective (fallback)
+                status for the whole history, so a returning member's early
+                renewal that fails to parse while their prior verified cert is
+                still valid reads as COMPLIANT overall even though the newest
+                file is dateless and unacknowledged otherwise. */}
+            {(status === "UNKNOWN_DATE" || latest.completionDate === null) && (
               <p className="mt-2 text-sm text-muted-foreground">
                 We could not read a completion date from this file, so a compliance manager will
                 set it. No action is needed from you.
@@ -178,6 +175,16 @@ export async function HipaaPanel({
           <p className="text-sm text-subtle-foreground">No certificate on file.</p>
         )}
       </div>
+
+      {/* Upload feedback: rendered here, outside the collapsible upload
+          section below, so it is never hidden behind a collapsed disclosure.
+          A member replacing a pending certificate expands "Replace this
+          certificate", submits, and gets redirected back with ?certError=...;
+          the disclosure re-renders collapsed on that redirect, and an alert
+          nested inside it would be invisible at the exact moment it matters
+          most (issue: silent failed re-upload). */}
+      {error && <Alert tone="error">{error}</Alert>}
+      {certSaved && <Alert tone="success">Certificate uploaded successfully.</Alert>}
 
       {/* Upload form: collapsed behind a disclosure while a certificate is
           under review (PENDING_VERIFICATION/UNKNOWN_DATE), since it is not the

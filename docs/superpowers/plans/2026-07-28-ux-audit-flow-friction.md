@@ -385,19 +385,25 @@ Covers spec journey 5.
 - Create: `docs/superpowers/audit-fragments/task-06.md`
 
 **Interfaces:**
-- Consumes: fixture course `UX Audit Course` from Task 3.
+- Consumes: fixture course `UX Audit Course` and the designated training cycle from Task 3.
 
-- [ ] **Step 1: Walk the course list**
+**Persona note, corrected after Task 3.** Assigning a course and designating a training cycle add BLOCKING onboarding tasks to every matching volunteer. To keep `dev.volunteer@yale.edu` usable for Journeys 6 through 10, the fixture script marks that persona's training and course COMPLETE. Consequently `dev.volunteer@yale.edu` sees a completed state, not a from-zero one. Walk the completed state as that persona, and walk the from-zero state as `ux.fresh@yale.edu` through the gate routes named below.
+
+- [ ] **Step 1: Walk the course list as a member who has finished**
 
 Sign in as `dev.volunteer@yale.edu`, go to `/learning`. Record whether assigned courses, their deadlines, and their completion state are legible at a glance.
 
-- [ ] **Step 2: Attempt the SCORM player**
+- [ ] **Step 2: Walk the SCORM player**
 
-Open the fixture course. If Blob storage is unavailable locally, the player will not load. Record that as a coverage gap rather than a finding, and code-read `src/app/(app)/learning/[courseId]/ScormPlayer.tsx` for flow and hierarchy issues instead.
+Blob storage is NOT a blocker locally. Task 2 verified the disk fallback at `src/platform/storage.ts:22` and Task 3 confirmed the player loads and completes the `LMSGetValue` handshake. Walk it, do not code-read it.
 
-- [ ] **Step 3: Walk the training quiz**
+Walk the from-zero player as `ux.fresh@yale.edu` at `/get-started/learning`. Record whether a first-time learner can tell what the course expects, how long it will take, and whether progress is saved if they leave.
 
-Go to `/training`. Walk the quiz. Record the failure path specifically: what a user sees when they fail, and whether the makeup gating (which depends on a per-cycle in-person training date) explains itself.
+- [ ] **Step 3: Walk the training quiz from zero**
+
+As `ux.fresh@yale.edu`, go to `/get-started/training?track=volunteer`. This is the same `TrainingQuiz` component the `(app)/training` route renders, so findings transfer. Do NOT use `dev.volunteer@yale.edu` here: that persona shows "Cleared for the term" and has no quiz to take.
+
+The quiz is 15 questions and needs 80 percent to pass. Walk both paths. Record the failure path specifically: what a user sees when they fail, and whether the makeup gating (which depends on a per-cycle in-person training date) explains itself.
 
 - [ ] **Step 4: Record findings into `docs/superpowers/audit-fragments/task-06.md`**
 

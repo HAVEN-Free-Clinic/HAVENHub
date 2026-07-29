@@ -227,9 +227,34 @@ git commit -m "fix(onboarding): checklist explains the verification wait instead
 
 **Files:**
 - Modify: `src/modules/my-info/components/hipaa-panel.tsx:104-110` and the "Upload New Certificate" section beginning at `:117`
+- Modify: `src/app/get-started/hipaa/page.tsx:56` (added after Task 2's review, see below)
+- Modify: `src/modules/onboarding/services/step-config.ts` (`hipaa.inProgressDescription`, see below)
 
 **Interfaces:**
-- Consumes: nothing from earlier tasks. `status` is already in scope in this component.
+- Consumes: nothing from earlier tasks. `status` is already in scope in the panel component.
+
+**Two additions from Task 2's review, both real gaps rather than polish.**
+
+1. **The step page contradicts the checklist.** `src/app/get-started/hipaa/page.tsx:56` passes a
+   hardcoded, state-blind `description` into `OnboardingStepShell`: "Upload your current HIPAA
+   certificate so we can verify it is valid through the term." That page renders the very
+   `HipaaPanel` this task fixes (imported at `:11`, rendered at `:60`), and it is where the
+   checklist's new "View certificate" button now sends people. So a member who follows the new CTA
+   because the checklist told them "we have your certificate" lands on a page headed "upload your
+   current certificate."
+
+   Before Task 2 the checklist and this page at least agreed. Now they contradict, which is the
+   same defect this whole batch exists to fix, one surface over. Branch that description on the
+   task state the page already has in scope (`task.state`, resolved at `:23`), so the pending state
+   gets copy consistent with the checklist and the panel.
+
+2. **The checklist copy is imprecise for one of its two states.** Task 2's
+   `inProgressDescription` reads "We have your certificate. A compliance manager is confirming the
+   date." `deriveHipaaTaskState` maps BOTH `PENDING_VERIFICATION` and `UNKNOWN_DATE` to
+   `IN_PROGRESS`, and in the `UNKNOWN_DATE` case there is no date to confirm: a manager has to read
+   or set one. Reword it to cover both substates without claiming which is happening, for example
+   "We have your certificate. A compliance manager is reviewing it." The panel, which does know the
+   exact status, keeps its more specific per-status copy.
 
 - [ ] **Step 1: Widen the reassurance condition and branch the copy**
 

@@ -1,7 +1,14 @@
 # Task 1: Local environment state
 
 Recorded 2026-07-28. Later tasks (2-8) depend on this environment still running.
-Do not tear down the dev server or the database described here.
+Do not tear down the database described here.
+
+The dev server is owned by the controller session, not by any task subagent. A background
+process started inside a subagent dies when that subagent's session ends, so no task can leave a
+running server for the next one to inherit. The controller starts and keeps the dev server
+running across the whole audit. A subagent must never start its own long-lived dev server; it
+should only verify the controller's server is up (see "Dev server" below) and, if it is not,
+report NEEDS_CONTEXT rather than starting one itself.
 
 ## Database
 
@@ -37,10 +44,19 @@ add DB credentials to `.env` in this worktree.
 ## Dev server
 
 - Port: `3000`
-- Started with `npm run dev` (Next.js 16.2.11, Turbopack), `run_in_background: true`, so it
-  outlives this task session.
-- Confirmed serving: `GET /login` returned `200` (both via `curl` and via the first Playwright
-  navigation).
+- Started with `npm run dev` (Next.js 16.2.11, Turbopack). At the time Task 1 ran it was launched
+  with `run_in_background: true` inside the task's own subagent session; that process died when
+  the session ended, so the server was NOT actually running when Task 1's review checked it. The
+  controller has since started its own long-lived server and owns it going forward (see the note
+  above). Do not repeat the subagent-background-process approach.
+- Before any browser work, verify the controller's server is actually up:
+
+  ```bash
+  curl -s -o /dev/null -w '%{http_code}\n' http://localhost:3000/login
+  ```
+
+  Expected `200`. If it is anything else (connection refused, non-200), stop and report
+  NEEDS_CONTEXT so the controller can restart it. Do not start your own server.
 
 ## Credential login verification (Playwright MCP)
 

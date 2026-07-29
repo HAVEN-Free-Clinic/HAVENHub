@@ -13,7 +13,7 @@ import { Button, buttonClasses } from "@/platform/ui/button";
 import { Select } from "@/platform/ui/select";
 import { Field, ReadonlyField } from "@/platform/ui/input";
 import { Card } from "@/platform/ui/card";
-import { FormSection } from "@/platform/ui/form";
+import { FormSection, linkifyUrls } from "@/platform/ui/form";
 import { RadioGroup, Radio } from "@/platform/ui/radio";
 import { FieldPreview } from "@/modules/recruitment/components/field-preview";
 import { prefillString } from "@/modules/recruitment/components/field-prefill";
@@ -542,7 +542,7 @@ export function ApplyWizard({
           st.kind === "section" ? (
             <div key={st.id} className={cx("space-y-4", i === stepIndex ? "block" : "hidden")}>
               <Card className="space-y-4">
-                <FormSection description={st.section.description ?? undefined}>
+                <FormSection description={st.section.description ? linkifyUrls(st.section.description) : undefined}>
                   {visibleFields(st.section.fields, effectiveAnswers).map((f) =>
                     f.type === "SIGNATURE" ? (
                       <SignaturePad

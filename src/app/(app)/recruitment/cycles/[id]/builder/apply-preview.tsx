@@ -5,7 +5,7 @@ import { Modal } from "@/platform/ui/modal";
 import { Button } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
 import { Checkbox } from "@/platform/ui/checkbox";
-import { FormSection } from "@/platform/ui/form";
+import { FormSection, linkifyUrls } from "@/platform/ui/form";
 import { FieldPreview } from "@/modules/recruitment/components/field-preview";
 import { visibleFields } from "@/modules/recruitment/engine/field-visibility";
 import { visibleSections, applicantTypeLabel, type ApplicantType } from "@/modules/recruitment/engine/visibility";
@@ -123,7 +123,7 @@ export function ApplyPreview({
             const fields = visibleFields(section.fields, answers);
             return (
               <Card key={section.id} className="space-y-4">
-                <FormSection title={section.title} description={section.description ?? undefined}>
+                <FormSection title={section.title} description={section.description ? linkifyUrls(section.description) : undefined}>
                   {fields.length === 0 ? (
                     <p className="text-sm text-subtle-foreground">No questions are shown here yet.</p>
                   ) : (

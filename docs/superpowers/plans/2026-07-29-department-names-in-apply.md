@@ -68,7 +68,9 @@ Run the focused test file. Expected: failures naming the missing helper.
 
 Load `Department` rows for `cycle.departments` (`code` and `name`), build the ordered option list, and inject it into every field whose `type` is `"DEPARTMENT_CHOICE"` as `def` is built at `page.tsx:73-84`.
 
-Note `page.tsx` already runs a `prisma.department.findMany` for subcommittees nearby; check whether you can widen that query rather than adding a second round trip. If you add one, say why in your report.
+~~Note `page.tsx` already runs a `prisma.department.findMany` for subcommittees nearby; check whether you can widen that query rather than adding a second round trip.~~
+
+**Corrected 2026-07-29:** that premise was wrong. The nearby query is `prisma.subcommittee.findMany` on a different model; there was no `Department` query to widen. A second query is correct here, gated on `cycle.departments.length` so a cycle with no departments skips the round trip.
 
 - [ ] **Step 5: Render the label**
 

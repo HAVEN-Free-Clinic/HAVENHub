@@ -104,13 +104,27 @@ Both halves are needed:
 
 ## Consequences worth stating
 
-**Injecting options tightens server-side validation.** `schema-builder.ts:117-118` builds a
-`z.enum` over the option values when options exist and a free `z.string()` when they do not.
-Today a `DEPARTMENT_CHOICE` answer is an unvalidated string: any value round-trips. After this
-change the server rejects a code that is not one of the cycle's departments.
+**~~Injecting options tightens server-side validation.~~ Retracted 2026-07-29: this was wrong.**
 
-That is a genuine improvement and closes a real hole, but it is a behavior change rather than a
-cosmetic one, and it must have its own test rather than arriving as a surprise in production.
+This section originally claimed that a `DEPARTMENT_CHOICE` answer was an unvalidated free string
+today, and that injecting options would close that hole. It was verified false during Task 1 by
+both the implementer and the reviewer, independently.
+
+Server-side validation against `cycle.departments` has been enforced since commit `167c587f2`
+(2026-06-08). `src/modules/recruitment/services/submissions.ts`, in `toSectionDefs`, self-supplies
+options for `DEPARTMENT_CHOICE` from `cycle.departments` regardless of what `FormField.options`
+holds, so `schema-builder` has always built a `z.enum` on that path.
+
+The `def` object built in `page.tsx` is passed only to the client wizard for display.
+`submitApplication` independently reloads the cycle and builds its own section definitions, so
+this change never reaches the validation path. **No validation behavior ships with this change.**
+
+The tests written for the retracted claim were kept anyway, and correctly labeled in
+`submissions.test.ts` as pinning pre-existing behavior rather than guarding new logic. Pinning a
+real invariant is worth doing; misattributing it would not have been.
+
+The error is recorded rather than deleted because it shaped the plan: Task 1 Step 6 exists
+because of it.
 
 **A cycle whose `departments` list contains an unknown code still works.** The option renders
 with the code as its label and validation accepts it, because it is present in the options list.

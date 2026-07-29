@@ -62,11 +62,25 @@ describe("linkifyUrls", () => {
   });
 
   it("keeps a balanced parenthesis in a scheme URL's path instead of stripping it as punctuation", () => {
-    const text = "https://en.wikipedia.org/wiki/Foo_(bar)";
+    const text = "https://en.wikipedia.org/wiki/Foo_(bar) for background.";
     const nodes = linkifyUrls(text) as unknown[];
     const link = findLink(nodes);
     expect(link.props.href).toBe("https://en.wikipedia.org/wiki/Foo_(bar)");
     expect(link.props.children[0]).toBe("https://en.wikipedia.org/wiki/Foo_(bar)");
+    expect(nodes[nodes.length - 1]).toBe(" for background.");
+  });
+
+  // Known, accepted limitation (see the comment on URL_PATTERN): once a path
+  // follows, a filename extension is indistinguishable from a TLD, so this
+  // still linkifies even though "node.js" alone (tested above) does not.
+  // This test exists to make the tradeoff visible, not to endorse it -- if a
+  // future change to the pattern makes this stop linkifying, that is fine;
+  // if it starts linkifying "node.js" with no path too, that is a regression.
+  it("still linkifies a filename-shaped domain when a path follows (documented limitation)", () => {
+    const text = "The endpoint lives at node.js/api.";
+    const nodes = linkifyUrls(text) as unknown[];
+    const link = findLink(nodes);
+    expect(link.props.href).toBe("https://node.js/api");
   });
 });
 

@@ -41,6 +41,16 @@ export function FormSection({
 // ("havenfreeclinic.com/apply"), so that trade-off is deliberately accepted.
 // The leading (?<!@) keeps an emailed URL that does have a path
 // ("user@example.com/reset") from linkifying starting mid-domain.
+//
+// Known residual limitation, accepted rather than patched: a filename
+// immediately followed by a path ("node.js/api", "policy.pdf/v2") still
+// linkifies, because an extension and a TLD are the same shape once a path
+// follows -- nothing in the string itself says which one it is. Fixing this
+// would mean maintaining a blocklist of known extensions, which is its own
+// permanent drift problem for a case that has not shown up in real content.
+// The mandatory path already removes the common bare-filename false
+// positive (see above), and this helper only renders staff-authored
+// department/form descriptions, not arbitrary user text.
 const URL_PATTERN =
   /(?<!@)\b(?:https?:\/\/[^\s<>"]+|(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}\/[^\s<>"]*)/gi;
 

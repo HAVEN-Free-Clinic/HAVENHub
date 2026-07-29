@@ -5,6 +5,7 @@ import { prisma } from "@/platform/db";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 import { PageHeader } from "@/platform/ui/page-header";
+import type { DepartmentNameRow } from "@/modules/recruitment/templates/department-options";
 import { FormBuilder } from "./form-builder";
 import type { BuilderSection } from "./section-card";
 
@@ -20,6 +21,17 @@ export default async function BuilderPage({ params }: { params: Promise<{ id: st
     select: { id: true, name: true },
     orderBy: [{ order: "asc" }, { name: "asc" }],
   });
+
+  // Department code -> name rows, mirroring apply/[slug]/page.tsx exactly, so the
+  // "Preview form" modal (ApplyPreview) can resolve department names and generated
+  // supplement-section titles the same way the live apply wizard does. Passed
+  // alongside the raw `sections`/`departments` (still codes) rather than baked into
+  // them: SectionCard's own title editor must keep showing the stored title as-is,
+  // not the resolved display name, or saving would freeze a name-based title into
+  // the row (see resolveSectionTitle's own doc comment on why that matters).
+  const departmentRows: DepartmentNameRow[] = cycle.departments.length
+    ? await prisma.department.findMany({ where: { code: { in: cycle.departments } }, select: { code: true, name: true } })
+    : [];
 
   const sections: BuilderSection[] = cycle.sections
     .filter((s) => s.purpose === "APPLICATION")
@@ -62,6 +74,7 @@ export default async function BuilderPage({ params }: { params: Promise<{ id: st
         editable={cycle.status !== "ARCHIVED"}
         status={cycle.status}
         departments={cycle.departments}
+        departmentNames={departmentRows}
         subcommittees={subcommittees}
         sections={sections}
         acceptsRenewals={cycle.acceptsRenewals}

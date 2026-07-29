@@ -40,17 +40,27 @@ export function FormSection({
 // nothing after it; the task this exists for always has a path
 // ("havenfreeclinic.com/apply"), so that trade-off is deliberately accepted.
 // The leading (?<!@) keeps an emailed URL that does have a path
-// ("user@example.com/reset") from linkifying starting mid-domain.
+// ("user@example.com/reset") from linkifying starting mid-domain, but only
+// when the host is a single label. A multi-label host still linkifies past
+// the "@": "admin@sub.example.com/reset" still produces a link to
+// "example.com/reset", because \b also matches the boundary right before
+// "example", and the lookbehind there only sees the "." immediately before
+// it, not the "@" two labels back. Not patched, for the same reason as the
+// filename case below: the strings this helper renders are staff-authored
+// department/form descriptions, not arbitrary user text, and this has not
+// shown up in real content.
 //
 // Known residual limitation, accepted rather than patched: a filename
 // immediately followed by a path ("node.js/api", "policy.pdf/v2") still
 // linkifies, because an extension and a TLD are the same shape once a path
-// follows -- nothing in the string itself says which one it is. Fixing this
-// would mean maintaining a blocklist of known extensions, which is its own
-// permanent drift problem for a case that has not shown up in real content.
-// The mandatory path already removes the common bare-filename false
-// positive (see above), and this helper only renders staff-authored
-// department/form descriptions, not arbitrary user text.
+// follows -- nothing in the string itself says which one it is. This is not
+// always a harmlessly dead link either: "node.js/api" resolves nowhere
+// (there is no ".js" gTLD), but "handbook.zip/latest" resolves to a real
+// origin, because ".zip" and ".mov" are live gTLDs. Fixing this would mean
+// maintaining a blocklist of known extensions, which is its own permanent
+// drift problem for a case that has not shown up in real content. The
+// mandatory path already removes the common bare-filename false positive
+// (see above).
 const URL_PATTERN =
   /(?<!@)\b(?:https?:\/\/[^\s<>"]+|(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}\/[^\s<>"]*)/gi;
 

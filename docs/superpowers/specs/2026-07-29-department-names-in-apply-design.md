@@ -85,6 +85,15 @@ Make it a real anchor. Whether that means widening the `description` type to `Re
 adding a dedicated link affordance is an implementation choice; the requirement is that an
 applicant can click it.
 
+**Decision (2026-07-29):** the final whole-branch review found that `havenfreeclinic.com/apply`
+currently 404s behind a coming-soon holding page, so the link this task ships does not resolve
+to a real descriptions page today. This was raised explicitly. Jack decided to ship the link as
+built anyway, on the expectation that the destination page appears; the point of the task was
+always to make the pointer clickable once there is something to click through to, and the alternative
+(unlinking, or pointing somewhere else) would need to be reverted the moment the real page ships.
+**This is deliberate, not an oversight.** Do not unlink it or repoint it without first checking
+whether the destination page exists.
+
 ### 4. The generated step title
 
 `src/modules/recruitment/templates/application/volunteer.ts:10` and `director.ts:10` both build

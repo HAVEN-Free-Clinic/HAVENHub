@@ -88,6 +88,8 @@ Render `f.options` when present, falling back to the existing `departments` mapp
 
 This is the consequence the spec calls out, and it must not arrive as a surprise. `src/modules/recruitment/engine/schema-builder.ts:116-120` builds a `z.enum` over the option values when options exist and a free `z.string()` when they do not. Today a `DEPARTMENT_CHOICE` answer is unvalidated: any string round-trips.
 
+**Corrected 2026-07-29:** that last sentence is false and the spec has retracted it (see `docs/superpowers/specs/2026-07-29-department-names-in-apply-design.md`, "Consequences worth stating"). `submissions.ts`'s `toSectionDefs` has self-supplied `DEPARTMENT_CHOICE` options from `cycle.departments` since commit `167c587f2` (2026-06-08), independent of `FormField.options`, so server-side validation against the cycle's department list was already enforced before this branch. The test below still exists and is worth keeping, but it pins pre-existing behavior; it does not close a validation hole.
+
 Add a test asserting both directions:
 
 ```
@@ -216,6 +218,8 @@ git commit -m "fix(apply): show the department name in the generated section tit
 ## Self-review notes
 
 **Spec coverage.** Design section 1 maps to Task 1 Steps 1 through 4; section 2 to Task 1 Step 5; section 3 to Task 2; section 4 to Task 3. The spec's "Consequences worth stating" maps to Task 1 Step 6, which pins the validation change in both directions. The spec's named risk (generator and matcher drifting apart) maps to Task 3 Step 3's agreement test.
+
+**Corrected 2026-07-29:** "pins the validation change" is stale in the same way as the Task 1 Step 6 text it describes. Task 1 Step 6's test pins pre-existing validation behavior, not a change; see the correction there and the spec's "Consequences worth stating" for the retraction.
 
 **Two steps deliberately leave a decision to the implementer**, each with the information needed to make it and an instruction to report the reasoning: Task 2 Step 2 (whether the template description is persisted, which decides where the link can live) and Task 3 Step 1 (whether changing the templates adds coverage over the render-time substitution, or just a second mechanism to keep in sync). Both are questions I could not settle without reading code the implementer will have open anyway, and guessing wrong in the plan would be worse than asking.
 

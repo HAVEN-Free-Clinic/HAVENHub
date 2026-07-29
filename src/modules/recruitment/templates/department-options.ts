@@ -44,5 +44,11 @@ export function resolveSectionTitle(section: TitledSection, departments: Departm
   if (!section.departmentCode) return section.title;
   if (section.title !== defaultSupplementSectionTitle(section.departmentCode)) return section.title;
   const dept = departments.find((d) => d.code === section.departmentCode);
-  return dept ? `${dept.name} department questions` : section.title;
+  // Derived from defaultSupplementSectionTitle rather than retyping the
+  // " department questions" suffix here. A hand-typed copy would silently
+  // drift from the generator the moment either wording changes: new cycles
+  // would render one string, every already-materialized cycle would render
+  // another, and the matcher above would keep matching (it compares against
+  // the same generator), so nothing would fail to signal the split.
+  return dept ? defaultSupplementSectionTitle(dept.name) : section.title;
 }

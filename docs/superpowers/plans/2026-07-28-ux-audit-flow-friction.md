@@ -606,15 +606,27 @@ Read every fragment. The same underlying problem will appear in more than one jo
 
 - [ ] **Step 2: Add the two pre-seeded findings**
 
-From the spec: the toast notification system (staged as two items, system first and inline-Alert migration second) and the bottom-right overlay collision between `HelpLauncher` at `src/platform/ui/help/help-launcher.tsx:106` and the inactivity warning at `src/platform/auth/inactivity.tsx:62`. Verify both line numbers still hold before writing them in.
+From the spec: the toast notification system (staged as two items, system first and inline-Alert migration second) and the bottom-right overlay collision between `HelpLauncher` at `src/platform/ui/help/help-launcher.tsx:106` and the inactivity warning at `src/platform/auth/inactivity.tsx:62`.
+
+Both were re-verified by the controller on 2026-07-29 and still reproduce: those two `fixed` positions still overlap, and no toast component exists anywhere in `src/platform/ui`.
+
+**Do NOT file the "Copy email" silent no-op.** The spec originally cited it as the motivating example for the client-side toast API. Task 10 verified it was fixed in commit `f007277b` on 2026-07-11, before this audit began: `handleCopyEmail` at `src/modules/support/components/epic-request-form.tsx:157-169` now guards `navigator.clipboard`, awaits the write, and reports both outcomes through an `aria-live` region. Publishing it would ship a fixed bug as a live finding. The toast system item stands on its own without that example.
 
 - [ ] **Step 3: Rank on severity times reach**
 
 Tier-1 findings outrank tier-2 findings at equal severity. Within a tier, `blocks` outranks `costs-time` outranks `polish`.
 
-- [ ] **Step 4: Apply the cap**
+- [ ] **Step 4: Keep every finding. The cap is retired.**
 
-Keep the top 40. If more survived, add a "Cut for cap" section stating how many were cut and listing their subjects in one line each. Never drop them silently.
+**Superseded 2026-07-29 by explicit user decision.** The original 40-finding cap and its "Cut for cap" section no longer apply. Do NOT drop findings and do NOT write a cut list.
+
+The cap existed to prevent padding. That job was done better by the per-task review gates: every one of the 87 findings was verified against source by an independent reviewer, several were rejected or re-severitied, one handed-down finding was retracted as already fixed, and one was reproduced from raw database data rather than trusted. Cutting verified findings to honor a number chosen before any of them existed would discard the most expensive part of this work.
+
+Instead, make the document usable at its full length:
+
+- Rank everything by severity times reach, as specified.
+- Open with a **"Ship these first"** section: the highest-ranked items whose combined effort fits one focused piece of work. A reader should be able to stop after this section and still act correctly.
+- Group the remainder by severity band so the long tail stays skimmable.
 
 - [ ] **Step 5: Split out the L-effort findings**
 

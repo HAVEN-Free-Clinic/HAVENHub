@@ -45,9 +45,21 @@ Findings marked `L` also get a line in the fragment's "Needs its own brainstorm"
 
 ## File structure
 
+> **Completed 2026-07-29.** The plan below is kept as written for the record. Two things about it
+> are now historical rather than current:
+>
+> - `docs/superpowers/audit-fragments/` no longer exists. All ten fragments were consolidated into
+>   the deliverable and removed in commit `140b588b`, as Task 12 specified. Every reference to that
+>   directory below describes what the tasks did at the time, not a path you will find on disk.
+> - The deliverable shipped as `docs/full-app-ux-audit-2026-07-29.md`, dated to the day it was
+>   assembled rather than the day this plan was written. The filename is corrected throughout.
+>
+> The finding cap named at line 15 was also retired by explicit user decision before Task 12 ran;
+> no findings were cut and there is no cut list. See the deliverable's "How the count reconciles".
+
 - Create: `scripts/seed-ux-audit-fixtures.ts` (committed, idempotent, dev-only fixture builder)
 - Create: `docs/superpowers/audit-fragments/task-NN.md` (committed per task, deleted by Task 12)
-- Create: `docs/full-app-ux-audit-2026-07-28.md` (the deliverable)
+- Create: `docs/full-app-ux-audit-2026-07-29.md` (the deliverable)
 - Scratchpad only, never committed: `screenshots/`
 
 ---
@@ -589,7 +601,7 @@ Screenshots stay in the scratchpad and are never added.
 ### Task 12: Rank, cap, and write the audit document
 
 **Files:**
-- Create: `docs/full-app-ux-audit-2026-07-28.md`
+- Create: `docs/full-app-ux-audit-2026-07-29.md`
 - Delete: `docs/superpowers/audit-fragments/` (the whole directory, in the same commit)
 
 **Interfaces:**
@@ -641,7 +653,7 @@ The proposed first batch should be the highest-ranked items whose combined effor
 - [ ] **Step 7: Verify no em-dashes**
 
 ```bash
-grep -n "—\|–" docs/full-app-ux-audit-2026-07-28.md || echo "CLEAN"
+grep -n "—\|–" docs/full-app-ux-audit-2026-07-29.md || echo "CLEAN"
 ```
 
 Expected: `CLEAN`.
@@ -652,14 +664,14 @@ The fragments are working notes that the assembled document supersedes. Remove t
 
 ```bash
 git rm -r docs/superpowers/audit-fragments
-git add docs/full-app-ux-audit-2026-07-28.md
+git add docs/full-app-ux-audit-2026-07-29.md
 git commit -m "docs: whole-app UX flow-friction audit"
 ```
 
 Verify the deliverable survived and the fragments are gone:
 
 ```bash
-git status --short && ls docs/full-app-ux-audit-2026-07-28.md
+git status --short && ls docs/full-app-ux-audit-2026-07-29.md
 ```
 
 - [ ] **Step 9: Update the audit history memory**

@@ -6,8 +6,8 @@ correctness, data integrity, security, WCAG accessibility, theming, and design-s
 None of them walked a journey end to end and asked whether a person who had never seen the
 app could get through it.
 
-- **88 published items** covering **87 independently verified findings** plus **1 pre-seeded
-  design item filed as 2** (see "How the count reconciles").
+- **88 published items.** 87 independently verified findings, minus 2 merges, gives 85 rows; plus
+  3 pre-seeded design items gives 88 (see "How the count reconciles").
 - **Method:** five browser-walked volunteer and applicant journeys (tier 1) and three code-read
   director and admin surfaces (tier 2). Every finding was verified against source by an
   independent reviewer before it was accepted.
@@ -1861,7 +1861,9 @@ A manager can tick specific departments, leave "Assign to all" checked from a pr
 "Save assignment," and the course still goes to everyone with no on-screen indication their picks
 did nothing. The EHS training edit page has the identical `requiredForAll`-overrides-`departmentIds`
 relationship but at least carries a hint sentence; the Learning course page has no equivalent text
-at all. **Fix:** disable or gray out the department grid when "Assign to all" is checked, and add
+at all. **Evidence note.** Not confirmed by running the app; the override relationship is read from
+the two services directly, not observed rendered. **Fix:** disable or gray out the department grid
+when "Assign to all" is checked, and add
 the same one-line hint EHS already uses. Apply the disabled-state treatment to the EHS page too,
 since its hint alone does not stop the checkboxes staying live.
 
@@ -1878,9 +1880,11 @@ visit / **S**
 `RequestList` table both `/support` and `/support/all` render never displays it: the columns are `#`,
 `Subject`, `Category`, `Requester`, `Status`, `Updated`, with no Priority column and no
 `PriorityBadge` anywhere in `status-badge.tsx`. This is the table meant for clinic-wide IT triage,
-and it has no visual hierarchy for the one field that exists to drive triage. **Fix:** add a
-Priority column with a small `Badge` toned by priority, mirroring the `EPIC_STATUS_TONE` pattern,
-shown at least on the manager (`showRequester`) variant.
+and it has no visual hierarchy for the one field that exists to drive triage. **Evidence note.** Not
+confirmed by running the app; confirmed from the shared row type, the filter bar, and the absence of
+any priority rendering in `request-list.tsx` and `status-badge.tsx`. **Fix:** add a Priority column
+with a small `Badge` toned by priority, mirroring the `EPIC_STATUS_TONE` pattern, shown at least on
+the manager (`showRequester`) variant.
 
 #### R65. F-09-6: Publish is one click, Unpublish needs a confirm
 
@@ -1890,11 +1894,13 @@ term / **S**
 `src/modules/schedule/services/publication.ts:29-56`
 
 Publish and Unpublish are opposite, equally reversible actions on the same `SchedulePublication`
-toggle (confirmed: neither sends any notification), but they are guarded asymmetrically. Unpublish is
-a `ConfirmButton`; Publish, the action that makes a possibly incomplete schedule visible to the whole
-department, is a plain one-click submit. The action more likely to expose an unfinished schedule is
-the one that needs no confirmation. **Fix:** wrap Publish in the same `ConfirmButton` pattern used
-two lines away. Same inversion as R37 on the volunteer side; the two are worth settling with one
+toggle (neither `publishSchedule` nor `unpublishSchedule` sends any notification, read from the
+service), but they are guarded asymmetrically. Unpublish is a `ConfirmButton`; Publish, the action
+that makes a possibly incomplete schedule visible to the whole department, is a plain one-click
+submit. The action more likely to expose an unfinished schedule is the one that needs no
+confirmation. **Evidence note.** Not confirmed by running the app; read directly from the two form
+blocks and the service functions they call. **Fix:** wrap Publish in the same `ConfirmButton` pattern
+used two lines away. Same inversion as R37 on the volunteer side; the two are worth settling with one
 rule.
 
 #### R66. F-09-5: The day-view date strip ignores the current clinic date it already has
@@ -1911,7 +1917,9 @@ The Day-view clinic-date strip (the default view) styles a pill only by whether 
 `bg-brand text-white` header cell independent of selection, with the prop documented as "Clinic date
 to highlight as the 'current week' wayfinding cue". So in the default view, clicking a past date to
 review it paints that past date with the exact treatment the app uses elsewhere to mean "this is the
-current week," while the actual current week reverts to plain the moment you look away. **Fix:** add
+current week," while the actual current week reverts to plain the moment you look away. **Evidence
+note.** Not confirmed by running the app; the styling divergence is read directly from both
+components' source. **Fix:** add
 a persistent marker independent of `isSelected` (a dot or `ring-1 ring-brand`) on the pill where
 `key === currentClinicDateKey`, mirroring the semantics `BuilderGrid` already applies to the same
 value.
@@ -1946,7 +1954,9 @@ compliance signal. It is not: `addedToEhs` is a bare boolean on `Person` that
 `requiredTrainingsForMember` and `missingTrainings` never read, so toggling it has zero effect on
 anyone's clearance or the COMPLETE/MISSING cells beside it. Its only other appearances are the legacy
 Airtable import and email-audience targeting. Understanding it correctly requires knowing about the
-retired Airtable tracker, which is knowledge held entirely outside the app. **Fix:** add a hint line
+retired Airtable tracker, which is knowledge held entirely outside the app. **Evidence note.** Not
+confirmed by running the app; the inert-for-compliance conclusion is read directly from
+`applicability.ts` never referencing `addedToEhs`. **Fix:** add a hint line
 under the column header ("Administrative flag carried over from the legacy roster tracker; does not
 affect compliance status or the columns to the right."). If the field has no remaining operational
 purpose beyond email targeting, consider whether it belongs on the compliance dashboard at all.
@@ -1985,7 +1995,10 @@ by someone who already knows it exists", cannot find either page. The sole path 
 `/admin/email` first and noticing two small underlined text links in the page header, rendered only
 when the viewer holds the target page's own permission. A person holding `admin.send_email_campaign`
 but not `admin.manage_sync` would not even see the "Email" tab that hosts those links, since the nav
-item gates on `admin.manage_sync`. **Fix:** register "Campaigns" and "Templates" as their own
+item gates on `admin.manage_sync`. **Evidence note.** Not confirmed by running the app; the specific
+case of a person holding one permission but not the other depends on how roles are actually
+assigned, which was not verified against seeded system roles. **Fix:** register "Campaigns" and
+"Templates" as their own
 permission-gated sub-items in the admin module's `nav` array, so both surface in the tab row and the
 command palette like every other admin page. See the coverage note on the related RBAC edge case.
 
@@ -2037,7 +2050,9 @@ excludes any nav item whose `href === moduleHref`. The rendered trail is therefo
 Recruitment" with no cycle name and no link back to the specific cycle. The page's own `PageHeader`
 does not fill the gap either: the title is the email template's name and the description is only
 "Customized for this cycle" / "Using the default". A director editing a template has no on-page way to
-confirm which cycle's email they are looking at. **Fix:** add `SetBreadcrumb` with `cycleTrail(...)`
+confirm which cycle's email they are looking at. **Evidence note.** Not confirmed by running the
+app; the fallback path was traced through `buildBreadcrumbs` source, not observed rendered.
+**Fix:** add `SetBreadcrumb` with `cycleTrail(...)`
 to both pages, mirroring every sibling. The `[key]` page makes no `recruitmentCycle` query at all
 today, so the fix adds one for `cycle.title`, the same shape already used in `emails/page.tsx`.
 
@@ -2158,6 +2173,8 @@ first is a date verb and the second is the lifecycle state. **Fix:** relabel the
 
 ### Band 6: tier 2, polish
 
+One item, code-read.
+
 #### R82. F-10-4: Resetting a learner's progress confirms with a bare "Confirm?"
 
 `flow` / tier 2 / learning managers resetting a learner's course progress, an infrequent action /
@@ -2170,8 +2187,10 @@ though resetting wipes a learner's SCORM completion and forces a retake. Every o
 memberships.", "Delete this disciplinary action? This cannot be undone.", "Confirm strike?",
 "Unmark?". This is the one instance in scope that falls back to the generic label, so a manager
 scanning a 25-row completion table and misclicking one row gets a confirm step that does not remind
-them what they are about to erase. **Fix:** give it a descriptive `confirmLabel` naming the learner
-and the consequence, matching the pattern used everywhere else.
+them what they are about to erase. **Evidence note.** Not confirmed by running the app; confirmed by
+comparing this call site's props against every other `ConfirmButton` call in the audited files.
+**Fix:** give it a descriptive `confirmLabel` naming the learner and the consequence, matching the
+pattern used everywhere else.
 
 ---
 

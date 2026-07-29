@@ -225,7 +225,7 @@ unintelligible without the image, that one image is committed under `docs/assets
 
 ## Deliverable
 
-`docs/full-app-ux-audit-2026-07-28.md`, matching the existing `docs/full-app-*-audit-*.md`
+`docs/full-app-ux-audit-2026-07-29.md`, matching the existing `docs/full-app-*-audit-*.md`
 naming. Committed on `worktree-design+ux-audit-flow-friction` as its own PR, so a
 document review never blocks a fix.
 

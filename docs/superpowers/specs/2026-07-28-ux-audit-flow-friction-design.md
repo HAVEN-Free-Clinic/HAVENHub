@@ -143,9 +143,15 @@ mounted outside the toolbar.
    it. The 158 existing redirect sites are not touched. The server-action contract
    stays as it is.
 2. **Client callers.** A `useToast()` hook for actions that never round-trip the
-   server, such as the "Copy email" button in
-   `src/modules/support/components/epic-request-form.tsx` that currently no-ops
-   silently.
+   server.
+
+   **Correction, 2026-07-29.** This section originally cited the "Copy email" button in
+   `src/modules/support/components/epic-request-form.tsx` as the motivating example of a
+   silent no-op. Task 10 verified that it was already fixed in commit `f007277b` on
+   2026-07-11, before this audit began: `handleCopyEmail` now guards on
+   `navigator.clipboard`, awaits the write, and reports both outcomes through an
+   `aria-live` region. The example was stale, inherited from the 2026-07-11 audit
+   document. It must not appear in the audit findings as a live defect.
 
 **Successes auto-dismiss, errors do not.** This is a deliberate deviation from a
 literal "make them disappear." Auto-dismissing an error is a usability failure: the

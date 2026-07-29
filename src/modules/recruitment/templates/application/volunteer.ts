@@ -1,13 +1,13 @@
 import type { TemplateSection } from "../types";
 import { supplementQuestions } from "./supplements/volunteer";
-import { normalizeDeptCode, SUPPLEMENT_DEPARTMENTS } from "./supplements/dept-codes";
+import { normalizeDeptCode, SUPPLEMENT_DEPARTMENTS, defaultSupplementSectionTitle } from "./supplements/dept-codes";
 
 export function volunteerSupplementSections(departments: string[]): TemplateSection[] {
   return departments
     .map((code) => normalizeDeptCode(code))
     .filter((norm) => SUPPLEMENT_DEPARTMENTS.VOLUNTEER.includes(norm))
     .map((norm) => ({
-      title: `${norm} department questions`,
+      title: defaultSupplementSectionTitle(norm),
       order: 0,
       appliesTo: "NEW",
       departmentCode: norm,

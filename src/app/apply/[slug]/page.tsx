@@ -5,6 +5,7 @@ import { getRenewalContext, resolveRenewalPrefill } from "@/modules/recruitment/
 import { getApplicantIdentity } from "@/modules/recruitment/services/portal-auth";
 import { getDraft } from "@/modules/recruitment/services/drafts";
 import { resolveAvailabilityOptions } from "@/modules/recruitment/templates/clinic-dates";
+import { departmentChoiceOptions } from "@/modules/recruitment/templates/department-options";
 import type { ApplicantType } from "@/modules/recruitment/engine/visibility";
 import { getSupportContact } from "@/platform/branding/support";
 import { SupportLink } from "@/platform/branding/support-link";
@@ -70,6 +71,15 @@ export default async function ApplyPage({ params, searchParams }: { params: Prom
     orderBy: [{ order: "asc" }, { name: "asc" }],
   });
 
+  // Department picker names: resolved read-time, never stored on FormField.options
+  // (the form builder never authors these -- the cycle's department list defines
+  // them). A code with no matching row (an alias or a deleted department) keeps
+  // the code as its own label via departmentChoiceOptions, so it stays submittable.
+  const departmentRows = cycle.departments.length
+    ? await prisma.department.findMany({ where: { code: { in: cycle.departments } }, select: { code: true, name: true } })
+    : [];
+  const departmentOptions = departmentChoiceOptions(cycle.departments, departmentRows);
+
   const def = {
     slug: cycle.publicSlug,
     title: cycle.title,
@@ -79,7 +89,7 @@ export default async function ApplyPage({ params, searchParams }: { params: Prom
     subcommittees,
     sections: sections.map((s) => ({
       id: s.id, title: s.title, description: s.description, appliesTo: s.appliesTo, departmentCode: s.departmentCode,
-      fields: s.fields.map((f) => ({ key: f.key, label: f.label, helpText: f.helpText, type: f.type, required: f.required, options: (f.options as { value: string; label: string }[] | null) ?? null, validation: (f.validation as Record<string, unknown> | null) ?? null, visibleWhen: f.visibleWhen ?? null })),
+      fields: s.fields.map((f) => ({ key: f.key, label: f.label, helpText: f.helpText, type: f.type, required: f.required, options: f.type === "DEPARTMENT_CHOICE" ? departmentOptions : ((f.options as { value: string; label: string }[] | null) ?? null), validation: (f.validation as Record<string, unknown> | null) ?? null, visibleWhen: f.visibleWhen ?? null })),
     })),
   };
 

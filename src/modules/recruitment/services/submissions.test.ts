@@ -113,6 +113,34 @@ it("does NOT auto-route a TRANSFER (it goes through the committee like a new app
   expect(app.routedDepartmentCode).toBeNull(); // committee routes it, not auto
 });
 
+// DEPARTMENT_CHOICE validation: toSectionDefs (submissions.ts) has always built
+// the schema's z.enum from cycle.departments (see 167c587f2), independent of
+// the read-time display labels the apply page now injects (department-options.ts).
+// The two never shared a code path, so populating display options for the
+// dropdown does not touch this. Pinned here in both directions per the task
+// spec, which called this out as a change worth a regression test even though
+// it predates this change.
+it("accepts a 1st_choice_department code that IS in the cycle's departments", async () => {
+  await openVolunteerCycle();
+  const app = await submitApplication("apply-v", {
+    applicantType: "NEW",
+    answers: { first_name: "Kai", last_name: "Nguyen", email: "kai@yale.edu", "1st_choice_department": "MDIC" },
+    files: {},
+  });
+  expect(app.departmentChoices).toEqual(["MDIC"]);
+});
+
+it("rejects a 1st_choice_department code that is NOT in the cycle's departments", async () => {
+  await openVolunteerCycle();
+  const err = await submitApplication("apply-v", {
+    applicantType: "NEW",
+    answers: { first_name: "Zed", last_name: "Q", email: "zed@yale.edu", "1st_choice_department": "ZZZZ" },
+    files: {},
+  }).catch((e) => e);
+  expect(err).toBeInstanceOf(SubmissionValidationError);
+  expect((err as SubmissionValidationError).fieldErrors).toHaveProperty("1st_choice_department");
+});
+
 it("rejects a renewalDepartment outside the cycle departments", async () => {
   await openVolunteerCycle();
   const person = await makeVolunteer("SRHD");

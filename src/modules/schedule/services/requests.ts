@@ -16,12 +16,8 @@ import type { ShiftRequest } from "@prisma/client";
 import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { formatCalendarDate, isoDateKey } from "@/platform/dates";
-import {
-  departmentDirectorPersonIds,
-  manageableDepartmentIds,
-  memberDepartmentIds,
-} from "@/platform/departments";
-import { can } from "@/platform/rbac/engine";
+import { departmentDirectorPersonIds, manageableDepartmentIds } from "@/platform/departments";
+import { can, permissionDepartmentIds } from "@/platform/rbac/engine";
 import {
   validateRequest,
   planApply,
@@ -103,17 +99,18 @@ async function buildScheduleRows(
 }
 
 export async function manageableRequestDepartmentIds(personId: string): Promise<string[]> {
-  const [base, manageRequests, editAll] = await Promise.all([
+  const [base, manageRequestIds, editAll] = await Promise.all([
     manageableDepartmentIds(personId),
-    can(personId, "schedule.manage_requests"),
+    permissionDepartmentIds(personId, "schedule.manage_requests"),
     can(personId, "schedule.edit_all"),
   ]);
 
   const ids = new Set<string>(base);
 
-  if (manageRequests) {
-    for (const id of await memberDepartmentIds(personId)) ids.add(id);
-  }
+  // manage_requests is scoped to the departments the grant reaches, so a
+  // director who also volunteers elsewhere cannot decide that department's
+  // requests.
+  for (const id of manageRequestIds) ids.add(id);
 
   if (editAll) {
     const all = await prisma.department.findMany({ select: { id: true } });
@@ -178,9 +175,12 @@ async function scopeCheck(actorPersonId: string, departmentId: string): Promise<
  * Recipients =
  *   - department directors by membership + one-hop delegated directors
  *     ({@link departmentDirectorPersonIds}), PLUS
- *   - schedule.manage_requests holders who are ACTIVE members of the department
- *     (manageableRequestDepartmentIds only extends such a holder to departments
- *     they belong to).
+ *   - ACTIVE members of the department whose schedule.manage_requests grant
+ *     actually reaches it (permissionDepartmentIds, the same scoping
+ *     manageableRequestDepartmentIds applies for approveRequest/denyRequest).
+ *     A holder whose grant came from a Director-kind assignment is not an
+ *     approver in a department they merely volunteer in, so they are not
+ *     emailed about it either.
  *
  * Blanket schedule.edit_all admins are intentionally excluded so a routine drop
  * request does not email every org-wide administrator. Deduped by person; the
@@ -211,7 +211,11 @@ export async function requestApproverRecipients(
   const manageRequestsMemberIds = (
     await Promise.all(
       memberIds.map(async (pid) =>
-        (await can(pid, "schedule.manage_requests")) ? pid : null,
+        (await permissionDepartmentIds(pid, "schedule.manage_requests", termId)).includes(
+          departmentId,
+        )
+          ? pid
+          : null,
       ),
     )
   ).filter((pid): pid is string => pid !== null);

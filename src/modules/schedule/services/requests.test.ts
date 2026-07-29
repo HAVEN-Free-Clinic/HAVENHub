@@ -120,6 +120,25 @@ async function grantPermission(personId: string, permission: string) {
   await prisma.roleAssignment.create({ data: { roleId: role.id, personId, termId: null } });
 }
 
+/**
+ * Grants a permission to everyone holding a membership of `kind` in `termId` --
+ * the "All Directors" / "All Volunteers" baseline assignment shape.
+ */
+async function grantPermissionToKind(
+  kind: "VOLUNTEER" | "DIRECTOR",
+  permission: string,
+  termId: string,
+) {
+  const role = await prisma.role.create({
+    data: {
+      name: `Role-${kind}-${permission}-${Date.now()}-${Math.random()}`,
+      isSystem: false,
+      grants: { create: [{ permission }] },
+    },
+  });
+  await prisma.roleAssignment.create({ data: { roleId: role.id, kind, termId } });
+}
+
 async function delegate(managerDepartmentId: string, managedDepartmentId: string) {
   return prisma.departmentDelegation.create({
     data: { managerDepartmentId, managedDepartmentId },
@@ -1288,6 +1307,35 @@ describe("manage_requests scope", () => {
     await grantPermission(actor.id, "schedule.edit_own_dept");
 
     await expect(listDepartmentRequests(actor.id, dept.id, term.id)).rejects.toBeInstanceOf(RequestForbiddenError);
+  });
+
+  it("does NOT reach a volunteer department when manage_requests came from a DIRECTOR assignment", async () => {
+    // Directs one department, volunteers in another. The grant is assigned to
+    // "All Directors", so it must not confer decisions in the volunteer one.
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const directed = await createDepartment("MRQ4");
+    const volunteered = await createDepartment("MRQ5");
+    const actor = await createPerson("Director-and-Volunteer");
+    await createMembership(actor.id, term.id, directed.id, "DIRECTOR");
+    await createMembership(actor.id, term.id, volunteered.id, "VOLUNTEER");
+    await grantPermissionToKind("DIRECTOR", "schedule.manage_requests", term.id);
+
+    await expect(listDepartmentRequests(actor.id, directed.id, term.id)).resolves.toEqual([]);
+    await expect(
+      listDepartmentRequests(actor.id, volunteered.id, term.id),
+    ).rejects.toBeInstanceOf(RequestForbiddenError);
+  });
+
+  it("reaches a volunteer department when manage_requests came from a VOLUNTEER assignment", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("MRQ6");
+    const actor = await createPerson("Volunteer-Ops");
+    await createMembership(actor.id, term.id, dept.id, "VOLUNTEER");
+    await grantPermissionToKind("VOLUNTEER", "schedule.manage_requests", term.id);
+
+    await expect(listDepartmentRequests(actor.id, dept.id, term.id)).resolves.toEqual([]);
   });
 });
 

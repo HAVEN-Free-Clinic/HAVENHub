@@ -200,33 +200,25 @@ export async function runHistoricalTermImport(
     ).map((d) => [d.code, d.id]),
   );
 
-  for (const link of resolvedLinks) {
-    const personId = personIdByRecordId.get(link.personRecordId)!;
-    const departmentId = departmentIdByCode.get(link.departmentCode);
-    if (!departmentId) continue; // roster row with no department code; transform skips these
-    const existing = await prisma.termMembership.findUnique({
-      where: {
-        personId_termId_departmentId_kind: {
-          personId,
-          termId: term.id,
-          departmentId,
-          kind: link.kind,
-        },
-      },
-      select: { id: true },
-    });
-    if (existing) {
-      // Leave it exactly as it is. A membership someone has since marked REMOVED
-      // in the app is a deliberate correction to the historical record and the
-      // import must not undo it on the next run.
-      report.memberships.existing++;
-      continue;
-    }
-    await prisma.termMembership.create({
-      data: { personId, termId: term.id, departmentId, kind: link.kind, status: "ACTIVE" },
-    });
-    report.memberships.created++;
-  }
+  const rows = resolvedLinks
+    .map((link) => ({
+      personId: personIdByRecordId.get(link.personRecordId)!,
+      termId: term.id,
+      departmentId: departmentIdByCode.get(link.departmentCode),
+      kind: link.kind,
+      status: "ACTIVE" as const,
+    }))
+    // A roster row with no department code never produces links (transformRoster
+    // skips it), so this only guards against an upsert that somehow did not land.
+    .filter((r): r is typeof r & { departmentId: string } => Boolean(r.departmentId));
+
+  // skipDuplicates keys off the personId_termId_departmentId_kind unique index,
+  // so a row that already exists is left EXACTLY as it is -- including one an
+  // admin has since marked REMOVED, which is a deliberate correction to the
+  // historical record that a re-import must not undo.
+  const { count } = await prisma.termMembership.createMany({ data: rows, skipDuplicates: true });
+  report.memberships.created = count;
+  report.memberships.existing = rows.length - count;
 
   return report;
 }

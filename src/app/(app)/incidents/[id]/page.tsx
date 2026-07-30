@@ -28,6 +28,8 @@ import {
 } from "@/modules/incidents/services/report";
 import { DISCIPLINARY_CATEGORIES } from "@/modules/incidents/services/disciplinary";
 import { reviewReportAction, decideStrikeAction } from "../actions";
+import { peopleWithAnyPermission } from "@/platform/rbac/holders";
+import { detailReviewerDisclosure } from "../disclosure";
 import type {
   IncidentReportStatus,
   PatientImpact,
@@ -130,9 +132,22 @@ export default async function IncidentReportDetailPage({ params, searchParams }:
   const sp = await searchParams;
   const actor = await requirePersonSession();
 
+  // getReport and the reviewer count are independent reads (the count doesn't
+  // depend on the report, and getReport's own permission check doesn't depend
+  // on it either), so they run in parallel. Both settle inside the same try:
+  // an unrelated failure from either one still falls through to the same
+  // rethrow below, and getReport's own NotFound/Forbidden still resolve to
+  // notFound() exactly as before.
   let result: Awaited<ReturnType<typeof getReport>>;
+  let reviewers: Awaited<ReturnType<typeof peopleWithAnyPermission>>;
   try {
-    result = await getReport(actor.personId, id);
+    [result, reviewers] = await Promise.all([
+      getReport(actor.personId, id),
+      // Same query notifyReviewersOfSubmission runs when a report is filed
+      // (report.ts), read live so the count reflects who currently holds
+      // incidents.manage rather than a value frozen at submission time.
+      peopleWithAnyPermission(["incidents.manage"]),
+    ]);
   } catch (err) {
     if (err instanceof IncidentNotFoundError || err instanceof IncidentForbiddenError) {
       notFound();
@@ -270,6 +285,7 @@ export default async function IncidentReportDetailPage({ params, searchParams }:
             <dt className="text-xs text-subtle-foreground">Anonymity</dt>
             <dd className="mt-0.5 text-sm text-foreground">
               {report.anonymous ? "Reporter asked to remain anonymous to the subject." : "Not anonymous."}
+              <p className="mt-1 text-xs text-subtle-foreground">{detailReviewerDisclosure(reviewers.length)}</p>
             </dd>
           </div>
           <div>

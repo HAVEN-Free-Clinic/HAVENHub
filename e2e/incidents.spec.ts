@@ -49,6 +49,13 @@ async function submitReport(
   // Section 2: description (required).
   await page.locator('textarea[name="description"]').fill(description);
 
+  // Section 6: ongoing risk (required, no default -- see page.tsx). None of
+  // these flows exercise the immediate-risk flag itself, so answer "No" here
+  // to keep prior behavior; a dedicated assertion for the "Yes" path and for
+  // the native required-blocks-submit behavior lives outside this suite (see
+  // page.tsx's comment on Section 6).
+  await page.locator('input[name="immediateRisk"][value="no"]').check();
+
   // Section 4: link each subject via the searchable combobox, then click
   // "Add" to append them to the on-page list. Adding a person remounts the
   // combobox (clearing its text), so each loop iteration starts from the

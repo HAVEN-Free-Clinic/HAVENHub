@@ -16,6 +16,17 @@ export type LoginProfile = {
 };
 
 /**
+ * What a Yale NetID looks like: 2-8 letters then optional digits ("jc999",
+ * "acn38", "mmm325"). The single definition, so the login path and anything
+ * WRITING Person.netId agree on what belongs in that column -- an address or
+ * other free text there can never match a sign-in, and it feeds the YNHH Epic
+ * access PDF, which expects a real NetID.
+ */
+export function isNetIdShaped(value: string): boolean {
+  return /^[a-z]{2,8}[0-9]*$/i.test(value);
+}
+
+/**
  * Yale UPNs look like "abc123@yale.edu" (NetID local part).
  * Alias addresses ("first.last@yale.edu") are not NetIDs, and
  * non-Yale domains never carry NetIDs.
@@ -24,7 +35,7 @@ export function netIdFromUpn(upn: string): string | null {
   const [local, domain] = upn.split("@");
   if (domain?.toLowerCase() !== "yale.edu") return null;
   if (!local) return null;
-  return /^[a-z]{2,8}[0-9]*$/i.test(local) ? local.toLowerCase() : null;
+  return isNetIdShaped(local) ? local.toLowerCase() : null;
 }
 
 /**

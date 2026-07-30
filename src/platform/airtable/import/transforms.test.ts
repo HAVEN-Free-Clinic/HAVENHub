@@ -7,7 +7,7 @@ const R = SU26_ROSTER_FIELDS;
 
 describe("transformPeople", () => {
   it("maps fields, trims, and lowercases netId and contactEmail", () => {
-    const [person] = transformPeople([
+    const { people: [person] } = transformPeople([
       {
         id: "recA",
         fields: {
@@ -34,7 +34,7 @@ describe("transformPeople", () => {
   });
 
   it("tolerates missing fields and lowercases a personal contactEmail", () => {
-    const [person] = transformPeople([
+    const { people: [person] } = transformPeople([
       { id: "recB", fields: { [F.name]: "Sam", [F.contactEmail]: "Sam@Gmail.com" } },
     ]);
     expect(person.netId).toBeNull();
@@ -42,8 +42,42 @@ describe("transformPeople", () => {
   });
 
   it("skips records with no name", () => {
-    const result = transformPeople([{ id: "recC", fields: {} }]);
-    expect(result).toHaveLength(0);
+    const { people } = transformPeople([{ id: "recC", fields: {} }]);
+    expect(people).toHaveLength(0);
+  });
+
+  // Members with no Yale NetID (YNHH staff, community volunteers) have had their
+  // work address typed into the NetID cell. It can never match a Yale sign-in and
+  // it feeds the NetID column of the YNHH Epic access PDF, so it must not be written.
+  it("drops a non-NetID-shaped value and reports it, still importing the person", () => {
+    const { people, rejectedNetIds } = transformPeople([
+      {
+        id: "recD",
+        fields: {
+          [F.name]: "Naomi Chinama",
+          [F.netId]: "NAOMI.CHINAMA@YNHH.ORG",
+          [F.contactEmail]: "naomi.chinama@gmail.com",
+        },
+      },
+    ]);
+    expect(people).toHaveLength(1);
+    expect(people[0].netId).toBeNull();
+    // contactEmail is untouched: it is how these members sign in.
+    expect(people[0].contactEmail).toBe("naomi.chinama@gmail.com");
+    expect(rejectedNetIds).toEqual([
+      { recordId: "recD", name: "Naomi Chinama", value: "NAOMI.CHINAMA@YNHH.ORG" },
+    ]);
+  });
+
+  it("accepts the real NetID shapes and reports nothing", () => {
+    const { people, rejectedNetIds } = transformPeople(
+      ["jc999", "acn38", "mmm325", "ad2975", "ab"].map((netId, i) => ({
+        id: `rec${i}`,
+        fields: { [F.name]: `P${i}`, [F.netId]: netId },
+      })),
+    );
+    expect(people.map((p) => p.netId)).toEqual(["jc999", "acn38", "mmm325", "ad2975", "ab"]);
+    expect(rejectedNetIds).toEqual([]);
   });
 });
 

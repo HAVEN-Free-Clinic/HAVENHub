@@ -52,10 +52,13 @@ test("training: author quiz, designate training cycle, roster renders", async ({
   // (it's an uncontrolled input, so the value is not in the DOM as visible text).
   await questionInput.fill("What does HIPAA protect?");
   await questionInput.blur();
-  // Settle the label's blur-triggered refresh before the "Add option" click below
-  // fires a second updateFieldAction + refresh(): otherwise the label refresh's RSC
-  // fetch can land after the options refresh, re-rendering the question card without
-  // the option and flaking the toBeVisible wait on the radio further down.
+  // Verify the fill took, which the comment above asks for. This does NOT settle the
+  // blur's updateFieldAction + refresh(): the input is uncontrolled and fill() already
+  // set its value, so this matches on the first poll while the refresh is still in
+  // flight. There is no DOM signal for that refresh landing (quiz-builder.tsx discards
+  // useTransition's isPending, and the label input is uncontrolled), so the ordering
+  // against the "Add option" refresh below rests on the generous toBeVisible and
+  // toBeChecked timeouts plus CI's retries: 1.
   await expect(questionInput).toHaveValue("What does HIPAA protect?");
 
   // A newly added question has zero options and no answer key. The designation

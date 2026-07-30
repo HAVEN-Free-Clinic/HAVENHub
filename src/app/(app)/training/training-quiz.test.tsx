@@ -133,6 +133,15 @@ describe("TrainingQuiz review marking", () => {
     // answer key instead of marking only what the learner actually chose.
     expect(optionLabel(container, "q1", "b").textContent).not.toContain("Correct");
     expect(optionLabel(container, "q1", "b").textContent).not.toContain("Not correct");
+
+    // Same rule on the question they got RIGHT: their own pick is marked, and the
+    // option they passed over stays blank. Marking is gated on `sel`, not on the
+    // question's verdict, so a regression that drops the `sel` guard would light
+    // up every option of a "correct" question and fail here. Without this pair
+    // the suite passes with the guard removed, which is the whole defect.
+    expect(optionLabel(container, "q2", "y").textContent).toContain("Correct");
+    expect(optionLabel(container, "q2", "x").textContent).not.toContain("Correct");
+    expect(optionLabel(container, "q2", "x").textContent).not.toContain("Not correct");
   });
 
   it("leaves a question absent from verdictByKey (unkeyed) completely unmarked, even though it was answered", async () => {

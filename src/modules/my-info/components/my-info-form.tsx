@@ -15,17 +15,7 @@ import { SubmitButton } from "@/platform/ui/submit-button";
 import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
-
-const YALE_AFFILIATIONS = [
-  "Yale College",
-  "Yale School of Medicine",
-  "Yale School of Nursing",
-  "Yale School of Public Health",
-  "Physician Associate Program",
-  "Graduate School",
-  "Staff",
-  "Other",
-] as const;
+import { affiliationOptionsWith } from "@/platform/affiliation";
 
 type MyInfoFormProps = {
   action: (formData: FormData) => Promise<void>;
@@ -51,9 +41,7 @@ type MyInfoFormProps = {
 
 export function MyInfoForm({ action, person, error, saved, requireContact }: MyInfoFormProps) {
   const currentAffiliation = person.yaleAffiliation ?? "";
-  const isKnownAffiliation = YALE_AFFILIATIONS.includes(
-    currentAffiliation as (typeof YALE_AFFILIATIONS)[number]
-  );
+  const affiliationOptions = affiliationOptionsWith(currentAffiliation);
 
   return (
     <form action={action}>
@@ -106,14 +94,11 @@ export function MyInfoForm({ action, person, error, saved, requireContact }: MyI
           <Field label="Yale Affiliation">
             <Select name="yaleAffiliation" defaultValue={currentAffiliation}>
               <option value="">Not set</option>
-              {YALE_AFFILIATIONS.map((aff) => (
-                <option key={aff} value={aff}>
-                  {aff}
+              {affiliationOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
                 </option>
               ))}
-              {currentAffiliation && !isKnownAffiliation && (
-                <option value={currentAffiliation}>{currentAffiliation}</option>
-              )}
             </Select>
           </Field>
 

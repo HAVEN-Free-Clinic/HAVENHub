@@ -29,6 +29,7 @@ import { isoDateKey } from "@/modules/schedule/engine/map";
 import { displayDate } from "@/modules/schedule/engine/display";
 import { CalendarDate } from "@/platform/dates/display";
 import { formatCalendarDate } from "@/platform/dates";
+import { displayTodayKey } from "@/platform/dates/today";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Clock } from "lucide-react";
 
@@ -44,6 +45,9 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
   // below stays accurate across warm server instances. `new Date()` (not
   // Date.now()) to match the codebase convention and satisfy react-hooks/purity.
   const now = new Date();
+  // Resolved once for the whole page (not per shift card) -- every shift's
+  // "has this passed" check compares against this same key.
+  const todayKey = await displayTodayKey(now);
   const sp = await searchParams;
 
   // searchParams arrive already URL-decoded in the App Router; do not decode again
@@ -277,6 +281,9 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                       <div className="flex flex-col gap-3">
                         {t.shifts.map((shift) => {
                           const dateKey = isoDateKey(shift.clinicDate);
+                          // >= today matches Task 2's guard: today is not past, so a
+                          // same-day shift still gets the full change form.
+                          const isPast = dateKey < todayKey;
                           const cardKey = `${dateKey}|${shift.department.id}`;
                           const pendingReq = t.pendingRequests.get(cardKey);
                           const swapPartners = swapPartnersByKey.get(cardKey) ?? [];
@@ -322,6 +329,8 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
                                       </form>
                                     </div>
                                   </div>
+                                ) : isPast ? (
+                                  <p className="text-sm text-subtle-foreground">This shift has passed.</p>
                                 ) : (
                                   <details className="group">
                                     <summary className="text-xs font-medium text-subtle-foreground hover:text-foreground-soft list-none [&::-webkit-details-marker]:hidden">

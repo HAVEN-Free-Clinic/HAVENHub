@@ -24,6 +24,7 @@ import {
 } from "@/modules/schedule/services/requests";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { getNextTerm } from "@/platform/terms/next-term";
+import { displayTodayKey } from "@/platform/dates/today";
 import { PendingRequests } from "@/modules/schedule/components/pending-requests";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Card } from "@/platform/ui/card";
@@ -38,6 +39,9 @@ export default async function ScheduleRequestsPage({ searchParams }: PageProps) 
   const deptIds = await manageableRequestDepartmentIds(session.personId);
   if (deptIds.length === 0) redirect("/no-access");
   const sp = await searchParams;
+  // Resolved once for the page; PendingRequests uses it to mark stale
+  // (past-date) rows across every department section below.
+  const todayKey = await displayTodayKey();
 
   const depts = await prisma.department.findMany({
     where: { id: { in: deptIds } },
@@ -120,7 +124,7 @@ export default async function ScheduleRequestsPage({ searchParams }: PageProps) 
             {perDept.map(({ dept, rows }) => (
               <section key={dept.id} className="space-y-3">
                 <SectionHeader>{dept.code} &middot; {dept.name}</SectionHeader>
-                <PendingRequests rows={rows} approveAction={approveRequestAction} denyAction={denyRequestAction} />
+                <PendingRequests rows={rows} approveAction={approveRequestAction} denyAction={denyRequestAction} todayKey={todayKey} />
               </section>
             ))}
           </div>

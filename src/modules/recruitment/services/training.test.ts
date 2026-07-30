@@ -48,6 +48,17 @@ it("refuses to designate a cycle whose quiz has no keyed questions", async () =>
   expect((await prisma.recruitmentCycle.findUnique({ where: { id: c1.id } }))?.isTermTraining).toBe(false);
 });
 
+// The case the guard exists for: questions.length is non-zero (2, from addQuiz),
+// so the old `questions.length === 0` check would have let this through. Only
+// countGradedQuestions(...) === 0 catches a quiz whose keys were all stripped.
+it("refuses to designate a cycle whose quiz has questions but none are keyed", async () => {
+  const { srr, c1 } = await seed();
+  await addQuiz(c1.id);
+  await prisma.formField.updateMany({ where: { cycleId: c1.id }, data: { correctValue: null } });
+  await expect(setTrainingCycle(c1.id, true, srr.id)).rejects.toBeInstanceOf(TrainingStateError);
+  expect((await prisma.recruitmentCycle.findUnique({ where: { id: c1.id } }))?.isTermTraining).toBe(false);
+});
+
 it("designates successfully once the cycle has at least one keyed question", async () => {
   const { term, srr, c1 } = await seed();
   await addQuiz(c1.id);
@@ -126,7 +137,9 @@ it("recordAttendance fails when the term has no designated training cycle", asyn
   await expect(recordAttendance(vol.id, term.id, "VOLUNTEER", srr.id)).rejects.toBeInstanceOf(TrainingStateError);
 });
 
-/** Add a 2-question quiz to the designated cycle (both graded). */
+/** Add a 2-question quiz to a cycle (both graded). Called before designation now
+ *  that setTrainingCycle requires a keyed question, including on cycles that are
+ *  never designated or whose designation is later superseded. */
 async function addQuiz(cycleId: string) {
   const section = await prisma.formSection.create({ data: { cycleId, title: "Quiz", order: 10, appliesTo: "BOTH", purpose: "QUIZ" } });
   await prisma.formField.createMany({ data: [

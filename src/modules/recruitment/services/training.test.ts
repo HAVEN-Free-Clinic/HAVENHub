@@ -26,8 +26,10 @@ afterEach(async () => { await resetDb(); });
 
 it("designates one training cycle per term; re-designating moves the flag", async () => {
   const { term, srr, c1, c2 } = await seed();
+  await addQuiz(c1.id);
   await setTrainingCycle(c1.id, true, srr.id);
   expect((await getTrainingCycleForTerm(term.id, "VOLUNTEER"))?.id).toBe(c1.id);
+  await addQuiz(c2.id);
   await setTrainingCycle(c2.id, true, srr.id);
   expect((await getTrainingCycleForTerm(term.id, "VOLUNTEER"))?.id).toBe(c2.id);
   expect((await prisma.recruitmentCycle.findUnique({ where: { id: c1.id } }))?.isTermTraining).toBe(false);
@@ -38,6 +40,28 @@ it("designates one training cycle per term; re-designating moves the flag", asyn
 it("requires manage_cycles to designate", async () => {
   const { plain, c1 } = await seed();
   await expect(setTrainingCycle(c1.id, true, plain.id)).rejects.toBeInstanceOf(RecruitmentAuthError);
+});
+
+it("refuses to designate a cycle whose quiz has no keyed questions", async () => {
+  const { srr, c1 } = await seed(); // no quiz seeded on c1
+  await expect(setTrainingCycle(c1.id, true, srr.id)).rejects.toBeInstanceOf(TrainingStateError);
+  expect((await prisma.recruitmentCycle.findUnique({ where: { id: c1.id } }))?.isTermTraining).toBe(false);
+});
+
+it("designates successfully once the cycle has at least one keyed question", async () => {
+  const { term, srr, c1 } = await seed();
+  await addQuiz(c1.id);
+  await setTrainingCycle(c1.id, true, srr.id);
+  expect((await getTrainingCycleForTerm(term.id, "VOLUNTEER"))?.id).toBe(c1.id);
+});
+
+it("clearing a designation (value: false) still works on a quiz-less cycle", async () => {
+  const { srr, c1 } = await seed();
+  // Simulate a cycle designated before this guard shipped: flip the flag
+  // directly, bypassing setTrainingCycle, so c1 is designated with no quiz.
+  await prisma.recruitmentCycle.update({ where: { id: c1.id }, data: { isTermTraining: true } });
+  await setTrainingCycle(c1.id, false, srr.id);
+  expect((await prisma.recruitmentCycle.findUnique({ where: { id: c1.id } }))?.isTermTraining).toBe(false);
 });
 
 it("updates quiz settings within bounds and rejects bad values", async () => {
@@ -60,6 +84,10 @@ it("normalizes trainingLocation: trims, and stores a whitespace-only value as nu
 async function seedMember() {
   const base = await seed();
   const dept = await prisma.department.findUniqueOrThrow({ where: { code: "SRHD" } });
+  // The designation guard requires at least one keyed question, so every seedMember
+  // caller gets a real quiz on c1 for free; tests that used to seed their own now
+  // reuse this one instead of inserting a colliding duplicate.
+  await addQuiz(base.c1.id);
   await setTrainingCycle(base.c1.id, true, base.srr.id);
   const vol = await prisma.person.create({ data: { name: "Vol", status: "ACTIVE" } });
   const membership = await prisma.termMembership.create({ data: { personId: vol.id, termId: base.term.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" } });
@@ -109,8 +137,9 @@ async function addQuiz(cycleId: string) {
 
 it("quiz path: failing accrues attempts then locks; passing completes and saves intake", async () => {
   const { term, srr, vol, c1 } = await seedMember();
+  // seedMember already seeded c1's quiz (q1 correct "a", q2 correct "y") to
+  // satisfy the designation guard; reuse it rather than inserting it again.
   await updateQuizSettings(c1.id, { quizPassPercent: 100, quizMaxAttempts: 2, inPersonTrainingDate: null, trainingLocation: null }, srr.id);
-  await addQuiz(c1.id);
 
   const r1 = await submitQuiz(vol.id, { termId: term.id, track: "VOLUNTEER", answers: { q1: "a", q2: "x" }, intake: { feedback: "hi" } });
   expect(r1.passed).toBe(false);
@@ -139,21 +168,13 @@ it("quiz path: failing accrues attempts then locks; passing completes and saves 
   expect(await prisma.quizAttempt.count({ where: { training: { personId: vol.id, termId: term.id, track: "VOLUNTEER" } } })).toBe(3);
 });
 
-/** Add a 2-question quiz where the second question has no answer key yet
- *  (correctValue: null), the partially-keyed case. Its own fixture, since
- *  addQuiz is depended on by other tests. */
-async function addPartiallyKeyedQuiz(cycleId: string) {
-  const section = await prisma.formSection.create({ data: { cycleId, title: "Quiz", order: 10, appliesTo: "BOTH", purpose: "QUIZ" } });
-  await prisma.formField.createMany({ data: [
-    { sectionId: section.id, cycleId, key: "q1", label: "Q1", type: "SINGLE_SELECT", order: 0, options: [{ value: "a", label: "A" }, { value: "b", label: "B" }], correctValue: "a" },
-    { sectionId: section.id, cycleId, key: "q2", label: "Q2", type: "SINGLE_SELECT", order: 1, options: [{ value: "x", label: "X" }, { value: "y", label: "Y" }], correctValue: null },
-  ] });
-}
-
 it("a quiz with one keyed and one unkeyed question returns a verdict only for the keyed one", async () => {
   const { term, srr, vol, c1 } = await seedMember();
   await updateQuizSettings(c1.id, { quizPassPercent: 100, quizMaxAttempts: 2, inPersonTrainingDate: null, trainingLocation: null }, srr.id);
-  await addPartiallyKeyedQuiz(c1.id);
+  // seedMember's addQuiz already gave c1 a keyed q1/q2; unkey q2 in place
+  // (rather than inserting a second quiz, which would collide on cycleId+key)
+  // to get the partially-keyed case this test needs.
+  await prisma.formField.update({ where: { cycleId_key: { cycleId: c1.id, key: "q2" } }, data: { correctValue: null } });
 
   const r = await submitQuiz(vol.id, { termId: term.id, track: "VOLUNTEER", answers: { q1: "a", q2: "x" }, intake: {} });
   expect(r.verdictByKey).toEqual({ q1: "correct" });
@@ -163,7 +184,6 @@ it("a quiz with one keyed and one unkeyed question returns a verdict only for th
 it("the submission payload contains no field holding a correct option value", async () => {
   const { term, srr, vol, c1 } = await seedMember();
   await updateQuizSettings(c1.id, { quizPassPercent: 100, quizMaxAttempts: 2, inPersonTrainingDate: null, trainingLocation: null }, srr.id);
-  await addQuiz(c1.id);
 
   const r = await submitQuiz(vol.id, { termId: term.id, track: "VOLUNTEER", answers: { q1: "a", q2: "x" }, intake: {} });
   const serialized = JSON.stringify(r);
@@ -172,6 +192,20 @@ it("the submission payload contains no field holding a correct option value", as
   // different name.
   expect(serialized).not.toContain('"a"');
   expect(serialized).not.toContain('"y"');
+});
+
+it("submitQuiz throws when every question is unkeyed, not only when there are none", async () => {
+  const { term, srr, vol, c1 } = await seedMember();
+  await updateQuizSettings(c1.id, { quizPassPercent: 100, quizMaxAttempts: 2, inPersonTrainingDate: null, trainingLocation: null }, srr.id);
+  // seedMember's quiz has real questions (q1, q2); strip both answer keys so the
+  // quiz is unpassable despite having a non-empty questions array. A cycle whose
+  // designation predates this guard (or whose keys were later cleared) must still
+  // block submission, not just a cycle with zero questions.
+  await prisma.formField.updateMany({ where: { cycleId: c1.id }, data: { correctValue: null } });
+
+  await expect(
+    submitQuiz(vol.id, { termId: term.id, track: "VOLUNTEER", answers: { q1: "a", q2: "y" }, intake: {} }),
+  ).rejects.toBeInstanceOf(TrainingStateError);
 });
 
 it("does not reset a member whose training is already COMPLETE", async () => {
@@ -192,8 +226,7 @@ it("does not reset a member whose training is already COMPLETE", async () => {
 });
 
 it("getMyTraining returns the cycle, questions, and state for the volunteer", async () => {
-  const { vol, c1 } = await seedMember();
-  await addQuiz(c1.id);
+  const { vol } = await seedMember();
   const trainings = await getMyTraining(vol.id);
   const my = trainings[0]!;
   expect(my.state).toBe("PENDING");
@@ -203,7 +236,6 @@ it("getMyTraining returns the cycle, questions, and state for the volunteer", as
 
 it("gates the makeup quiz until the day after the in-person training date", async () => {
   const { term, srr, vol, c1 } = await seedMember();
-  await addQuiz(c1.id);
   // Set an in-person date in the future -> makeup not open yet.
   const future = new Date(Date.now() + 7 * 86_400_000);
   await updateQuizSettings(c1.id, { quizPassPercent: 100, quizMaxAttempts: 3, inPersonTrainingDate: future, trainingLocation: null }, srr.id);
@@ -226,8 +258,7 @@ it("gates the makeup quiz until the day after the in-person training date", asyn
 });
 
 it("makeupOpen is true and submit works when no in-person date is set (backward compatible)", async () => {
-  const { term, vol, c1 } = await seedMember();
-  await addQuiz(c1.id);
+  const { term, vol } = await seedMember();
   const my = await getMyTraining(vol.id);
   expect(my[0]!.inPersonTrainingDate).toBeNull();
   expect(my[0]!.makeupOpen).toBe(true);
@@ -236,8 +267,7 @@ it("makeupOpen is true and submit works when no in-person date is set (backward 
 });
 
 it("submitQuiz rejects when already complete", async () => {
-  const { term, srr, vol, c1 } = await seedMember();
-  await addQuiz(c1.id);
+  const { term, srr, vol } = await seedMember();
   await recordAttendance(vol.id, term.id, "VOLUNTEER", srr.id);
   await expect(submitQuiz(vol.id, { termId: term.id, track: "VOLUNTEER", answers: { q1: "a", q2: "y" }, intake: {} })).rejects.toBeInstanceOf(TrainingStateError);
 });
@@ -260,6 +290,8 @@ it("listTrainingRoster rejects a cycle that is not the term training cycle", asy
 it("a term can have one volunteer and one director training cycle at once", async () => {
   const { srr, term, c1 } = await seed();
   const dirCycle = await prisma.recruitmentCycle.create({ data: { track: "DIRECTOR", termId: term.id, title: "D", publicSlug: "d", departments: ["SRHD"], createdById: srr.id, status: "OPEN" } });
+  await addQuiz(c1.id);
+  await addQuiz(dirCycle.id);
   await setTrainingCycle(c1.id, true, srr.id);        // volunteer
   await setTrainingCycle(dirCycle.id, true, srr.id);  // director
   expect((await getTrainingCycleForTerm(term.id, "VOLUNTEER"))?.id).toBe(c1.id);
@@ -269,6 +301,9 @@ it("a term can have one volunteer and one director training cycle at once", asyn
 it("designating a second cycle of a track clears the first of that track only", async () => {
   const { srr, term, c1, c2 } = await seed();
   const dirCycle = await prisma.recruitmentCycle.create({ data: { track: "DIRECTOR", termId: term.id, title: "D", publicSlug: "d", departments: ["SRHD"], createdById: srr.id, status: "OPEN" } });
+  await addQuiz(c1.id);
+  await addQuiz(dirCycle.id);
+  await addQuiz(c2.id);
   await setTrainingCycle(c1.id, true, srr.id);
   await setTrainingCycle(dirCycle.id, true, srr.id);
   await setTrainingCycle(c2.id, true, srr.id); // second VOLUNTEER cycle
@@ -285,6 +320,7 @@ it("requiredTrainingTracks reflects membership kind ∩ designated cycles", asyn
 
   // designate a director cycle
   const dirCycle = await prisma.recruitmentCycle.create({ data: { track: "DIRECTOR", termId: term.id, title: "D", publicSlug: "d", departments: ["SRHD"], createdById: srr.id, status: "OPEN" } });
+  await addQuiz(dirCycle.id);
   await setTrainingCycle(dirCycle.id, true, srr.id);
   // director-only now -> [DIRECTOR]
   expect(await requiredTrainingTracks(dir.id, term.id)).toEqual(["DIRECTOR"]);
@@ -294,6 +330,7 @@ it("requiredTrainingTracks returns both tracks for a director+volunteer when bot
   const { term, srr, vol, dept } = await seedMember();
   await prisma.termMembership.create({ data: { personId: vol.id, termId: term.id, departmentId: dept.id, kind: "DIRECTOR", status: "ACTIVE" } });
   const dirCycle = await prisma.recruitmentCycle.create({ data: { track: "DIRECTOR", termId: term.id, title: "D", publicSlug: "d", departments: ["SRHD"], createdById: srr.id, status: "OPEN" } });
+  await addQuiz(dirCycle.id);
   await setTrainingCycle(dirCycle.id, true, srr.id);
   expect(await requiredTrainingTracks(vol.id, term.id)).toEqual(["VOLUNTEER", "DIRECTOR"]);
 });
@@ -301,9 +338,9 @@ it("requiredTrainingTracks returns both tracks for a director+volunteer when bot
 it("a director completes director training via the quiz", async () => {
   const { term, srr, dir } = await seedMember();
   const dirCycle = await prisma.recruitmentCycle.create({ data: { track: "DIRECTOR", termId: term.id, title: "D", publicSlug: "d", departments: ["SRHD"], createdById: srr.id, status: "OPEN" } });
+  await addQuiz(dirCycle.id);
   await setTrainingCycle(dirCycle.id, true, srr.id);
   await updateQuizSettings(dirCycle.id, { quizPassPercent: 100, quizMaxAttempts: 2, inPersonTrainingDate: null, trainingLocation: null }, srr.id);
-  await addQuiz(dirCycle.id);
 
   const r = await submitQuiz(dir.id, { termId: term.id, track: "DIRECTOR", answers: { q1: "a", q2: "y" }, intake: {} });
   expect(r.passed).toBe(true);
@@ -315,8 +352,8 @@ it("a director completes director training via the quiz", async () => {
 it("submitQuiz rejects a track the person has no active membership for", async () => {
   const { term, srr, vol } = await seedMember();
   const dirCycle = await prisma.recruitmentCycle.create({ data: { track: "DIRECTOR", termId: term.id, title: "D", publicSlug: "d", departments: ["SRHD"], createdById: srr.id, status: "OPEN" } });
-  await setTrainingCycle(dirCycle.id, true, srr.id);
   await addQuiz(dirCycle.id);
+  await setTrainingCycle(dirCycle.id, true, srr.id);
   await expect(submitQuiz(vol.id, { termId: term.id, track: "DIRECTOR", answers: { q1: "a", q2: "y" }, intake: {} }))
     .rejects.toBeInstanceOf(TrainingStateError); // vol is not an active director
 });
@@ -325,9 +362,9 @@ it("submitQuiz completes NEXT-term training while a different term is live", asy
   const { srr, vol, dept } = await seedMember(); // live term SU26 is ACTIVE
   const next = await prisma.term.create({ data: { code: "FA26", name: "Fall", startDate: new Date("2026-09-01"), endDate: new Date("2027-01-01"), status: "PLANNING" } });
   const nextCycle = await prisma.recruitmentCycle.create({ data: { track: "VOLUNTEER", termId: next.id, title: "FA vol", publicSlug: "fa-vol", departments: ["SRHD"], createdById: srr.id, status: "OPEN" } });
+  await addQuiz(nextCycle.id);
   await setTrainingCycle(nextCycle.id, true, srr.id);
   await updateQuizSettings(nextCycle.id, { quizPassPercent: 100, quizMaxAttempts: 2, inPersonTrainingDate: null, trainingLocation: null }, srr.id);
-  await addQuiz(nextCycle.id);
   await prisma.termMembership.create({ data: { personId: vol.id, termId: next.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" } });
 
   const r = await submitQuiz(vol.id, { termId: next.id, track: "VOLUNTEER", answers: { q1: "a", q2: "y" }, intake: {} });
@@ -345,6 +382,7 @@ it("getMyTraining returns one entry per required track", async () => {
   // make vol also a director and run a director cycle
   await prisma.termMembership.create({ data: { personId: vol.id, termId: term.id, departmentId: dept.id, kind: "DIRECTOR", status: "ACTIVE" } });
   const dirCycle = await prisma.recruitmentCycle.create({ data: { track: "DIRECTOR", termId: term.id, title: "D", publicSlug: "d", departments: ["SRHD"], createdById: srr.id, status: "OPEN" } });
+  await addQuiz(dirCycle.id);
   await setTrainingCycle(dirCycle.id, true, srr.id);
   const both = await getMyTraining(vol.id);
   expect(both.map((m) => m.track)).toEqual(["VOLUNTEER", "DIRECTOR"]);
@@ -361,6 +399,7 @@ it("getMyTraining spans the person's live and next terms, live first", async () 
   // Build a next (PLANNING) term with its own designated volunteer training cycle + membership for vol.
   const next = await prisma.term.create({ data: { code: "FA26", name: "Fall", startDate: new Date("2026-09-01"), endDate: new Date("2027-01-01"), status: "PLANNING" } });
   const nextCycle = await prisma.recruitmentCycle.create({ data: { track: "VOLUNTEER", termId: next.id, title: "FA vol", publicSlug: "fa-vol", departments: ["SRHD"], createdById: srr.id, status: "OPEN" } });
+  await addQuiz(nextCycle.id);
   await setTrainingCycle(nextCycle.id, true, srr.id);
   await prisma.termMembership.create({ data: { personId: vol.id, termId: next.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" } });
 
@@ -374,6 +413,7 @@ it("listTrainingRoster for a DIRECTOR cycle lists directors not volunteers", asy
   const dirCycle = await prisma.recruitmentCycle.create({
     data: { track: "DIRECTOR", termId: term.id, title: "D", publicSlug: "d", departments: ["SRHD"], createdById: srr.id, status: "OPEN" },
   });
+  await addQuiz(dirCycle.id);
   await setTrainingCycle(dirCycle.id, true, srr.id);
 
   const rows = await listTrainingRoster(dirCycle.id, srr.id);

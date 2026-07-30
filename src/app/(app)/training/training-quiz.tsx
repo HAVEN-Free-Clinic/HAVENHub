@@ -23,6 +23,7 @@ export function TrainingQuiz({
   termId,
   track,
   questions,
+  gradedQuestionCount,
   passPercent,
   maxAttempts,
   attemptsUsed: initialAttemptsUsed,
@@ -31,6 +32,7 @@ export function TrainingQuiz({
   termId: string;
   track: Track;
   questions: Question[];
+  gradedQuestionCount: number;
   passPercent: number;
   maxAttempts: number;
   attemptsUsed: number;
@@ -61,11 +63,15 @@ export function TrainingQuiz({
     if (graded && !graded.passed) resultHeadingRef.current?.focus();
   }, [graded]);
 
-  // A track's makeup quiz can have zero questions (e.g. still being authored). With
-  // none, there is nothing to grade: the progress bar would divide by zero (NaN width),
-  // an empty answer set would read as "all answered" and enable Submit, and submitting
-  // only throws server-side. Show an explanatory notice instead of the quiz form.
-  if (questions.length === 0) {
+  // A track's makeup quiz can have zero questions (e.g. still being authored), or it
+  // can have questions that nobody has keyed with a correct answer yet, which is just
+  // as unpassable (gradeQuiz never passes a quiz with zero graded questions). With
+  // either, there is nothing gradable to take: the progress bar would divide by zero
+  // (NaN width) in the no-questions case, an empty answer set would read as "all
+  // answered" and enable Submit, and submitting only throws server-side. The learner
+  // cannot tell the two cases apart and should not have to, so show one explanatory
+  // notice instead of the quiz form.
+  if (questions.length === 0 || gradedQuestionCount === 0) {
     return (
       <Card className="flex items-start gap-4">
         <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-brand-faint text-brand-fg">
@@ -74,8 +80,8 @@ export function TrainingQuiz({
         <div>
           <p className="text-base font-bold text-foreground">Makeup quiz not ready yet</p>
           <p className="mt-0.5 text-sm text-foreground-soft">
-            This training does not have any quiz questions yet. Please contact your coordinator so they can finish
-            setting it up, then check back here.
+            This training&apos;s quiz has not been finished yet, so there is nothing to take. Please contact
+            your coordinator so they can complete it, then check back here.
           </p>
         </div>
       </Card>

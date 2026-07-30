@@ -1,5 +1,3 @@
-import type { EpicRequirement } from "@prisma/client";
-
 /**
  * Shared "what happens next" content for a volunteer who just submitted their
  * HAVEN Hub onboarding contract. One builder feeds three surfaces: the
@@ -31,13 +29,22 @@ export type SignInMethod = "sso" | "magic-link";
 export type OnboardingNextSteps = {
   /** Relative path to the sign-in page; same route for both methods. */
   loginPath: string;
+  // NOTE for whoever wires this into the email (Task 4): the email render
+  // engine (platform/email/render/render.ts) does flat context[key] lookup
+  // only, with no dot-path support, so a raw "{{signIn.text}}" token silently
+  // renders empty rather than erroring. Flatten this into its own top-level
+  // context key (e.g. signInText: steps.signIn.text) before templating,
+  // matching the flat-context convention epic.ts's *Context builders already
+  // use (epicActivationContext, etc.).
   signIn: { method: SignInMethod; text: string };
   /** Always non-empty: formatTrainingDate/formatTrainingLocation already
    *  degrade to sensible defaults when the cycle has no training date or
    *  location set (see training-date.ts). */
   training: string;
-  /** Null when this contract's department has no Epic requirement and no
-   *  Epic ID is already on file for this person -- there is nothing to say. */
+  /** Null when there is nothing to tell this volunteer about Epic: either
+   *  their department has no Epic requirement and they self-reported not
+   *  needing it, or (see hasEpic below) their existing account already
+   *  covers it. */
   epic: string | null;
   review: string;
 };
@@ -51,13 +58,35 @@ export type OnboardingNextStepsInput = {
    *  cycle has no location, and carries its own leading space otherwise, so
    *  it concatenates directly after trainingDate. */
   trainingLocation: string;
-  /** The department/track-derived Epic requirement (epic-requirement.ts). */
-  epicRequirement: EpicRequirement;
+  /**
+   * OnboardingContract.epicNeeded -- NOT the raw department/track
+   * epicRequirement. epicRequirement collapses to the same answer for ALL
+   * and NONE, but for SOME it depends entirely on the applicant's answer to
+   * the required "epic_needed_self" question (resolveEpicNeeded in
+   * epic-requirement.ts; the department, e.g. SRHD, really does use SOME).
+   * promoteContracts only ever creates an EpicRequest when
+   * `contract.epicNeeded && !effectiveEpicId` (promotion.ts), so gating this
+   * copy on epicRequirement instead of epicNeeded would promise IT follow-up
+   * to a SOME-department volunteer who answered "no" and will never get one.
+   * Callers: the revisit page and the submit-time email both have
+   * `contract.epicNeeded` as a persisted column already; the completion
+   * screen can call the same `resolveEpicNeeded(ctx.epicRequirement,
+   * answers.epic_needed_self === "yes")` the server uses, since it is a pure
+   * function safe to run client-side.
+   */
+  epicNeeded: boolean;
   /** An Epic ID already on file for this person (lookupStoredEpicId), or null. */
   storedEpicId: string | null;
-  /** Whether the applicant checked "I already have a Yale Epic account" on
-   *  the contract's Epic block. Ignored when storedEpicId is set (that state
-   *  never shows the checkbox). */
+  /**
+   * Whether the applicant checked "I already have a Yale Epic account" and
+   * supplied an existingEpicId on the contract's Epic block. This ALSO
+   * suppresses any EpicRequest at promotion regardless of epicNeeded:
+   * promotion.ts derives `effectiveEpicId = person.epicId ?? contract.
+   * existingEpicId`, so a self-reported existing ID is adopted onto the
+   * Person record directly and no request (and so no follow-up email) is
+   * ever queued for it. Ignored when storedEpicId is set (that state never
+   * shows the checkbox).
+   */
   hasEpic: boolean;
 };
 
@@ -78,10 +107,12 @@ export function buildOnboardingNextSteps(input: OnboardingNextStepsInput): Onboa
   let epic: string | null = null;
   if (input.storedEpicId) {
     epic = "Your Epic ID is already on file, so there is nothing more to do for Epic access.";
-  } else if (input.epicRequirement !== "NONE") {
-    epic = input.hasEpic
-      ? "The IT team will update your existing Epic account and email you once it is ready."
-      : "The IT team will set up your Epic account and email you sign-in instructions once it is ready.";
+  } else if (input.hasEpic) {
+    // No EpicRequest is ever created for this case (see the hasEpic doc
+    // comment above), so no IT follow-up email is promised here either.
+    epic = "The Epic ID you provided will be added to your account, so there is nothing more to do for Epic access right now.";
+  } else if (input.epicNeeded) {
+    epic = "The IT team will set up your Epic account and email you sign-in instructions once it is ready.";
   }
 
   const review = "A recruitment lead will review your submission and add you to the roster.";

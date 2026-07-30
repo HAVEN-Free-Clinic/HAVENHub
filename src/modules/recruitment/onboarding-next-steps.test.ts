@@ -5,7 +5,7 @@ const BASE = {
   email: "volunteer@yale.edu",
   trainingDate: "Saturday, September 12",
   trainingLocation: " 55 Church Street",
-  epicRequirement: "NONE" as const,
+  epicNeeded: false,
   storedEpicId: null,
   hasEpic: false,
 };
@@ -53,45 +53,62 @@ describe("buildOnboardingNextSteps", () => {
     expect(steps.training).toBe("Plan to attend in-person training on Saturday, September 12 55 Church Street.");
   });
 
-  it("says nothing about Epic when the department has no requirement and no Epic ID is on file", () => {
-    const steps = buildOnboardingNextSteps({ ...BASE, epicRequirement: "NONE", storedEpicId: null, hasEpic: false });
+  it("says nothing about Epic when no request will ever be created (epicNeeded false, no stored ID, no self-reported existing account)", () => {
+    const steps = buildOnboardingNextSteps({ ...BASE, epicNeeded: false, storedEpicId: null, hasEpic: false });
     expect(steps.epic).toBeNull();
   });
 
-  it("confirms the stored Epic ID needs no action, even for an ALL department", () => {
+  // The exact regression this content shipped with: a SOME department (e.g.
+  // SRHD, requiresEpicVolunteer: "SOME") plus a self-reported "no" answer
+  // makes resolveEpicNeeded return false (epic-requirement.ts), so
+  // promoteContracts never creates an EpicRequest (promotion.ts's
+  // `contract.epicNeeded && !effectiveEpicId` gate). Gating this copy on the
+  // raw epicRequirement enum instead of the resolved epicNeeded boolean would
+  // promise an IT follow-up email that never comes. epicNeeded is what must
+  // gate this branch, not epicRequirement -- this input type has no
+  // epicRequirement field at all, only the resolved boolean.
+  it("promises nothing for a SOME-department applicant who self-reported not needing Epic", () => {
+    const steps = buildOnboardingNextSteps({ ...BASE, epicNeeded: false, storedEpicId: null, hasEpic: false });
+    expect(steps.epic).toBeNull();
+  });
+
+  it("confirms the stored Epic ID needs no action, even when epicNeeded is true", () => {
     const steps = buildOnboardingNextSteps({
       ...BASE,
-      epicRequirement: "ALL",
+      epicNeeded: true,
       storedEpicId: "JDOE1",
       hasEpic: false,
     });
     expect(steps.epic).toBe("Your Epic ID is already on file, so there is nothing more to do for Epic access.");
   });
 
-  it("promises IT will set up a new Epic account when the department requires it and none is on file", () => {
+  it("promises IT will set up a new Epic account when epicNeeded is true and no ID is on file or self-reported", () => {
     const steps = buildOnboardingNextSteps({
       ...BASE,
-      epicRequirement: "ALL",
+      epicNeeded: true,
       storedEpicId: null,
       hasEpic: false,
     });
     expect(steps.epic).toBe("The IT team will set up your Epic account and email you sign-in instructions once it is ready.");
   });
 
-  it("promises IT will update the existing account when the applicant self-reported having one", () => {
+  // promotion.ts's effectiveEpicId is `person.epicId ?? contract.existingEpicId`,
+  // so a self-reported existing ID is adopted directly and no EpicRequest (and
+  // so no IT follow-up email) is ever created for it, regardless of epicNeeded.
+  it("says the provided Epic ID will be added, not that IT will follow up, when the applicant self-reported an existing account", () => {
     const steps = buildOnboardingNextSteps({
       ...BASE,
-      epicRequirement: "SOME",
+      epicNeeded: true,
       storedEpicId: null,
       hasEpic: true,
     });
-    expect(steps.epic).toBe("The IT team will update your existing Epic account and email you once it is ready.");
+    expect(steps.epic).toBe("The Epic ID you provided will be added to your account, so there is nothing more to do for Epic access right now.");
   });
 
-  it("stored Epic ID takes precedence over a self-reported answer", () => {
+  it("stored Epic ID takes precedence over a self-reported existing account", () => {
     const steps = buildOnboardingNextSteps({
       ...BASE,
-      epicRequirement: "SOME",
+      epicNeeded: true,
       storedEpicId: "JDOE1",
       hasEpic: true,
     });

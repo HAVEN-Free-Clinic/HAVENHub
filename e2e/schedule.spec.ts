@@ -281,19 +281,23 @@ test("Builder assign round trip: Jack assigns then removes a member via VADM", a
 // ---------------------------------------------------------------------------
 
 /**
- * Jack (schedule.edit_all) assigns dev.volunteer to VADM on the first clinic
- * date via the builder. Then dev.volunteer opens /schedule, finds the shift
- * card, opens "Request a change", and submits a Drop request. Jack then opens
- * the builder for VADM+that date, approves the request (ConfirmButton two
- * clicks). Approval removes the assignment. The test ends clean: no residue.
+ * Jack (schedule.edit_all) assigns dev.volunteer to VADM on the term's last
+ * (not-yet-past) clinic date via the builder. Then dev.volunteer opens
+ * /schedule, finds the shift card, opens "Request a change", and submits a
+ * Drop request. Jack then opens the builder for VADM+that date, approves the
+ * request (ConfirmButton two clicks). Approval removes the assignment. The
+ * test ends clean: no residue.
  *
- * dev.volunteer is seeded as a VADM VOLUNTEER member in SU26.
+ * dev.volunteer is seeded as a VADM VOLUNTEER member in SU26 with zero
+ * pre-existing shifts, so the one assignment made here is unambiguously the
+ * first (and only) card in "My shifts" regardless of which clinic date it
+ * lands on.
  */
 test("Request round trip: Jack assigns dev.volunteer, volunteer requests drop, Jack approves", async ({
   page,
 }) => {
   test.setTimeout(90_000);
-  // Step 1: Jack assigns dev.volunteer to VADM on the first date.
+  // Step 1: Jack assigns dev.volunteer to VADM on a not-yet-past date.
   await devLogin(page, "j.carney@yale.edu");
   await page.goto("/schedule/builder");
   await page.waitForURL((url) => url.pathname === "/schedule/builder");
@@ -303,13 +307,20 @@ test("Request round trip: Jack assigns dev.volunteer, volunteer requests drop, J
   await page.getByRole("button", { name: "Go" }).click();
   await page.waitForLoadState("networkidle");
 
-  // Click the first date pill.
+  // Click the LAST date pill, not the first. The date strip renders every
+  // clinic date of the seeded SU26 term unfiltered and in ascending order
+  // (prisma/seed.ts: saturdays("2026-05-30", "2026-09-26")); the first pill
+  // is long past. createRequest/approveRequest now refuse a change request
+  // for a clinic date that has already passed, so the round trip below (drop
+  // request -> approve) needs a date that is not in the past. The term's
+  // final clinic date, 2026-09-26, is the one date in this fixture guaranteed
+  // to be furthest from "past" for as long as this seed is in use.
   const dateNav = page.locator('nav[aria-label="Clinic dates"]');
-  const firstDateLink = dateNav.getByRole("link").first();
-  await firstDateLink.click();
+  const targetDateLink = dateNav.getByRole("link").last();
+  await targetDateLink.click();
   await page.waitForLoadState("networkidle");
 
-  // Capture the current URL to restore dept+date params later.
+  // Capture the current URL (dept + the date just clicked) to restore later.
   const builderUrl = page.url();
 
   // Find dev.volunteer (Dev Volunteer) in "Available to assign".

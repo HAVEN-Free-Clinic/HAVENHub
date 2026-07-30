@@ -1,6 +1,6 @@
 import path from "node:path";
 import { promises as fs } from "node:fs";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Prisma } from "@prisma/client";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
@@ -172,11 +172,31 @@ describe("onboarding link expiry", () => {
     expect(c2.expiresAt!.getTime()).toBeGreaterThan(Date.now());
   });
 
-  it("getContractByToken treats an expired link as invalid (null)", async () => {
+  it("getContractByToken treats an expired PENDING link as invalid (null)", async () => {
     const { srr, acceptance } = await seed();
     const c = await createOrResendContract(acceptance.id, srr.id, "http://test");
     await prisma.onboardingContract.update({ where: { id: c.id }, data: { expiresAt: new Date(Date.now() - 1000) } });
     expect(await getContractByToken(c.token)).toBeNull();
+  });
+
+  it("does not hide a SUBMITTED contract behind a since-lapsed expiresAt (revisiting still resolves)", async () => {
+    // expiresAt only ever bounded the window for filling out and submitting the
+    // PENDING form; once SUBMITTED, revisiting the link is reading an already-
+    // recorded confirmation (page.tsx's non-PENDING branch), not using a stale
+    // credential, so a lapsed expiry here must not fall back to the invalid-link
+    // state the PENDING case above correctly shows.
+    const { srr, acceptance } = await seed();
+    const c = await createOrResendContract(acceptance.id, srr.id, "http://test");
+    await submitContract(c.token, {
+      firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu",
+      signatures: { ...allAgreementSignatures("Ada"), initials: sign("AL") },
+      customAnswers: { epic_needed_self: "no" },
+      hasEpic: false, worksWithYnhh: false,
+      hipaaCompletedAt: "2026-01-01", hipaaFile: { fileName: "c.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") },
+    });
+    await prisma.onboardingContract.update({ where: { id: c.id }, data: { expiresAt: new Date(Date.now() - 1000) } });
+    const found = await getContractByToken(c.token);
+    expect(found?.status).toBe("SUBMITTED");
   });
 
   it("grandfathers a contract whose expiresAt is null (pre-existing link, no expiry)", async () => {
@@ -250,6 +270,124 @@ it("a repeated submit is rejected without orphaning a HIPAA blob or duplicating 
   // (Signature blobs from the first submit also live under this dir; filter to HIPAA.)
   const files = await fs.readdir(path.join(config.UPLOAD_DIR, "onboarding", c.id));
   expect(files.filter((f) => f.startsWith("hipaa-"))).toHaveLength(1);
+});
+
+describe("submitContract onboarding confirmation email", () => {
+  const submitBase = {
+    firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu",
+    signatures: { ...allAgreementSignatures("Ada"), initials: sign("AL") },
+    customAnswers: { epic_needed_self: "no" },
+    hasEpic: false, worksWithYnhh: false,
+    hipaaCompletedAt: "2026-01-01",
+  };
+
+  it("queues exactly one confirmation email, with a working sign-in link", async () => {
+    const { srr, acceptance } = await seed();
+    const c = await createOrResendContract(acceptance.id, srr.id, "http://test");
+    await submitContract(c.token, {
+      ...submitBase,
+      hipaaFile: { fileName: "c.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") },
+    });
+    const mail = await prisma.emailLog.findFirstOrThrow({
+      where: { template: "recruitment.onboarding_confirmation" },
+    });
+    expect(
+      await prisma.emailLog.count({ where: { template: "recruitment.onboarding_confirmation" } }),
+    ).toBe(1);
+    // The one field OnboardingNextSteps carries as a button rather than a bullet
+    // (loginPath) must still reach this surface: unlike the completion screen and
+    // the revisit page, an email has no surrounding app to navigate from.
+    expect(mail.html).toContain('href="http://localhost:3000/login"');
+    // The link is labeled as a destination ("HAVEN Hub sign-in page"), not an
+    // imperative call to action ("Sign in to HAVEN Hub"): unlike the two live
+    // screens, this durable email cannot gate the link on hasAccount, so a
+    // brand-new, not-yet-promoted volunteer must never be told to sign in
+    // now. The two screens keep the imperative button text (next-steps-
+    // screen.tsx), correctly, since they re-verify hasAccount live.
+    expect(mail.html).toContain("HAVEN Hub sign-in page");
+    expect(mail.html).not.toContain("Sign in to HAVEN Hub");
+  });
+
+  // Guards the exact class of bug a reviewer already caught once on this
+  // branch: the email context is built by hand-mapping each OnboardingNextSteps
+  // field to a flat template key (services/onboarding.ts), and that mapping
+  // silently dropped loginPath before. Rather than trust the mapping, exercise
+  // a scenario where every bullet is non-null (a scheduled training date, an
+  // Epic follow-up owed) and assert each one's actual text reaches the
+  // rendered HTML, not just that the email was queued.
+  it("carries every next-steps bullet -- sign-in, training, epic, review -- into the rendered email", async () => {
+    const { srr, acceptance, cycle } = await seed();
+    await prisma.recruitmentCycle.update({
+      where: { id: cycle.id },
+      data: { inPersonTrainingDate: new Date("2026-09-12T12:00:00Z"), trainingLocation: "55 Church Street" },
+    });
+    const c = await createOrResendContract(acceptance.id, srr.id, "http://test");
+    await submitContract(c.token, {
+      ...submitBase,
+      // SRHD is requiresEpicVolunteer: SOME; answering "yes" here (instead of
+      // submitBase's "no") makes epicNeeded true with no stored/self-reported
+      // ID, so the Epic bullet is populated too.
+      customAnswers: { epic_needed_self: "yes" },
+      hipaaFile: { fileName: "c.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") },
+    });
+    const mail = await prisma.emailLog.findFirstOrThrow({
+      where: { template: "recruitment.onboarding_confirmation" },
+    });
+    // signIn.emailText (Yale/SSO), phrased against the roster-add rather than
+    // present tense (the Critical fix: this email cannot know hasAccount by
+    // the time it's opened).
+    expect(mail.html).toContain("Once a recruitment lead adds you to the roster, sign in with your Yale NetID.");
+    // training, built from the cycle date/location just set.
+    expect(mail.html).toContain("Plan to attend in-person training on");
+    expect(mail.html).toContain("55 Church Street");
+    // epic, since epic_needed_self is "yes" and nothing suppresses it.
+    expect(mail.html).toContain("The IT team will set up your Epic account and email you sign-in instructions once it is ready.");
+    // review, always present in future tense for a fresh SUBMITTED contract.
+    expect(mail.html).toContain("A recruitment lead will review your submission and add you to the roster.");
+  });
+
+  it("a second submit queues none", async () => {
+    const { srr, acceptance } = await seed();
+    const c = await createOrResendContract(acceptance.id, srr.id, "http://test");
+    await submitContract(c.token, {
+      ...submitBase,
+      hipaaFile: { fileName: "first.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") },
+    });
+    // The PENDING guard should make this impossible in practice, but an earlier
+    // branch had a real double-send bug here, so prove it rather than trust it.
+    await expect(
+      submitContract(c.token, {
+        ...submitBase,
+        hipaaFile: { fileName: "second.pdf", mimeType: "application/pdf", bytes: Buffer.from("y") },
+      }),
+    ).rejects.toBeInstanceOf(ContractError);
+    expect(
+      await prisma.emailLog.count({ where: { template: "recruitment.onboarding_confirmation" } }),
+    ).toBe(1);
+  });
+
+  it("a mail failure does not fail the submission", async () => {
+    const { srr, acceptance } = await seed();
+    const c = await createOrResendContract(acceptance.id, srr.id, "http://test");
+    // Force the confirmation email's own queueEmail -> emailLog.create call to
+    // throw. createOrResendContract already queued (and created) the onboarding
+    // LINK email above, before this spy is installed, so only the confirmation
+    // email's write is affected.
+    const spy = vi.spyOn(prisma.emailLog, "create").mockRejectedValueOnce(new Error("smtp down"));
+    try {
+      const ok = await submitContract(c.token, {
+        ...submitBase,
+        hipaaFile: { fileName: "c.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") },
+      });
+      expect(ok.status).toBe("SUBMITTED");
+    } finally {
+      spy.mockRestore();
+    }
+    // The failed send left no row behind (the create rejected before returning one).
+    expect(
+      await prisma.emailLog.count({ where: { template: "recruitment.onboarding_confirmation" } }),
+    ).toBe(0);
+  });
 });
 
 it("listOnboarding returns acceptances with contract status", async () => {

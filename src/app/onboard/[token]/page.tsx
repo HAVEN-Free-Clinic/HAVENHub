@@ -11,7 +11,7 @@ import { formatDateOnly } from "@/platform/dates";
 import { prisma } from "@/platform/db";
 import { OnboardForm } from "./onboard-form";
 import { NextStepsScreen } from "./next-steps-screen";
-import { formatTrainingDate, formatTrainingLocation } from "./training-date";
+import { formatTrainingDate, formatTrainingLocation } from "@/modules/recruitment/training-date";
 
 export default async function OnboardPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;

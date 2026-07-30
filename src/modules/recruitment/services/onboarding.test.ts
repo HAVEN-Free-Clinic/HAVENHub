@@ -281,16 +281,23 @@ describe("submitContract onboarding confirmation email", () => {
     hipaaCompletedAt: "2026-01-01",
   };
 
-  it("queues exactly one confirmation email", async () => {
+  it("queues exactly one confirmation email, with a working sign-in link", async () => {
     const { srr, acceptance } = await seed();
     const c = await createOrResendContract(acceptance.id, srr.id, "http://test");
     await submitContract(c.token, {
       ...submitBase,
       hipaaFile: { fileName: "c.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") },
     });
+    const mail = await prisma.emailLog.findFirstOrThrow({
+      where: { template: "recruitment.onboarding_confirmation" },
+    });
     expect(
       await prisma.emailLog.count({ where: { template: "recruitment.onboarding_confirmation" } }),
     ).toBe(1);
+    // The one field OnboardingNextSteps carries as a button rather than a bullet
+    // (loginPath) must still reach this surface: unlike the completion screen and
+    // the revisit page, an email has no surrounding app to navigate from.
+    expect(mail.html).toContain('href="http://localhost:3000/login"');
   });
 
   it("a second submit queues none", async () => {

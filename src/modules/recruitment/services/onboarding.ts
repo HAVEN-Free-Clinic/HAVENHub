@@ -19,7 +19,7 @@ import { DEFAULT_CONTRACT_LAYOUT } from "../contract/system-fields";
 import { buildContractAnswers, visibleContractBlocks, type ContractContext } from "../contract/visibility";
 import { epicRequirementFor, resolveEpicNeeded } from "../contract/epic-requirement";
 import { buildOnboardingNextSteps } from "../onboarding-next-steps";
-import { formatTrainingDate, formatTrainingLocation } from "@/app/onboard/[token]/training-date";
+import { formatTrainingDate, formatTrainingLocation } from "../training-date";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { log, errorAttrs } from "@/platform/logging";
 
@@ -617,7 +617,12 @@ export async function submitContract(
   // send without a cycle to attribute it to or a title to put in the subject.
   try {
     if (!cycle) throw new Error("cycle could not be resolved for the onboarding confirmation email");
-    const zone = await getDisplayTimeZone();
+    const [zone, baseUrl] = await Promise.all([
+      getDisplayTimeZone(),
+      getSetting<string>("app.baseUrl"),
+    ]);
+    // reviewed omitted: this contract just flipped PENDING -> SUBMITTED above
+    // and cannot be PROMOTED yet, same as actions.ts's completion-screen call.
     const steps = buildOnboardingNextSteps({
       email: finalEmail,
       trainingDate: formatTrainingDate(cycle.inPersonTrainingDate ?? null, zone),
@@ -625,13 +630,6 @@ export async function submitContract(
       epicNeeded,
       storedEpicId,
       hasEpic: input.hasEpic,
-      // A contract reaching this line just flipped PENDING -> SUBMITTED in the
-      // claim above, so it cannot be PROMOTED yet: only promoteContracts does
-      // that, and only well after a separate SRR review step runs. reviewed
-      // is passed explicitly (rather than left to its false default) so this
-      // stays correct on its own terms if this function's control flow ever
-      // changes, instead of silently inheriting the default's assumption.
-      reviewed: false,
     });
     const confirmation = await renderCycleEmail(cycle.id, "recruitment.onboarding_confirmation", {
       firstName: input.firstName.trim(),
@@ -640,6 +638,12 @@ export async function submitContract(
       training: steps.training,
       epic: steps.epic,
       review: steps.review,
+      // The one field OnboardingNextSteps carries that next-steps-screen.tsx
+      // renders as a button rather than a bullet (loginPath). This is the
+      // only one of the three surfaces with no surrounding app to navigate
+      // from, so without an absolute URL here the signIn bullet names an
+      // action with no way to take it.
+      loginUrl: `${baseUrl}${steps.loginPath}`,
     });
     await queueEmail(prisma, {
       to: finalEmail,

@@ -96,7 +96,12 @@ export const recruitmentDescriptors: TemplateDescriptor[] = [
     // this email, the completion screen, and the revisit page never drift
     // from one another. signInText is signIn.text flattened to a top-level
     // key: the render engine does flat context[key] lookup only, so a raw
-    // "{{ signIn.text }}" would silently render empty.
+    // "{{ signIn.text }}" would silently render empty. loginUrl is the one
+    // field OnboardingNextSteps carries that is not a bullet (loginPath),
+    // resolved to an absolute URL the same way shift-reminders.ts and
+    // reminders.ts do (getSetting("app.baseUrl") + the path) since this is
+    // the one surface of the three with no surrounding app to navigate from:
+    // without it, the signInText bullet names an action with no way to take it.
     variables: [
       { name: "firstName", label: "Applicant first name", sampleValue: "Sam" },
       { name: "cycleTitle", label: "Cycle title", sampleValue: "Volunteer SU26" },
@@ -104,10 +109,11 @@ export const recruitmentDescriptors: TemplateDescriptor[] = [
       { name: "training", label: "Training date and location", sampleValue: "Plan to attend in-person training on Saturday, August 15 in the HAVEN clinic." },
       { name: "epic", label: "Epic follow-up, empty when there is nothing to tell this volunteer about Epic", sampleValue: "The IT team will set up your Epic account and email you sign-in instructions once it is ready." },
       { name: "review", label: "Review status", sampleValue: "A recruitment lead will review your submission and add you to the roster." },
+      { name: "loginUrl", label: "Sign-in page URL", sampleValue: "https://hub.havenfreeclinic.com/login" },
     ],
-    defaultSubject: "You're all set for HAVEN {{ cycleTitle }}",
+    defaultSubject: "Your HAVEN {{ cycleTitle }} onboarding is complete",
     defaultBody:
-      "<p>Congratulations {{ firstName }},</p><p>You've completed your HAVEN onboarding for {{ cycleTitle }}. Here is what happens next:</p><ul><li>{{ signInText }}</li><li>{{ training }}</li>{{#if epic}}<li>{{ epic }}</li>{{/if}}<li>{{ review }}</li></ul>",
+      '<p>Congratulations {{ firstName }},</p><p>You\'ve completed your HAVEN onboarding for {{ cycleTitle }}. Here is what happens next:</p><ul><li>{{ signInText }}</li><li>{{ training }}</li>{{#if epic}}<li>{{ epic }}</li>{{/if}}<li>{{ review }}</li></ul><p><a href="{{ loginUrl }}">Sign in to HAVEN Hub</a></p>',
   },
   {
     key: "recruitment.application_received",

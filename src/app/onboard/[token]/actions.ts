@@ -2,7 +2,7 @@
 import { submitContract, lookupStoredEpicId, ContractError, ContractValidationError, type ContractSubmission } from "@/modules/recruitment/services/onboarding";
 import { collectSignatureInputs } from "@/modules/recruitment/contract/signatures";
 import { buildOnboardingNextSteps, type OnboardingNextSteps } from "@/modules/recruitment/onboarding-next-steps";
-import { formatTrainingDate, formatTrainingLocation } from "./training-date";
+import { formatTrainingDate, formatTrainingLocation } from "@/modules/recruitment/training-date";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { prisma } from "@/platform/db";
 import { log, errorAttrs } from "@/platform/logging";

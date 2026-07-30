@@ -1,8 +1,9 @@
 /** Formats the cycle's training date for interpolation into agreement prose.
  *  The zone comes from the configured display timezone (see src/platform/dates),
  *  not the server's, so everyone reads the same wall-clock date. inPersonTrainingDate
- *  is a date-only value (stored at noon UTC, see actions.ts), so this renders only
- *  the calendar date -- no time of day, which lives in trainingLocation instead. */
+ *  is a date-only value (stored at noon UTC, see src/app/(app)/recruitment/actions.ts),
+ *  so this renders only the calendar date -- no time of day, which lives in
+ *  trainingLocation instead. */
 export function formatTrainingDate(at: Date | null, zone: string): string {
   if (!at) return "the scheduled training date";
   return new Intl.DateTimeFormat("en-US", {

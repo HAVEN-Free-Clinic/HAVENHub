@@ -1,5 +1,6 @@
 import type { AirtableRecord } from "../client";
 import { ALL_PEOPLE_FIELDS, SU26_ROSTER_FIELDS, type RosterFieldIds } from "../fields";
+import { isNetIdShaped } from "@/platform/auth/match-person";
 
 export type PersonImport = {
   airtableRecordId: string;
@@ -27,17 +28,42 @@ const str = (v: unknown): string | null => {
   return trimmed.length ? trimmed : null;
 };
 
-export function transformPeople(records: AirtableRecord[]): PersonImport[] {
-  const out: PersonImport[] = [];
+export type PeopleImport = {
+  people: PersonImport[];
+  /**
+   * Airtable NetID cells that do not look like a NetID, dropped rather than
+   * written. Reported so ops can see and correct the source row.
+   */
+  rejectedNetIds: Array<{ recordId: string; name: string; value: string }>;
+};
+
+export function transformPeople(records: AirtableRecord[]): PeopleImport {
+  const people: PersonImport[] = [];
+  const rejectedNetIds: PeopleImport["rejectedNetIds"] = [];
   for (const record of records) {
     const f = record.fields;
     const name = str(f[ALL_PEOPLE_FIELDS.name]);
     if (!name) continue; // nameless rows are Airtable cruft, not people
     const contactEmail = str(f[ALL_PEOPLE_FIELDS.contactEmail])?.toLowerCase() ?? null;
-    out.push({
+
+    // Only a NetID-shaped value reaches Person.netId. Members with no Yale NetID
+    // (YNHH staff, community volunteers) have had their work address typed into
+    // this cell instead; that value can never match a Yale sign-in, and it would
+    // land in the NetID column of the YNHH Epic access PDF. Those members sign in
+    // through the non-Yale member email link, which keys off contactEmail, so
+    // dropping the bad value costs them nothing.
+    const rawNetId = str(f[ALL_PEOPLE_FIELDS.netId]);
+    let netId: string | null = null;
+    if (rawNetId && isNetIdShaped(rawNetId)) {
+      netId = rawNetId.toLowerCase();
+    } else if (rawNetId) {
+      rejectedNetIds.push({ recordId: record.id, name, value: rawNetId });
+    }
+
+    people.push({
       airtableRecordId: record.id,
       name,
-      netId: str(f[ALL_PEOPLE_FIELDS.netId])?.toLowerCase() ?? null,
+      netId,
       contactEmail,
       phone: str(f[ALL_PEOPLE_FIELDS.phone]),
       epicId: str(f[ALL_PEOPLE_FIELDS.epicId]),
@@ -45,7 +71,7 @@ export function transformPeople(records: AirtableRecord[]): PersonImport[] {
       gradYear: str(f[ALL_PEOPLE_FIELDS.gradYear]),
     });
   }
-  return out;
+  return { people, rejectedNetIds };
 }
 
 /**

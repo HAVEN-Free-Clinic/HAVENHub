@@ -20,6 +20,11 @@ export type ImportReport = {
     updated: number;
     linked: number;
     skipped: Array<{ recordId: string; reason: string }>;
+    /**
+     * Airtable NetID cells that were not NetID-shaped and so were not written.
+     * The person is still imported; only the bad value is dropped.
+     */
+    rejectedNetIds: Array<{ recordId: string; name: string; value: string }>;
   };
   departments: number;
   memberships: number;
@@ -45,15 +50,16 @@ async function findExisting(person: PersonImport): Promise<Person | null> {
 export async function runImport(reader: AirtableReader, options: ImportOptions): Promise<ImportReport> {
   const report: ImportReport = {
     dryRun: options.dryRun,
-    people: { created: 0, updated: 0, linked: 0, skipped: [] },
+    people: { created: 0, updated: 0, linked: 0, skipped: [], rejectedNetIds: [] },
     departments: 0,
     memberships: 0,
   };
 
   const peopleRecords = await reader.listAll(options.baseId, options.peopleTableId);
   const rosterRecords = await reader.listAll(options.baseId, options.rosterTableId);
-  const people = transformPeople(peopleRecords);
+  const { people, rejectedNetIds } = transformPeople(peopleRecords);
   const roster = transformRoster(rosterRecords);
+  report.people.rejectedNetIds = rejectedNetIds;
 
   // Track identity collisions within the batch even in dry-run.
   const seenNetIds = new Set<string>();

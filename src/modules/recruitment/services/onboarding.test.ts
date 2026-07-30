@@ -298,6 +298,14 @@ describe("submitContract onboarding confirmation email", () => {
     // (loginPath) must still reach this surface: unlike the completion screen and
     // the revisit page, an email has no surrounding app to navigate from.
     expect(mail.html).toContain('href="http://localhost:3000/login"');
+    // The link is labeled as a destination ("HAVEN Hub sign-in page"), not an
+    // imperative call to action ("Sign in to HAVEN Hub"): unlike the two live
+    // screens, this durable email cannot gate the link on hasAccount, so a
+    // brand-new, not-yet-promoted volunteer must never be told to sign in
+    // now. The two screens keep the imperative button text (next-steps-
+    // screen.tsx), correctly, since they re-verify hasAccount live.
+    expect(mail.html).toContain("HAVEN Hub sign-in page");
+    expect(mail.html).not.toContain("Sign in to HAVEN Hub");
   });
 
   // Guards the exact class of bug a reviewer already caught once on this

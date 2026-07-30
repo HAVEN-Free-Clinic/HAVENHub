@@ -110,6 +110,18 @@ export const recruitmentDescriptors: TemplateDescriptor[] = [
     // the path) since this is the one surface of the three with no
     // surrounding app to navigate from: without it, the signInText bullet
     // names an action with no way to take it.
+    //
+    // The anchor text is deliberately "HAVEN Hub sign-in page", not a
+    // "Sign in to HAVEN Hub" call to action: the two screens gate that exact
+    // button on hasAccount (see next-steps-screen.tsx), but this email cannot,
+    // since hasAccount can flip between send time and whenever it is opened.
+    // A brand-new volunteer who is SUBMITTED but not yet PROMOTED could click
+    // an imperative "sign in" button, complete SSO, and land on /welcome's
+    // "we couldn't find you" dead end -- the exact failure this fix removes,
+    // reappearing one bullet down from the corrected copy. Naming the
+    // destination rather than commanding the action keeps the link (genuinely
+    // useful later, and this durable record is the right place to keep it)
+    // without asserting it will succeed right now.
     variables: [
       { name: "firstName", label: "Applicant first name", sampleValue: "Sam" },
       { name: "cycleTitle", label: "Cycle title", sampleValue: "Volunteer SU26" },
@@ -121,7 +133,7 @@ export const recruitmentDescriptors: TemplateDescriptor[] = [
     ],
     defaultSubject: "Your HAVEN {{ cycleTitle }} onboarding is complete",
     defaultBody:
-      '<p>Congratulations {{ firstName }},</p><p>You\'ve completed your HAVEN onboarding for {{ cycleTitle }}. Here is what happens next:</p><ul><li>{{ signInText }}</li>{{#if training}}<li>{{ training }}</li>{{/if}}{{#if epic}}<li>{{ epic }}</li>{{/if}}<li>{{ review }}</li></ul><p><a href="{{ loginUrl }}">Sign in to HAVEN Hub</a></p>',
+      '<p>Congratulations {{ firstName }},</p><p>You\'ve completed your HAVEN onboarding for {{ cycleTitle }}. Here is what happens next:</p><ul><li>{{ signInText }}</li>{{#if training}}<li>{{ training }}</li>{{/if}}{{#if epic}}<li>{{ epic }}</li>{{/if}}<li>{{ review }}</li></ul><p><a href="{{ loginUrl }}">HAVEN Hub sign-in page</a></p>',
   },
   {
     key: "recruitment.application_received",

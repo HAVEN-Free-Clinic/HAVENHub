@@ -15,10 +15,13 @@ import { formatTrainingDate, formatTrainingLocation } from "./training-date";
 
 export default async function OnboardPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
-  // getContractByToken already folds an expired link into null regardless of
-  // status (services/onboarding.ts), so an expired PENDING token (still needs
-  // a new link) and an unknown token land here identically. That is correct:
-  // this branch cannot tell the two apart, and both genuinely are errors.
+  // getContractByToken folds an expired PENDING link into null (services/
+  // onboarding.ts), so an expired PENDING token (still needs a new link) and
+  // an unknown token land here identically. That is correct: this branch
+  // cannot tell the two apart, and both genuinely are errors. A SUBMITTED/
+  // PROMOTED contract past its expiresAt still resolves here (expiry only
+  // ever gated the fill-out window), so revisiting a completed link still
+  // reaches the confirmation branch below.
   const contract = await getContractByToken(token);
   if (!contract) {
     const support = await getSupportContact();

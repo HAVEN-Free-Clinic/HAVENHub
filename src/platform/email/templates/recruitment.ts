@@ -87,6 +87,29 @@ export const recruitmentDescriptors: TemplateDescriptor[] = [
       '<p>Congratulations {{ firstName }},</p><p>To finish joining HAVEN for {{ cycleTitle }}, please complete your onboarding contract here: <a href="{{ contractUrl }}">{{ contractUrl }}</a></p><p>It collects your signatures, Epic access details, and HIPAA certificate.</p>',
   },
   {
+    key: "recruitment.onboarding_confirmation",
+    name: "Recruitment: onboarding confirmation",
+    category: "transactional",
+    group: "recruitment",
+    // Every value here is passed pre-computed from the shared next-steps
+    // content module (src/modules/recruitment/onboarding-next-steps.ts) so
+    // this email, the completion screen, and the revisit page never drift
+    // from one another. signInText is signIn.text flattened to a top-level
+    // key: the render engine does flat context[key] lookup only, so a raw
+    // "{{ signIn.text }}" would silently render empty.
+    variables: [
+      { name: "firstName", label: "Applicant first name", sampleValue: "Sam" },
+      { name: "cycleTitle", label: "Cycle title", sampleValue: "Volunteer SU26" },
+      { name: "signInText", label: "How to sign in (SSO or magic link)", sampleValue: "Sign in with your Yale NetID." },
+      { name: "training", label: "Training date and location", sampleValue: "Plan to attend in-person training on Saturday, August 15 in the HAVEN clinic." },
+      { name: "epic", label: "Epic follow-up, empty when there is nothing to tell this volunteer about Epic", sampleValue: "The IT team will set up your Epic account and email you sign-in instructions once it is ready." },
+      { name: "review", label: "Review status", sampleValue: "A recruitment lead will review your submission and add you to the roster." },
+    ],
+    defaultSubject: "You're all set for HAVEN {{ cycleTitle }}",
+    defaultBody:
+      "<p>Congratulations {{ firstName }},</p><p>You've completed your HAVEN onboarding for {{ cycleTitle }}. Here is what happens next:</p><ul><li>{{ signInText }}</li><li>{{ training }}</li>{{#if epic}}<li>{{ epic }}</li>{{/if}}<li>{{ review }}</li></ul>",
+  },
+  {
     key: "recruitment.application_received",
     name: "Recruitment: application received",
     category: "transactional",

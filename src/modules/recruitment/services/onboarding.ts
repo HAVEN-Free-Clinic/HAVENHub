@@ -18,6 +18,10 @@ import { parseContractLayout, type ContractLayout } from "../contract/layout";
 import { DEFAULT_CONTRACT_LAYOUT } from "../contract/system-fields";
 import { buildContractAnswers, visibleContractBlocks, type ContractContext } from "../contract/visibility";
 import { epicRequirementFor, resolveEpicNeeded } from "../contract/epic-requirement";
+import { buildOnboardingNextSteps } from "../onboarding-next-steps";
+import { formatTrainingDate, formatTrainingLocation } from "@/app/onboard/[token]/training-date";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
+import { log, errorAttrs } from "@/platform/logging";
 
 /**
  * How long an onboarding link stays usable after a send. The link is a standing
@@ -220,9 +224,15 @@ export async function getContractByToken(token: string) {
     where: { token },
     include: { acceptance: { include: { application: { include: { cycle: true } } } } },
   });
-  // An expired link is treated as invalid (the page shows the not-valid state). An
-  // SRR can revive it by resending, which refreshes expiresAt on the same token.
-  if (contract && isContractExpired(contract)) return null;
+  // An expired PENDING link is treated as invalid (the page shows the not-valid
+  // state). An SRR can revive it by resending, which refreshes expiresAt on the
+  // same token. expiresAt only ever bounded the window for filling out and
+  // submitting the form (submitContract's own expiry check is gated the same
+  // way), so a SUBMITTED/PROMOTED contract past that window is not a stale
+  // credential; it is someone reading their own already-recorded confirmation
+  // (the page's `contract.status !== "PENDING"` branch), and expiry must not
+  // hide it behind the generic "not available" error.
+  if (contract && contract.status === "PENDING" && isContractExpired(contract)) return null;
   return contract;
 }
 
@@ -301,12 +311,24 @@ export async function submitContract(
   // resolves) degrades safely rather than throwing: track defaults to
   // VOLUNTEER and department to null, which makes epicRequirementFor return
   // NONE and hides every department-gated block, matching what the onboarding
-  // page itself falls back to when rendering.
+  // page itself falls back to when rendering. The extra cycle fields
+  // (id/title/training) are not needed for that derivation; they are carried
+  // along so the confirmation email queued below can reuse this same query
+  // instead of re-fetching the same chain a second time.
   const acceptance = await prisma.acceptance.findUnique({
     where: { id: contract.acceptanceId },
-    include: { application: { include: { cycle: { select: { track: true } } } } },
+    include: {
+      application: {
+        include: {
+          cycle: {
+            select: { id: true, title: true, track: true, inPersonTrainingDate: true, trainingLocation: true },
+          },
+        },
+      },
+    },
   });
-  const track = acceptance?.application?.cycle?.track ?? "VOLUNTEER";
+  const cycle = acceptance?.application?.cycle ?? null;
+  const track = cycle?.track ?? "VOLUNTEER";
   const departmentCode = acceptance?.departmentCode ?? null;
   const dept = departmentCode
     ? await prisma.department.findUnique({
@@ -487,6 +509,18 @@ export async function submitContract(
   }
   const initialsName = input.signatures.initials?.name?.trim() ?? null;
 
+  // Same pinned-identity rule the update below applies (#49): the submit's own
+  // record of the applicant's email is this, not a freely-typed one. Named
+  // here (rather than re-inlined) so the confirmation email queued after
+  // commit addresses the same mailbox this contract is actually stored under.
+  const finalEmail = contract.email || input.email.trim();
+  // epicNeeded is never read from the client: ALL/NONE departments are decided
+  // by the department regardless of what a spoofed or stale submission
+  // claims, and SOME defers to the applicant's own answer. Named here (rather
+  // than re-inlined) so the confirmation email's Epic line is derived from
+  // the exact value this submit persists, not a second recomputation of it.
+  const epicNeeded = resolveEpicNeeded(requirement, input.customAnswers?.epic_needed_self === "yes");
+
   // Claim the submit atomically: the status: "PENDING" precondition means only one
   // of two concurrent submits can flip the row. Without it, both would upload a
   // distinct HIPAA blob and both flip to SUBMITTED, but the row keeps only the last
@@ -505,7 +539,7 @@ export async function submitContract(
         // to whatever Person those strings match -- would rewrite that third
         // party's roster/compliance/permissions. Fall back to the submitted value
         // only when the contract was seeded without one.
-        email: contract.email || input.email.trim(),
+        email: finalEmail,
         netId: contract.netId ?? (input.netId?.trim() || null),
         phone: input.phone?.trim() || null,
         dateOfBirth: dateOfBirth ?? null,
@@ -531,10 +565,7 @@ export async function submitContract(
               .map(([id]) => [`confirm__${id}`, "on"]),
           ),
         } as object,
-        // epicNeeded is never read from the client: ALL/NONE departments are
-        // decided by the department regardless of what a spoofed or stale
-        // submission claims, and SOME defers to the applicant's own answer.
-        epicNeeded: resolveEpicNeeded(requirement, input.customAnswers?.epic_needed_self === "yes"),
+        epicNeeded,
         hasEpic: input.hasEpic,
         existingEpicId: input.existingEpicId?.trim() || null,
         epicAccessType: input.epicAccessType?.trim() || null,
@@ -571,6 +602,55 @@ export async function submitContract(
     entityType: "OnboardingContract",
     entityId: contract.id,
   });
+
+  // Email the volunteer the same "what happens next" content the completion
+  // screen and the revisit page show (buildOnboardingNextSteps -- see the doc
+  // comment atop onboarding-next-steps.ts), so a closed tab still leaves a
+  // durable record of what they were told. The contract is already durably
+  // SUBMITTED and audited above, so a mail failure here must not surface as a
+  // failed submission: a client retry would hit the `status !== "PENDING"`
+  // guard near the top of this function and strand the volunteer with no
+  // next-steps content at all. Same isolation saveCertificate uses for its
+  // manager alerts (my-info.ts): catch, log, continue. A missing cycle (the
+  // acceptance/application chain no longer resolves) is folded into the same
+  // catch rather than a separate guard, since there is no meaningful email to
+  // send without a cycle to attribute it to or a title to put in the subject.
+  try {
+    if (!cycle) throw new Error("cycle could not be resolved for the onboarding confirmation email");
+    const zone = await getDisplayTimeZone();
+    const steps = buildOnboardingNextSteps({
+      email: finalEmail,
+      trainingDate: formatTrainingDate(cycle.inPersonTrainingDate ?? null, zone),
+      trainingLocation: formatTrainingLocation(cycle.trainingLocation ?? null),
+      epicNeeded,
+      storedEpicId,
+      hasEpic: input.hasEpic,
+      // A contract reaching this line just flipped PENDING -> SUBMITTED in the
+      // claim above, so it cannot be PROMOTED yet: only promoteContracts does
+      // that, and only well after a separate SRR review step runs. reviewed
+      // is passed explicitly (rather than left to its false default) so this
+      // stays correct on its own terms if this function's control flow ever
+      // changes, instead of silently inheriting the default's assumption.
+      reviewed: false,
+    });
+    const confirmation = await renderCycleEmail(cycle.id, "recruitment.onboarding_confirmation", {
+      firstName: input.firstName.trim(),
+      cycleTitle: cycle.title,
+      signInText: steps.signIn.text,
+      training: steps.training,
+      epic: steps.epic,
+      review: steps.review,
+    });
+    await queueEmail(prisma, {
+      to: finalEmail,
+      subject: confirmation.subject,
+      html: confirmation.html,
+      template: "recruitment.onboarding_confirmation",
+    });
+  } catch (err) {
+    log.error("[onboarding] failed to queue the onboarding confirmation email", errorAttrs(err, { contractId: contract.id }));
+  }
+
   return prisma.onboardingContract.findUniqueOrThrow({ where: { id: contract.id } });
 }
 

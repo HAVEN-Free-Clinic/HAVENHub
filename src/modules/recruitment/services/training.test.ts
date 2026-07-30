@@ -117,7 +117,7 @@ it("quiz path: failing accrues attempts then locks; passing completes and saves 
   // Review payload powers the in-place correct/wrong highlighting on the page.
   expect(r1.attemptsUsed).toBe(1);
   expect(r1.locked).toBe(false);
-  expect(r1.correctByKey).toEqual({ q1: "a", q2: "y" });
+  expect(r1.verdictByKey).toEqual({ q1: "correct", q2: "wrong" });
   expect(await resolveTrainingState(vol.id, term.id, "VOLUNTEER")).toBe("PENDING");
 
   const r2 = await submitQuiz(vol.id, { termId: term.id, track: "VOLUNTEER", answers: { q1: "a", q2: "x" }, intake: {} });
@@ -137,6 +137,41 @@ it("quiz path: failing accrues attempts then locks; passing completes and saves 
   expect(done.completedVia).toBe("QUIZ");
   expect(done.feedback).toBe("done");
   expect(await prisma.quizAttempt.count({ where: { training: { personId: vol.id, termId: term.id, track: "VOLUNTEER" } } })).toBe(3);
+});
+
+/** Add a 2-question quiz where the second question has no answer key yet
+ *  (correctValue: null), the partially-keyed case. Its own fixture, since
+ *  addQuiz is depended on by other tests. */
+async function addPartiallyKeyedQuiz(cycleId: string) {
+  const section = await prisma.formSection.create({ data: { cycleId, title: "Quiz", order: 10, appliesTo: "BOTH", purpose: "QUIZ" } });
+  await prisma.formField.createMany({ data: [
+    { sectionId: section.id, cycleId, key: "q1", label: "Q1", type: "SINGLE_SELECT", order: 0, options: [{ value: "a", label: "A" }, { value: "b", label: "B" }], correctValue: "a" },
+    { sectionId: section.id, cycleId, key: "q2", label: "Q2", type: "SINGLE_SELECT", order: 1, options: [{ value: "x", label: "X" }, { value: "y", label: "Y" }], correctValue: null },
+  ] });
+}
+
+it("a quiz with one keyed and one unkeyed question returns a verdict only for the keyed one", async () => {
+  const { term, srr, vol, c1 } = await seedMember();
+  await updateQuizSettings(c1.id, { quizPassPercent: 100, quizMaxAttempts: 2, inPersonTrainingDate: null, trainingLocation: null }, srr.id);
+  await addPartiallyKeyedQuiz(c1.id);
+
+  const r = await submitQuiz(vol.id, { termId: term.id, track: "VOLUNTEER", answers: { q1: "a", q2: "x" }, intake: {} });
+  expect(r.verdictByKey).toEqual({ q1: "correct" });
+  expect(r.verdictByKey.q2).toBeUndefined();
+});
+
+it("the submission payload contains no field holding a correct option value", async () => {
+  const { term, srr, vol, c1 } = await seedMember();
+  await updateQuizSettings(c1.id, { quizPassPercent: 100, quizMaxAttempts: 2, inPersonTrainingDate: null, trainingLocation: null }, srr.id);
+  await addQuiz(c1.id);
+
+  const r = await submitQuiz(vol.id, { termId: term.id, track: "VOLUNTEER", answers: { q1: "a", q2: "x" }, intake: {} });
+  const serialized = JSON.stringify(r);
+  // Known correct answers for q1 ("a") and q2 ("y"). Checking the serialized shape
+  // (not just property names) so a future field can't reintroduce the leak under a
+  // different name.
+  expect(serialized).not.toContain('"a"');
+  expect(serialized).not.toContain('"y"');
 });
 
 it("does not reset a member whose training is already COMPLETE", async () => {

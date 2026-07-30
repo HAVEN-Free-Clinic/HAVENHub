@@ -20,13 +20,16 @@ export class QuizLockedError extends Error {
 export type QuizResultPublic = { score: number; total: number; percent: number; passed: boolean };
 
 /** What submitQuiz returns: the score plus everything the page needs to render
- *  in-place review (which option was correct), the live attempt count, and
- *  whether this attempt tripped the lockout. */
+ *  in-place review (whether each answer was right, never the answer itself), the
+ *  live attempt count, and whether this attempt tripped the lockout. */
 export type QuizSubmission = QuizResultPublic & {
   attemptsUsed: number;
   locked: boolean;
-  /** Graded question key -> correct option value, for correct/wrong highlighting. */
-  correctByKey: Record<string, string>;
+  /** Graded question key -> whether the learner's answer was right. Ungraded
+   *  questions (correctValue == null) are absent, so the review screen leaves
+   *  them unmarked rather than implying they were scored. Never carries the
+   *  correct value itself: a failed attempt precedes a retry. */
+  verdictByKey: Record<string, "correct" | "wrong">;
 };
 
 /** The term's designated training cycle for a track, or null. */
@@ -336,10 +339,12 @@ export async function submitQuiz(
       locked = true;
     }
 
-    const correctByKey = Object.fromEntries(
-      questions.filter((q) => q.correctValue !== null).map((q) => [q.key, q.correctValue as string])
+    const verdictByKey = Object.fromEntries(
+      questions
+        .filter((q) => q.correctValue !== null)
+        .map((q) => [q.key, input.answers[q.key] === q.correctValue ? "correct" : "wrong"] as const)
     );
-    return { score: result.score, total: result.total, percent: result.percent, passed: result.passed, attemptsUsed, locked, correctByKey };
+    return { score: result.score, total: result.total, percent: result.percent, passed: result.passed, attemptsUsed, locked, verdictByKey };
   });
 }
 

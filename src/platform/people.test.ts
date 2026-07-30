@@ -234,7 +234,7 @@ describe("setPersonStatusField", () => {
     ).rejects.toBeInstanceOf(PersonNotFoundError);
   });
 
-  it("offboarding sets ALL ACTIVE memberships (any term) to REMOVED and records the count in the single audit row", async () => {
+  it("offboarding sets ACTIVE memberships in every non-archived term to REMOVED and records the count in the single audit row", async () => {
     const person = await createPersonRecord(ACTOR, { name: "Member", netId: "mem1" });
     const dept = await prisma.department.create({ data: { code: "ITCM", name: "IT" } });
     const term1 = await prisma.term.create({
@@ -263,6 +263,35 @@ describe("setPersonStatusField", () => {
     expect(logs).toHaveLength(1);
     expect(logs[0].action).toBe("person.offboard");
     expect((logs[0].after as Record<string, unknown>).removedMemberships).toBe(2);
+  });
+
+  // An ARCHIVED term's roster is a historical record of who served then; it grants
+  // nothing and offboarding must not rewrite it. Without this an offboard silently
+  // flipped an imported past term's memberships to REMOVED, and re-importing could
+  // not repair it (the historical import never overwrites an existing row).
+  it("offboarding leaves an ARCHIVED term's memberships intact and excludes them from the count", async () => {
+    const person = await createPersonRecord(ACTOR, { name: "Alum", netId: "alum1" });
+    const dept = await prisma.department.create({ data: { code: "PHAM", name: "Pharmacy" } });
+    const live = await prisma.term.create({
+      data: { code: "SU26", name: "Summer", startDate: new Date("2026-05-01"), endDate: new Date("2026-09-01"), status: "ACTIVE" },
+    });
+    const past = await prisma.term.create({
+      data: { code: "SP26", name: "Spring", startDate: new Date("2026-01-12"), endDate: new Date("2026-05-29"), status: "ARCHIVED" },
+    });
+    await prisma.termMembership.create({ data: { personId: person.id, termId: live.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" } });
+    const history = await prisma.termMembership.create({
+      data: { personId: person.id, termId: past.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" },
+    });
+    await prisma.auditLog.deleteMany();
+
+    await setPersonStatusField(ACTOR, person.id, "OFFBOARDED");
+
+    expect((await prisma.termMembership.findUniqueOrThrow({ where: { id: history.id } })).status).toBe("ACTIVE");
+    const liveRow = await prisma.termMembership.findFirstOrThrow({ where: { personId: person.id, termId: live.id } });
+    expect(liveRow.status).toBe("REMOVED");
+
+    const logs = await prisma.auditLog.findMany({ where: { entityId: person.id } });
+    expect((logs[0].after as Record<string, unknown>).removedMemberships).toBe(1);
   });
 
   it("offboarding cancels the person's PENDING shift requests (as requester or swap target) (#134)", async () => {

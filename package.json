@@ -27,7 +27,9 @@
     "import:config:dry": "tsx --env-file=.env scripts/import-schedule-config.ts",
     "import:config:apply": "tsx --env-file=.env scripts/import-schedule-config.ts --apply",
     "import:rhd:dry": "tsx --env-file=.env scripts/import-rhd.ts",
-    "import:rhd:apply": "tsx --env-file=.env scripts/import-rhd.ts --apply"
+    "import:rhd:apply": "tsx --env-file=.env scripts/import-rhd.ts --apply",
+    "import:histterm:dry": "tsx --env-file=.env scripts/import-historical-term.ts",
+    "import:histterm:apply": "tsx --env-file=.env scripts/import-historical-term.ts --apply"
   },
   "prisma": {
     "seed": "npx tsx prisma/seed.ts"

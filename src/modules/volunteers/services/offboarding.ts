@@ -31,7 +31,7 @@ import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { can } from "@/platform/rbac/engine";
 import { manageableDepartmentIds } from "@/platform/departments";
-import { setPersonStatusField } from "@/platform/people";
+import { setPersonStatusField, OFFBOARDABLE_TERM } from "@/platform/people";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { assertNotLastActiveAdminTx } from "@/platform/rbac/last-admin";
 
@@ -232,8 +232,10 @@ export async function executeOffboard(actorPersonId: string, personId: string): 
   }
 
   // Count ACTIVE memberships before the flip; setPersonStatusField removes them.
+  // Same OFFBOARDABLE_TERM scope as that write, so the audited count cannot
+  // over-report by including archived terms the flip deliberately leaves alone.
   const removedCount = await prisma.termMembership.count({
-    where: { personId, status: "ACTIVE" },
+    where: { personId, status: "ACTIVE", ...OFFBOARDABLE_TERM },
   });
 
   // 1. Flip status (atomically removes memberships + handles Epic). Flags stay.

@@ -3,6 +3,7 @@ import { ArrowRight } from "lucide-react";
 import { prisma } from "@/platform/db";
 import { getApplicantIdentity } from "@/modules/recruitment/services/portal-auth";
 import { getApplicantStatus } from "@/modules/recruitment/services/portal-status";
+import { findReturningMember } from "@/modules/recruitment/services/returning-member";
 import { applicantSignOutAction } from "./portal-actions";
 import { SignInForm } from "./sign-in-form";
 import { PortalShell } from "./portal-shell";
@@ -80,7 +81,11 @@ export default async function PortalHome({ searchParams }: { searchParams: Promi
     );
   }
 
-  const myApps = await getApplicantStatus(identity);
+  const [myApps, returning] = await Promise.all([
+    getApplicantStatus(identity),
+    // Display only -- never an access decision. See returning-member.ts.
+    findReturningMember(identity),
+  ]);
 
   const now = new Date();
   const openCycles = await prisma.recruitmentCycle.findMany({
@@ -93,14 +98,16 @@ export default async function PortalHome({ searchParams }: { searchParams: Promi
   const actionCue = "inline-flex shrink-0 items-center gap-1 text-sm font-medium text-brand-fg";
   const arrow = <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />;
   // Greet by first name, in order of trust: the signed-in member's stored name,
-  // then the first name from the Entra sign-in (a brand-new Yale applicant has no
-  // Person yet), then the email local part. An email local part like "j.carney"
-  // would greet "J", so fall back to it only when its first segment is not an
-  // initials-style single character; else greet without a name.
+  // then a recognized returning alum's stored name, then the first name from the
+  // Entra sign-in (a brand-new Yale applicant has no Person yet), then the email
+  // local part. An email local part like "j.carney" would greet "J", so fall back
+  // to it only when its first segment is not an initials-style single character;
+  // else greet without a name.
   const person = identity.personId
     ? await prisma.person.findUnique({ where: { id: identity.personId }, select: { name: true } })
     : null;
-  const nameFromPerson = person?.name?.trim().split(/\s+/)[0] ?? "";
+  const storedName = person?.name ?? returning?.name ?? "";
+  const nameFromPerson = storedName.trim().split(/\s+/)[0] ?? "";
   const nameFromEntra = identity.firstName?.trim() ?? "";
   const emailLocalFirst = identity.email.split("@")[0].split(".")[0];
   const firstNameRaw = nameFromPerson || nameFromEntra || (emailLocalFirst.length > 1 ? emailLocalFirst : "");
@@ -118,6 +125,18 @@ export default async function PortalHome({ searchParams }: { searchParams: Promi
         <h1 className="text-2xl font-bold tracking-tight text-foreground">{firstName ? `Welcome back, ${firstName}` : "Welcome back"}</h1>
         <p className="mt-1 text-sm text-muted-foreground">Track your applications, pick up a draft, or start something new.</p>
       </div>
+
+      {returning?.isFormerMember && (
+        <Alert tone="info" className="mb-8">
+          {returning.lastTerm
+            ? `We found your record from ${returning.lastTerm.name}${
+                returning.lastTerm.departments.length > 0
+                  ? ` (${returning.lastTerm.departments.join(", ")})`
+                  : ""
+              }. Apply with this account and your history reconnects automatically when you're accepted.`
+            : "We found your existing record. Apply with this account and your history reconnects automatically when you're accepted."}
+        </Alert>
+      )}
 
       {myApps.length > 0 && (
         <section className="mb-10 space-y-3">

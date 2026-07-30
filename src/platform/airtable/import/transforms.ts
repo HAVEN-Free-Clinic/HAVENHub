@@ -1,6 +1,7 @@
 import type { AirtableRecord } from "../client";
 import { ALL_PEOPLE_FIELDS, SU26_ROSTER_FIELDS, type RosterFieldIds } from "../fields";
 import { isNetIdShaped } from "@/platform/auth/match-person";
+import { normalizeAffiliation } from "@/platform/affiliation";
 
 export type PersonImport = {
   airtableRecordId: string;
@@ -67,7 +68,9 @@ export function transformPeople(records: AirtableRecord[]): PeopleImport {
       contactEmail,
       phone: str(f[ALL_PEOPLE_FIELDS.phone]),
       epicId: str(f[ALL_PEOPLE_FIELDS.epicId]),
-      yaleAffiliation: str(f[ALL_PEOPLE_FIELDS.yaleAffiliation]),
+      // Normalized on the way in so an import cannot re-pollute the column with a
+      // fourth vocabulary after the backfill. Unrecognized values pass through.
+      yaleAffiliation: normalizeAffiliation(str(f[ALL_PEOPLE_FIELDS.yaleAffiliation])),
       gradYear: str(f[ALL_PEOPLE_FIELDS.gradYear]),
     });
   }

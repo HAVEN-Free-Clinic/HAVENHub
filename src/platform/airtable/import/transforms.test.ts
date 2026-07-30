@@ -28,7 +28,7 @@ describe("transformPeople", () => {
       contactEmail: "jane.doe@yale.edu",
       phone: "203-555-0101",
       epicId: "E123",
-      yaleAffiliation: "Yale College",
+      yaleAffiliation: "yale_college",
       gradYear: "2027",
     });
   });
@@ -78,6 +78,27 @@ describe("transformPeople", () => {
     );
     expect(people.map((p) => p.netId)).toEqual(["jc999", "acn38", "mmm325", "ad2975", "ab"]);
     expect(rejectedNetIds).toEqual([]);
+  });
+});
+
+describe("transformPeople yaleAffiliation", () => {
+  it("normalizes an Airtable label to its canonical key", () => {
+    const { people } = transformPeople([
+      { id: "recAff1", fields: { [F.name]: "Ada Lovelace", [F.yaleAffiliation]: "Yale Staff" } },
+    ]);
+    expect(people[0].yaleAffiliation).toBe("staff");
+  });
+
+  it("passes an unrecognized value through verbatim rather than dropping it", () => {
+    const { people } = transformPeople([
+      { id: "recAff2", fields: { [F.name]: "Grace Hopper", [F.yaleAffiliation]: "Visiting Scholar" } },
+    ]);
+    expect(people[0].yaleAffiliation).toBe("Visiting Scholar");
+  });
+
+  it("keeps a missing affiliation null", () => {
+    const { people } = transformPeople([{ id: "recAff3", fields: { [F.name]: "Alan Turing" } }]);
+    expect(people[0].yaleAffiliation).toBeNull();
   });
 });
 

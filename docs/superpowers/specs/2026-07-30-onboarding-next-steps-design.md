@@ -74,10 +74,25 @@ The screen should carry, at minimum:
 
 In `submitContract`, queue an email carrying the same next-steps content.
 
-Follow the established pattern: a named helper that renders through
-`renderEmail("<descriptor>", context)` and dispatches through `notify()`. That means a new
-`NOTIFICATION_TYPES` entry with `defaultChannel: "email"`, a template descriptor with its context
-builder and default body, the helper, and the call site.
+**Corrected 2026-07-30, before planning.** This section first said to follow the platform pattern:
+a helper rendering through `renderEmail("<descriptor>", context)` and dispatching through
+`notify()`, with a new `NOTIFICATION_TYPES` entry. That is the wrong pattern here.
+
+This module already sends the onboarding **link** through the recruitment cycle-email system
+(`onboarding.ts:186-196` calls `renderCycleEmail(cycle.id, "recruitment.onboarding", ...)` then
+`queueEmail`). Those keys live in `CYCLE_EMAIL_KEYS` at
+`src/modules/recruitment/email/render.ts:9-14` and are **overridable per cycle**, which is the
+whole point of the recruitment email customization feature.
+
+A confirmation sent when a volunteer completes a cycle's contract is a cycle email by the same
+logic as the acceptance and the onboarding link that precede it. Ops will expect to edit it per
+cycle alongside those, not find it in a different admin surface.
+
+So: add a key to `CYCLE_EMAIL_KEYS`, give it a default subject and body, and render through
+`renderCycleEmail` beside the existing send. No `NOTIFICATION_TYPES` entry, no `notify()`
+dispatcher, because this is not a per-person notification with channel routing; it is a
+transactional recruitment email to one address the contract already holds
+(`OnboardingContract.email`).
 
 **Scope note.** The audit sized R4 as `M`. With a shared content module, an email template, and the
 token-page branch, it is realistically `L`. The same under-sizing happened on R19 in the HIPAA

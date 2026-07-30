@@ -44,6 +44,7 @@ import {
   PDFString,
   StandardFonts,
 } from "pdf-lib";
+import { affiliationLabel, isMedicalSchoolAffiliation, isStudentAffiliation } from "@/platform/affiliation";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { formatDateOnly } from "@/platform/dates";
 import { log } from "@/platform/logging";
@@ -256,24 +257,25 @@ export async function generatePdf(args: {
   checkBox(form, "Check Box40");
 
   if (!isBulk) {
+    // Routed off the canonical vocabulary rather than by matching label text.
+    // Text fields get the user-facing label, never the machine key, so YNHH
+    // reads "Yale School of Nursing (YSN)" and not "ysn". A value the canonical
+    // list does not know is written through verbatim by affiliationLabel.
     const affiliation = person?.yaleAffiliation ?? "";
-    const isStaffOrOther = affiliation === "Yale Staff" || affiliation === "Other Yale Affiliation";
-    const isMedStudent = affiliation.toLowerCase().includes("med");
-
-    if (isStaffOrOther) {
-      // Job Title row: "Other", with the affiliation text.
-      checkBox(form, "Check Box21");
-      fillText(form, "Text29", affiliation);
-    } else if (isMedStudent) {
-      // Student row: Med Student.
+    if (isMedicalSchoolAffiliation(affiliation)) {
+      // Student row: Med Student. Covers both YSM tracks (MD/MD-PhD and PA).
       checkBox(form, "Check Box45");
-    } else if (affiliation) {
-      // Student row: "Other", with the affiliation text.
+    } else if (isStudentAffiliation(affiliation)) {
+      // Student row: "Other", with the affiliation label.
       checkBox(form, "Check Box48");
-      fillText(form, "Text30", affiliation);
+      fillText(form, "Text30", affiliationLabel(affiliation));
+    } else if (affiliation) {
+      // Not a student: Job Title row "Other", with the affiliation label.
+      checkBox(form, "Check Box21");
+      fillText(form, "Text29", affiliationLabel(affiliation));
     }
   }
-  
+
 
   // Section V: Access type + similar person
   if (isNew) {

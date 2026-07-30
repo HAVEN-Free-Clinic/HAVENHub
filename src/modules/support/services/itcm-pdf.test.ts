@@ -190,3 +190,59 @@ describe("generatePdf", () => {
     });
   });
 });
+
+describe("Section IV affiliation routing", () => {
+  async function loadWithAffiliation(yaleAffiliation: string) {
+    const bytes = await generatePdf({
+      requestType: "new_individual",
+      authorizer,
+      person: { ...person, yaleAffiliation },
+      endDate: "10/15/2026",
+      mirrorPerson: { name: "Mirror Person", epicId: "MIR456" },
+      templateBytes,
+    });
+    return (await PDFDocument.load(bytes)).getForm();
+  }
+
+  it("checks Med Student for both YSM tracks", async () => {
+    for (const value of ["ysm_md", "ysm_pa"]) {
+      const form = await loadWithAffiliation(value);
+      expect(form.getCheckBox("Check Box45").isChecked(), value).toBe(true);
+      expect(form.getCheckBox("Check Box48").isChecked(), value).toBe(false);
+      expect(form.getCheckBox("Check Box21").isChecked(), value).toBe(false);
+    }
+  });
+
+  it("checks the Student Other row for a non-medical Yale school and writes the label", async () => {
+    const form = await loadWithAffiliation("ysn");
+    expect(form.getCheckBox("Check Box48").isChecked()).toBe(true);
+    expect(form.getCheckBox("Check Box45").isChecked()).toBe(false);
+    expect(form.getTextField("Text30").getText()).toBe("Yale School of Nursing (YSN)");
+  });
+
+  it("checks the Job Title Other row for staff and non-affiliates and writes the label", async () => {
+    for (const [value, label] of [
+      ["staff", "Yale Staff"],
+      ["other_yale", "Other Yale Affiliation"],
+      ["non_yale", "I am NOT a Yale Affiliate"],
+    ]) {
+      const form = await loadWithAffiliation(value);
+      expect(form.getCheckBox("Check Box21").isChecked(), value).toBe(true);
+      expect(form.getCheckBox("Check Box48").isChecked(), value).toBe(false);
+      expect(form.getTextField("Text29").getText()).toBe(label);
+    }
+  });
+
+  it("writes an unmapped legacy value through verbatim rather than blanking the row", async () => {
+    const form = await loadWithAffiliation("Medical Student");
+    expect(form.getCheckBox("Check Box48").isChecked()).toBe(true);
+    expect(form.getTextField("Text30").getText()).toBe("Medical Student");
+  });
+
+  it("checks no affiliation row when the affiliation is blank", async () => {
+    const form = await loadWithAffiliation("");
+    for (const box of ["Check Box45", "Check Box48", "Check Box21"]) {
+      expect(form.getCheckBox(box).isChecked(), box).toBe(false);
+    }
+  });
+});

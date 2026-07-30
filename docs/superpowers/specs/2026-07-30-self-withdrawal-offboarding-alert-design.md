@@ -53,8 +53,12 @@ inherits a pattern the codebase has rather than inventing one. The two-click con
 behaviour, the styling, and the `/my-info?withdrawn=N` redirect are unchanged.
 
 `withdrawAction` in `src/app/(app)/my-info/page.tsx` currently takes no arguments; it
-gains the `formData` parameter, reads `reason`, trims it, treats empty as `null`, and
-truncates to 300 characters before passing it down.
+gains the `formData` parameter, reads `reason`, and passes it straight down.
+
+Normalization (trim, blank to `null`, cap at 300 characters) happens in the service,
+not the action, so a direct service call cannot bypass it. This matches how
+`updateMyInfo` whitelists its fields at the service level rather than trusting the
+form. The input also carries `maxLength={300}` for the UX.
 
 ### 2. `withdrawFromTerm` gains a reason and two side effects
 

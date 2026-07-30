@@ -239,6 +239,29 @@ describe("Section IV affiliation routing", () => {
     expect(form.getTextField("Text30").getText()).toBe("Medical Student");
   });
 
+  it("checks Med Student for the legacy /my-info YSM string, not Student Other", async () => {
+    const form = await loadWithAffiliation("Yale School of Medicine");
+    expect(form.getCheckBox("Check Box45").isChecked()).toBe(true);
+    expect(form.getCheckBox("Check Box48").isChecked()).toBe(false);
+  });
+
+  it("checks Med Student for the legacy Physician Associate Program string", async () => {
+    const form = await loadWithAffiliation("Physician Associate Program");
+    expect(form.getCheckBox("Check Box45").isChecked()).toBe(true);
+  });
+
+  it("checks the Job Title Other row for the legacy 'Yale Staff' string", async () => {
+    const form = await loadWithAffiliation("Yale Staff");
+    expect(form.getCheckBox("Check Box21").isChecked()).toBe(true);
+    expect(form.getTextField("Text29").getText()).toBe("Yale Staff");
+  });
+
+  it("checks the Student Other row for the legacy 'Yale College' string", async () => {
+    const form = await loadWithAffiliation("Yale College");
+    expect(form.getCheckBox("Check Box48").isChecked()).toBe(true);
+    expect(form.getTextField("Text30").getText()).toBe("Yale College");
+  });
+
   it("checks no affiliation row when the affiliation is blank", async () => {
     const form = await loadWithAffiliation("");
     for (const box of ["Check Box45", "Check Box48", "Check Box21"]) {

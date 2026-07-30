@@ -114,7 +114,7 @@ export function TrainingQuiz({
     if (retryFocusKey) {
       const el = fieldsetRefs.current[retryFocusKey];
       el?.scrollIntoView({ behavior: "smooth", block: "center" });
-      el?.focus();
+      el?.focus({ preventScroll: true });
     }
   }
 

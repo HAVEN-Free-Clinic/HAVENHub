@@ -188,9 +188,20 @@ it("a quiz with one keyed and one unkeyed question returns a verdict only for th
   // (rather than inserting a second quiz, which would collide on cycleId+key)
   // to get the partially-keyed case this test needs.
   await prisma.formField.update({ where: { cycleId_key: { cycleId: c1.id, key: "q2" } }, data: { correctValue: null } });
+  // Add a third, keyed question and answer it wrong. Without this the fixture
+  // (only q1 graded, answered correctly, passPercent 100) always PASSES, so it
+  // never exercises the review-after-fail path this test is named for.
+  const quizSection = await prisma.formSection.findFirstOrThrow({ where: { cycleId: c1.id, purpose: "QUIZ" } });
+  await prisma.formField.create({
+    data: {
+      sectionId: quizSection.id, cycleId: c1.id, key: "q3", label: "Q3", type: "SINGLE_SELECT", order: 2,
+      options: [{ value: "p", label: "P" }, { value: "q", label: "Q" }], correctValue: "p",
+    },
+  });
 
-  const r = await submitQuiz(vol.id, { termId: term.id, track: "VOLUNTEER", answers: { q1: "a", q2: "x" }, intake: {} });
-  expect(r.verdictByKey).toEqual({ q1: "correct" });
+  const r = await submitQuiz(vol.id, { termId: term.id, track: "VOLUNTEER", answers: { q1: "a", q2: "x", q3: "q" }, intake: {} });
+  expect(r.passed).toBe(false);
+  expect(r.verdictByKey).toEqual({ q1: "correct", q3: "wrong" });
   expect(r.verdictByKey.q2).toBeUndefined();
 });
 
@@ -200,6 +211,7 @@ it("the submission payload contains no field holding a correct option value", as
 
   const r = await submitQuiz(vol.id, { termId: term.id, track: "VOLUNTEER", answers: { q1: "a", q2: "x" }, intake: {} });
   const serialized = JSON.stringify(r);
+  expect(serialized).not.toContain('"correctValue"');
   // Known correct answers for q1 ("a") and q2 ("y"). Checking the serialized shape
   // (not just property names) so a future field can't reintroduce the leak under a
   // different name.
@@ -245,6 +257,21 @@ it("getMyTraining returns the cycle, questions, and state for the volunteer", as
   expect(my.state).toBe("PENDING");
   expect(my.locked).toBe(false);
   expect(my.questions.map((q) => q.key)).toEqual(["q1", "q2"]);
+
+  // getMyTrainingForTerm now selects correctValue so it can count keyed
+  // questions (gradedQuestionCount), and my.questions is passed straight into a
+  // client component. The hand-written map that strips correctValue is the only
+  // thing keeping it off the wire, so assert on the serialized payload, not just
+  // the type, the way the sibling submitQuiz test does.
+  const serialized = JSON.stringify(my.questions);
+  expect(serialized).not.toContain("correctValue");
+  // Known correct answers from addQuiz: q1 -> "a", q2 -> "y". Unlike the
+  // submitQuiz payload, this one legitimately carries "a"/"y" once each already
+  // (they are valid option values, not secrets), so check the count rather than
+  // mere absence: a leak under a different field name would make either value
+  // appear a SECOND time alongside its own option.
+  expect(serialized.match(/"a"/g)?.length).toBe(1);
+  expect(serialized.match(/"y"/g)?.length).toBe(1);
 });
 
 it("gates the makeup quiz until the day after the in-person training date", async () => {

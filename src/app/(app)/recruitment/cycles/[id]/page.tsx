@@ -80,15 +80,18 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
   // Same filter as `quizQuestions` in the training service: SINGLE_SELECT fields
   // in a QUIZ-purpose section, scoped to this cycle. Surfaced here so a director
   // filling in the settings below can see the questions were never keyed, instead
-  // of discovering it only when designation is blocked.
-  const gradedQuestionCount = canManage && isTrainingTrack
-    ? countGradedQuestions(
-        await prisma.formField.findMany({
-          where: { cycleId: id, type: "SINGLE_SELECT", section: { purpose: "QUIZ" } },
-          select: { correctValue: true },
-        })
-      )
-    : 0;
+  // of discovering it only when designation is blocked. Keep the rows (not just
+  // the keyed count) so the render below can show keyed-against-total, not just
+  // the keyed count on its own: 1 keyed question out of 15 reads as fine, and R62
+  // exists precisely to stop a director believing that.
+  const quizFields = canManage && isTrainingTrack
+    ? await prisma.formField.findMany({
+        where: { cycleId: id, type: "SINGLE_SELECT", section: { purpose: "QUIZ" } },
+        select: { correctValue: true },
+      })
+    : [];
+  const gradedQuestionCount = countGradedQuestions(quizFields);
+  const totalQuestionCount = quizFields.length;
   return (
     <div className="max-w-2xl space-y-6">
       <SetBreadcrumb trail={cycleTrail({ cycleId: id, cycleTitle: cycle.title })} />
@@ -235,7 +238,8 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
                 </p>
               ) : (
                 <p className="text-sm text-muted-foreground">
-                  {gradedQuestionCount} quiz question{gradedQuestionCount === 1 ? "" : "s"} with an answer key.{" "}
+                  {gradedQuestionCount} of {totalQuestionCount} question{totalQuestionCount === 1 ? "" : "s"}{" "}
+                  {totalQuestionCount === 1 ? "has" : "have"} an answer key.{" "}
                   <Link href={`/recruitment/cycles/${id}/builder/quiz`} className="font-medium text-brand-fg hover:text-brand-hover">
                     Edit quiz questions
                   </Link>

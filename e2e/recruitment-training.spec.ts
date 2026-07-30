@@ -52,6 +52,11 @@ test("training: author quiz, designate training cycle, roster renders", async ({
   // (it's an uncontrolled input, so the value is not in the DOM as visible text).
   await questionInput.fill("What does HIPAA protect?");
   await questionInput.blur();
+  // Settle the label's blur-triggered refresh before the "Add option" click below
+  // fires a second updateFieldAction + refresh(): otherwise the label refresh's RSC
+  // fetch can land after the options refresh, re-rendering the question card without
+  // the option and flaking the toBeVisible wait on the radio further down.
+  await expect(questionInput).toHaveValue("What does HIPAA protect?");
 
   // A newly added question has zero options and no answer key. The designation
   // guard (setTrainingCycle -> countGradedQuestions) refuses to designate a

@@ -103,13 +103,18 @@ the actor is the subject.
 **What it does:**
 
 1. Resolve the active term. No active term means no flag and no notification; return 0.
-2. **Director guard.** Count the person's remaining ACTIVE memberships in the active
-   term. If any remain (the normal case being a director who also took clinic
-   shifts), skip the flag entirely and set an `stillActive` flag on the message.
-   Rationale: `executeOffboard` strips every membership and sets
-   `Person.status = OFFBOARDED`, so flagging a sitting director puts a one-click path
-   to revoking their directorship in front of ops. The queue means "should be fully
-   offboarded", and they should not be.
+2. **Director guard.** Count the person's remaining ACTIVE memberships, scoped the
+   same way `OFFBOARDABLE_TERM` scopes the destructive write: every non-ARCHIVED
+   term, not just the active one. This clinic runs the next term ahead of the flip,
+   so an incoming director can hold a genuine PLANNING-term membership before
+   activation; scoping to the active term alone would miss that person. If any
+   remain (a director who also took clinic shifts, or an incoming director already
+   seated for next term), skip the flag entirely and set a `stillActive` flag on
+   the message.
+   Rationale: `executeOffboard` strips every membership across those same terms and
+   sets `Person.status = OFFBOARDED`, so flagging a sitting or incoming director
+   puts a one-click path to revoking their role in front of ops. The queue means
+   "should be fully offboarded", and they should not be.
 3. **Create the flag** (when the guard passes) with `flaggedById = personId`, so the
    flagged table reads "Flagged by: <their own name>". Upsert-safe on
    `@@unique([personId, termId])`: an existing flag, including a director-raised one

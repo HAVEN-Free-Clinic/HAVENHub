@@ -35,28 +35,7 @@ import { ConcernTypesFieldset } from "./concern-types-fieldset";
 import { IncidentAttachmentsField } from "./incident-attachments-field";
 import { SubjectPicker } from "./subject-picker";
 import { submitReportAction } from "./actions";
-
-// ---------------------------------------------------------------------------
-// Reviewer-audience disclosure
-// ---------------------------------------------------------------------------
-
-/**
- * States who actually receives a submitted report, so a reporter deciding
- * whether it's safe to report a colleague isn't guessing. `reviewerCount` must
- * come from the same query notifyReviewersOfSubmission uses
- * (peopleWithAnyPermission(["incidents.manage"]), report.ts) so this never
- * describes a different audience than the one that gets notified. Zero is
- * handled as its own sentence rather than rendering "0 people": if nobody
- * holds incidents.manage, the report reaches no one, and that is stated
- * plainly instead of implied by a false headcount.
- */
-function reviewerDisclosure(reviewerCount: number): string {
-  if (reviewerCount === 0) {
-    return "This report goes to the clinic's incident reviewers. No one currently holds that role, so this report will not reach anyone until someone does.";
-  }
-  const people = reviewerCount === 1 ? "1 person" : `${reviewerCount} people`;
-  return `This report goes to the clinic's incident reviewers, currently ${people}. They see the reporter's name whether or not the report is marked anonymous.`;
-}
+import { formReviewerDisclosure } from "./disclosure";
 
 // ---------------------------------------------------------------------------
 // Error codes
@@ -224,7 +203,7 @@ export default async function ReportConcernPage({ searchParams }: PageProps) {
           <div className="space-y-3 border-t border-border pt-6">
             <h2 className="text-sm font-medium">10. Your information</h2>
             <ReadonlyField label="Your name" value={actor.name ?? ""} />
-            <p className="text-xs text-subtle-foreground">{reviewerDisclosure(reviewers.length)}</p>
+            <p className="text-xs text-subtle-foreground">{formReviewerDisclosure(reviewers.length)}</p>
             <label className="flex items-center gap-2 text-sm">
               <Checkbox name="anonymous" /> Do not share my name with the person I am reporting.
             </label>

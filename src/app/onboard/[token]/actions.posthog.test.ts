@@ -1,12 +1,29 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/modules/recruitment/services/onboarding", () => ({
-  submitContract: vi.fn(async () => ({ email: "ada@yale.edu" })),
+  submitContract: vi.fn(async () => ({
+    email: "ada@yale.edu",
+    netId: null,
+    acceptanceId: "acc-1",
+    epicNeeded: false,
+    hasEpic: false,
+  })),
+  lookupStoredEpicId: vi.fn(async () => null),
   ContractError: class ContractError extends Error {},
   ContractValidationError: class ContractValidationError extends Error {},
 }));
 vi.mock("@/modules/recruitment/contract/signatures", () => ({
   collectSignatureInputs: vi.fn(() => ({})),
+}));
+// resolveNextSteps (actions.ts) re-derives training date/location from the
+// acceptance -> application -> cycle chain and the display time zone; neither
+// is under test here, so both are stubbed to a "no cycle found" shape that
+// exercises buildOnboardingNextSteps's own null-cycle fallback.
+vi.mock("@/platform/db", () => ({
+  prisma: { acceptance: { findUnique: vi.fn(async () => null) } },
+}));
+vi.mock("@/platform/dates/resolve", () => ({
+  getDisplayTimeZone: vi.fn(async () => "America/New_York"),
 }));
 vi.mock("@/platform/posthog/capture", () => ({ captureEvent: vi.fn() }));
 vi.mock("@/platform/posthog/groups", () => ({
@@ -15,6 +32,7 @@ vi.mock("@/platform/posthog/groups", () => ({
 
 import { submitOnboarding } from "./actions";
 import { captureEvent } from "@/platform/posthog/capture";
+import { prisma } from "@/platform/db";
 
 beforeEach(() => vi.clearAllMocks());
 
@@ -27,12 +45,46 @@ describe("submitOnboarding PostHog event", () => {
 
     const res = await submitOnboarding("tok", fd);
 
-    expect(res).toEqual({ ok: true });
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      // A yale.edu address gets the SSO line; no cycle resolved -> the
+      // "scheduled training date" fallback; epicNeeded false + no stored ID
+      // + hasEpic false -> no Epic line at all (see onboarding-next-steps.ts).
+      expect(res.nextSteps).toEqual({
+        loginPath: "/login",
+        signIn: { method: "sso", text: "Sign in with your Yale NetID." },
+        training: "Plan to attend in-person training on the scheduled training date.",
+        epic: null,
+        review: "A recruitment lead will review your submission and add you to the roster.",
+      });
+    }
     expect(vi.mocked(captureEvent)).toHaveBeenCalledWith(
       expect.objectContaining({
         event: "onboarding_contract_submitted",
         distinctId: "ada@yale.edu",
       }),
     );
+  });
+
+  // The contract is already durably SUBMITTED by the time resolveNextSteps runs
+  // its extra lookups (actions.ts), so a failure there must degrade to generic
+  // completion content, not surface as a failed submission -- otherwise a DB
+  // hiccup after a successful submit tells the volunteer to retry a form that
+  // has already gone through.
+  it("still returns ok with generic completion content when the post-submit next-steps lookup fails", async () => {
+    vi.mocked(prisma.acceptance.findUnique).mockRejectedValueOnce(new Error("boom"));
+
+    const fd = new FormData();
+    fd.set("firstName", "Ada");
+    fd.set("lastName", "Lovelace");
+    fd.set("email", "ada@yale.edu");
+
+    const res = await submitOnboarding("tok", fd);
+
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.nextSteps.training).toBe("Plan to attend in-person training on the scheduled training date.");
+      expect(res.nextSteps.signIn.method).toBe("sso");
+    }
   });
 });

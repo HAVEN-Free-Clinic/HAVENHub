@@ -30,10 +30,33 @@ import { Card } from "@/platform/ui/card";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { FormActions } from "@/platform/ui/form";
 import { CONCERN_TYPES, listSubjectOptions } from "@/modules/incidents/services/report";
+import { peopleWithAnyPermission } from "@/platform/rbac/holders";
 import { ConcernTypesFieldset } from "./concern-types-fieldset";
 import { IncidentAttachmentsField } from "./incident-attachments-field";
 import { SubjectPicker } from "./subject-picker";
 import { submitReportAction } from "./actions";
+
+// ---------------------------------------------------------------------------
+// Reviewer-audience disclosure
+// ---------------------------------------------------------------------------
+
+/**
+ * States who actually receives a submitted report, so a reporter deciding
+ * whether it's safe to report a colleague isn't guessing. `reviewerCount` must
+ * come from the same query notifyReviewersOfSubmission uses
+ * (peopleWithAnyPermission(["incidents.manage"]), report.ts) so this never
+ * describes a different audience than the one that gets notified. Zero is
+ * handled as its own sentence rather than rendering "0 people": if nobody
+ * holds incidents.manage, the report reaches no one, and that is stated
+ * plainly instead of implied by a false headcount.
+ */
+function reviewerDisclosure(reviewerCount: number): string {
+  if (reviewerCount === 0) {
+    return "This report goes to the clinic's incident reviewers. No one currently holds that role, so this report will not reach anyone until someone does.";
+  }
+  const people = reviewerCount === 1 ? "1 person" : `${reviewerCount} people`;
+  return `This report goes to the clinic's incident reviewers, currently ${people}. They see the reporter's name whether or not the report is marked anonymous.`;
+}
 
 // ---------------------------------------------------------------------------
 // Error codes
@@ -85,6 +108,14 @@ export default async function ReportConcernPage({ searchParams }: PageProps) {
   const zone = await getDisplayTimeZone();
   const todayIso = formatForDateInput(new Date(), zone);
   const maxUploadMb = await getSetting<number>("uploads.maxMb");
+
+  // Same query notifyReviewersOfSubmission runs at submission time (report.ts),
+  // so the count shown here matches the audience that actually gets notified,
+  // not an approximation. Not filtered to exclude the actor: report.ts only
+  // excludes a report's linked subjects from the reviewer set, never the
+  // reporter, so a reporter who holds incidents.manage is themselves part of
+  // this count -- excluding them here would understate the real audience.
+  const reviewers = await peopleWithAnyPermission(["incidents.manage"]);
 
   return (
     <div>
@@ -193,9 +224,9 @@ export default async function ReportConcernPage({ searchParams }: PageProps) {
           <div className="space-y-3 border-t border-border pt-6">
             <h2 className="text-sm font-medium">10. Your information</h2>
             <ReadonlyField label="Your name" value={actor.name ?? ""} />
+            <p className="text-xs text-subtle-foreground">{reviewerDisclosure(reviewers.length)}</p>
             <label className="flex items-center gap-2 text-sm">
-              <Checkbox name="anonymous" /> I would prefer to remain anonymous (your name is not shared with the
-              subject)
+              <Checkbox name="anonymous" /> Do not share my name with the person I am reporting.
             </label>
           </div>
 

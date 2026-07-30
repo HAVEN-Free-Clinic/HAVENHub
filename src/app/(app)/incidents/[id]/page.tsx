@@ -28,6 +28,7 @@ import {
 } from "@/modules/incidents/services/report";
 import { DISCIPLINARY_CATEGORIES } from "@/modules/incidents/services/disciplinary";
 import { reviewReportAction, decideStrikeAction } from "../actions";
+import { peopleWithAnyPermission } from "@/platform/rbac/holders";
 import type {
   IncidentReportStatus,
   PatientImpact,
@@ -103,6 +104,28 @@ const CONCERN_LABELS: Record<string, string> = Object.fromEntries(
 );
 
 // ---------------------------------------------------------------------------
+// Reviewer-audience disclosure
+// ---------------------------------------------------------------------------
+
+/**
+ * Mirrors the disclosure shown on the report form (/incidents/page.tsx), so a
+ * reporter re-reading their own report sees the same promise, and a reviewer
+ * sees the same statement rather than a different one. reviewerCount must come
+ * from the same query notifyReviewersOfSubmission uses at submission time
+ * (peopleWithAnyPermission(["incidents.manage"]), report.ts); it reflects the
+ * current holders of incidents.manage, which can differ from who actually
+ * received the original notification if roles changed since. Zero is its own
+ * sentence rather than "0 people".
+ */
+function reviewerDisclosure(reviewerCount: number): string {
+  if (reviewerCount === 0) {
+    return "This report goes to the clinic's incident reviewers. No one currently holds that role, so this report will not reach anyone until someone does.";
+  }
+  const people = reviewerCount === 1 ? "1 person" : `${reviewerCount} people`;
+  return `This report goes to the clinic's incident reviewers, currently ${people}. They see the reporter's name whether or not the report is marked anonymous.`;
+}
+
+// ---------------------------------------------------------------------------
 // Error codes
 // ---------------------------------------------------------------------------
 
@@ -140,6 +163,11 @@ export default async function IncidentReportDetailPage({ params, searchParams }:
     throw err;
   }
   const { report, canManage } = result;
+
+  // Same query notifyReviewersOfSubmission runs when a report is filed
+  // (report.ts), read live so the count reflects who currently holds
+  // incidents.manage rather than a value frozen at submission time.
+  const reviewers = await peopleWithAnyPermission(["incidents.manage"]);
 
   const errorCode = sp.error ?? null;
   // When error=validation the action encodes the raw message in ?message=.
@@ -271,6 +299,7 @@ export default async function IncidentReportDetailPage({ params, searchParams }:
             <dd className="mt-0.5 text-sm text-foreground">
               {report.anonymous ? "Reporter asked to remain anonymous to the subject." : "Not anonymous."}
             </dd>
+            <p className="mt-1 text-xs text-subtle-foreground">{reviewerDisclosure(reviewers.length)}</p>
           </div>
           <div>
             <dt className="text-xs text-subtle-foreground">Submitted</dt>

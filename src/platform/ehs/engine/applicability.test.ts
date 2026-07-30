@@ -21,14 +21,20 @@ describe("isStudentAffiliation", () => {
   it("returns true for Yale school affiliations", () => {
     expect(isStudentAffiliation("Yale College")).toBe(true);
     expect(isStudentAffiliation("Yale School of Nursing (YSN)")).toBe(true);
+    expect(isStudentAffiliation("ysm_md")).toBe(true);
   });
 
   it("returns false for every non-student affiliation vocabulary the forms produce", () => {
-    // Human labels (recruitment / EHS engine), option values (recruitment
-    // SINGLE_SELECT), and the /my-info + admin dropdown values -- all case-insensitive.
+    // Canonical option values, the human labels, and the retired /my-info
+    // dropdown values, all case-insensitive.
     for (const a of ["Yale Staff", "staff", "Staff", "Other Yale Affiliation", "other_yale", "Other"]) {
       expect(isStudentAffiliation(a)).toBe(false);
     }
+  });
+
+  it("treats a self-declared non-Yale-affiliate as a non-student (clinical BBP, not student BBP)", () => {
+    expect(isStudentAffiliation("non_yale")).toBe(false);
+    expect(isStudentAffiliation("I am NOT a Yale Affiliate")).toBe(false);
   });
 
   it("returns false for blank or null affiliation", () => {

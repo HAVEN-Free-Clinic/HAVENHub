@@ -15,6 +15,8 @@ import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
 import { DateOnly } from "@/platform/dates/display";
+import { Select } from "@/platform/ui/select";
+import { affiliationOptionsWith } from "@/platform/affiliation";
 
 type PersonFormProps = {
   /** The server action to bind to the form's action prop. */
@@ -94,11 +96,14 @@ export function PersonForm({ action, person, error, saved, children }: PersonFor
           </Field>
 
           <Field label="Yale Affiliation">
-            <Input
-              name="yaleAffiliation"
-              defaultValue={person?.yaleAffiliation ?? ""}
-              placeholder="Medical Student"
-            />
+            <Select name="yaleAffiliation" defaultValue={person?.yaleAffiliation ?? ""}>
+              <option value="">Not set</option>
+              {affiliationOptionsWith(person?.yaleAffiliation).map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </Select>
           </Field>
 
           <Field label="Grad Year">

@@ -11,23 +11,11 @@ export type RequirableTraining = {
   departmentIds: string[];
 };
 
-/** Yale-school affiliates are students; Yale Staff, Other Yale Affiliation, and
- *  blank/unknown are non-students (per the configured mapping). Matched
- *  case-insensitively across every vocabulary that can reach Person.yaleAffiliation:
- *  the recruitment option VALUES ("staff", "other_yale"), the human LABELS
- *  ("Yale Staff", "Other Yale Affiliation"), and the /my-info + admin dropdown
- *  values ("Staff", "Other"). Without this superset, a non-student who set their
- *  affiliation through any of those forms was misclassified as a student and given
- *  the wrong BBP (bloodborne-pathogen) training. */
-const NON_STUDENT_AFFILIATIONS = new Set([
-  "yale staff", "staff",
-  "other yale affiliation", "other", "other_yale",
-]);
-
-export function isStudentAffiliation(yaleAffiliation: string | null | undefined): boolean {
-  const a = (yaleAffiliation ?? "").trim().toLowerCase();
-  return a !== "" && !NON_STUDENT_AFFILIATIONS.has(a);
-}
+// isStudentAffiliation moved to @/platform/affiliation: student-ness is a
+// property of the affiliation, not of EHS, and /my-info, the admin person
+// editor, and the YNHH Epic PDF all need the same answer. Re-exported here so
+// the callers in ehs/services keep their existing import.
+export { isStudentAffiliation } from "@/platform/affiliation";
 
 /** BBP split is hardcoded on the stable seed ids: clinical BBP is for non-students,
  *  student BBP is for students. Applied AFTER the department/requiredForAll check. */

@@ -1,22 +1,14 @@
 // Verbatim from the live Airtable volunteer application (option lists captured
 // this session). Values are stable machine keys; labels are applicant-facing.
 import type { TemplateOption } from "../types";
+import { YALE_AFFILIATIONS } from "@/platform/affiliation";
 
-export const YALE_AFFILIATION: TemplateOption[] = [
-  { value: "yale_college", label: "Yale College" },
-  { value: "divinity", label: "Yale School of Divinity" },
-  { value: "gsas", label: "Yale Graduate School of Arts and Sciences (GSAS)" },
-  { value: "jackson", label: "Yale Jackson School of Global Affairs" },
-  { value: "law", label: "Yale Law School (YLS)" },
-  { value: "som", label: "Yale School of Management (SOM)" },
-  { value: "ysm_md", label: "Yale School of Medicine (YSM), MD or MD/PhD" },
-  { value: "ysm_pa", label: "Yale School of Medicine (YSM), PA" },
-  { value: "ysn", label: "Yale School of Nursing (YSN)" },
-  { value: "ysph", label: "Yale School of Public Health (YSPH)" },
-  { value: "staff", label: "Yale Staff" },
-  { value: "other_yale", label: "Other Yale Affiliation" },
-  { value: "non_yale", label: "I am NOT a Yale Affiliate" },
-];
+// The canonical list moved to @/platform/affiliation so that /my-info and the
+// admin person editor can render the same options: eslint forbids one module
+// from importing another, which is exactly why /my-info grew a parallel
+// hand-written copy. Re-exported here, typed as TemplateOption[] (structurally
+// identical to AffiliationOption), so recruitment's importers are unchanged.
+export const YALE_AFFILIATION: TemplateOption[] = YALE_AFFILIATIONS;
 
 export const GRAD_YEAR: TemplateOption[] = [
   ...["2026", "2027", "2028", "2029", "2030", "2031", "2032", "2033"].map((y) => ({ value: y, label: y })),

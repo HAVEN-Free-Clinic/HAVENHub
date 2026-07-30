@@ -1,5 +1,49 @@
 import { defineConfig } from "@playwright/test";
 
+// The e2e suite drives a real dev server against a real database, seeding and
+// deleting rows as it goes. `npm run dev` makes Next.js load `.env`, whose
+// DATABASE_URL points at the production Neon database, so without an explicit
+// override a local `npx playwright test` runs the whole suite against live
+// clinic data. That has happened, and it left test rows in production.
+//
+// Resolve the database here instead and hand it to the dev server explicitly.
+// Variables already present in the environment win (CI sets them per-job);
+// everything else falls back to the local throwaway Postgres. `.env` never gets
+// a say, because Next.js does not override variables that are already set in the
+// process environment, and this config file is loaded without dotenv.
+const DEFAULT_E2E_DATABASE_URL = "postgresql://haven:haven_dev@localhost:5434/havenhub_test";
+
+const databaseUrl = process.env.DATABASE_URL ?? DEFAULT_E2E_DATABASE_URL;
+const databaseUrlUnpooled = process.env.DATABASE_URL_UNPOOLED ?? databaseUrl;
+
+/**
+ * Fail the run rather than warn: the suite mutates and deletes rows, so a hosted
+ * database is never the intended target. Escape hatch is deliberate and explicit.
+ */
+function assertLocalDatabase(label: string, url: string): void {
+  if (process.env.E2E_ALLOW_REMOTE_DB === "1") return;
+
+  let hostname: string;
+  try {
+    hostname = new URL(url).hostname;
+  } catch {
+    // An unparseable URL is not provably local, so treat it as unsafe.
+    throw new Error(`Refusing to run e2e: ${label} is not a parseable connection URL.`);
+  }
+
+  if (hostname !== "localhost" && hostname !== "127.0.0.1") {
+    throw new Error(
+      `Refusing to run e2e against a non-local database.\n` +
+        `  ${label} resolves to host "${hostname}".\n` +
+        `The suite creates, mutates, and deletes rows, so it must target a throwaway database.\n` +
+        `Start one with \`npm run db:up\`, or set E2E_ALLOW_REMOTE_DB=1 to override deliberately.`
+    );
+  }
+}
+
+assertLocalDatabase("DATABASE_URL", databaseUrl);
+assertLocalDatabase("DATABASE_URL_UNPOOLED", databaseUrlUnpooled);
+
 export default defineConfig({
   testDir: "e2e",
   // Run serially. The Next.js dev server compiles routes on demand in a single
@@ -12,6 +56,16 @@ export default defineConfig({
   webServer: {
     command: "npm run dev -- --port 3100",
     url: "http://localhost:3100/api/health",
+    // Merged over process.env for the spawned dev server, and Next.js leaves
+    // already-set variables alone, so these beat whatever `.env` contains.
+    env: {
+      DATABASE_URL: databaseUrl,
+      DATABASE_URL_UNPOOLED: databaseUrlUnpooled,
+    },
+    // Caveat: when a server is already listening on 3100 this reuses it as-is,
+    // and the guard above cannot vouch for a database it did not configure. Port
+    // 3100 is e2e-only by convention, so in practice the reused server is one a
+    // previous run started. Set to false if you want the check to be absolute.
     reuseExistingServer: true,
     // CI cold-starts the dev server and compiles on first request, so allow headroom.
     timeout: 120_000,

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import {
-  createOrResendContract, submitContract, lookupStoredEpicId, withdrawContract,
+  createOrResendContract, submitContract, lookupStoredEpicId, lookupHasAccount, withdrawContract,
   ContractValidationError, ContractError, type ContractSubmission,
 } from "./onboarding";
 import { revokeAcceptance, RecruitmentAuthError } from "./review";
@@ -427,6 +427,37 @@ describe("lookupStoredEpicId", () => {
   it("returns null when the matched Person has no Epic ID on file", async () => {
     await prisma.person.create({ data: { name: "Ada", status: "ACTIVE", netId: "al99" } });
     expect(await lookupStoredEpicId("al99", null)).toBeNull();
+  });
+});
+
+// The Critical fix: whether a volunteer can actually sign in depends on an
+// ACTIVE Person existing, not merely a matching row. lookupHasAccount matches
+// the same way lookupStoredEpicId does (netId, else contactEmail) but answers
+// a different question, so unlike lookupStoredEpicId it filters to ACTIVE.
+describe("lookupHasAccount", () => {
+  beforeEach(async () => { await resetDb(); });
+  afterEach(async () => { await resetDb(); });
+
+  it("returns false for a brand-new applicant with no matching Person", async () => {
+    expect(await lookupHasAccount("nobody", "nobody@yale.edu")).toBe(false);
+  });
+
+  it("matches an existing ACTIVE Person by netId (case-insensitive)", async () => {
+    await prisma.person.create({ data: { name: "Ada", status: "ACTIVE", netId: "AL99" } });
+    expect(await lookupHasAccount("al99", "other@yale.edu")).toBe(true);
+  });
+
+  it("falls back to contactEmail when there is no netId match", async () => {
+    await prisma.person.create({ data: { name: "Ada", status: "ACTIVE", contactEmail: "ada@yale.edu" } });
+    expect(await lookupHasAccount(null, "ADA@yale.edu")).toBe(true);
+  });
+
+  // An offboarded former member has a Person row, but it can no longer sign
+  // in (getActivePerson/session.ts, requestMemberLoginLink/member-magic-
+  // link.ts both gate on ACTIVE), so this must not report an account either.
+  it("returns false when the matched Person is not ACTIVE", async () => {
+    await prisma.person.create({ data: { name: "Ada", status: "OFFBOARDED", netId: "al99" } });
+    expect(await lookupHasAccount("al99", null)).toBe(false);
   });
 });
 

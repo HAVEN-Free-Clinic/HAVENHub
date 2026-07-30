@@ -3,6 +3,7 @@ import { useCallback, useState } from "react";
 import type { EpicRequirement, Track } from "@prisma/client";
 import { submitOnboarding, type SubmitResult } from "./actions";
 import { ContractField } from "./contract-field";
+import { NextStepsScreen } from "./next-steps-screen";
 import { Alert } from "@/platform/ui/alert";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { Card } from "@/platform/ui/card";
@@ -85,7 +86,7 @@ export function OnboardForm({
   }
 
   if (result?.ok) {
-    return <Alert tone="success" className="mt-8">Thanks, your onboarding is complete. We will be in touch with next steps.</Alert>;
+    return <NextStepsScreen steps={result.nextSteps} />;
   }
 
   const err = (k: string) => (result && !result.ok ? result.fieldErrors?.[k] : undefined);

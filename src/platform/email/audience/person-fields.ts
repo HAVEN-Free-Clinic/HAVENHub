@@ -1,6 +1,7 @@
 import type { Prisma, TechRequestStatus, EpicRequestStatus } from "@prisma/client";
 import type { ComplianceStatus } from "@/platform/compliance/rules";
 import type { ClearanceSummary } from "@/platform/clearance";
+import { YALE_AFFILIATIONS } from "@/platform/affiliation";
 import type { AudienceCondition, ConditionOp } from "./types";
 
 export type PersonFieldKind = "text" | "enum" | "multiEnum" | "boolean";
@@ -140,7 +141,23 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
   textField("contactEmail", "Email", "contactEmail"),
   textField("epicId", "Epic ID", "epicId"),
   textField("phone", "Phone", "phone"),
-  textField("yaleAffiliation", "Yale affiliation", "yaleAffiliation"),
+  {
+    key: "yaleAffiliation",
+    label: "Yale affiliation",
+    group: "Identity",
+    kind: "enum",
+    operators: ["eq"],
+    options: YALE_AFFILIATIONS,
+    // The column now holds stable machine keys, so free-text matching would mean
+    // ops typing "ysm_md" blind. An empty value must never compile to
+    // `{ yaleAffiliation: undefined }`, which Prisma drops, matching EVERYONE:
+    // same match-nobody safety the status field uses.
+    compile: (cond) => {
+      const value = typeof cond.value === "string" ? cond.value.trim() : "";
+      if (value === "") return MATCH_NOBODY;
+      return { yaleAffiliation: value };
+    },
+  },
   textField("gradYear", "Grad year", "gradYear"),
   {
     key: "status",
